@@ -35,6 +35,7 @@ enum AgentHookSetupStatus {
             environment["CODEX_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("hooks.json") },
             environment["GROK_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("hooks/cmux-session.json") },
             environment["OPENCODE_CONFIG_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("plugins/cmux-session.js") },
+            environment["OPENCODE_CONFIG_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("plugins/cmux-feed.js") },
             environment["PI_CODING_AGENT_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("extensions/cmux-session.ts") },
             environment["HERMES_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("config.yaml") },
             environment["COPILOT_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("config.json") },

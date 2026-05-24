@@ -1853,6 +1853,26 @@ final class AgentHookSetupStatusTests: XCTestCase {
         )
     }
 
+    func testDetectsOpenCodeFeedHookConfigInEnvironmentOverride() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let opencodeConfigDir = root.appendingPathComponent("custom-opencode", isDirectory: true)
+        let hookURL = opencodeConfigDir.appendingPathComponent("plugins/cmux-feed.js")
+        try FileManager.default.createDirectory(
+            at: hookURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "export const cmuxFeedPluginMarker = 'cmux-feed-plugin-marker';\n"
+            .write(to: hookURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(
+            AgentHookSetupStatus.hasConfiguredAgentHooks(
+                homeDirectory: root.path,
+                environment: ["OPENCODE_CONFIG_DIR": opencodeConfigDir.path]
+            )
+        )
+    }
+
     func testDetectsRecordedHookSessionStore() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

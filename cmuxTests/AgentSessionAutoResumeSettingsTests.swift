@@ -57,7 +57,10 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let suiteName = "cmux-agent-session-auto-resume-next-launch-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer {
-            AgentSessionAutoResumeSettings.prepareCurrentLaunchAutoResumeOverride(defaults: defaults)
+            _ = AgentSessionAutoResumeSettings.reset(
+                defaults: defaults,
+                notificationCenter: NotificationCenter()
+            )
             defaults.removePersistentDomain(forName: suiteName)
         }
 
@@ -77,7 +80,10 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let suiteName = "cmux-agent-session-auto-resume-current-launch-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer {
-            AgentSessionAutoResumeSettings.prepareCurrentLaunchAutoResumeOverride(defaults: defaults)
+            _ = AgentSessionAutoResumeSettings.reset(
+                defaults: defaults,
+                notificationCenter: NotificationCenter()
+            )
             defaults.removePersistentDomain(forName: suiteName)
         }
 
@@ -92,7 +98,10 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let suiteName = "cmux-agent-session-auto-resume-future-snapshot-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer {
-            AgentSessionAutoResumeSettings.prepareCurrentLaunchAutoResumeOverride(defaults: defaults)
+            _ = AgentSessionAutoResumeSettings.reset(
+                defaults: defaults,
+                notificationCenter: NotificationCenter()
+            )
             defaults.removePersistentDomain(forName: suiteName)
         }
 
