@@ -16424,6 +16424,8 @@ struct CMUXCLI {
         private var lastAgentSurfaceId: String?
         private var reportedSpawnFailureFingerprints = Set<String>()
         private var spawnFailureDeliveryStates: [String: SpawnFailureDeliveryState] = [:]
+        private var spawnFailureDeliveryOrder: [String] = []
+        private let maxSpawnFailureDeliveryStates = 100
         private let appServerLogQueue = DispatchQueue(label: "com.cmux.codex-teams.app-server-log", qos: .utility)
         private var appServerLogSource: DispatchSourceFileSystemObject?
         private var appServerLogOffset: UInt64 = 0
@@ -16626,7 +16628,7 @@ struct CMUXCLI {
             }
             state.notificationInFlight = state.notificationInFlight || deliverNotification
             state.statusInFlight = state.statusInFlight || deliverStatus
-            spawnFailureDeliveryStates[diagnostic.fingerprint] = state
+            storeSpawnFailureDeliveryStateLocked(state, fingerprint: diagnostic.fingerprint)
             return SpawnFailurePublishAttempt(
                 diagnostic: state.diagnostic,
                 deliverNotification: deliverNotification,
@@ -16647,7 +16649,7 @@ struct CMUXCLI {
                 guard deliverNotification || deliverStatus else { continue }
                 state.notificationInFlight = state.notificationInFlight || deliverNotification
                 state.statusInFlight = state.statusInFlight || deliverStatus
-                spawnFailureDeliveryStates[fingerprint] = state
+                storeSpawnFailureDeliveryStateLocked(state, fingerprint: fingerprint)
                 attempts.append(SpawnFailurePublishAttempt(
                     diagnostic: state.diagnostic,
                     deliverNotification: deliverNotification,
@@ -16679,11 +16681,31 @@ struct CMUXCLI {
                 state.statusDelivered = state.statusDelivered || statusSucceeded
             }
             if state.notificationDelivered && state.statusDelivered {
-                spawnFailureDeliveryStates.removeValue(forKey: result.fingerprint)
+                removeSpawnFailureDeliveryStateLocked(fingerprint: result.fingerprint)
                 reportedSpawnFailureFingerprints.insert(result.fingerprint)
             } else {
-                spawnFailureDeliveryStates[result.fingerprint] = state
+                storeSpawnFailureDeliveryStateLocked(state, fingerprint: result.fingerprint)
             }
+        }
+
+        private func storeSpawnFailureDeliveryStateLocked(
+            _ state: SpawnFailureDeliveryState,
+            fingerprint: String
+        ) {
+            if spawnFailureDeliveryStates[fingerprint] == nil {
+                spawnFailureDeliveryOrder.append(fingerprint)
+            }
+            spawnFailureDeliveryStates[fingerprint] = state
+            while spawnFailureDeliveryStates.count > maxSpawnFailureDeliveryStates,
+                  let oldest = spawnFailureDeliveryOrder.first {
+                spawnFailureDeliveryOrder.removeFirst()
+                spawnFailureDeliveryStates.removeValue(forKey: oldest)
+            }
+        }
+
+        private func removeSpawnFailureDeliveryStateLocked(fingerprint: String) {
+            spawnFailureDeliveryStates.removeValue(forKey: fingerprint)
+            spawnFailureDeliveryOrder.removeAll { $0 == fingerprint }
         }
 
         private func publishSpawnFailureDiagnostic(_ attempt: SpawnFailurePublishAttempt) -> SpawnFailurePublishResult {
