@@ -7972,7 +7972,13 @@ struct CMUXCLI {
                 logVMTiming(stage, vmID: vmID, transport: "websocket", startedAt: startedAt)
             }
         }()
-        try VMPtyWebSocketBridge(config: config, debugEvent: debugEvent).run()
+        try VMPtyWebSocketBridge(
+            config: config,
+            debugEvent: debugEvent,
+            readyEvent: { [self] in
+                notifyVMPtyReadyIfPossible()
+            }
+        ).run()
     }
 
     private func runVMPtyAttach(commandArgs: [String], client: SocketClient) throws {
@@ -8003,9 +8009,52 @@ struct CMUXCLI {
             token: endpoint.token,
             sessionId: endpoint.sessionId
         )
-        try VMPtyWebSocketBridge(config: config, debugEvent: { stage in
-            log(stage)
-        }).run()
+        try VMPtyWebSocketBridge(
+            config: config,
+            debugEvent: { stage in
+                log(stage)
+            },
+            readyEvent: { [self] in
+                notifyVMPtyReadyIfPossible(client: client)
+            }
+        ).run()
+    }
+
+    private func notifyVMPtyReadyIfPossible(client existingClient: SocketClient? = nil) {
+        let env = ProcessInfo.processInfo.environment
+        guard let workspaceId = env["CMUX_WORKSPACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !workspaceId.isEmpty,
+              let surfaceId = env["CMUX_SURFACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !surfaceId.isEmpty else {
+            cliDebugLog("cli.vm.pty.ready.skip reason=missing_context")
+            return
+        }
+
+        let client: SocketClient
+        if let existingClient {
+            client = existingClient
+        } else {
+            guard let socketPath = env["CMUX_SOCKET_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !socketPath.isEmpty else {
+                cliDebugLog("cli.vm.pty.ready.skip reason=missing_socket workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8)))")
+                return
+            }
+            client = SocketClient(path: socketPath)
+        }
+
+        do {
+            _ = try client.sendV2(
+                method: "workspace.remote.terminal_ready",
+                params: [
+                    "workspace_id": workspaceId,
+                    "surface_id": surfaceId,
+                ],
+                responseTimeout: 2
+            )
+            cliDebugLog("cli.vm.pty.ready.reported workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8)))")
+        } catch {
+            cliDebugLog("cli.vm.pty.ready.report_failed workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) error=\(String(describing: error))")
+        }
     }
 
     private final class VMPtyWebSocketBridgeDelegate: NSObject, URLSessionWebSocketDelegate {
@@ -8056,14 +8105,20 @@ struct CMUXCLI {
     private final class VMPtyWebSocketBridge {
         private let config: VMPtyWebSocketConfig
         private let debugEvent: ((String) -> Void)?
+        private let readyEvent: (() -> Void)?
         private let sendQueue = DispatchQueue(label: "com.cmux.vm-pty.websocket.send")
         private let stopLock = NSLock()
         private var stopped = false
         private var task: URLSessionWebSocketTask?
 
-        init(config: VMPtyWebSocketConfig, debugEvent: ((String) -> Void)? = nil) {
+        init(
+            config: VMPtyWebSocketConfig,
+            debugEvent: ((String) -> Void)? = nil,
+            readyEvent: (() -> Void)? = nil
+        ) {
             self.config = config
             self.debugEvent = debugEvent
+            self.readyEvent = readyEvent
         }
 
         func run() throws {
@@ -8095,6 +8150,7 @@ struct CMUXCLI {
             debugEvent?("websocket.auth")
             try waitForReady(delegate: delegate)
             debugEvent?("websocket.ready")
+            readyEvent?()
 
             let rawMode = TerminalRawMode()
             defer { rawMode?.restore() }

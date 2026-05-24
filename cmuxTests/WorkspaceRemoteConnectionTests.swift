@@ -383,12 +383,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
         XCTAssertNil(workspace.remoteProxyEndpoint)
     }
 
     @MainActor
-    func testRemoteWorkspaceDoesNotReportConnectedUntilTerminalSurfaceIsReady() throws {
+    func testRemoteWorkspaceDoesNotReportConnectedUntilTerminalAttachIsReady() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
             transport: .websocket,
@@ -411,6 +411,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(workspace.remoteConnectionState, .connecting)
         XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "connecting")
         XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
+        XCTAssertEqual(workspace.remoteStatusPayload()["ready_terminal_sessions"] as? Int, 0)
 
         let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
         NotificationCenter.default.post(
@@ -422,9 +423,21 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             ]
         )
 
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
+
+        workspace.markRemoteTerminalSurfaceReady(terminalPanel.id, reason: "test")
+
         XCTAssertEqual(workspace.remoteConnectionState, .connected)
         XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "connected")
         XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
+        XCTAssertEqual(workspace.remoteStatusPayload()["ready_terminal_sessions"] as? Int, 1)
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
+        XCTAssertEqual(workspace.remoteStatusPayload()["ready_terminal_sessions"] as? Int, 0)
     }
 
     @MainActor
@@ -1716,6 +1729,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: false)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        guard let terminalPanel = workspace.focusedTerminalPanel else {
+            XCTFail("Expected configured remote workspace to retain a focused terminal panel")
+            return
+        }
+        workspace.markRemoteTerminalSurfaceReady(terminalPanel.id, reason: "test")
 
         let proxyError = "Remote proxy to cmux-macmini unavailable: Failed to start local daemon proxy: daemon RPC timeout waiting for hello response (retry in 3s)"
         workspace.applyRemoteConnectionStateUpdate(.error, detail: proxyError, target: "cmux-macmini")
