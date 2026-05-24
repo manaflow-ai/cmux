@@ -55299,6 +55299,108 @@
         }
       }
     },
+    "settings.app.pathLastSegmentOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Truncate Path From Start"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスを先頭から省略"
+          }
+        }
+      }
+    },
+    "settings.app.pathLastSegmentOnly.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Render full paths abbreviated with ~/."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全なパスを ~/ で省略して表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.pathLastSegmentOnly.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show as much of the trailing path as fits; shorter forms are prefixed with …/."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "末尾のパスを可能な限り表示し、短縮形には …/ を付けます。"
+          }
+        }
+      }
+    },
+    "settings.app.stackBranchDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack Branch and Directory"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブランチとディレクトリを縦に並べる"
+          }
+        }
+      }
+    },
+    "settings.app.stackBranchDirectory.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branch and directory share a single line."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブランチとディレクトリを1行に表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.stackBranchDirectory.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branch and directory render on separate lines."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブランチとディレクトリを別々の行に表示します。"
+          }
+        }
+      }
+    },
     "settings.app.openSidebarPRLinks": {
       "extractionState": "manual",
       "localizations": {
