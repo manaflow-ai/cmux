@@ -6276,11 +6276,11 @@ final class WorkspaceSelectionChangeSchedulerTests: XCTestCase {
                 deferredActions.append(action)
             },
             actions: WorkspaceSelectionChangeActions(
+                reconcileMountedWorkspaces: { events.append("reconcileMountedWorkspaces") },
+                syncSidebarSelection: { events.append("syncSidebarSelection") },
                 applyWindowBackground: { events.append("applyWindowBackground") },
                 startWorkspaceHandoff: { events.append("startWorkspaceHandoff") },
-                reconcileMountedWorkspaces: { events.append("reconcileMountedWorkspaces") },
                 syncShortcutHintEligibility: { events.append("syncShortcutHintEligibility") },
-                syncSidebarSelection: { events.append("syncSidebarSelection") },
                 updateTitlebarText: { events.append("updateTitlebarText") }
             )
         )
@@ -6302,6 +6302,37 @@ final class WorkspaceSelectionChangeSchedulerTests: XCTestCase {
             "startWorkspaceHandoff",
             "syncShortcutHintEligibility",
             "updateTitlebarText"
+        ])
+    }
+
+    func testDeferredWorkspaceSwitchSideEffectsSkipWhenSelectionIsStale() {
+        var events: [String] = []
+        var deferredAction: (() -> Void)?
+        var isCurrentSelection = true
+
+        WorkspaceSelectionChangeScheduler.handleSelectionChange(
+            isCurrentSelection: { isCurrentSelection },
+            scheduleDeferred: { action in
+                events.append("scheduleDeferred")
+                deferredAction = action
+            },
+            actions: WorkspaceSelectionChangeActions(
+                reconcileMountedWorkspaces: { events.append("reconcileMountedWorkspaces") },
+                syncSidebarSelection: { events.append("syncSidebarSelection") },
+                applyWindowBackground: { events.append("applyWindowBackground") },
+                startWorkspaceHandoff: { events.append("startWorkspaceHandoff") },
+                syncShortcutHintEligibility: { events.append("syncShortcutHintEligibility") },
+                updateTitlebarText: { events.append("updateTitlebarText") }
+            )
+        )
+
+        isCurrentSelection = false
+        deferredAction?()
+
+        XCTAssertEqual(events, [
+            "reconcileMountedWorkspaces",
+            "syncSidebarSelection",
+            "scheduleDeferred"
         ])
     }
 }

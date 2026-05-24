@@ -841,11 +841,11 @@ enum WorkspaceMountPolicy {
 }
 
 struct WorkspaceSelectionChangeActions {
+    let reconcileMountedWorkspaces: () -> Void
+    let syncSidebarSelection: () -> Void
     let applyWindowBackground: () -> Void
     let startWorkspaceHandoff: () -> Void
-    let reconcileMountedWorkspaces: () -> Void
     let syncShortcutHintEligibility: () -> Void
-    let syncSidebarSelection: () -> Void
     let updateTitlebarText: () -> Void
 }
 
@@ -853,15 +853,19 @@ enum WorkspaceSelectionChangeScheduler {
     typealias DeferredScheduler = (@escaping () -> Void) -> Void
 
     static func handleSelectionChange(
+        isCurrentSelection: @escaping () -> Bool = { true },
         scheduleDeferred: DeferredScheduler,
         actions: WorkspaceSelectionChangeActions
     ) {
-        actions.applyWindowBackground()
-        actions.startWorkspaceHandoff()
         actions.reconcileMountedWorkspaces()
-        actions.syncShortcutHintEligibility()
         actions.syncSidebarSelection()
-        actions.updateTitlebarText()
+        scheduleDeferred {
+            guard isCurrentSelection() else { return }
+            actions.applyWindowBackground()
+            actions.startWorkspaceHandoff()
+            actions.syncShortcutHintEligibility()
+            actions.updateTitlebarText()
+        }
     }
 }
 
@@ -1104,6 +1108,7 @@ struct ContentView: View {
     @State private var retiringWorkspaceId: UUID?
     @State private var workspaceHandoffGeneration: UInt64 = 0
     @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
+    @State private var workspaceSelectionSideEffectsGeneration: UInt64 = 0
     @State private var didApplyUITestSidebarSelection = false
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
@@ -2728,16 +2733,43 @@ struct ContentView: View {
                 cmuxDebugLog("ws.view.selectedChange id=none selected=\(debugShortWorkspaceId(newValue))")
             }
 #endif
-            tabManager.applyWindowBackgroundForSelectedTab()
-            startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
-            reconcileMountedWorkspaceIds(selectedId: newValue)
-            AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
-            guard let newValue else { return }
-            if selectedTabIds.count <= 1 {
-                selectedTabIds = [newValue]
-                lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == newValue }
-            }
-            updateTitlebarText()
+            workspaceSelectionSideEffectsGeneration &+= 1
+            let selectionSideEffectsGeneration = workspaceSelectionSideEffectsGeneration
+            WorkspaceSelectionChangeScheduler.handleSelectionChange(
+                isCurrentSelection: {
+                    workspaceSelectionSideEffectsGeneration == selectionSideEffectsGeneration
+                        && tabManager.selectedTabId == newValue
+                },
+                scheduleDeferred: { action in
+                    DispatchQueue.main.async {
+                        action()
+                    }
+                },
+                actions: WorkspaceSelectionChangeActions(
+                    reconcileMountedWorkspaces: {
+                        reconcileMountedWorkspaceIds(selectedId: newValue)
+                    },
+                    syncSidebarSelection: {
+                        guard let newValue else { return }
+                        if selectedTabIds.count <= 1 {
+                            selectedTabIds = [newValue]
+                            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == newValue }
+                        }
+                    },
+                    applyWindowBackground: {
+                        tabManager.applyWindowBackgroundForSelectedTab()
+                    },
+                    startWorkspaceHandoff: {
+                        startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
+                    },
+                    syncShortcutHintEligibility: {
+                        AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
+                    },
+                    updateTitlebarText: {
+                        updateTitlebarText()
+                    }
+                )
+            )
         })
 
         view = AnyView(view.onChange(of: selectedTabIds) { _ in
