@@ -493,7 +493,9 @@
         },
         "app": {
           "confirmQuit": "Contrôle quand cmux demande confirmation avant de quitter. Les builds DEV quittent toujours immédiatement, quel que soit ce réglage. L'ancien app.warnBeforeQuit reste accepté comme fallback booléen.",
-          "warnBeforeQuit": "Fallback booléen hérité pour la confirmation de fermeture. Utilisez app.confirmQuit pour les nouvelles configurations."
+          "warnBeforeQuit": "Fallback booléen hérité pour la confirmation de fermeture. Utilisez app.confirmQuit pour les nouvelles configurations.",
+          "warnBeforeClosingTabXButton": "Afficher une confirmation avant de fermer un onglet avec le bouton de fermeture d’onglet.",
+          "hideTabCloseButton": "Masquer les boutons de fermeture d’onglet dans la barre d’onglets du volet."
         },
         "terminal": {
           "copyOnSelect": "Copie le texte sélectionné dans le terminal dans le presse-papiers système lorsque la sélection est validée, y compris les sélections de mots et de lignes par double ou triple clic."
@@ -1003,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "Encore un projet base sur libghostty, cette fois un terminal macOS avec des onglets verticaux, une meilleure organisation/notifications, un navigateur integre/scriptable, specifiquement destine aux gens qui utilisent beaucoup de workflows d'agents en terminal.",
+    "steipete": "J'arrive tard, mais cmux est excellent. Répartition actuelle : l'app Mac Codex pour le travail de connaissance, l'apprentissage et la lecture ; cmux + Codex CLI pour coder.",
     "schrockn": "C'est exactement le produit que je cherchais. Apres deux heures ce matin, je suis conquis.",
     "egrefen": "Je l'utilise depuis tout le week-end et c'est genial.",
     "max4c": "c'est mon outil prefere depuis deux semaines",
