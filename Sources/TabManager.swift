@@ -5695,7 +5695,7 @@ class TabManager: ObservableObject {
                }) {
                 insertionIndex = lastGroupIndex + 1
             } else if nextInitialDirectory == workspace.initialDirectory {
-                insertionIndex = min(currentIndex, remainingTabs.count)
+                insertionIndex = max(min(currentIndex, remainingTabs.count), pinnedCount)
             } else {
                 insertionIndex = pinnedCount
             }
