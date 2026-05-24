@@ -85,6 +85,89 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testCodeEditorSessionRestoreDoesNotPlayFailureFeedbackWhenVSCodeIsUnavailable() throws {
+        let workspace = Workspace()
+        workspace.configureCodeEditorApplicationURLProviderForTesting { nil }
+        var failureFeedbackCount = 0
+        workspace.configureCodeEditorFailureFeedbackHandlerForTesting {
+            failureFeedbackCount += 1
+        }
+        defer {
+            workspace.resetCodeEditorApplicationURLProviderForTesting()
+            workspace.resetCodeEditorFailureFeedbackHandlerForTesting()
+        }
+
+        let panelId = UUID()
+        let snapshot = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: nil,
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp",
+            focusedPanelId: panelId,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panelId], selectedPanelId: panelId)),
+            panels: [
+                SessionPanelSnapshot(
+                    id: panelId,
+                    type: .codeEditor,
+                    title: nil,
+                    customTitle: nil,
+                    directory: "/tmp/cmux-missing-vscode-editor",
+                    isPinned: false,
+                    isManuallyUnread: false,
+                    gitBranch: nil,
+                    listeningPorts: [],
+                    ttyName: nil,
+                    terminal: nil,
+                    browser: SessionBrowserPanelSnapshot(
+                        urlString: nil,
+                        profileID: nil,
+                        shouldRenderWebView: true,
+                        pageZoom: 1.0,
+                        developerToolsVisible: false,
+                        backHistoryURLStrings: [],
+                        forwardHistoryURLStrings: []
+                    ),
+                    markdown: nil,
+                    filePreview: nil
+                ),
+            ],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+
+        workspace.restoreSessionSnapshot(snapshot)
+
+        XCTAssertEqual(failureFeedbackCount, 0)
+    }
+
+    @MainActor
+    func testUserCodeEditorOpenPlaysFailureFeedbackWhenVSCodeIsUnavailable() throws {
+        let workspace = Workspace()
+        workspace.configureCodeEditorApplicationURLProviderForTesting { nil }
+        var failureFeedbackCount = 0
+        workspace.configureCodeEditorFailureFeedbackHandlerForTesting {
+            failureFeedbackCount += 1
+        }
+        defer {
+            workspace.resetCodeEditorApplicationURLProviderForTesting()
+            workspace.resetCodeEditorFailureFeedbackHandlerForTesting()
+        }
+
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let editor = workspace.newCodeEditorSurface(
+            inPane: paneId,
+            directoryURL: URL(fileURLWithPath: "/tmp/cmux-missing-vscode-editor", isDirectory: true),
+            focus: false
+        )
+
+        XCTAssertNil(editor)
+        XCTAssertEqual(failureFeedbackCount, 1)
+    }
+
+    @MainActor
     func testSessionSnapshotSkipsTransientRemoteListeningPorts() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)

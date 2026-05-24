@@ -844,7 +844,8 @@ extension Workspace {
             guard let browserPanel = newCodeEditorSurface(
                 inPane: paneId,
                 directoryURL: directoryURL,
-                focus: false
+                focus: false,
+                failureFeedback: .silent
             ) else {
                 return nil
             }
@@ -1099,7 +1100,8 @@ extension Workspace {
                 inPane: paneId,
                 directoryURL: directoryURL,
                 url: url,
-                focus: false
+                focus: false,
+                failureFeedback: .silent
             ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
@@ -1148,7 +1150,8 @@ extension Workspace {
                 inPane: paneId,
                 directoryURL: directoryURL,
                 url: url,
-                focus: false
+                focus: false,
+                failureFeedback: .silent
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
@@ -7161,6 +7164,11 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    enum CodeEditorOpenFailureFeedback: Sendable {
+        case audible
+        case silent
+    }
+
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
@@ -7214,6 +7222,12 @@ final class Workspace: Identifiable, ObservableObject {
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
     weak var owningTabManager: TabManager?
+    private var codeEditorApplicationURLProvider: () -> URL? = {
+        TerminalDirectoryOpenTarget.vscodeInline.applicationURL()
+    }
+    private var codeEditorFailureFeedbackHandler: () -> Void = {
+        NSSound.beep()
+    }
 
     // Closing tabs mutates split layout immediately; terminal views handle their own AppKit
     // layout/size synchronization.
@@ -10429,11 +10443,12 @@ final class Workspace: Identifiable, ObservableObject {
         directoryURL: URL? = nil,
         url: URL? = nil,
         focus: Bool = true,
-        initialDividerPosition: CGFloat? = nil
+        initialDividerPosition: CGFloat? = nil,
+        failureFeedback: CodeEditorOpenFailureFeedback = .audible
     ) -> BrowserPanel? {
         let resolvedDirectoryURL = codeEditorDirectoryURL(directoryURL)
-        guard url != nil || TerminalDirectoryOpenTarget.vscodeInline.applicationURL() != nil else {
-            NSSound.beep()
+        guard url != nil || codeEditorApplicationURLProvider() != nil else {
+            playCodeEditorOpenFailureFeedback(failureFeedback)
             return nil
         }
         guard let panel = newBrowserSplit(
@@ -10449,7 +10464,11 @@ final class Workspace: Identifiable, ObservableObject {
         }
         panel.setCodeEditorDirectoryURL(resolvedDirectoryURL)
         if url == nil {
-            beginCodeEditorNavigation(for: panel, directoryURL: resolvedDirectoryURL)
+            beginCodeEditorNavigation(
+                for: panel,
+                directoryURL: resolvedDirectoryURL,
+                failureFeedback: failureFeedback
+            )
         }
         return panel
     }
@@ -10460,11 +10479,12 @@ final class Workspace: Identifiable, ObservableObject {
         directoryURL: URL? = nil,
         url: URL? = nil,
         focus: Bool? = nil,
-        insertAtEnd: Bool = false
+        insertAtEnd: Bool = false,
+        failureFeedback: CodeEditorOpenFailureFeedback = .audible
     ) -> BrowserPanel? {
         let resolvedDirectoryURL = codeEditorDirectoryURL(directoryURL)
-        guard url != nil || TerminalDirectoryOpenTarget.vscodeInline.applicationURL() != nil else {
-            NSSound.beep()
+        guard url != nil || codeEditorApplicationURLProvider() != nil else {
+            playCodeEditorOpenFailureFeedback(failureFeedback)
             return nil
         }
         guard let panel = newBrowserSurface(
@@ -10478,9 +10498,38 @@ final class Workspace: Identifiable, ObservableObject {
         }
         panel.setCodeEditorDirectoryURL(resolvedDirectoryURL)
         if url == nil {
-            beginCodeEditorNavigation(for: panel, directoryURL: resolvedDirectoryURL)
+            beginCodeEditorNavigation(
+                for: panel,
+                directoryURL: resolvedDirectoryURL,
+                failureFeedback: failureFeedback
+            )
         }
         return panel
+    }
+
+    private func playCodeEditorOpenFailureFeedback(_ feedback: CodeEditorOpenFailureFeedback) {
+        guard feedback == .audible else { return }
+        codeEditorFailureFeedbackHandler()
+    }
+
+    func configureCodeEditorApplicationURLProviderForTesting(_ provider: @escaping () -> URL?) {
+        codeEditorApplicationURLProvider = provider
+    }
+
+    func resetCodeEditorApplicationURLProviderForTesting() {
+        codeEditorApplicationURLProvider = {
+            TerminalDirectoryOpenTarget.vscodeInline.applicationURL()
+        }
+    }
+
+    func configureCodeEditorFailureFeedbackHandlerForTesting(_ handler: @escaping () -> Void) {
+        codeEditorFailureFeedbackHandler = handler
+    }
+
+    func resetCodeEditorFailureFeedbackHandlerForTesting() {
+        codeEditorFailureFeedbackHandler = {
+            NSSound.beep()
+        }
     }
 
     private func codeEditorDirectoryURL(_ directoryURL: URL?) -> URL? {
@@ -10492,17 +10541,29 @@ final class Workspace: Identifiable, ObservableObject {
         return URL(fileURLWithPath: trimmedDirectory, isDirectory: true).standardizedFileURL
     }
 
-    private func beginCodeEditorNavigation(for panel: BrowserPanel, directoryURL: URL?) {
+    private func beginCodeEditorNavigation(
+        for panel: BrowserPanel,
+        directoryURL: URL?,
+        failureFeedback: CodeEditorOpenFailureFeedback
+    ) {
         guard let directoryURL else { return }
         let panelId = panel.id
         Task { [weak self] in
-            await self?.navigateCodeEditorPanel(panelId: panelId, directoryURL: directoryURL)
+            await self?.navigateCodeEditorPanel(
+                panelId: panelId,
+                directoryURL: directoryURL,
+                failureFeedback: failureFeedback
+            )
         }
     }
 
-    private func navigateCodeEditorPanel(panelId: UUID, directoryURL: URL) async {
-        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
-            NSSound.beep()
+    private func navigateCodeEditorPanel(
+        panelId: UUID,
+        directoryURL: URL,
+        failureFeedback: CodeEditorOpenFailureFeedback
+    ) async {
+        guard let vscodeApplicationURL = codeEditorApplicationURLProvider() else {
+            playCodeEditorOpenFailureFeedback(failureFeedback)
             return
         }
 
@@ -10514,7 +10575,7 @@ final class Workspace: Identifiable, ObservableObject {
                 baseWebUIURL: serveWebURL,
                 directoryPath: directoryURL.path
               ) else {
-            NSSound.beep()
+            playCodeEditorOpenFailureFeedback(failureFeedback)
             return
         }
         guard let panel = panels[panelId] as? BrowserPanel else { return }
