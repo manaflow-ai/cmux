@@ -1500,7 +1500,9 @@ class TabManager: ObservableObject {
     private func scheduleWorkspaceGitMetadataTypingQuietTimer(delay: TimeInterval) {
         workspaceGitMetadataTypingQuietTimer?.invalidate()
         let timer = Timer(timeInterval: max(0, delay), repeats: false) { [weak self] _ in
-            self?.flushWorkspaceGitMetadataRefreshesAfterTypingQuiet()
+            MainActor.assumeIsolated { [weak self] in
+                self?.flushWorkspaceGitMetadataRefreshesAfterTypingQuiet()
+            }
         }
         workspaceGitMetadataTypingQuietTimer = timer
         RunLoop.main.add(timer, forMode: .common)
