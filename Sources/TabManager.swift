@@ -9657,7 +9657,7 @@ private final class CmuxTypingActivityStorage: @unchecked Sendable {
 
     func record(now: TimeInterval) {
         lock.lock()
-        lastActivityAt = now
+        lastActivityAt = max(lastActivityAt, now)
         lock.unlock()
     }
 
