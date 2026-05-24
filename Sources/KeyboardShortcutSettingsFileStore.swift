@@ -443,6 +443,12 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["warnBeforeClosingTab"]) {
             snapshot.managedUserDefaults[CloseTabWarningSettings.warnBeforeClosingTabKey] = .bool(value)
         }
+        if let value = jsonBool(section["warnBeforeClosingTabXButton"]) {
+            snapshot.managedUserDefaults[CloseTabWarningSettings.warnBeforeClosingTabXButtonKey] = .bool(value)
+        }
+        if let value = jsonBool(section["hideTabCloseButton"]) {
+            snapshot.managedUserDefaults[CloseTabWarningSettings.hideTabCloseButtonKey] = .bool(value)
+        }
         if let value = jsonBool(section["renameSelectsExistingName"]) {
             snapshot.managedUserDefaults[CommandPaletteRenameSelectionSettings.selectAllOnFocusKey] = .bool(value)
         }
@@ -505,6 +511,17 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey] = .bool(value)
         } else if section.keys.contains("autoResumeAgentSessions") {
             logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
+        }
+
+        if let value = jsonInt(section["textBoxMaxLines"]) {
+            if value >= TerminalTextBoxInputSettings.minimumMaxLines,
+               value <= TerminalTextBoxInputSettings.maximumMaxLines {
+                snapshot.managedUserDefaults[TerminalTextBoxInputSettings.maxLinesKey] = .int(value)
+            } else {
+                logInvalid("terminal.textBoxMaxLines", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("textBoxMaxLines") {
+            logInvalid("terminal.textBoxMaxLines", sourcePath: sourcePath)
         }
     }
 
