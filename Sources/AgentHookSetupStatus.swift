@@ -4,8 +4,13 @@ enum AgentHookSetupStatus {
     static func hasConfiguredAgentHooks(
         homeDirectory: String = NSHomeDirectory(),
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        claudeCodeHooksEnabled: Bool = false
     ) -> Bool {
+        if claudeCodeHooksEnabled {
+            return true
+        }
+
         let homeURL = URL(fileURLWithPath: homeDirectory, isDirectory: true)
         let candidateFiles = [
             homeURL.appendingPathComponent(".codex/hooks.json"),

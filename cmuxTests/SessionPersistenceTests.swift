@@ -1722,6 +1722,19 @@ final class AgentHookSetupStatusTests: XCTestCase {
         XCTAssertTrue(AgentHookSetupStatus.hasConfiguredAgentHooks(homeDirectory: root.path, environment: [:]))
     }
 
+    func testTreatsClaudeIntegrationAsConfiguredHooks() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        XCTAssertTrue(
+            AgentHookSetupStatus.hasConfiguredAgentHooks(
+                homeDirectory: root.path,
+                environment: [:],
+                claudeCodeHooksEnabled: true
+            )
+        )
+    }
+
     func testDetectsConfiguredHookMarkerInEnvironmentOverride() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

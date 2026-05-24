@@ -11512,7 +11512,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private struct QuitDialogChoices {
-        var suppressFutureQuitWarnings: Bool
         var restoreLayoutOnNextLaunch: Bool
         var autoResumeAgentSessions: Bool
     }
@@ -11591,8 +11590,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
 
         let response = alert.runModal()
+        if alert.suppressionButton?.state == .on {
+            QuitWarningSettings.setEnabled(false)
+        }
         let choices = QuitDialogChoices(
-            suppressFutureQuitWarnings: alert.suppressionButton?.state == .on,
             restoreLayoutOnNextLaunch: restoreLayoutButton.state == .on,
             autoResumeAgentSessions: autoResumeButton.state == .on
         )
@@ -11600,9 +11601,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func applyConfirmedQuitDialogChoices(_ choices: QuitDialogChoices) {
-        if choices.suppressFutureQuitWarnings {
-            QuitWarningSettings.setEnabled(false)
-        }
         SessionRestorePolicy.setRestoreLayoutOnNextLaunch(choices.restoreLayoutOnNextLaunch)
         AgentSessionAutoResumeSettings.setResumeAgentSessionsOnNextLaunch(choices.autoResumeAgentSessions)
     }
@@ -11617,10 +11615,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func refreshAgentHookSetupStatusForQuitDialog() {
         let homeDirectory = NSHomeDirectory()
         let environment = ProcessInfo.processInfo.environment
+        let claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.hooksEnabled()
         Task.detached(priority: .utility) { [weak self] in
             let hasConfiguredAgentHooks = AgentHookSetupStatus.hasConfiguredAgentHooks(
                 homeDirectory: homeDirectory,
-                environment: environment
+                environment: environment,
+                claudeCodeHooksEnabled: claudeCodeHooksEnabled
             )
             await MainActor.run {
                 self?.hasConfiguredAgentHooksForQuitDialog = hasConfiguredAgentHooks
