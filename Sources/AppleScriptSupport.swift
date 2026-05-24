@@ -336,13 +336,12 @@ final class ScriptWindow: NSObject {
     func handleCloseWindow(_ command: NSScriptCommand) -> Any? {
         guard NSApp.validateScript(command: command) else { return nil }
 
-        guard let window = state?.window else {
+        guard AppDelegate.shared?.closeMainWindow(windowId: windowId) == true else {
             command.scriptErrorNumber = errAEEventFailed
             command.scriptErrorString = AppleScriptStrings.windowUnavailable
             return nil
         }
 
-        window.performClose(nil)
         return nil
     }
 
@@ -474,13 +473,12 @@ final class ScriptTab: NSObject {
             return nil
         }
 
-        guard let window = state.window else {
+        guard AppDelegate.shared?.closeMainWindow(windowId: windowId) == true else {
             command.scriptErrorNumber = errAEEventFailed
             command.scriptErrorString = AppleScriptStrings.windowUnavailable
             return nil
         }
 
-        window.performClose(nil)
         return nil
     }
 
@@ -625,13 +623,12 @@ final class ScriptTerminal: NSObject {
                 return nil
             }
 
-            guard let window = state.window else {
+            guard AppDelegate.shared?.closeMainWindow(windowId: state.windowId) == true else {
                 command.scriptErrorNumber = errAEEventFailed
                 command.scriptErrorString = AppleScriptStrings.windowUnavailable
                 return nil
             }
 
-            window.performClose(nil)
             return nil
         }
 

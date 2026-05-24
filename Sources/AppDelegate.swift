@@ -586,6 +586,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
         weak var window: NSWindow?
+        private var windowCloseObserver: NSObjectProtocol?
+        private weak var windowCloseObserverWindow: NSWindow?
 
         init(
             windowId: UUID,
@@ -609,6 +611,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager: tabManager,
                 fileExplorerState: fileExplorerState
             )
+        }
+
+        func isObservingClose(for window: NSWindow) -> Bool {
+            windowCloseObserver != nil && windowCloseObserverWindow === window
+        }
+
+        func setWindowCloseObserver(_ observer: NSObjectProtocol, for window: NSWindow) {
+            removeWindowCloseObserver()
+            windowCloseObserver = observer
+            windowCloseObserverWindow = window
+        }
+
+        func removeWindowCloseObserver() {
+            if let windowCloseObserver {
+                NotificationCenter.default.removeObserver(windowCloseObserver)
+            }
+            windowCloseObserver = nil
+            windowCloseObserverWindow = nil
         }
     }
 
@@ -4056,6 +4076,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: self)
     }
 
+    private func installMainWindowCloseObserver(for context: MainWindowContext, window: NSWindow) {
+        guard !context.isObservingClose(for: window) else { return }
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] note in
+            guard let self, let closing = note.object as? NSWindow else { return }
+            self.unregisterMainWindow(closing)
+        }
+        context.setWindowCloseObserver(observer, for: window)
+    }
+
+    private func teardownClosedMainWindowViewTree(_ window: NSWindow) {
+        _ = window.makeFirstResponder(nil)
+        while !window.titlebarAccessoryViewControllers.isEmpty {
+            window.removeTitlebarAccessoryViewController(at: 0)
+        }
+        window.toolbar = nil
+        window.contentViewController = nil
+        window.contentView = nil
+    }
+
     /// Register a terminal window with the AppDelegate so menu commands and socket control
     /// can target whichever window is currently active.
     func registerMainWindow(
@@ -4087,6 +4130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let cmuxConfigStore {
                 existing.cmuxConfigStore = cmuxConfigStore
             }
+            installMainWindowCloseObserver(for: existing, window: window)
         } else if let existing = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
             if let existingWindow = existing.window,
                existingWindow !== window,
@@ -4122,9 +4166,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 existing.cmuxConfigStore = cmuxConfigStore
             }
             reindexMainWindowContextIfNeeded(existing, for: window)
+            installMainWindowCloseObserver(for: existing, window: window)
         } else {
             tabManager.window = window
-            mainWindowContexts[key] = MainWindowContext(
+            let context = MainWindowContext(
                 windowId: windowId,
                 tabManager: tabManager,
                 sidebarState: sidebarState,
@@ -4133,14 +4178,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 cmuxConfigStore: cmuxConfigStore,
                 window: window
             )
-            NotificationCenter.default.addObserver(
-                forName: NSWindow.willCloseNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] note in
-                guard let self, let closing = note.object as? NSWindow else { return }
-                self.unregisterMainWindow(closing)
-            }
+            mainWindowContexts[key] = context
+            installMainWindowCloseObserver(for: context, window: window)
         }
         commandPaletteVisibilityByWindowId[windowId] = false
         commandPaletteSelectionByWindowId[windowId] = 0
@@ -5237,8 +5276,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func closeMainWindow(windowId: UUID) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
-        window.performClose(nil)
-        return true
+        return closeMainTerminalWindow(window, expectedWindowId: windowId)
+    }
+
+    @discardableResult
+    private func closeMainTerminalWindow(
+        _ window: NSWindow,
+        expectedWindowId: UUID? = nil
+    ) -> Bool {
+        let windowId = expectedWindowId
+            ?? contextForMainTerminalWindow(window, reindex: false)?.windowId
+            ?? mainWindowId(from: window)
+        guard let windowId else { return false }
+
+        WebViewInspectorTeardown.closeAllInspectors(in: window)
+        window.close()
+        forgetRecoverableMainWindowRoute(windowId: windowId)
+
+        let didClose = !mainWindowContexts.values.contains { $0.windowId == windowId }
+#if DEBUG
+        if !didClose {
+            cmuxDebugLog(
+                "mainWindow.close.incomplete windowId=\(String(windowId.uuidString.prefix(8))) window={\(debugWindowToken(window))}"
+            )
+        }
+#endif
+        return didClose
     }
 
     private func confirmCloseMainWindow(_ window: NSWindow) -> Bool {
@@ -5276,9 +5339,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.performClose(nil)
             return true
         }
-        guard confirmCloseMainWindow(window) else { return true }
-        window.performClose(nil)
-        return true
+        guard confirmCloseMainWindow(window) else { return false }
+        return closeMainTerminalWindow(window)
     }
 
     private func orderedMainWindowSummaries(referenceWindowId: UUID?) -> [MainWindowSummary] {
@@ -5474,6 +5536,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in removedKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
+        removed.removeWindowCloseObserver()
         rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
         notifyMainWindowContextsDidChange()
         return removed
@@ -5486,6 +5549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in contextKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
+        context.removeWindowCloseObserver()
         rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
         notifyMainWindowContextsDidChange()
 
@@ -14662,7 +14726,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             persistWindowGeometry(from: window)
         }
 
+        let closingContext = contextForMainTerminalWindow(window, reindex: false)
+        closingContext?.tabManager.teardownForWindowClose()
+
         guard let removed = unregisterMainWindowContext(for: window) else { return }
+        teardownClosedMainWindowViewTree(window)
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
         commandPalettePendingOpenByWindowId.removeValue(forKey: removed.windowId)
@@ -14720,9 +14788,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func closeMainWindowContainingTabId(_ tabId: UUID) {
         guard let context = contextContainingTabId(tabId) else { return }
-        let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
-        let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
-        window?.performClose(nil)
+        _ = closeMainWindow(windowId: context.windowId)
     }
 
     @discardableResult
