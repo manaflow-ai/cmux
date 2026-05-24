@@ -658,10 +658,11 @@ final class TerminalRegexHighlightSettingsTests: XCTestCase {
 
     func testRuntimeRuleStateRequiresCompiledRegex() {
         let notificationCenter = NotificationCenter()
-        let defaults = UserDefaults(suiteName: "TerminalRegexHighlightRuntimeRuleStateTests")!
-        defaults.removePersistentDomain(forName: "TerminalRegexHighlightRuntimeRuleStateTests")
+        let suiteName = "TerminalRegexHighlightRuntimeRuleStateTests"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
         defer {
-            defaults.removePersistentDomain(forName: "TerminalRegexHighlightRuntimeRuleStateTests")
+            defaults.removePersistentDomain(forName: suiteName)
             TerminalRegexHighlightSettings.notifyDidChange(notificationCenter: notificationCenter)
         }
 
@@ -698,5 +699,73 @@ final class TerminalRegexHighlightSettingsTests: XCTestCase {
                 ),
             ]
         )
+    }
+}
+
+final class TerminalCopyOnSelectSettingsTests: XCTestCase {
+    func testDefaultsNotificationAndGhosttyConfigMapping() throws {
+        let suiteName = "cmux-terminal-copy-on-select-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(
+            TerminalCopyOnSelectSettings.copyOnSelectKey,
+            "terminal.copyOnSelect"
+        )
+        XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
+        XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
+        XCTAssertNil(TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults))
+
+        let notificationCenter = NotificationCenter()
+        var notificationCount = 0
+        let observer = notificationCenter.addObserver(
+            forName: TerminalCopyOnSelectSettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer { notificationCenter.removeObserver(observer) }
+
+        TerminalCopyOnSelectSettings.setEnabled(
+            true,
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertTrue(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(
+            TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
+            "copy-on-select = clipboard"
+        )
+        XCTAssertEqual(
+            TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
+            "copy-on-select = clipboard"
+        )
+        XCTAssertEqual(notificationCount, 1)
+
+        TerminalCopyOnSelectSettings.setEnabled(
+            false,
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(
+            TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
+            "copy-on-select = false"
+        )
+        XCTAssertEqual(
+            TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
+            "copy-on-select = false"
+        )
+        XCTAssertEqual(notificationCount, 2)
+
+        TerminalCopyOnSelectSettings.reset(
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
+        XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
+        XCTAssertNil(TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults))
+        XCTAssertEqual(notificationCount, 2)
     }
 }

@@ -296,6 +296,18 @@
           "default": true,
           "description": "Show a confirmation before closing a tab."
         },
+        "warnBeforeClosingTabXButton": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.app.warnBeforeClosingTabXButton",
+          "description": "Show a confirmation before closing a tab with the tab close button."
+        },
+        "hideTabCloseButton": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.app.hideTabCloseButton",
+          "description": "Hide tab close buttons in the pane tab bar."
+        },
         "renameSelectsExistingName": {
           "type": "boolean",
           "default": true,
@@ -319,6 +331,12 @@
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
         },
+        "copyOnSelect": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
+          "description": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."
+        },
         "autoResumeAgentSessions": {
           "type": "boolean",
           "default": true,
@@ -338,6 +356,13 @@
           ],
           "default": "",
           "description": "Regex-based automatic text highlights for visible terminal text. Use one pattern per entry, or prefix an entry with #RRGGBB or #RRGGBBAA and a tab to choose the highlight color."
+        },
+        "textBoxMaxLines": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 10,
+          "description": "Maximum number of lines the rich terminal TextBox input can grow to before it scrolls."
         },
         "resumeCommands": {
           "type": "array",
@@ -929,6 +954,8 @@
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
+              "focusTextBoxInput",
+              "attachTextBoxFile",
               "focusLeft",
               "focusRight",
               "focusUp",

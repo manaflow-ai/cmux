@@ -951,60 +951,119 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
     func testSettingsFileStoreAppliesTerminalRegexHighlightsSetting() throws {
         let defaults = UserDefaults.standard
         let key = TerminalRegexHighlightSettings.highlightsKey
-        let previousValue = defaults.object(forKey: key)
-        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
-        let previousImportedDefaults = defaults.data(forKey: importedManagedDefaultsKey)
-        defer {
-            if let previousValue {
-                defaults.set(previousValue, forKey: key)
-            } else {
-                defaults.removeObject(forKey: key)
-            }
 
-            if let previousBackups {
-                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
-            } else {
-                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
-            }
-            if let previousImportedDefaults {
-                defaults.set(previousImportedDefaults, forKey: importedManagedDefaultsKey)
-            } else {
-                defaults.removeObject(forKey: importedManagedDefaultsKey)
-            }
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "regexHighlights": [
+                      "#FFE06680\\tERROR",
+                      "#FF6B6B80\\tpanic|fatal"
+                    ]
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(
+                defaults.string(forKey: key),
+                "#FFE06680\tERROR\n#FF6B6B80\tpanic|fatal"
+            )
         }
+    }
 
-        defaults.removeObject(forKey: key)
-        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
-        defaults.removeObject(forKey: importedManagedDefaultsKey)
+    func testSettingsFileStoreAppliesTerminalTextBoxMaxLinesSetting() throws {
+        let defaults = UserDefaults.standard
+        try preservingDefaults(keys: [
+            TerminalTextBoxInputSettings.maxLinesKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: TerminalTextBoxInputSettings.maxLinesKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
 
-        let directoryURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-        try writeSettingsFile(
-            """
-            {
-              "terminal": {
-                "regexHighlights": [
-                  "#FFE06680\\tERROR",
-                  "#FF6B6B80\\tpanic|fatal"
-                ]
-              }
-            }
-            """,
-            to: settingsFileURL
-        )
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "textBoxMaxLines": 14
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
 
-        _ = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
-            startWatching: false
-        )
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
 
-        XCTAssertEqual(
-            defaults.string(forKey: key),
-            "#FFE06680\tERROR\n#FF6B6B80\tpanic|fatal"
-        )
+            XCTAssertEqual(defaults.object(forKey: TerminalTextBoxInputSettings.maxLinesKey) as? Int, 14)
+            XCTAssertEqual(TerminalTextBoxInputSettings.maxLines(defaults: defaults), 14)
+        }
+    }
+
+    func testSettingsFileStoreAppliesTerminalCopyOnSelectSetting() throws {
+        let defaults = UserDefaults.standard
+        let key = TerminalCopyOnSelectSettings.copyOnSelectKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "copyOnSelect": true
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.object(forKey: key) as? Bool, true)
+            XCTAssertEqual(
+                TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
+                "copy-on-select = clipboard"
+            )
+        }
     }
 
     func testSettingsFileStoreAppliesAutomationRipgrepBinaryPath() throws {
@@ -1039,6 +1098,46 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             )
 
             XCTAssertEqual(defaults.string(forKey: key), "/etc/profiles/per-user/nixuser/bin/rg")
+        }
+    }
+
+    func testSettingsFileStoreRejectsInvalidTerminalTextBoxMaxLinesSetting() throws {
+        let defaults = UserDefaults.standard
+        try preservingDefaults(keys: [
+            TerminalTextBoxInputSettings.maxLinesKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: TerminalTextBoxInputSettings.maxLinesKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "textBoxMaxLines": 100
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+
+            XCTAssertNil(defaults.object(forKey: TerminalTextBoxInputSettings.maxLinesKey))
+            XCTAssertEqual(
+                TerminalTextBoxInputSettings.maxLines(defaults: defaults),
+                TerminalTextBoxInputSettings.defaultMaxLines
+            )
         }
     }
 

@@ -66,8 +66,10 @@ const settingsFileExample = `{
 
   // "terminal": {
   //   "showScrollBar": false,
+  //   "copyOnSelect": true,
   //   "autoResumeAgentSessions": true,
-  //   "regexHighlights": ["#FFE06680\\tERROR", "#FF6B6B80\\tpanic|fatal"]
+  //   "regexHighlights": ["#FFE06680\\tERROR", "#FF6B6B80\\tpanic|fatal"],
+  //   "textBoxMaxLines": 10
   // },
 
   // "browser": {
