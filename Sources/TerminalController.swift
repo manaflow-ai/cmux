@@ -6499,10 +6499,10 @@ class TerminalController {
                 ])
                 return
             }
-            guard workspace.isRemoteTerminalSurface(surfaceId) else {
+            guard workspace.isRemoteWorkspace, workspace.panels[surfaceId] is TerminalPanel else {
                 result = .err(code: "invalid_state", message: String(
                     localized: "socket.workspaceRemoteTerminalReady.error.notActiveRemoteTerminal",
-                    defaultValue: "Surface is not an active remote terminal"
+                    defaultValue: "Surface is not a remote terminal"
                 ), data: [
                     "workspace_id": workspaceId.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),

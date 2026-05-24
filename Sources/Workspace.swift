@@ -9180,6 +9180,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
     private var readyRemoteTerminalSurfaceIds: Set<UUID> = []
+    private var pendingReadyRemoteTerminalSurfaceIds: Set<UUID> = []
     private var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
     var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
     /// Display target of the remote workspace that just disconnected. Set right before
@@ -11561,6 +11562,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteTransportConnectionDetail = nil
         remoteConnectionDetail = nil
         readyRemoteTerminalSurfaceIds.removeAll()
+        pendingReadyRemoteTerminalSurfaceIds.removeAll()
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
@@ -11663,6 +11665,7 @@ final class Workspace: Identifiable, ObservableObject {
         pendingRemoteForegroundAuthToken = nil
         activeRemoteTerminalSurfaceIds.removeAll()
         readyRemoteTerminalSurfaceIds.removeAll()
+        pendingReadyRemoteTerminalSurfaceIds.removeAll()
         remotePTYSessionIDsByPanelId.removeAll()
         activeRemoteTerminalSessionCount = 0
         pendingRemoteSurfaceTTYName = nil
@@ -11678,8 +11681,6 @@ final class Workspace: Identifiable, ObservableObject {
         remoteLastHeartbeatAt = nil
         remoteTransportConnectionState = .disconnected
         remoteTransportConnectionDetail = nil
-        remoteConnectionState = .disconnected
-        remoteConnectionDetail = nil
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
         statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
         statusEntries.removeValue(forKey: Self.remotePortConflictStatusKey)
@@ -11690,8 +11691,8 @@ final class Workspace: Identifiable, ObservableObject {
             remoteConfiguration = nil
             skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         }
+        applyRemoteConnectionStateFromTransport(reason: "remote.disconnect")
         applyRemoteProxyEndpointUpdate(nil)
-        applyBrowserRemoteWorkspaceStatusToPanels()
         recomputeListeningPorts()
         if let configurationForCleanup {
             Self.requestSSHControlMasterCleanupIfNeeded(configuration: configurationForCleanup)
@@ -11718,11 +11719,14 @@ final class Workspace: Identifiable, ObservableObject {
         trackRemoteTerminalSurface(initialPanelId)
     }
 
-    private func trackRemoteTerminalSurface(_ panelId: UUID) {
+    func trackRemoteTerminalSurface(_ panelId: UUID) {
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
+        if pendingReadyRemoteTerminalSurfaceIds.remove(panelId) != nil {
+            readyRemoteTerminalSurfaceIds.insert(panelId)
+        }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         applyRemoteConnectionStateFromTransport(reason: "remote.terminal.track")
         applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
@@ -11732,6 +11736,7 @@ final class Workspace: Identifiable, ObservableObject {
     func untrackRemoteTerminalSurface(_ panelId: UUID) {
         guard activeRemoteTerminalSurfaceIds.remove(panelId) != nil else { return }
         readyRemoteTerminalSurfaceIds.remove(panelId)
+        pendingReadyRemoteTerminalSurfaceIds.remove(panelId)
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         applyRemoteConnectionStateFromTransport(reason: "remote.terminal.untrack")
         guard !isDetachingCloseTransaction else { return }
@@ -11739,7 +11744,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func markRemoteTerminalSurfaceReady(_ panelId: UUID, reason: String) {
-        guard activeRemoteTerminalSurfaceIds.contains(panelId) else { return }
+        guard remoteConfiguration != nil, panels[panelId] is TerminalPanel else { return }
+        guard activeRemoteTerminalSurfaceIds.contains(panelId) else {
+            pendingReadyRemoteTerminalSurfaceIds.insert(panelId)
+            return
+        }
         guard readyRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         applyRemoteConnectionStateFromTransport(reason: "remote.terminal.ready.\(reason)")
     }

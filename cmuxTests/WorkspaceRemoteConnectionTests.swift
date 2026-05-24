@@ -481,6 +481,40 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(workspace.remoteStatusPayload()["ready_terminal_sessions"] as? Int, 0)
     }
 
+    @MainActor
+    func testRemoteTerminalReadyBeforeTrackingIsAppliedWhenSurfaceTracks() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:test-pending-pty-readiness",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil,
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["ready_terminal_sessions"] as? Int, 0)
+
+        workspace.markRemoteTerminalSurfaceReady(terminalPanel.id, reason: "test.pending")
+        workspace.trackRemoteTerminalSurface(terminalPanel.id)
+
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
+        XCTAssertEqual(workspace.remoteStatusPayload()["ready_terminal_sessions"] as? Int, 1)
+    }
+
     func testRemoteDaemonCapabilityErrorsUseUserFacingMessage() {
         let message = remoteDaemonMissingRequiredCapabilitiesMessage([
             "pty.session",

@@ -8204,9 +8204,39 @@ struct CMUXCLI {
             client = SocketClient(path: socketPath)
         }
 
-        let maxAttempts = 3
-        let retryDelays: [TimeInterval] = [0.15, 0.35]
-        for attempt in 1...maxAttempts {
+        VMPtyReadyReporter(
+            client: client,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        ).start()
+    }
+
+    private final class VMPtyReadyReporter {
+        private let client: SocketClient
+        private let workspaceId: String
+        private let surfaceId: String
+        // SocketClient is synchronous; isolate the readiness bridge on a private queue so
+        // the PTY output loop is never held by daemon delivery retries.
+        private let queue = DispatchQueue(label: "com.cmux.vm-pty.ready-report")
+        private let maxAttempts = 3
+        private let retryDelays: [TimeInterval] = [0.15, 0.35]
+        private var attempt = 0
+        private var retryTimer: DispatchSourceTimer?
+
+        init(client: SocketClient, workspaceId: String, surfaceId: String) {
+            self.client = client
+            self.workspaceId = workspaceId
+            self.surfaceId = surfaceId
+        }
+
+        func start() {
+            queue.async { [self] in
+                reportOnce()
+            }
+        }
+
+        private func reportOnce() {
+            attempt += 1
             do {
                 _ = try client.sendV2(
                     method: "workspace.remote.terminal_ready",
@@ -8224,8 +8254,20 @@ struct CMUXCLI {
                     return
                 }
                 cliDebugLog("cli.vm.pty.ready.retry workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) next_attempt=\(attempt + 1) error=\(String(describing: error))")
-                Thread.sleep(forTimeInterval: retryDelays[min(attempt - 1, retryDelays.count - 1)])
+                scheduleRetry(after: retryDelays[min(attempt - 1, retryDelays.count - 1)])
             }
+        }
+
+        private func scheduleRetry(after delay: TimeInterval) {
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            retryTimer = timer
+            timer.schedule(deadline: .now() + delay)
+            timer.setEventHandler { [self] in
+                retryTimer?.cancel()
+                retryTimer = nil
+                reportOnce()
+            }
+            timer.resume()
         }
     }
 
@@ -8328,11 +8370,7 @@ struct CMUXCLI {
             defer { resizeSource.cancel() }
             startInputPump()
             debugEvent?("websocket.ready")
-            if let readyEvent {
-                DispatchQueue.global(qos: .utility).async {
-                    readyEvent()
-                }
-            }
+            readyEvent?()
             try receiveOutputLoop(delegate: delegate)
         }
 
