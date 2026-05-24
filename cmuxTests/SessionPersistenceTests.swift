@@ -85,16 +85,12 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
-    func testCodeEditorSessionRestoreDoesNotPlayFailureFeedbackWhenVSCodeIsUnavailable() throws {
+    func testCodeEditorSessionRestoreDoesNotPlayFailureFeedbackWhenVSCodeIsUnavailable() async throws {
         let workspace = Workspace()
         workspace.configureCodeEditorApplicationURLProviderForTesting { nil }
         var failureFeedbackCount = 0
         workspace.configureCodeEditorFailureFeedbackHandlerForTesting {
             failureFeedbackCount += 1
-        }
-        defer {
-            workspace.resetCodeEditorApplicationURLProviderForTesting()
-            workspace.resetCodeEditorFailureFeedbackHandlerForTesting()
         }
 
         let panelId = UUID()
@@ -139,8 +135,16 @@ final class SessionPersistenceTests: XCTestCase {
         )
 
         workspace.restoreSessionSnapshot(snapshot)
+        await Task.yield()
 
         XCTAssertEqual(failureFeedbackCount, 0)
+        let restoredPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(workspace.panels[restoredPanelId] as? BrowserPanel)
+        XCTAssertEqual(restoredPanel.panelType, .codeEditor)
+        XCTAssertEqual(
+            restoredPanel.codeEditorDirectoryURL?.path,
+            "/tmp/cmux-missing-vscode-editor"
+        )
     }
 
     @MainActor
@@ -150,10 +154,6 @@ final class SessionPersistenceTests: XCTestCase {
         var failureFeedbackCount = 0
         workspace.configureCodeEditorFailureFeedbackHandlerForTesting {
             failureFeedbackCount += 1
-        }
-        defer {
-            workspace.resetCodeEditorApplicationURLProviderForTesting()
-            workspace.resetCodeEditorFailureFeedbackHandlerForTesting()
         }
 
         let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)

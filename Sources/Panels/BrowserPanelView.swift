@@ -1536,6 +1536,19 @@ struct BrowserPanelView: View {
         guard let requestId = panel.pendingAddressBarFocusRequestId else {
             return
         }
+        guard showsBrowserChrome else {
+            if addressBarFocused {
+                setAddressBarFocused(false, reason: "request.apply.chromeHidden")
+            }
+            panel.acknowledgeAddressBarFocusRequest(requestId)
+#if DEBUG
+            logBrowserFocusState(
+                event: "addressBarFocus.request.apply.skip",
+                detail: "reason=chrome_hidden request=\(requestId.uuidString.prefix(8))"
+            )
+#endif
+            return
+        }
         guard !isCommandPaletteVisibleForPanelWindow() else {
 #if DEBUG
             logBrowserFocusState(

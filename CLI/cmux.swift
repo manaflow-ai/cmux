@@ -9427,7 +9427,7 @@ struct CMUXCLI {
               - workspace [selected]
               - pane [focused]
               - surface [selected]
-              Browser and editor surfaces also include their current URL.
+              \(String(localized: "cli.tree.output.browserEditorURL", defaultValue: "Browser and editor surfaces also include their current URL."))
 
             Example:
               cmux tree
@@ -9480,10 +9480,10 @@ struct CMUXCLI {
             Create a new pane in the workspace.
 
             Flags:
-              --type <terminal|browser|editor>    Pane type (default: terminal)
+              \(String(localized: "cli.help.newPane.flag.type", defaultValue: "--type <terminal|browser|editor>    Pane type (default: terminal)"))
               --direction <left|right|up|down>    Split direction (default: right)
               --workspace <id|ref>                Target workspace (default: $CMUX_WORKSPACE_ID)
-              --url <url>                         URL for browser/editor panes
+              \(String(localized: "cli.help.newPane.flag.url", defaultValue: "--url <url>                         URL for browser/editor panes"))
               --focus <true|false>                Focus the new pane (default: false)
 
             Example:
@@ -9497,10 +9497,10 @@ struct CMUXCLI {
             Create a new surface (tab) in a pane.
 
             Flags:
-              --type <terminal|browser|editor>   Surface type (default: terminal)
+              \(String(localized: "cli.help.newSurface.flag.type", defaultValue: "--type <terminal|browser|editor>   Surface type (default: terminal)"))
               --pane <id|ref>             Target pane
               --workspace <id|ref>        Target workspace (default: $CMUX_WORKSPACE_ID)
-              --url <url>                 URL for browser/editor surfaces
+              \(String(localized: "cli.help.newSurface.flag.url", defaultValue: "--url <url>                 URL for browser/editor surfaces"))
               --focus <true|false>        Focus the new surface (default: false)
 
             Example:
@@ -20951,8 +20951,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           tree [--all] [--workspace <id|ref|index>]
           top [--all] [--workspace <id|ref|index>] [--processes]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
-          new-pane [--type <terminal|browser|editor>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
-          new-surface [--type <terminal|browser|editor>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
+          \(String(localized: "cli.usage.command.newPane", defaultValue: "new-pane [--type <terminal|browser|editor>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]"))
+          \(String(localized: "cli.usage.command.newSurface", defaultValue: "new-surface [--type <terminal|browser|editor>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]"))
           close-surface [--surface <id|ref>] [--workspace <id|ref>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--focus <true|false>]

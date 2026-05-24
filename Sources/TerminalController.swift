@@ -12956,8 +12956,8 @@ class TerminalController {
         Split & surface commands:
           new_split <direction> [panel]   - Split panel (left/right/up/down)
           drag_surface_to_split <id|idx> <direction> - Move surface into a new split (drag-to-edge)
-          new_pane [--type=terminal|browser|editor] [--direction=left|right|up|down] [--url=...]
-          new_surface [--type=terminal|browser|editor] [--pane=<pane-id|index>] [--url=...]
+          \(String(localized: "socket.help.newPane", defaultValue: "new_pane [--type=terminal|browser|editor] [--direction=left|right|up|down] [--url=...]"))
+          \(String(localized: "socket.help.newSurface", defaultValue: "new_surface [--type=terminal|browser|editor] [--pane=<pane-id|index>] [--url=...]"))
           list_surfaces [workspace]       - List surfaces for workspace (current if omitted)
           list_panes                      - List all panes with IDs
           list_pane_surfaces [--pane=<pane-id|index>] - List surfaces in pane
@@ -15909,7 +15909,14 @@ class TerminalController {
             let partStr = String(part)
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
-                panelType = PanelType.parse(typeStr) ?? .terminal
+                guard let parsedType = PanelType.parse(typeStr),
+                      parsedType == .terminal || parsedType == .browser || parsedType == .codeEditor else {
+                    return String(
+                        localized: "socket.error.invalidPanelType",
+                        defaultValue: "ERROR: Invalid --type value. Expected terminal, browser, or editor."
+                    )
+                }
+                panelType = parsedType
             } else if partStr.hasPrefix("--direction=") {
                 let dirStr = String(partStr.dropFirst(12))
                 if let parsed = parseSplitDirection(dirStr) {
@@ -17535,7 +17542,14 @@ class TerminalController {
             let partStr = String(part)
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
-                panelType = PanelType.parse(typeStr) ?? .terminal
+                guard let parsedType = PanelType.parse(typeStr),
+                      parsedType == .terminal || parsedType == .browser || parsedType == .codeEditor else {
+                    return String(
+                        localized: "socket.error.invalidPanelType",
+                        defaultValue: "ERROR: Invalid --type value. Expected terminal, browser, or editor."
+                    )
+                }
+                panelType = parsedType
             } else if partStr.hasPrefix("--pane=") {
                 paneArg = String(partStr.dropFirst(7))
             } else if partStr.hasPrefix("--url=") {

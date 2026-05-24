@@ -837,7 +837,9 @@ extension Workspace {
             let directoryURL: URL? = {
                 guard let directory = snapshot.directory?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !directory.isEmpty else {
-                    return nil
+                    return snapshot.browser?.urlString
+                        .flatMap(URL.init(string:))
+                        .flatMap(VSCodeServeWebURLBuilder.folderURL(from:))
                 }
                 return URL(fileURLWithPath: directory, isDirectory: true)
             }()
@@ -845,11 +847,18 @@ extension Workspace {
                 inPane: paneId,
                 directoryURL: directoryURL,
                 focus: false,
+                creationPolicy: .restoration,
+                initialNavigationPolicy: .deferred,
                 failureFeedback: .silent
             ) else {
                 return nil
             }
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
+            beginCodeEditorNavigation(
+                for: browserPanel,
+                directoryURL: directoryURL,
+                failureFeedback: .silent
+            )
             return browserPanel.id
         case .markdown:
             guard let filePath = snapshot.markdown?.filePath,
@@ -1101,6 +1110,7 @@ extension Workspace {
                 directoryURL: directoryURL,
                 url: url,
                 focus: false,
+                creationPolicy: .restoration,
                 failureFeedback: .silent
             ) {
                 _ = closePanel(panelId, force: true)
@@ -1151,6 +1161,7 @@ extension Workspace {
                 directoryURL: directoryURL,
                 url: url,
                 focus: false,
+                creationPolicy: .restoration,
                 failureFeedback: .silent
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
@@ -7169,6 +7180,20 @@ final class Workspace: Identifiable, ObservableObject {
         case silent
     }
 
+    enum CodeEditorPanelCreationPolicy: Sendable {
+        case userInitiated
+        case restoration
+
+        var permitsCreationWhenVSCodeUnavailable: Bool {
+            self == .restoration
+        }
+    }
+
+    enum CodeEditorInitialNavigationPolicy: Sendable {
+        case automatic
+        case deferred
+    }
+
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
@@ -10234,10 +10259,7 @@ final class Workspace: Identifiable, ObservableObject {
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         initialDividerPosition: CGFloat? = nil
     ) -> BrowserPanel? {
-        precondition(
-            panelType == .browser || panelType == .codeEditor,
-            "Browser splits only support .browser and .codeEditor panel types"
-        )
+        guard panelType == .browser || panelType == .codeEditor else { return nil }
         let resolvedPanelType = panelType
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard resolvedPanelType == .codeEditor || browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
@@ -10349,10 +10371,7 @@ final class Workspace: Identifiable, ObservableObject {
         bypassInsecureHTTPHostOnce: String? = nil,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated
     ) -> BrowserPanel? {
-        precondition(
-            panelType == .browser || panelType == .codeEditor,
-            "Browser surfaces only support .browser and .codeEditor panel types"
-        )
+        guard panelType == .browser || panelType == .codeEditor else { return nil }
         let resolvedPanelType = panelType
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard resolvedPanelType == .codeEditor || browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
@@ -10444,10 +10463,14 @@ final class Workspace: Identifiable, ObservableObject {
         url: URL? = nil,
         focus: Bool = true,
         initialDividerPosition: CGFloat? = nil,
+        creationPolicy: CodeEditorPanelCreationPolicy = .userInitiated,
+        initialNavigationPolicy: CodeEditorInitialNavigationPolicy = .automatic,
         failureFeedback: CodeEditorOpenFailureFeedback = .audible
     ) -> BrowserPanel? {
         let resolvedDirectoryURL = codeEditorDirectoryURL(directoryURL)
-        guard url != nil || codeEditorApplicationURLProvider() != nil else {
+        guard url != nil
+            || codeEditorApplicationURLProvider() != nil
+            || creationPolicy.permitsCreationWhenVSCodeUnavailable else {
             playCodeEditorOpenFailureFeedback(failureFeedback)
             return nil
         }
@@ -10463,7 +10486,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         panel.setCodeEditorDirectoryURL(resolvedDirectoryURL)
-        if url == nil {
+        if url == nil && initialNavigationPolicy == .automatic {
             beginCodeEditorNavigation(
                 for: panel,
                 directoryURL: resolvedDirectoryURL,
@@ -10480,10 +10503,14 @@ final class Workspace: Identifiable, ObservableObject {
         url: URL? = nil,
         focus: Bool? = nil,
         insertAtEnd: Bool = false,
+        creationPolicy: CodeEditorPanelCreationPolicy = .userInitiated,
+        initialNavigationPolicy: CodeEditorInitialNavigationPolicy = .automatic,
         failureFeedback: CodeEditorOpenFailureFeedback = .audible
     ) -> BrowserPanel? {
         let resolvedDirectoryURL = codeEditorDirectoryURL(directoryURL)
-        guard url != nil || codeEditorApplicationURLProvider() != nil else {
+        guard url != nil
+            || codeEditorApplicationURLProvider() != nil
+            || creationPolicy.permitsCreationWhenVSCodeUnavailable else {
             playCodeEditorOpenFailureFeedback(failureFeedback)
             return nil
         }
@@ -10497,7 +10524,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         panel.setCodeEditorDirectoryURL(resolvedDirectoryURL)
-        if url == nil {
+        if url == nil && initialNavigationPolicy == .automatic {
             beginCodeEditorNavigation(
                 for: panel,
                 directoryURL: resolvedDirectoryURL,
