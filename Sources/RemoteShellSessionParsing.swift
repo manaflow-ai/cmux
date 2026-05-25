@@ -400,9 +400,7 @@ nonisolated enum RemoteShellSessionParsing {
         if colonCount == 8 && !trimmedHost.contains("::") {
             return "[\(strippedHost)]"
         }
-        if trimmedHost.contains("::"), isIPv6Literal(strippedHost) {
-            return "[\(strippedHost)]"
-        }
+        // Compressed IPv6 with a trailing decimal hextet is ambiguous; preserve it as a host.
         return trimmedHost
     }
 

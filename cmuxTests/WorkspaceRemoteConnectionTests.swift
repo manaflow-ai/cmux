@@ -2084,7 +2084,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8:0:0:0:0:0:1]:/tmp/cmux-drop-123.png")
     }
 
-    func testDetectsEternalTerminalSessionWithCompressedIPv6ServerPortForSCP() {
+    func testDetectsEternalTerminalSessionPreservesAmbiguousCompressedIPv6LiteralForSCP() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
             processes: [
@@ -2099,7 +2099,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(session?.destination, "lawrence@[2001:db8::1]")
+        XCTAssertEqual(session?.destination, "lawrence@2001:db8::1:2022")
 
         let scpArgs = session?.scpArgumentsForTesting(
             localPath: "/tmp/local.png",
@@ -2107,7 +2107,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         ) ?? []
         XCTAssertNil(session?.port)
         XCTAssertFalse(scpArgs.contains("-P"))
-        XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8::1]:/tmp/cmux-drop-123.png")
+        XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8::1:2022]:/tmp/cmux-drop-123.png")
     }
 
     func testDetectsEternalTerminalSessionIgnoresOptionsAfterDestination() {
