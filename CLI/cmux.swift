@@ -16425,6 +16425,7 @@ struct CMUXCLI {
         private var attachableThreadIds = Set<String>()
         private let readinessLock = NSLock()
         private let stateLock = NSLock()
+        private let socketLock = NSLock()
         private var lastAgentSurfaceId: String?
         private var reportedSpawnFailureFingerprints = Set<String>()
         private var spawnFailureDeliveryStates: [String: SpawnFailureDeliveryState] = [:]
@@ -16747,7 +16748,7 @@ struct CMUXCLI {
             if attempt.deliverNotification {
                 notificationSucceeded = false
                 do {
-                    _ = try socketClient.sendV2(method: "notification.create_for_target", params: [
+                    _ = try sendSocketV2(method: "notification.create_for_target", params: [
                         "workspace_id": workspaceId,
                         "surface_id": rootSurfaceId,
                         "title": diagnostic.title,
@@ -16765,7 +16766,7 @@ struct CMUXCLI {
                 statusSucceeded = false
                 let statusCommand = "set_status codex \(diagnostic.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId) --panel=\(rootSurfaceId)"
                 do {
-                    let response = try socketClient.send(command: statusCommand)
+                    let response = try sendSocketCommand(statusCommand)
                     if response.hasPrefix("ERROR:") {
                         fputs("cmux codex-teams watcher failed to set spawn failure status: \(response)\n", stderr)
                     } else {
@@ -16780,6 +16781,29 @@ struct CMUXCLI {
                 notificationSucceeded: notificationSucceeded,
                 statusSucceeded: statusSucceeded
             )
+        }
+
+        private func sendSocketV2(
+            method: String,
+            params: [String: Any] = [:],
+            responseTimeout: TimeInterval? = nil
+        ) throws -> [String: Any] {
+            socketLock.lock()
+            defer { socketLock.unlock() }
+            return try socketClient.sendV2(
+                method: method,
+                params: params,
+                responseTimeout: responseTimeout
+            )
+        }
+
+        private func sendSocketCommand(
+            _ command: String,
+            responseTimeout: TimeInterval? = nil
+        ) throws -> String {
+            socketLock.lock()
+            defer { socketLock.unlock() }
+            return try socketClient.send(command: command, responseTimeout: responseTimeout)
         }
 
         private func backfillLoadedThreads(connection: CodexTeamsAppServerConnection) throws {
@@ -17010,14 +17034,14 @@ struct CMUXCLI {
                 splitParams["working_directory"] = cwd
             }
 
-            let created = try socketClient.sendV2(method: "surface.split", params: splitParams)
+            let created = try sendSocketV2(method: "surface.split", params: splitParams)
             guard let surfaceId = created["surface_id"] as? String else {
                 throw CLIError(message: "surface.split did not return surface_id")
             }
             lastAgentSurfaceId = surfaceId
 
             do {
-                _ = try socketClient.sendV2(method: "tab.action", params: [
+                _ = try sendSocketV2(method: "tab.action", params: [
                     "workspace_id": workspaceId,
                     "surface_id": surfaceId,
                     "action": "rename",
@@ -17027,7 +17051,7 @@ struct CMUXCLI {
                 // The subagent pane already exists, so a rename failure should not stop watching.
             }
             do {
-                _ = try socketClient.sendV2(method: "workspace.equalize_splits", params: [
+                _ = try sendSocketV2(method: "workspace.equalize_splits", params: [
                     "workspace_id": workspaceId,
                     "orientation": "vertical"
                 ])
