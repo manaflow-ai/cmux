@@ -80,7 +80,7 @@ final class SidebarWorkspaceRowHoverTrackingView: NSView {
         }
         let nextTrackingArea = NSTrackingArea(
             rect: .zero,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
             owner: self,
             userInfo: nil
         )
@@ -100,6 +100,10 @@ final class SidebarWorkspaceRowHoverTrackingView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
+        reconcileCurrentPointerLocation()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
         reconcileCurrentPointerLocation()
     }
 
