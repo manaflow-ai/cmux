@@ -16421,6 +16421,7 @@ struct CMUXCLI {
         private var threadById: [String: CodexTeamsThread] = [:]
         private var pendingThreadIds = Set<String>()
         private var openedThreadIds = Set<String>()
+        private var openingThreadIds = Set<String>()
         private var readinessProbeThreadIds = Set<String>()
         private var attachableThreadIds = Set<String>()
         private let readinessLock = NSLock()
@@ -16924,23 +16925,55 @@ struct CMUXCLI {
             depthByThreadId[thread.id] = depth
             guard depth <= maxAutoDepth else { return }
             guard !openedThreadIds.contains(thread.id) else { return }
+            guard !openingThreadIds.contains(thread.id) else { return }
             guard CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else { return }
             guard codexTeamsConsumeAttachableThreadId(thread.id) else {
                 codexTeamsScheduleReadinessProbe(threadId: thread.id)
                 return
             }
 
+            let targetSurfaceId = lastAgentSurfaceId ?? rootSurfaceId
+            let direction = lastAgentSurfaceId == nil ? "right" : "down"
+            openingThreadIds.insert(thread.id)
+
+            // SocketClient is one FD; serialize its reads/writes without holding stateLock.
+            stateLock.unlock()
             do {
-                try openSubagent(thread, spawn: spawn, depth: depth)
-            } catch {
-                if lastAgentSurfaceId != nil {
-                    lastAgentSurfaceId = nil
-                    try openSubagent(thread, spawn: spawn, depth: depth)
-                } else {
-                    throw error
+                let surfaceId: String
+                do {
+                    surfaceId = try openSubagent(
+                        thread,
+                        spawn: spawn,
+                        depth: depth,
+                        targetSurfaceId: targetSurfaceId,
+                        direction: direction
+                    )
+                } catch {
+                    guard targetSurfaceId != rootSurfaceId else {
+                        throw error
+                    }
+                    stateLock.lock()
+                    if lastAgentSurfaceId == targetSurfaceId {
+                        lastAgentSurfaceId = nil
+                    }
+                    stateLock.unlock()
+                    surfaceId = try openSubagent(
+                        thread,
+                        spawn: spawn,
+                        depth: depth,
+                        targetSurfaceId: rootSurfaceId,
+                        direction: "right"
+                    )
                 }
+                stateLock.lock()
+                openingThreadIds.remove(thread.id)
+                lastAgentSurfaceId = surfaceId
+                openedThreadIds.insert(thread.id)
+            } catch {
+                stateLock.lock()
+                openingThreadIds.remove(thread.id)
+                throw error
             }
-            openedThreadIds.insert(thread.id)
         }
 
         private func codexTeamsScheduleReadinessProbe(threadId: String) {
@@ -16999,8 +17032,10 @@ struct CMUXCLI {
         private func openSubagent(
             _ thread: CodexTeamsThread,
             spawn: CodexTeamsSpawn,
-            depth: Int
-        ) throws {
+            depth: Int,
+            targetSurfaceId: String,
+            direction: String
+        ) throws -> String {
             let commandText = CMUXCLI.codexTeamsResumeCommandText(
                 codexExecutable: codexExecutable,
                 appServerURL: appServerURL,
@@ -17013,8 +17048,6 @@ struct CMUXCLI {
                 throw CLIError(message: "Failed to create Codex subagent startup script")
             }
 
-            let targetSurfaceId = lastAgentSurfaceId ?? rootSurfaceId
-            let direction = lastAgentSurfaceId == nil ? "right" : "down"
             var splitParams: [String: Any] = [
                 "workspace_id": workspaceId,
                 "surface_id": targetSurfaceId,
@@ -17038,7 +17071,6 @@ struct CMUXCLI {
             guard let surfaceId = created["surface_id"] as? String else {
                 throw CLIError(message: "surface.split did not return surface_id")
             }
-            lastAgentSurfaceId = surfaceId
 
             do {
                 _ = try sendSocketV2(method: "tab.action", params: [
@@ -17058,6 +17090,7 @@ struct CMUXCLI {
             } catch {
                 // Layout polish is best-effort after the pane is opened.
             }
+            return surfaceId
         }
     }
 
