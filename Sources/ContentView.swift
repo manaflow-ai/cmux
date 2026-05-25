@@ -9361,7 +9361,7 @@ private struct SidebarResizerAccessibilityModifier: ViewModifier {
     }
 }
 
-private struct SidebarTabItemSettingsSnapshot: Equatable {
+struct SidebarTabItemSettingsSnapshot: Equatable {
     let hidesAllDetails: Bool
     let showsWorkspaceDescription: Bool
     let sidebarShortcutHintXOffset: Double
