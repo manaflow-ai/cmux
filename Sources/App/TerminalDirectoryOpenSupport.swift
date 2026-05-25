@@ -332,27 +332,39 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     var preferredEditorCommand: String? {
         switch self {
         case .androidStudio:
-            return "studio"
+            return "open -a 'Android Studio'"
         case .antigravity:
-            return "antigravity"
+            return "open -a Antigravity"
         case .cursor:
-            return "cursor"
+            return "open -a Cursor"
         case .intellij:
-            return "idea"
+            return "open -a 'IntelliJ IDEA'"
         case .sublimeText:
-            return "subl"
+            return "open -a 'Sublime Text'"
         case .vscode:
-            return "code"
+            return "open -a 'Visual Studio Code'"
         case .windsurf:
-            return "windsurf"
+            return "open -a Windsurf"
         case .xcode:
-            return "xed"
+            return "open -a Xcode"
         case .zed:
-            return "zed"
+            return "open -a Zed"
         case .finder, .ghostty, .iterm2, .terminal, .tower, .vscodeInline, .warp:
             return nil
         }
     }
+
+    static let legacyCLICommands: [String: TerminalDirectoryOpenTarget] = [
+        "studio": .androidStudio,
+        "antigravity": .antigravity,
+        "cursor": .cursor,
+        "idea": .intellij,
+        "subl": .sublimeText,
+        "code": .vscode,
+        "windsurf": .windsurf,
+        "xed": .xcode,
+        "zed": .zed,
+    ]
 
     var preferredEditorDisplayName: String {
         switch self {

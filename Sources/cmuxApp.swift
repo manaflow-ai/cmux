@@ -5002,13 +5002,22 @@ enum PreferredEditorSettings {
         TerminalDirectoryOpenTarget.availablePreferredEditorOptions(in: environment)
     }
 
+    static func migratedCommand(_ command: String) -> String? {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let target = TerminalDirectoryOpenTarget.legacyCLICommands[trimmed] else { return nil }
+        return target.preferredEditorCommand
+    }
+
     static func selectionID(
         for command: String,
         editorOptions: [TerminalDirectoryOpenTarget.PreferredEditorOption]
     ) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return systemDefaultSelectionID }
-        return editorOptions.first { $0.command == trimmed }?.id ?? customSelectionID
+        if let match = editorOptions.first(where: { $0.command == trimmed }) { return match.id }
+        if let migrated = migratedCommand(trimmed),
+           let match = editorOptions.first(where: { $0.command == migrated }) { return match.id }
+        return customSelectionID
     }
 
     static func command(
@@ -5033,6 +5042,10 @@ enum PreferredEditorSettings {
             return .systemDefault
         }
         if let option = editorOptions.first(where: { $0.command == trimmed }) {
+            return .detectedEditor(displayName: option.displayName)
+        }
+        if let migrated = migratedCommand(trimmed),
+           let option = editorOptions.first(where: { $0.command == migrated }) {
             return .detectedEditor(displayName: option.displayName)
         }
         return .customCommand(trimmed)
@@ -5726,6 +5739,11 @@ struct SettingsView: View {
             command: preferredEditorCommand,
             editorOptions: preferredEditorOptions
         )
+    }
+
+    private var shortcutChordsEditorSubtitle: String {
+        let base = String(localized: "settings.shortcuts.chords.subtitle", defaultValue: "Add tmux-style multi-step shortcuts in cmux.json, for example [\"ctrl+b\", \"c\"].")
+        return base + " " + preferredEditorUsageHintText
     }
 
     private var supportedFileRoutingBinding: Binding<Bool> {
@@ -7672,7 +7690,7 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .action,
                             String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"),
-                            subtitle: String(localized: "settings.shortcuts.chords.subtitle", defaultValue: "Add tmux-style multi-step shortcuts in cmux.json, for example [\"ctrl+b\", \"c\"]."),
+                            subtitle: shortcutChordsEditorSubtitle,
                             searchAnchorID: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcut-chords")
                         ) {
                             HStack(spacing: 8) {
