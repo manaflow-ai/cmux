@@ -118,7 +118,9 @@ nonisolated enum RemoteShellSessionParsing {
             case "host":
                 destination = trimmedValue
             case "jumphost":
-                jumpHost = trimmedValue
+                let resolvedJumpHost = resolveEternalTerminalDestination(trimmedValue, loginName: nil)
+                guard !resolvedJumpHost.isEmpty else { return false }
+                jumpHost = resolvedJumpHost
             case "jport", "keepalive", "port":
                 guard Int(trimmedValue) != nil else { return false }
             case "username":
