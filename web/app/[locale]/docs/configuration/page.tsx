@@ -82,7 +82,11 @@ const settingsFileExample = `{
   //   "customSearchEngineName": "My Search",
   //   "customSearchEngineURLTemplate": "https://search.example.com/?q={query}",
   //   "openTerminalLinksInCmuxBrowser": true,
-  //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
+  //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"],
+  //   // Pages whose host matches receive Cmd-modifier shortcuts directly
+  //   // (Cmd+P, Cmd+F, Cmd+Shift+P, ...) instead of cmux's menu. Useful for
+  //   // web IDEs like code-server (VS Code) running in the embedded browser.
+  //   "shortcutPassthroughHosts": ["127.0.0.1", "localhost"]
   // },
 
   // "automation": {

@@ -11846,6 +11846,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             clearConfiguredShortcutChordState()
             return false
         }
+        // Per-URL passthrough: bail out before any configured-shortcut dispatch
+        // so the event flows through the normal AppKit chain into
+        // CmuxWebView.performKeyEquivalent (which has its own passthrough fast
+        // path). The local monitor will see the false return and pass the
+        // event through unconsumed.
+        if let focusedWindow = event.window ?? NSApp.keyWindow,
+           let firstResponder = focusedWindow.firstResponder,
+           browserOmnibarPanelId(for: firstResponder) == nil,
+           let webView = NSWindow.cmuxOwningWebView(for: firstResponder, in: focusedWindow, event: event),
+           shouldPassthroughCommandEquivalentToWebContent(
+               event,
+               responder: firstResponder,
+               owningWebView: webView
+           ) {
+            clearConfiguredShortcutChordState()
+            return false
+        }
 
         // `charactersIgnoringModifiers` can be nil for some synthetic NSEvents and certain special keys.
         // Treat nil as "" and rely on keyCode/layout-aware fallback logic where needed.
@@ -16093,6 +16110,27 @@ private extension NSWindow {
             )
             return true
         }
+        // Per-URL Cmd-modifier passthrough: when the focused web view's URL is
+        // on the user's allowlist, hand the chord straight to WebKit and bypass
+        // every cmux-side menu/shortcut claim. The omnibar (browser address bar)
+        // is excluded so its own shortcuts keep working.
+        if let firstResponderWebView,
+           firstResponderOmnibarPanelId == nil,
+           shouldPassthroughCommandEquivalentToWebContent(
+               event,
+               responder: self.firstResponder,
+               owningWebView: firstResponderWebView
+           ) {
+            let result = firstResponderWebView.performKeyEquivalent(with: event)
+#if DEBUG
+            cmuxDebugLog(
+                "  → passthrough host match: webView.performKeyEquivalent returned \(result)"
+            )
+#endif
+            // Always return true so AppKit does not fall through to the main
+            // menu — the matching URL has opted into "web content owns Cmd".
+            return true
+        }
         if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
             if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
 #if DEBUG
@@ -16465,7 +16503,7 @@ private extension NSWindow {
         return nil
     }
 
-    private static func cmuxOwningWebView(
+    fileprivate static func cmuxOwningWebView(
         for responder: NSResponder,
         in window: NSWindow,
         event: NSEvent?

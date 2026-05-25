@@ -916,6 +916,14 @@
           ],
           "description": "HTTP hosts allowed in the embedded browser without a warning prompt."
         },
+        "shortcutPassthroughHosts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Hosts whose pages receive Cmd-modifier shortcuts directly. On matching pages cmux's own menu shortcuts (Cmd+P, Cmd+F, Cmd+Shift+P, etc.) are bypassed so the web content (e.g. VS Code in code-server) can handle them. Supports exact match and wildcard prefix (`*.example.com`). Empty list (default) keeps cmux's existing behavior on every page."
+        },
         "showImportHintOnBlankTabs": {
           "type": "boolean",
           "default": true,

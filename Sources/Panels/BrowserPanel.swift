@@ -790,6 +790,9 @@ enum BrowserLinkOpenSettings {
     static let browserExternalOpenPatternsKey = "browserExternalOpenPatterns"
     static let defaultBrowserExternalOpenPatterns: String = ""
 
+    static let shortcutPassthroughHostsKey = "browserShortcutPassthroughHosts"
+    static let defaultShortcutPassthroughHosts: String = ""
+
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
         guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
         if defaults.object(forKey: openTerminalLinksInCmuxBrowserKey) == nil {
@@ -887,6 +890,34 @@ enum BrowserLinkOpenSettings {
             }
         }
         return false
+    }
+
+    static func shortcutPassthroughHosts(defaults: UserDefaults = .standard) -> [String] {
+        let raw = defaults.string(forKey: shortcutPassthroughHostsKey) ?? defaultShortcutPassthroughHosts
+        return raw
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    // Empty list means "no passthrough" so the default behavior matches what
+    // cmux has always done — every Cmd-modifier chord stays with cmux's menus.
+    static func hostMatchesShortcutPassthrough(_ host: String, defaults: UserDefaults = .standard) -> Bool {
+        let rawPatterns = shortcutPassthroughHosts(defaults: defaults)
+        if rawPatterns.isEmpty { return false }
+        guard let normalizedHost = BrowserInsecureHTTPSettings.normalizeHost(host) else { return false }
+        for rawPattern in rawPatterns {
+            guard let pattern = normalizeWhitelistPattern(rawPattern) else { continue }
+            if hostMatchesPattern(normalizedHost, pattern: pattern) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func urlMatchesShortcutPassthrough(_ url: URL?, defaults: UserDefaults = .standard) -> Bool {
+        guard let host = url?.host, !host.isEmpty else { return false }
+        return hostMatchesShortcutPassthrough(host, defaults: defaults)
     }
 
     private static func normalizeWhitelistPattern(_ rawPattern: String) -> String? {

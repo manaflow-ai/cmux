@@ -614,6 +614,20 @@ final class CmuxWebView: WKWebView {
             return finish(super.performKeyEquivalent(with: event))
         }
 
+        // Per-URL passthrough: when the current page matches the configured
+        // `browser.shortcutPassthroughHosts` allowlist, hand the Cmd-modifier
+        // event straight to WebKit and skip cmux's menu/replay machinery.
+        if shouldPassthroughCommandEquivalentToWebContent(
+            event,
+            responder: window?.firstResponder,
+            owningWebView: self
+        ) {
+#if DEBUG
+            cmuxDebugLog("browser.web.performKeyEquivalent: passthrough host match → super")
+#endif
+            return finish(super.performKeyEquivalent(with: event))
+        }
+
         if Self.isPasteAsPlainTextCommandEquivalent(event) {
             if event.timestamp > 0 {
                 lastPasteAsPlainTextPerformKeyEventTimestamp = event.timestamp
