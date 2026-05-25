@@ -3,7 +3,7 @@ import Foundation
 struct CmuxExtensionWorktreeCreationResult: Sendable {
     let worktreePath: String
     let workspaceTitle: String
-    let initialCommand: String
+    let initialCommand: String?
 }
 
 final class CmuxExtensionProcessTermination: @unchecked Sendable {
@@ -45,28 +45,47 @@ final class CmuxExtensionProcessTermination: @unchecked Sendable {
 }
 
 enum CmuxExtensionWorktreePrototype {
-    static func createWorktree(projectRootPath: String) async throws -> CmuxExtensionWorktreeCreationResult {
+    static func createWorktree(
+        projectRootPath: String,
+        seedDemoFiles: Bool = true,
+        branchPrefix: String = "cmux-sidebar",
+        branchName explicitBranchName: String? = nil
+    ) async throws -> CmuxExtensionWorktreeCreationResult {
         try await Task.detached(priority: .userInitiated) {
             let projectRoot = URL(fileURLWithPath: projectRootPath, isDirectory: true).standardizedFileURL
             try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
             try await ensureGitRepository(at: projectRoot)
             try await ensureCmuxWorktreeDirectoryIsLocallyIgnored(projectRoot: projectRoot)
 
-            let branchName = "cmux-sidebar-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8).lowercased())"
+            let trimmedExplicitName = explicitBranchName?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let branchName: String
+            if let trimmedExplicitName, !trimmedExplicitName.isEmpty {
+                branchName = trimmedExplicitName
+            } else {
+                branchName = "\(branchPrefix)-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8).lowercased())"
+            }
             let worktreeRoot = projectRoot
                 .appendingPathComponent(".cmux", isDirectory: true)
                 .appendingPathComponent("worktrees", isDirectory: true)
             try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
             let worktree = worktreeRoot.appendingPathComponent(branchName, isDirectory: true)
             try await run("git", ["-C", projectRoot.path, "worktree", "add", "-b", branchName, worktree.path, "HEAD"])
-            try writeSampleDevServerFiles(in: worktree, projectName: projectRoot.lastPathComponent)
 
-            let port = 4_100 + abs(branchName.hashValue % 800)
-            let samplePath = shellEscaped(worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true).path)
+            let initialCommand: String?
+            if seedDemoFiles {
+                try writeSampleDevServerFiles(in: worktree, projectName: projectRoot.lastPathComponent)
+                let port = 4_100 + abs(branchName.hashValue % 800)
+                let samplePath = shellEscaped(worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true).path)
+                initialCommand = "cd \(samplePath) && python3 -m http.server \(port)"
+            } else {
+                initialCommand = nil
+            }
+
             return CmuxExtensionWorktreeCreationResult(
                 worktreePath: worktree.path,
                 workspaceTitle: branchName,
-                initialCommand: "cd \(samplePath) && python3 -m http.server \(port)"
+                initialCommand: initialCommand
             )
         }.value
     }

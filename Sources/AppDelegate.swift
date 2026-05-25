@@ -6637,6 +6637,295 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// Prompts the user for a branch name, then starts an async worktree
+    /// creation against the selected workspace's git project root. Returns
+    /// `false` (and beeps) when no resolvable project root is available or the
+    /// user cancels the prompt; otherwise returns `true` immediately and adds
+    /// the new workspace once `git worktree add` succeeds.
+    @discardableResult
+    func performNewWorktreeAction(
+        tabManager preferredTabManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil,
+        debugSource: String = "newWorktree"
+    ) -> Bool {
+        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
+            ?? preferredWindow.flatMap { contextForMainWindow($0) }
+            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+        guard let context else {
+            NSSound.beep()
+            return false
+        }
+        let tabManager = context.tabManager
+        // Reason: `extensionSidebarProjectRootPath` is the cached git-repo root
+        // for the workspace's cwd (computed by the same logic the sidebar "+"
+        // uses). Fall back to the raw cwd so the action still works before that
+        // async refresh has populated.
+        let rawRoot = tabManager.selectedWorkspace?.extensionSidebarProjectRootPath
+            ?? tabManager.selectedWorkspace?.currentDirectory
+        let projectRootPath = rawRoot?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !projectRootPath.isEmpty else {
+            NSSound.beep()
+#if DEBUG
+            cmuxDebugLog("newWorktree.noProjectRoot source=\(debugSource)")
+#endif
+            return false
+        }
+
+        guard let branchName = promptForNewWorktreeBranchName(projectRootPath: projectRootPath) else {
+#if DEBUG
+            cmuxDebugLog("newWorktree.cancelled source=\(debugSource)")
+#endif
+            return false
+        }
+
+#if DEBUG
+        cmuxDebugLog("newWorktree.start source=\(debugSource) project=\(projectRootPath) branch=\(branchName)")
+#endif
+        Task {
+            do {
+                let result = try await CmuxExtensionWorktreePrototype.createWorktree(
+                    projectRootPath: projectRootPath,
+                    seedDemoFiles: false,
+                    branchPrefix: "cmux-worktree",
+                    branchName: branchName
+                )
+                tabManager.addWorkspace(
+                    title: result.workspaceTitle,
+                    workingDirectory: result.worktreePath,
+                    initialTerminalCommand: result.initialCommand,
+                    inheritWorkingDirectory: false,
+                    select: true,
+                    eagerLoadTerminal: false
+                )
+            } catch {
+                NSSound.beep()
+#if DEBUG
+                cmuxDebugLog("newWorktree.failed source=\(debugSource) project=\(projectRootPath) error=\(error.localizedDescription)")
+#endif
+                presentNewWorktreeCreationFailureAlert(branchName: branchName, error: error)
+            }
+        }
+        return true
+    }
+
+    /// Loops the branch-name dialog until the user cancels or enters a name
+    /// that passes pre-creation validation (well-formed git ref, not already
+    /// taken). Returns nil on cancel/empty input.
+    private func promptForNewWorktreeBranchName(projectRootPath: String) -> String? {
+        var seedText = nextAvailableWorktreeBranchName(projectRootPath: projectRootPath)
+        var validationError: String?
+        while true {
+            guard let candidate = showNewWorktreeBranchDialog(
+                initialText: seedText,
+                errorMessage: validationError
+            ) else {
+                return nil
+            }
+            if let issue = branchNameValidationError(candidate, in: projectRootPath) {
+                seedText = candidate
+                validationError = issue
+                continue
+            }
+            return candidate
+        }
+    }
+
+    /// Suggests `<project>-worktree-<N>` with the smallest N that isn't
+    /// already a local branch. Falls back to `cmux-worktree-<N>` if the
+    /// project directory name sanitizes to empty.
+    private func nextAvailableWorktreeBranchName(projectRootPath: String) -> String {
+        let prefix = "\(worktreeBranchPrefix(for: projectRootPath))-worktree-"
+        let result = runGitSync([
+            "-C", projectRootPath,
+            "for-each-ref", "--format=%(refname:short)",
+            "refs/heads/\(prefix)*"
+        ])
+        var used = Set<Int>()
+        if result.exitCode == 0 {
+            for line in result.output.split(whereSeparator: { $0.isNewline }) {
+                let suffix = String(line).dropFirst(prefix.count)
+                if let n = Int(suffix), n > 0 {
+                    used.insert(n)
+                }
+            }
+        }
+        var n = 1
+        while used.contains(n) { n += 1 }
+        return "\(prefix)\(n)"
+    }
+
+    private func worktreeBranchPrefix(for projectRootPath: String) -> String {
+        let raw = URL(fileURLWithPath: projectRootPath, isDirectory: true)
+            .standardizedFileURL
+            .lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Reason: branch names can't contain spaces or many special chars. Map
+        // anything outside [A-Za-z0-9._-] to '-' and collapse runs so the
+        // prefilled name is itself valid even when the dir has odd characters.
+        var sanitized = ""
+        var lastWasDash = false
+        for scalar in raw.unicodeScalars {
+            let isSafe = (scalar >= "A" && scalar <= "Z")
+                || (scalar >= "a" && scalar <= "z")
+                || (scalar >= "0" && scalar <= "9")
+                || scalar == "." || scalar == "_" || scalar == "-"
+            if isSafe {
+                sanitized.unicodeScalars.append(scalar)
+                lastWasDash = (scalar == "-")
+            } else if !lastWasDash {
+                sanitized.append("-")
+                lastWasDash = true
+            }
+        }
+        while sanitized.hasPrefix("-") || sanitized.hasPrefix(".") {
+            sanitized.removeFirst()
+        }
+        while sanitized.hasSuffix("-") || sanitized.hasSuffix(".") {
+            sanitized.removeLast()
+        }
+        return sanitized.isEmpty ? "cmux" : sanitized
+    }
+
+    private func showNewWorktreeBranchDialog(
+        initialText: String,
+        errorMessage: String?
+    ) -> String? {
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "dialog.newWorktree.title",
+            defaultValue: "New Worktree"
+        )
+        alert.informativeText = String(
+            localized: "dialog.newWorktree.message",
+            defaultValue: "Enter a name for the new branch and worktree."
+        )
+
+        let accessoryWidth: CGFloat = 320
+        let inputHeight: CGFloat = 22
+        let input = NSTextField(string: initialText)
+        input.placeholderString = String(
+            localized: "dialog.newWorktree.placeholder",
+            defaultValue: "Branch name"
+        )
+
+        let accessoryView: NSView
+        if let errorMessage {
+            let errorLabel = NSTextField(wrappingLabelWithString: errorMessage)
+            errorLabel.font = NSFont.systemFont(ofSize: 11)
+            errorLabel.textColor = .systemRed
+            errorLabel.lineBreakMode = .byWordWrapping
+            errorLabel.maximumNumberOfLines = 4
+            errorLabel.preferredMaxLayoutWidth = accessoryWidth
+            let errorSize = errorLabel.sizeThatFits(NSSize(width: accessoryWidth, height: 0))
+            let errorHeight = max(errorSize.height, NSFont.systemFontSize * 1.4)
+            let spacing: CGFloat = 8
+            let totalHeight = errorHeight + spacing + inputHeight
+            let container = NSView(frame: NSRect(x: 0, y: 0, width: accessoryWidth, height: totalHeight))
+            errorLabel.frame = NSRect(x: 0, y: inputHeight + spacing, width: accessoryWidth, height: errorHeight)
+            input.frame = NSRect(x: 0, y: 0, width: accessoryWidth, height: inputHeight)
+            container.addSubview(errorLabel)
+            container.addSubview(input)
+            accessoryView = container
+        } else {
+            input.frame = NSRect(x: 0, y: 0, width: accessoryWidth, height: inputHeight)
+            accessoryView = input
+        }
+
+        alert.accessoryView = accessoryView
+        alert.addButton(withTitle: String(
+            localized: "dialog.newWorktree.create",
+            defaultValue: "Create"
+        ))
+        alert.addButton(withTitle: String(
+            localized: "common.cancel",
+            defaultValue: "Cancel"
+        ))
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        DispatchQueue.main.async {
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return nil }
+        let trimmed = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    private func presentNewWorktreeCreationFailureAlert(branchName: String, error: Error) {
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "dialog.newWorktree.error.creationFailed.title",
+            defaultValue: "Could Not Create Worktree"
+        )
+        let nsError = error as NSError
+        let details = (nsError.userInfo["CmuxExtensionWorktreePrototypeDetails"] as? String)
+            ?? error.localizedDescription
+        let trimmedDetails = details.trimmingCharacters(in: .whitespacesAndNewlines)
+        alert.informativeText = trimmedDetails.isEmpty
+            ? branchName
+            : "\(branchName)\n\n\(trimmedDetails)"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        alert.runModal()
+    }
+
+    /// Pre-creation validation. Returns a localized, user-facing message when
+    /// the name is malformed or already taken; nil when the name is OK to
+    /// attempt. We deliberately ignore errors from the helper itself — if `git`
+    /// can't even tell us, we let the actual `git worktree add` surface the
+    /// underlying problem via `presentNewWorktreeCreationFailureAlert`.
+    private func branchNameValidationError(_ branchName: String, in projectRootPath: String) -> String? {
+        let format = runGitSync(["check-ref-format", "--branch", branchName])
+        if format.exitCode != 0 {
+            return String(
+                localized: "dialog.newWorktree.error.invalidName",
+                defaultValue: "Invalid branch name. Try letters, numbers, dashes, or slashes — no spaces or special characters."
+            )
+        }
+        let exists = runGitSync([
+            "-C", projectRootPath,
+            "rev-parse", "--verify", "--quiet",
+            "refs/heads/\(branchName)"
+        ])
+        if exists.exitCode == 0 {
+            return String(
+                localized: "dialog.newWorktree.error.branchExists",
+                defaultValue: "A branch with this name already exists. Pick a different name."
+            )
+        }
+        return nil
+    }
+
+    private struct GitSyncResult {
+        let exitCode: Int32
+        let output: String
+    }
+
+    private func runGitSync(_ arguments: [String]) -> GitSyncResult {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git"] + arguments
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return GitSyncResult(exitCode: -1, output: "")
+        }
+        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        _ = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        return GitSyncResult(
+            exitCode: process.terminationStatus,
+            output: String(data: data, encoding: .utf8) ?? ""
+        )
+    }
+
     private func mainWindowContext(for tabManager: TabManager) -> MainWindowContext? {
         mainWindowContexts.values.first(where: { $0.tabManager === tabManager })
     }
@@ -13801,6 +14090,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     tabManager: context.tabManager,
                     preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
                     debugSource: "configured.cmux.cloudvm"
+                )
+                if didStart { onExecuted?() }
+                return didStart
+            case .newWorktree:
+                let didStart = performNewWorktreeAction(
+                    tabManager: context.tabManager,
+                    debugSource: "configured.cmux.newWorktree"
                 )
                 if didStart { onExecuted?() }
                 return didStart

@@ -16781,6 +16781,12 @@ extension Workspace: BonsplitDelegate {
                     preferredWindow: presentingWindow,
                     debugSource: "surfaceTabBar.cloudVM"
                 )
+            case .newWorktree:
+                _ = AppDelegate.shared?.performNewWorktreeAction(
+                    tabManager: owningTabManager,
+                    preferredWindow: presentingWindow,
+                    debugSource: "surfaceTabBar.newWorktree"
+                )
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

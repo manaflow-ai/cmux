@@ -24624,6 +24624,23 @@
         }
       }
     },
+    "command.newWorktree.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Worktree"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークツリー"
+          }
+        }
+      }
+    },
     "command.nextTabInPane.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -41335,6 +41352,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перемістити вкладку"
+          }
+        }
+      }
+    },
+    "dialog.newWorktree.create": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成"
+          }
+        }
+      }
+    },
+    "dialog.newWorktree.error.branchExists": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A branch with this name already exists. Pick a different name."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この名前のブランチは既に存在します。別の名前を指定してください。"
+          }
+        }
+      }
+    },
+    "dialog.newWorktree.error.creationFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could Not Create Worktree"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークツリーを作成できませんでした"
+          }
+        }
+      }
+    },
+    "dialog.newWorktree.error.invalidName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid branch name. Try letters, numbers, dashes, or slashes — no spaces or special characters."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブランチ名が無効です。英字、数字、ハイフン、スラッシュのみ使用できます。スペースや特殊文字は使えません。"
+          }
+        }
+      }
+    },
+    "dialog.newWorktree.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a name for the new branch and worktree."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいブランチとワークツリーの名前を入力してください。"
+          }
+        }
+      }
+    },
+    "dialog.newWorktree.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branch name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブランチ名"
+          }
+        }
+      }
+    },
+    "dialog.newWorktree.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Worktree"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークツリー"
           }
         }
       }

@@ -87,14 +87,16 @@ final class CmuxConfigContextMenuTests: XCTestCase {
     func testDefaultNewWorkspaceContextMenuIncludesCloudVM() throws {
         let store = try loadStore()
 
-        XCTAssertEqual(store.newWorkspaceContextMenuItems.count, 2)
-        guard store.newWorkspaceContextMenuItems.count == 2 else { return }
+        XCTAssertEqual(store.newWorkspaceContextMenuItems.count, 3)
+        guard store.newWorkspaceContextMenuItems.count == 3 else { return }
         guard case .action(let first) = store.newWorkspaceContextMenuItems[0],
-              case .action(let second) = store.newWorkspaceContextMenuItems[1] else {
+              case .action(let second) = store.newWorkspaceContextMenuItems[1],
+              case .action(let third) = store.newWorkspaceContextMenuItems[2] else {
             return XCTFail("Expected default context menu actions.")
         }
         XCTAssertEqual(first.action.id, CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)
         XCTAssertEqual(second.action.id, CmuxSurfaceTabBarBuiltInAction.cloudVM.configID)
+        XCTAssertEqual(third.action.id, CmuxSurfaceTabBarBuiltInAction.newWorktree.configID)
         XCTAssertTrue(store.configurationIssues.isEmpty)
     }
 
@@ -174,8 +176,8 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         }
         """)
 
-        XCTAssertEqual(store.newWorkspaceContextMenuItems.count, 2)
-        guard store.newWorkspaceContextMenuItems.count == 2 else { return }
+        XCTAssertEqual(store.newWorkspaceContextMenuItems.count, 3)
+        guard store.newWorkspaceContextMenuItems.count == 3 else { return }
         guard case .action(let item) = store.newWorkspaceContextMenuItems[1] else {
             return XCTFail("Expected Cloud VM context-menu action.")
         }

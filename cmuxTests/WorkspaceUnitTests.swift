@@ -6341,6 +6341,84 @@ final class ExtensionWorktreePrototypeTests: XCTestCase {
         XCTAssertEqual(status.trimmingCharacters(in: .whitespacesAndNewlines), "")
     }
 
+    func testCreateWorktreeWithoutDemoFilesSkipsSampleSeed() async throws {
+        let projectRoot = try makeEmptyGitProject()
+        defer { try? FileManager.default.removeItem(at: projectRoot.deletingLastPathComponent()) }
+
+        let result = try await CmuxExtensionWorktreePrototype.createWorktree(
+            projectRootPath: projectRoot.path,
+            seedDemoFiles: false,
+            branchPrefix: "cmux-worktree"
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.worktreePath))
+        XCTAssertTrue(
+            result.workspaceTitle.hasPrefix("cmux-worktree-"),
+            "expected branchPrefix to apply, got \(result.workspaceTitle)"
+        )
+        XCTAssertNil(result.initialCommand, "seedDemoFiles=false should produce no initial command")
+        let sampleDir = URL(fileURLWithPath: result.worktreePath, isDirectory: true)
+            .appendingPathComponent("cmux-sample-dev", isDirectory: true)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: sampleDir.path),
+            "cmux-sample-dev directory should not be created when seedDemoFiles is false"
+        )
+    }
+
+    func testCreateWorktreeUsesExplicitBranchName() async throws {
+        let projectRoot = try makeEmptyGitProject()
+        defer { try? FileManager.default.removeItem(at: projectRoot.deletingLastPathComponent()) }
+
+        let explicitBranch = "feature/explicit-name-\(UUID().uuidString.prefix(6).lowercased())"
+        let result = try await CmuxExtensionWorktreePrototype.createWorktree(
+            projectRootPath: projectRoot.path,
+            seedDemoFiles: false,
+            branchName: explicitBranch
+        )
+
+        XCTAssertEqual(result.workspaceTitle, explicitBranch)
+        let branches = try runGit(["branch", "--list", explicitBranch], in: projectRoot)
+        XCTAssertTrue(
+            branches.contains(explicitBranch),
+            "expected branch \(explicitBranch) to be created, got: \(branches)"
+        )
+    }
+
+    func testCreateWorktreeEmptyExplicitBranchNameFallsBackToGeneratedName() async throws {
+        let projectRoot = try makeEmptyGitProject()
+        defer { try? FileManager.default.removeItem(at: projectRoot.deletingLastPathComponent()) }
+
+        let result = try await CmuxExtensionWorktreePrototype.createWorktree(
+            projectRootPath: projectRoot.path,
+            seedDemoFiles: false,
+            branchPrefix: "cmux-worktree",
+            branchName: "   "
+        )
+
+        XCTAssertTrue(
+            result.workspaceTitle.hasPrefix("cmux-worktree-"),
+            "whitespace-only branchName should fall back to generated prefix, got \(result.workspaceTitle)"
+        )
+    }
+
+    private func makeEmptyGitProject() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-worktree-prototype-\(UUID().uuidString)", isDirectory: true)
+        let projectRoot = root.appendingPathComponent("Project", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        _ = try runGit(["init"], in: projectRoot)
+        try "hello\n".write(to: projectRoot.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+        _ = try runGit(["add", "README.md"], in: projectRoot)
+        _ = try runGit([
+            "-c", "user.name=cmux Test",
+            "-c", "user.email=cmux@example.invalid",
+            "commit",
+            "-m",
+            "initial"
+        ], in: projectRoot)
+        return projectRoot
+    }
+
     @discardableResult
     private func runGit(_ arguments: [String], in directory: URL) throws -> String {
         let process = Process()

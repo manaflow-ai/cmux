@@ -1508,6 +1508,9 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         case .cloudVM:
             title = String(localized: "command.cloudVM.title", defaultValue: "Start Cloud VM")
             keywords = ["cloud", "vm", "virtual", "machine", "remote"]
+        case .newWorktree:
+            title = String(localized: "command.newWorktree.title", defaultValue: "New Worktree")
+            keywords = ["new", "worktree", "git", "branch", "workspace"]
         case .newTerminal:
             title = String(localized: "command.newTerminalTab.title", defaultValue: "New Terminal Tab")
             keywords = ["new", "terminal", "tab", "surface"]
@@ -1832,6 +1835,7 @@ final class CmuxConfigStore: ObservableObject {
     private static let defaultNewWorkspaceContextMenu: [CmuxConfigContextMenuItem] = [
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)),
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.cloudVM.configID)),
+        .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newWorktree.configID)),
     ]
 
     @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
