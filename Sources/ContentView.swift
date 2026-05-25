@@ -10909,6 +10909,10 @@ private struct PromptTextEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { updateNSView(scrollView, context: context) }
+            return
+        }
         guard let tv = scrollView.documentView as? NSTextView else { return }
         if tv.string != text { tv.string = text }
         if tv.isEditable != isEditable { tv.isEditable = isEditable }
@@ -10975,6 +10979,7 @@ private struct PromptTextEditorContainer: View {
     }
 }
 
+@MainActor
 private final class PromptLauncherModel: ObservableObject {
     static let targets: [(id: String, label: String)] = [
         ("auto",     "auto"),
@@ -11007,7 +11012,7 @@ private final class PromptLauncherModel: ObservableObject {
         startDotAnimation()
         let target: String = selectedTarget
         let model: String = selectedModel
-        Task {
+        Task { @MainActor in
             await runWS(target: target, model: model, prompt: prompt)
             stopDotAnimation()
             isLoading = false
@@ -11113,7 +11118,7 @@ private final class PromptLauncherModel: ObservableObject {
         return regex.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "")
     }
 
-    static func resolveWSBin() -> String? {
+    nonisolated static func resolveWSBin() -> String? {
         let home = ProcessInfo.processInfo.environment["HOME"] ?? ""
         for path in ["\(home)/bin/ws", "\(home)/.local/bin/ws", "/usr/local/bin/ws"]
             where FileManager.default.isExecutableFile(atPath: path) { return path }
