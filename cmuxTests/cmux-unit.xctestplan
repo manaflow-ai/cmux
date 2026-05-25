@@ -1,0 +1,53 @@
+{
+  "configurations": [
+    {
+      "id": "F0074743-5DED-5270-80B5-91B08F226C3C",
+      "name": "Debug",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "environmentVariableEntries": [
+      {
+        "key": "SWIFT_BACKTRACE",
+        "value": "enable=no"
+      }
+    ],
+    "targetForVariableExpansion": {
+      "containerPath": "container:cmux.xcodeproj",
+      "identifier": "A5001050",
+      "name": "cmux"
+    }
+  },
+  "testTargets": [
+    {
+      "parallelizable": false,
+      "skippedTests": [
+        "AppDelegateShortcutRoutingTests",
+        "BrowserDeveloperToolsConfigurationTests",
+        "BrowserDeveloperToolsVisibilityPersistenceTests",
+        "BrowserPanelRemoteStoreTests",
+        "BrowserPanelWebViewLifecycleTests",
+        "BrowserSessionHistoryRestoreTests",
+        "CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields()",
+        "CLINotifyProcessIntegrationRegressionTests/testGrokNotificationStillFiresOnRepeatedPromptWhenFeedTelemetryDoesNotReply()",
+        "FileExplorerStoreTests/testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath()",
+        "FilePreviewPanelTextSavingTests",
+        "FilePreviewReviewFeedbackTests",
+        "GhosttySurfaceOverlayTests",
+        "MarkdownPanelTests/testMarkdownRenderBlocksRemoteImagesUntilUserAction()",
+        "PiVaultAgentPersistenceTests/testGrokAgentSearchScopeUsesCurrentDirectoryCWDFilter()",
+        "CLINotifyProcessIntegrationRegressionTests/testSSHPersistentPTYJSONReportsResolvedSessionID()",
+        "CLINotifyProcessIntegrationRegressionTests/testSSHPersistentPTYJSONResolvesSessionIDWhenWorkspaceCreateOmitsSurfaceID()",
+        "CLINotifyProcessIntegrationRegressionTests/testSSHPersistentPTYTreatsControlPersistZeroAsReusable()",
+        "CLINotifyProcessIntegrationRegressionTests/testSSHPersistentPTYUsesReusableForegroundAuthControlConnection()"
+      ],
+      "target": {
+        "containerPath": "container:cmux.xcodeproj",
+        "identifier": "F1000004A1B2C3D4E5F60718",
+        "name": "cmuxTests"
+      }
+    }
+  ],
+  "version": 1
+}
