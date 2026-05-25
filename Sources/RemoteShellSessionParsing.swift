@@ -155,8 +155,7 @@ enum RemoteShellSessionParsing {
                 if destination == nil {
                     destination = argument
                 }
-                index += 1
-                continue
+                break
             }
 
             if argument == "--ssh-option" {
@@ -392,7 +391,8 @@ enum RemoteShellSessionParsing {
         let portStart = trimmedHost.index(after: lastColon)
         let port = trimmedHost[portStart...]
         guard Int(port) != nil else { return trimmedHost }
-        return String(trimmedHost[..<lastColon])
+        let strippedHost = String(trimmedHost[..<lastColon])
+        return colonCount == 8 ? "[\(strippedHost)]" : strippedHost
     }
 
     private static func isBoolLiteral(_ value: String) -> Bool {

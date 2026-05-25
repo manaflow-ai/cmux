@@ -2053,7 +2053,61 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             localPath: "/tmp/local.png",
             remotePath: "/tmp/cmux-drop-123.png"
         ) ?? []
+        XCTAssertNil(session?.port)
+        XCTAssertFalse(scpArgs.contains("-P"))
         XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8::1]:/tmp/cmux-drop-123.png")
+    }
+
+    func testDetectsEternalTerminalSessionWithFullIPv6ServerPortForSCP() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "et",
+                    "-u", "lawrence",
+                    "2001:db8:0:0:0:0:0:1:2022",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.destination, "lawrence@[2001:db8:0:0:0:0:0:1]")
+
+        let scpArgs = session?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        ) ?? []
+        XCTAssertNil(session?.port)
+        XCTAssertFalse(scpArgs.contains("-P"))
+        XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8:0:0:0:0:0:1]:/tmp/cmux-drop-123.png")
+    }
+
+    func testDetectsEternalTerminalSessionIgnoresOptionsAfterDestination() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "et",
+                    "lawrence@example.com",
+                    "--ssh-option", "Port=2200",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.destination, "lawrence@example.com")
+        XCTAssertNil(session?.port)
+
+        let scpArgs = session?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        ) ?? []
+        XCTAssertFalse(scpArgs.contains("-P"))
+        XCTAssertEqual(scpArgs.last, "lawrence@example.com:/tmp/cmux-drop-123.png")
     }
 
     func testDetectsEternalTerminalSessionSSHOptionsForSCP() {
