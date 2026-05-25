@@ -134,12 +134,24 @@ nonisolated enum RemoteShellSessionParsing {
             }
         }
 
-        func hasLaterDestinationCandidate(after valueIndex: Int) -> Bool {
+        func destinationCandidateScore(_ argument: String) -> Int {
+            let trimmed = argument.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return 0 }
+            if trimmed.contains("@") { return 4 }
+            if trimmed.hasPrefix("[") && trimmed.contains("]") { return 3 }
+            if trimmed.contains(":") { return 3 }
+            if trimmed.contains(".") { return 2 }
+            return 1
+        }
+
+        func hasStrongerLaterDestinationCandidate(after valueIndex: Int, than candidate: String) -> Bool {
             let nextIndex = valueIndex + 1
             guard nextIndex < arguments.count else { return false }
+            let currentScore = destinationCandidateScore(candidate)
 
             return arguments[nextIndex...].contains { argument in
-                !argument.hasPrefix("-") || argument == "-"
+                (!argument.hasPrefix("-") || argument == "-") &&
+                    destinationCandidateScore(argument) > currentScore
             }
         }
 
@@ -263,7 +275,7 @@ nonisolated enum RemoteShellSessionParsing {
                    destination == nil,
                    index + 1 < arguments.count,
                    !arguments[index + 1].hasPrefix("-"),
-                   hasLaterDestinationCandidate(after: index + 1) {
+                   hasStrongerLaterDestinationCandidate(after: index + 1, than: arguments[index + 1]) {
                     index += 2
                     continue
                 }
