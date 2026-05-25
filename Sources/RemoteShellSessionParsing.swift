@@ -1,6 +1,7 @@
 import Foundation
+import Darwin
 
-enum RemoteShellTransport {
+nonisolated enum RemoteShellTransport: Sendable {
     case ssh
     case eternalTerminal
 
@@ -25,7 +26,7 @@ enum RemoteShellTransport {
     }
 }
 
-enum RemoteShellSessionParsing {
+nonisolated enum RemoteShellSessionParsing {
     private static let eternalTerminalNoArgumentFlags = Set("efhNx")
     private static let eternalTerminalValueArgumentFlags = Set("cklprtu")
     private static let eternalTerminalLongValueOptions: Set<String> = [
@@ -383,8 +384,7 @@ enum RemoteShellSessionParsing {
         let colonCount = trimmedHost.reduce(0) { count, character in
             character == ":" ? count + 1 : count
         }
-        guard colonCount == 1 || (colonCount == 8 && !trimmedHost.contains("::")),
-              let lastColon = trimmedHost.lastIndex(of: ":") else {
+        guard let lastColon = trimmedHost.lastIndex(of: ":") else {
             return trimmedHost
         }
 
@@ -392,7 +392,21 @@ enum RemoteShellSessionParsing {
         let port = trimmedHost[portStart...]
         guard Int(port) != nil else { return trimmedHost }
         let strippedHost = String(trimmedHost[..<lastColon])
-        return colonCount == 8 ? "[\(strippedHost)]" : strippedHost
+        if colonCount == 1 {
+            return strippedHost
+        }
+        if colonCount == 8 && !trimmedHost.contains("::") {
+            return "[\(strippedHost)]"
+        }
+        if trimmedHost.contains("::"), isIPv6Literal(strippedHost) {
+            return "[\(strippedHost)]"
+        }
+        return trimmedHost
+    }
+
+    private static func isIPv6Literal(_ host: String) -> Bool {
+        var address = in6_addr()
+        return host.withCString { inet_pton(AF_INET6, $0, &address) == 1 }
     }
 
     private static func isBoolLiteral(_ value: String) -> Bool {
