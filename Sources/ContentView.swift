@@ -9587,49 +9587,28 @@ final class SidebarDragState {
     init() {}
 }
 
-/// Dedicated view that reads `dragState.dropIndicator` (mutates at ~60fps during
-/// drag). Isolating the read here means only this tiny overlay invalidates per
-/// frame, not the enclosing `TabItemView` body.
-private struct SidebarTabDropIndicatorOverlay: View {
-    let dragState: SidebarDragState
-    let tabId: UUID
-    let index: Int
-    let rowSpacing: CGFloat
-    let tabManager: TabManager
-
-    var body: some View {
-        if showsCenteredTopDropIndicator {
-            Rectangle()
-                .fill(cmuxAccentColor())
-                .frame(height: 2)
-                .padding(.horizontal, 8)
-                .offset(y: index == 0 ? 0 : -(rowSpacing / 2))
-        }
-    }
-
-    private var showsCenteredTopDropIndicator: Bool {
+/// Per-row drop-indicator visibility computed by the parent. Same predicate
+/// that used to live inside `SidebarTabDropIndicatorOverlay`, but evaluated
+/// once per row from `dragState` ownership at the LazyVStack parent so the
+/// row's view subtree never reads the `@Observable` store directly.
+@MainActor
+enum SidebarTabDropIndicatorPredicate {
+    static func topVisible(
+        forTabId tabId: UUID,
+        dragState: SidebarDragState,
+        tabs: [Tab]
+    ) -> Bool {
         guard dragState.draggedTabId != nil, let indicator = dragState.dropIndicator else { return false }
         if indicator.tabId == tabId && indicator.edge == .top {
             return true
         }
         guard indicator.edge == .bottom,
-              let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }),
+              let currentIndex = tabs.firstIndex(where: { $0.id == tabId }),
               currentIndex > 0
         else {
             return false
         }
-        return tabManager.tabs[currentIndex - 1].id == indicator.tabId
-    }
-}
-
-/// Dedicated view that reads `dragState.draggedTabId` so only the row's opacity
-/// layer invalidates on drag start/end, not the row's complex body.
-private struct SidebarTabDragOpacityModifier: ViewModifier {
-    let dragState: SidebarDragState
-    let tabId: UUID
-
-    func body(content: Content) -> some View {
-        content.opacity(dragState.draggedTabId == tabId ? 0.6 : 1)
+        return tabs[currentIndex - 1].id == indicator.tabId
     }
 }
 
@@ -9688,6 +9667,33 @@ struct VerticalTabsSidebar: View {
         Binding(
             get: { dragState.dropIndicator },
             set: { dragState.dropIndicator = $0 }
+        )
+    }
+
+    /// Computed in the parent so `SidebarEmptyArea` can render its top-edge
+    /// indicator from a value snapshot without holding a `SidebarDragState`
+    /// reference (snapshot-boundary rule).
+    private func emptyAreaTopDropIndicatorVisible() -> Bool {
+        guard dragState.draggedTabId != nil, let indicator = dragState.dropIndicator else { return false }
+        if indicator.tabId == nil {
+            return true
+        }
+        guard indicator.edge == .bottom, let lastTabId = tabManager.tabs.last?.id else { return false }
+        return indicator.tabId == lastTabId
+    }
+
+    /// Constructs the drop delegate for the empty area in the parent scope,
+    /// so the child view receives a closure-bundle-equivalent value rather
+    /// than an `@Observable` store.
+    private func emptyAreaTabDropDelegate() -> SidebarTabDropDelegate {
+        SidebarTabDropDelegate(
+            targetTabId: nil,
+            tabManager: tabManager,
+            dragState: dragState,
+            selectedTabIds: $selectedTabIds,
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+            targetRowHeight: nil,
+            dragAutoScrollController: dragAutoScrollController
         )
     }
 
@@ -9878,12 +9884,13 @@ struct VerticalTabsSidebar: View {
             dragState.dropIndicator = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.requestClear)) { notification in
-            guard dragState.draggedTabId != nil else { return }
+            guard dragState.draggedTabId != nil || dragState.dropIndicator != nil else { return }
             let reason = SidebarDragLifecycleNotification.reason(from: notification)
 #if DEBUG
             cmuxDebugLog("sidebar.dragClear tab=\(debugShortSidebarTabId(dragState.draggedTabId)) reason=\(reason)")
 #endif
             dragState.draggedTabId = nil
+            dragState.dropIndicator = nil
         }
         .onReceive(
             NotificationCenter.default.publisher(for: Workspace.terminalScrollBarHiddenDidChangeNotification)
@@ -10045,7 +10052,9 @@ struct VerticalTabsSidebar: View {
                             selectedTabIds: $selectedTabIds,
                             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
                             dragAutoScrollController: dragAutoScrollController,
-                            dragState: dragState
+                            topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
+                            tabDropDelegate: emptyAreaTabDropDelegate(),
+                            bonsplitDropIndicator: dropIndicatorBinding
                         )
                         .frame(maxWidth: .infinity, minHeight: 48)
                     }
@@ -10801,7 +10810,9 @@ struct VerticalTabsSidebar: View {
                 selectedTabIds: $selectedTabIds,
                 lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
                 dragAutoScrollController: dragAutoScrollController,
-                dragState: dragState
+                topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
+                tabDropDelegate: emptyAreaTabDropDelegate(),
+                bonsplitDropIndicator: dropIndicatorBinding
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -10921,6 +10932,41 @@ struct VerticalTabsSidebar: View {
         }()
         let liveShowsModifierShortcutHints = modifierKeyMonitor.isModifierPressed
 
+        // Per-row drag/drop snapshots. Reading `dragState` here in the parent
+        // is intentional: the parent owns the @Observable store, and these
+        // value snapshots are what get passed to the row. The row's
+        // Equatable conformance ignores closures, so rows whose snapshot is
+        // unchanged skip re-render when drag state moves.
+        let isBeingDragged = dragState.draggedTabId == tab.id
+        let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate.topVisible(
+            forTabId: tab.id,
+            dragState: dragState,
+            tabs: renderContext.tabs
+        )
+        let onDragStart: () -> NSItemProvider = { [tabId = tab.id] in
+            #if DEBUG
+            cmuxDebugLog("sidebar.onDrag tab=\(tabId.uuidString.prefix(5))")
+            #endif
+            dragState.draggedTabId = tabId
+            dragState.dropIndicator = nil
+            return SidebarTabDragPayload.provider(for: tabId)
+        }
+        let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate = { [
+            tabId = tab.id,
+            selectedTabIds = $selectedTabIds,
+            lastSidebarSelectionIndex = $lastSidebarSelectionIndex
+        ] rowHeight in
+            SidebarTabDropDelegate(
+                targetTabId: tabId,
+                tabManager: tabManager,
+                dragState: dragState,
+                selectedTabIds: selectedTabIds,
+                lastSidebarSelectionIndex: lastSidebarSelectionIndex,
+                targetRowHeight: rowHeight,
+                dragAutoScrollController: dragAutoScrollController
+            )
+        }
+
         return TabItemView(
             tabManager: tabManager,
             notificationStore: notificationStore,
@@ -10942,7 +10988,10 @@ struct VerticalTabsSidebar: View {
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
             showsModifierShortcutHints: liveShowsModifierShortcutHints,
             dragAutoScrollController: dragAutoScrollController,
-            dragState: dragState,
+            isBeingDragged: isBeingDragged,
+            topDropIndicatorVisible: topDropIndicatorVisible,
+            onDragStart: onDragStart,
+            tabDropDelegateFactory: tabDropDelegateFactory,
             contextMenuWorkspaceIds: contextMenuWorkspaceIds,
             remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
             allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
@@ -13160,7 +13209,11 @@ private struct SidebarEmptyArea: View {
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     let dragAutoScrollController: SidebarDragAutoScrollController
-    let dragState: SidebarDragState
+    // Value snapshot + closure bundles instead of an @Observable store
+    // reference (snapshot-boundary rule).
+    let topDropIndicatorVisible: Bool
+    let tabDropDelegate: SidebarTabDropDelegate
+    let bonsplitDropIndicator: Binding<SidebarDropIndicator?>
 
     var body: some View {
         Color.clear
@@ -13174,29 +13227,18 @@ private struct SidebarEmptyArea: View {
                 }
                 selection = .tabs
             }
-            .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
-                targetTabId: nil,
-                tabManager: tabManager,
-                dragState: dragState,
-                selectedTabIds: $selectedTabIds,
-                lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                targetRowHeight: nil,
-                dragAutoScrollController: dragAutoScrollController
-            ))
+            .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegate)
             .overlay {
                 SidebarBonsplitTabNewWorkspaceDropOverlay(
                     tabManager: tabManager,
                     selectedTabIds: $selectedTabIds,
                     lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                    dropIndicator: Binding(
-                        get: { dragState.dropIndicator },
-                        set: { dragState.dropIndicator = $0 }
-                    )
+                    dropIndicator: bonsplitDropIndicator
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .overlay(alignment: .top) {
-                if shouldShowTopDropIndicator {
+                if topDropIndicatorVisible {
                     Rectangle()
                         .fill(cmuxAccentColor())
                         .frame(height: 2)
@@ -13204,15 +13246,6 @@ private struct SidebarEmptyArea: View {
                         .offset(y: -(rowSpacing / 2))
                 }
             }
-    }
-
-    private var shouldShowTopDropIndicator: Bool {
-        guard dragState.draggedTabId != nil, let indicator = dragState.dropIndicator else { return false }
-        if indicator.tabId == nil {
-            return true
-        }
-        guard indicator.edge == .bottom, let lastTabId = tabManager.tabs.last?.id else { return false }
-        return indicator.tabId == lastTabId
     }
 }
 
@@ -13407,6 +13440,8 @@ private struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.allContextMenuWorkspacesHideTerminalScrollBar == rhs.allContextMenuWorkspacesHideTerminalScrollBar &&
         lhs.contextMenuPinState == rhs.contextMenuPinState &&
+        lhs.isBeingDragged == rhs.isBeingDragged &&
+        lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
         lhs.settings == rhs.settings
     }
 
@@ -13431,7 +13466,19 @@ private struct TabItemView: View, Equatable {
     @Binding var lastSidebarSelectionIndex: Int?
     let showsModifierShortcutHints: Bool
     let dragAutoScrollController: SidebarDragAutoScrollController
-    let dragState: SidebarDragState
+    // Row receives precomputed drag/drop snapshot values + action closures
+    // instead of an `@Observable` store reference. This keeps TabItemView in
+    // compliance with the snapshot-boundary rule for views under a LazyVStack
+    // (see CLAUDE.md). When drag state changes, the parent recomputes these
+    // per-row snapshots and `==` skips re-render for rows whose snapshot is
+    // unchanged.
+    let isBeingDragged: Bool
+    let topDropIndicatorVisible: Bool
+    let onDragStart: () -> NSItemProvider
+    /// Factory invoked from `body` with the row's measured `rowHeight`. Closure
+    /// captures the parent's `dragState`, so TabItemView itself never holds an
+    /// `@Observable` store reference (snapshot-boundary rule).
+    let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate
     let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
@@ -14049,7 +14096,7 @@ private struct TabItemView: View, Equatable {
         .padding(.horizontal, 6)
         .background { rowHeightProbe }
         .contentShape(Rectangle())
-        .modifier(SidebarTabDragOpacityModifier(dragState: dragState, tabId: tab.id))
+        .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
             SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
         }
@@ -14062,13 +14109,13 @@ private struct TabItemView: View, Equatable {
             }
         }
         .overlay(alignment: .top) {
-            SidebarTabDropIndicatorOverlay(
-                dragState: dragState,
-                tabId: tab.id,
-                index: index,
-                rowSpacing: rowSpacing,
-                tabManager: tabManager
-            )
+            if topDropIndicatorVisible {
+                Rectangle()
+                    .fill(cmuxAccentColor())
+                    .frame(height: 2)
+                    .padding(.horizontal, 8)
+                    .offset(y: index == 0 ? 0 : -(rowSpacing / 2))
+            }
         }
         .onAppear {
             refreshWorkspaceSnapshot(force: true)
@@ -14123,24 +14170,9 @@ private struct TabItemView: View, Equatable {
         .onChange(of: settings) { _ in
             refreshWorkspaceSnapshot(force: true)
         }
-        .onDrag {
-            #if DEBUG
-            cmuxDebugLog("sidebar.onDrag tab=\(tab.id.uuidString.prefix(5))")
-            #endif
-            dragState.draggedTabId = tab.id
-            dragState.dropIndicator = nil
-            return SidebarTabDragPayload.provider(for: tab.id)
-        }
+        .onDrag(onDragStart)
         .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
-            targetTabId: tab.id,
-            tabManager: tabManager,
-            dragState: dragState,
-            selectedTabIds: $selectedTabIds,
-            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-            targetRowHeight: rowHeight,
-            dragAutoScrollController: dragAutoScrollController
-        ))
+        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
         .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
             targetWorkspaceId: tab.id,
             tabManager: tabManager,
@@ -15826,6 +15858,7 @@ private struct SidebarBonsplitTabDropDelegate: DropDelegate {
     }
 }
 
+@MainActor
 private struct SidebarTabDropDelegate: DropDelegate {
     let targetTabId: UUID?
     let tabManager: TabManager
