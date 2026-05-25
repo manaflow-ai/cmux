@@ -95,7 +95,7 @@ struct DetectedSSHSession: Equatable {
                     throw NSError(domain: "cmux.detected-ssh.drop", code: 1, userInfo: [
                         NSLocalizedDescriptionKey: String(
                             localized: "detectedSSH.fileDrop.error.notFileURL",
-                            defaultValue: "dropped item is not a file URL"
+                            defaultValue: "Couldn't upload the dropped item because it isn't a local file. Drop a file from Finder, then try again."
                         ),
                     ])
                 }
@@ -111,7 +111,7 @@ struct DetectedSSHSession: Equatable {
                     throw NSError(domain: "cmux.detected-ssh.drop", code: 2, userInfo: [
                         NSLocalizedDescriptionKey: String(
                             localized: "detectedSSH.fileDrop.error.uploadFailed",
-                            defaultValue: "failed to upload dropped file"
+                            defaultValue: "Couldn't upload the file to the remote session. Check that the remote host is reachable, then try again."
                         ),
                     ])
                 }
@@ -304,7 +304,7 @@ struct DetectedSSHSession: Equatable {
             throw NSError(domain: "cmux.detected-ssh.drop", code: 3, userInfo: [
                 NSLocalizedDescriptionKey: String(
                     localized: "detectedSSH.fileDrop.error.scpTimedOut",
-                    defaultValue: "scp timed out"
+                    defaultValue: "File transfer timed out. Check the remote host and network connection, then try again."
                 ),
             ])
         }

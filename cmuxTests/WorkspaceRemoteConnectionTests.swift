@@ -2157,6 +2157,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             localPath: "/tmp/local.png",
             remotePath: "/tmp/cmux-drop-123.png"
         ) ?? []
+        XCTAssertNil(session?.port)
+        XCTAssertFalse(scpArgs.contains("-P"))
         XCTAssertTrue(scpArgs.contains("-J"))
         XCTAssertTrue(scpArgs.contains("relay@bastion.example.com"))
         XCTAssertFalse(scpArgs.contains("relay@bastion.example.com:2022"))
