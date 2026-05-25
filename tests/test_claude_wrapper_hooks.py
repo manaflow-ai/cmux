@@ -623,6 +623,11 @@ def test_live_socket_settings_file_is_user_scoped(failures: list[str]) -> None:
         f"user-scoped settings: expected Application Support cmux path, got {settings_arg!r}",
         failures,
     )
+    expect(
+        "/claude-hook-settings-" in settings_arg,
+        f"user-scoped settings: expected hook-identifying settings filename, got {settings_arg!r}",
+        failures,
+    )
     fallback_marker = f"/cmux-claude-settings-{os.getuid()}/"
     expect(
         fallback_marker not in settings_arg,
