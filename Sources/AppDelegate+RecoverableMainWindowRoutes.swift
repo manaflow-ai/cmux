@@ -36,6 +36,7 @@ private struct MainWindowRouteSnapshot {
 
 private var mainWindowRouteLedgerKey: UInt8 = 0
 
+@MainActor
 extension AppDelegate {
     private var mainWindowRouteLedger: MainWindowRouteLedger {
         if let ledger = objc_getAssociatedObject(self, &mainWindowRouteLedgerKey) as? MainWindowRouteLedger {

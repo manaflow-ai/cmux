@@ -1,0 +1,1483 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		049B51C87FA3C83D3E4E6B61 /* CmuxRemoteWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C0B7A7303EB7809938DA8A30 /* CmuxRemoteWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		071492D7FB5483106261ED81 /* ServerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D748EE08E0878B0255A1A8A3 /* ServerState.swift */; };
+		0CF823C0F7E9D6256EAADF74 /* KeychainAccess in Frameworks */ = {isa = PBXBuildFile; productRef = 3BAFC83C477E7DBEF49BC2C1 /* KeychainAccess */; };
+		116FAAF395F512802359FCEA /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 51BCD5E899BED6CCF3A25A14 /* InfoPlist.strings */; };
+		D1A0FC02EC1340AA86D8D59B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B4E3423E33C14E7A9583E3A1 /* PrivacyInfo.xcprivacy */; };
+		E7B8C4DAD789463B8DFB6D29 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B4E3423E33C14E7A9583E3A1 /* PrivacyInfo.xcprivacy */; };
+		1412EB098F183EBA7D2EFFCC /* CmuxKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 409A382B23275C6ECAEF0669 /* CmuxKit.framework */; };
+		1486B602CDA0D84A1D7D19AB /* CMUXClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962A314E5E8076AA29416991 /* CMUXClient.swift */; };
+		190E4C561CE17811A0B1A039 /* BrowserCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = F604DC9D4A80C67C5F7A86C5 /* BrowserCommands.swift */; };
+		1A557ACE68B48AA0D2D1ADCA /* AgentDecisionActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6EAA6229FEAA52D06028987 /* AgentDecisionActivityAttributes.swift */; };
+		1B5BA6402FB68B199C09EF4E /* AgentWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D04A64056699F4BB0E6C9AE /* AgentWatchdog.swift */; };
+		1D90ADF8B84571690FEE7D4F /* AgentDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64F0FC7F039422624A8E4A72 /* AgentDecision.swift */; };
+		209F219D233A5C067479FD39 /* CmuxCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98AD8DDC69B8F00E13081533 /* CmuxCredentialStore.swift */; };
+		212C94FDB2399E26918344A8 /* PencilOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 795FE989DFECB793683CE191 /* PencilOverlayView.swift */; };
+		2148D659869422E4CDAFC56B /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = EEF84CF8CE7FC06F306CE978 /* Logging */; };
+		2494F35B9CB3BB93FFF40842 /* HostAddView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9053D243A76267C81BC1467 /* HostAddView.swift */; };
+		283CC2E8AE6C5C1C7F8D509A /* NotificationCategories.swift in Sources */ = {isa = PBXBuildFile; fileRef = 136B43BB0FC1FFE77F092221 /* NotificationCategories.swift */; };
+		2842270053F3DF387CBD4F82 /* CommandPaletteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAADFA10F8FDA7B7AC36BC8F /* CommandPaletteView.swift */; };
+		325DA75D05C9F0CE6B9D9C50 /* HostConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41F0B1174623217B121215E3 /* HostConfig.swift */; };
+		33272CA01B61B1502E236EC9 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 623B8882B97775E49C638A6D /* Localizable.xcstrings */; };
+		35EF2182F51D6A6607FBA3CB /* WidgetL10n.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46866D10AF842035716AA3F3 /* WidgetL10n.swift */; };
+		38E9AFF1615312C0F186E10C /* CmuxKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 409A382B23275C6ECAEF0669 /* CmuxKit.framework */; };
+		3EECB9BF2CC84A16553948F1 /* AFKSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F966D491B1406ABC01E5E355 /* AFKSettingsView.swift */; };
+		41E77D45D08CB4B2FB5BD12C /* CitadelSSHTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1620B56F77EBAF51AE4924D5 /* CitadelSSHTransport.swift */; };
+		42049C7442E1EC147B05CDBE /* ShellEscape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89BD6532A479E56918E8F972 /* ShellEscape.swift */; };
+		421DFEDB637AD81328F518E6 /* HostStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72E75A4B73AD4D2B4CE126D4 /* HostStore.swift */; };
+		4682030EE4FEEE9ABB7CCB5C /* NotificationsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62F1F60019454A5B5E6A1EF9 /* NotificationsListView.swift */; };
+		47C115CC21320D0A0DA90A73 /* Snippet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 727C4B59245E1C5783B04B84 /* Snippet.swift */; };
+		4F0BF1CC7EF9447973126C67 /* AsyncAlgorithms in Frameworks */ = {isa = PBXBuildFile; productRef = DE78F21A013D59BA69406DC5 /* AsyncAlgorithms */; };
+		66ACF5A2EA66042B270DAA69 /* CMUXActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B7CEF89A5969B7E10638029 /* CMUXActivityAttributes.swift */; };
+		6744BE26B229C6E96A4C70DE /* L10n.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E953894E232D03F0F55031 /* L10n.swift */; };
+		6A837E724E787D78C774CEA9 /* CmuxKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 409A382B23275C6ECAEF0669 /* CmuxKit.framework */; };
+		6ABA964A8E02958BC6808038 /* CmuxKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 409A382B23275C6ECAEF0669 /* CmuxKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		6C5D020BE63F37BA353EEF7D /* CmuxKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 409A382B23275C6ECAEF0669 /* CmuxKit.framework */; };
+		6EDC8CE1C46EE3F293324FA6 /* CmuxSSHTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE2FE69BFDF545CB22186E16 /* CmuxSSHTransport.swift */; };
+		7117A23D99C7962AF9919996 /* Collections in Frameworks */ = {isa = PBXBuildFile; productRef = EAD46DCB5947EA53EF32606C /* Collections */; };
+		71E7CF41866A61E0C87E50B1 /* WorkspaceStatusWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B68B4ECBE746CD18968F64A /* WorkspaceStatusWidget.swift */; };
+		75FA8277F10898DC27D9989A /* AgentDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6A87B7C7CCBB5D135020ECE /* AgentDecisionTests.swift */; };
+		7A68A83D6062A62EFE99F3BF /* EventReactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51A77FA30949440C4B77F3E6 /* EventReactor.swift */; };
+		7CAD3E418907EFA3D05BA690 /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = 700DC60E7B49E96CA170B5EC /* Logging */; };
+		7D10202DEBC86A3F26545E99 /* HostListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F148B95EA33DAC390988F73A /* HostListView.swift */; };
+		7D84D1B91EF638325B2FD79D /* TerminalInputAssist.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48AFAF4CFF605B3DE6017276 /* TerminalInputAssist.swift */; };
+		80ECA7FA4F3D9A00BB202BF8 /* Collections in Frameworks */ = {isa = PBXBuildFile; productRef = E360A0C70FA932466802B9CE /* Collections */; };
+		8142219F27B468E31E134FD6 /* ResolveDecisionIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24A6C28A239D4D2363435AAD /* ResolveDecisionIntent.swift */; };
+		89DD8A114765A667D670A067 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D2EDFACC46714B40DBF8C83 /* Workspace.swift */; };
+		89F954B4CC50F144359B9DD7 /* AgentDecisionNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60C0344A7CA891353331150F /* AgentDecisionNotifier.swift */; };
+		8FDCC669EBD8E95E588B8EF4 /* KeyboardShortcutCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5959EF68D83B97F7BD8E0C10 /* KeyboardShortcutCatalog.swift */; };
+		9093774B6D58D8C1845DA07E /* WidgetState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B284687BB6F21AB793FC89E /* WidgetState.swift */; };
+		96264740D264BFC761950F0E /* PaneTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 840EA8D0442B1B3560FA4CF8 /* PaneTreeView.swift */; };
+		97247E52FA7D4250C1EC7722 /* AgentDecisionResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6886F65338A72DFF27DE7E3C /* AgentDecisionResolver.swift */; };
+		985739BD183249D364E4B7DC /* CmuxRemoteAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F04DA26A60CB87BB6D87B0F7 /* CmuxRemoteAppDelegate.swift */; };
+		9A475F58C18DF8D0254D9E2D /* CmuxRemoteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 563C64C61B4CBA91DCB82218 /* CmuxRemoteApp.swift */; };
+		9A9E1AD97B7580D67DE7883E /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 623B8882B97775E49C638A6D /* Localizable.xcstrings */; };
+		9C8368ADC629988CD63FBEF0 /* WorkspaceSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8E3F6CA709EFF6FA5795108 /* WorkspaceSidebarView.swift */; };
+		9CDA7124CAED76891CB741C7 /* CmuxKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 409A382B23275C6ECAEF0669 /* CmuxKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		A2663C71FF560B8A894AFF5D /* SnippetPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FFC56CA52427F0403546CAD /* SnippetPickerView.swift */; };
+		A421D9DC61DF8E5A21B42BF6 /* TerminalAccessoryBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C22C4B37D94E03BE30B8A2F4 /* TerminalAccessoryBar.swift */; };
+		A597476A416A2F3EF57710AD /* GestureRecognizers.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF121D7A5D7D3D7908A97845 /* GestureRecognizers.swift */; };
+		A6BBA6C19E319846E7F2B3EF /* TerminalInputCoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B8010C8D7E492E0B175AAF /* TerminalInputCoding.swift */; };
+		A757F12D18F8FBBE49A36B8E /* CMUXClientCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BE28F3A8A46FB19BAFA20C7 /* CMUXClientCommandTests.swift */; };
+		A8284CECB937B028999ED2E5 /* WidgetState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 987732669ED8370D5D4C3B9A /* WidgetState.swift */; };
+		AB8EBFCC1FCBE6ABCBC40386 /* CmuxEventDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56F6FB8114948FC895088ABA /* CmuxEventDecoderTests.swift */; };
+		AF6697C74A5345AF3F8EE710 /* CmuxKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 409A382B23275C6ECAEF0669 /* CmuxKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		B48C14E9F18E966403209331 /* BGScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8374467E3CA733BD2E7DC32 /* BGScheduler.swift */; };
+		B79F808ABF9ED6FFE13D6C37 /* CmuxWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1964DB0559747F5C116B18B /* CmuxWidgetBundle.swift */; };
+		B80D58EFEC10A5DF877CD438 /* TerminalSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79B87219427C4131291201FC /* TerminalSurfaceView.swift */; };
+		B8176FB0BF08EEED45115414 /* CmuxAppShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662D6AD82B073EC00EAE0CBD /* CmuxAppShortcuts.swift */; };
+		B867F8AD4AF707616B1B6AE2 /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB6C58C91FF60EB8737490D5 /* ConnectionManager.swift */; };
+		BB71B5EDE8D87B175F6922AD /* BackgroundEventDrain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 040F9AB6759CDEE266C2D8F7 /* BackgroundEventDrain.swift */; };
+		BD328D7AAE1363A393E8F9AD /* Package.support.md in Resources */ = {isa = PBXBuildFile; fileRef = E9A9C114621BFDC04245CF17 /* Package.support.md */; };
+		C0D458C8A0DBD02AE80A0E81 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 623B8882B97775E49C638A6D /* Localizable.xcstrings */; };
+		C11C944B63982C86967F8D30 /* ShellEscapeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75247BDDFB47E0B0409255E /* ShellEscapeTests.swift */; };
+		C3D3B0749BF20503B1D66F89 /* SurfaceDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13CA92241B6376F9D9482A21 /* SurfaceDetailView.swift */; };
+		C45F7026C1025F0D48A7E635 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306BCFD47E82DA9D2B33A700 /* RootView.swift */; };
+		C5E17EBF2F885DE3EE024647 /* Identifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09B706A05F10502C8EDBC67E /* Identifiers.swift */; };
+		C7685462B4C0630B70004637 /* CmuxLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00F6E5D320F1CD05B5922B74 /* CmuxLiveActivityWidget.swift */; };
+		CA0432B66AD6C638F5D63154 /* AgentDecisionActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C42AA287984141324275D3 /* AgentDecisionActivityWidget.swift */; };
+		CAF377E2C3F4CD28F8B0D4BA /* CmuxError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65BE20725549FBD084FDAC0F /* CmuxError.swift */; };
+		CCBBD20CD7A19DB9B2E5ED69 /* Citadel in Frameworks */ = {isa = PBXBuildFile; productRef = C95108811307A2AD1CDFC341 /* Citadel */; };
+		CDF2B51DECD064DDBE58BE2D /* AFKPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68C42DA5CAC56674B289CDF6 /* AFKPolicy.swift */; };
+		D48028ACD92EF443E952E129 /* CmuxEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F969AA6387235776797BC1D /* CmuxEvent.swift */; };
+		D55A4A902857E1C6A08B100D /* AFKPolicyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F084FFB9735AEE086C8DD986 /* AFKPolicyStore.swift */; };
+		D7331E00738511C77C6CA518 /* AFKPolicyEvaluatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FF7CA6983119F0BD62413F7 /* AFKPolicyEvaluatorTests.swift */; };
+		8C36D25C151A4E42B0D61DE4 /* NotificationPayloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D95E181AD4F15949B77A2 /* NotificationPayloadTests.swift */; };
+		DD86D7291933C8312A52C5F6 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = F9E04F6AC41632F496F82ECC /* SwiftTerm */; };
+		E59EF4E9684E4920A6D0C20E /* Logging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 364424395838F96D2C1ABA7A /* Logging.swift */; };
+		E8AEB2081C21D99133D181C6 /* NotificationCenterBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3762E960836AC672287F36DE /* NotificationCenterBridge.swift */; };
+		E9595310E054975DE045E197 /* AsyncAlgorithms in Frameworks */ = {isa = PBXBuildFile; productRef = A4F806C22FEC1F4E5D34288F /* AsyncAlgorithms */; };
+		EAEC7106E7B5FFAA75D1FFE5 /* BrowserSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B139D9E6BC7774DFBA530108 /* BrowserSurfaceView.swift */; };
+		F9EA5C2BED1CD26CDB2C6303 /* CmuxIntentResolverRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D5A8AAAC7B40B09FC639068 /* CmuxIntentResolverRegistry.swift */; };
+		F9EBC2FB8F3ED69308DB857B /* CmuxEventDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFADCBCA81B5B07C6C9948C3 /* CmuxEventDecoder.swift */; };
+		FA08D78581B75211CE8775D2 /* CMUXLiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C96491C7564C1C6BF9A44DA4 /* CMUXLiveActivityController.swift */; };
+		FC5A3944E05096FB96B48634 /* ResumeJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA022E01FA976E6E7706D28A /* ResumeJournal.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		35127191248D11FF93FD0554 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 23295185E66B4D3DA0B1C0C7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 72AC400737B007D01643842A;
+			remoteInfo = CmuxKit;
+		};
+		3C58093E243641021CA97551 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 23295185E66B4D3DA0B1C0C7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 72AC400737B007D01643842A;
+			remoteInfo = CmuxKit;
+		};
+		52714EDA71ACB664BE0D0042 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 23295185E66B4D3DA0B1C0C7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 72AC400737B007D01643842A;
+			remoteInfo = CmuxKit;
+		};
+		56B728FE44781095DCFA688E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 23295185E66B4D3DA0B1C0C7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 72AC400737B007D01643842A;
+			remoteInfo = CmuxKit;
+		};
+		B2E54DDBE6FF374200D89B2B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 23295185E66B4D3DA0B1C0C7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 676B2A426AF02AF0A9EBDB00;
+			remoteInfo = CmuxRemoteWidgets;
+		};
+		E0C4DD8F526909341DB3F351 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 23295185E66B4D3DA0B1C0C7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D2B1A5671AAC7C72C50377DD;
+			remoteInfo = CmuxRemote;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		0EF7C6609CC1780D0B676EB5 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				AF6697C74A5345AF3F8EE710 /* CmuxKit.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2E363B500E96822212BCA2EF /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				9CDA7124CAED76891CB741C7 /* CmuxKit.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4920FE7040AA0F100BDA0D0C /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				6ABA964A8E02958BC6808038 /* CmuxKit.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BB87FC6666F434794F3E5A4A /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				049B51C87FA3C83D3E4E6B61 /* CmuxRemoteWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		00F6E5D320F1CD05B5922B74 /* CmuxLiveActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxLiveActivityWidget.swift; sourceTree = "<group>"; };
+		040F9AB6759CDEE266C2D8F7 /* BackgroundEventDrain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundEventDrain.swift; sourceTree = "<group>"; };
+		09B706A05F10502C8EDBC67E /* Identifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Identifiers.swift; sourceTree = "<group>"; };
+		0B04B5ECFC68C39C3F67CE5C /* CmuxRemote.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CmuxRemote.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0B284687BB6F21AB793FC89E /* WidgetState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetState.swift; sourceTree = "<group>"; };
+		0D5A8AAAC7B40B09FC639068 /* CmuxIntentResolverRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxIntentResolverRegistry.swift; sourceTree = "<group>"; };
+		136B43BB0FC1FFE77F092221 /* NotificationCategories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCategories.swift; sourceTree = "<group>"; };
+		13CA92241B6376F9D9482A21 /* SurfaceDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceDetailView.swift; sourceTree = "<group>"; };
+		1620B56F77EBAF51AE4924D5 /* CitadelSSHTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CitadelSSHTransport.swift; sourceTree = "<group>"; };
+		1D04A64056699F4BB0E6C9AE /* AgentWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentWatchdog.swift; sourceTree = "<group>"; };
+		24A6C28A239D4D2363435AAD /* ResolveDecisionIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResolveDecisionIntent.swift; sourceTree = "<group>"; };
+		2D2EDFACC46714B40DBF8C83 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
+		2FFC56CA52427F0403546CAD /* SnippetPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetPickerView.swift; sourceTree = "<group>"; };
+		306BCFD47E82DA9D2B33A700 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		364424395838F96D2C1ABA7A /* Logging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logging.swift; sourceTree = "<group>"; };
+		3762E960836AC672287F36DE /* NotificationCenterBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCenterBridge.swift; sourceTree = "<group>"; };
+		3FF7CA6983119F0BD62413F7 /* AFKPolicyEvaluatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AFKPolicyEvaluatorTests.swift; sourceTree = "<group>"; };
+		2B7D95E181AD4F15949B77A2 /* NotificationPayloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPayloadTests.swift; sourceTree = "<group>"; };
+		409A382B23275C6ECAEF0669 /* CmuxKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = CmuxKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		41F0B1174623217B121215E3 /* HostConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostConfig.swift; sourceTree = "<group>"; };
+		46866D10AF842035716AA3F3 /* WidgetL10n.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetL10n.swift; sourceTree = "<group>"; };
+		48AFAF4CFF605B3DE6017276 /* TerminalInputAssist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInputAssist.swift; sourceTree = "<group>"; };
+		4B7CEF89A5969B7E10638029 /* CMUXActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXActivityAttributes.swift; sourceTree = "<group>"; };
+		B4E3423E33C14E7A9583E3A1 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		51A77FA30949440C4B77F3E6 /* EventReactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventReactor.swift; sourceTree = "<group>"; };
+		563C64C61B4CBA91DCB82218 /* CmuxRemoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRemoteApp.swift; sourceTree = "<group>"; };
+		56F6FB8114948FC895088ABA /* CmuxEventDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventDecoderTests.swift; sourceTree = "<group>"; };
+		5959EF68D83B97F7BD8E0C10 /* KeyboardShortcutCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutCatalog.swift; sourceTree = "<group>"; };
+		60C0344A7CA891353331150F /* AgentDecisionNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDecisionNotifier.swift; sourceTree = "<group>"; };
+		623B8882B97775E49C638A6D /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		62F1F60019454A5B5E6A1EF9 /* NotificationsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsListView.swift; sourceTree = "<group>"; };
+		64F0FC7F039422624A8E4A72 /* AgentDecision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDecision.swift; sourceTree = "<group>"; };
+		65BE20725549FBD084FDAC0F /* CmuxError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxError.swift; sourceTree = "<group>"; };
+		662D6AD82B073EC00EAE0CBD /* CmuxAppShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxAppShortcuts.swift; sourceTree = "<group>"; };
+		6886F65338A72DFF27DE7E3C /* AgentDecisionResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDecisionResolver.swift; sourceTree = "<group>"; };
+		68C42DA5CAC56674B289CDF6 /* AFKPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AFKPolicy.swift; sourceTree = "<group>"; };
+		727C4B59245E1C5783B04B84 /* Snippet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snippet.swift; sourceTree = "<group>"; };
+		72E75A4B73AD4D2B4CE126D4 /* HostStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostStore.swift; sourceTree = "<group>"; };
+		795FE989DFECB793683CE191 /* PencilOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PencilOverlayView.swift; sourceTree = "<group>"; };
+		79B87219427C4131291201FC /* TerminalSurfaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurfaceView.swift; sourceTree = "<group>"; };
+		7F8C36CDB5FD2794E1C424A3 /* CmuxRemoteTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = CmuxRemoteTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		7F969AA6387235776797BC1D /* CmuxEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEvent.swift; sourceTree = "<group>"; };
+		8082595B11E4E0530E35B5F0 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		840EA8D0442B1B3560FA4CF8 /* PaneTreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneTreeView.swift; sourceTree = "<group>"; };
+		89BD6532A479E56918E8F972 /* ShellEscape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellEscape.swift; sourceTree = "<group>"; };
+		962A314E5E8076AA29416991 /* CMUXClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXClient.swift; sourceTree = "<group>"; };
+		987732669ED8370D5D4C3B9A /* WidgetState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetState.swift; sourceTree = "<group>"; };
+		98AD8DDC69B8F00E13081533 /* CmuxCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxCredentialStore.swift; sourceTree = "<group>"; };
+		9B68B4ECBE746CD18968F64A /* WorkspaceStatusWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStatusWidget.swift; sourceTree = "<group>"; };
+		9BE28F3A8A46FB19BAFA20C7 /* CMUXClientCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXClientCommandTests.swift; sourceTree = "<group>"; };
+		A6B8010C8D7E492E0B175AAF /* TerminalInputCoding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInputCoding.swift; sourceTree = "<group>"; };
+		A8374467E3CA733BD2E7DC32 /* BGScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BGScheduler.swift; sourceTree = "<group>"; };
+		A9053D243A76267C81BC1467 /* HostAddView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostAddView.swift; sourceTree = "<group>"; };
+		B139D9E6BC7774DFBA530108 /* BrowserSurfaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSurfaceView.swift; sourceTree = "<group>"; };
+		BAADFA10F8FDA7B7AC36BC8F /* CommandPaletteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteView.swift; sourceTree = "<group>"; };
+		C0B7A7303EB7809938DA8A30 /* CmuxRemoteWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = CmuxRemoteWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C22C4B37D94E03BE30B8A2F4 /* TerminalAccessoryBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAccessoryBar.swift; sourceTree = "<group>"; };
+		C6A87B7C7CCBB5D135020ECE /* AgentDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDecisionTests.swift; sourceTree = "<group>"; };
+		C751C2BB081F1CABCD7A4D3E /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		C96491C7564C1C6BF9A44DA4 /* CMUXLiveActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXLiveActivityController.swift; sourceTree = "<group>"; };
+		CF121D7A5D7D3D7908A97845 /* GestureRecognizers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureRecognizers.swift; sourceTree = "<group>"; };
+		D4E953894E232D03F0F55031 /* L10n.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = L10n.swift; sourceTree = "<group>"; };
+		D748EE08E0878B0255A1A8A3 /* ServerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerState.swift; sourceTree = "<group>"; };
+		D75247BDDFB47E0B0409255E /* ShellEscapeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellEscapeTests.swift; sourceTree = "<group>"; };
+		D8E3F6CA709EFF6FA5795108 /* WorkspaceSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarView.swift; sourceTree = "<group>"; };
+		DB6C58C91FF60EB8737490D5 /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
+		DFADCBCA81B5B07C6C9948C3 /* CmuxEventDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventDecoder.swift; sourceTree = "<group>"; };
+		E1964DB0559747F5C116B18B /* CmuxWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWidgetBundle.swift; sourceTree = "<group>"; };
+		E5F7A9A644DB776CC4713C39 /* CmuxKitTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = CmuxKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E9A9C114621BFDC04245CF17 /* Package.support.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = Package.support.md; sourceTree = "<group>"; };
+		F04DA26A60CB87BB6D87B0F7 /* CmuxRemoteAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRemoteAppDelegate.swift; sourceTree = "<group>"; };
+		F084FFB9735AEE086C8DD986 /* AFKPolicyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AFKPolicyStore.swift; sourceTree = "<group>"; };
+		F148B95EA33DAC390988F73A /* HostListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostListView.swift; sourceTree = "<group>"; };
+		F5C42AA287984141324275D3 /* AgentDecisionActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDecisionActivityWidget.swift; sourceTree = "<group>"; };
+		F604DC9D4A80C67C5F7A86C5 /* BrowserCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserCommands.swift; sourceTree = "<group>"; };
+		F6EAA6229FEAA52D06028987 /* AgentDecisionActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDecisionActivityAttributes.swift; sourceTree = "<group>"; };
+		F966D491B1406ABC01E5E355 /* AFKSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AFKSettingsView.swift; sourceTree = "<group>"; };
+		FA022E01FA976E6E7706D28A /* ResumeJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResumeJournal.swift; sourceTree = "<group>"; };
+		FE2FE69BFDF545CB22186E16 /* CmuxSSHTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSSHTransport.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		0B20EBF7901480CBBB73A9AC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CCBBD20CD7A19DB9B2E5ED69 /* Citadel in Frameworks */,
+				7CAD3E418907EFA3D05BA690 /* Logging in Frameworks */,
+				80ECA7FA4F3D9A00BB202BF8 /* Collections in Frameworks */,
+				4F0BF1CC7EF9447973126C67 /* AsyncAlgorithms in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		340D14E869E9CB9BAB7A762A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6A837E724E787D78C774CEA9 /* CmuxKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		45E096318F7302469A222C2D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				38E9AFF1615312C0F186E10C /* CmuxKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		ECE4DC22B245582A60E9EA36 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1412EB098F183EBA7D2EFFCC /* CmuxKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F137D7782E3F22AFEDF0ADAC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6C5D020BE63F37BA353EEF7D /* CmuxKit.framework in Frameworks */,
+				DD86D7291933C8312A52C5F6 /* SwiftTerm in Frameworks */,
+				0CF823C0F7E9D6256EAADF74 /* KeychainAccess in Frameworks */,
+				2148D659869422E4CDAFC56B /* Logging in Frameworks */,
+				7117A23D99C7962AF9919996 /* Collections in Frameworks */,
+				E9595310E054975DE045E197 /* AsyncAlgorithms in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		01F62D15B202FC18603588E7 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				409A382B23275C6ECAEF0669 /* CmuxKit.framework */,
+				E5F7A9A644DB776CC4713C39 /* CmuxKitTests.xctest */,
+				0B04B5ECFC68C39C3F67CE5C /* CmuxRemote.app */,
+				7F8C36CDB5FD2794E1C424A3 /* CmuxRemoteTests.xctest */,
+				C0B7A7303EB7809938DA8A30 /* CmuxRemoteWidgets.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		02622BD14C65E6EA7DBE2778 /* iPad */ = {
+			isa = PBXGroup;
+			children = (
+				CF121D7A5D7D3D7908A97845 /* GestureRecognizers.swift */,
+				5959EF68D83B97F7BD8E0C10 /* KeyboardShortcutCatalog.swift */,
+				795FE989DFECB793683CE191 /* PencilOverlayView.swift */,
+			);
+			path = iPad;
+			sourceTree = "<group>";
+		};
+		083C1F78FD7966AE840DD028 /* CmuxKitTests */ = {
+			isa = PBXGroup;
+			children = (
+				C6A87B7C7CCBB5D135020ECE /* AgentDecisionTests.swift */,
+				9BE28F3A8A46FB19BAFA20C7 /* CMUXClientCommandTests.swift */,
+				56F6FB8114948FC895088ABA /* CmuxEventDecoderTests.swift */,
+				D75247BDDFB47E0B0409255E /* ShellEscapeTests.swift */,
+			);
+			name = CmuxKitTests;
+			path = Tests/CmuxKitTests;
+			sourceTree = "<group>";
+		};
+		0C8371B4251C76FD1CD0E26A /* Intents */ = {
+			isa = PBXGroup;
+			children = (
+				662D6AD82B073EC00EAE0CBD /* CmuxAppShortcuts.swift */,
+			);
+			path = Intents;
+			sourceTree = "<group>";
+		};
+		14995D6689FDF96B3B08AE4E /* NotificationsList */ = {
+			isa = PBXGroup;
+			children = (
+				62F1F60019454A5B5E6A1EF9 /* NotificationsListView.swift */,
+			);
+			path = NotificationsList;
+			sourceTree = "<group>";
+		};
+		1B46FBA189FCE44B3F354047 /* Localization */ = {
+			isa = PBXGroup;
+			children = (
+				D4E953894E232D03F0F55031 /* L10n.swift */,
+			);
+			path = Localization;
+			sourceTree = "<group>";
+		};
+		2A9D5AB57BF1888D2E6A3034 /* Hosts */ = {
+			isa = PBXGroup;
+			children = (
+				A9053D243A76267C81BC1467 /* HostAddView.swift */,
+				F148B95EA33DAC390988F73A /* HostListView.swift */,
+			);
+			path = Hosts;
+			sourceTree = "<group>";
+		};
+		2D53494D64D3568AE52C1195 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				68C42DA5CAC56674B289CDF6 /* AFKPolicy.swift */,
+				64F0FC7F039422624A8E4A72 /* AgentDecision.swift */,
+				F6EAA6229FEAA52D06028987 /* AgentDecisionActivityAttributes.swift */,
+				4B7CEF89A5969B7E10638029 /* CMUXActivityAttributes.swift */,
+				65BE20725549FBD084FDAC0F /* CmuxError.swift */,
+				7F969AA6387235776797BC1D /* CmuxEvent.swift */,
+				09B706A05F10502C8EDBC67E /* Identifiers.swift */,
+				727C4B59245E1C5783B04B84 /* Snippet.swift */,
+				987732669ED8370D5D4C3B9A /* WidgetState.swift */,
+				2D2EDFACC46714B40DBF8C83 /* Workspace.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		44851D10C92D55CBF80B66D3 /* Commands */ = {
+			isa = PBXGroup;
+			children = (
+				6886F65338A72DFF27DE7E3C /* AgentDecisionResolver.swift */,
+				F604DC9D4A80C67C5F7A86C5 /* BrowserCommands.swift */,
+			);
+			path = Commands;
+			sourceTree = "<group>";
+		};
+		46385CEEEE77D0A43E702B27 /* Connection */ = {
+			isa = PBXGroup;
+			children = (
+				DB6C58C91FF60EB8737490D5 /* ConnectionManager.swift */,
+			);
+			path = Connection;
+			sourceTree = "<group>";
+		};
+		47FE4EFBDF3D178531A40264 /* CmuxKit */ = {
+			isa = PBXGroup;
+			children = (
+				44851D10C92D55CBF80B66D3 /* Commands */,
+				618D3DCC5E3F2C9B78183489 /* Intents */,
+				2D53494D64D3568AE52C1195 /* Models */,
+				F5FF60A3662E142AE8C51BDF /* Reactor */,
+				89CF59C4ADD6BC4C7461FDD4 /* Transport */,
+				DA376751B1506BE59A01F85D /* Util */,
+				E9A9C114621BFDC04245CF17 /* Package.support.md */,
+			);
+			name = CmuxKit;
+			path = Sources/CmuxKit;
+			sourceTree = "<group>";
+		};
+		4FA94F5DF5F2844CB2371E67 /* LiveActivity */ = {
+			isa = PBXGroup;
+			children = (
+				C96491C7564C1C6BF9A44DA4 /* CMUXLiveActivityController.swift */,
+			);
+			path = LiveActivity;
+			sourceTree = "<group>";
+		};
+		506EBD9A4DF4CF7F8AF06496 /* CommandPalette */ = {
+			isa = PBXGroup;
+			children = (
+				BAADFA10F8FDA7B7AC36BC8F /* CommandPaletteView.swift */,
+			);
+			path = CommandPalette;
+			sourceTree = "<group>";
+		};
+		5433006E3F7C5916440356F1 /* Terminal */ = {
+			isa = PBXGroup;
+			children = (
+				C22C4B37D94E03BE30B8A2F4 /* TerminalAccessoryBar.swift */,
+				48AFAF4CFF605B3DE6017276 /* TerminalInputAssist.swift */,
+				79B87219427C4131291201FC /* TerminalSurfaceView.swift */,
+			);
+			path = Terminal;
+			sourceTree = "<group>";
+		};
+		5770AD8C9C58CAD086976158 /* Panes */ = {
+			isa = PBXGroup;
+			children = (
+				840EA8D0442B1B3560FA4CF8 /* PaneTreeView.swift */,
+			);
+			path = Panes;
+			sourceTree = "<group>";
+		};
+		618D3DCC5E3F2C9B78183489 /* Intents */ = {
+			isa = PBXGroup;
+			children = (
+				0D5A8AAAC7B40B09FC639068 /* CmuxIntentResolverRegistry.swift */,
+				24A6C28A239D4D2363435AAD /* ResolveDecisionIntent.swift */,
+			);
+			path = Intents;
+			sourceTree = "<group>";
+		};
+		7A169A3A3B5E94D33E68D8B1 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				98AD8DDC69B8F00E13081533 /* CmuxCredentialStore.swift */,
+				72E75A4B73AD4D2B4CE126D4 /* HostStore.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+		7CFBA600F8B1158D0F90E73D /* CmuxRemote */ = {
+			isa = PBXGroup;
+			children = (
+				7D8764A76C03C5D381E859A3 /* AFK */,
+				7A169A3A3B5E94D33E68D8B1 /* Auth */,
+				812FF2D37B72F7D446903EF2 /* Background */,
+				46385CEEEE77D0A43E702B27 /* Connection */,
+				0C8371B4251C76FD1CD0E26A /* Intents */,
+				02622BD14C65E6EA7DBE2778 /* iPad */,
+				4FA94F5DF5F2844CB2371E67 /* LiveActivity */,
+				1B46FBA189FCE44B3F354047 /* Localization */,
+				8FA1861DF2BEADF7345851E5 /* Notifications */,
+				5433006E3F7C5916440356F1 /* Terminal */,
+				DE88057BC58FB5C7E07C2FAF /* UI */,
+				563C64C61B4CBA91DCB82218 /* CmuxRemoteApp.swift */,
+				F04DA26A60CB87BB6D87B0F7 /* CmuxRemoteAppDelegate.swift */,
+			);
+			name = CmuxRemote;
+			path = Sources/CmuxRemote;
+			sourceTree = "<group>";
+		};
+		7D8764A76C03C5D381E859A3 /* AFK */ = {
+			isa = PBXGroup;
+			children = (
+				F084FFB9735AEE086C8DD986 /* AFKPolicyStore.swift */,
+			);
+			path = AFK;
+			sourceTree = "<group>";
+		};
+		812FF2D37B72F7D446903EF2 /* Background */ = {
+			isa = PBXGroup;
+			children = (
+				040F9AB6759CDEE266C2D8F7 /* BackgroundEventDrain.swift */,
+				A8374467E3CA733BD2E7DC32 /* BGScheduler.swift */,
+			);
+			path = Background;
+			sourceTree = "<group>";
+		};
+		8318759D15E0DBE3F3EC2D7C /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				51BCD5E899BED6CCF3A25A14 /* InfoPlist.strings */,
+				623B8882B97775E49C638A6D /* Localizable.xcstrings */,
+				B4E3423E33C14E7A9583E3A1 /* PrivacyInfo.xcprivacy */,
+			);
+			name = Resources;
+			path = App/Resources;
+			sourceTree = "<group>";
+		};
+		89CF59C4ADD6BC4C7461FDD4 /* Transport */ = {
+			isa = PBXGroup;
+			children = (
+				1620B56F77EBAF51AE4924D5 /* CitadelSSHTransport.swift */,
+				962A314E5E8076AA29416991 /* CMUXClient.swift */,
+				DFADCBCA81B5B07C6C9948C3 /* CmuxEventDecoder.swift */,
+				FE2FE69BFDF545CB22186E16 /* CmuxSSHTransport.swift */,
+				41F0B1174623217B121215E3 /* HostConfig.swift */,
+				89BD6532A479E56918E8F972 /* ShellEscape.swift */,
+			);
+			path = Transport;
+			sourceTree = "<group>";
+		};
+		8FA1861DF2BEADF7345851E5 /* Notifications */ = {
+			isa = PBXGroup;
+			children = (
+				60C0344A7CA891353331150F /* AgentDecisionNotifier.swift */,
+				136B43BB0FC1FFE77F092221 /* NotificationCategories.swift */,
+				3762E960836AC672287F36DE /* NotificationCenterBridge.swift */,
+			);
+			path = Notifications;
+			sourceTree = "<group>";
+		};
+		B5841DC06889583F3E9C933F = {
+			isa = PBXGroup;
+			children = (
+				47FE4EFBDF3D178531A40264 /* CmuxKit */,
+				083C1F78FD7966AE840DD028 /* CmuxKitTests */,
+				7CFBA600F8B1158D0F90E73D /* CmuxRemote */,
+				BDE2E25AE94F9E0B8E28B19F /* CmuxRemoteTests */,
+				DC75ABDCCA6AEAD0E3707B67 /* CmuxRemoteWidgets */,
+				8318759D15E0DBE3F3EC2D7C /* Resources */,
+				01F62D15B202FC18603588E7 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		B9E94389F59D23EE24C2D62B /* Workspaces */ = {
+			isa = PBXGroup;
+			children = (
+				D8E3F6CA709EFF6FA5795108 /* WorkspaceSidebarView.swift */,
+			);
+			path = Workspaces;
+			sourceTree = "<group>";
+		};
+		BDE2E25AE94F9E0B8E28B19F /* CmuxRemoteTests */ = {
+			isa = PBXGroup;
+			children = (
+				3FF7CA6983119F0BD62413F7 /* AFKPolicyEvaluatorTests.swift */,
+				2B7D95E181AD4F15949B77A2 /* NotificationPayloadTests.swift */,
+			);
+			name = CmuxRemoteTests;
+			path = Tests/CmuxRemoteTests;
+			sourceTree = "<group>";
+		};
+		CD8218B0812A6EA892E298F9 /* Surfaces */ = {
+			isa = PBXGroup;
+			children = (
+				B139D9E6BC7774DFBA530108 /* BrowserSurfaceView.swift */,
+				2FFC56CA52427F0403546CAD /* SnippetPickerView.swift */,
+				13CA92241B6376F9D9482A21 /* SurfaceDetailView.swift */,
+			);
+			path = Surfaces;
+			sourceTree = "<group>";
+		};
+		DA376751B1506BE59A01F85D /* Util */ = {
+			isa = PBXGroup;
+			children = (
+				364424395838F96D2C1ABA7A /* Logging.swift */,
+				A6B8010C8D7E492E0B175AAF /* TerminalInputCoding.swift */,
+			);
+			path = Util;
+			sourceTree = "<group>";
+		};
+		DC75ABDCCA6AEAD0E3707B67 /* CmuxRemoteWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				F5C42AA287984141324275D3 /* AgentDecisionActivityWidget.swift */,
+				00F6E5D320F1CD05B5922B74 /* CmuxLiveActivityWidget.swift */,
+				E1964DB0559747F5C116B18B /* CmuxWidgetBundle.swift */,
+				46866D10AF842035716AA3F3 /* WidgetL10n.swift */,
+				0B284687BB6F21AB793FC89E /* WidgetState.swift */,
+				9B68B4ECBE746CD18968F64A /* WorkspaceStatusWidget.swift */,
+			);
+			name = CmuxRemoteWidgets;
+			path = Sources/CmuxRemoteWidgets;
+			sourceTree = "<group>";
+		};
+		DE88057BC58FB5C7E07C2FAF /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				506EBD9A4DF4CF7F8AF06496 /* CommandPalette */,
+				2A9D5AB57BF1888D2E6A3034 /* Hosts */,
+				14995D6689FDF96B3B08AE4E /* NotificationsList */,
+				5770AD8C9C58CAD086976158 /* Panes */,
+				FC3D3E92C9C62C0C54191528 /* Settings */,
+				CD8218B0812A6EA892E298F9 /* Surfaces */,
+				B9E94389F59D23EE24C2D62B /* Workspaces */,
+				306BCFD47E82DA9D2B33A700 /* RootView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		F5FF60A3662E142AE8C51BDF /* Reactor */ = {
+			isa = PBXGroup;
+			children = (
+				1D04A64056699F4BB0E6C9AE /* AgentWatchdog.swift */,
+				51A77FA30949440C4B77F3E6 /* EventReactor.swift */,
+				FA022E01FA976E6E7706D28A /* ResumeJournal.swift */,
+				D748EE08E0878B0255A1A8A3 /* ServerState.swift */,
+			);
+			path = Reactor;
+			sourceTree = "<group>";
+		};
+		FC3D3E92C9C62C0C54191528 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				F966D491B1406ABC01E5E355 /* AFKSettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		6587208DBF57364A07383061 /* CmuxRemoteTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 95BD63B56F78FA87235D8F61 /* Build configuration list for PBXNativeTarget "CmuxRemoteTests" */;
+			buildPhases = (
+				5D5E438C8289144A80170553 /* Sources */,
+				ECE4DC22B245582A60E9EA36 /* Frameworks */,
+				0EF7C6609CC1780D0B676EB5 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D47C52506F82AB1F1CDCBE39 /* PBXTargetDependency */,
+				4137D78022089268E60918A6 /* PBXTargetDependency */,
+			);
+			name = CmuxRemoteTests;
+			packageProductDependencies = (
+			);
+			productName = CmuxRemoteTests;
+			productReference = 7F8C36CDB5FD2794E1C424A3 /* CmuxRemoteTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		676B2A426AF02AF0A9EBDB00 /* CmuxRemoteWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AD898EC7EC34FCBA8F4960D2 /* Build configuration list for PBXNativeTarget "CmuxRemoteWidgets" */;
+			buildPhases = (
+				F2F5113703878577702939B6 /* Sources */,
+				6C4EC6A29F51EE2449B0C88D /* Resources */,
+				340D14E869E9CB9BAB7A762A /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				67AEA4DA9EB8E2EE46B844B8 /* PBXTargetDependency */,
+			);
+			name = CmuxRemoteWidgets;
+			packageProductDependencies = (
+			);
+			productName = CmuxRemoteWidgets;
+			productReference = C0B7A7303EB7809938DA8A30 /* CmuxRemoteWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		72AC400737B007D01643842A /* CmuxKit */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 77AF4AB53BE12399AF9B86F7 /* Build configuration list for PBXNativeTarget "CmuxKit" */;
+			buildPhases = (
+				0B9450DDEF51C4791C2131F0 /* Sources */,
+				15BE297459F939A1A77BA6BC /* Resources */,
+				0B20EBF7901480CBBB73A9AC /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = CmuxKit;
+			packageProductDependencies = (
+				C95108811307A2AD1CDFC341 /* Citadel */,
+				700DC60E7B49E96CA170B5EC /* Logging */,
+				E360A0C70FA932466802B9CE /* Collections */,
+				DE78F21A013D59BA69406DC5 /* AsyncAlgorithms */,
+			);
+			productName = CmuxKit;
+			productReference = 409A382B23275C6ECAEF0669 /* CmuxKit.framework */;
+			productType = "com.apple.product-type.framework";
+		};
+		D2B1A5671AAC7C72C50377DD /* CmuxRemote */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AD8F6980A6B41F8629FB2174 /* Build configuration list for PBXNativeTarget "CmuxRemote" */;
+			buildPhases = (
+				EA9343A412E112188F4F4A39 /* Sources */,
+				4D82D4CACE8AD2B9F4ADC316 /* Resources */,
+				F137D7782E3F22AFEDF0ADAC /* Frameworks */,
+				BB87FC6666F434794F3E5A4A /* Embed Foundation Extensions */,
+				2E363B500E96822212BCA2EF /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E450EFD6891C6CDC38D1783B /* PBXTargetDependency */,
+				2D0907E27F43DB2E0C888F31 /* PBXTargetDependency */,
+			);
+			name = CmuxRemote;
+			packageProductDependencies = (
+				F9E04F6AC41632F496F82ECC /* SwiftTerm */,
+				3BAFC83C477E7DBEF49BC2C1 /* KeychainAccess */,
+				EEF84CF8CE7FC06F306CE978 /* Logging */,
+				EAD46DCB5947EA53EF32606C /* Collections */,
+				A4F806C22FEC1F4E5D34288F /* AsyncAlgorithms */,
+			);
+			productName = CmuxRemote;
+			productReference = 0B04B5ECFC68C39C3F67CE5C /* CmuxRemote.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E16BD6C5713E802E0FDCC451 /* CmuxKitTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8D8CF3A2BC7DD315DC09AD23 /* Build configuration list for PBXNativeTarget "CmuxKitTests" */;
+			buildPhases = (
+				3AD3B9E6E7A7DBFF4E8B87C0 /* Sources */,
+				45E096318F7302469A222C2D /* Frameworks */,
+				4920FE7040AA0F100BDA0D0C /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CA4E2C554CDB1C6A1203C8DD /* PBXTargetDependency */,
+			);
+			name = CmuxKitTests;
+			packageProductDependencies = (
+			);
+			productName = CmuxKitTests;
+			productReference = E5F7A9A644DB776CC4713C39 /* CmuxKitTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		23295185E66B4D3DA0B1C0C7 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1640;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = D0C22F691339451A662EA5A9 /* Build configuration list for PBXProject "cmux-remote" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+				ja,
+			);
+			mainGroup = B5841DC06889583F3E9C933F;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B6F46416FD58F5AA73133DEC /* XCRemoteSwiftPackageReference "Citadel" */,
+				E2E3347A2EF6AC44EC530C47 /* XCRemoteSwiftPackageReference "KeychainAccess" */,
+				F7B434ECF54E55E684F1FAFB /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+				6B54D4493DC92484AE942FE6 /* XCRemoteSwiftPackageReference "swift-async-algorithms" */,
+				29C265C0F90BB31646D194DE /* XCRemoteSwiftPackageReference "swift-collections" */,
+				D06200B269771B4BCB9F7BA3 /* XCRemoteSwiftPackageReference "swift-log" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 01F62D15B202FC18603588E7 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				72AC400737B007D01643842A /* CmuxKit */,
+				E16BD6C5713E802E0FDCC451 /* CmuxKitTests */,
+				D2B1A5671AAC7C72C50377DD /* CmuxRemote */,
+				6587208DBF57364A07383061 /* CmuxRemoteTests */,
+				676B2A426AF02AF0A9EBDB00 /* CmuxRemoteWidgets */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		15BE297459F939A1A77BA6BC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9A9E1AD97B7580D67DE7883E /* Localizable.xcstrings in Resources */,
+				BD328D7AAE1363A393E8F9AD /* Package.support.md in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4D82D4CACE8AD2B9F4ADC316 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				116FAAF395F512802359FCEA /* InfoPlist.strings in Resources */,
+				33272CA01B61B1502E236EC9 /* Localizable.xcstrings in Resources */,
+				D1A0FC02EC1340AA86D8D59B /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6C4EC6A29F51EE2449B0C88D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C0D458C8A0DBD02AE80A0E81 /* Localizable.xcstrings in Resources */,
+				E7B8C4DAD789463B8DFB6D29 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0B9450DDEF51C4791C2131F0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CDF2B51DECD064DDBE58BE2D /* AFKPolicy.swift in Sources */,
+				1D90ADF8B84571690FEE7D4F /* AgentDecision.swift in Sources */,
+				1A557ACE68B48AA0D2D1ADCA /* AgentDecisionActivityAttributes.swift in Sources */,
+				97247E52FA7D4250C1EC7722 /* AgentDecisionResolver.swift in Sources */,
+				1B5BA6402FB68B199C09EF4E /* AgentWatchdog.swift in Sources */,
+				190E4C561CE17811A0B1A039 /* BrowserCommands.swift in Sources */,
+				66ACF5A2EA66042B270DAA69 /* CMUXActivityAttributes.swift in Sources */,
+				1486B602CDA0D84A1D7D19AB /* CMUXClient.swift in Sources */,
+				41E77D45D08CB4B2FB5BD12C /* CitadelSSHTransport.swift in Sources */,
+				CAF377E2C3F4CD28F8B0D4BA /* CmuxError.swift in Sources */,
+				D48028ACD92EF443E952E129 /* CmuxEvent.swift in Sources */,
+				F9EBC2FB8F3ED69308DB857B /* CmuxEventDecoder.swift in Sources */,
+				F9EA5C2BED1CD26CDB2C6303 /* CmuxIntentResolverRegistry.swift in Sources */,
+				6EDC8CE1C46EE3F293324FA6 /* CmuxSSHTransport.swift in Sources */,
+				7A68A83D6062A62EFE99F3BF /* EventReactor.swift in Sources */,
+				325DA75D05C9F0CE6B9D9C50 /* HostConfig.swift in Sources */,
+				C5E17EBF2F885DE3EE024647 /* Identifiers.swift in Sources */,
+				E59EF4E9684E4920A6D0C20E /* Logging.swift in Sources */,
+				8142219F27B468E31E134FD6 /* ResolveDecisionIntent.swift in Sources */,
+				FC5A3944E05096FB96B48634 /* ResumeJournal.swift in Sources */,
+				071492D7FB5483106261ED81 /* ServerState.swift in Sources */,
+				42049C7442E1EC147B05CDBE /* ShellEscape.swift in Sources */,
+				47C115CC21320D0A0DA90A73 /* Snippet.swift in Sources */,
+				A6BBA6C19E319846E7F2B3EF /* TerminalInputCoding.swift in Sources */,
+				A8284CECB937B028999ED2E5 /* WidgetState.swift in Sources */,
+				89DD8A114765A667D670A067 /* Workspace.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3AD3B9E6E7A7DBFF4E8B87C0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				75FA8277F10898DC27D9989A /* AgentDecisionTests.swift in Sources */,
+				A757F12D18F8FBBE49A36B8E /* CMUXClientCommandTests.swift in Sources */,
+				AB8EBFCC1FCBE6ABCBC40386 /* CmuxEventDecoderTests.swift in Sources */,
+				C11C944B63982C86967F8D30 /* ShellEscapeTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5D5E438C8289144A80170553 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D7331E00738511C77C6CA518 /* AFKPolicyEvaluatorTests.swift in Sources */,
+				8C36D25C151A4E42B0D61DE4 /* NotificationPayloadTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EA9343A412E112188F4F4A39 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D55A4A902857E1C6A08B100D /* AFKPolicyStore.swift in Sources */,
+				3EECB9BF2CC84A16553948F1 /* AFKSettingsView.swift in Sources */,
+				89F954B4CC50F144359B9DD7 /* AgentDecisionNotifier.swift in Sources */,
+				B48C14E9F18E966403209331 /* BGScheduler.swift in Sources */,
+				BB71B5EDE8D87B175F6922AD /* BackgroundEventDrain.swift in Sources */,
+				EAEC7106E7B5FFAA75D1FFE5 /* BrowserSurfaceView.swift in Sources */,
+				FA08D78581B75211CE8775D2 /* CMUXLiveActivityController.swift in Sources */,
+				B8176FB0BF08EEED45115414 /* CmuxAppShortcuts.swift in Sources */,
+				209F219D233A5C067479FD39 /* CmuxCredentialStore.swift in Sources */,
+				9A475F58C18DF8D0254D9E2D /* CmuxRemoteApp.swift in Sources */,
+				985739BD183249D364E4B7DC /* CmuxRemoteAppDelegate.swift in Sources */,
+				2842270053F3DF387CBD4F82 /* CommandPaletteView.swift in Sources */,
+				B867F8AD4AF707616B1B6AE2 /* ConnectionManager.swift in Sources */,
+				A597476A416A2F3EF57710AD /* GestureRecognizers.swift in Sources */,
+				2494F35B9CB3BB93FFF40842 /* HostAddView.swift in Sources */,
+				7D10202DEBC86A3F26545E99 /* HostListView.swift in Sources */,
+				421DFEDB637AD81328F518E6 /* HostStore.swift in Sources */,
+				8FDCC669EBD8E95E588B8EF4 /* KeyboardShortcutCatalog.swift in Sources */,
+				6744BE26B229C6E96A4C70DE /* L10n.swift in Sources */,
+				283CC2E8AE6C5C1C7F8D509A /* NotificationCategories.swift in Sources */,
+				E8AEB2081C21D99133D181C6 /* NotificationCenterBridge.swift in Sources */,
+				4682030EE4FEEE9ABB7CCB5C /* NotificationsListView.swift in Sources */,
+				96264740D264BFC761950F0E /* PaneTreeView.swift in Sources */,
+				212C94FDB2399E26918344A8 /* PencilOverlayView.swift in Sources */,
+				C45F7026C1025F0D48A7E635 /* RootView.swift in Sources */,
+				A2663C71FF560B8A894AFF5D /* SnippetPickerView.swift in Sources */,
+				C3D3B0749BF20503B1D66F89 /* SurfaceDetailView.swift in Sources */,
+				A421D9DC61DF8E5A21B42BF6 /* TerminalAccessoryBar.swift in Sources */,
+				7D84D1B91EF638325B2FD79D /* TerminalInputAssist.swift in Sources */,
+				B80D58EFEC10A5DF877CD438 /* TerminalSurfaceView.swift in Sources */,
+				9C8368ADC629988CD63FBEF0 /* WorkspaceSidebarView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F2F5113703878577702939B6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CA0432B66AD6C638F5D63154 /* AgentDecisionActivityWidget.swift in Sources */,
+				C7685462B4C0630B70004637 /* CmuxLiveActivityWidget.swift in Sources */,
+				B79F808ABF9ED6FFE13D6C37 /* CmuxWidgetBundle.swift in Sources */,
+				35EF2182F51D6A6607FBA3CB /* WidgetL10n.swift in Sources */,
+				9093774B6D58D8C1845DA07E /* WidgetState.swift in Sources */,
+				71E7CF41866A61E0C87E50B1 /* WorkspaceStatusWidget.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		2D0907E27F43DB2E0C888F31 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 676B2A426AF02AF0A9EBDB00 /* CmuxRemoteWidgets */;
+			targetProxy = B2E54DDBE6FF374200D89B2B /* PBXContainerItemProxy */;
+		};
+		4137D78022089268E60918A6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 72AC400737B007D01643842A /* CmuxKit */;
+			targetProxy = 3C58093E243641021CA97551 /* PBXContainerItemProxy */;
+		};
+		67AEA4DA9EB8E2EE46B844B8 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 72AC400737B007D01643842A /* CmuxKit */;
+			targetProxy = 52714EDA71ACB664BE0D0042 /* PBXContainerItemProxy */;
+		};
+		CA4E2C554CDB1C6A1203C8DD /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 72AC400737B007D01643842A /* CmuxKit */;
+			targetProxy = 35127191248D11FF93FD0554 /* PBXContainerItemProxy */;
+		};
+		D47C52506F82AB1F1CDCBE39 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D2B1A5671AAC7C72C50377DD /* CmuxRemote */;
+			targetProxy = E0C4DD8F526909341DB3F351 /* PBXContainerItemProxy */;
+		};
+		E450EFD6891C6CDC38D1783B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 72AC400737B007D01643842A /* CmuxKit */;
+			targetProxy = 56B728FE44781095DCFA688E /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		51BCD5E899BED6CCF3A25A14 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				C751C2BB081F1CABCD7A4D3E /* en */,
+				8082595B11E4E0530E35B5F0 /* ja */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		154BBD7125B516D85C233FC7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.remote.CmuxRemoteTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CmuxRemote.app/CmuxRemote";
+			};
+			name = Release;
+		};
+		1614B41C37883CD47367B95A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = App/Configuration/CmuxRemoteWidgets.entitlements;
+				INFOPLIST_FILE = "App/Configuration/CmuxRemoteWidgets-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.remote.widgets;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		3758D565DABBB2DB04C78E1F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_IDENTITY = "";
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				INFOPLIST_FILE = "App/Configuration/CmuxKit-Info.plist";
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.remote.CmuxKit;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Debug;
+		};
+		396AC2699AC61D5B3A9013A8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.remote.CmuxKitTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		5B9EDA038E4135F0F51B66D6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.remote.CmuxRemoteTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CmuxRemote.app/CmuxRemote";
+			};
+			name = Debug;
+		};
+		61A56B603BC6E59EE47130E9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.remote.CmuxKitTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		6B3886C7A75F387E7D9550A8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = App/Configuration/CmuxRemoteWidgets.entitlements;
+				INFOPLIST_FILE = "App/Configuration/CmuxRemoteWidgets-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.remote.widgets;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		AD72EA26CCE7C46E7B03071E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/Configuration/CmuxRemote.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = App/Configuration/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = cmux;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.remote;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C074CAD81CCB3E39BCC4370F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				OTHER_SWIFT_FLAGS = "-warnings-as-errors";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY = YES;
+				SWIFT_UPCOMING_FEATURE_INTERNAL_IMPORTS_BY_DEFAULT = YES;
+				SWIFT_VERSION = 5.10;
+			};
+			name = Debug;
+		};
+		CADD2C5DC5D064CCFD1AE1BC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_IDENTITY = "";
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				INFOPLIST_FILE = "App/Configuration/CmuxKit-Info.plist";
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.remote.CmuxKit;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Release;
+		};
+		F6CEA2C64AFC381952917BA7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/Configuration/CmuxRemote.Release.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = App/Configuration/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = cmux;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.remote;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		FEB481FD3CFE00293FFDAEF0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				OTHER_SWIFT_FLAGS = "-warnings-as-errors";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY = YES;
+				SWIFT_UPCOMING_FEATURE_INTERNAL_IMPORTS_BY_DEFAULT = YES;
+				SWIFT_VERSION = 5.10;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		77AF4AB53BE12399AF9B86F7 /* Build configuration list for PBXNativeTarget "CmuxKit" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3758D565DABBB2DB04C78E1F /* Debug */,
+				CADD2C5DC5D064CCFD1AE1BC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		8D8CF3A2BC7DD315DC09AD23 /* Build configuration list for PBXNativeTarget "CmuxKitTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				396AC2699AC61D5B3A9013A8 /* Debug */,
+				61A56B603BC6E59EE47130E9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		95BD63B56F78FA87235D8F61 /* Build configuration list for PBXNativeTarget "CmuxRemoteTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5B9EDA038E4135F0F51B66D6 /* Debug */,
+				154BBD7125B516D85C233FC7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		AD898EC7EC34FCBA8F4960D2 /* Build configuration list for PBXNativeTarget "CmuxRemoteWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6B3886C7A75F387E7D9550A8 /* Debug */,
+				1614B41C37883CD47367B95A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		AD8F6980A6B41F8629FB2174 /* Build configuration list for PBXNativeTarget "CmuxRemote" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AD72EA26CCE7C46E7B03071E /* Debug */,
+				F6CEA2C64AFC381952917BA7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D0C22F691339451A662EA5A9 /* Build configuration list for PBXProject "cmux-remote" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C074CAD81CCB3E39BCC4370F /* Debug */,
+				FEB481FD3CFE00293FFDAEF0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		29C265C0F90BB31646D194DE /* XCRemoteSwiftPackageReference "swift-collections" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-collections";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.1.4;
+			};
+		};
+		6B54D4493DC92484AE942FE6 /* XCRemoteSwiftPackageReference "swift-async-algorithms" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-async-algorithms";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.4;
+			};
+		};
+		B6F46416FD58F5AA73133DEC /* XCRemoteSwiftPackageReference "Citadel" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/orlandos-nl/Citadel";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.12.1;
+			};
+		};
+		D06200B269771B4BCB9F7BA3 /* XCRemoteSwiftPackageReference "swift-log" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-log";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.6.1;
+			};
+		};
+		E2E3347A2EF6AC44EC530C47 /* XCRemoteSwiftPackageReference "KeychainAccess" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kishikawakatsumi/KeychainAccess";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.2.2;
+			};
+		};
+		F7B434ECF54E55E684F1FAFB /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.13.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		3BAFC83C477E7DBEF49BC2C1 /* KeychainAccess */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E2E3347A2EF6AC44EC530C47 /* XCRemoteSwiftPackageReference "KeychainAccess" */;
+			productName = KeychainAccess;
+		};
+		700DC60E7B49E96CA170B5EC /* Logging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D06200B269771B4BCB9F7BA3 /* XCRemoteSwiftPackageReference "swift-log" */;
+			productName = Logging;
+		};
+		A4F806C22FEC1F4E5D34288F /* AsyncAlgorithms */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6B54D4493DC92484AE942FE6 /* XCRemoteSwiftPackageReference "swift-async-algorithms" */;
+			productName = AsyncAlgorithms;
+		};
+		C95108811307A2AD1CDFC341 /* Citadel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B6F46416FD58F5AA73133DEC /* XCRemoteSwiftPackageReference "Citadel" */;
+			productName = Citadel;
+		};
+		DE78F21A013D59BA69406DC5 /* AsyncAlgorithms */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6B54D4493DC92484AE942FE6 /* XCRemoteSwiftPackageReference "swift-async-algorithms" */;
+			productName = AsyncAlgorithms;
+		};
+		E360A0C70FA932466802B9CE /* Collections */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 29C265C0F90BB31646D194DE /* XCRemoteSwiftPackageReference "swift-collections" */;
+			productName = Collections;
+		};
+		EAD46DCB5947EA53EF32606C /* Collections */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 29C265C0F90BB31646D194DE /* XCRemoteSwiftPackageReference "swift-collections" */;
+			productName = Collections;
+		};
+		EEF84CF8CE7FC06F306CE978 /* Logging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D06200B269771B4BCB9F7BA3 /* XCRemoteSwiftPackageReference "swift-log" */;
+			productName = Logging;
+		};
+		F9E04F6AC41632F496F82ECC /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F7B434ECF54E55E684F1FAFB /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 23295185E66B4D3DA0B1C0C7 /* Project object */;
+}

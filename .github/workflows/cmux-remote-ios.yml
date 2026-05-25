@@ -1,0 +1,134 @@
+name: cmux-remote iOS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/cmux-remote-ios.yml"
+      - "iOS/cmux-remote/**"
+      - "CLI/**"
+      - "Packages/CMUXWorkstream/**"
+      - "Resources/Localizable.xcstrings"
+      - "Sources/AppDelegate.swift"
+      - "Sources/Feed/**"
+      - "Sources/TerminalController.swift"
+      - "cmuxTests/FeedCoordinatorTests.swift"
+      - "cmuxTests/CLIGenericHookPersistenceTests.swift"
+  pull_request:
+    paths:
+      - ".github/workflows/cmux-remote-ios.yml"
+      - "iOS/cmux-remote/**"
+      - "CLI/**"
+      - "Packages/CMUXWorkstream/**"
+      - "Resources/Localizable.xcstrings"
+      - "Sources/AppDelegate.swift"
+      - "Sources/Feed/**"
+      - "Sources/TerminalController.swift"
+      - "cmuxTests/FeedCoordinatorTests.swift"
+      - "cmuxTests/CLIGenericHookPersistenceTests.swift"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: warp-macos-26-arm64-6x
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -n 1 || true)"
+            if [ -z "$XCODE_APP" ]; then
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+            XCODE_DIR="$XCODE_APP/Contents/Developer"
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+
+      - name: Lint checked-in metadata
+        run: |
+          set -euo pipefail
+          python3 -m json.tool Resources/Localizable.xcstrings >/dev/null
+          python3 -m json.tool iOS/cmux-remote/App/Resources/Localizable.xcstrings >/dev/null
+          plutil -lint \
+            iOS/cmux-remote/App/Configuration/Info.plist \
+            iOS/cmux-remote/App/Configuration/CmuxRemoteWidgets-Info.plist \
+            iOS/cmux-remote/App/Resources/PrivacyInfo.xcprivacy
+          if rg -n \
+            "processingIdentifier|scheduleProcessing|BGProcessing|com.cmuxterm.remote.processing|NSSupportsLiveActivitiesFrequentUpdates|processing</string>|BGProcessingTask|pushTokenHex|pushTokenUpdates|pushType: \\.token" \
+            iOS/cmux-remote; then
+            echo "Found stale BGProcessing/frequent-update/APNs-token declarations." >&2
+            exit 1
+          fi
+
+      - name: Cache Swift packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: iOS/cmux-remote/.ci-source-packages
+          key: cmux-remote-spm-${{ runner.os }}-${{ hashFiles('iOS/cmux-remote/cmux-remote.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: cmux-remote-spm-${{ runner.os }}-
+
+      - name: Resolve Swift packages
+        working-directory: iOS/cmux-remote
+        run: |
+          set -euo pipefail
+          mkdir -p .ci-source-packages
+          for attempt in 1 2 3; do
+            if xcodebuild -project cmux-remote.xcodeproj -scheme CmuxRemote -configuration Debug \
+              -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
+              -resolvePackageDependencies; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to resolve Swift packages after 3 attempts" >&2
+              exit 1
+            fi
+            echo "Package resolution failed on attempt $attempt, retrying..."
+            sleep $((attempt * 5))
+          done
+
+      - name: Build iOS app
+        working-directory: iOS/cmux-remote
+        run: |
+          set -euo pipefail
+          xcodebuild -quiet \
+            -project cmux-remote.xcodeproj \
+            -scheme CmuxRemote \
+            -configuration Debug \
+            -destination "generic/platform=iOS" \
+            -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
+            -disableAutomaticPackageResolution \
+            -derivedDataPath "$RUNNER_TEMP/cmux-remote-ios-app" \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Build iOS test bundle
+        working-directory: iOS/cmux-remote
+        run: |
+          set -euo pipefail
+          xcodebuild -quiet \
+            -project cmux-remote.xcodeproj \
+            -scheme CmuxRemote \
+            -configuration Debug \
+            -destination "generic/platform=iOS" \
+            -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
+            -disableAutomaticPackageResolution \
+            -derivedDataPath "$RUNNER_TEMP/cmux-remote-ios-tests" \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            build-for-testing

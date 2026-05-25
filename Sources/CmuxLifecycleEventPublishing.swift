@@ -267,6 +267,7 @@ extension AppDelegate {
         }
     }
 
+    @MainActor
     func publishCmuxWindowLifecycle(name: String, windowId: UUID, origin: String) {
         let manager = tabManagerFor(windowId: windowId)
         let workspaceId = manager?.selectedTabId

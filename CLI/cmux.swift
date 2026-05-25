@@ -27674,7 +27674,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             _ = try client.sendV2(
                 method: "feed.permission.reply",
-                params: ["request_id": requestId, "mode": mode]
+                params: ["request_id": requestId, "item_id": item.id, "mode": mode]
             )
             return "Permission \(mode) sent"
         case "exitPlan":
@@ -27683,7 +27683,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 guard !feedback.isEmpty else { return "Replan cancelled" }
                 _ = try client.sendV2(
                     method: "feed.exit_plan.reply",
-                    params: ["request_id": requestId, "mode": "deny", "feedback": feedback]
+                    params: ["request_id": requestId, "item_id": item.id, "mode": "deny", "feedback": feedback]
                 )
                 return "Replan feedback sent"
             }
@@ -27707,7 +27707,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             _ = try client.sendV2(
                 method: "feed.exit_plan.reply",
-                params: ["request_id": requestId, "mode": mode]
+                params: ["request_id": requestId, "item_id": item.id, "mode": mode]
             )
             return "Plan \(mode) sent"
         case "question":
@@ -27720,7 +27720,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
                 _ = try client.sendV2(
                     method: "feed.question.reply",
-                    params: ["request_id": requestId, "selections": [] as [String]]
+                    params: ["request_id": requestId, "item_id": item.id, "selections": [] as [String]]
                 )
                 return "Question answer sent"
             }
@@ -27731,7 +27731,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
                 _ = try client.sendV2(
                     method: "feed.question.reply",
-                    params: ["request_id": requestId, "selections": selections]
+                    params: ["request_id": requestId, "item_id": item.id, "selections": selections]
                 )
                 return "Question answer sent"
             }
@@ -27758,7 +27758,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         .map(\.label)
                     _ = try client.sendV2(
                         method: "feed.question.reply",
-                        params: ["request_id": requestId, "selections": selections]
+                        params: ["request_id": requestId, "item_id": item.id, "selections": selections]
                     )
                     selectedQuestionOptions.removeValue(forKey: requestId)
                     return selections.isEmpty ? "Question answer sent with no selections" : "Question answer sent"
@@ -27781,7 +27781,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             _ = try client.sendV2(
                 method: "feed.question.reply",
-                params: ["request_id": requestId, "selections": [option.label]]
+                params: ["request_id": requestId, "item_id": item.id, "selections": [option.label]]
             )
             return "Question answer sent: \(option.label)"
         default:
@@ -28364,6 +28364,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         event: String,
         toolName: String
     ) -> (String, Bool) {
+        if event == "DiffApprovalRequest" || toolName == "DiffApprovalRequest" {
+            return ("DiffApprovalRequest", true)
+        }
+
         if source == "claude" {
             switch event {
             case "PermissionRequest":
@@ -28514,7 +28518,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             behavior: String,
             message: String? = nil,
             updatedInput: [String: Any]? = nil,
-            updatedPermissions: [[String: Any]]? = nil
+            updatedPermissions: [[String: Any]]? = nil,
+            outputHookEventName: String = "PermissionRequest"
         ) -> [String: Any] {
             var inner: [String: Any] = ["behavior": behavior]
             if behavior == "deny" {
@@ -28528,7 +28533,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             return [
                 "hookSpecificOutput": [
-                    "hookEventName": "PermissionRequest",
+                    "hookEventName": outputHookEventName,
                     "decision": inner,
                 ]
             ]
@@ -28597,13 +28602,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 ))
             }
             if source == "codex" {
+                let outputHookEventName = hookEventName == "DiffApprovalRequest"
+                    ? "DiffApprovalRequest"
+                    : "PermissionRequest"
                 if mode == "deny" {
                     return encode(permissionRequestHookDecision(
                         behavior: "deny",
-                        message: "User denied permission via cmux Feed."
+                        message: "User denied permission via cmux Feed.",
+                        outputHookEventName: outputHookEventName
                     ))
                 }
-                return encode(permissionRequestHookDecision(behavior: "allow"))
+                return encode(permissionRequestHookDecision(
+                    behavior: "allow",
+                    outputHookEventName: outputHookEventName
+                ))
             }
             if source == "hermes-agent" {
                 if mode == "deny" {

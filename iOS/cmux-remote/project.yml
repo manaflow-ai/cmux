@@ -1,0 +1,220 @@
+name: cmux-remote
+options:
+  bundleIdPrefix: com.cmuxterm.remote
+  deploymentTarget:
+    iOS: "26.0"
+  developmentLanguage: en
+  groupSortPosition: top
+  generateEmptyDirectories: false
+  defaultConfig: Debug
+  xcodeVersion: "16.4"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY: YES
+    SWIFT_UPCOMING_FEATURE_INTERNAL_IMPORTS_BY_DEFAULT: YES
+    OTHER_SWIFT_FLAGS: "-warnings-as-errors"
+    ENABLE_HARDENED_RUNTIME: YES
+  configs:
+    Debug:
+      SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: "DEBUG"
+    Release:
+      SWIFT_OPTIMIZATION_LEVEL: "-O"
+
+packages:
+  Citadel:
+    url: https://github.com/orlandos-nl/Citadel
+    from: "0.12.1"
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    from: "1.13.0"
+  KeychainAccess:
+    url: https://github.com/kishikawakatsumi/KeychainAccess
+    from: "4.2.2"
+  swift-log:
+    url: https://github.com/apple/swift-log
+    from: "1.6.1"
+  swift-collections:
+    url: https://github.com/apple/swift-collections
+    from: "1.1.4"
+  swift-async-algorithms:
+    url: https://github.com/apple/swift-async-algorithms
+    from: "1.0.4"
+
+targets:
+  CmuxKit:
+    type: framework
+    platform: iOS
+    sources:
+      - path: Sources/CmuxKit
+      - path: App/Resources/Localizable.xcstrings
+    info:
+      path: App/Configuration/CmuxKit-Info.plist
+      properties:
+        CFBundlePackageType: FMWK
+    dependencies:
+      - package: Citadel
+      - package: swift-log
+        product: Logging
+      - package: swift-collections
+        product: Collections
+      - package: swift-async-algorithms
+        product: AsyncAlgorithms
+    settings:
+      base:
+        DEFINES_MODULE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.cmuxterm.remote.CmuxKit
+        APPLICATION_EXTENSION_API_ONLY: YES
+
+  CmuxRemote:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/CmuxRemote
+      - path: App/Resources
+    info:
+      path: App/Configuration/Info.plist
+      properties:
+        UILaunchScreen:
+          UIColorName: LaunchScreenBackground
+        UIBackgroundModes:
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.cmuxterm.remote.refresh
+        NSSupportsLiveActivities: true
+        NSUserActivityTypes:
+          - com.cmuxterm.remote.openWorkspace
+          - com.cmuxterm.remote.openNotification
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneDelegate
+        UISupportsDocumentBrowser: false
+        UIRequiredDeviceCapabilities:
+          - arm64
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIFileSharingEnabled: false
+        NSFaceIDUsageDescription: cmux-remote uses Face ID to protect stored SSH credentials.
+        NSLocalNetworkUsageDescription: cmux-remote uses your local network to reach cmux running on your Mac.
+        NSBonjourServices:
+          - _ssh._tcp
+        ITSAppUsesNonExemptEncryption: true
+    dependencies:
+      - target: CmuxKit
+      - target: CmuxRemoteWidgets
+      - package: SwiftTerm
+      - package: KeychainAccess
+      - package: swift-log
+        product: Logging
+      - package: swift-collections
+        product: Collections
+      - package: swift-async-algorithms
+        product: AsyncAlgorithms
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cmuxterm.remote
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: YES
+        INFOPLIST_KEY_CFBundleDisplayName: cmux
+      configs:
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: App/Configuration/CmuxRemote.entitlements
+        Release:
+          CODE_SIGN_ENTITLEMENTS: App/Configuration/CmuxRemote.Release.entitlements
+
+  CmuxRemoteWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/CmuxRemoteWidgets
+      - path: App/Resources/Localizable.xcstrings
+      - path: App/Resources/PrivacyInfo.xcprivacy
+    info:
+      path: App/Configuration/CmuxRemoteWidgets-Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        NSSupportsLiveActivities: true
+    entitlements:
+      path: App/Configuration/CmuxRemoteWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.cmuxterm.remote
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.cmuxterm.remote
+    dependencies:
+      - target: CmuxKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cmuxterm.remote.widgets
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  CmuxKitTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/CmuxKitTests
+    dependencies:
+      - target: CmuxKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cmuxterm.remote.CmuxKitTests
+
+  CmuxRemoteTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/CmuxRemoteTests
+    dependencies:
+      - target: CmuxRemote
+      - target: CmuxKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cmuxterm.remote.CmuxRemoteTests
+
+schemes:
+  CmuxRemote:
+    build:
+      targets:
+        CmuxRemote: all
+        CmuxKit: all
+        CmuxRemoteWidgets: all
+        CmuxKitTests: [test]
+        CmuxRemoteTests: [test]
+    test:
+      gatherCoverageData: true
+      targets:
+        - CmuxKitTests
+        - CmuxRemoteTests
+    run:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+  CmuxKit:
+    build:
+      targets:
+        CmuxKit: all
+        CmuxKitTests: [test]
+    test:
+      targets:
+        - CmuxKitTests

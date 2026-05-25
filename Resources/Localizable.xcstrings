@@ -114848,6 +114848,40 @@
         }
       }
     },
+    "feed.notification.diff.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ diff approval"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@の差分承認"
+          }
+        }
+      }
+    },
+    "feed.notification.diff.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review and approve the diff"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分を確認して承認してください"
+          }
+        }
+      }
+    },
     "feed.notification.exitPlan.title": {
       "extractionState": "manual",
       "localizations": {
@@ -114967,6 +115001,40 @@
         }
       }
     },
+    "feed.notification.diff.apply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用"
+          }
+        }
+      }
+    },
+    "feed.notification.diff.reject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reject"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "却下"
+          }
+        }
+      }
+    },
     "feed.notification.exitPlan.bypass": {
       "extractionState": "manual",
       "localizations": {
@@ -115048,6 +115116,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "返信"
+          }
+        }
+      }
+    },
+    "feed.notification.replyFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux decision not delivered"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxの判断を送信できませんでした"
+          }
+        }
+      }
+    },
+    "feed.notification.replyFailed.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The request is no longer pending in cmux. Open the Feed to check current state."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このリクエストはcmuxで保留中ではありません。フィードを開いて現在の状態を確認してください。"
           }
         }
       }
