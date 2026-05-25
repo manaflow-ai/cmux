@@ -546,6 +546,12 @@ final class CmuxSettingsFileStore {
                 logInvalid("sidebar.branchLayout", sourcePath: sourcePath)
             }
         }
+        if let value = jsonBool(section["stackBranchDirectory"]) {
+            snapshot.managedUserDefaults[SidebarBranchDirectoryStackedSettings.key] = .bool(value)
+        }
+        if let value = jsonBool(section["pathLastSegmentOnly"]) {
+            snapshot.managedUserDefaults[SidebarPathLastSegmentSettings.key] = .bool(value)
+        }
         if let value = jsonBool(section["showNotificationMessage"]) {
             snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.showNotificationMessageKey] = .bool(value)
         }
