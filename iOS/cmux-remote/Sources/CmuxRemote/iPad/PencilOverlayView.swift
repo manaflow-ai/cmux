@@ -19,6 +19,7 @@ struct PencilOverlayView: View {
     @State private var drawing = PKDrawing()
     @State private var recognized: String = ""
     @State private var sendError: String?
+    @State private var isSending = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -63,8 +64,10 @@ struct PencilOverlayView: View {
             Spacer()
             Button {
                 let payload = recognized.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !payload.isEmpty else { return }
+                guard !payload.isEmpty, !isSending else { return }
+                isSending = true
                 Task {
+                    defer { isSending = false }
                     do {
                         try await onRecognized(payload)
                         isPresented = false
@@ -77,7 +80,7 @@ struct PencilOverlayView: View {
                 }
             } label: { Label(L10n.string("common.send", defaultValue: "Send"), systemImage: "paperplane.fill") }
                 .buttonStyle(.borderedProminent)
-                .disabled(recognized.isEmpty)
+                .disabled(isSending || recognized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)

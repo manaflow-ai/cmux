@@ -247,8 +247,15 @@ public actor CMUXClient {
             ?? Self.nonEmptyString(payload["window_ref"])
         let resolvedWindowID = responseWindowID.map { WindowID($0) } ?? windowID
         let lookupWindowID = resolvedWindowID
-        if let workspace = try await listWorkspaces(windowID: lookupWindowID).first(where: { $0.id == WorkspaceID(id) }) {
-            return workspace
+        do {
+            if let workspace = try await listWorkspaces(windowID: lookupWindowID)
+                .first(where: { $0.id == WorkspaceID(id) }) {
+                return workspace
+            }
+        } catch {
+            log.warning("workspace lookup after create failed; using fallback", metadata: [
+                "workspace_id": "\(id)"
+            ])
         }
         guard let resolvedWindowID else {
             return nil

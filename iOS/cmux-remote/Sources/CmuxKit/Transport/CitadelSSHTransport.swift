@@ -32,7 +32,7 @@ public actor CitadelSSHTransport: CmuxSSHTransport {
     private let host: String
     private let port: Int
     private let username: String
-    private let auth: SSHAuthenticationMethod
+    private let authFactory: @Sendable () throws -> SSHAuthenticationMethod
     private let hostKeyPolicy: HostKeyPolicy
     private let connectTimeout: TimeAmount
     private var client: SSHClient?
@@ -52,7 +52,7 @@ public actor CitadelSSHTransport: CmuxSSHTransport {
         self.username = username
         self.hostKeyPolicy = hostKeyPolicy
         self.connectTimeout = .seconds(Int64(connectTimeoutSeconds))
-        self.auth = try Self.makeAuthMethod(username: username, credential: credential)
+        self.authFactory = { try Self.makeAuthMethod(username: username, credential: credential) }
     }
 
     /// Host-key-only probe for TOFU. This deliberately sends SSH "none" auth
@@ -72,7 +72,7 @@ public actor CitadelSSHTransport: CmuxSSHTransport {
         self.username = username
         self.hostKeyPolicy = hostKeyPolicy
         self.connectTimeout = .seconds(Int64(connectTimeoutSeconds))
-        self.auth = SSHAuthenticationMethod.custom(HostKeyProbeAuthentication(username: username))
+        self.authFactory = { SSHAuthenticationMethod.custom(HostKeyProbeAuthentication(username: username)) }
     }
 
     private static func makeAuthMethod(
@@ -129,7 +129,7 @@ public actor CitadelSSHTransport: CmuxSSHTransport {
             let client = try await SSHClient.connect(
                 host: host,
                 port: port,
-                authenticationMethod: auth,
+                authenticationMethod: try authFactory(),
                 hostKeyValidator: validator,
                 reconnect: .never,
                 connectTimeout: connectTimeout
@@ -261,6 +261,7 @@ public actor CitadelSSHTransport: CmuxSSHTransport {
     ) -> AsyncThrowingStream<String, any Error> {
         AsyncThrowingStream { continuation in
             let task = Task.detached {
+                var stderrBuffer = Data()
                 do {
                     let client = try await self.ensureConnected()
                     let stream = try await client.executeCommandStream(command)
@@ -284,6 +285,7 @@ public actor CitadelSSHTransport: CmuxSSHTransport {
                             }
                         case .stderr(let buf):
                             stderrTail.append(contentsOf: buf.readableBytesView)
+                            stderrBuffer.append(contentsOf: buf.readableBytesView)
                             while let nl = stderrTail.firstIndex(of: 0x0A) {
                                 let lineData = stderrTail.prefix(upTo: nl)
                                 stderrTail.removeSubrange(...nl)
@@ -304,7 +306,7 @@ public actor CitadelSSHTransport: CmuxSSHTransport {
                 } catch let failure as SSHClient.CommandFailed {
                     continuation.finish(throwing: CmuxError.command(
                         exitCode: Int32(failure.exitCode),
-                        stderr: ""
+                        stderr: String(data: stderrBuffer, encoding: .utf8) ?? ""
                     ))
                 } catch is CancellationError {
                     continuation.finish(throwing: CmuxError.cancelled)
@@ -322,6 +324,7 @@ public actor CitadelSSHTransport: CmuxSSHTransport {
     ) -> AsyncThrowingStream<Data, any Error> {
         AsyncThrowingStream { continuation in
             let task = Task.detached {
+                var stderrBuffer = Data()
                 do {
                     let client = try await self.ensureConnected()
                     let stream = try await client.executeCommandStream(command)
@@ -333,6 +336,7 @@ public actor CitadelSSHTransport: CmuxSSHTransport {
                             continuation.yield(Data(buf.readableBytesView))
                         case .stderr(let buf):
                             stderrTail.append(contentsOf: buf.readableBytesView)
+                            stderrBuffer.append(contentsOf: buf.readableBytesView)
                             while let nl = stderrTail.firstIndex(of: 0x0A) {
                                 let lineData = stderrTail.prefix(upTo: nl)
                                 stderrTail.removeSubrange(...nl)
@@ -349,7 +353,7 @@ public actor CitadelSSHTransport: CmuxSSHTransport {
                 } catch let failure as SSHClient.CommandFailed {
                     continuation.finish(throwing: CmuxError.command(
                         exitCode: Int32(failure.exitCode),
-                        stderr: ""
+                        stderr: String(data: stderrBuffer, encoding: .utf8) ?? ""
                     ))
                 } catch is CancellationError {
                     continuation.finish(throwing: CmuxError.cancelled)
