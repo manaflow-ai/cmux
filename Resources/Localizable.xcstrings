@@ -63732,6 +63732,74 @@
         }
       }
     },
+    "command.liveShell.gc.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garbage Collect Detached Live Shells"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デタッチされたライブシェルをガベージコレクト"
+          }
+        }
+      }
+    },
+    "command.liveShell.killFocused.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kill Live Shell of Focused Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスされたペインのライブシェルを終了"
+          }
+        }
+      }
+    },
+    "command.liveShell.list.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Live Shell Sessions…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブシェルセッションを表示…"
+          }
+        }
+      }
+    },
+    "command.liveShell.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Shell"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブシェル"
+          }
+        }
+      }
+    },
     "command.markOldestUnreadAndJumpNext.title": {
       "extractionState": "manual",
       "localizations": {
@@ -121424,6 +121492,465 @@
           "stringUnit": {
             "state": "translated",
             "value": "キーを押してください…"
+          }
+        }
+      }
+    },
+    "liveShell.alert.daemonDown.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The livesh daemon is not running. Start it by opening a new pane with the livesh shell backend or by running `livesh` in any terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "livesh デーモンが実行されていません。livesh シェルバックエンドで新しいペインを開くか、ターミナルで `livesh` を実行して起動してください。"
+          }
+        }
+      }
+    },
+    "liveShell.alert.daemonDown.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "liveshd Not Running"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "liveshd が実行されていません"
+          }
+        }
+      }
+    },
+    "liveShell.alert.decodeFailure.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to decode liveshctl output."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "liveshctl の出力をデコードできませんでした。"
+          }
+        }
+      }
+    },
+    "liveShell.alert.error.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Shell"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブシェル"
+          }
+        }
+      }
+    },
+    "liveShell.alert.gc.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garbage collection requested. Detached shells with exited processes will be cleaned up."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ガベージコレクションを要求しました。終了したプロセスのデタッチされたシェルが整理されます。"
+          }
+        }
+      }
+    },
+    "liveShell.alert.gc.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Shell GC"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブシェル GC"
+          }
+        }
+      }
+    },
+    "liveShell.alert.kill.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent kill for the live shell. The daemon will tear down the shell; close the pane to dismiss the dead bridge."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブシェルへの終了要求を送信しました。デーモンがシェルを停止します。デッドブリッジを閉じるにはペインを閉じてください。"
+          }
+        }
+      }
+    },
+    "liveShell.alert.kill.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Shell Killed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブシェルを終了しました"
+          }
+        }
+      }
+    },
+    "liveShell.alert.list.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No live shell sessions are currently registered with the daemon."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デーモンに登録されているライブシェルセッションはありません。"
+          }
+        }
+      }
+    },
+    "liveShell.alert.list.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live shell sessions registered with the daemon:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デーモンに登録されているライブシェルセッション:"
+          }
+        }
+      }
+    },
+    "liveShell.alert.list.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Shell Sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブシェルセッション"
+          }
+        }
+      }
+    },
+    "liveShell.alert.noFocusedLiveShell.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused pane is not running a live shell. Switch to a pane wrapped by livesh, then run this command again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスされているペインはライブシェルを実行していません。livesh でラップされたペインに切り替えてからこのコマンドを再実行してください。"
+          }
+        }
+      }
+    },
+    "liveShell.alert.noFocusedLiveShell.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Live Shell in Focus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスにライブシェルがありません"
+          }
+        }
+      }
+    },
+    "liveShell.alert.nonZeroExit.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "liveshctl exited with a non-zero status."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "liveshctl が非ゼロのステータスで終了しました。"
+          }
+        }
+      }
+    },
+    "liveShell.alert.notInstalled.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not locate the liveshctl binary. Install livesh (~/.local/bin/livesh) or set terminal.liveshctlExecutablePath in cmux.json."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "liveshctl バイナリが見つかりません。livesh (~/.local/bin/livesh) をインストールするか、cmux.json で terminal.liveshctlExecutablePath を設定してください。"
+          }
+        }
+      }
+    },
+    "liveShell.alert.notInstalled.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "liveshctl Not Found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "liveshctl が見つかりません"
+          }
+        }
+      }
+    },
+    "liveShell.alert.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "liveShell.exit.daemonUnavailable.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not reach the livesh daemon (liveshd). The pane will close. Restart liveshd by opening any new terminal with the livesh backend, or check `liveshctl status` in another terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "livesh デーモン (liveshd) に到達できませんでした。ペインを閉じます。livesh バックエンドで新しいターミナルを開いて liveshd を再起動するか、別のターミナルで `liveshctl status` を確認してください。"
+          }
+        }
+      }
+    },
+    "liveShell.exit.daemonUnavailable.button.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインを閉じる"
+          }
+        }
+      }
+    },
+    "liveShell.exit.daemonUnavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "livesh Daemon Unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "livesh デーモンを利用できません"
+          }
+        }
+      }
+    },
+    "liveShell.exit.shellLost.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The live shell no longer exists. The daemon may have crashed or the shell may have been killed externally."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブシェルが存在しなくなりました。デーモンがクラッシュしたか、シェルが外部から停止された可能性があります。"
+          }
+        }
+      }
+    },
+    "liveShell.exit.shellLost.button.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインを閉じる"
+          }
+        }
+      }
+    },
+    "liveShell.exit.shellLost.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Shell Is Gone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブシェルが失われました"
+          }
+        }
+      }
+    },
+    "liveShell.session.attached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "attached"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アタッチ中"
+          }
+        }
+      }
+    },
+    "liveShell.session.detached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "detached"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デタッチ中"
+          }
+        }
+      }
+    },
+    "liveShell.session.unnamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(unnamed)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（名称未設定）"
+          }
+        }
+      }
+    },
+    "liveShell.sessionLabelPrefix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション:"
           }
         }
       }
@@ -204425,6 +204952,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "テキスト入力"
+          }
+        }
+      }
+    },
+    "settings.terminal.shellBackend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell Backend"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェルバックエンド"
+          }
+        }
+      }
+    },
+    "settings.terminal.shellBackend.direct": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直接実行"
+          }
+        }
+      }
+    },
+    "settings.terminal.shellBackend.livesh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Shell (livesh)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブシェル (livesh)"
+          }
+        }
+      }
+    },
+    "settings.terminal.shellBackend.subtitle.direct": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New terminal panes spawn the shell directly under cmux. Existing behavior."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいターミナルペインは cmux 配下でシェルを直接起動します（既定の挙動）。"
+          }
+        }
+      }
+    },
+    "settings.terminal.shellBackend.subtitle.livesh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wrap new shells in livesh so the PTY survives cmux quitting and can be reattached."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいシェルを livesh でラップします。cmux を終了しても PTY が残り、再接続できます。"
+          }
+        }
+      }
+    },
+    "settings.terminal.shellBackend.subtitle.liveshMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "livesh binary not found. Install it to ~/.local/bin/livesh or set terminal.liveshExecutablePath. Until then, new shells fall back to direct."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "livesh バイナリが見つかりません。~/.local/bin/livesh に配置するか、terminal.liveshExecutablePath を設定してください。それまでは新しいシェルは直接実行にフォールバックします。"
           }
         }
       }

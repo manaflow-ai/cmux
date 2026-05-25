@@ -22,7 +22,8 @@ public struct TerminalLaunchCommandPolicy: Sendable {
         surfaceCommand: String?,
         hasUserGhosttyCommand: Bool,
         managedShellCommand: String?,
-        resolvedShell: String?
+        resolvedShell: String?,
+        liveshExecutablePath: String? = nil
     ) -> String? {
         for candidate in [initialCommand, surfaceCommand] {
             if let candidate, !candidate.isEmpty {
@@ -30,7 +31,7 @@ public struct TerminalLaunchCommandPolicy: Sendable {
             }
         }
         if hasUserGhosttyCommand { return nil }
-        for candidate in [managedShellCommand, resolvedShell] {
+        for candidate in [liveshExecutablePath, managedShellCommand, resolvedShell] {
             if let candidate, !candidate.isEmpty {
                 return candidate
             }

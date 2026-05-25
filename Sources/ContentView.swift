@@ -7426,6 +7426,49 @@ struct ContentView: View {
 
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.listLiveShells",
+                title: constant(String(
+                    localized: "command.liveShell.list.title",
+                    defaultValue: "Show Live Shell Sessions…"
+                )),
+                subtitle: constant(String(
+                    localized: "command.liveShell.subtitle",
+                    defaultValue: "Live Shell"
+                )),
+                keywords: ["livesh", "live", "shell", "list", "sessions", "detached"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.gcLiveShells",
+                title: constant(String(
+                    localized: "command.liveShell.gc.title",
+                    defaultValue: "Garbage Collect Detached Live Shells"
+                )),
+                subtitle: constant(String(
+                    localized: "command.liveShell.subtitle",
+                    defaultValue: "Live Shell"
+                )),
+                keywords: ["livesh", "live", "shell", "gc", "garbage", "collect", "cleanup", "detached"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.killFocusedLiveShell",
+                title: constant(String(
+                    localized: "command.liveShell.killFocused.title",
+                    defaultValue: "Kill Live Shell of Focused Pane"
+                )),
+                subtitle: constant(String(
+                    localized: "command.liveShell.subtitle",
+                    defaultValue: "Live Shell"
+                )),
+                keywords: ["livesh", "live", "shell", "kill", "terminate", "destroy", "pane", "focused"]
+            )
+        )
+
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.renameWorkspace",
                 title: constant(String(localized: "command.renameWorkspace.title", defaultValue: "Rename Workspace…")),
                 subtitle: workspaceSubtitle,
@@ -8616,6 +8659,26 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.enableBrowser") {
             BrowserAvailabilitySettings.setDisabled(false)
+        }
+        registry.register(commandId: "palette.listLiveShells") {
+            LiveShellCommandPaletteActions.presentListAlert()
+        }
+        registry.register(commandId: "palette.gcLiveShells") {
+            LiveShellCommandPaletteActions.runGarbageCollect()
+        }
+        registry.register(commandId: "palette.killFocusedLiveShell") {
+            let sessionId: String? = {
+                guard let workspace = tabManager.selectedWorkspace,
+                      let panel = workspace.focusedTerminalPanel else { return nil }
+                let binding = workspace.surfaceResumeBindingsByPanelId[panel.id]
+                guard let binding,
+                      binding.kind == "livesh",
+                      let id = binding.checkpointId, !id.isEmpty else {
+                    return nil
+                }
+                return id
+            }()
+            LiveShellCommandPaletteActions.killFocusedLiveShell(sessionId: sessionId)
         }
         registerSettingsToggleCommandHandlers(&registry)
 

@@ -53,6 +53,9 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
 
     /// Whether sidebar pull-request watching is enabled (`CMUX_NO_PR_WATCH`).
     public var showPullRequestsEnabled: Bool
+    /// The resolved `livesh` executable path used for new terminal panes when the
+    /// livesh backend is enabled. `nil` keeps the existing Ghostty command behavior.
+    public var liveshExecutablePath: String?
 
     /// Creates a spawn policy snapshot.
     public init(
@@ -69,7 +72,8 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         ampHooksEnabled: Bool,
         shellIntegrationEnabled: Bool,
         watchGitStatusEnabled: Bool,
-        showPullRequestsEnabled: Bool
+        showPullRequestsEnabled: Bool,
+        liveshExecutablePath: String? = nil
     ) {
         self.socketAuthenticationEnvironment = socketAuthenticationEnvironment
         self.claudeHooksEnabled = claudeHooksEnabled
@@ -85,5 +89,6 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         self.shellIntegrationEnabled = shellIntegrationEnabled
         self.watchGitStatusEnabled = watchGitStatusEnabled
         self.showPullRequestsEnabled = showPullRequestsEnabled
+        self.liveshExecutablePath = liveshExecutablePath
     }
 }

@@ -6943,6 +6943,97 @@ extension SessionPersistenceTests {
         XCTAssertNil(cleanScanBinding)
     }
 
+    @MainActor
+    func testLiveShellResumeBindingOwnsNestedAgentSnapshotAndWorkingDirectory() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-livesh-restore-\(UUID().uuidString)", isDirectory: true)
+        let liveShellDirectory = root.appendingPathComponent("live-shell", isDirectory: true)
+        let staleAgentDirectory = root.appendingPathComponent("stale-agent", isDirectory: true)
+        try fileManager.createDirectory(at: liveShellDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: staleAgentDirectory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? fileManager.removeItem(at: root)
+        }
+
+        let workspace = Workspace()
+        let paneID = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let panel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: paneID,
+                focus: true,
+                workingDirectory: liveShellDirectory.path
+            )
+        )
+        workspace.panelDirectories.removeValue(forKey: panel.id)
+
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: "nested-omp-session",
+            workingDirectory: staleAgentDirectory.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "omp",
+                executablePath: "/usr/local/bin/omp",
+                arguments: ["/usr/local/bin/omp", "--resume", "nested-omp-session"],
+                workingDirectory: staleAgentDirectory.path,
+                environment: nil,
+                capturedAt: 20,
+                source: "process"
+            ),
+            registration: .builtInOmp
+        )
+        let panelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspace.id,
+            panelId: panel.id
+        )
+        let agentIndex = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: [.builtInOmp]),
+            detectedSnapshots: [
+                panelKey: (
+                    snapshot: agent,
+                    updatedAt: 20,
+                    processIDs: [],
+                    agentProcessIDs: [],
+                    sessionIDSource: .explicit
+                ),
+            ],
+            processArgumentsProvider: { _ in nil }
+        )
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(
+                workspaceId: workspace.id,
+                panelId: panel.id
+            ): SurfaceResumeBindingSnapshot(
+                name: "livesh sh_abc",
+                kind: "livesh",
+                command: "'livesh' '--open' 'sh_abc'",
+                cwd: liveShellDirectory.path,
+                checkpointId: "sh_abc",
+                source: "process-detected",
+                autoResume: true,
+                updatedAt: 30
+            ),
+        ])
+
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: agentIndex,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+        let terminal = try XCTUnwrap(
+            snapshot.panels.first(where: { $0.id == panel.id })?.terminal
+        )
+
+        XCTAssertNil(
+            terminal.agent,
+            "livesh owns the nested process tree and must be the only restore source"
+        )
+        XCTAssertEqual(terminal.workingDirectory, liveShellDirectory.path)
+        XCTAssertEqual(terminal.resumeBinding?.kind, "livesh")
+    }
+
     func testTmuxProcessDetectedResumeBindingPreservesSocketFlags() throws {
         let binding = try XCTUnwrap(
             SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(

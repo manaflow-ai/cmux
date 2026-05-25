@@ -253,7 +253,8 @@ extension TerminalSurface {
             surfaceCommand: baseConfig.command,
             hasUserGhosttyCommand: engine.hasUserGhosttyCommand,
             managedShellCommand: managedShellCommand,
-            resolvedShell: engine.resolvedUserShell
+            resolvedShell: engine.resolvedUserShell,
+            liveshExecutablePath: spawnPolicy.liveshExecutablePath
         )
         let runtimeInitialInput = nextRuntimeInitialInput
         let resolvedInitialInput: String? = {

@@ -666,6 +666,30 @@ final class CmuxSettingsFileStore {
                 logInvalid("terminal.textBoxSubmitActions", sourcePath: sourcePath)
             }
         }
+
+        if let raw = jsonString(section["shellBackend"]) {
+            if let backend = LiveShellBackend(rawValue: raw) {
+                snapshot.managedUserDefaults[LiveShellSettings.key] = .string(backend.rawValue)
+            } else {
+                logInvalid("terminal.shellBackend", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("shellBackend") {
+            logInvalid("terminal.shellBackend", sourcePath: sourcePath)
+        }
+
+        if let value = jsonString(section["liveshExecutablePath"]) {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            snapshot.managedUserDefaults[LiveShellSettings.liveshExecutableKey] = .string(trimmed)
+        } else if section.keys.contains("liveshExecutablePath") {
+            logInvalid("terminal.liveshExecutablePath", sourcePath: sourcePath)
+        }
+
+        if let value = jsonString(section["liveshctlExecutablePath"]) {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            snapshot.managedUserDefaults[LiveShellSettings.liveshctlExecutableKey] = .string(trimmed)
+        } else if section.keys.contains("liveshctlExecutablePath") {
+            logInvalid("terminal.liveshctlExecutablePath", sourcePath: sourcePath)
+        }
     }
 
     private func parseSidebarSection(
