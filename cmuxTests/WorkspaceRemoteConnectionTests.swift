@@ -2304,6 +2304,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             ("long verbose before host", ["et", "--verbose", "lawrence@example.com"]),
             ("short verbose before host", ["et", "-v", "lawrence@example.com"]),
             ("short verbose after host", ["et", "lawrence@example.com", "-v"]),
+            ("short verbose clustered with known flag", ["et", "-vx", "lawrence@example.com"]),
+            ("short verbose clustered with unknown flag", ["et", "-vZ", "lawrence@example.com"]),
         ]
 
         for (name, arguments) in cases {

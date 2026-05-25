@@ -45,17 +45,6 @@ nonisolated enum RemoteShellSessionParsing {
         "tunnel",
         "username",
     ]
-    private static let eternalTerminalLongNoArgumentOptions: Set<String> = [
-        "forward-ssh-agent",
-        "help",
-        "kill-other-sessions",
-        "logtostdout",
-        "macserver",
-        "no-terminal",
-        "noexit",
-        "silent",
-        "version",
-    ]
     private static let filteredSSHOptionKeys: Set<String> = [
         "batchmode",
         "controlmaster",
@@ -224,10 +213,6 @@ nonisolated enum RemoteShellSessionParsing {
                     }
                     continue
                 }
-                if eternalTerminalLongNoArgumentOptions.contains(optionName) || parts.count == 2 {
-                    index += 1
-                    continue
-                }
                 index += 1
                 continue
             }
@@ -241,8 +226,12 @@ nonisolated enum RemoteShellSessionParsing {
                 if option == "v" {
                     if shortOptionIndex + 1 < shortOptions.count {
                         let value = String(shortOptions[(shortOptionIndex + 1)...])
-                        guard Int(value) != nil else { return nil }
-                        index += 1
+                        if Int(value) != nil {
+                            index += 1
+                            continue argumentLoop
+                        }
+                        shortOptionIndex += 1
+                        continue
                     } else if index + 1 < arguments.count, Int(arguments[index + 1]) != nil {
                         index += 2
                     } else {
