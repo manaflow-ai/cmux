@@ -73,6 +73,239 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeSubagentSessionStartPersistsParentForRestoreFiltering() throws {
+        let context = try makeClaudeHookContext(name: "claude-subagent-parent-filter")
+        defer { context.cleanup() }
+
+        let parentSessionId = "claude-parent-session"
+        let childSessionId = "claude-child-session"
+        let parentTranscriptPath = "\(context.root.path)/projects/claude-parent-session.jsonl"
+        let childTranscriptPath = "\(context.root.path)/projects/claude-child-session.jsonl"
+
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                parentSessionId: [
+                    "sessionId": parentSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "transcriptPath": parentTranscriptPath,
+                    "isRestorable": true,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+        _ = context.state.setResumeBinding(
+            [
+                "checkpoint_id": childSessionId,
+                "source": "agent-hook",
+            ],
+            expectedCheckpointId: nil,
+            expectedSource: nil
+        )
+        XCTAssertEqual(context.state.resumeBindingCheckpointId, childSessionId)
+
+        let start = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(childSessionId)","parent_session_id":"\#(parentSessionId)","source":"startup","cwd":"\#(context.root.path)","transcript_path":"\#(childTranscriptPath)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let record = try readClaudeHookSession(childSessionId, context: context)
+        XCTAssertEqual(record["isRestorable"] as? Bool, false)
+        XCTAssertEqual(record["parentSessionId"] as? String, parentSessionId)
+        XCTAssertEqual(record["transcriptPath"] as? String, childTranscriptPath)
+        XCTAssertEqual(
+            context.state.resumeBindingCheckpointId,
+            parentSessionId,
+            "Claude subagent SessionStart should repair stale child resume bindings back to the parent."
+        )
+
+        let promptCommandIndex = context.state.commands.count
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(childSessionId)","parent_session_id":"\#(parentSessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(childTranscriptPath)","hook_event_name":"UserPromptSubmit"}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let updatedRecord = try readClaudeHookSession(childSessionId, context: context)
+        XCTAssertEqual(updatedRecord["isRestorable"] as? Bool, false)
+        let promptCommands = Array(context.state.commands.dropFirst(promptCommandIndex))
+        XCTAssertFalse(
+            promptCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == childSessionId
+            },
+            "Claude subagent prompts must not publish child resume bindings, saw \(promptCommands)"
+        )
+
+        let lateStartCommandIndex = context.state.commands.count
+        let lateStart = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(childSessionId)","source":"clear","cwd":"\#(context.root.path)","transcript_path":"\#(childTranscriptPath)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(lateStart.timedOut, lateStart.stderr)
+        XCTAssertEqual(lateStart.status, 0, lateStart.stderr)
+
+        let lateRecord = try readClaudeHookSession(childSessionId, context: context)
+        XCTAssertEqual(lateRecord["isRestorable"] as? Bool, false)
+        XCTAssertEqual(lateRecord["parentSessionId"] as? String, parentSessionId)
+        let lateStartCommands = Array(context.state.commands.dropFirst(lateStartCommandIndex))
+        XCTAssertFalse(
+            lateStartCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == childSessionId
+            },
+            "A later Claude SessionStart without parent metadata must still not publish the stored child binding, saw \(lateStartCommands)"
+        )
+        XCTAssertFalse(
+            lateStartCommands.contains {
+                $0 == "clear_notifications --tab=\(context.workspaceId)" ||
+                    $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+            },
+            "A later Claude subagent SessionStart must not mutate visible parent state, saw \(lateStartCommands)"
+        )
+    }
+
+    func testClaudeSubagentStopWithSuppressionDisabledStillProtectsParentResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "claude-subagent-notify-setting-off")
+        defer { context.cleanup() }
+
+        let parentSessionId = "claude-notify-setting-parent"
+        let childSessionId = "claude-notify-setting-child"
+        let parentPrompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(parentSessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/claude-notify-parent.jsonl","hook_event_name":"UserPromptSubmit"}"#
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+        XCTAssertEqual(context.state.resumeBindingCheckpointId, parentSessionId)
+
+        let childPromptIndex = context.state.commands.count
+        let childPrompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(childSessionId)","parent_session_id":"\#(parentSessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/claude-notify-child.jsonl","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: [
+                "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS": "0",
+            ]
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+
+        let childPromptCommands = Array(context.state.commands.dropFirst(childPromptIndex))
+        XCTAssertFalse(
+            childPromptCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == childSessionId
+            },
+            "Disabling subagent notification suppression must not let the Claude child take over resume, saw \(childPromptCommands)"
+        )
+        XCTAssertEqual(context.state.resumeBindingCheckpointId, parentSessionId)
+
+        let childStopIndex = context.state.commands.count
+        let childStop = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "stop"],
+            standardInput: #"{"session_id":"\#(childSessionId)","parent_session_id":"\#(parentSessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/claude-notify-child.jsonl","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: [
+                "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS": "0",
+            ]
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopIndex))
+        XCTAssertFalse(
+            childStopCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == childSessionId
+            },
+            "Disabling subagent notification suppression must not let the Claude child Stop publish child resume, saw \(childStopCommands)"
+        )
+        XCTAssertTrue(
+            childStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Claude Code|") },
+            "Disabling subagent notification suppression should allow the Claude child Stop notification, saw \(childStopCommands)"
+        )
+        XCTAssertTrue(
+            childStopCommands.contains { $0.hasPrefix("set_status claude_code Idle ") },
+            "Disabling subagent notification suppression should allow the Claude child visible status update, saw \(childStopCommands)"
+        )
+        XCTAssertEqual(context.state.resumeBindingCheckpointId, parentSessionId)
+
+        let child = try readClaudeHookSession(childSessionId, context: context)
+        XCTAssertEqual(child["parentSessionId"] as? String, parentSessionId)
+        XCTAssertEqual(child["isRestorable"] as? Bool, false)
+    }
+
+    func testLateClaudeSessionStartDoesNotClearRestorablePromptSession() throws {
+        let context = try makeClaudeHookContext(name: "claude-late-start-restorable")
+        defer { context.cleanup() }
+
+        let sessionId = "late-start-session"
+        let start = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/late-start-session.jsonl","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/late-start-session.jsonl","hook_event_name":"UserPromptSubmit"}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        var record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["isRestorable"] as? Bool, true)
+
+        let lateStart = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/late-start-session.jsonl","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(lateStart.timedOut, lateStart.stderr)
+        XCTAssertEqual(lateStart.status, 0, lateStart.stderr)
+
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(
+            record["isRestorable"] as? Bool,
+            true,
+            "Late non-promoting SessionStart events must not make an already restorable Claude session disappear from restore."
+        )
+    }
+
     func testClaudeStopFromPreviousSessionDoesNotClobberClearRunningStatus() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-stale-stop")
         defer { context.cleanup() }
@@ -1842,6 +2075,737 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexSubagentSessionStartDoesNotReplaceParentResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-spawned-subagent-resume-guard")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-thread"
+        let childSessionId = "child-thread"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+
+        let parentStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: parentSessionId)
+        )
+        XCTAssertFalse(parentStart.timedOut, parentStart.stderr)
+        XCTAssertEqual(parentStart.status, 0, parentStart.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == parentSessionId
+            },
+            "Parent Codex SessionStart should publish a parent resume binding, saw \(context.state.commands)"
+        )
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        var seededState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        var seededSessions = try XCTUnwrap(seededState["sessions"] as? [String: Any])
+        let staleChildTimestamp = Date().timeIntervalSince1970
+        seededSessions[childSessionId] = [
+            "sessionId": childSessionId,
+            "workspaceId": context.workspaceId,
+            "surfaceId": context.surfaceId,
+            "cwd": context.root.path,
+            "isRestorable": true,
+            "startedAt": staleChildTimestamp,
+            "updatedAt": staleChildTimestamp,
+        ]
+        seededState["sessions"] = seededSessions
+        try JSONSerialization.data(withJSONObject: seededState, options: [.prettyPrinted, .sortedKeys])
+            .write(to: stateURL, options: .atomic)
+
+        let childStartIndex = context.state.commands.count
+        let childStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","source":{"subAgent":{"thread_spawn":{"parent_thread_id":"\#(parentSessionId)","depth":1}}}}"#
+        )
+        XCTAssertFalse(childStart.timedOut, childStart.stderr)
+        XCTAssertEqual(childStart.status, 0, childStart.stderr)
+
+        let childCommands = Array(context.state.commands.dropFirst(childStartIndex))
+        XCTAssertFalse(
+            childCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == childSessionId
+            },
+            "Spawned Codex subagent should not publish a child resume binding, saw \(childCommands)"
+        )
+        XCTAssertFalse(
+            childCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.clear" },
+            "Spawned Codex subagent should not clear the parent resume binding, saw \(childCommands)"
+        )
+
+        let childStopIndex = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopIndex))
+        XCTAssertFalse(
+            childStopCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == childSessionId
+            },
+            "Stored non-restorable subagent Stop should not publish a child resume binding, saw \(childStopCommands)"
+        )
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "Stored non-restorable subagent Stop should not notify or clobber visible parent status, saw \(childStopCommands)"
+        )
+
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        let parent = try XCTUnwrap(savedSessions[parentSessionId] as? [String: Any])
+        let child = try XCTUnwrap(savedSessions[childSessionId] as? [String: Any])
+        XCTAssertNotNil(parent["launchCommand"])
+        XCTAssertEqual(child["isRestorable"] as? Bool, false)
+    }
+
+    func testCodexLaunchlessTopLevelSessionStartCanReplaceOlderLaunchBackedBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-launchless-top-level")
+        defer { context.cleanup() }
+
+        let oldSessionId = "older-launch-backed-thread"
+        let latestSessionId = "newer-launchless-thread"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+
+        let oldStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(oldSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: oldSessionId)
+        )
+        XCTAssertFalse(oldStart.timedOut, oldStart.stderr)
+        XCTAssertEqual(oldStart.status, 0, oldStart.stderr)
+
+        let latestStartIndex = context.state.commands.count
+        let latestStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(latestSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(latestStart.timedOut, latestStart.stderr)
+        XCTAssertEqual(latestStart.status, 0, latestStart.stderr)
+
+        let latestCommands = Array(context.state.commands.dropFirst(latestStartIndex))
+        XCTAssertTrue(
+            latestCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == latestSessionId
+            },
+            "A launchless top-level Codex SessionStart should replace an older binding, saw \(latestCommands)"
+        )
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        let latest = try XCTUnwrap(savedSessions[latestSessionId] as? [String: Any])
+        XCTAssertNil(
+            latest["isRestorable"],
+            "Top-level launchless sessions must remain restorable unless an explicit subagent signal suppresses them."
+        )
+    }
+
+    func testCodexTopLevelSessionIgnoresUnrelatedNestedParentMetadata() throws {
+        let context = try makeClaudeHookContext(name: "codex-unrelated-nested-parent-metadata")
+        defer { context.cleanup() }
+
+        let sessionId = "top-level-session-with-metadata"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+
+        let result = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","metadata":{"prior_invocation":{"parent_thread_id":"unrelated-parent-thread"}}}"#
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == sessionId
+            },
+            "Unrelated nested parent metadata should not suppress a top-level Codex resume binding, saw \(context.state.commands)"
+        )
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        let savedSession = try XCTUnwrap(savedSessions[sessionId] as? [String: Any])
+        XCTAssertNil(savedSession["parentSessionId"])
+        XCTAssertNil(savedSession["isRestorable"])
+    }
+
+    func testCodexSubagentStopWithLateParentMetadataRestoresParentResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-late-subagent-parent-metadata")
+        defer { context.cleanup() }
+
+        let parentSessionId = "late-parent-thread"
+        let childSessionId = "late-child-thread"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let parentStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: parentSessionId)
+        )
+        XCTAssertFalse(parentStart.timedOut, parentStart.stderr)
+        XCTAssertEqual(parentStart.status, 0, parentStart.stderr)
+
+        let childStartIndex = context.state.commands.count
+        let childStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: childSessionId)
+        )
+        XCTAssertFalse(childStart.timedOut, childStart.stderr)
+        XCTAssertEqual(childStart.status, 0, childStart.stderr)
+        let childStartCommands = Array(context.state.commands.dropFirst(childStartIndex))
+        XCTAssertTrue(
+            childStartCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == childSessionId
+            },
+            "Unmarked child SessionStart sets up the stale child binding this regression repairs, saw \(childStartCommands)"
+        )
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let childMarkedStartIndex = context.state.commands.count
+        let childMarkedStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","source":{"subAgent":{"thread_spawn":{"parent_thread_id":"\#(parentSessionId)","depth":1}}}}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: childSessionId)
+        )
+        XCTAssertFalse(childMarkedStart.timedOut, childMarkedStart.stderr)
+        XCTAssertEqual(childMarkedStart.status, 0, childMarkedStart.stderr)
+        let childMarkedStartCommands = Array(context.state.commands.dropFirst(childMarkedStartIndex))
+        XCTAssertTrue(
+            childMarkedStartCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == parentSessionId
+                    && params["expected_checkpoint_id"] as? String == childSessionId
+            },
+            "Late subagent SessionStart metadata should repair the stale child resume binding, saw \(childMarkedStartCommands)"
+        )
+        var savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        var savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        var child = try XCTUnwrap(savedSessions[childSessionId] as? [String: Any])
+        XCTAssertEqual(child["parentSessionId"] as? String, parentSessionId)
+        XCTAssertEqual(child["isRestorable"] as? Bool, false)
+        XCTAssertNil(
+            child["runtimeStatus"],
+            "A suppressed child SessionStart must clear hidden child runtime state left by an earlier unmarked start."
+        )
+
+        let childStopIndex = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done","source":{"subAgent":{"thread_spawn":{"parent_thread_id":"\#(parentSessionId)","depth":1}}}}"#
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopIndex))
+        XCTAssertTrue(
+            childStopCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == parentSessionId
+                    && params["expected_checkpoint_id"] as? String == childSessionId
+                    && params["expected_source"] as? String == "agent-hook"
+            },
+            "Late subagent metadata should repair the stale child resume binding by restoring the parent binding, saw \(childStopCommands)"
+        )
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "Late subagent metadata should still suppress child completion notifications, saw \(childStopCommands)"
+        )
+
+        savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        child = try XCTUnwrap(savedSessions[childSessionId] as? [String: Any])
+        XCTAssertEqual(child["parentSessionId"] as? String, parentSessionId)
+        XCTAssertEqual(child["isRestorable"] as? Bool, false)
+        XCTAssertNil(
+            child["runtimeStatus"],
+            "A suppressed child Stop must not leave hidden child runtime state marked running."
+        )
+    }
+
+    func testCodexStoredSubagentParentSuppressesPayloadlessSessionEnd() throws {
+        let context = try makeClaudeHookContext(name: "codex-stored-subagent-parent-session-end")
+        defer { context.cleanup() }
+
+        let parentSessionId = "stored-parent-thread"
+        let childSessionId = "stored-child-thread"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 40)
+
+        let parentStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: parentSessionId)
+        )
+        XCTAssertFalse(parentStart.timedOut, parentStart.stderr)
+        XCTAssertEqual(parentStart.status, 0, parentStart.stderr)
+
+        let childStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: childSessionId)
+        )
+        XCTAssertFalse(childStart.timedOut, childStart.stderr)
+        XCTAssertEqual(childStart.status, 0, childStart.stderr)
+        XCTAssertEqual(context.state.resumeBindingCheckpointId, childSessionId)
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        var savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        var savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        var child = try XCTUnwrap(savedSessions[childSessionId] as? [String: Any])
+        child["parentSessionId"] = parentSessionId
+        child.removeValue(forKey: "isRestorable")
+        savedSessions[childSessionId] = child
+        savedState["sessions"] = savedSessions
+        try JSONSerialization.data(withJSONObject: savedState, options: [.prettyPrinted, .sortedKeys])
+            .write(to: stateURL, options: .atomic)
+
+        let childEndIndex = context.state.commands.count
+        let childEnd = runCodexHook(
+            context: context,
+            subcommand: "session-end",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+        )
+        XCTAssertFalse(childEnd.timedOut, childEnd.stderr)
+        XCTAssertEqual(childEnd.status, 0, childEnd.stderr)
+
+        let childEndCommands = Array(context.state.commands.dropFirst(childEndIndex))
+        XCTAssertTrue(
+            childEndCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == parentSessionId
+                    && params["expected_checkpoint_id"] as? String == childSessionId
+            },
+            "Stored parent metadata should suppress payloadless SessionEnd and repair the parent binding, saw \(childEndCommands)"
+        )
+        XCTAssertFalse(
+            childEndCommands.contains { $0.hasPrefix("clear_agent_pid codex.") },
+            "Payloadless subagent SessionEnd should not clear the visible parent PID, saw \(childEndCommands)"
+        )
+        savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        child = try XCTUnwrap(savedSessions[childSessionId] as? [String: Any])
+        XCTAssertEqual(child["parentSessionId"] as? String, parentSessionId)
+        XCTAssertEqual(child["isRestorable"] as? Bool, false)
+        XCTAssertNil(child["runtimeStatus"])
+    }
+
+    func testCodexLateSubagentRepairWorksAfterPanelWorkspaceMove() throws {
+        let context = try makeClaudeHookContext(name: "codex-late-subagent-moved-panel")
+        defer { context.cleanup() }
+
+        let oldWorkspaceId = "33333333-3333-3333-3333-333333333333"
+        let parentSessionId = "moved-parent-thread"
+        let childSessionId = "moved-child-thread"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 40)
+
+        let parentStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: parentSessionId)
+        )
+        XCTAssertFalse(parentStart.timedOut, parentStart.stderr)
+        XCTAssertEqual(parentStart.status, 0, parentStart.stderr)
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        var savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        var savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        var parent = try XCTUnwrap(savedSessions[parentSessionId] as? [String: Any])
+        parent["workspaceId"] = oldWorkspaceId
+        savedSessions[parentSessionId] = parent
+        savedState["sessions"] = savedSessions
+        try JSONSerialization.data(withJSONObject: savedState, options: [.prettyPrinted, .sortedKeys])
+            .write(to: stateURL, options: .atomic)
+
+        let childStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: childSessionId)
+        )
+        XCTAssertFalse(childStart.timedOut, childStart.stderr)
+        XCTAssertEqual(childStart.status, 0, childStart.stderr)
+
+        let childStopIndex = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done","source":{"subAgent":{"thread_spawn":{"parent_thread_id":"\#(parentSessionId)","depth":1}}}}"#
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopIndex))
+        XCTAssertTrue(
+            childStopCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == parentSessionId
+                    && params["surface_id"] as? String == context.surfaceId
+                    && params["expected_checkpoint_id"] as? String == childSessionId
+            },
+            "Parent repair should use the matching panel ID even after the panel moves workspaces, saw \(childStopCommands)"
+        )
+        XCTAssertEqual(context.state.resumeBindingCheckpointId, parentSessionId)
+    }
+
+    func testCodexLateSubagentRepairDoesNotReplaceNewerTopLevelResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-late-subagent-newer-parent")
+        defer { context.cleanup() }
+
+        let parentSessionId = "stale-parent-thread"
+        let childSessionId = "stale-child-thread"
+        let newerSessionId = "newer-top-level-thread"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let parentStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: parentSessionId)
+        )
+        XCTAssertFalse(parentStart.timedOut, parentStart.stderr)
+        XCTAssertEqual(parentStart.status, 0, parentStart.stderr)
+
+        let childStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: childSessionId)
+        )
+        XCTAssertFalse(childStart.timedOut, childStart.stderr)
+        XCTAssertEqual(childStart.status, 0, childStart.stderr)
+
+        let newerStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(newerSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: newerSessionId)
+        )
+        XCTAssertFalse(newerStart.timedOut, newerStart.stderr)
+        XCTAssertEqual(newerStart.status, 0, newerStart.stderr)
+        XCTAssertEqual(context.state.resumeBindingCheckpointId, newerSessionId)
+
+        let childStopIndex = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done","source":{"subAgent":{"thread_spawn":{"parent_thread_id":"\#(parentSessionId)","depth":1}}}}"#
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopIndex))
+        XCTAssertTrue(
+            childStopCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == parentSessionId
+                    && params["expected_checkpoint_id"] as? String == childSessionId
+                    && params["expected_source"] as? String == "agent-hook"
+            },
+            "Late repair should be guarded by the child checkpoint, saw \(childStopCommands)"
+        )
+        XCTAssertEqual(
+            context.state.resumeBindingCheckpointId,
+            newerSessionId,
+            "A late child hook must not replace a newer top-level resume binding."
+        )
+    }
+
+    func testCodexSubagentStopWithSuppressionDisabledStillProtectsParentResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-subagent-notify-setting-off")
+        defer { context.cleanup() }
+
+        let parentSessionId = "notify-setting-parent-thread"
+        let childSessionId = "notify-setting-child-thread"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 40)
+
+        let parentStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: parentSessionId)
+        )
+        XCTAssertFalse(parentStart.timedOut, parentStart.stderr)
+        XCTAssertEqual(parentStart.status, 0, parentStart.stderr)
+
+        let childStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: childSessionId)
+        )
+        XCTAssertFalse(childStart.timedOut, childStart.stderr)
+        XCTAssertEqual(childStart.status, 0, childStart.stderr)
+
+        let childStopIndex = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done","source":{"subAgent":{"thread_spawn":{"parent_thread_id":"\#(parentSessionId)","depth":1}}}}"#,
+            extraEnvironment: [
+                "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS": "0",
+            ]
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopIndex))
+        XCTAssertTrue(
+            childStopCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == parentSessionId
+                    && params["expected_checkpoint_id"] as? String == childSessionId
+                    && params["expected_source"] as? String == "agent-hook"
+            },
+            "Disabling subagent notification suppression should still repair the parent resume binding, saw \(childStopCommands)"
+        )
+        XCTAssertFalse(
+            childStopCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == childSessionId
+            },
+            "Disabling subagent notification suppression must not let the child take over resume, saw \(childStopCommands)"
+        )
+        XCTAssertTrue(
+            childStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "Disabling subagent notification suppression should allow the child Stop notification, saw \(childStopCommands)"
+        )
+        XCTAssertTrue(
+            childStopCommands.contains { $0.hasPrefix("set_agent_pid codex.\(childSessionId) ") },
+            "Disabling subagent notification suppression should allow visible child PID updates, saw \(childStopCommands)"
+        )
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        let child = try XCTUnwrap(savedSessions[childSessionId] as? [String: Any])
+        XCTAssertEqual(child["parentSessionId"] as? String, parentSessionId)
+        XCTAssertEqual(child["isRestorable"] as? Bool, false)
+    }
+
+    func testCodexSubagentStopWithUnresumableLateParentClearsStaleChildResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-late-unresumable-parent")
+        defer { context.cleanup() }
+
+        let parentSessionId = "late-unresumable-parent-thread"
+        let childSessionId = "late-unresumable-child-thread"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let childStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: childSessionId)
+        )
+        XCTAssertFalse(childStart.timedOut, childStart.stderr)
+        XCTAssertEqual(childStart.status, 0, childStart.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == childSessionId
+            },
+            "Unmarked child SessionStart sets up the stale child binding this regression repairs, saw \(context.state.commands)"
+        )
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        var seededState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        var seededSessions = try XCTUnwrap(seededState["sessions"] as? [String: Any])
+        let now = Date().timeIntervalSince1970
+        seededSessions[parentSessionId] = [
+            "sessionId": parentSessionId,
+            "workspaceId": context.workspaceId,
+            "surfaceId": context.surfaceId,
+            "cwd": context.root.path,
+            "startedAt": now,
+            "updatedAt": now,
+            "launchCommand": [
+                "launcher": "omx",
+                "executablePath": "/usr/local/bin/cmux",
+                "arguments": ["/usr/local/bin/cmux", "omx", "hud"],
+                "workingDirectory": context.root.path,
+                "capturedAt": now,
+                "source": "test",
+            ],
+        ]
+        seededState["sessions"] = seededSessions
+        try JSONSerialization.data(withJSONObject: seededState, options: [.prettyPrinted, .sortedKeys])
+            .write(to: stateURL, options: .atomic)
+
+        let childStopIndex = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done","source":{"subAgent":{"thread_spawn":{"parent_thread_id":"\#(parentSessionId)","depth":1}}}}"#
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopIndex))
+        XCTAssertFalse(
+            childStopCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == parentSessionId
+            },
+            "An unresumable parent must not republish a parent binding, saw \(childStopCommands)"
+        )
+        let clearRequests = childStopCommands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertTrue(
+            clearRequests.contains { $0["checkpoint_id"] as? String == childSessionId },
+            "When the parent cannot be republished, repair must clear the stale child checkpoint, saw \(childStopCommands)"
+        )
+    }
+
+    func testCodexTransientVisibleSuppressionDoesNotPersistUnrestorableState() throws {
+        let context = try makeClaudeHookContext(name: "codex-transient-visible-suppression")
+        defer { context.cleanup() }
+
+        let sessionId = "transient-visible-suppression-parent"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+
+        let suppressedStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS": "1",
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertFalse(suppressedStart.timedOut, suppressedStart.stderr)
+        XCTAssertEqual(suppressedStart.status, 0, suppressedStart.stderr)
+        XCTAssertFalse(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "A transiently suppressed SessionStart should not publish visible resume state, saw \(context.state.commands)"
+        )
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        var savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        var savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        var savedSession = try XCTUnwrap(savedSessions[sessionId] as? [String: Any])
+        XCTAssertNil(
+            savedSession["isRestorable"],
+            "A transient visible-mutation suppression must not permanently mark the parent session non-restorable."
+        )
+
+        let stopStart = context.state.commands.count
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+
+        let stopCommands = Array(context.state.commands.dropFirst(stopStart))
+        XCTAssertTrue(
+            stopCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "surface.resume.set",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["checkpoint_id"] as? String == sessionId
+            },
+            "A later unsuppressed Stop should still refresh the parent resume binding, saw \(stopCommands)"
+        )
+        XCTAssertTrue(
+            stopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "A later unsuppressed Stop should still notify, saw \(stopCommands)"
+        )
+
+        savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        savedSession = try XCTUnwrap(savedSessions[sessionId] as? [String: Any])
+        XCTAssertNil(savedSession["isRestorable"])
+    }
+
     func testCodexStopIgnoresStaleSubagentRelayFromCompletedTurnWithoutTurnId() throws {
         let context = try makeClaudeHookContext(name: "codex-stale-relay")
         defer { context.cleanup() }
@@ -1933,6 +2897,116 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
         XCTAssertNotNil(savedSessions[sessionId], "Suppressed SessionEnd should leave the stored parent session intact")
+    }
+
+    func testCodexSubagentSessionEndPayloadDoesNotClearParentResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-end-payload-resume-guard")
+        defer { context.cleanup() }
+
+        let sessionId = "payload-child-session-end"
+        let parentSessionId = "payload-parent-session"
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "session-end",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd","source":{"subAgent":{"thread_spawn":{"parent_thread_id":"\#(parentSessionId)","depth":1}}}}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let clearRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertTrue(
+            clearRequests.allSatisfy { $0["checkpoint_id"] as? String == sessionId },
+            "Subagent SessionEnd may clear only the child checkpoint, never the parent binding, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("clear_agent_pid codex.") },
+            "Subagent SessionEnd payload should not clear the visible parent PID, saw \(context.state.commands)"
+        )
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        let savedSession = try XCTUnwrap(
+            savedSessions[sessionId] as? [String: Any],
+            "Suppressed SessionEnd should leave the stored child record for later suppression"
+        )
+        XCTAssertEqual(savedSession["parentSessionId"] as? String, parentSessionId)
+        XCTAssertEqual(savedSession["isRestorable"] as? Bool, false)
+    }
+
+    func testTransientSessionEndSuppressionDoesNotClearRuntimeStatus() throws {
+        let context = try makeClaudeHookContext(name: "codex-end-transient-suppression")
+        defer { context.cleanup() }
+
+        let sessionId = "transient-suppressed-session-end"
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "pid": 12345,
+                    "runtimeStatus": "running",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "session-end",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
+            extraEnvironment: ["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS": "1"]
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.clear" },
+            "Transiently suppressed SessionEnd should not clear the parent resume binding, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("clear_agent_pid codex.") },
+            "Transiently suppressed SessionEnd should not clear the visible parent PID, saw \(context.state.commands)"
+        )
+
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        let savedSession = try XCTUnwrap(savedSessions[sessionId] as? [String: Any])
+        XCTAssertEqual(savedSession["runtimeStatus"] as? String, "running")
+        XCTAssertNil(savedSession["parentSessionId"])
+        XCTAssertNil(savedSession["isRestorable"])
     }
 
     func testRightSidebarCLIForwardsV1SocketCommandsQuietly() throws {
@@ -7184,9 +8258,28 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         case "feed.push":
             return v2Response(id: id, ok: true, result: [:])
         case "surface.resume.set":
-            return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            let params = payload["params"] as? [String: Any] ?? [:]
+            let binding = context.state.setResumeBinding(
+                params,
+                expectedCheckpointId: params["expected_checkpoint_id"] as? String,
+                expectedSource: params["expected_source"] as? String
+            )
+            let responseBinding: Any = binding.map { $0 as Any } ?? NSNull()
+            return v2Response(id: id, ok: true, result: ["resume_binding": responseBinding])
+        case "surface.resume.get":
+            let responseBinding: Any = context.state.currentResumeBinding().map { $0 as Any } ?? NSNull()
+            return v2Response(id: id, ok: true, result: ["resume_binding": responseBinding])
         case "surface.resume.clear":
-            return v2Response(id: id, ok: true, result: ["cleared": true])
+            let params = payload["params"] as? [String: Any] ?? [:]
+            let cleared = context.state.clearResumeBinding(
+                expectedCheckpointId: params["checkpoint_id"] as? String,
+                expectedSource: params["source"] as? String
+            )
+            let responseBinding: Any = cleared.binding.map { $0 as Any } ?? NSNull()
+            return v2Response(id: id, ok: true, result: [
+                "cleared": cleared.cleared,
+                "resume_binding": responseBinding,
+            ])
         default:
             return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
         }
@@ -7226,8 +8319,29 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.set":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                let binding = context.state.setResumeBinding(
+                    params,
+                    expectedCheckpointId: params["expected_checkpoint_id"] as? String,
+                    expectedSource: params["expected_source"] as? String
+                )
+                let responseBinding: Any = binding.map { $0 as Any } ?? NSNull()
+                return self.v2Response(id: id, ok: true, result: ["resume_binding": responseBinding])
+            case "surface.resume.get":
+                let responseBinding: Any = context.state.currentResumeBinding().map { $0 as Any } ?? NSNull()
+                return self.v2Response(id: id, ok: true, result: ["resume_binding": responseBinding])
             case "surface.resume.clear":
-                return self.v2Response(id: id, ok: true, result: ["cleared": true])
+                let params = payload["params"] as? [String: Any] ?? [:]
+                let cleared = context.state.clearResumeBinding(
+                    expectedCheckpointId: params["checkpoint_id"] as? String,
+                    expectedSource: params["source"] as? String
+                )
+                let responseBinding: Any = cleared.binding.map { $0 as Any } ?? NSNull()
+                return self.v2Response(id: id, ok: true, result: [
+                    "cleared": cleared.cleared,
+                    "resume_binding": responseBinding,
+                ])
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }

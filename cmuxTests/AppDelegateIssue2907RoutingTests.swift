@@ -751,6 +751,64 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.checkpointId, "new-session")
     }
 
+    func testSurfaceResumeSetCheckpointGuardKeepsDifferentBinding() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        _ = try v2Result(
+            method: "surface.resume.set",
+            params: [
+                "window_id": windowId.uuidString,
+                "surface_id": panelId.uuidString,
+                "command": "codex resume new-session",
+                "checkpoint_id": "new-session",
+                "source": "agent-hook",
+            ]
+        )
+
+        let guardedResult = try v2Result(
+            method: "surface.resume.set",
+            params: [
+                "window_id": windowId.uuidString,
+                "surface_id": panelId.uuidString,
+                "command": "codex resume stale-parent",
+                "checkpoint_id": "stale-parent",
+                "source": "agent-hook",
+                "expected_checkpoint_id": "stale-child",
+                "expected_source": "agent-hook",
+            ]
+        )
+
+        let returnedBinding = try XCTUnwrap(guardedResult["resume_binding"] as? [String: Any])
+        XCTAssertEqual(returnedBinding["checkpoint_id"] as? String, "new-session")
+        XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.checkpointId, "new-session")
+    }
+
     func testIssue2907TabManagerDependentSocketCommandsRecoverLiveSurfaceContext() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

@@ -12,11 +12,62 @@ extension CLINotifyProcessIntegrationRegressionTests {
     final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private(set) var commands: [String] = []
+        private var resumeBinding: [String: Any]?
 
         func append(_ command: String) {
             lock.lock()
             commands.append(command)
             lock.unlock()
+        }
+
+        var resumeBindingCheckpointId: String? {
+            lock.lock()
+            defer { lock.unlock() }
+            return resumeBinding?["checkpoint_id"] as? String
+        }
+
+        func setResumeBinding(
+            _ binding: [String: Any],
+            expectedCheckpointId: String?,
+            expectedSource: String?
+        ) -> [String: Any]? {
+            lock.lock()
+            defer { lock.unlock() }
+            if let expectedCheckpointId,
+               resumeBinding?["checkpoint_id"] as? String != expectedCheckpointId {
+                return resumeBinding
+            }
+            if let expectedSource,
+               resumeBinding?["source"] as? String != expectedSource {
+                return resumeBinding
+            }
+            resumeBinding = binding
+            return resumeBinding
+        }
+
+        func clearResumeBinding(
+            expectedCheckpointId: String?,
+            expectedSource: String?
+        ) -> (binding: [String: Any]?, cleared: Bool) {
+            lock.lock()
+            defer { lock.unlock() }
+            if let expectedCheckpointId,
+               resumeBinding?["checkpoint_id"] as? String != expectedCheckpointId {
+                return (resumeBinding, false)
+            }
+            if let expectedSource,
+               resumeBinding?["source"] as? String != expectedSource {
+                return (resumeBinding, false)
+            }
+            let didClear = resumeBinding != nil
+            resumeBinding = nil
+            return (nil, didClear)
+        }
+
+        func currentResumeBinding() -> [String: Any]? {
+            lock.lock()
+            defer { lock.unlock() }
+            return resumeBinding
         }
 
         func snapshot() -> [String] {

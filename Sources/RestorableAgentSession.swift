@@ -688,6 +688,7 @@ private enum AgentResumeScriptStore {
 
 private struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var sessionId: String
+    var parentSessionId: String?
     var workspaceId: String
     var surfaceId: String
     var cwd: String?
@@ -720,32 +721,37 @@ struct RestorableAgentSessionIndex: Sendable {
 
     static func load(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         return load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: registry,
-            detectedSnapshots: [:]
+            detectedSnapshots: [:],
+            environment: environment
         )
     }
 
     static func loadIncludingProcessDetectedSnapshots(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) async -> RestorableAgentSessionIndex {
         await Task.detached(priority: .utility) {
             loadIncludingProcessDetectedSnapshotsSynchronously(
                 homeDirectory: homeDirectory,
-                fileManager: fileManager
+                fileManager: fileManager,
+                environment: environment
             )
         }.value
     }
 
     static func loadIncludingProcessDetectedSnapshotsSynchronously(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let detectedSnapshots = processDetectedSnapshots(
@@ -756,7 +762,8 @@ struct RestorableAgentSessionIndex: Sendable {
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: registry,
-            detectedSnapshots: detectedSnapshots
+            detectedSnapshots: detectedSnapshots,
+            environment: environment
         )
     }
 
@@ -764,7 +771,8 @@ struct RestorableAgentSessionIndex: Sendable {
         homeDirectory: String,
         fileManager: FileManager,
         registry: CmuxVaultAgentRegistry,
-        detectedSnapshots: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)]
+        detectedSnapshots: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)],
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
@@ -782,7 +790,7 @@ struct RestorableAgentSessionIndex: Sendable {
             }
 
         for (kind, registration) in hookKinds {
-            let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
+            let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory, environment: environment)
             guard fileManager.fileExists(atPath: fileURL.path),
                   let data = try? Data(contentsOf: fileURL),
                   let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) else {
@@ -817,22 +825,30 @@ struct RestorableAgentSessionIndex: Sendable {
                     registration: registration
                 )
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
-                if let existing = resolved[key], existing.updatedAt > record.updatedAt {
+                let candidate = (snapshot: snapshot, updatedAt: record.updatedAt)
+                if !preferredSnapshotCandidate(candidate, over: resolved[key]) {
                     continue
                 }
-                resolved[key] = (snapshot: snapshot, updatedAt: record.updatedAt)
+                resolved[key] = candidate
             }
         }
 
         for (key, detected) in detectedSnapshots {
-            if let existing = resolved[key],
-               existing.updatedAt > detected.updatedAt {
+            if !preferredSnapshotCandidate(detected, over: resolved[key]) {
                 continue
             }
             resolved[key] = detected
         }
 
         return RestorableAgentSessionIndex(snapshotsByPanel: resolved)
+    }
+
+    private static func preferredSnapshotCandidate(
+        _ candidate: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval),
+        over existing: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)?
+    ) -> Bool {
+        guard let existing else { return true }
+        return candidate.updatedAt >= existing.updatedAt
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
@@ -847,6 +863,11 @@ struct RestorableAgentSessionIndex: Sendable {
     ) -> Bool {
         guard kind == .claude else {
             return record.isRestorable != false
+        }
+        if record.isRestorable == false,
+           let parentSessionId = normalizedNonEmptyValue(record.parentSessionId),
+           parentSessionId != normalizedNonEmptyValue(record.sessionId) {
+            return false
         }
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
            regularNonEmptyFileExists(
@@ -1079,8 +1100,7 @@ struct RestorableAgentSessionIndex: Sendable {
         self.snapshotsByPanel = snapshotsByPanel.mapValues(\.snapshot)
         var snapshotsByPanelId: [UUID: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
         for (key, value) in snapshotsByPanel {
-            let existing = snapshotsByPanelId[key.panelId]
-            if existing == nil || value.updatedAt >= (existing?.updatedAt ?? 0) {
+            if Self.preferredSnapshotCandidate(value, over: snapshotsByPanelId[key.panelId]) {
                 snapshotsByPanelId[key.panelId] = value
             }
         }

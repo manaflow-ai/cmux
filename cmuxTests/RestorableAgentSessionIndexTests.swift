@@ -31,6 +31,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let startupOnlyWithTranscriptSessionId = "33333333-3333-3333-3333-333333333333"
         let startupOnlyMissingSessionId = "44444444-4444-4444-4444-444444444444"
         let explicitTranscriptSessionId = "55555555-5555-5555-5555-555555555555"
+        let selfParentSessionId = "66666666-6666-6666-6666-666666666666"
         let validWorkspaceId = UUID()
         let validPanelId = UUID()
         let missingWorkspaceId = UUID()
@@ -41,9 +42,12 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let startupOnlyMissingPanelId = UUID()
         let explicitTranscriptWorkspaceId = UUID()
         let explicitTranscriptPanelId = UUID()
+        let selfParentWorkspaceId = UUID()
+        let selfParentPanelId = UUID()
 
         try writeClaudeTranscript(sessionId: validSessionId, cwd: cwd, projectsDir: projectsDir)
         try writeClaudeTranscript(sessionId: startupOnlyWithTranscriptSessionId, cwd: cwd, projectsDir: projectsDir)
+        try writeClaudeTranscript(sessionId: selfParentSessionId, cwd: cwd, projectsDir: projectsDir)
         let explicitTranscriptURL = root
             .appendingPathComponent("other-transcripts", isDirectory: true)
             .appendingPathComponent("\(explicitTranscriptSessionId).jsonl", isDirectory: false)
@@ -100,12 +104,26 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
                     isRestorable: false,
                     updatedAt: 60
                 ),
+                selfParentSessionId: {
+                    var record = hookRecord(
+                        sessionId: selfParentSessionId,
+                        workspaceId: selfParentWorkspaceId,
+                        panelId: selfParentPanelId,
+                        cwd: cwd.path,
+                        configDir: configDir.path,
+                        isRestorable: false,
+                        updatedAt: 70
+                    )
+                    record["parentSessionId"] = selfParentSessionId
+                    return record
+                }(),
             ]
         )
 
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: root.path,
-            fileManager: fm
+            fileManager: fm,
+            environment: [:]
         )
 
         XCTAssertEqual(
@@ -132,6 +150,11 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             index.snapshot(workspaceId: explicitTranscriptWorkspaceId, panelId: explicitTranscriptPanelId)?.sessionId,
             explicitTranscriptSessionId,
             "When Claude provides transcript_path, restore eligibility should use that exact file before reconstructing from cwd."
+        )
+        XCTAssertEqual(
+            index.snapshot(workspaceId: selfParentWorkspaceId, panelId: selfParentPanelId)?.sessionId,
+            selfParentSessionId,
+            "Self-parent metadata is not subagent metadata and must not hide a transcript-backed Claude session."
         )
     }
 
@@ -186,7 +209,8 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: root.path,
-            fileManager: fm
+            fileManager: fm,
+            environment: [:]
         )
 
         XCTAssertEqual(
@@ -195,6 +219,194 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
         XCTAssertEqual(
             index.snapshot(workspaceId: movedWorkspaceId, panelId: panelId)?.sessionId,
+            latestSessionId
+        )
+    }
+
+    func testClaudePanelRestoreIgnoresTranscriptBackedSubagentMarkedNonRestorable() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-subagent-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: projectsDir.appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path),
+                isDirectory: true
+            ),
+            withIntermediateDirectories: true
+        )
+
+        let workspaceId = UUID()
+        let movedWorkspaceId = UUID()
+        let panelId = UUID()
+        let parentSessionId = "11111111-1111-1111-1111-111111111111"
+        let childSessionId = "22222222-2222-2222-2222-222222222222"
+        try writeClaudeTranscript(sessionId: parentSessionId, cwd: cwd, projectsDir: projectsDir)
+        try writeClaudeTranscript(sessionId: childSessionId, cwd: cwd, projectsDir: projectsDir)
+
+        var child = hookRecord(
+            sessionId: childSessionId,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            cwd: cwd.path,
+            configDir: configDir.path,
+            isRestorable: false,
+            updatedAt: 20
+        )
+        child["parentSessionId"] = parentSessionId
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                parentSessionId: hookRecord(
+                    sessionId: parentSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    updatedAt: 10
+                ),
+                childSessionId: child,
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            environment: [:]
+        )
+
+        XCTAssertEqual(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId,
+            parentSessionId
+        )
+        XCTAssertEqual(
+            index.snapshot(workspaceId: movedWorkspaceId, panelId: panelId)?.sessionId,
+            parentSessionId
+        )
+    }
+
+    func testPanelRestoreIgnoresLaunchlessSubagentMarkedNonRestorable() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-codex-subagent-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let stateDir = root.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try fm.createDirectory(at: stateDir, withIntermediateDirectories: true)
+
+        let workspaceId = UUID()
+        let movedWorkspaceId = UUID()
+        let panelId = UUID()
+        let parentSessionId = "parent-thread"
+        let childSessionId = "child-thread"
+        let parentCwd = root.appendingPathComponent("parent-repo", isDirectory: true).path
+        let childCwd = root.appendingPathComponent("child-repo", isDirectory: true).path
+        let state: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                parentSessionId: [
+                    "sessionId": parentSessionId,
+                    "workspaceId": workspaceId.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": parentCwd,
+                    "updatedAt": 10,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex", "--model", "gpt-5.4"],
+                        "workingDirectory": parentCwd,
+                        "capturedAt": 10,
+                        "source": "test",
+                    ],
+                ],
+                childSessionId: [
+                    "sessionId": childSessionId,
+                    "parentSessionId": parentSessionId,
+                    "workspaceId": workspaceId.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": childCwd,
+                    "isRestorable": false,
+                    "updatedAt": 20,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted, .sortedKeys])
+            .write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": stateDir.path]
+        )
+
+        XCTAssertEqual(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId,
+            parentSessionId
+        )
+        XCTAssertEqual(
+            index.snapshot(workspaceId: movedWorkspaceId, panelId: panelId)?.sessionId,
+            parentSessionId
+        )
+    }
+
+    func testPanelRestoreUsesNewerLaunchlessTopLevelSession() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-codex-launchless-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let stateDir = root.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try fm.createDirectory(at: stateDir, withIntermediateDirectories: true)
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let oldSessionId = "older-launch-backed-thread"
+        let latestSessionId = "newer-launchless-thread"
+        let oldCwd = root.appendingPathComponent("old-repo", isDirectory: true).path
+        let latestCwd = root.appendingPathComponent("latest-repo", isDirectory: true).path
+        let state: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                oldSessionId: [
+                    "sessionId": oldSessionId,
+                    "workspaceId": workspaceId.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": oldCwd,
+                    "updatedAt": 10,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex", "--model", "gpt-5.4"],
+                        "workingDirectory": oldCwd,
+                        "capturedAt": 10,
+                        "source": "test",
+                    ],
+                ],
+                latestSessionId: [
+                    "sessionId": latestSessionId,
+                    "workspaceId": workspaceId.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": latestCwd,
+                    "updatedAt": 20,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted, .sortedKeys])
+            .write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": stateDir.path]
+        )
+
+        XCTAssertEqual(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId,
             latestSessionId
         )
     }

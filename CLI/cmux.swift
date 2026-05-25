@@ -333,6 +333,7 @@ private struct ClaudeHookParsedInput {
     let object: [String: Any]?
     let rawFallback: String?
     let sessionId: String?
+    let parentSessionId: String?
     let turnId: String?
     let cwd: String?
     let transcriptPath: String?
@@ -422,6 +423,7 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
 
 private struct ClaudeHookSessionRecord: Codable {
     var sessionId: String
+    var parentSessionId: String? = nil
     var workspaceId: String
     var surfaceId: String
     var cwd: String?
@@ -535,6 +537,7 @@ private final class ClaudeHookSessionStore {
     @discardableResult
     func recordPromptSubmit(
         sessionId: String,
+        parentSessionId: String? = nil,
         workspaceId: String,
         surfaceId: String,
         cwd: String?,
@@ -544,6 +547,7 @@ private final class ClaudeHookSessionStore {
         terminalActivePromptTurnIds: Set<String> = [],
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
+        isRestorable: Bool? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false
     ) throws -> Bool {
@@ -560,13 +564,14 @@ private final class ClaudeHookSessionStore {
             )
             update(
                 &record,
+                parentSessionId: parentSessionId,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 pid: pid,
                 launchCommand: launchCommand,
-                isRestorable: nil,
+                isRestorable: isRestorable,
                 lastSubtitle: nil,
                 lastBody: nil,
                 lastNotificationStatus: nil,
@@ -625,6 +630,7 @@ private final class ClaudeHookSessionStore {
     @discardableResult
     func recordPromptStop(
         sessionId: String,
+        parentSessionId: String? = nil,
         workspaceId: String,
         surfaceId: String,
         cwd: String?,
@@ -633,6 +639,7 @@ private final class ClaudeHookSessionStore {
         terminalActivePromptTurnIds: Set<String> = [],
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
+        isRestorable: Bool? = nil,
         lastSubtitle: String?,
         lastBody: String?,
         lastNotificationStatus: AgentHookNotificationStatus? = nil,
@@ -654,13 +661,14 @@ private final class ClaudeHookSessionStore {
             let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
             update(
                 &record,
+                parentSessionId: parentSessionId,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 pid: pid,
                 launchCommand: launchCommand,
-                isRestorable: nil,
+                isRestorable: isRestorable,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
                 lastNotificationStatus: lastNotificationStatus,
@@ -769,6 +777,7 @@ private final class ClaudeHookSessionStore {
 
     func upsert(
         sessionId: String,
+        parentSessionId: String? = nil,
         workspaceId: String,
         surfaceId: String,
         cwd: String?,
@@ -815,6 +824,7 @@ private final class ClaudeHookSessionStore {
             )
             update(
                 &record,
+                parentSessionId: parentSessionId,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 cwd: cwd,
@@ -934,6 +944,7 @@ private final class ClaudeHookSessionStore {
 
     private func update(
         _ record: inout ClaudeHookSessionRecord,
+        parentSessionId: String?,
         workspaceId: String,
         surfaceId: String,
         cwd: String?,
@@ -949,6 +960,10 @@ private final class ClaudeHookSessionStore {
         updateRuntimeStatus: Bool,
         now: TimeInterval
     ) {
+        let normalizedParentSessionId = normalizeOptional(parentSessionId)
+        if let normalizedParentSessionId {
+            record.parentSessionId = normalizedParentSessionId
+        }
         record.workspaceId = workspaceId
         if !surfaceId.isEmpty {
             record.surfaceId = surfaceId
@@ -965,10 +980,10 @@ private final class ClaudeHookSessionStore {
         if let launchCommand, !launchCommand.arguments.isEmpty {
             record.launchCommand = launchCommand
         }
-        if let isRestorable {
-            // Preserve sticky true: a later isRestorable=false must not clear
-            // record.isRestorable=true from a transcript-backed event.
-            record.isRestorable = isRestorable || record.isRestorable == true
+        // Late startup hooks pass false as routing state; only explicit child metadata can demote a restorable record.
+        if let isRestorable,
+           !(isRestorable == false && record.isRestorable == true && normalizedParentSessionId == nil) {
+            record.isRestorable = isRestorable
         }
         if let subtitle = normalizeOptional(lastSubtitle) {
             record.lastSubtitle = subtitle
@@ -19412,6 +19427,106 @@ struct CMUXCLI {
             }
         }
 
+        func claudeSubagentParentSessionId(mappedSession: ClaudeHookSessionRecord?) -> String? {
+            guard let sessionId = normalizedHookValue(parsedInput.sessionId) else {
+                return nil
+            }
+            guard let parentSessionId = normalizedHookValue(parsedInput.parentSessionId)
+                ?? normalizedHookValue(mappedSession?.parentSessionId),
+                parentSessionId != sessionId else {
+                return nil
+            }
+            return parentSessionId
+        }
+
+        func repairClaudeSubagentResumeBinding(
+            workspaceId: String,
+            surfaceId: String,
+            sessionId: String,
+            parentSessionId: String
+        ) {
+            var ancestorSessionId = parentSessionId
+            var seenSessionIds: Set<String> = [sessionId]
+            var restorableAncestor: ClaudeHookSessionRecord?
+            for _ in 0..<8 {
+                guard seenSessionIds.insert(ancestorSessionId).inserted,
+                      let candidate = try? sessionStore.lookup(sessionId: ancestorSessionId),
+                      normalizedHookValue(candidate.surfaceId) == normalizedHookValue(surfaceId) else {
+                    break
+                }
+                if candidate.isRestorable != false {
+                    restorableAncestor = candidate
+                    break
+                }
+                guard let nextAncestor = normalizedHookValue(candidate.parentSessionId),
+                      nextAncestor != candidate.sessionId else {
+                    break
+                }
+                ancestorSessionId = nextAncestor
+            }
+            if let parent = restorableAncestor {
+                let publishedParentBinding = publishAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    kind: "claude",
+                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                    sessionId: parent.sessionId,
+                    cwd: parent.cwd,
+                    launchCommand: parent.launchCommand,
+                    expectedCurrentSessionId: sessionId,
+                    expectedCurrentSource: "agent-hook"
+                )
+                if publishedParentBinding {
+                    return
+                }
+            }
+            clearAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId
+            )
+        }
+
+        @discardableResult
+        func suppressClaudeSubagentRestore(
+            mappedSession: ClaudeHookSessionRecord?,
+            workspaceId: String,
+            surfaceId: String,
+            cwd: String?,
+            transcriptPath: String?,
+            pid: Int? = nil,
+            launchCommand: AgentHookLaunchCommandRecord? = nil,
+            lastSubtitle: String? = nil,
+            lastBody: String? = nil
+        ) -> Bool {
+            guard let sessionId = parsedInput.sessionId,
+                  let parentSessionId = claudeSubagentParentSessionId(mappedSession: mappedSession) else {
+                return false
+            }
+            try? sessionStore.upsert(
+                sessionId: sessionId,
+                parentSessionId: parentSessionId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: cwd ?? mappedSession?.cwd,
+                transcriptPath: transcriptPath ?? mappedSession?.transcriptPath,
+                pid: pid ?? mappedSession?.pid,
+                launchCommand: launchCommand ?? mappedSession?.launchCommand,
+                isRestorable: false,
+                lastSubtitle: lastSubtitle,
+                lastBody: lastBody
+            )
+            repairClaudeSubagentResumeBinding(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId,
+                parentSessionId: parentSessionId
+            )
+            return true
+        }
+
         switch subcommand {
         case "session-start", "active":
             telemetry.breadcrumb("claude-hook.session-start")
@@ -19426,6 +19541,7 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 client: client
             )
+            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
@@ -19445,13 +19561,18 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 telemetry: telemetry
             )
-            let shouldPromoteActiveSession = isClearSessionStart || canReplaceStoppedSession
+            let startupParentSessionId = claudeSubagentParentSessionId(mappedSession: mappedSession)
+            let isClaudeSubagentSessionStart = startupParentSessionId != nil
+            let shouldPromoteActiveSession =
+                !isClaudeSubagentSessionStart &&
+                (isClearSessionStart || canReplaceStoppedSession)
             if let sessionId = parsedInput.sessionId {
                 // Non-clear SessionStart can arrive late from startup/resume/compact
                 // after /clear, so only /clear or replacement of a stopped owner
                 // establishes a new active boundary.
                 try? sessionStore.upsert(
                     sessionId: sessionId,
+                    parentSessionId: startupParentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
@@ -19473,6 +19594,13 @@ struct CMUXCLI {
                         cwd: parsedInput.cwd,
                         launchCommand: launchCommand
                     )
+                } else if let startupParentSessionId {
+                    repairClaudeSubagentResumeBinding(
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        sessionId: sessionId,
+                        parentSessionId: startupParentSessionId
+                    )
                 }
             }
             // Register PID for stale-session detection and OSC suppression.
@@ -19480,12 +19608,15 @@ struct CMUXCLI {
             // new active boundary and must keep the sidebar Running before
             // any late pre-clear Stop can write Idle.
             let shouldRegisterPID =
-                shouldPromoteActiveSession ||
-                shouldApplyClaudeHookVisibleMutation(
-                    sessionStore: sessionStore,
-                    parsedInput: parsedInput,
-                    workspaceId: workspaceId,
-                    telemetry: telemetry
+                !isClaudeSubagentSessionStart &&
+                (
+                    shouldPromoteActiveSession ||
+                    shouldApplyClaudeHookVisibleMutation(
+                        sessionStore: sessionStore,
+                        parsedInput: parsedInput,
+                        workspaceId: workspaceId,
+                        telemetry: telemetry
+                    )
                 )
             if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
@@ -19493,7 +19624,7 @@ struct CMUXCLI {
                     client: client
                 )
             }
-            if isClearSessionStart, !suppressVisibleMutations {
+            if isClearSessionStart, !isClaudeSubagentSessionStart, !suppressVisibleMutations {
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
                 try setClaudeStatus(
                     client: client,
@@ -19525,13 +19656,35 @@ struct CMUXCLI {
                     client: client
                 )
                 let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                let hasSubagentParent = claudeSubagentParentSessionId(mappedSession: mappedSession) != nil
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: claudePid,
+                    nestedPromptEvent: hasSubagentParent,
                     env: ProcessInfo.processInfo.environment
                 )
                 sendClaudeFeedTelemetry(workspaceId: workspaceId)
 
-                guard shouldApplyClaudeHookVisibleMutation(
+                let completion = summarizeClaudeHookStop(
+                    parsedInput: parsedInput,
+                    sessionRecord: mappedSession
+                )
+                let suppressRestorableRecord = suppressClaudeSubagentRestore(
+                    mappedSession: mappedSession,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: parsedInput.cwd,
+                    transcriptPath: parsedInput.transcriptPath,
+                    pid: claudePid,
+                    lastSubtitle: completion?.subtitle,
+                    lastBody: completion?.body
+                )
+                if suppressRestorableRecord && suppressVisibleMutations {
+                    telemetry.breadcrumb("claude-hook.stop.subagent-suppressed")
+                    print("OK")
+                    return
+                }
+
+                guard suppressRestorableRecord || shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
                     workspaceId: workspaceId,
@@ -19548,34 +19701,32 @@ struct CMUXCLI {
                     return
                 }
 
-                // Update session with transcript summary and send completion notification.
-                let completion = summarizeClaudeHookStop(
-                    parsedInput: parsedInput,
-                    sessionRecord: mappedSession
-                )
                 if let sessionId = parsedInput.sessionId {
                     try? sessionStore.upsert(
                         sessionId: sessionId,
+                        parentSessionId: parsedInput.parentSessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         cwd: parsedInput.cwd,
                         transcriptPath: parsedInput.transcriptPath,
-                        isRestorable: true,
+                        isRestorable: suppressRestorableRecord ? false : true,
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )
-                    publishAgentSurfaceResumeBinding(
-                        client: client,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        kind: "claude",
-                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                        sessionId: sessionId,
-                        cwd: parsedInput.cwd ?? mappedSession?.cwd,
-                        launchCommand: mappedSession?.launchCommand
-                    )
+                    if !suppressRestorableRecord {
+                        publishAgentSurfaceResumeBinding(
+                            client: client,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId,
+                            kind: "claude",
+                            displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                            sessionId: sessionId,
+                            cwd: parsedInput.cwd ?? mappedSession?.cwd,
+                            launchCommand: mappedSession?.launchCommand
+                        )
+                    }
                 }
 
                 try? setClaudeStatus(
@@ -19619,12 +19770,28 @@ struct CMUXCLI {
                 client: client
             )
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let hasSubagentParent = claudeSubagentParentSessionId(mappedSession: mappedSession) != nil
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
+                nestedPromptEvent: hasSubagentParent,
                 env: ProcessInfo.processInfo.environment
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
+            let suppressRestorableRecord = suppressClaudeSubagentRestore(
+                mappedSession: mappedSession,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: parsedInput.cwd,
+                transcriptPath: parsedInput.transcriptPath,
+                pid: claudePid
+            )
+            if suppressRestorableRecord && suppressVisibleMutations {
+                telemetry.breadcrumb("claude-hook.prompt-submit.subagent-suppressed")
+                print("OK")
+                return
+            }
             let shouldApplyPromptSubmit =
+                suppressRestorableRecord ||
                 shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
@@ -19650,24 +19817,27 @@ struct CMUXCLI {
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
+                    parentSessionId: parsedInput.parentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    isRestorable: true,
+                    isRestorable: suppressRestorableRecord ? false : true,
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
-                publishAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    kind: "claude",
-                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                    sessionId: sessionId,
-                    cwd: parsedInput.cwd ?? mappedSession?.cwd,
-                    launchCommand: mappedSession?.launchCommand
-                )
+                if !suppressRestorableRecord {
+                    publishAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        kind: "claude",
+                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                        sessionId: sessionId,
+                        cwd: parsedInput.cwd ?? mappedSession?.cwd,
+                        launchCommand: mappedSession?.launchCommand
+                    )
+                }
             }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             try setClaudeStatus(
@@ -19691,18 +19861,43 @@ struct CMUXCLI {
                 client: client
             )
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let hasSubagentParent = claudeSubagentParentSessionId(mappedSession: mappedSession) != nil
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
+                nestedPromptEvent: hasSubagentParent,
                 env: ProcessInfo.processInfo.environment
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
-            guard shouldApplyClaudeHookVisibleMutation(
-                sessionStore: sessionStore,
-                parsedInput: parsedInput,
+            if !hasSubagentParent {
+                guard shouldApplyClaudeHookVisibleMutation(
+                    sessionStore: sessionStore,
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId,
+                    telemetry: telemetry
+                ) else {
+                    telemetry.breadcrumb("claude-hook.notification.stale")
+                    print("OK")
+                    return
+                }
+            }
+            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+                preferred: mappedSession?.surfaceId,
+                fallback: surfaceArg,
                 workspaceId: workspaceId,
-                telemetry: telemetry
-            ) else {
-                telemetry.breadcrumb("claude-hook.notification.stale")
+                client: client
+            )
+            let suppressRestorableRecord = suppressClaudeSubagentRestore(
+                mappedSession: mappedSession,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: parsedInput.cwd,
+                transcriptPath: parsedInput.transcriptPath,
+                pid: claudePid,
+                lastSubtitle: summary.subtitle,
+                lastBody: summary.body
+            )
+            if suppressRestorableRecord && suppressVisibleMutations {
+                telemetry.breadcrumb("claude-hook.notification.subagent-suppressed")
                 print("OK")
                 return
             }
@@ -19717,13 +19912,6 @@ struct CMUXCLI {
                 summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
             }
 
-            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
-                preferred: mappedSession?.surfaceId,
-                fallback: surfaceArg,
-                workspaceId: workspaceId,
-                client: client
-            )
-
             let title = String(
                 localized: "cli.claude-hook.notification.title",
                 defaultValue: "Claude Code"
@@ -19733,6 +19921,7 @@ struct CMUXCLI {
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
+                    parentSessionId: parsedInput.parentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
@@ -19841,11 +20030,26 @@ struct CMUXCLI {
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let hasSubagentParent = claudeSubagentParentSessionId(mappedSession: mappedSession) != nil
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
+                nestedPromptEvent: hasSubagentParent,
                 env: ProcessInfo.processInfo.environment
             )
-            guard shouldApplyClaudeHookVisibleMutation(
+            let suppressRestorableRecord = suppressClaudeSubagentRestore(
+                mappedSession: mappedSession,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: parsedInput.cwd,
+                transcriptPath: parsedInput.transcriptPath,
+                pid: claudePid
+            )
+            if suppressRestorableRecord && suppressVisibleMutations {
+                telemetry.breadcrumb("claude-hook.pre-tool-use.subagent-suppressed")
+                print("OK")
+                return
+            }
+            guard suppressRestorableRecord || shouldApplyClaudeHookVisibleMutation(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
                 workspaceId: workspaceId,
@@ -19873,6 +20077,7 @@ struct CMUXCLI {
                 let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
                 try? sessionStore.upsert(
                     sessionId: sessionId,
+                    parentSessionId: parsedInput.parentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId,
                     cwd: parsedInput.cwd,
@@ -20400,6 +20605,7 @@ struct CMUXCLI {
                 object: nil,
                 rawFallback: fallback,
                 sessionId: nil,
+                parentSessionId: nil,
                 turnId: nil,
                 cwd: nil,
                 transcriptPath: nil
@@ -20407,6 +20613,7 @@ struct CMUXCLI {
         }
 
         let sessionId = extractClaudeHookSessionId(from: object)
+        let parentSessionId = extractClaudeHookParentSessionId(from: object)
         let turnId = firstString(in: object, keys: ["turn_id", "turnId"])
         let cwd = extractClaudeHookCWD(from: object)
         let transcriptPath = extractHookTranscriptPath(from: object)
@@ -20416,6 +20623,7 @@ struct CMUXCLI {
             object: compactObject,
             rawFallback: nil,
             sessionId: sessionId,
+            parentSessionId: parentSessionId,
             turnId: turnId,
             cwd: cwd,
             transcriptPath: transcriptPath
@@ -20598,6 +20806,49 @@ struct CMUXCLI {
         if let context = object["context"] as? [String: Any],
            let id = firstString(in: context, keys: sessionIDKeys) {
             return id
+        }
+        return nil
+    }
+
+    private func extractClaudeHookParentSessionId(from object: [String: Any]) -> String? {
+        let parentKeys = [
+            "parent_session_id",
+            "parentSessionId",
+            "parent_thread_id",
+            "parentThreadId",
+            "parent_conversation_id",
+            "parentConversationId",
+        ]
+        if let id = firstString(in: object, keys: parentKeys) {
+            return id
+        }
+        for key in ["session", "context", "notification", "data"] {
+            if let nested = object[key] as? [String: Any],
+               let id = firstString(in: nested, keys: parentKeys) {
+                return id
+            }
+        }
+        if let source = object["source"] as? [String: Any],
+           let id = extractParentSessionIdFromHookSource(source) {
+            return id
+        }
+        return nil
+    }
+
+    private func extractParentSessionIdFromHookSource(_ source: [String: Any]) -> String? {
+        if let id = firstString(
+            in: source,
+            keys: ["parent_session_id", "parentSessionId", "parent_thread_id", "parentThreadId"]
+        ) {
+            return id
+        }
+        let subagentSource = source["subAgent"] ?? source["subagent"]
+        if let subagent = subagentSource as? [String: Any] {
+            let spawnSource = subagent["thread_spawn"] ?? subagent["threadSpawn"]
+            if let spawn = spawnSource as? [String: Any],
+               let id = firstString(in: spawn, keys: ["parent_thread_id", "parentThreadId", "parent_session_id", "parentSessionId"]) {
+                return id
+            }
         }
         return nil
     }
@@ -22815,6 +23066,7 @@ struct CMUXCLI {
         )
     }
 
+    @discardableResult
     private func publishAgentSurfaceResumeBinding(
         client: SocketClient,
         workspaceId: String,
@@ -22823,8 +23075,10 @@ struct CMUXCLI {
         displayName: String,
         sessionId: String,
         cwd: String?,
-        launchCommand: AgentHookLaunchCommandRecord?
-    ) {
+        launchCommand: AgentHookLaunchCommandRecord?,
+        expectedCurrentSessionId: String? = nil,
+        expectedCurrentSource: String? = nil
+    ) -> Bool {
         guard let command = agentSurfaceResumeCommand(
             kind: kind,
             sessionId: sessionId,
@@ -22837,7 +23091,7 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 sessionId: sessionId
             )
-            return
+            return false
         }
         var params: [String: Any] = [
             "surface_id": surfaceId,
@@ -22848,6 +23102,12 @@ struct CMUXCLI {
             "command": command,
             "auto_resume": true
         ]
+        if let expectedCurrentSessionId = normalizedHookValue(expectedCurrentSessionId) {
+            params["expected_checkpoint_id"] = expectedCurrentSessionId
+        }
+        if let expectedCurrentSource = normalizedHookValue(expectedCurrentSource) {
+            params["expected_source"] = expectedCurrentSource
+        }
         if let cwd = normalizedHookValue(cwd) ?? normalizedHookValue(launchCommand?.workingDirectory) {
             params["cwd"] = cwd
         }
@@ -22855,7 +23115,12 @@ struct CMUXCLI {
            !environment.isEmpty {
             params["environment"] = environment
         }
-        _ = try? client.sendV2(method: "surface.resume.set", params: params)
+        do {
+            _ = try client.sendV2(method: "surface.resume.set", params: params)
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func clearAgentSurfaceResumeBinding(
@@ -25453,6 +25718,95 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 requireLiveProcess: true
             )) == true
         }
+        func subagentParentSessionId(mapped: ClaudeHookSessionRecord?) -> String? {
+            guard !sessionId.isEmpty,
+                  let parentSessionId = normalizedHookValue(input.parentSessionId)
+                    ?? normalizedHookValue(mapped?.parentSessionId),
+                  parentSessionId != sessionId else { return nil }
+            return parentSessionId
+        }
+        func shouldSuppressSubagentRestoreTakeover(mapped: ClaudeHookSessionRecord?) -> Bool {
+            subagentParentSessionId(mapped: mapped) != nil
+        }
+        func repairSuppressedSubagentResumeBinding(
+            workspaceId: String,
+            surfaceId: String,
+            mapped: ClaudeHookSessionRecord?
+        ) {
+            guard !sessionId.isEmpty else { return }
+            guard let parentSessionId = subagentParentSessionId(mapped: mapped) else {
+                return
+            }
+            var ancestorSessionId = parentSessionId
+            var seenSessionIds: Set<String> = [sessionId]
+            var restorableAncestor: ClaudeHookSessionRecord?
+            for _ in 0..<8 {
+                guard seenSessionIds.insert(ancestorSessionId).inserted,
+                      let candidate = try? store.lookup(sessionId: ancestorSessionId),
+                      normalizedHookValue(candidate.surfaceId) == normalizedHookValue(surfaceId) else {
+                    break
+                }
+                if candidate.isRestorable != false {
+                    restorableAncestor = candidate
+                    break
+                }
+                guard let nextAncestor = normalizedHookValue(candidate.parentSessionId),
+                      nextAncestor != candidate.sessionId else {
+                    break
+                }
+                ancestorSessionId = nextAncestor
+            }
+            if let parent = restorableAncestor {
+                let publishedParentBinding = publishAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    kind: def.name,
+                    displayName: def.displayName,
+                    sessionId: parent.sessionId,
+                    cwd: parent.cwd,
+                    launchCommand: parent.launchCommand,
+                    expectedCurrentSessionId: sessionId,
+                    expectedCurrentSource: "agent-hook"
+                )
+                if publishedParentBinding {
+                    return
+                }
+            }
+            clearAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId
+            )
+        }
+        func publishOrRepairAgentSurfaceResumeBinding(
+            workspaceId: String,
+            surfaceId: String,
+            mapped: ClaudeHookSessionRecord?,
+            suppressRestorableRecord: Bool,
+            cwd: String?,
+            launchCommand: AgentHookLaunchCommandRecord?
+        ) {
+            if suppressRestorableRecord {
+                repairSuppressedSubagentResumeBinding(
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    mapped: mapped
+                )
+                return
+            }
+            publishAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                kind: def.name,
+                displayName: def.displayName,
+                sessionId: sessionId,
+                cwd: cwd,
+                launchCommand: launchCommand
+            )
+        }
         func setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: String, surfaceId: String) {
             if hasOtherRunningSession(workspaceId: workspaceId) {
 #if DEBUG
@@ -25598,36 +25952,48 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetry(workspaceId: workspaceId)
             let pid = inferredPID
-            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(mapped: mapped)
+            let savedSubagentSuppression = mapped?.isRestorable == false
+            let suppressRestorableRecord = suppressRestoreTakeover || savedSubagentSuppression
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: pid,
+                nestedPromptEvent: suppressRestorableRecord,
+                env: env
+            )
             if !sessionId.isEmpty {
                 try? store.upsert(
                     sessionId: sessionId,
+                    parentSessionId: input.parentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: hookCwd ?? mapped?.cwd,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
                     launchCommand: launchCommand,
+                    isRestorable: suppressRestorableRecord ? false : nil,
                     runtimeStatus: suppressVisibleMutations ? nil : .running,
-                    updateRuntimeStatus: !suppressVisibleMutations
+                    updateRuntimeStatus: suppressRestorableRecord || !suppressVisibleMutations
                 )
                 if suppressVisibleMutations {
+                    repairSuppressedSubagentResumeBinding(
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        mapped: mapped
+                    )
                     telemetry.breadcrumb("\(def.name)-hook.session-start.nested-suppressed")
                 } else {
                     try? store.clearNotificationEmission(sessionId: sessionId)
-                    publishAgentSurfaceResumeBinding(
-                        client: client,
+                    publishOrRepairAgentSurfaceResumeBinding(
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        kind: def.name,
-                        displayName: def.displayName,
-                        sessionId: sessionId,
+                        mapped: mapped,
+                        suppressRestorableRecord: suppressRestorableRecord,
                         cwd: hookCwd ?? mapped?.cwd,
                         launchCommand: launchCommand
                     )
@@ -25657,6 +26023,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(mapped: mapped)
+            let savedSubagentSuppression = mapped?.isRestorable == false
+            let suppressRestorableRecord = suppressRestoreTakeover || savedSubagentSuppression
             let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
             let activePromptTurnStack = mapped?.activePromptTurnIds?
                 .compactMap({ normalizedHookValue($0) }) ?? []
@@ -25683,6 +26052,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if !sessionId.isEmpty {
                 nestedPromptSubmit = (try? store.recordPromptSubmit(
                     sessionId: sessionId,
+                    parentSessionId: input.parentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: hookCwd ?? mapped?.cwd,
@@ -25691,19 +26061,23 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     previousActivePromptTurnIsTerminal: previousActivePromptTurnIsTerminal,
                     terminalActivePromptTurnIds: terminalActivePromptTurnIds,
                     pid: pid,
-                    launchCommand: launchCommand
+                    launchCommand: launchCommand,
+                    isRestorable: suppressRestorableRecord ? false : nil,
+                    runtimeStatus: nil,
+                    updateRuntimeStatus: suppressRestorableRecord
                 )) ?? false
             } else {
                 nestedPromptSubmit = false
             }
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: pid,
-                nestedPromptEvent: nestedPromptSubmit,
+                nestedPromptEvent: nestedPromptSubmit || suppressRestorableRecord,
                 env: env
             )
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 try? store.upsert(
                     sessionId: sessionId,
+                    parentSessionId: input.parentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: hookCwd ?? mapped?.cwd,
@@ -25714,13 +26088,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     updateRuntimeStatus: true
                 )
                 try? store.clearNotificationEmission(sessionId: sessionId)
-                publishAgentSurfaceResumeBinding(
-                    client: client,
+                publishOrRepairAgentSurfaceResumeBinding(
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    kind: def.name,
-                    displayName: def.displayName,
-                    sessionId: sessionId,
+                    mapped: mapped,
+                    suppressRestorableRecord: suppressRestorableRecord,
                     cwd: hookCwd ?? mapped?.cwd,
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
@@ -25742,6 +26114,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             } else {
+                repairSuppressedSubagentResumeBinding(
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    mapped: mapped
+                )
                 telemetry.breadcrumb("\(def.name)-hook.prompt-submit.nested-suppressed")
             }
             if def.name == "codex", !sessionId.isEmpty, !suppressVisibleMutations {
@@ -25876,6 +26253,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: cwd
             )
+            let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(mapped: mapped)
+            let savedSubagentSuppression = mapped?.isRestorable == false
+            let suppressRestorableRecord = suppressRestoreTakeover || savedSubagentSuppression
             let terminalActivePromptTurnIdsForStop: Set<String>
             if def.name == "codex",
                let incomingTurnId = normalizedHookValue(input.turnId) {
@@ -25903,6 +26283,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if !sessionId.isEmpty {
                 nestedPromptStop = (try? store.recordPromptStop(
                     sessionId: sessionId,
+                    parentSessionId: input.parentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: cwd,
@@ -25911,15 +26292,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     terminalActivePromptTurnIds: terminalActivePromptTurnIdsForStop,
                     pid: pid,
                     launchCommand: launchCommand,
+                    isRestorable: suppressRestorableRecord ? false : nil,
                     lastSubtitle: nil,
-                    lastBody: nil
+                    lastBody: nil,
+                    runtimeStatus: nil,
+                    updateRuntimeStatus: suppressRestorableRecord
                 )) ?? false
             } else {
                 nestedPromptStop = false
             }
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: pid,
-                nestedPromptEvent: nestedPromptStop,
+                nestedPromptEvent: nestedPromptStop || suppressRestorableRecord,
                 transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
                 env: env
             )
@@ -25927,23 +26311,29 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 || codexSubagentSignals.hasSubagentNotificationRelay
 
             if !sessionId.isEmpty, !suppressVisibleMutations {
-                try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
-                                  transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                                  pid: pid,
-                                  launchCommand: launchCommand,
-                                  lastSubtitle: subtitle,
-                                  lastBody: body,
-                                  lastNotificationStatus: stopNotificationStatus,
-                                  updateLastNotificationStatus: true,
-                                  runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
-                                  updateRuntimeStatus: true)
-                publishAgentSurfaceResumeBinding(
-                    client: client,
+                try? store.upsert(
+                    sessionId: sessionId,
+                    parentSessionId: input.parentSessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    kind: def.name,
-                    displayName: def.displayName,
-                    sessionId: sessionId,
+                    cwd: cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    pid: pid,
+                    launchCommand: launchCommand,
+                    lastSubtitle: subtitle,
+                    lastBody: body,
+                    lastNotificationStatus: stopNotificationStatus,
+                    updateLastNotificationStatus: true,
+                    runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle)
+                        ? .running
+                        : runtimeStatus(for: stopNotificationStatus),
+                    updateRuntimeStatus: true
+                )
+                publishOrRepairAgentSurfaceResumeBinding(
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    mapped: mapped,
+                    suppressRestorableRecord: suppressRestorableRecord,
                     cwd: cwd,
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
@@ -25964,6 +26354,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let shouldPublishStopAlert = (shouldPublishStopNotification || shouldPublishGrokStopFallbackNotification)
                 && !suppressCompletionNotification
             if suppressVisibleMutations {
+                repairSuppressedSubagentResumeBinding(
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    mapped: mapped
+                )
                 telemetry.breadcrumb("\(def.name)-hook.stop.nested-suppressed")
             } else if suppressCompletionNotification {
                 telemetry.breadcrumb("\(def.name)-hook.stop.subagent-notification-suppressed")
@@ -26119,6 +26514,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return
             }
 
+            var suppressRestorableRecord = false
+            var suppressVisibleMutations = false
             if !sessionId.isEmpty {
                 let pid = mapped?.pid ?? inferredPID
                 let launchCommand = agentLaunchCommandFromEnvironment(
@@ -26127,42 +26524,72 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
+                let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(mapped: mapped)
+                let savedSubagentSuppression = mapped?.isRestorable == false
+                suppressRestorableRecord = suppressRestoreTakeover || savedSubagentSuppression
+                suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                    currentAgentPID: pid,
+                    nestedPromptEvent: suppressRestorableRecord,
+                    env: env
+                )
                 // These agents use completion notifications as turn boundaries;
                 // keep the route but close nested prompt depth.
                 if (def.name == "grok" || def.name == "antigravity"),
                    summary.status == .idle || summary.status == .error {
                     _ = try? store.recordPromptStop(
                         sessionId: sessionId,
+                        parentSessionId: input.parentSessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         cwd: notificationCwd,
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
                         launchCommand: launchCommand,
+                        isRestorable: suppressRestorableRecord ? false : nil,
                         lastSubtitle: summary.subtitle,
                         lastBody: summary.body,
                         lastNotificationStatus: summary.status,
                         updateLastNotificationStatus: true,
-                        runtimeStatus: runtimeStatus(for: summary.status),
-                        updateRuntimeStatus: true
+                        runtimeStatus: suppressRestorableRecord ? nil : runtimeStatus(for: summary.status),
+                        updateRuntimeStatus: suppressRestorableRecord || !suppressVisibleMutations
                     )
                 } else {
                     try? store.upsert(
                         sessionId: sessionId,
+                        parentSessionId: input.parentSessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         cwd: notificationCwd,
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
                         launchCommand: launchCommand,
+                        isRestorable: suppressRestorableRecord ? false : nil,
                         lastSubtitle: summary.subtitle,
                         lastBody: summary.body,
                         lastNotificationStatus: summary.status,
                         updateLastNotificationStatus: true,
-                        runtimeStatus: runtimeStatus(for: summary.status),
-                        updateRuntimeStatus: summary.status != nil
+                        runtimeStatus: suppressRestorableRecord ? nil : runtimeStatus(for: summary.status),
+                        updateRuntimeStatus: suppressRestorableRecord || (summary.status != nil && !suppressVisibleMutations)
                     )
                 }
+                if suppressRestorableRecord && !suppressVisibleMutations {
+                    repairSuppressedSubagentResumeBinding(
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        mapped: mapped
+                    )
+                }
+            }
+            if suppressVisibleMutations {
+                repairSuppressedSubagentResumeBinding(
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    mapped: mapped
+                )
+                telemetry.breadcrumb("\(def.name)-hook.notification.subagent-restore-suppressed")
+                sendAgentFeedTelemetry(workspaceId: workspaceId)
+                print("{}")
+                return
             }
 
             let notificationFingerprint = notificationDedupeFingerprint(status: summary.status)
@@ -26261,7 +26688,34 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
                 sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
-                let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
+                let suppressRestoreTakeover = shouldSuppressSubagentRestoreTakeover(mapped: mapped)
+                let savedSubagentSuppression = mapped.isRestorable == false
+                let suppressRestorableRecord = suppressRestoreTakeover || savedSubagentSuppression
+                let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                    currentAgentPID: mapped.pid,
+                    nestedPromptEvent: suppressRestorableRecord,
+                    env: env
+                )
+                if suppressRestorableRecord {
+                    try? store.upsert(
+                        sessionId: sessionId,
+                        parentSessionId: input.parentSessionId ?? mapped.parentSessionId,
+                        workspaceId: mapped.workspaceId,
+                        surfaceId: mapped.surfaceId,
+                        cwd: hookCwd ?? mapped.cwd,
+                        transcriptPath: input.transcriptPath ?? mapped.transcriptPath,
+                        pid: mapped.pid,
+                        launchCommand: mapped.launchCommand,
+                        isRestorable: false,
+                        runtimeStatus: suppressRestorableRecord || suppressVisibleMutations ? nil : mapped.runtimeStatus,
+                        updateRuntimeStatus: suppressRestorableRecord || suppressVisibleMutations
+                    )
+                    repairSuppressedSubagentResumeBinding(
+                        workspaceId: mapped.workspaceId,
+                        surfaceId: mapped.surfaceId,
+                        mapped: mapped
+                    )
+                }
                 if suppressVisibleMutations {
                     telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
                 } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
