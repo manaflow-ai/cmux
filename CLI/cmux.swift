@@ -2765,6 +2765,10 @@ struct CMUXCLI {
             try runCodexTeamsSpawnFailureDiagnosticCommand(commandArgs: commandArgs)
             return
         }
+        if command == "__codex-teams-complete-utf8-prefix-length" {
+            try runCodexTeamsCompleteUTF8PrefixLengthCommand(commandArgs: commandArgs)
+            return
+        }
         if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
@@ -17807,6 +17811,30 @@ struct CMUXCLI {
         print(jsonString(diagnostic.jsonPayload))
     }
 
+    private func runCodexTeamsCompleteUTF8PrefixLengthCommand(commandArgs: [String]) throws {
+        guard commandArgs.count == 1 else {
+            throw CLIError(
+                message: "Usage: cmux __codex-teams-complete-utf8-prefix-length <hex-bytes>",
+                exitCode: 2
+            )
+        }
+        let hex = commandArgs[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard hex.count.isMultiple(of: 2) else {
+            throw CLIError(message: "hex byte input must contain an even number of characters", exitCode: 2)
+        }
+        var data = Data()
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let next = hex.index(index, offsetBy: 2)
+            guard let byte = UInt8(hex[index..<next], radix: 16) else {
+                throw CLIError(message: "hex byte input contains non-hex characters", exitCode: 2)
+            }
+            data.append(byte)
+            index = next
+        }
+        print(Self.codexTeamsCompleteUTF8PrefixLength(data))
+    }
+
     private func waitForCodexTeamsAppServer(appServerURL: String) throws {
         guard let url = URL(string: appServerURL) else {
             throw CLIError(message: "Invalid Codex app-server URL: \(appServerURL)")
@@ -30303,10 +30331,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         idFormat: CLIIDFormat = .refs
     ) -> String {
         formatDebugTerminalsPayload(payload, idFormat: idFormat)
-    }
-
-    static func debugCodexTeamsCompleteUTF8PrefixLengthForTesting(_ data: Data) -> Int {
-        codexTeamsCompleteUTF8PrefixLength(data)
     }
 #endif
 }

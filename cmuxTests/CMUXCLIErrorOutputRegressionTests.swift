@@ -181,29 +181,60 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertTrue(payload.isEmpty, result.stdout)
     }
 
-    func testCodexTeamsAppServerLogUTF8PrefixDefersIncompleteMultibyteSuffix() {
+    func testCodexTeamsAppServerLogUTF8PrefixDefersIncompleteMultibyteSuffix() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         var data = Data("spawn failed: ".utf8)
         let multibyteCharacterBytes: [UInt8] = [0xF0, 0x9F, 0x98, 0xB5]
         data.append(contentsOf: multibyteCharacterBytes.prefix(2))
 
-        let completeByteCount = CMUXCLI.debugCodexTeamsCompleteUTF8PrefixLengthForTesting(data)
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["__codex-teams-complete-utf8-prefix-length", hexString(data)],
+            environment: environment,
+            timeout: 5
+        )
 
-        XCTAssertEqual(completeByteCount, Data("spawn failed: ".utf8).count)
-        XCTAssertEqual(String(decoding: data.prefix(completeByteCount), as: UTF8.self), "spawn failed: ")
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            String(Data("spawn failed: ".utf8).count)
+        )
 
         data.append(contentsOf: multibyteCharacterBytes.dropFirst(2))
+        let completedResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["__codex-teams-complete-utf8-prefix-length", hexString(data)],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(completedResult.timedOut, completedResult.stdout)
+        XCTAssertEqual(completedResult.status, 0, completedResult.stdout)
         XCTAssertEqual(
-            CMUXCLI.debugCodexTeamsCompleteUTF8PrefixLengthForTesting(data),
-            data.count
+            completedResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            String(data.count)
         )
     }
 
-    func testCodexTeamsAppServerLogUTF8PrefixDoesNotDeferInvalidTrailingBytes() {
+    func testCodexTeamsAppServerLogUTF8PrefixDoesNotDeferInvalidTrailingBytes() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         let data = Data([0x73, 0x70, 0x61, 0x77, 0x6e, 0x80])
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["__codex-teams-complete-utf8-prefix-length", hexString(data)],
+            environment: environment,
+            timeout: 5
+        )
 
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
         XCTAssertEqual(
-            CMUXCLI.debugCodexTeamsCompleteUTF8PrefixLengthForTesting(data),
-            data.count
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            String(data.count)
         )
     }
 
@@ -1118,6 +1149,10 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     private func shellSingleQuote(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\"'\"'"))'"
+    }
+
+    private func hexString(_ data: Data) -> String {
+        data.map { String(format: "%02x", $0) }.joined()
     }
 
     private func runShell(_ command: String, timeout: TimeInterval) -> ProcessRunResult {
