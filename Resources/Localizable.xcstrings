@@ -47245,6 +47245,23 @@
         }
       }
     },
+    "menu.openInSublimeText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Current Directory in Sublime Text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のディレクトリを Sublime Text で開く"
+          }
+        }
+      }
+    },
     "menu.openInTerminal": {
       "extractionState": "manual",
       "localizations": {
@@ -54671,6 +54688,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "열기"
+          }
+        }
+      }
+    },
+    "settings.settingsJSON.openHint.customCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens with custom command: %@. Change in App → Open Files With."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムコマンド %@ で開きます。「App」→「ファイルを開くエディタ」で変更できます。"
+          }
+        }
+      }
+    },
+    "settings.settingsJSON.openHint.detectedEditor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens with %@. Change in App → Open Files With."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@で開きます。「App」→「ファイルを開くエディタ」で変更できます。"
+          }
+        }
+      }
+    },
+    "settings.settingsJSON.openHint.systemDefault": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens with system default. Change in App → Open Files With."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム標準で開きます。「App」→「ファイルを開くエディタ」で変更できます。"
           }
         }
       }
@@ -111616,19 +111684,240 @@
         }
       }
     },
+    "settings.app.preferredEditor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Files With"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを開くエディタ"
+          }
+        }
+      }
+    },
+    "settings.app.preferredEditor.custom.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editor command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エディタコマンド"
+          }
+        }
+      }
+    },
+    "settings.app.preferredEditor.option.androidStudio": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Android Studio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Android Studio"
+          }
+        }
+      }
+    },
+    "settings.app.preferredEditor.option.antigravity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity"
+          }
+        }
+      }
+    },
+    "settings.app.preferredEditor.option.cursor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        }
+      }
+    },
+    "settings.app.preferredEditor.option.custom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム…"
+          }
+        }
+      }
+    },
+    "settings.app.preferredEditor.option.intellij": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IntelliJ IDEA"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IntelliJ IDEA"
+          }
+        }
+      }
+    },
+    "settings.app.preferredEditor.option.sublimeText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sublime Text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sublime Text"
+          }
+        }
+      }
+    },
+    "settings.app.preferredEditor.option.systemDefault": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System Default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム標準"
+          }
+        }
+      }
+    },
+    "settings.app.preferredEditor.option.vscode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code"
+          }
+        }
+      }
+    },
+    "settings.app.preferredEditor.option.windsurf": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windsurf"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windsurf"
+          }
+        }
+      }
+    },
+    "settings.app.preferredEditor.option.xcode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xcode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xcode"
+          }
+        }
+      }
+    },
+    "settings.app.preferredEditor.option.zed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zed"
+          }
+        }
+      }
+    },
     "settings.app.preferredEditor.subtitle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty for system default."
+            "value": "Choose an installed editor or enter a custom CLI command for files opened outside cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd+クリックのファイルプレビューが無効な場合、またはファイルが未対応の場合に使うコマンドです。空欄のままにするとシステムの既定で開きます。"
+            "value": "インストール済みのエディタを選択するか、cmux の外で開くファイルに使うカスタム CLI コマンドを入力します。"
           }
         }
       }

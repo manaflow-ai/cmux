@@ -69,6 +69,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     case ghostty
     case intellij
     case iterm2
+    case sublimeText
     case terminal
     case tower
     case vscode
@@ -100,6 +101,40 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         Set(commandPaletteShortcutTargets.filter { $0.isAvailable(in: environment) })
     }
 
+    struct PreferredEditorOption: Identifiable, Hashable {
+        let target: TerminalDirectoryOpenTarget
+
+        var id: String { target.rawValue }
+        var command: String { target.preferredEditorCommand ?? "" }
+        var displayName: String { target.preferredEditorDisplayName }
+    }
+
+    static var preferredEditorTargets: [Self] {
+        [
+            .cursor,
+            .vscode,
+            .zed,
+            .sublimeText,
+            .windsurf,
+            .xcode,
+            .intellij,
+            .androidStudio,
+            .antigravity,
+        ]
+    }
+
+    static func availablePreferredEditorOptions(
+        in environment: DetectionEnvironment = .live
+    ) -> [PreferredEditorOption] {
+        preferredEditorTargets.compactMap { target in
+            guard target.isAvailable(in: environment),
+                  target.preferredEditorCommand != nil else {
+                return nil
+            }
+            return PreferredEditorOption(target: target)
+        }
+    }
+
     var commandPaletteCommandId: String {
         "palette.terminalOpenDirectory.\(rawValue)"
     }
@@ -120,6 +155,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return String(localized: "menu.openInIntelliJ", defaultValue: "Open Current Directory in IntelliJ IDEA")
         case .iterm2:
             return String(localized: "menu.openInITerm2", defaultValue: "Open Current Directory in iTerm2")
+        case .sublimeText:
+            return String(localized: "menu.openInSublimeText", defaultValue: "Open Current Directory in Sublime Text")
         case .terminal:
             return String(localized: "menu.openInTerminal", defaultValue: "Open Current Directory in Terminal")
         case .tower:
@@ -156,6 +193,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return common + ["intellij", "idea", "jetbrains"]
         case .iterm2:
             return common + ["iterm", "iterm2", "terminal", "shell"]
+        case .sublimeText:
+            return common + ["sublime", "subl", "text", "editor"]
         case .terminal:
             return common + ["terminal", "shell"]
         case .tower:
@@ -254,6 +293,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
                 "/Applications/iTerm.app",
                 "/Applications/iTerm2.app",
             ]
+        case .sublimeText:
+            return ["/Applications/Sublime Text.app"]
         case .terminal:
             return ["/System/Applications/Utilities/Terminal.app"]
         case .tower:
@@ -280,6 +321,56 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
                 "/Applications/Zed Preview.app",
                 "/Applications/Zed Nightly.app",
             ]
+        }
+    }
+
+    var preferredEditorCommand: String? {
+        switch self {
+        case .androidStudio:
+            return "studio"
+        case .antigravity:
+            return "antigravity"
+        case .cursor:
+            return "cursor"
+        case .intellij:
+            return "idea"
+        case .sublimeText:
+            return "subl"
+        case .vscode:
+            return "code"
+        case .windsurf:
+            return "windsurf"
+        case .xcode:
+            return "xed"
+        case .zed:
+            return "zed"
+        case .finder, .ghostty, .iterm2, .terminal, .tower, .vscodeInline, .warp:
+            return nil
+        }
+    }
+
+    var preferredEditorDisplayName: String {
+        switch self {
+        case .androidStudio:
+            return String(localized: "settings.app.preferredEditor.option.androidStudio", defaultValue: "Android Studio")
+        case .antigravity:
+            return String(localized: "settings.app.preferredEditor.option.antigravity", defaultValue: "Antigravity")
+        case .cursor:
+            return String(localized: "settings.app.preferredEditor.option.cursor", defaultValue: "Cursor")
+        case .intellij:
+            return String(localized: "settings.app.preferredEditor.option.intellij", defaultValue: "IntelliJ IDEA")
+        case .sublimeText:
+            return String(localized: "settings.app.preferredEditor.option.sublimeText", defaultValue: "Sublime Text")
+        case .vscode:
+            return String(localized: "settings.app.preferredEditor.option.vscode", defaultValue: "VS Code")
+        case .windsurf:
+            return String(localized: "settings.app.preferredEditor.option.windsurf", defaultValue: "Windsurf")
+        case .xcode:
+            return String(localized: "settings.app.preferredEditor.option.xcode", defaultValue: "Xcode")
+        case .zed:
+            return String(localized: "settings.app.preferredEditor.option.zed", defaultValue: "Zed")
+        case .finder, .ghostty, .iterm2, .terminal, .tower, .vscodeInline, .warp:
+            return commandPaletteTitle
         }
     }
 

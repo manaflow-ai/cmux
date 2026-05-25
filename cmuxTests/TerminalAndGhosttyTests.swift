@@ -2042,6 +2042,121 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         XCTAssertFalse(targets.contains(where: { $0.commandPaletteTitle == "Open Current Directory in IDE" }))
         XCTAssertFalse(targets.contains(where: { $0.commandPaletteCommandId == "palette.terminalOpenDirectory" }))
     }
+
+    func testPreferredEditorOptionsReuseDetectedEditorTargetsAndMapToCommands() {
+        let env = environment(
+            existingPaths: [
+                "/Applications/Cursor.app",
+                "/Applications/Visual Studio Code.app",
+                "/Applications/Zed.app",
+                "/Applications/Sublime Text.app",
+                "/Applications/Ghostty.app",
+                "/System/Library/CoreServices/Finder.app",
+                "/System/Applications/Utilities/Terminal.app",
+            ]
+        )
+
+        let options = TerminalDirectoryOpenTarget.availablePreferredEditorOptions(in: env)
+
+        XCTAssertEqual(
+            options.map(\.target),
+            [.cursor, .vscode, .zed, .sublimeText]
+        )
+        XCTAssertEqual(
+            options.map(\.command),
+            ["cursor", "code", "zed", "subl"]
+        )
+    }
+
+    func testPreferredEditorOptionsSupportLaunchServicesFallback() {
+        let cursorPath = "/Volumes/Tools/Cursor.app"
+        let sublimePath = "/Volumes/Tools/Sublime Text.app"
+        let env = environment(
+            existingPaths: [cursorPath, sublimePath],
+            applicationPathsByName: [
+                "Cursor": cursorPath,
+                "Sublime Text": sublimePath,
+            ]
+        )
+
+        let options = TerminalDirectoryOpenTarget.availablePreferredEditorOptions(in: env)
+
+        XCTAssertEqual(options.map(\.target), [.cursor, .sublimeText])
+        XCTAssertEqual(options.map(\.command), ["cursor", "subl"])
+    }
+
+    func testPreferredEditorSelectionMapsDetectedEditorsToStoredCommands() {
+        let env = environment(
+            existingPaths: [
+                "/Applications/Visual Studio Code.app",
+                "/Applications/Zed.app",
+            ]
+        )
+        let options = TerminalDirectoryOpenTarget.availablePreferredEditorOptions(in: env)
+
+        XCTAssertEqual(
+            PreferredEditorSettings.selectionID(for: "", editorOptions: options),
+            PreferredEditorSettings.systemDefaultSelectionID
+        )
+        XCTAssertEqual(
+            PreferredEditorSettings.selectionID(for: " code ", editorOptions: options),
+            TerminalDirectoryOpenTarget.vscode.rawValue
+        )
+        XCTAssertEqual(
+            PreferredEditorSettings.command(
+                forSelectionID: TerminalDirectoryOpenTarget.zed.rawValue,
+                editorOptions: options
+            ),
+            "zed"
+        )
+        XCTAssertEqual(
+            PreferredEditorSettings.command(
+                forSelectionID: PreferredEditorSettings.systemDefaultSelectionID,
+                editorOptions: options
+            ),
+            ""
+        )
+        XCTAssertNil(
+            PreferredEditorSettings.command(
+                forSelectionID: PreferredEditorSettings.customSelectionID,
+                editorOptions: options
+            )
+        )
+    }
+
+    func testPreferredEditorSelectionTreatsUnknownCommandsAsCustom() {
+        let env = environment(existingPaths: ["/Applications/Visual Studio Code.app"])
+        let options = TerminalDirectoryOpenTarget.availablePreferredEditorOptions(in: env)
+
+        XCTAssertEqual(
+            PreferredEditorSettings.selectionID(for: "code --reuse-window", editorOptions: options),
+            PreferredEditorSettings.customSelectionID
+        )
+    }
+
+    func testPreferredEditorUsageDescriptionForSettingsJSONHint() throws {
+        let env = environment(
+            existingPaths: [
+                "/Applications/Cursor.app",
+                "/Applications/Visual Studio Code.app",
+            ]
+        )
+        let options = TerminalDirectoryOpenTarget.availablePreferredEditorOptions(in: env)
+        let cursorDisplayName = try XCTUnwrap(options.first { $0.target == .cursor }?.displayName)
+
+        XCTAssertEqual(
+            PreferredEditorSettings.usageDescription(command: "  ", editorOptions: options),
+            .systemDefault
+        )
+        XCTAssertEqual(
+            PreferredEditorSettings.usageDescription(command: "cursor", editorOptions: options),
+            .detectedEditor(displayName: cursorDisplayName)
+        )
+        XCTAssertEqual(
+            PreferredEditorSettings.usageDescription(command: "code --reuse-window", editorOptions: options),
+            .customCommand("code --reuse-window")
+        )
+    }
 }
 
 

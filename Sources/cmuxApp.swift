@@ -4978,6 +4978,14 @@ enum CmdClickSupportedFileRouteSettings {
 
 enum PreferredEditorSettings {
     static let key = "preferredEditorCommand"
+    static let systemDefaultSelectionID = "system-default"
+    static let customSelectionID = "custom"
+
+    enum UsageDescription: Equatable {
+        case systemDefault
+        case detectedEditor(displayName: String)
+        case customCommand(String)
+    }
 
     /// Returns the configured editor command, or nil to use system default.
     static func resolvedCommand(defaults: UserDefaults = .standard) -> String? {
@@ -4986,6 +4994,73 @@ enum PreferredEditorSettings {
             return nil
         }
         return stored
+    }
+
+    static func detectedEditorOptions(
+        in environment: TerminalDirectoryOpenTarget.DetectionEnvironment = .live
+    ) -> [TerminalDirectoryOpenTarget.PreferredEditorOption] {
+        TerminalDirectoryOpenTarget.availablePreferredEditorOptions(in: environment)
+    }
+
+    static func selectionID(
+        for command: String,
+        editorOptions: [TerminalDirectoryOpenTarget.PreferredEditorOption]
+    ) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return systemDefaultSelectionID }
+        return editorOptions.first { $0.command == trimmed }?.id ?? customSelectionID
+    }
+
+    static func command(
+        forSelectionID selectionID: String,
+        editorOptions: [TerminalDirectoryOpenTarget.PreferredEditorOption]
+    ) -> String? {
+        if selectionID == systemDefaultSelectionID {
+            return ""
+        }
+        if selectionID == customSelectionID {
+            return nil
+        }
+        return editorOptions.first { $0.id == selectionID }?.command
+    }
+
+    static func usageDescription(
+        command: String?,
+        editorOptions: [TerminalDirectoryOpenTarget.PreferredEditorOption]
+    ) -> UsageDescription {
+        guard let trimmed = command?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return .systemDefault
+        }
+        if let option = editorOptions.first(where: { $0.command == trimmed }) {
+            return .detectedEditor(displayName: option.displayName)
+        }
+        return .customCommand(trimmed)
+    }
+
+    static func usageHintText(
+        command: String?,
+        editorOptions: [TerminalDirectoryOpenTarget.PreferredEditorOption]
+    ) -> String {
+        switch usageDescription(command: command, editorOptions: editorOptions) {
+        case .systemDefault:
+            return String(
+                localized: "settings.settingsJSON.openHint.systemDefault",
+                defaultValue: "Opens with system default. Change in App → Open Files With."
+            )
+        case .detectedEditor(let displayName):
+            let format = String(
+                localized: "settings.settingsJSON.openHint.detectedEditor",
+                defaultValue: "Opens with %@. Change in App → Open Files With."
+            )
+            return String.localizedStringWithFormat(format, displayName)
+        case .customCommand(let command):
+            let format = String(
+                localized: "settings.settingsJSON.openHint.customCommand",
+                defaultValue: "Opens with custom command: %@. Change in App → Open Files With."
+            )
+            return String.localizedStringWithFormat(format, command)
+        }
     }
 
     /// Open a file path with the user's preferred editor, falling back to system default.
@@ -5211,6 +5286,8 @@ struct SettingsView: View {
     @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
     private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
     @AppStorage(PreferredEditorSettings.key) private var preferredEditorCommand = ""
+    @State private var preferredEditorOptions = PreferredEditorSettings.detectedEditorOptions()
+    @State private var preferredEditorForcesCustomSelection = false
     @AppStorage(CmdClickSupportedFileRouteSettings.key)
     private var openSupportedFilesInCmux = CmdClickSupportedFileRouteSettings.defaultValue
     @AppStorage(CmdClickMarkdownRouteSettings.key) private var openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
@@ -5595,6 +5672,65 @@ struct SettingsView: View {
                 BrowserAvailabilitySettings.setDisabled(!newValue)
                 browserDisabled = !newValue
             }
+        )
+    }
+
+    private var preferredEditorSelectionBinding: Binding<String> {
+        Binding(
+            get: {
+                if preferredEditorForcesCustomSelection {
+                    return PreferredEditorSettings.customSelectionID
+                }
+                return PreferredEditorSettings.selectionID(
+                    for: preferredEditorCommand,
+                    editorOptions: preferredEditorOptions
+                )
+            },
+            set: { selectionID in
+                if selectionID == PreferredEditorSettings.customSelectionID {
+                    preferredEditorForcesCustomSelection = true
+                    if PreferredEditorSettings.selectionID(
+                        for: preferredEditorCommand,
+                        editorOptions: preferredEditorOptions
+                    ) != PreferredEditorSettings.customSelectionID {
+                        preferredEditorCommand = ""
+                    }
+                    return
+                }
+
+                preferredEditorForcesCustomSelection = false
+                guard let command = PreferredEditorSettings.command(
+                    forSelectionID: selectionID,
+                    editorOptions: preferredEditorOptions
+                ) else {
+                    return
+                }
+                preferredEditorCommand = command
+            }
+        )
+    }
+
+    private var preferredEditorCustomCommandBinding: Binding<String> {
+        Binding(
+            get: { preferredEditorCommand },
+            set: { newValue in
+                preferredEditorForcesCustomSelection = true
+                preferredEditorCommand = newValue
+            }
+        )
+    }
+
+    private var shouldShowPreferredEditorCustomCommand: Bool {
+        preferredEditorForcesCustomSelection || PreferredEditorSettings.selectionID(
+            for: preferredEditorCommand,
+            editorOptions: preferredEditorOptions
+        ) == PreferredEditorSettings.customSelectionID
+    }
+
+    private var preferredEditorUsageHintText: String {
+        PreferredEditorSettings.usageHintText(
+            command: preferredEditorCommand,
+            editorOptions: preferredEditorOptions
         )
     }
 
@@ -6288,14 +6424,35 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("app.preferredEditor"),
                             String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"),
-                            subtitle: String(localized: "settings.app.preferredEditor.subtitle", defaultValue: "Command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty for system default.")
+                            subtitle: String(localized: "settings.app.preferredEditor.subtitle", defaultValue: "Choose an installed editor or enter a custom CLI command for files opened outside cmux."),
+                            controlWidth: 260
                         ) {
-                            TextField(
-                                String(localized: "settings.app.preferredEditor.placeholder", defaultValue: "e.g. code, zed, subl"),
-                                text: $preferredEditorCommand
-                            )
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 200)
+                            VStack(alignment: .trailing, spacing: 6) {
+                                Picker("", selection: preferredEditorSelectionBinding) {
+                                    Text(String(localized: "settings.app.preferredEditor.option.systemDefault", defaultValue: "System Default"))
+                                        .tag(PreferredEditorSettings.systemDefaultSelectionID)
+                                    ForEach(preferredEditorOptions) { option in
+                                        Text(option.displayName).tag(option.id)
+                                    }
+                                    Text(String(localized: "settings.app.preferredEditor.option.custom", defaultValue: "Custom…"))
+                                        .tag(PreferredEditorSettings.customSelectionID)
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                                .frame(width: 220)
+                                .accessibilityIdentifier("SettingsPreferredEditorPicker")
+
+                                if shouldShowPreferredEditorCustomCommand {
+                                    TextField(
+                                        String(localized: "settings.app.preferredEditor.custom.placeholder", defaultValue: "Editor command"),
+                                        text: preferredEditorCustomCommandBinding
+                                    )
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(.body, design: .monospaced))
+                                    .frame(width: 220)
+                                    .accessibilityIdentifier("SettingsPreferredEditorCustomCommandField")
+                                }
+                            }
                         }
 
                         SettingsCardDivider()
@@ -7743,20 +7900,30 @@ struct SettingsView: View {
                             controlWidth: 330,
                             searchAnchorID: SettingsSearchIndex.settingID(for: .settingsJSON, idSuffix: "open-file")
                         ) {
-                            HStack(spacing: 8) {
-                                Text(KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath())
-                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            VStack(alignment: .trailing, spacing: 3) {
+                                HStack(spacing: 8) {
+                                    Text(KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath())
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
 
-                                Button(String(localized: "settings.settingsJSON.openButton", defaultValue: "Open")) {
-                                    openCmuxSettingsFileInEditor()
+                                    Button(String(localized: "settings.settingsJSON.openButton", defaultValue: "Open")) {
+                                        openCmuxSettingsFileInEditor()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .accessibilityIdentifier("SettingsJSONOpenButton")
                                 }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .accessibilityIdentifier("SettingsJSONOpenButton")
+
+                                Text(preferredEditorUsageHintText)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.trailing)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .accessibilityIdentifier("SettingsJSONPreferredEditorHint")
                             }
                             .accessibilityIdentifier("SettingsJSONOpenFileRowActions")
                         }
@@ -7812,6 +7979,7 @@ struct SettingsView: View {
             didLoadBrowserHistoryForSettings = BrowserHistoryStore.shared.isLoaded
             browserHistoryEntryCount = didLoadBrowserHistoryForSettings ? BrowserHistoryStore.shared.entries.count : 0
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
+            preferredEditorOptions = PreferredEditorSettings.detectedEditorOptions()
             reloadWorkspaceTabColorSettings()
             refreshNotificationCustomSoundStatus()
             let target = SettingsWindowPresenter.consumePendingContentNavigationTarget()
