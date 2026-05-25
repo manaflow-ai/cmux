@@ -623,8 +623,9 @@ def test_live_socket_settings_file_is_user_scoped(failures: list[str]) -> None:
         f"user-scoped settings: expected Application Support cmux path, got {settings_arg!r}",
         failures,
     )
+    fallback_marker = f"/cmux-claude-settings-{os.getuid()}/"
     expect(
-        not settings_arg.startswith("/tmp/") and not settings_arg.startswith("/private/tmp/"),
+        fallback_marker not in settings_arg,
         f"user-scoped settings: expected path outside shared tmp, got {settings_arg!r}",
         failures,
     )

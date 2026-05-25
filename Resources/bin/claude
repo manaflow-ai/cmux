@@ -325,7 +325,18 @@ cmux_claude_settings_hash() {
         sha256sum | awk '{print $1}'
         return 0
     fi
-    cksum | awk '{print $1}'
+    return 1
+}
+
+prune_old_claude_settings_files() {
+    local settings_dir="$1"
+    local keep_path="$2"
+    local candidate
+
+    while IFS= read -r -d '' candidate; do
+        [[ "$candidate" == "$keep_path" ]] && continue
+        rm -f "$candidate" || true
+    done < <(find "$settings_dir" -maxdepth 1 -type f -name 'settings-*.json' -print0 2>/dev/null)
 }
 
 ensure_claude_settings_file() {
@@ -358,6 +369,7 @@ ensure_claude_settings_file() {
         }
     fi
 
+    prune_old_claude_settings_files "$settings_dir" "$settings_path"
     printf '%s' "$settings_path"
 }
 
