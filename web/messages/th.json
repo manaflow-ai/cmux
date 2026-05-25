@@ -503,7 +503,8 @@
         "browser": {
           "defaultSearchEngine": "เครื่องมือค้นหาเริ่มต้นสำหรับคำค้นในแถบที่อยู่ของเบราว์เซอร์ที่ไม่ใช่ URL ใช้ custom กับ customSearchEngineURLTemplate สำหรับผู้ให้บริการอื่น",
           "customSearchEngineName": "ชื่อที่แสดงเมื่อ defaultSearchEngine เป็น custom",
-          "customSearchEngineURLTemplate": "URL ค้นหาที่ใช้เมื่อ defaultSearchEngine เป็น custom ใส่ตัวแทนคำค้นหรือ %s สำหรับคำค้นที่เข้ารหัส หากไม่มีตัวแทน cmux จะเพิ่ม q= ให้กับ URL"
+          "customSearchEngineURLTemplate": "URL ค้นหาที่ใช้เมื่อ defaultSearchEngine เป็น custom ใส่ตัวแทนคำค้นหรือ %s สำหรับคำค้นที่เข้ารหัส หากไม่มีตัวแทน cmux จะเพิ่ม q= ให้กับ URL",
+          "shortcutPassthroughHosts": "โฮสต์ที่หน้าเพจรับทางลัด Cmd modifier โดยตรง เมื่อตรงกัน คอมโบ Cmd จะถูกส่งต่อไปยังเว็บวิวก่อน หากเพจไม่ใช้คอมโบนั้น การจัดการเมนูปกติของ cmux จะกลับมาทำงาน (ดังนั้น Cmd+Q ยังคงออกจากโปรแกรม) มีประโยชน์สำหรับการฝัง Web IDE เช่น VS Code ผ่าน code-server รองรับการจับคู่โฮสต์แบบตรงและไวลด์การ์ด *.subdomain (รูปแบบ *.example.com ยังจับคู่ example.com เองด้วย) หมายเลขพอร์ตจะถูกละเว้น รายการว่างจะคงพฤติกรรมเดิมของ cmux ในทุกหน้า"
         }
       }
     },

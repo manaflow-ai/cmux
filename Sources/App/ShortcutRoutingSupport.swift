@@ -680,35 +680,6 @@ func shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
     return true
 }
 
-/// When the focused browser pane's URL matches the user-configured
-/// `browser.shortcutPassthroughHosts` allowlist, every Cmd-modifier key
-/// equivalent should be handed off to the web content instead of being
-/// claimed by cmux's main menu. This is the seam that lets VS Code (running
-/// in code-server inside the embedded browser) receive Cmd+P, Cmd+Shift+P,
-/// Cmd+F, Cmd+B, Cmd+D, etc.
-///
-/// Default behavior (empty allowlist) is unchanged.
-func shouldPassthroughCommandEquivalentToWebContent(
-    _ event: NSEvent,
-    responder: NSResponder? = nil,
-    owningWebView: CmuxWebView? = nil,
-    defaults: UserDefaults = .standard
-) -> Bool {
-    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-    guard flags.contains(.command) else { return false }
-
-    if cmuxIsLikelyWebInspectorResponder(responder) {
-        return false
-    }
-
-    guard let webView = owningWebView else { return false }
-
-    // Sample the URL synchronously on the main actor — `WKWebView.url` is
-    // declared @MainActor in newer SDKs and dispatch already happens there.
-    let url: URL? = MainActor.assumeIsolated { webView.url }
-    return BrowserLinkOpenSettings.urlMatchesShortcutPassthrough(url, defaults: defaults)
-}
-
 func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
     guard let responder else { return nil }
     if let ghosttyView = responder as? GhosttyNSView {

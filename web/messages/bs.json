@@ -503,7 +503,8 @@
         "browser": {
           "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
           "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
-          "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL."
+          "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL.",
+          "shortcutPassthroughHosts": "Hostovi čije stranice direktno primaju prečice s Cmd tipkom. Pri podudaranju, Cmd prečice se prvo prosljeđuju u web prikaz; ako stranica ne konzumira prečicu, nastavlja se uobičajeno upravljanje cmux menijem (pa Cmd+Q i dalje izlazi). Korisno za ugrađivanje web IDE-ova poput VS Code preko code-server. Podržava tačno podudaranje hosta i *.poddomen znakove zamjene (obrazac *.example.com također odgovara samom example.com). Brojevi portova se ignoriraju. Prazna lista zadržava postojeće cmux ponašanje na svakoj stranici."
         }
       }
     },

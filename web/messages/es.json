@@ -503,7 +503,8 @@
         "browser": {
           "defaultSearchEngine": "Motor de búsqueda predeterminado para consultas de la barra de direcciones del navegador que no son URL. Usa custom con customSearchEngineURLTemplate para otros proveedores.",
           "customSearchEngineName": "Nombre visible usado cuando defaultSearchEngine es custom.",
-          "customSearchEngineURLTemplate": "URL de búsqueda usada cuando defaultSearchEngine es custom. Incluye el marcador de consulta o %s para la consulta codificada. Si no hay marcador, cmux añade q= a la URL."
+          "customSearchEngineURLTemplate": "URL de búsqueda usada cuando defaultSearchEngine es custom. Incluye el marcador de consulta o %s para la consulta codificada. Si no hay marcador, cmux añade q= a la URL.",
+          "shortcutPassthroughHosts": "Hosts cuyas páginas reciben directamente los atajos con la tecla Cmd. En una coincidencia, los atajos Cmd se envían primero a la vista web; si la página no consume el atajo, se reanuda el manejo normal del menú de cmux (así Cmd+Q sigue funcionando para salir). Útil para incrustar IDE web como VS Code mediante code-server. Admite coincidencia exacta de host y comodines *.subdominio (un patrón *.example.com también coincide con el ápice example.com). Los números de puerto se ignoran. Una lista vacía mantiene el comportamiento existente de cmux en cada página."
         }
       }
     },

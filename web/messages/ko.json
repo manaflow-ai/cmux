@@ -503,7 +503,8 @@
         "browser": {
           "defaultSearchEngine": "브라우저 주소 표시줄에서 URL이 아닌 입력에 사용할 기본 검색 엔진입니다. 다른 제공자는 custom과 customSearchEngineURLTemplate을 사용하세요.",
           "customSearchEngineName": "defaultSearchEngine이 custom일 때 사용할 표시 이름입니다.",
-          "customSearchEngineURLTemplate": "defaultSearchEngine이 custom일 때 사용할 검색 URL입니다. 인코딩된 검색어에는 쿼리 자리표시자 또는 %s를 포함하세요. 자리표시자가 없으면 cmux가 URL에 q=를 추가합니다."
+          "customSearchEngineURLTemplate": "defaultSearchEngine이 custom일 때 사용할 검색 URL입니다. 인코딩된 검색어에는 쿼리 자리표시자 또는 %s를 포함하세요. 자리표시자가 없으면 cmux가 URL에 q=를 추가합니다.",
+          "shortcutPassthroughHosts": "페이지가 Cmd 수정자 단축키를 직접 받는 호스트입니다. 일치 시 Cmd 수정자 조합은 먼저 웹 뷰로 전달됩니다. 페이지가 조합을 소비하지 않으면 cmux의 일반 메뉴 처리로 복귀합니다(따라서 Cmd+Q는 계속 종료됩니다). code-server를 통한 VS Code 같은 웹 IDE를 임베드할 때 유용합니다. 정확한 호스트 일치와 *.서브도메인 와일드카드를 지원합니다(*.example.com 패턴은 example.com 자체에도 일치합니다). 포트 번호는 무시됩니다. 빈 목록은 모든 페이지에서 기존 cmux 동작을 유지합니다."
         }
       }
     },

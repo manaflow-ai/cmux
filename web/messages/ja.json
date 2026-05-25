@@ -563,7 +563,8 @@
         "browser": {
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",
-          "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。"
+          "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。",
+          "shortcutPassthroughHosts": "ページに対して Cmd 修飾キーのショートカットを直接渡すホスト。マッチした場合、Cmd 修飾の組み合わせはまず Web ビューに転送されます。ページがその組み合わせを消費しなかった場合は、cmux の通常のメニュー処理に戻ります（Cmd+Q は引き続き終了します）。code-server 経由の VS Code のような Web IDE を埋め込むのに便利です。完全一致と *.サブドメイン ワイルドカードをサポートします（*.example.com のパターンは example.com 自体にもマッチします）。ポート番号は無視されます。空のリストはすべてのページで既存の cmux の動作を維持します。"
         }
       }
     },

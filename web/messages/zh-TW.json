@@ -503,7 +503,8 @@
         "browser": {
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 為 custom 時使用的顯示名稱。",
-          "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。"
+          "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。",
+          "shortcutPassthroughHosts": "網頁直接接收 Cmd 修飾鍵快捷鍵的主機。比對成功時，Cmd 修飾鍵組合會先轉發到 Web 檢視；如果頁面未消耗該組合，則恢復 cmux 的正常選單處理（因此 Cmd+Q 仍可退出）。適合透過 code-server 嵌入 VS Code 等 Web IDE。支援精確主機比對與 *.子網域 萬用字元（*.example.com 樣式也會比對 example.com 頂點）。連接埠號碼會被忽略。空清單會在每個頁面上保留 cmux 現有的行為。"
         }
       }
     },

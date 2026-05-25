@@ -503,7 +503,8 @@
         "browser": {
           "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",
           "customSearchEngineName": "Anzeigename, der verwendet wird, wenn defaultSearchEngine custom ist.",
-          "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu."
+          "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu.",
+          "shortcutPassthroughHosts": "Hosts, deren Seiten Cmd-Tastenkürzel direkt erhalten. Bei einer Übereinstimmung werden Cmd-Kürzel zuerst an die Webansicht weitergeleitet; wenn die Seite ein Kürzel nicht verarbeitet, übernimmt die normale Menüverarbeitung von cmux (Cmd+Q beendet also weiterhin). Nützlich zum Einbetten von Web-IDEs wie VS Code über code-server. Unterstützt exakte Host-Übereinstimmung und *.subdomain-Platzhalter (ein Muster *.example.com passt auch auf example.com selbst). Portnummern werden ignoriert. Eine leere Liste behält das bestehende cmux-Verhalten auf jeder Seite bei."
         }
       }
     },
