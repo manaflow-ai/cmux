@@ -16678,6 +16678,9 @@ struct CMUXCLI {
             stateLock.lock()
             defer { stateLock.unlock() }
             guard var state = spawnFailureDeliveryStates[result.fingerprint] else {
+                if result.notificationSucceeded == true || result.statusSucceeded == true {
+                    reportedSpawnFailureFingerprints.insert(result.fingerprint)
+                }
                 return
             }
             if let notificationSucceeded = result.notificationSucceeded {
@@ -16704,10 +16707,25 @@ struct CMUXCLI {
                 spawnFailureDeliveryOrder.append(fingerprint)
             }
             spawnFailureDeliveryStates[fingerprint] = state
-            while spawnFailureDeliveryStates.count > maxSpawnFailureDeliveryStates,
-                  let oldest = spawnFailureDeliveryOrder.first {
-                spawnFailureDeliveryOrder.removeFirst()
-                spawnFailureDeliveryStates.removeValue(forKey: oldest)
+            pruneSpawnFailureDeliveryStatesLocked()
+        }
+
+        private func pruneSpawnFailureDeliveryStatesLocked() {
+            while spawnFailureDeliveryStates.count > maxSpawnFailureDeliveryStates {
+                let alreadyVisible = spawnFailureDeliveryOrder.first { fingerprint in
+                    guard let state = spawnFailureDeliveryStates[fingerprint] else { return true }
+                    return !state.notificationInFlight &&
+                        !state.statusInFlight &&
+                        (state.notificationDelivered || state.statusDelivered)
+                }
+                let notInFlight = spawnFailureDeliveryOrder.first { fingerprint in
+                    guard let state = spawnFailureDeliveryStates[fingerprint] else { return true }
+                    return !state.notificationInFlight && !state.statusInFlight
+                }
+                guard let evicted = alreadyVisible ?? notInFlight else {
+                    return
+                }
+                removeSpawnFailureDeliveryStateLocked(fingerprint: evicted)
             }
         }
 
