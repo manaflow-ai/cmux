@@ -15,6 +15,44 @@ import CMUXPasteboardFidelity
 import IOSurface
 import UniformTypeIdentifiers
 
+private let terminalNotificationFallbackTitle =
+    String(localized: "terminal.notification.fallbackTitle", defaultValue: "Terminal")
+
+@MainActor
+private func handleTerminalDesktopNotification(
+    tabId: UUID,
+    surfaceId: UUID?,
+    actionTitle: String,
+    actionBody: String
+) -> Bool {
+    let owningManager =
+        AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
+    let workspace = owningManager?.tabs.first(where: { $0.id == tabId })
+    if workspace?.suppressesRawTerminalNotification(panelId: surfaceId) == true {
+        return true
+    }
+    let tabTitle = owningManager?.titleForTab(tabId) ?? terminalNotificationFallbackTitle
+    let workspaceAgentPIDs = workspace?.agentPIDs ?? [:]
+    let route = TerminalDesktopNotificationBridge.route(
+        claudeHooksEnabled: ClaudeCodeIntegrationSettings.hooksEnabled(),
+        workspaceAgentPIDs: workspaceAgentPIDs,
+        actionTitle: actionTitle,
+        actionBody: actionBody,
+        fallbackTabTitle: tabTitle
+    )
+    guard case .deliver(let notification) = route else {
+        return true
+    }
+    TerminalNotificationStore.shared.addNotification(
+        tabId: tabId,
+        surfaceId: surfaceId,
+        title: notification.title,
+        subtitle: "",
+        body: notification.body
+    )
+    return true
+}
+
 @_silgen_name("ghostty_surface_clear_selection")
 private func ghostty_surface_clear_selection_compat(_ surface: ghostty_surface_t) -> Bool
 
@@ -4272,23 +4310,17 @@ class GhosttyApp {
                           let tabId = tabManager.selectedTabId else {
                         return false
                     }
-                    let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? tabManager
+                    // Suppress only the generic Claude raw-OSC attention banners when
+                    // Claude hooks are active. Other terminal notifications in the same
+                    // workspace (for example Codex OSC prompts) should still flow into
+                    // the cmux notification pipeline.
                     let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-                    if let workspace = owningManager.tabs.first(where: { $0.id == tabId }),
-                       workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
-                        return true
-                    }
-                    let tabTitle = owningManager.titleForTab(tabId) ?? "Terminal"
-                    let command = actionTitle.isEmpty ? tabTitle : actionTitle
-                    let body = actionBody
-                    TerminalNotificationStore.shared.addNotification(
+                    return handleTerminalDesktopNotification(
                         tabId: tabId,
                         surfaceId: surfaceId,
-                        title: command,
-                        subtitle: "",
-                        body: body
+                        actionTitle: actionTitle,
+                        actionBody: actionBody
                     )
-                    return true
                 }
             }
 
@@ -4545,20 +4577,13 @@ class GhosttyApp {
             let actionBody = action.action.desktop_notification.body
                 .flatMap { String(cString: $0) } ?? ""
             performOnMain {
-                let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
-                if let workspace = owningManager?.tabs.first(where: { $0.id == tabId }),
-                   workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
-                    return
-                }
-                let tabTitle = owningManager?.titleForTab(tabId) ?? "Terminal"
-                let command = actionTitle.isEmpty ? tabTitle : actionTitle
-                let body = actionBody
-                TerminalNotificationStore.shared.addNotification(
+                // Suppress only generic Claude raw-OSC attention banners when Claude hooks
+                // are active; preserve other terminal notification sources in the workspace.
+                _ = handleTerminalDesktopNotification(
                     tabId: tabId,
                     surfaceId: surfaceId,
-                    title: command,
-                    subtitle: "",
-                    body: body
+                    actionTitle: actionTitle,
+                    actionBody: actionBody
                 )
             }
             return true
