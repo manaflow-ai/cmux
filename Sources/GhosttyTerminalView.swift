@@ -4232,13 +4232,17 @@ class GhosttyApp {
     }
 
     @MainActor
-    private static func desktopNotificationTitle(forTabId tabId: UUID) -> String {
-        let fallbackTitle = String(
+    private static func fallbackDesktopNotificationTitle() -> String {
+        String(
             localized: "notification.fallback_title",
             defaultValue: "Terminal"
         )
+    }
+
+    @MainActor
+    private static func desktopNotificationTitle(forTabId tabId: UUID) -> String {
         let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
-        return owningManager?.titleForTab(tabId) ?? fallbackTitle
+        return owningManager?.titleForTab(tabId) ?? fallbackDesktopNotificationTitle()
     }
 
     func refreshAppDesktopNotificationRouteSnapshot() {
@@ -4436,6 +4440,14 @@ class GhosttyApp {
                     return true
                 }
                 Task { @MainActor [notificationTarget, actionTitle, actionBody] in
+                    let owningManager = AppDelegate.shared?.tabManagerFor(tabId: notificationTarget.tabId)
+                        ?? AppDelegate.shared?.tabManager
+                    guard let workspace = owningManager?.tabs.first(where: { $0.id == notificationTarget.tabId }) else {
+                        return
+                    }
+                    if workspace.suppressesRawTerminalNotification(panelId: notificationTarget.surfaceId) {
+                        return
+                    }
                     let command = actionTitle.isEmpty
                         ? Self.desktopNotificationTitle(forTabId: notificationTarget.tabId)
                         : actionTitle
