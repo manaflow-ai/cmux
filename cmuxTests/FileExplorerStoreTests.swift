@@ -556,6 +556,40 @@ final class FileExplorerStoreTests: XCTestCase {
                 .contains { $0.name == "build" } ?? false
         }
     }
+
+    /// The watch set must stay bounded by what the user can actually see: the
+    /// root plus expanded directories whose whole ancestor chain is expanded.
+    /// Collapsing a parent hides its descendants (and stops watching them) while
+    /// still remembering their expansion state, so re-expanding restores both.
+    func testWatchSetTracksVisibleExpandedDirectoriesOnly() {
+        let store = FileExplorerStore()
+        store.setRootPath("/root")
+
+        let a = FileExplorerNode(name: "a", path: "/root/a", isDirectory: true)
+        a.children = []
+        let b = FileExplorerNode(name: "b", path: "/root/a/b", isDirectory: true)
+        b.children = []
+
+        store.expand(node: a)
+        store.expand(node: b)
+        XCTAssertEqual(
+            store.watchedDirectoryPathsForTesting(),
+            ["/root", "/root/a", "/root/a/b"]
+        )
+
+        // Collapsing `a` hides `b`; `b` must drop out of the watch set even
+        // though it stays in expandedPaths for state restoration.
+        store.collapse(node: a)
+        XCTAssertEqual(store.watchedDirectoryPathsForTesting(), ["/root"])
+        XCTAssertTrue(store.expandedPaths.contains("/root/a/b"))
+
+        // Re-expanding `a` makes `b` visible again, so it is watched again.
+        store.expand(node: a)
+        XCTAssertEqual(
+            store.watchedDirectoryPathsForTesting(),
+            ["/root", "/root/a", "/root/a/b"]
+        )
+    }
 }
 
 @MainActor
