@@ -45,17 +45,6 @@ nonisolated enum RemoteShellSessionParsing {
         "tunnel",
         "username",
     ]
-    private static let eternalTerminalLongNoArgumentOptions: Set<String> = [
-        "forward-ssh-agent",
-        "help",
-        "kill-other-sessions",
-        "logtostdout",
-        "macserver",
-        "no-terminal",
-        "noexit",
-        "silent",
-        "version",
-    ]
     private static let filteredSSHOptionKeys: Set<String> = [
         "batchmode",
         "controlmaster",
@@ -145,7 +134,33 @@ nonisolated enum RemoteShellSessionParsing {
             }
         }
 
-        while index < arguments.count {
+        func destinationCandidateScore(_ argument: String) -> Int {
+            let trimmed = argument.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return 0 }
+            if trimmed.contains("@") { return 4 }
+            if trimmed.hasPrefix("[") && trimmed.contains("]") { return 3 }
+            if trimmed.contains(":") { return 3 }
+            if trimmed.contains(".") { return 2 }
+            return 1
+        }
+
+        func hasStrongerLaterDestinationCandidate(after valueIndex: Int, than candidate: String) -> Bool {
+            let nextIndex = valueIndex + 1
+            guard nextIndex < arguments.count else { return false }
+            let currentScore = destinationCandidateScore(candidate)
+
+            return arguments[nextIndex...].contains { argument in
+                (!argument.hasPrefix("-") || argument == "-") &&
+                    destinationCandidateScore(argument) > currentScore
+            }
+        }
+
+        func malformedValueOptionAdvance(from nextIndex: Int) -> Int {
+            guard nextIndex < arguments.count else { return 1 }
+            return (!arguments[nextIndex].hasPrefix("-") || arguments[nextIndex] == "-") ? 2 : 1
+        }
+
+        argumentLoop: while index < arguments.count {
             let argument = arguments[index]
             if argument == "--" {
                 let nextIndex = index + 1
@@ -158,13 +173,18 @@ nonisolated enum RemoteShellSessionParsing {
                 if destination == nil {
                     destination = argument
                 }
-                break
+                index += 1
+                continue
             }
 
             if argument == "--ssh-option" {
                 let nextIndex = index + 1
                 guard nextIndex < arguments.count,
                       consumeSSHOptionValue(arguments[nextIndex]) else {
+                    if destination != nil {
+                        index += malformedValueOptionAdvance(from: nextIndex)
+                        continue
+                    }
                     return nil
                 }
                 index += 2
@@ -172,7 +192,13 @@ nonisolated enum RemoteShellSessionParsing {
             }
             if argument.hasPrefix("--ssh-option=") {
                 let value = String(argument.dropFirst("--ssh-option=".count))
-                guard consumeSSHOptionValue(value) else { return nil }
+                guard consumeSSHOptionValue(value) else {
+                    if destination != nil {
+                        index += 1
+                        continue
+                    }
+                    return nil
+                }
                 index += 1
                 continue
             }
@@ -188,7 +214,16 @@ nonisolated enum RemoteShellSessionParsing {
                     continue
                 }
                 if optionName == "telemetry" {
-                    if parts.count == 1, index + 1 < arguments.count, isBoolLiteral(arguments[index + 1]) {
+                    if parts.count == 2 {
+                        guard isBoolLiteral(String(parts[1])) else {
+                            if destination != nil {
+                                index += 1
+                                continue
+                            }
+                            return nil
+                        }
+                        index += 1
+                    } else if index + 1 < arguments.count, isBoolLiteral(arguments[index + 1]) {
                         index += 2
                     } else {
                         index += 1
@@ -197,69 +232,115 @@ nonisolated enum RemoteShellSessionParsing {
                 }
                 if optionName == "verbose" {
                     if parts.count == 2 {
-                        guard Int(String(parts[1])) != nil else { return nil }
+                        guard Int(String(parts[1])) != nil else {
+                            if destination != nil {
+                                index += 1
+                                continue
+                            }
+                            return nil
+                        }
+                        index += 1
                     } else if index + 1 < arguments.count, Int(arguments[index + 1]) != nil {
+                        index += 2
+                    } else {
                         index += 1
                     }
-                    index += 1
                     continue
                 }
                 if eternalTerminalLongValueOptions.contains(optionName) {
                     if parts.count == 2 {
-                        guard consumeETValue(String(parts[1]), for: optionName) else { return nil }
+                        guard consumeETValue(String(parts[1]), for: optionName) else {
+                            if destination != nil {
+                                index += 1
+                                continue
+                            }
+                            return nil
+                        }
                         index += 1
                     } else {
                         let nextIndex = index + 1
                         guard nextIndex < arguments.count,
                               consumeETValue(arguments[nextIndex], for: optionName) else {
+                            if destination != nil {
+                                index += malformedValueOptionAdvance(from: nextIndex)
+                                continue
+                            }
                             return nil
                         }
                         index += 2
                     }
                     continue
                 }
-                if eternalTerminalLongNoArgumentOptions.contains(optionName) || parts.count == 2 {
-                    index += 1
+                if parts.count == 1,
+                   destination == nil,
+                   index + 1 < arguments.count,
+                   !arguments[index + 1].hasPrefix("-"),
+                   hasStrongerLaterDestinationCandidate(after: index + 1, than: arguments[index + 1]) {
+                    index += 2
                     continue
                 }
-                return nil
-            }
-
-            let shortOptions = Array(argument.dropFirst())
-            guard let option = shortOptions.first else { return nil }
-            if option == "f" {
-                forwardAgent = true
-                guard shortOptions.count == 1 else { return nil }
                 index += 1
                 continue
             }
-            if option == "v" {
-                if shortOptions.count > 1 {
-                    guard Int(String(argument.dropFirst(2))) != nil else { return nil }
-                    index += 1
-                } else if index + 1 < arguments.count, Int(arguments[index + 1]) != nil {
-                    index += 2
-                } else {
-                    index += 1
-                }
-                continue
-            }
-            if eternalTerminalValueArgumentFlags.contains(option) {
-                if shortOptions.count > 1 {
-                    guard consumeETValue(String(argument.dropFirst(2)), for: option) else { return nil }
-                    index += 1
-                } else {
-                    let nextIndex = index + 1
-                    guard nextIndex < arguments.count,
-                          consumeETValue(arguments[nextIndex], for: option) else {
-                        return nil
+
+            let shortOptions = Array(argument.dropFirst())
+            guard !shortOptions.isEmpty else { return nil }
+            var shortOptionIndex = 0
+            while shortOptionIndex < shortOptions.count {
+                let option = shortOptions[shortOptionIndex]
+
+                if option == "v" {
+                    if shortOptionIndex + 1 < shortOptions.count {
+                        let value = String(shortOptions[(shortOptionIndex + 1)...])
+                        if Int(value) != nil {
+                            index += 1
+                            continue argumentLoop
+                        }
+                        shortOptionIndex += 1
+                        continue
+                    } else if index + 1 < arguments.count, Int(arguments[index + 1]) != nil {
+                        index += 2
+                    } else {
+                        index += 1
                     }
-                    index += 2
+                    continue argumentLoop
                 }
-                continue
-            }
-            guard shortOptions.allSatisfy({ eternalTerminalNoArgumentFlags.contains($0) }) else {
-                return nil
+
+                if eternalTerminalValueArgumentFlags.contains(option) {
+                    if shortOptionIndex + 1 < shortOptions.count {
+                        let value = String(shortOptions[(shortOptionIndex + 1)...])
+                        guard consumeETValue(value, for: option) else {
+                            if destination != nil {
+                                index += 1
+                                continue argumentLoop
+                            }
+                            return nil
+                        }
+                        index += 1
+                    } else {
+                        let nextIndex = index + 1
+                        guard nextIndex < arguments.count,
+                              consumeETValue(arguments[nextIndex], for: option) else {
+                            if destination != nil {
+                                index += malformedValueOptionAdvance(from: nextIndex)
+                                continue argumentLoop
+                            }
+                            return nil
+                        }
+                        index += 2
+                    }
+                    continue argumentLoop
+                }
+
+                if eternalTerminalNoArgumentFlags.contains(option) {
+                    if option == "f" {
+                        forwardAgent = true
+                    }
+                    shortOptionIndex += 1
+                    continue
+                }
+
+                shortOptionIndex += 1
             }
             index += 1
         }
