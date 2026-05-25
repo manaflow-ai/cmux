@@ -337,10 +337,6 @@ prune_old_claude_settings_files() {
         [[ "$candidate" == "$keep_path" ]] && continue
         rm -f "$candidate" || true
     done < <(find "$settings_dir" -maxdepth 1 -type f -name 'claude-hook-settings-*.json' -print0 2>/dev/null)
-
-    while IFS= read -r -d '' candidate; do
-        rm -f "$candidate" || true
-    done < <(find "$settings_dir" -maxdepth 1 -type f -name '.claude-hook-settings-*' -print0 2>/dev/null)
 }
 
 ensure_claude_settings_file() {
