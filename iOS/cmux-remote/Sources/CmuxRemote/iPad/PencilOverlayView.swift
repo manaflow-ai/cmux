@@ -85,8 +85,9 @@ struct PencilOverlayView: View {
     }
 
     private var footerTextColor: Color {
+        if recognized.isEmpty { return .secondary }
         if sendError != nil { return .red }
-        return recognized.isEmpty ? .secondary : .primary
+        return .primary
     }
 }
 

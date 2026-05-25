@@ -98,7 +98,7 @@ public actor CitadelSSHTransport: CmuxSSHTransport {
             }
         case .rsaPrivateKey:
             throw CmuxError.transport(
-                "RSA keys are accepted by Citadel but cmux-remote ships ed25519/P-256 only",
+                "RSA keys are not supported. Use ed25519 or P-256.",
                 underlying: nil
             )
         case .secureEnclaveSigner:

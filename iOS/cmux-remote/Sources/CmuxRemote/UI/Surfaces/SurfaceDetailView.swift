@@ -33,19 +33,23 @@ struct SurfaceDetailView: View {
             if showPencilOverlay {
                 PencilOverlayView(isPresented: $showPencilOverlay) { recognized in
                     guard let client = await connection.client(for: "send") else {
-                        pencilError = L10n.string(
-                            "pencil.send_failed",
-                            defaultValue: "Could not send handwriting."
-                        )
+                        await MainActor.run {
+                            pencilError = L10n.string(
+                                "pencil.send_failed",
+                                defaultValue: "Could not send handwriting."
+                            )
+                        }
                         throw CmuxError.transport("No active cmux connection", underlying: nil)
                     }
                     do {
                         try await client.sendText(recognized, surfaceID: surface.id, workspaceID: workspace?.id)
                     } catch {
-                        pencilError = L10n.string(
-                            "pencil.send_failed",
-                            defaultValue: "Could not send handwriting."
-                        )
+                        await MainActor.run {
+                            pencilError = L10n.string(
+                                "pencil.send_failed",
+                                defaultValue: "Could not send handwriting."
+                            )
+                        }
                         throw error
                     }
                 }

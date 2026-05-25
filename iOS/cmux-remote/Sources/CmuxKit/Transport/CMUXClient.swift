@@ -447,8 +447,12 @@ public actor CMUXClient {
     // MARK: - Decoders
 
     static func decodeWorkspace(_ entry: [String: Any], fallbackWindowID: WindowID? = nil) -> CmuxWorkspace? {
-        guard let id = (entry["id"] as? String) ?? (entry["ref"] as? String) else { return nil }
-        let windowID = WindowID((entry["window_id"] as? String) ?? (entry["window_ref"] as? String) ?? fallbackWindowID?.raw ?? "")
+        guard let id = Self.nonEmptyString(entry["id"]) ?? Self.nonEmptyString(entry["ref"]) else { return nil }
+        guard let windowIDRaw = Self.nonEmptyString(entry["window_id"])
+            ?? Self.nonEmptyString(entry["window_ref"])
+            ?? Self.nonEmptyString(fallbackWindowID?.raw)
+        else { return nil }
+        let windowID = WindowID(windowIDRaw)
         let listening = (entry["listening_ports"] as? [Int])
             ?? (entry["ports"] as? [Int])
             ?? []
