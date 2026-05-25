@@ -8,15 +8,18 @@ from __future__ import annotations
 import base64
 import json
 import os
+import stat
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "claude"
+UNSET_XDG_CACHE_HOME = "__CMUX_TEST_UNSET_XDG_CACHE_HOME__"
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -28,6 +31,32 @@ def read_lines(path: Path) -> list[str]:
     if not path.exists():
         return []
     return [line.rstrip("\n") for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def expect_restore_module_hardened(require_path: str, label: str, failures: list[str]) -> None:
+    restore = Path(require_path)
+    expect(restore.exists(), f"{label}: restore module missing at {require_path!r}", failures)
+    if not restore.exists():
+        return
+
+    restore_mode = stat.S_IMODE(restore.stat().st_mode)
+    expect(restore_mode == 0o600, f"{label}: expected restore module mode 0600, got {oct(restore_mode)}", failures)
+    guard_dir_mode = stat.S_IMODE(restore.parent.stat().st_mode)
+    expect(guard_dir_mode == 0o700, f"{label}: expected {restore.parent} mode 0700, got {oct(guard_dir_mode)}", failures)
+
+    fallback_base = Path(f"/var/tmp/cmux-{os.getuid()}")  # noqa: S108
+    try:
+        relative_to_fallback = restore.relative_to(fallback_base)
+    except ValueError:
+        relative_to_fallback = None
+    if relative_to_fallback is None:
+        return
+
+    directory = restore.parent
+    while directory != fallback_base:
+        directory = directory.parent
+        dir_mode = stat.S_IMODE(directory.stat().st_mode)
+        expect(dir_mode == 0o700, f"{label}: expected fallback directory {directory} mode 0700, got {oct(dir_mode)}", failures)
 
 
 def parse_settings_arg(argv: list[str]) -> dict:
@@ -45,7 +74,11 @@ def run_wrapper(
     argv: list[str],
     node_options: str | None = None,
     tmpdir: str | None = None,
+    xdg_cache_home: str | None = None,
+    home: str | None = None,
     hooks_disabled: bool = False,
+    fake_uname: str | None = None,
+    fake_gnu_stat_probe: bool = False,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -59,6 +92,33 @@ def run_wrapper(
         wrapper = wrapper_dir / "claude"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
         wrapper.chmod(0o755)
+
+        if fake_uname is not None:
+            make_executable(
+                wrapper_dir / "uname",
+                f"""#!/usr/bin/env bash
+printf '%s\\n' {json.dumps(fake_uname)}
+""",
+            )
+
+        if fake_gnu_stat_probe:
+            make_executable(
+                wrapper_dir / "stat",
+                """#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  -c)
+    id -u
+    exit 0
+    ;;
+  -f)
+    printf '%s\\n' "gnu-stat-filesystem-data"
+    exit 1
+    ;;
+esac
+exec /usr/bin/stat "$@"
+""",
+            )
 
         real_args_log = tmp / "real-args.log"
         real_claudecode_log = tmp / "real-claudecode.log"
@@ -179,6 +239,8 @@ exit 0
         env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli_path)
         env["CLAUDECODE"] = "nested-session-sentinel"
+        env["HOME"] = home if home is not None else str(tmp / "home")
+        Path(env["HOME"]).mkdir(parents=True, exist_ok=True)
         if hooks_disabled:
             env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
         else:
@@ -186,6 +248,13 @@ exit 0
         env.pop("NODE_OPTIONS", None)
         if tmpdir is not None:
             env["TMPDIR"] = tmpdir
+        # By default, pin XDG_CACHE_HOME to a deterministic per-test path so
+        # tests don't leak into the host's real ~/.cache. A sentinel lets
+        # fallback coverage exercise a truly unset environment variable.
+        if xdg_cache_home == UNSET_XDG_CACHE_HOME:
+            env.pop("XDG_CACHE_HOME", None)
+        else:
+            env["XDG_CACHE_HOME"] = xdg_cache_home if xdg_cache_home is not None else str(tmp / "xdg-cache")
         if node_options is not None:
             env["NODE_OPTIONS"] = node_options
 
@@ -341,6 +410,12 @@ def decode_nul_argv(encoded: str) -> list[str]:
     return [part.decode("utf-8") for part in parts]
 
 
+def require_path_from_node_options(node_options: str) -> str:
+    require_flag, _, _ = node_options.partition(" ")
+    prefix = "--require="
+    return require_flag[len(prefix):] if require_flag.startswith(prefix) else ""
+
+
 def run_wrapper_auth_env(
     *,
     argv: list[str],
@@ -487,6 +562,24 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         f"live socket: expected NODE_OPTIONS restore preload, got {node_options!r}",
         failures,
     )
+    require_path = require_path_from_node_options(node_options)
+    expect(
+        not any(ch.isspace() for ch in require_path),
+        f"live socket: expected whitespace-free restore path, got {require_path!r}",
+        failures,
+    )
+    if sys.platform == "darwin":
+        expect(
+            require_path.endswith("/Library/Caches/com.cmuxterm.app/cmux-claude-node-options/restore-node-options.cjs"),
+            f"live socket: expected macOS cache path, got {require_path!r}",
+            failures,
+        )
+    else:
+        expect(
+            require_path.endswith("/xdg-cache/cmux/cmux-claude-node-options/restore-node-options.cjs"),
+            f"live socket: expected XDG cache path, got {require_path!r}",
+            failures,
+        )
     expect(
         remaining_flags == "--max-old-space-size=4096",
         f"live socket: expected injected heap cap after preload, got {node_options!r}",
@@ -982,23 +1075,288 @@ def test_live_socket_enforces_heap_cap_for_space_separated_flag(failures: list[s
     expect(child_node_options == restored, f"space-separated heap flag: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
-def test_live_socket_tmpdir_failure_skips_node_options_injection(failures: list[str]) -> None:
+def test_live_socket_bad_tmpdir_still_uses_cache_restore_module(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-bad-tmp-") as td:
-        bad_tmpdir = Path(td) / "not-a-directory"
+        tmp = Path(td)
+        bad_tmpdir = tmp / "not-a-directory"
         bad_tmpdir.write_text("occupied", encoding="utf-8")
         code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
             socket_state="live",
             argv=["hello"],
             tmpdir=str(bad_tmpdir),
+            home=str(tmp / "home"),
+            xdg_cache_home=str(tmp / "xdg-cache"),
         )
-    expect(code == 0, f"tmpdir failure: wrapper exited {code}: {stderr}", failures)
-    expect("--settings" in real_argv, f"tmpdir failure: missing --settings in args: {real_argv}", failures)
-    expect("--session-id" in real_argv, f"tmpdir failure: missing --session-id in args: {real_argv}", failures)
-    expect(any(" ping" in line for line in cmux_log), f"tmpdir failure: expected cmux ping, got {cmux_log}", failures)
-    expect(claudecode == "__UNSET__", f"tmpdir failure: expected CLAUDECODE unset, got {claudecode!r}", failures)
-    expect(node_options == "__UNSET__", f"tmpdir failure: expected NODE_OPTIONS injection to be skipped, got {node_options!r}", failures)
-    expect(runtime_node_options == "__UNSET__", f"tmpdir failure: expected runtime NODE_OPTIONS passthrough, got {runtime_node_options!r}", failures)
-    expect(child_node_options == "__UNSET__", f"tmpdir failure: expected child NODE_OPTIONS passthrough, got {child_node_options!r}", failures)
+        expect(code == 0, f"bad TMPDIR: wrapper exited {code}: {stderr}", failures)
+        expect("--settings" in real_argv, f"bad TMPDIR: missing --settings in args: {real_argv}", failures)
+        expect("--session-id" in real_argv, f"bad TMPDIR: missing --session-id in args: {real_argv}", failures)
+        expect(any(" ping" in line for line in cmux_log), f"bad TMPDIR: expected cmux ping, got {cmux_log}", failures)
+        expect(claudecode == "__UNSET__", f"bad TMPDIR: expected CLAUDECODE unset, got {claudecode!r}", failures)
+        require_path = require_path_from_node_options(node_options)
+        expect(require_path != "", f"bad TMPDIR: expected NODE_OPTIONS restore preload, got {node_options!r}", failures)
+        expect(str(bad_tmpdir) not in require_path, f"bad TMPDIR: restore module should not use TMPDIR, got {require_path!r}", failures)
+        expect_restore_module_hardened(require_path, "bad TMPDIR", failures)
+        expect(runtime_node_options == "__UNSET__", f"bad TMPDIR: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
+        expect(child_node_options == "__UNSET__", f"bad TMPDIR: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+
+
+def test_live_socket_whitespace_home_uses_safe_cache_fallback(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux claude wrapper bad home ") as td:
+        code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            home=str(Path(td) / "home with spaces"),
+            xdg_cache_home=UNSET_XDG_CACHE_HOME,
+            fake_gnu_stat_probe=True,
+        )
+    expect(code == 0, f"whitespace HOME fallback: wrapper exited {code}: {stderr}", failures)
+    expect("--settings" in real_argv, f"whitespace HOME fallback: missing --settings in args: {real_argv}", failures)
+    expect("--session-id" in real_argv, f"whitespace HOME fallback: missing --session-id in args: {real_argv}", failures)
+    expect(any(" ping" in line for line in cmux_log), f"whitespace HOME fallback: expected cmux ping, got {cmux_log}", failures)
+    expect(claudecode == "__UNSET__", f"whitespace HOME fallback: expected CLAUDECODE unset, got {claudecode!r}", failures)
+    require_path = require_path_from_node_options(node_options)
+    expect(require_path != "", f"whitespace HOME fallback: expected NODE_OPTIONS restore preload, got {node_options!r}", failures)
+    expect(
+        not any(ch.isspace() for ch in require_path),
+        f"whitespace HOME fallback: expected whitespace-free restore path, got {require_path!r}",
+        failures,
+    )
+    if sys.platform == "darwin":
+        expect(
+            require_path == f"/var/tmp/cmux-{os.getuid()}/com.cmuxterm.app/cmux-claude-node-options/restore-node-options.cjs",  # noqa: S108
+            f"whitespace HOME fallback: expected macOS fallback cache path, got {require_path!r}",
+            failures,
+        )
+    else:
+        expect(
+            require_path == f"/var/tmp/cmux-{os.getuid()}/cmux-claude-node-options/restore-node-options.cjs",  # noqa: S108
+            f"whitespace HOME fallback: expected Linux fallback cache path, got {require_path!r}",
+            failures,
+        )
+    expect_restore_module_hardened(require_path, "whitespace HOME fallback", failures)
+    expect(runtime_node_options == "__UNSET__", f"whitespace HOME fallback: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"whitespace HOME fallback: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+
+
+def test_live_socket_quoted_linux_home_uses_safe_cache_fallback(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-quote-home-") as td:
+        home = str(Path(td) / 'home"quoted')
+        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            home=home,
+            xdg_cache_home=UNSET_XDG_CACHE_HOME,
+            fake_uname="Linux",
+            fake_gnu_stat_probe=True,
+        )
+    expect(code == 0, f"quoted HOME fallback: wrapper exited {code}: {stderr}", failures)
+    require_path = require_path_from_node_options(node_options)
+    expect(require_path != "", f"quoted HOME fallback: expected NODE_OPTIONS restore preload, got {node_options!r}", failures)
+    expect(
+        '"' not in require_path and "'" not in require_path and not any(ch.isspace() for ch in require_path),
+        f"quoted HOME fallback: expected NODE_OPTIONS-safe restore path, got {require_path!r}",
+        failures,
+    )
+    expect(
+        require_path == f"/var/tmp/cmux-{os.getuid()}/cmux-claude-node-options/restore-node-options.cjs",  # noqa: S108
+        f"quoted HOME fallback: expected Linux fallback cache path, got {require_path!r}",
+        failures,
+    )
+    expect_restore_module_hardened(require_path, "quoted HOME fallback", failures)
+    expect(runtime_node_options == "__UNSET__", f"quoted HOME fallback: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"quoted HOME fallback: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+
+
+def test_live_socket_empty_linux_home_uses_safe_cache_fallback(failures: list[str]) -> None:
+    code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        home="",
+        xdg_cache_home=UNSET_XDG_CACHE_HOME,
+        fake_uname="Linux",
+        fake_gnu_stat_probe=True,
+    )
+    expect(code == 0, f"empty HOME fallback: wrapper exited {code}: {stderr}", failures)
+    require_path = require_path_from_node_options(node_options)
+    expect(require_path != "", f"empty HOME fallback: expected NODE_OPTIONS restore preload, got {node_options!r}", failures)
+    expect(
+        require_path == f"/var/tmp/cmux-{os.getuid()}/cmux-claude-node-options/restore-node-options.cjs",  # noqa: S108
+        f"empty HOME fallback: expected Linux fallback cache path, got {require_path!r}",
+        failures,
+    )
+    expect_restore_module_hardened(require_path, "empty HOME fallback", failures)
+    expect(runtime_node_options == "__UNSET__", f"empty HOME fallback: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"empty HOME fallback: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+
+
+def test_live_socket_whitespace_xdg_cache_home_falls_back(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-cache-") as td:
+        tmp = Path(td)
+        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            home=str(tmp / "home"),
+            xdg_cache_home=str(tmp / "xdg cache with spaces"),
+        )
+    expect(code == 0, f"whitespace XDG cache home: wrapper exited {code}: {stderr}", failures)
+    require_path = require_path_from_node_options(node_options)
+    expect(
+        require_path != "",
+        f"whitespace XDG cache home: expected NODE_OPTIONS restore preload, got {node_options!r}",
+        failures,
+    )
+    expect(
+        not any(ch.isspace() for ch in require_path),
+        f"whitespace XDG cache home: expected whitespace-free restore path, got {require_path!r}",
+        failures,
+    )
+    expect(
+        "xdg cache with spaces" not in require_path,
+        f"whitespace XDG cache home: expected fallback away from XDG path, got {require_path!r}",
+        failures,
+    )
+    if sys.platform == "darwin":
+        expect(
+            require_path.endswith("/Library/Caches/com.cmuxterm.app/cmux-claude-node-options/restore-node-options.cjs"),
+            f"whitespace XDG cache home: expected macOS cache path, got {require_path!r}",
+            failures,
+        )
+    else:
+        expect(
+            require_path.endswith("/.cache/cmux/cmux-claude-node-options/restore-node-options.cjs"),
+            f"whitespace XDG cache home: expected Linux fallback cache path, got {require_path!r}",
+            failures,
+        )
+    expect(runtime_node_options == "__UNSET__", f"whitespace XDG cache home: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"whitespace XDG cache home: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+
+
+def test_live_socket_whitespace_only_xdg_cache_home_falls_back(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-cache-") as td:
+        tmp = Path(td)
+        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            home=str(tmp / "home"),
+            xdg_cache_home="   ",
+            fake_uname="Linux",
+        )
+    expect(code == 0, f"whitespace-only XDG cache home: wrapper exited {code}: {stderr}", failures)
+    require_path = require_path_from_node_options(node_options)
+    expect(
+        require_path != "",
+        f"whitespace-only XDG cache home: expected NODE_OPTIONS restore preload, got {node_options!r}",
+        failures,
+    )
+    expect(
+        not any(ch.isspace() for ch in require_path),
+        f"whitespace-only XDG cache home: expected whitespace-free restore path, got {require_path!r}",
+        failures,
+    )
+    expect(
+        require_path.endswith("/.cache/cmux/cmux-claude-node-options/restore-node-options.cjs"),
+        f"whitespace-only XDG cache home: expected Linux fallback cache path, got {require_path!r}",
+        failures,
+    )
+    expect(runtime_node_options == "__UNSET__", f"whitespace-only XDG cache home: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"whitespace-only XDG cache home: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+
+
+def test_live_socket_quoted_linux_xdg_cache_home_falls_back(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-cache-") as td:
+        tmp = Path(td)
+        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            home=str(tmp / "home"),
+            xdg_cache_home=str(tmp / 'xdg"cache'),
+            fake_uname="Linux",
+        )
+    expect(code == 0, f"quoted XDG cache home: wrapper exited {code}: {stderr}", failures)
+    require_path = require_path_from_node_options(node_options)
+    expect(
+        require_path != "",
+        f"quoted XDG cache home: expected NODE_OPTIONS restore preload, got {node_options!r}",
+        failures,
+    )
+    expect(
+        '"' not in require_path and "'" not in require_path and not any(ch.isspace() for ch in require_path),
+        f"quoted XDG cache home: expected NODE_OPTIONS-safe restore path, got {require_path!r}",
+        failures,
+    )
+    expect(
+        'xdg"cache' not in require_path,
+        f"quoted XDG cache home: expected fallback away from XDG path, got {require_path!r}",
+        failures,
+    )
+    expect(
+        require_path.endswith("/.cache/cmux/cmux-claude-node-options/restore-node-options.cjs"),
+        f"quoted XDG cache home: expected Linux fallback cache path, got {require_path!r}",
+        failures,
+    )
+    expect(runtime_node_options == "__UNSET__", f"quoted XDG cache home: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"quoted XDG cache home: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+
+
+def test_live_socket_relative_xdg_cache_home_falls_back(failures: list[str]) -> None:
+    if sys.platform == "darwin":
+        return
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-cache-") as td:
+        tmp = Path(td)
+        code, _, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            home=str(tmp / "home"),
+            xdg_cache_home="relative-cache",
+        )
+    expect(code == 0, f"relative XDG cache home: wrapper exited {code}: {stderr}", failures)
+    require_path = require_path_from_node_options(node_options)
+    expect(
+        require_path.endswith("/.cache/cmux/cmux-claude-node-options/restore-node-options.cjs"),
+        f"relative XDG cache home: expected Linux fallback cache path, got {require_path!r}",
+        failures,
+    )
+    expect(
+        "relative-cache" not in require_path,
+        f"relative XDG cache home: expected fallback away from relative XDG path, got {require_path!r}",
+        failures,
+    )
+
+
+def test_live_socket_rehardens_cached_restore_module(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-cache-hit-") as td:
+        tmp = Path(td)
+        home = tmp / "home"
+        xdg_cache_home = tmp / "xdg-cache"
+        code, _, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            home=str(home),
+            xdg_cache_home=str(xdg_cache_home),
+        )
+        expect(code == 0, f"cached restore hardening setup: wrapper exited {code}: {stderr}", failures)
+        require_path = require_path_from_node_options(node_options)
+        expect(require_path != "", f"cached restore hardening setup: expected restore preload, got {node_options!r}", failures)
+        restore = Path(require_path)
+        if not restore.exists():
+            expect(False, f"cached restore hardening setup: restore module missing at {require_path!r}", failures)
+            return
+        restore.chmod(0o644)
+
+        code, _, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            home=str(home),
+            xdg_cache_home=str(xdg_cache_home),
+        )
+        expect(code == 0, f"cached restore hardening: wrapper exited {code}: {stderr}", failures)
+        cached_require_path = require_path_from_node_options(node_options)
+        expect(
+            cached_require_path == require_path,
+            f"cached restore hardening: expected same restore path {require_path!r}, got {cached_require_path!r}",
+            failures,
+        )
+        expect_restore_module_hardened(cached_require_path, "cached restore hardening", failures)
 
 
 def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[str]) -> None:
@@ -1025,13 +1383,20 @@ def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[
 def test_live_socket_stale_mktemp_literal_does_not_warn(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-tmp-") as td:
         tmpdir = Path(td)
-        guard_dir = tmpdir / "cmux-claude-node-options"
+        home = tmpdir / "home"
+        xdg_cache_home = tmpdir / "xdg-cache"
+        if sys.platform == "darwin":
+            guard_dir = home / "Library" / "Caches" / "com.cmuxterm.app" / "cmux-claude-node-options"
+        else:
+            guard_dir = xdg_cache_home / "cmux" / "cmux-claude-node-options"
         guard_dir.mkdir(parents=True, exist_ok=True)
         (guard_dir / "restore-node-options.XXXXXX.cjs").write_text("stale", encoding="utf-8")
         code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
             socket_state="live",
             argv=["hello"],
             tmpdir=str(tmpdir),
+            xdg_cache_home=str(xdg_cache_home),
+            home=str(home),
         )
     expect(code == 0, f"stale mktemp literal: wrapper exited {code}: {stderr}", failures)
     expect("mktemp:" not in stderr, f"stale mktemp literal: unexpected mktemp warning: {stderr!r}", failures)
@@ -1120,7 +1485,15 @@ def main() -> int:
     test_live_socket_auto_preserve_accepts_all_documented_truthy_variants(failures)
     test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
-    test_live_socket_tmpdir_failure_skips_node_options_injection(failures)
+    test_live_socket_bad_tmpdir_still_uses_cache_restore_module(failures)
+    test_live_socket_whitespace_home_uses_safe_cache_fallback(failures)
+    test_live_socket_quoted_linux_home_uses_safe_cache_fallback(failures)
+    test_live_socket_empty_linux_home_uses_safe_cache_fallback(failures)
+    test_live_socket_whitespace_xdg_cache_home_falls_back(failures)
+    test_live_socket_whitespace_only_xdg_cache_home_falls_back(failures)
+    test_live_socket_quoted_linux_xdg_cache_home_falls_back(failures)
+    test_live_socket_relative_xdg_cache_home_falls_back(failures)
+    test_live_socket_rehardens_cached_restore_module(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
     test_missing_socket_skips_hook_injection(failures)

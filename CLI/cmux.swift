@@ -15984,17 +15984,6 @@ struct CMUXCLI {
         }
     }
 
-    private static let claudeNodeOptionsRestoreModule = """
-    const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
-    if (hadOriginalNodeOptions) {
-        process.env.NODE_OPTIONS = process.env.CMUX_ORIGINAL_NODE_OPTIONS ?? "";
-    } else {
-        delete process.env.NODE_OPTIONS;
-    }
-    delete process.env.CMUX_ORIGINAL_NODE_OPTIONS;
-    delete process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT;
-    """
-
     private func configureClaudeTeamsEnvironment(
         processEnvironment: [String: String],
         shimDirectory: URL,
@@ -16063,15 +16052,6 @@ struct CMUXCLI {
             directoryName: "claude-teams-bin",
             tmuxShimScript: script
         )
-    }
-
-    private func createClaudeNodeOptionsRestoreModule() throws -> URL {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
-        let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
-        try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL)
-        return restoreModuleURL
     }
 
     private func runClaudeTeams(
@@ -17355,39 +17335,8 @@ struct CMUXCLI {
         return root
     }
 
-    private func writeShimIfChanged(_ script: String, to url: URL) throws {
-        let normalized = script.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fileManager = FileManager.default
-        let existing = try? String(contentsOf: url, encoding: .utf8)
-        guard existing?.trimmingCharacters(in: .whitespacesAndNewlines) != normalized else {
-            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
-            return
-        }
-        let directoryURL = url.deletingLastPathComponent()
-        let tempURL = directoryURL.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
-        try script.write(to: tempURL, atomically: false, encoding: .utf8)
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tempURL.path)
-        do {
-            if fileManager.fileExists(atPath: url.path) {
-                _ = try fileManager.replaceItemAt(url, withItemAt: tempURL)
-            } else {
-                try fileManager.moveItem(at: tempURL, to: url)
-            }
-        } catch {
-            let current = try? String(contentsOf: url, encoding: .utf8)
-            if current?.trimmingCharacters(in: .whitespacesAndNewlines) == normalized {
-                try? fileManager.removeItem(at: tempURL)
-                return
-            }
-            if fileManager.fileExists(atPath: url.path) {
-                do {
-                    _ = try fileManager.replaceItemAt(url, withItemAt: tempURL)
-                    return
-                } catch {}
-            }
-            try? fileManager.removeItem(at: tempURL)
-            throw error
-        }
+    func writeShimIfChanged(_ script: String, to url: URL, mode: Int = 0o755) throws {
+        try CMUXCLIShimWriter.writeIfChanged(script, to: url, mode: mode)
     }
 
     private static let omoPluginName = "oh-my-openagent"
@@ -22443,61 +22392,6 @@ struct CMUXCLI {
                 options: [.regularExpression, .caseInsensitive]
             )
         }
-    }
-
-    private func mergedNodeOptions(existing: String?, restoreModulePath: String) -> String {
-        let requireOption = "--require=\(restoreModulePath)"
-        let memoryOption = "--max-old-space-size=4096"
-        let cleanedExisting = cleanedNodeOptions(existing)
-        guard !cleanedExisting.isEmpty else {
-            return "\(requireOption) \(memoryOption)"
-        }
-        return "\(requireOption) \(memoryOption) \(cleanedExisting)"
-    }
-
-    private func cleanedNodeOptions(_ existing: String?) -> String {
-        let tokens = (existing ?? "")
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init)
-        guard !tokens.isEmpty else { return "" }
-
-        var filtered: [String] = []
-        var index = 0
-        while index < tokens.count {
-            let token = tokens[index]
-            if token == "--max-old-space-size" {
-                index += min(2, tokens.count - index)
-                continue
-            }
-            if token.hasPrefix("--max-old-space-size=") {
-                index += 1
-                continue
-            }
-            filtered.append(token)
-            index += 1
-        }
-        return filtered.joined(separator: " ")
-    }
-
-    private func normalizedNodeOptionsForRestore(_ existing: String) -> String {
-        let tokens = existing
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init)
-        guard !tokens.isEmpty else { return "" }
-
-        var normalized: [String] = []
-        var index = 0
-        while index < tokens.count {
-            let token = tokens[index]
-            if token == "--max-old-space-size", index + 1 < tokens.count {
-                normalized.append("--max-old-space-size=\(tokens[index + 1])")
-                index += 2
-                continue
-            }
-            normalized.append(token)
-            index += 1
-        }
-        return normalized.joined(separator: " ")
     }
 
     // MARK: - Codex hooks
