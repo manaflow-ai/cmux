@@ -5689,12 +5689,6 @@ struct SettingsView: View {
             set: { selectionID in
                 if selectionID == PreferredEditorSettings.customSelectionID {
                     preferredEditorForcesCustomSelection = true
-                    if PreferredEditorSettings.selectionID(
-                        for: preferredEditorCommand,
-                        editorOptions: preferredEditorOptions
-                    ) != PreferredEditorSettings.customSelectionID {
-                        preferredEditorCommand = ""
-                    }
                     return
                 }
 
@@ -5714,7 +5708,7 @@ struct SettingsView: View {
         Binding(
             get: { preferredEditorCommand },
             set: { newValue in
-                preferredEditorForcesCustomSelection = true
+                preferredEditorForcesCustomSelection = !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 preferredEditorCommand = newValue
             }
         )
@@ -8111,6 +8105,7 @@ struct SettingsView: View {
         geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         preferredEditorCommand = ""
+        preferredEditorForcesCustomSelection = false
         CmdClickSupportedFileRouteSettings.setEnabled(CmdClickSupportedFileRouteSettings.defaultValue)
         openSupportedFilesInCmux = CmdClickSupportedFileRouteSettings.defaultValue
         openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue

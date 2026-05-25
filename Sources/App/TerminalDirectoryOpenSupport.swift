@@ -103,10 +103,15 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
 
     struct PreferredEditorOption: Identifiable, Hashable {
         let target: TerminalDirectoryOpenTarget
+        let command: String
 
         var id: String { target.rawValue }
-        var command: String { target.preferredEditorCommand ?? "" }
         var displayName: String { target.preferredEditorDisplayName }
+
+        fileprivate init(target: TerminalDirectoryOpenTarget, command: String) {
+            self.target = target
+            self.command = command
+        }
     }
 
     static var preferredEditorTargets: [Self] {
@@ -128,10 +133,10 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     ) -> [PreferredEditorOption] {
         preferredEditorTargets.compactMap { target in
             guard target.isAvailable(in: environment),
-                  target.preferredEditorCommand != nil else {
+                  let command = target.preferredEditorCommand else {
                 return nil
             }
-            return PreferredEditorOption(target: target)
+            return PreferredEditorOption(target: target, command: command)
         }
     }
 
