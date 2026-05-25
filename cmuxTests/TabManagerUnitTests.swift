@@ -76,6 +76,15 @@ private func splitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
     }
 }
 
+private func paneNodes(in node: ExternalTreeNode) -> [ExternalPaneNode] {
+    switch node {
+    case .pane(let pane):
+        return [pane]
+    case .split(let split):
+        return paneNodes(in: split.first) + paneNodes(in: split.second)
+    }
+}
+
 @discardableResult
 private func assertProportionalEqualizedSplitTree(
     _ node: ExternalTreeNode,
@@ -2282,6 +2291,77 @@ final class TabManagerEqualizeSplitsTests: XCTestCase {
         XCTAssertEqual(equalizedSplits.count, initialSplits.count)
         let equalizedLeafCount = assertProportionalEqualizedSplitTree(workspace.bonsplitController.treeSnapshot())
         XCTAssertEqual(equalizedLeafCount, 3)
+    }
+
+    func testEqualizeSplitsCountsCrossAxisStackAsOneHorizontalSpan() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let middlePanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false),
+              let stackedTopPanel = workspace.newTerminalSplit(from: middlePanel.id, orientation: .horizontal, focus: false),
+              workspace.newTerminalSplit(from: stackedTopPanel.id, orientation: .vertical, focus: false) != nil else {
+            XCTFail("Expected mixed horizontal/vertical split setup to succeed")
+            return
+        }
+
+        seedUnevenDividerPositions(in: workspace)
+
+        XCTAssertTrue(manager.equalizeSplits(tabId: workspace.id), "Expected equalize splits command to succeed")
+
+        let panes = paneNodes(in: workspace.bonsplitController.treeSnapshot())
+        XCTAssertEqual(panes.count, 4)
+        for pane in panes {
+            XCTAssertEqual(
+                pane.frame.width,
+                1.0 / 3.0,
+                accuracy: 0.000_1,
+                "Expected every leaf pane to occupy one equal horizontal span"
+            )
+        }
+    }
+
+    func testEqualizeSplitsCountsCrossAxisStackAsOneVerticalSpan() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let topPanelId = workspace.focusedPanelId,
+              let middlePanel = workspace.newTerminalSplit(from: topPanelId, orientation: .vertical, focus: false),
+              let stackedLeftPanel = workspace.newTerminalSplit(from: middlePanel.id, orientation: .vertical, focus: false),
+              workspace.newTerminalSplit(from: stackedLeftPanel.id, orientation: .horizontal, focus: false) != nil else {
+            XCTFail("Expected mixed vertical/horizontal split setup to succeed")
+            return
+        }
+
+        seedUnevenDividerPositions(in: workspace)
+
+        XCTAssertTrue(manager.equalizeSplits(tabId: workspace.id), "Expected equalize splits command to succeed")
+
+        let panes = paneNodes(in: workspace.bonsplitController.treeSnapshot())
+        XCTAssertEqual(panes.count, 4)
+        for pane in panes {
+            XCTAssertEqual(
+                pane.frame.height,
+                1.0 / 3.0,
+                accuracy: 0.000_1,
+                "Expected every leaf pane to occupy one equal vertical span"
+            )
+        }
+    }
+
+    private func seedUnevenDividerPositions(in workspace: Workspace) {
+        let initialSplits = splitNodes(in: workspace.bonsplitController.treeSnapshot())
+        XCTAssertGreaterThanOrEqual(initialSplits.count, 3, "Expected mixed split tree to contain nested splits")
+
+        for (index, split) in initialSplits.enumerated() {
+            guard let splitId = UUID(uuidString: split.id) else {
+                XCTFail("Expected split ID to be a UUID")
+                return
+            }
+            let targetPosition: CGFloat = index.isMultiple(of: 2) ? 0.2 : 0.8
+            XCTAssertTrue(
+                workspace.bonsplitController.setDividerPosition(targetPosition, forSplit: splitId),
+                "Expected to seed divider position for split \(splitId)"
+            )
+        }
     }
 }
 
