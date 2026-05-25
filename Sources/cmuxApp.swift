@@ -5742,8 +5742,10 @@ struct SettingsView: View {
     }
 
     private var shortcutChordsEditorSubtitle: String {
-        let base = String(localized: "settings.shortcuts.chords.subtitle", defaultValue: "Add tmux-style multi-step shortcuts in cmux.json, for example [\"ctrl+b\", \"c\"].")
-        return base + " " + preferredEditorUsageHintText
+        String(
+            localized: "settings.shortcuts.chords.subtitle.withEditorHint",
+            defaultValue: "Add tmux-style multi-step shortcuts in cmux.json, for example [\"ctrl+b\", \"c\"]. \(preferredEditorUsageHintText)"
+        )
     }
 
     private var supportedFileRoutingBinding: Binding<Bool> {
