@@ -12082,6 +12082,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if handleTerminalDirectoryOpenShortcut(event: event) {
+            return true
+        }
+
         if handleConfiguredCmuxShortcut(
             event: event,
             actions: configuredCmuxShortcutActions,
@@ -13780,6 +13784,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             context: context,
             preferredWindow: event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         )
+    }
+
+    private func handleTerminalDirectoryOpenShortcut(event: NSEvent) -> Bool {
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           armConfiguredShortcutChordIfNeeded(
+               event: event,
+               actions: KeyboardShortcutSettings.Action.terminalDirectoryOpenActions
+           ) {
+            return true
+        }
+
+        for binding in KeyboardShortcutSettings.Action.terminalDirectoryOpenShortcutBindings {
+            guard matchConfiguredShortcut(event: event, action: binding.action) else {
+                continue
+            }
+            let targetTabManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            if !TerminalDirectoryOpenLauncher.openCurrentDirectory(
+                in: binding.target,
+                tabManager: targetTabManager,
+                onOpenFailure: { _ in
+                    NSSound.beep()
+                }
+            ) {
+                NSSound.beep()
+            }
+            return true
+        }
+        return false
     }
 
     @discardableResult

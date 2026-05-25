@@ -53,6 +53,99 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         }
     }
 
+    func testTerminalDirectoryOpenPaletteCommandsExposeBindableShortcutActions() {
+        let actions = KeyboardShortcutSettings.Action.terminalDirectoryOpenActions
+        let bindings = KeyboardShortcutSettings.Action.terminalDirectoryOpenShortcutBindings
+
+        XCTAssertEqual(actions.count, TerminalDirectoryOpenTarget.commandPaletteShortcutTargets.count)
+        XCTAssertEqual(bindings.map { $0.action }, actions)
+        XCTAssertEqual(bindings.map { $0.target }, TerminalDirectoryOpenTarget.commandPaletteShortcutTargets)
+        for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
+            let action = KeyboardShortcutSettings.Action.terminalDirectoryOpenAction(for: target)
+            XCTAssertEqual(action.rawValue, target.commandPaletteCommandId)
+            XCTAssertEqual(ContentView.commandPaletteShortcutAction(forCommandID: target.commandPaletteCommandId), action)
+            XCTAssertEqual(action.terminalDirectoryOpenTarget, target)
+            XCTAssertEqual(action.defaultShortcut, .unbound)
+            XCTAssertTrue(action.isPublicShortcutAction)
+        }
+    }
+
+    func testSettingsFileParsesTerminalDirectoryOpenPaletteShortcutBinding() throws {
+        let settingsFileURL = settingsDirectoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "palette.terminalOpenDirectory.vscode": "cmd+shift+v"
+            }
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        KeyboardShortcutSettings.settingsFileStore.reload()
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .terminalOpenDirectoryVSCode),
+            StoredShortcut(key: "v", command: true, shift: true, option: false, control: false)
+        )
+    }
+
+    func testTerminalDirectoryOpenLauncherFallsBackToWorkspaceDirectoryWhenFocusedDirectoryIsStale() throws {
+        let workspaceDirectory = settingsDirectoryURL.appendingPathComponent("workspace", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+
+        let resolvedURL = TerminalDirectoryOpenLauncher.firstValidDirectoryURL(
+            in: [
+                settingsDirectoryURL.appendingPathComponent("missing", isDirectory: true).path,
+                workspaceDirectory.path,
+            ]
+        )
+
+        XCTAssertEqual(resolvedURL?.standardizedFileURL, workspaceDirectory.standardizedFileURL)
+    }
+
+    func testTerminalDirectoryOpenLauncherReportsApplicationLaunchCompletionFailures() throws {
+        let directoryURL = settingsDirectoryURL.appendingPathComponent("workspace", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let applicationURL = URL(fileURLWithPath: "/Applications/Example.app", isDirectory: true)
+        let expectedError = NSError(domain: "cmuxTests", code: 42)
+        var capturedURLs: [URL] = []
+        var capturedApplicationURL: URL?
+        var launchCompletion: TerminalDirectoryOpenLauncher.ApplicationOpenCompletion?
+        var reportedErrors: [NSError] = []
+
+        let opened = TerminalDirectoryOpenLauncher.openDirectory(
+            directoryURL,
+            in: .vscode,
+            tabManager: nil,
+            onOpenFailure: { error in
+                guard let error else { return }
+                reportedErrors.append(error as NSError)
+            },
+            applicationURLProvider: { target in
+                XCTAssertEqual(target, .vscode)
+                return applicationURL
+            },
+            openWithApplication: { urls, applicationURL, _, completion in
+                capturedURLs = urls
+                capturedApplicationURL = applicationURL
+                launchCompletion = completion
+            }
+        )
+
+        XCTAssertTrue(opened)
+        XCTAssertEqual(capturedURLs, [directoryURL])
+        XCTAssertEqual(capturedApplicationURL, applicationURL)
+        XCTAssertTrue(reportedErrors.isEmpty)
+
+        launchCompletion?(nil)
+        XCTAssertTrue(reportedErrors.isEmpty)
+
+        launchCompletion?(expectedError)
+        XCTAssertEqual(reportedErrors.map(\.domain), [expectedError.domain])
+        XCTAssertEqual(reportedErrors.map(\.code), [expectedError.code])
+    }
+
     func testFieldEditorMoveCommandHonorsClearedCommandPalettePreviousShortcut() {
         guard let controlPEvent = makeKeyDownEvent(
             key: "\u{10}",
@@ -374,6 +467,50 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
                 XCTAssertEqual(observedWindow?.windowNumber, window.windowNumber)
                 XCTAssertEqual(observedDeltas, [1])
             }
+        }
+    }
+
+    func testChordedTerminalDirectoryOpenShortcutConsumesPrefix() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        withTemporaryCommandPaletteShortcut(.terminalOpenDirectoryFinder) {
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "o"),
+                for: .terminalOpenDirectoryFinder
+            )
+
+            guard let prefixEvent = makeKeyDownEvent(
+                key: "b",
+                modifiers: [.control],
+                keyCode: 11,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct terminal-open chord prefix event")
+                return
+            }
+
+            #if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: prefixEvent),
+                "Terminal-directory open shortcut prefixes must be consumed and armed"
+            )
+            #else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            #endif
         }
     }
 

@@ -731,6 +731,7 @@
         "notifications": "Notifications",
         "find": "Find",
         "terminal": "Terminal",
+        "openWith": "Open With",
         "window": "Window"
       },
       "sc": {

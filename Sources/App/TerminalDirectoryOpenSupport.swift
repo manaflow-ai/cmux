@@ -96,6 +96,12 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         Array(allCases)
     }
 
+    init?(commandPaletteCommandId: String) {
+        let prefix = "palette.terminalOpenDirectory."
+        guard commandPaletteCommandId.hasPrefix(prefix) else { return nil }
+        self.init(rawValue: String(commandPaletteCommandId.dropFirst(prefix.count)))
+    }
+
     static func availableTargets(in environment: DetectionEnvironment = .live) -> Set<Self> {
         Set(commandPaletteShortcutTargets.filter { $0.isAvailable(in: environment) })
     }
