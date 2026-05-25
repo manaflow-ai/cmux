@@ -506,6 +506,56 @@ final class FileExplorerStoreTests: XCTestCase {
         store.expand(node: node)
         XCTAssertFalse(store.isExpanded(node))
     }
+
+    // MARK: - Directory watching (issue #4649)
+
+    /// Regression test for https://github.com/manaflow-ai/cmux/issues/4649.
+    ///
+    /// The Files sidebar auto-refreshes from a kqueue vnode watch. A vnode source
+    /// only fires for changes to the *immediate* contents of the single directory
+    /// it watches, so watching only the root means an entry created inside an
+    /// already-expanded *nested* subdirectory is never noticed and never appears
+    /// in the tree until a restart. The store must watch every expanded
+    /// directory, not just the root.
+    ///
+    /// Uses a real `LocalFileExplorerProvider` against a temp directory so the
+    /// kqueue watch path is exercised end-to-end.
+    func testCreatingEntryInNestedExpandedDirectoryRefreshesTree() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-watch-\(UUID().uuidString)", isDirectory: true)
+        let sub = root.appendingPathComponent("project-a", isDirectory: true)
+        try fm.createDirectory(at: sub, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(LocalFileExplorerProvider())
+        store.setRootPath(root.path)
+
+        try await waitFor("root lists project-a") {
+            store.rootNodes.contains { $0.name == "project-a" }
+        }
+
+        let subNode = try XCTUnwrap(store.rootNodes.first { $0.name == "project-a" })
+        store.expand(node: subNode)
+        try await waitFor("project-a finished its initial (empty) listing") {
+            store.rootNodes.first { $0.name == "project-a" }?.children != nil
+        }
+
+        // Create a folder *inside* the already-expanded nested subdirectory,
+        // mimicking an external tool (Finder / agent) scaffolding into it. This
+        // bumps the mtime of project-a but NOT of the root, so a root-only watch
+        // never fires and the tree never refreshes.
+        let created = sub.appendingPathComponent("build", isDirectory: true)
+        try fm.createDirectory(at: created, withIntermediateDirectories: true)
+
+        try await waitFor("build appears under project-a without a restart", timeout: 8.0) {
+            store.rootNodes
+                .first { $0.name == "project-a" }?
+                .children?
+                .contains { $0.name == "build" } ?? false
+        }
+    }
 }
 
 @MainActor
