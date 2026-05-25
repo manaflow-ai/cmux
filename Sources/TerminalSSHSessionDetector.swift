@@ -108,18 +108,10 @@ struct DetectedSSHSession: Equatable {
                     operation: operation
                 )
                 guard result.status == 0 else {
-                    let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ??
-                        String(
-                            format: String(
-                                localized: "detectedSSH.fileDrop.error.scpExited",
-                                defaultValue: "scp exited %d"
-                            ),
-                            result.status
-                        )
                     throw NSError(domain: "cmux.detected-ssh.drop", code: 2, userInfo: [
                         NSLocalizedDescriptionKey: String(
                             localized: "detectedSSH.fileDrop.error.uploadFailed",
-                            defaultValue: "failed to upload dropped file: \(detail)"
+                            defaultValue: "failed to upload dropped file"
                         ),
                     ])
                 }
@@ -329,21 +321,6 @@ struct DetectedSSHSession: Equatable {
             throw TerminalImageTransferExecutionError.cancelled
         }
         return CommandResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
-    }
-
-    private static func bestErrorLine(stderr: String, stdout: String) -> String? {
-        let stderrLine = stderr
-            .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first(where: { !$0.isEmpty })
-        if let stderrLine {
-            return stderrLine
-        }
-
-        return stdout
-            .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first(where: { !$0.isEmpty })
     }
 
     private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
