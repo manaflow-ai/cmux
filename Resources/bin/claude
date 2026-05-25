@@ -336,7 +336,7 @@ prune_old_claude_settings_files() {
     while IFS= read -r -d '' candidate; do
         [[ "$candidate" == "$keep_path" ]] && continue
         rm -f "$candidate" || true
-    done < <(find "$settings_dir" -maxdepth 1 -type f -name 'claude-hook-settings-*.json' -print0 2>/dev/null)
+    done < <(find "$settings_dir" -maxdepth 1 -type f -name 'claude-hook-settings-*.json' -mtime +1 -print0 2>/dev/null)
 }
 
 ensure_claude_settings_file() {
@@ -344,7 +344,8 @@ ensure_claude_settings_file() {
     local settings_dir settings_hash settings_path temp_path
     settings_dir="$(cmux_claude_settings_directory)" || return 1
     mkdir -p "$settings_dir" || return 1
-    chmod 0700 "$settings_dir" 2>/dev/null || true
+    [[ -O "$settings_dir" ]] || return 1
+    chmod 0700 "$settings_dir" 2>/dev/null || return 1
 
     settings_hash="$(printf '%s' "$settings_json" | cmux_claude_settings_hash)" || return 1
     [[ -n "$settings_hash" ]] || return 1
