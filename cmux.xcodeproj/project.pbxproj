@@ -1709,6 +1709,7 @@
 				D1320AA0D1320AA0D1320AA6 /* Copy Dock Tile Plugin */,
 				A5001020 /* Embed Frameworks */,
 				B900000AA1B2C3D4E5F60719 /* Copy CLI */,
+				C10C10A00000000000000001 /* Build Cloud CLI */,
 				C0DEFF100000000000000003 /* Build Command Palette Nucleo FFI */,
 				A5001300A1B2C3D4E5F60719 /* ShellScript */,
 			);
@@ -1982,6 +1983,29 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${SRCROOT}/scripts/build-command-palette-nucleo-ffi.sh\"\n";
+		};
+		C10C10A00000000000000001 /* Build Cloud CLI */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Native/CloudCLI/Cargo.toml",
+				"$(SRCROOT)/Native/CloudCLI/Cargo.lock",
+				"$(SRCROOT)/Native/CloudCLI/src/main.rs",
+				"$(SRCROOT)/scripts/build-cloud-cli.sh",
+			);
+			name = "Build Cloud CLI";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-cloud",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/scripts/build-cloud-cli.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

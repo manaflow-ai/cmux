@@ -176,15 +176,19 @@ jobs:
           set -euo pipefail
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
+          CLOUD_CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-cloud"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
           APP_ARCHS="$(lipo -archs "$APP_BINARY")"
           CLI_ARCHS="$(lipo -archs "$CLI_BINARY")"
+          CLOUD_CLI_ARCHS="$(lipo -archs "$CLOUD_CLI_BINARY")"
           HELPER_ARCHS="$(lipo -archs "$HELPER_BINARY")"
           echo "App binary architectures: $APP_ARCHS"
           echo "CLI binary architectures: $CLI_ARCHS"
+          echo "Cloud CLI binary architectures: $CLOUD_CLI_ARCHS"
           echo "Ghostty helper architectures: $HELPER_ARCHS"
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
+          [[ "$CLOUD_CLI_ARCHS" == *arm64* && "$CLOUD_CLI_ARCHS" == *x86_64* ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
 
       - name: Build remote daemon release assets and inject manifest

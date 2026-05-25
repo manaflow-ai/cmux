@@ -1524,6 +1524,10 @@ final class SocketClient {
         relayEndpoint != nil
     }
 
+    static func isRelaySocketPath(_ raw: String) -> Bool {
+        parseRelayEndpoint(raw) != nil
+    }
+
     func connectionAppearsOpen() -> Bool {
         if relayEndpoint != nil, socketFD < 0 {
             do {
@@ -2377,6 +2381,8 @@ struct CMUXCLI {
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
+    private static let cloudClearIdempotencySignatureEnv = "CMUX_CLOUD_CLEAR_IDEMPOTENCY_SIGNATURE"
+    private static let cloudClearIdempotencyKeyEnv = "CMUX_CLOUD_CLEAR_IDEMPOTENCY_KEY"
 
     private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {
         if client.hasUnfinishedOperationTelemetry() {
@@ -2519,6 +2525,16 @@ struct CMUXCLI {
         try? saveVMCreateIdempotencyStore(store, to: url)
     }
 
+    private static func clearVMCreateIdempotencyFromCloudEnvironment(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        guard let signature = normalizedEnvValue(environment[cloudClearIdempotencySignatureEnv]),
+              let key = normalizedEnvValue(environment[cloudClearIdempotencyKeyEnv]) else {
+            return
+        }
+        clearVMCreateIdempotency(ActiveVMCreateIdempotency(signature: signature, key: key))
+    }
+
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
     private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
 
@@ -2653,6 +2669,92 @@ struct CMUXCLI {
         } else {
             print(disabled ? "cmux browser disabled" : "cmux browser enabled")
         }
+    }
+
+    private static func cloudCLIExecutablePath() -> String? {
+        let fileManager = FileManager.default
+        var candidates: [URL] = []
+        if let override = normalizedEnvValue(ProcessInfo.processInfo.environment["CMUX_CLOUD_CLI_PATH"]) {
+            candidates.append(URL(fileURLWithPath: override))
+        }
+        if let executableURL = CLIExecutableLocator.currentExecutableURL() {
+            candidates.append(executableURL.deletingLastPathComponent().appendingPathComponent("cmux-cloud"))
+        }
+        if let appBundle = CLIExecutableLocator.enclosingAppBundle() {
+            candidates.append(
+                appBundle.bundleURL
+                    .appendingPathComponent("Contents", isDirectory: true)
+                    .appendingPathComponent("Resources", isDirectory: true)
+                    .appendingPathComponent("bin", isDirectory: true)
+                    .appendingPathComponent("cmux-cloud", isDirectory: false)
+            )
+        }
+        for candidate in candidates {
+            let path = candidate.path
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
+                !isDirectory.boolValue,
+                fileManager.isExecutableFile(atPath: path)
+            {
+                return path
+            }
+        }
+        return nil
+    }
+
+    private func runCloudRustCommand(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?,
+        jsonOutput: Bool,
+        idFormatArg: String?,
+        windowId: String?
+    ) throws -> Never {
+        guard let helperPath = Self.cloudCLIExecutablePath() else {
+            throw CLIError(message: String(
+                localized: "cli.cloud.helper.missing",
+                defaultValue: "cmux cloud helper is missing. Reload cmux and retry."
+            ))
+        }
+
+        let resolvedPassword = SocketPasswordResolver.resolve(
+            explicit: explicitPassword,
+            socketPath: socketPath
+        )
+        setenv("CMUX_CLOUD_SOCKET_PATH", socketPath, 1)
+        setenv("CMUX_SOCKET_PATH", socketPath, 1)
+        setenv("CMUX_CLOUD_JSON", jsonOutput ? "1" : "0", 1)
+        if let resolvedPassword {
+            setenv("CMUX_CLOUD_SOCKET_PASSWORD", resolvedPassword, 1)
+        } else {
+            unsetenv("CMUX_CLOUD_SOCKET_PASSWORD")
+        }
+        if let idFormatArg {
+            setenv("CMUX_CLOUD_ID_FORMAT", idFormatArg, 1)
+        } else {
+            unsetenv("CMUX_CLOUD_ID_FORMAT")
+        }
+        if let windowId {
+            setenv("CMUX_CLOUD_WINDOW", windowId, 1)
+        } else {
+            unsetenv("CMUX_CLOUD_WINDOW")
+        }
+        if let currentExecutablePath = CLIExecutableLocator.currentExecutableURL()?.path {
+            setenv("CMUX_CLOUD_PARENT_CLI", currentExecutablePath, 1)
+        }
+
+        var argv = ([helperPath] + commandArgs).map { strdup($0) }
+        defer {
+            for item in argv {
+                free(item)
+            }
+        }
+        argv.append(nil)
+        execv(helperPath, &argv)
+        throw CLIError(message: String(
+            localized: "cli.cloud.helper.launchFailed",
+            defaultValue: "Could not start the cmux cloud helper. Reload cmux and retry."
+        ))
     }
 
     private static func shouldFocusWindowBeforeDispatch(command: String, commandArgs: [String]) -> Bool {
@@ -3019,6 +3121,17 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
 
+        if command == "cloud", !SocketClient.isRelaySocketPath(resolvedSocketPath) {
+            try runCloudRustCommand(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput,
+                idFormatArg: idFormatArg,
+                windowId: windowId
+            )
+        }
+
         let client = SocketClient(path: resolvedSocketPath)
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
@@ -3267,6 +3380,7 @@ struct CMUXCLI {
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
                 )
+                Self.clearVMCreateIdempotencyFromCloudEnvironment()
 
             case "rm", "destroy", "delete":
                 guard let vmId = rest.first else {
@@ -3303,6 +3417,7 @@ struct CMUXCLI {
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
                 )
+                Self.clearVMCreateIdempotencyFromCloudEnvironment()
 
             case "ssh-info":
                 guard let vmId = rest.first else {
@@ -11602,7 +11717,7 @@ struct CMUXCLI {
             return """
             Usage: cmux \(command) <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]
 
-            Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
+            Manage cloud VMs. Requires `cmux auth login`.
 
             Subcommands:
               ls                        List your cloud VMs.
@@ -11627,10 +11742,10 @@ struct CMUXCLI {
                                          local testing from the web worktree.
 
             Example:
-              cmux vm new
-              cmux vm ls
-              cmux cloud exec <id> -- echo hello
-              cmux vm rm <id>
+              cmux \(command) new
+              cmux \(command) ls
+              cmux \(command) exec <id> -- echo hello
+              cmux \(command) rm <id>
             """
         case "rpc":
             return """
@@ -29498,7 +29613,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
-          vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
+          cloud <new|ls|rm|exec|shell|ssh> [args...]
+          vm <new|ls|rm|exec|shell|ssh> [args...]    (compatibility alias)
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]
           list-windows
