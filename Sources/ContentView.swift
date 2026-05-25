@@ -9587,28 +9587,46 @@ final class SidebarDragState {
     init() {}
 }
 
-/// Per-row drop-indicator visibility computed by the parent. Same predicate
-/// that used to live inside `SidebarTabDropIndicatorOverlay`, but evaluated
-/// once per row from `dragState` ownership at the LazyVStack parent so the
-/// row's view subtree never reads the `@Observable` store directly.
-@MainActor
+/// Per-row drop-indicator visibility, computed by the parent from value
+/// inputs only. Takes UUIDs (not `Tab` objects or `SidebarDragState`) so it's
+/// trivially unit-testable and the row's view subtree never reads the
+/// `@Observable` store directly. Same predicate that used to live inside
+/// `SidebarTabDropIndicatorOverlay`.
 enum SidebarTabDropIndicatorPredicate {
     static func topVisible(
         forTabId tabId: UUID,
-        dragState: SidebarDragState,
-        tabs: [Tab]
+        draggedTabId: UUID?,
+        dropIndicator: SidebarDropIndicator?,
+        tabIds: [UUID]
     ) -> Bool {
-        guard dragState.draggedTabId != nil, let indicator = dragState.dropIndicator else { return false }
+        guard draggedTabId != nil, let indicator = dropIndicator else { return false }
         if indicator.tabId == tabId && indicator.edge == .top {
             return true
         }
         guard indicator.edge == .bottom,
-              let currentIndex = tabs.firstIndex(where: { $0.id == tabId }),
+              let currentIndex = tabIds.firstIndex(of: tabId),
               currentIndex > 0
         else {
             return false
         }
-        return tabs[currentIndex - 1].id == indicator.tabId
+        return tabIds[currentIndex - 1] == indicator.tabId
+    }
+
+    /// Convenience used by `SidebarEmptyArea`: the empty area's "top" indicator
+    /// (drawn above the empty space below all rows) is visible when the drop
+    /// indicator targets nothing (end-of-list) or the bottom edge of the last
+    /// row.
+    static func emptyAreaTopVisible(
+        draggedTabId: UUID?,
+        dropIndicator: SidebarDropIndicator?,
+        lastTabId: UUID?
+    ) -> Bool {
+        guard draggedTabId != nil, let indicator = dropIndicator else { return false }
+        if indicator.tabId == nil {
+            return true
+        }
+        guard indicator.edge == .bottom, let lastTabId else { return false }
+        return indicator.tabId == lastTabId
     }
 }
 
@@ -9672,14 +9690,14 @@ struct VerticalTabsSidebar: View {
 
     /// Computed in the parent so `SidebarEmptyArea` can render its top-edge
     /// indicator from a value snapshot without holding a `SidebarDragState`
-    /// reference (snapshot-boundary rule).
+    /// reference (snapshot-boundary rule). Delegates to a pure predicate so
+    /// the logic is unit-testable in isolation from view state.
     private func emptyAreaTopDropIndicatorVisible() -> Bool {
-        guard dragState.draggedTabId != nil, let indicator = dragState.dropIndicator else { return false }
-        if indicator.tabId == nil {
-            return true
-        }
-        guard indicator.edge == .bottom, let lastTabId = tabManager.tabs.last?.id else { return false }
-        return indicator.tabId == lastTabId
+        SidebarTabDropIndicatorPredicate.emptyAreaTopVisible(
+            draggedTabId: dragState.draggedTabId,
+            dropIndicator: dragState.dropIndicator,
+            lastTabId: tabManager.tabs.last?.id
+        )
     }
 
     /// Constructs the drop delegate for the empty area in the parent scope,
@@ -10940,8 +10958,9 @@ struct VerticalTabsSidebar: View {
         let isBeingDragged = dragState.draggedTabId == tab.id
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate.topVisible(
             forTabId: tab.id,
-            dragState: dragState,
-            tabs: renderContext.tabs
+            draggedTabId: dragState.draggedTabId,
+            dropIndicator: dragState.dropIndicator,
+            tabIds: renderContext.tabs.map(\.id)
         )
         let onDragStart: () -> NSItemProvider = { [tabId = tab.id] in
             #if DEBUG
