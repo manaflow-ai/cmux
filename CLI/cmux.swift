@@ -16682,7 +16682,7 @@ struct CMUXCLI {
             stateLock.lock()
             defer { stateLock.unlock() }
             guard var state = spawnFailureDeliveryStates[result.fingerprint] else {
-                if result.notificationSucceeded == true || result.statusSucceeded == true {
+                if result.notificationSucceeded == true && result.statusSucceeded == true {
                     reportedSpawnFailureFingerprints.insert(result.fingerprint)
                 }
                 return
@@ -16716,17 +16716,20 @@ struct CMUXCLI {
 
         private func pruneSpawnFailureDeliveryStatesLocked() {
             while spawnFailureDeliveryStates.count > maxSpawnFailureDeliveryStates {
-                let alreadyVisible = spawnFailureDeliveryOrder.first { fingerprint in
+                let noProgress = spawnFailureDeliveryOrder.first { fingerprint in
+                    guard let state = spawnFailureDeliveryStates[fingerprint] else { return true }
+                    return !state.notificationInFlight &&
+                        !state.statusInFlight &&
+                        !state.notificationDelivered &&
+                        !state.statusDelivered
+                }
+                let partialProgress = spawnFailureDeliveryOrder.first { fingerprint in
                     guard let state = spawnFailureDeliveryStates[fingerprint] else { return true }
                     return !state.notificationInFlight &&
                         !state.statusInFlight &&
                         (state.notificationDelivered || state.statusDelivered)
                 }
-                let notInFlight = spawnFailureDeliveryOrder.first { fingerprint in
-                    guard let state = spawnFailureDeliveryStates[fingerprint] else { return true }
-                    return !state.notificationInFlight && !state.statusInFlight
-                }
-                guard let evicted = alreadyVisible ?? notInFlight else {
+                guard let evicted = noProgress ?? partialProgress else {
                     return
                 }
                 removeSpawnFailureDeliveryStateLocked(fingerprint: evicted)
