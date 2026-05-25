@@ -47,83 +47,6 @@ function SessionSurface({
   const root = document.createElement("section");
   root.className = "agent-shell";
 
-  const toolbar = document.createElement("header");
-  toolbar.className = "toolbar";
-  root.append(toolbar);
-
-  const rendererMark = document.createElement("div");
-  rendererMark.className = "renderer-mark";
-  rendererMark.textContent = renderer;
-  toolbar.append(rendererMark);
-
-  const sessionTitle = document.createElement("div");
-  sessionTitle.className = "session-title";
-  toolbar.append(sessionTitle);
-
-  const providerName = document.createElement("span");
-  providerName.className = "provider-name";
-  sessionTitle.append(providerName);
-
-  const transport = document.createElement("span");
-  transport.className = "transport";
-  sessionTitle.append(transport);
-
-  createEffect(() => {
-    providerName.textContent = provider()?.displayName ?? "";
-    transport.textContent = provider()?.transportKind ?? "";
-  });
-
-  const select = document.createElement("select");
-  select.className = "provider-select";
-  select.addEventListener("change", () => {
-    dispatch({ type: "selectProvider", providerId: select.value as ProviderId });
-  });
-  toolbar.append(select);
-
-  createEffect(() => {
-    select.replaceChildren();
-    for (const item of state().providers) {
-      const option = document.createElement("option");
-      option.value = item.id;
-      option.textContent = item.displayName;
-      select.append(option);
-    }
-    select.value = state().selectedProviderId;
-    select.disabled = state().status === "running" || state().status === "starting";
-  });
-
-  const status = document.createElement("span");
-  toolbar.append(status);
-  createEffect(() => {
-    status.className = `status-pill ${state().status}`;
-    status.textContent = state().status;
-  });
-
-  const start = document.createElement("button");
-  start.className = "toolbar-button";
-  start.addEventListener("click", () => void startProvider(state(), dispatch));
-  toolbar.append(start);
-  const autoStartSpacer = document.createElement("span");
-  autoStartSpacer.className = "autostart-note";
-  autoStartSpacer.setAttribute("aria-hidden", "true");
-  toolbar.append(autoStartSpacer);
-  createEffect(() => {
-    start.textContent = state().context?.copy.start ?? "Start";
-    const showStart = canStart() && provider()?.autoStart !== true;
-    start.hidden = !showStart;
-    start.disabled = !showStart;
-    autoStartSpacer.hidden = showStart;
-  });
-
-  const stop = document.createElement("button");
-  stop.className = "toolbar-button";
-  stop.addEventListener("click", () => void stopProvider(state(), dispatch));
-  toolbar.append(stop);
-  createEffect(() => {
-    stop.textContent = state().context?.copy.stop ?? "Stop";
-    stop.disabled = state().status !== "running";
-  });
-
   const log = document.createElement("div");
   log.className = "log";
   root.append(log);
@@ -143,13 +66,50 @@ function SessionSurface({
     }
   });
 
+  const composerStack = document.createElement("div");
+  composerStack.className = "composer-stack";
+  root.append(composerStack);
+
   const form = document.createElement("form");
   form.className = "composer";
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     void sendInput(state(), dispatch);
   });
-  root.append(form);
+  composerStack.append(form);
+
+  const leftRail = document.createElement("div");
+  leftRail.className = "codex-left-rail";
+  form.append(leftRail);
+
+  leftRail.append(
+    codexIconButton("plus", "+"),
+    codexIconButton("globe", "◉"),
+    codexIconButton("spark", "✣"),
+    codexIconButton("hammer", "⌁"),
+  );
+
+  const modelPicker = document.createElement("label");
+  modelPicker.className = "model-picker";
+  const modelIcon = document.createElement("span");
+  modelIcon.className = "model-icon";
+  modelIcon.setAttribute("aria-hidden", "true");
+  modelIcon.textContent = "⌁";
+  const modelLabel = document.createElement("span");
+  modelLabel.className = "model-label";
+  const modelChevron = document.createElement("span");
+  modelChevron.className = "model-chevron";
+  modelChevron.setAttribute("aria-hidden", "true");
+  modelChevron.textContent = "⌄";
+  modelPicker.append(modelIcon, modelLabel, modelChevron);
+  leftRail.append(modelPicker);
+
+  const select = document.createElement("select");
+  select.className = "provider-select";
+  select.addEventListener("change", () => {
+    dispatch({ type: "selectProvider", providerId: select.value as ProviderId });
+  });
+  modelPicker.append(select);
 
   const textarea = document.createElement("textarea");
   textarea.className = "prompt-input";
@@ -162,15 +122,102 @@ function SessionSurface({
     }
   });
 
-  const send = document.createElement("button");
-  send.className = "send-button";
-  form.append(send);
   createEffect(() => {
-    send.textContent = state().context?.copy.send ?? "Send";
+    select.replaceChildren();
+    for (const item of state().providers) {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = item.displayName;
+      select.append(option);
+    }
+    select.value = state().selectedProviderId;
+    select.disabled = state().status === "running" || state().status === "starting";
+    select.setAttribute("aria-label", state().context?.copy.provider ?? "");
+    modelLabel.textContent = provider() ? codexModelLabel(provider()!.displayName) : "GPT-5.5";
+  });
+
+  const controlsRight = document.createElement("div");
+  controlsRight.className = "codex-right-rail";
+  form.append(controlsRight);
+
+  const start = document.createElement("button");
+  start.className = "codex-action codex-start";
+  start.addEventListener("click", () => void startProvider(state(), dispatch));
+  controlsRight.append(start);
+  createEffect(() => {
+    start.textContent = state().context?.copy.start ?? "Start";
+    const showStart = canStart() && provider()?.autoStart !== true;
+    start.hidden = !showStart;
+    start.disabled = !showStart;
+  });
+
+  const stop = document.createElement("button");
+  stop.className = "codex-action codex-circle-action";
+  stop.setAttribute("aria-label", "Stop");
+  stop.addEventListener("click", () => void stopProvider(state(), dispatch));
+  controlsRight.append(stop);
+  createEffect(() => {
+    stop.setAttribute("aria-label", state().context?.copy.stop ?? "Stop");
+    stop.disabled = state().status !== "running";
+  });
+
+  const mic = document.createElement("button");
+  mic.className = "codex-action codex-mic";
+  mic.disabled = true;
+  mic.textContent = "♩";
+  controlsRight.append(mic);
+  createEffect(() => {
+    mic.setAttribute("aria-label", state().context?.copy.voiceInput ?? "");
+  });
+
+  const send = document.createElement("button");
+  send.className = "codex-action send-button";
+  controlsRight.append(send);
+  createEffect(() => {
+    send.textContent = "↑";
     send.disabled = !canSend();
+    send.setAttribute("aria-label", state().context?.copy.send ?? "Send");
+  });
+
+  const rateLine = document.createElement("div");
+  rateLine.className = "rate-line";
+  composerStack.append(rateLine);
+  const rateMuted = document.createElement("span");
+  rateMuted.className = "rate-muted";
+  const statusDot = document.createElement("span");
+  statusDot.setAttribute("aria-hidden", "true");
+  const statusText = document.createElement("span");
+  const separator = document.createElement("span");
+  separator.className = "rate-dot";
+  separator.setAttribute("aria-hidden", "true");
+  separator.textContent = "•";
+  const transport = document.createElement("span");
+  rateLine.append(rateMuted, statusDot, statusText, separator, transport);
+  createEffect(() => {
+    rateMuted.textContent = state().context?.copy.rateLimits ?? "";
+    statusDot.className = `status-dot ${state().status}`;
+    statusText.textContent = `${provider()?.displayName ?? renderer} ${state().status}`;
+    transport.textContent = provider()?.transportKind ?? "stdio-jsonrpc";
   });
 
   return root;
+}
+
+function codexModelLabel(displayName: string): string {
+  if (displayName.toLowerCase() === "codex") {
+    return "GPT-5.5";
+  }
+  return displayName;
+}
+
+function codexIconButton(kind: string, text: string): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.className = `codex-tool codex-tool-${kind}`;
+  button.type = "button";
+  button.disabled = true;
+  button.setAttribute("aria-hidden", "true");
+  button.textContent = text;
+  return button;
 }
 
 const root = document.getElementById("root");

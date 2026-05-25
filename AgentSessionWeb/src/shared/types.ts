@@ -42,6 +42,9 @@ export type AgentSessionCopy = {
   start: string;
   stop: string;
   send: string;
+  provider: string;
+  rateLimits: string;
+  voiceInput: string;
   promptPlaceholder: string;
 };
 

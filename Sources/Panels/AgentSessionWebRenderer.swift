@@ -4,6 +4,7 @@ import WebKit
 
 struct AgentSessionWebRenderer: NSViewRepresentable {
     let panel: AgentSessionPanel
+    let isFocused: Bool
     let backgroundColor: NSColor
     let theme: AgentSessionWebTheme
     let onRequestPanelFocus: () -> Void
@@ -19,18 +20,21 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         )
     }
 
-    func makeNSView(context: Context) -> AgentSessionWebHostView {
-        let hostView = AgentSessionWebHostView()
-        hostView.backgroundColor = backgroundColor
-        hostView.onVisibleBounds = { [weak coordinator = context.coordinator] in
-            coordinator?.loadShellIfNeeded()
-            coordinator?.flushVisiblePaintIfReady()
+    func makeNSView(context: Context) -> AgentSessionWebView {
+        let webView = context.coordinator.ensureWebView(onPointerDown: onRequestPanelFocus)
+        webView.onPointerDown = onRequestPanelFocus
+        webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+        applyBackground(to: webView)
+        applyAppearance(to: webView)
+        context.coordinator.loadShellIfNeeded()
+        if isFocused {
+            context.coordinator.focus()
         }
-        attachWebView(to: hostView, context: context)
-        return hostView
+        return webView
     }
 
-    func updateNSView(_ nsView: AgentSessionWebHostView, context: Context) {
+    func updateNSView(_ nsView: AgentSessionWebView, context: Context) {
         context.coordinator.bind(
             panelId: panel.id,
             workspaceId: panel.workspaceId,
@@ -39,34 +43,29 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
             workingDirectory: panel.workingDirectory,
             theme: theme
         )
-        nsView.backgroundColor = backgroundColor
-        nsView.onVisibleBounds = { [weak coordinator = context.coordinator] in
-            coordinator?.loadShellIfNeeded()
-            coordinator?.flushVisiblePaintIfReady()
-        }
-        attachWebView(to: nsView, context: context)
-        if nsView.hasVisibleBounds {
-            context.coordinator.loadShellIfNeeded()
-            context.coordinator.flushVisiblePaintIfReady()
+        nsView.onPointerDown = onRequestPanelFocus
+        nsView.navigationDelegate = context.coordinator
+        nsView.uiDelegate = context.coordinator
+        applyBackground(to: nsView)
+        applyAppearance(to: nsView)
+        context.coordinator.loadShellIfNeeded()
+        context.coordinator.flushVisiblePaintIfReady()
+        if isFocused {
+            context.coordinator.focus()
         }
     }
 
-    static func dismantleNSView(_ nsView: AgentSessionWebHostView, coordinator: Coordinator) {
-        nsView.onVisibleBounds = nil
-        if let retainedWebView = coordinator.webView, nsView.hostedWebView === retainedWebView {
-            // Keep the retained page attached until the next host reparents it; removing it here
-            // creates a visible blank frame during tab and split churn.
-            nsView.hostedWebView = nil
+    static func dismantleNSView(_ nsView: AgentSessionWebView, coordinator: Coordinator) {
+        if let retainedWebView = coordinator.webView, nsView === retainedWebView {
             return
         }
-        nsView.detachHostedWebView()
+        nsView.navigationDelegate = nil
+        nsView.uiDelegate = nil
+        nsView.onPointerDown = nil
     }
 
     private func applyBackground(to webView: WKWebView) {
         webView.underPageBackgroundColor = backgroundColor
-        webView.wantsLayer = true
-        webView.layer?.backgroundColor = backgroundColor.cgColor
-        webView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
     }
 
     private func applyAppearance(to webView: WKWebView) {
@@ -76,15 +75,6 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         }
     }
 
-    private func attachWebView(to hostView: AgentSessionWebHostView, context: Context) {
-        let webView = context.coordinator.ensureWebView(onPointerDown: onRequestPanelFocus)
-        webView.onPointerDown = onRequestPanelFocus
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
-        applyBackground(to: webView)
-        applyAppearance(to: webView)
-        hostView.attach(webView)
-    }
 }
 
 struct AgentSessionWebTheme: Equatable {
@@ -182,10 +172,6 @@ enum AgentSessionBridgeContract {
 final class AgentSessionWebView: WKWebView {
     var onPointerDown: (() -> Void)?
 
-    override var isOpaque: Bool {
-        false
-    }
-
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         PaneFirstClickFocusSettings.isEnabled()
     }
@@ -193,65 +179,6 @@ final class AgentSessionWebView: WKWebView {
     override func mouseDown(with event: NSEvent) {
         onPointerDown?()
         super.mouseDown(with: event)
-    }
-}
-
-@MainActor
-final class AgentSessionWebHostView: NSView {
-    weak var hostedWebView: AgentSessionWebView?
-    var onVisibleBounds: (() -> Void)?
-
-    var backgroundColor: NSColor = .windowBackgroundColor {
-        didSet {
-            wantsLayer = true
-            layer?.backgroundColor = backgroundColor.cgColor
-            hostedWebView?.underPageBackgroundColor = backgroundColor
-        }
-    }
-
-    override var isOpaque: Bool {
-        false
-    }
-
-    var hasVisibleBounds: Bool {
-        bounds.width > 1 && bounds.height > 1
-    }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.backgroundColor = backgroundColor.cgColor
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        wantsLayer = true
-        layer?.backgroundColor = backgroundColor.cgColor
-    }
-
-    func attach(_ webView: AgentSessionWebView) {
-        if webView.superview !== self {
-            webView.removeFromSuperview()
-            addSubview(webView, positioned: .above, relativeTo: nil)
-        }
-        webView.translatesAutoresizingMaskIntoConstraints = true
-        webView.autoresizingMask = [.width, .height]
-        webView.frame = bounds
-        hostedWebView = webView
-        needsLayout = true
-    }
-
-    func detachHostedWebView() {
-        hostedWebView?.removeFromSuperview()
-        hostedWebView = nil
-    }
-
-    override func layout() {
-        super.layout()
-        hostedWebView?.frame = bounds
-        if hasVisibleBounds {
-            onVisibleBounds?()
-        }
     }
 }
 
@@ -372,26 +299,16 @@ extension AgentSessionWebRenderer {
                 return
             }
             let indexURL = resourceDirectoryURL.appendingPathComponent("index.html", isDirectory: false)
-            do {
-                let html = try String(contentsOf: indexURL, encoding: .utf8)
 #if DEBUG
-                cmuxDebugLog(
-                    "agentSession.web.load renderer=\(rendererKind.rawValue) " +
-                    "index=\(indexURL.path) htmlBytes=\(html.utf8.count)"
-                )
+            cmuxDebugLog(
+                "agentSession.web.load renderer=\(rendererKind.rawValue) " +
+                "index=\(indexURL.path)"
+            )
 #endif
-                webView?.loadHTMLString(html, baseURL: resourceDirectoryURL)
-                loadedRendererKind = rendererKind
-                hasFinishedNavigation = false
-                hasCompletedVisiblePaintFlush = false
-            } catch {
-#if DEBUG
-                cmuxDebugLog(
-                    "agentSession.web.load.failed renderer=\(rendererKind.rawValue) " +
-                    "index=\(indexURL.path) error=\(error.localizedDescription)"
-                )
-#endif
-            }
+            webView?.loadFileURL(indexURL, allowingReadAccessTo: resourceDirectoryURL)
+            loadedRendererKind = rendererKind
+            hasFinishedNavigation = false
+            hasCompletedVisiblePaintFlush = false
         }
 
         func focus() {
@@ -441,6 +358,7 @@ extension AgentSessionWebRenderer {
 #endif
             hasFinishedNavigation = true
             applyThemeToLoadedPage()
+            focus()
             flushInitialPaint(for: webView)
         }
 
@@ -477,21 +395,15 @@ extension AgentSessionWebRenderer {
             // to a visible host. Reading layout after navigation forces WebKit to
             // commit the first page layer once the view is back in the pane.
             let script = """
-            new Promise((resolve) => {
-              const flush = () => {
-                const root = document.getElementById('root');
-                const shell = document.querySelector('.agent-shell');
-                void (document.body && document.body.innerText);
-                void (root && root.getBoundingClientRect().width);
-                void (shell && getComputedStyle(shell).backgroundColor);
-                resolve(true);
-              };
-              if (typeof requestAnimationFrame === 'function') {
-                requestAnimationFrame(() => requestAnimationFrame(flush));
-              } else {
-                queueMicrotask(flush);
-              }
-            })
+            (() => {
+              const root = document.getElementById('root');
+              const shell = document.querySelector('.agent-shell');
+              const rootRect = root ? root.getBoundingClientRect() : null;
+              void (document.body && document.body.innerText);
+              void (rootRect && rootRect.width);
+              void (shell && getComputedStyle(shell).backgroundColor);
+              return true;
+            })()
             """
             webView.evaluateJavaScript(script) { _, _ in
                 webView.setNeedsDisplay(webView.bounds)
@@ -532,6 +444,9 @@ extension AgentSessionWebRenderer {
                         "start": String(localized: "agentSession.web.start", defaultValue: "Start"),
                         "stop": String(localized: "agentSession.web.stop", defaultValue: "Stop"),
                         "send": String(localized: "agentSession.web.send", defaultValue: "Send"),
+                        "provider": String(localized: "agentSession.web.provider", defaultValue: "Provider"),
+                        "rateLimits": String(localized: "agentSession.web.rateLimits", defaultValue: "Rate limits"),
+                        "voiceInput": String(localized: "agentSession.web.voiceInput", defaultValue: "Voice input"),
                         "promptPlaceholder": String(
                             localized: "agentSession.web.promptPlaceholder",
                             defaultValue: "Ask anything"

@@ -51,54 +51,10 @@ function SessionSurface({
   const canStart = state.status === "idle" || state.status === "failed";
   const canSend = state.status === "running" && state.input.trim().length > 0;
   const showStart = canStart && provider?.autoStart !== true;
+  const modelLabel = provider ? codexModelLabel(provider.displayName) : "GPT-5.5";
   return React.createElement(
     "section",
     { className: "agent-shell" },
-    React.createElement(
-      "header",
-      { className: "toolbar" },
-      React.createElement("div", { className: "renderer-mark" }, renderer),
-      React.createElement(
-        "div",
-        { className: "session-title" },
-        React.createElement("span", { className: "provider-name" }, provider?.displayName ?? ""),
-        React.createElement("span", { className: "transport" }, provider?.transportKind ?? ""),
-      ),
-      React.createElement(
-        "select",
-        {
-          className: "provider-select",
-          value: state.selectedProviderId,
-          disabled: state.status === "running" || state.status === "starting",
-          onChange: (event: React.ChangeEvent<HTMLSelectElement>) =>
-            dispatch({ type: "selectProvider", providerId: event.target.value as ProviderId }),
-        },
-        state.providers.map((item) =>
-          React.createElement("option", { key: item.id, value: item.id }, item.displayName),
-        ),
-      ),
-      React.createElement("span", { className: `status-pill ${state.status}` }, state.status),
-      showStart
-        ? React.createElement(
-        "button",
-        {
-          className: "toolbar-button",
-          disabled: !canStart,
-          onClick: () => void startProvider(state, dispatch),
-        },
-        state.context?.copy.start ?? "Start",
-          )
-        : React.createElement("span", { className: "autostart-note", "aria-hidden": true }),
-      React.createElement(
-        "button",
-        {
-          className: "toolbar-button",
-          disabled: state.status !== "running",
-          onClick: () => void stopProvider(state, dispatch),
-        },
-        state.context?.copy.stop ?? "Stop",
-      ),
-    ),
     React.createElement(
       "div",
       { className: "log" },
@@ -112,27 +68,114 @@ function SessionSurface({
       ),
     ),
     React.createElement(
-      "form",
-      {
-        className: "composer",
-        onSubmit: (event: React.FormEvent) => {
-          event.preventDefault();
-          void sendInput(state, dispatch);
-        },
-      },
-      React.createElement("textarea", {
-        className: "prompt-input",
-        value: state.input,
-        placeholder: state.context?.copy.promptPlaceholder ?? "",
-        onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) =>
-          dispatch({ type: "setInput", input: event.target.value }),
-      }),
+      "div",
+      { className: "composer-stack" },
       React.createElement(
-        "button",
-        { className: "send-button", disabled: !canSend },
-        state.context?.copy.send ?? "Send",
+        "form",
+        {
+          className: "composer",
+          onSubmit: (event: React.FormEvent) => {
+            event.preventDefault();
+            void sendInput(state, dispatch);
+          },
+        },
+        React.createElement(
+          "div",
+          { className: "codex-left-rail" },
+          codexIconButton("plus", "+"),
+          codexIconButton("globe", "◉"),
+          codexIconButton("spark", "✣"),
+          codexIconButton("hammer", "⌁"),
+          React.createElement(
+            "label",
+            { className: "model-picker" },
+            React.createElement("span", { className: "model-icon", "aria-hidden": true }, "⌁"),
+            React.createElement("span", { className: "model-label" }, modelLabel),
+            React.createElement("span", { className: "model-chevron", "aria-hidden": true }, "⌄"),
+            React.createElement(
+              "select",
+              {
+                className: "provider-select",
+                value: state.selectedProviderId,
+                disabled: state.status === "running" || state.status === "starting",
+                "aria-label": state.context?.copy.provider ?? "",
+                onChange: (event: React.ChangeEvent<HTMLSelectElement>) =>
+                  dispatch({ type: "selectProvider", providerId: event.target.value as ProviderId }),
+              },
+              state.providers.map((item) =>
+                React.createElement("option", { key: item.id, value: item.id }, item.displayName),
+              ),
+            ),
+          ),
+        ),
+        React.createElement("textarea", {
+          className: "prompt-input",
+          value: state.input,
+          placeholder: state.context?.copy.promptPlaceholder ?? "",
+          onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) =>
+            dispatch({ type: "setInput", input: event.target.value }),
+        }),
+        React.createElement(
+          "div",
+          { className: "codex-right-rail" },
+          showStart
+            ? React.createElement(
+                "button",
+                {
+                  className: "codex-action codex-start",
+                  disabled: !canStart,
+                  onClick: () => void startProvider(state, dispatch),
+                },
+                state.context?.copy.start ?? "Start",
+              )
+            : null,
+          React.createElement(
+            "button",
+            {
+              className: "codex-action codex-circle-action",
+              disabled: state.status !== "running",
+              "aria-label": state.context?.copy.stop ?? "Stop",
+              onClick: () => void stopProvider(state, dispatch),
+            },
+            "",
+          ),
+          React.createElement(
+            "button",
+            { className: "codex-action codex-mic", disabled: true, "aria-label": state.context?.copy.voiceInput ?? "" },
+            "♩",
+          ),
+          React.createElement(
+            "button",
+            { className: "codex-action send-button", disabled: !canSend, "aria-label": state.context?.copy.send ?? "Send" },
+            "↑",
+          ),
+        ),
+      ),
+      React.createElement(
+        "div",
+        { className: "rate-line" },
+        React.createElement("span", { className: "rate-muted" }, state.context?.copy.rateLimits ?? ""),
+        React.createElement("span", { className: `status-dot ${state.status}`, "aria-hidden": true }),
+        React.createElement("span", null, `${provider?.displayName ?? renderer} ${state.status}`),
+        React.createElement("span", { className: "rate-dot", "aria-hidden": true }, "•"),
+        React.createElement("span", null, provider?.transportKind ?? "stdio-jsonrpc"),
       ),
     ),
+  );
+}
+
+function codexModelLabel(displayName: string): string {
+  if (displayName.toLowerCase() === "codex") {
+    return "GPT-5.5";
+  }
+  return displayName;
+}
+
+function codexIconButton(kind: string, text: string) {
+  return React.createElement(
+    "button",
+    { className: `codex-tool codex-tool-${kind}`, type: "button", disabled: true, "aria-hidden": true },
+    text,
   );
 }
 
