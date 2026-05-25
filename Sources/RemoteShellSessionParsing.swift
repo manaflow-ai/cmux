@@ -203,13 +203,10 @@ nonisolated enum RemoteShellSessionParsing {
                     if parts.count == 2 {
                         guard Int(String(parts[1])) != nil else { return nil }
                         index += 1
-                    } else {
-                        let nextIndex = index + 1
-                        guard nextIndex < arguments.count,
-                              Int(arguments[nextIndex]) != nil else {
-                            return nil
-                        }
+                    } else if index + 1 < arguments.count, Int(arguments[index + 1]) != nil {
                         index += 2
+                    } else {
+                        index += 1
                     }
                     continue
                 }
@@ -246,13 +243,10 @@ nonisolated enum RemoteShellSessionParsing {
                         let value = String(shortOptions[(shortOptionIndex + 1)...])
                         guard Int(value) != nil else { return nil }
                         index += 1
-                    } else {
-                        let nextIndex = index + 1
-                        guard nextIndex < arguments.count,
-                              Int(arguments[nextIndex]) != nil else {
-                            return nil
-                        }
+                    } else if index + 1 < arguments.count, Int(arguments[index + 1]) != nil {
                         index += 2
+                    } else {
+                        index += 1
                     }
                     continue argumentLoop
                 }
