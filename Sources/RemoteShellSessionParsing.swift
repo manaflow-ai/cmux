@@ -134,6 +134,20 @@ nonisolated enum RemoteShellSessionParsing {
             }
         }
 
+        func hasLaterDestinationCandidate(after valueIndex: Int) -> Bool {
+            let nextIndex = valueIndex + 1
+            guard nextIndex < arguments.count else { return false }
+
+            return arguments[nextIndex...].contains { argument in
+                !argument.hasPrefix("-") || argument == "-"
+            }
+        }
+
+        func malformedValueOptionAdvance(from nextIndex: Int) -> Int {
+            guard nextIndex < arguments.count else { return 1 }
+            return (!arguments[nextIndex].hasPrefix("-") || arguments[nextIndex] == "-") ? 2 : 1
+        }
+
         argumentLoop: while index < arguments.count {
             let argument = arguments[index]
             if argument == "--" {
@@ -155,6 +169,10 @@ nonisolated enum RemoteShellSessionParsing {
                 let nextIndex = index + 1
                 guard nextIndex < arguments.count,
                       consumeSSHOptionValue(arguments[nextIndex]) else {
+                    if destination != nil {
+                        index += malformedValueOptionAdvance(from: nextIndex)
+                        continue
+                    }
                     return nil
                 }
                 index += 2
@@ -162,7 +180,13 @@ nonisolated enum RemoteShellSessionParsing {
             }
             if argument.hasPrefix("--ssh-option=") {
                 let value = String(argument.dropFirst("--ssh-option=".count))
-                guard consumeSSHOptionValue(value) else { return nil }
+                guard consumeSSHOptionValue(value) else {
+                    if destination != nil {
+                        index += 1
+                        continue
+                    }
+                    return nil
+                }
                 index += 1
                 continue
             }
@@ -179,7 +203,13 @@ nonisolated enum RemoteShellSessionParsing {
                 }
                 if optionName == "telemetry" {
                     if parts.count == 2 {
-                        guard isBoolLiteral(String(parts[1])) else { return nil }
+                        guard isBoolLiteral(String(parts[1])) else {
+                            if destination != nil {
+                                index += 1
+                                continue
+                            }
+                            return nil
+                        }
                         index += 1
                     } else if index + 1 < arguments.count, isBoolLiteral(arguments[index + 1]) {
                         index += 2
@@ -190,7 +220,13 @@ nonisolated enum RemoteShellSessionParsing {
                 }
                 if optionName == "verbose" {
                     if parts.count == 2 {
-                        guard Int(String(parts[1])) != nil else { return nil }
+                        guard Int(String(parts[1])) != nil else {
+                            if destination != nil {
+                                index += 1
+                                continue
+                            }
+                            return nil
+                        }
                         index += 1
                     } else if index + 1 < arguments.count, Int(arguments[index + 1]) != nil {
                         index += 2
@@ -201,16 +237,34 @@ nonisolated enum RemoteShellSessionParsing {
                 }
                 if eternalTerminalLongValueOptions.contains(optionName) {
                     if parts.count == 2 {
-                        guard consumeETValue(String(parts[1]), for: optionName) else { return nil }
+                        guard consumeETValue(String(parts[1]), for: optionName) else {
+                            if destination != nil {
+                                index += 1
+                                continue
+                            }
+                            return nil
+                        }
                         index += 1
                     } else {
                         let nextIndex = index + 1
                         guard nextIndex < arguments.count,
                               consumeETValue(arguments[nextIndex], for: optionName) else {
+                            if destination != nil {
+                                index += malformedValueOptionAdvance(from: nextIndex)
+                                continue
+                            }
                             return nil
                         }
                         index += 2
                     }
+                    continue
+                }
+                if parts.count == 1,
+                   destination == nil,
+                   index + 1 < arguments.count,
+                   !arguments[index + 1].hasPrefix("-"),
+                   hasLaterDestinationCandidate(after: index + 1) {
+                    index += 2
                     continue
                 }
                 index += 1
@@ -243,12 +297,22 @@ nonisolated enum RemoteShellSessionParsing {
                 if eternalTerminalValueArgumentFlags.contains(option) {
                     if shortOptionIndex + 1 < shortOptions.count {
                         let value = String(shortOptions[(shortOptionIndex + 1)...])
-                        guard consumeETValue(value, for: option) else { return nil }
+                        guard consumeETValue(value, for: option) else {
+                            if destination != nil {
+                                index += 1
+                                continue argumentLoop
+                            }
+                            return nil
+                        }
                         index += 1
                     } else {
                         let nextIndex = index + 1
                         guard nextIndex < arguments.count,
                               consumeETValue(arguments[nextIndex], for: option) else {
+                            if destination != nil {
+                                index += malformedValueOptionAdvance(from: nextIndex)
+                                continue argumentLoop
+                            }
                             return nil
                         }
                         index += 2
