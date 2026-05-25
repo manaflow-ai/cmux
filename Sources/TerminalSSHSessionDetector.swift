@@ -93,7 +93,10 @@ struct DetectedSSHSession: Equatable {
                 let normalizedLocalURL = localURL.standardizedFileURL
                 guard normalizedLocalURL.isFileURL else {
                     throw NSError(domain: "cmux.detected-ssh.drop", code: 1, userInfo: [
-                        NSLocalizedDescriptionKey: "dropped item is not a file URL",
+                        NSLocalizedDescriptionKey: String(
+                            localized: "detectedSSH.fileDrop.error.notFileURL",
+                            defaultValue: "dropped item is not a file URL"
+                        ),
                     ])
                 }
 
@@ -106,9 +109,18 @@ struct DetectedSSHSession: Equatable {
                 )
                 guard result.status == 0 else {
                     let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ??
-                        "scp exited \(result.status)"
+                        String(
+                            format: String(
+                                localized: "detectedSSH.fileDrop.error.scpExited",
+                                defaultValue: "scp exited %d"
+                            ),
+                            result.status
+                        )
                     throw NSError(domain: "cmux.detected-ssh.drop", code: 2, userInfo: [
-                        NSLocalizedDescriptionKey: "failed to upload dropped file: \(detail)",
+                        NSLocalizedDescriptionKey: String(
+                            localized: "detectedSSH.fileDrop.error.uploadFailed",
+                            defaultValue: "failed to upload dropped file: \(detail)"
+                        ),
                     ])
                 }
 
@@ -298,7 +310,10 @@ struct DetectedSSHSession: Equatable {
             }
             terminateProcessAndWait()
             throw NSError(domain: "cmux.detected-ssh.drop", code: 3, userInfo: [
-                NSLocalizedDescriptionKey: "scp timed out",
+                NSLocalizedDescriptionKey: String(
+                    localized: "detectedSSH.fileDrop.error.scpTimedOut",
+                    defaultValue: "scp timed out"
+                ),
             ])
         }
 
