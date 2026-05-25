@@ -3882,6 +3882,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func recordTypingActivity(now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+#if DEBUG
+        if now < lastTypingActivityAt {
+            cmuxDebugLog("typing.activity.backward now=\(now) last=\(lastTypingActivityAt)")
+        }
+#endif
         lastTypingActivityAt = max(lastTypingActivityAt, now)
     }
 

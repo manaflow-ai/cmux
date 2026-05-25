@@ -984,6 +984,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
     func testTypingActivityDefersSidebarGitMetadataRefresh() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
         defer {
             AppDelegate.shared = previousAppDelegate
         }

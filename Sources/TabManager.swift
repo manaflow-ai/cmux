@@ -1508,9 +1508,21 @@ class TabManager: ObservableObject {
         RunLoop.main.add(timer, forMode: .common)
     }
 
+    private func cancelWorkspaceGitMetadataTypingQuietTimerIfIdle() {
+        guard pendingWorkspaceGitMetadataRefreshesAfterTypingByKey.isEmpty else {
+            return
+        }
+        workspaceGitMetadataTypingQuietTimer?.invalidate()
+        workspaceGitMetadataTypingQuietTimer = nil
+    }
+
     private func flushWorkspaceGitMetadataRefreshesAfterTypingQuiet() {
         workspaceGitMetadataTypingQuietTimer?.invalidate()
         workspaceGitMetadataTypingQuietTimer = nil
+
+        guard !pendingWorkspaceGitMetadataRefreshesAfterTypingByKey.isEmpty else {
+            return
+        }
 
         if let quietDelay = workspaceGitMetadataTypingQuietDelay() {
             scheduleWorkspaceGitMetadataTypingQuietTimer(delay: quietDelay)
@@ -2919,6 +2931,7 @@ class TabManager: ObservableObject {
         workspaceGitCleanIndexContentSignatureByKey.removeValue(forKey: key)
         workspaceGitHeadSignatureByKey.removeValue(forKey: key)
         pendingWorkspaceGitMetadataRefreshesAfterTypingByKey.removeValue(forKey: key)
+        cancelWorkspaceGitMetadataTypingQuietTimerIfIdle()
         cancelWorkspaceGitProbeTimers(for: key)
         stopWorkspaceGitMetadataWatcher(for: key)
         updateWorkspaceGitMetadataFallbackTimer()
@@ -2968,6 +2981,7 @@ class TabManager: ObservableObject {
         pendingWorkspaceGitMetadataRefreshesAfterTypingByKey = pendingWorkspaceGitMetadataRefreshesAfterTypingByKey.filter { key, _ in
             key.workspaceId != workspaceId
         }
+        cancelWorkspaceGitMetadataTypingQuietTimerIfIdle()
         stopWorkspaceGitMetadataWatchers(workspaceId: workspaceId)
         updateWorkspaceGitMetadataFallbackTimer()
         clearWorkspacePullRequestTracking(workspaceId: workspaceId)
