@@ -36,6 +36,7 @@ public actor CitadelSSHTransport: CmuxSSHTransport {
     private let hostKeyPolicy: HostKeyPolicy
     private let connectTimeout: TimeAmount
     private var client: SSHClient?
+    private static let streamingStderrTailLimit = 64 * 1024
 
     public init(
         host: String,
@@ -150,6 +151,13 @@ public actor CitadelSSHTransport: CmuxSSHTransport {
     private func markDisconnected() {
         log.info("SSH session disconnected")
         client = nil
+    }
+
+    private static func trimStreamingStderrTail(_ buffer: inout Data) {
+        let overflow = buffer.count - streamingStderrTailLimit
+        if overflow > 0 {
+            buffer.removeFirst(overflow)
+        }
     }
 
     public func close() async {
@@ -286,6 +294,7 @@ public actor CitadelSSHTransport: CmuxSSHTransport {
                         case .stderr(let buf):
                             stderrTail.append(contentsOf: buf.readableBytesView)
                             stderrBuffer.append(contentsOf: buf.readableBytesView)
+                            Self.trimStreamingStderrTail(&stderrBuffer)
                             while let nl = stderrTail.firstIndex(of: 0x0A) {
                                 let lineData = stderrTail.prefix(upTo: nl)
                                 stderrTail.removeSubrange(...nl)
@@ -337,6 +346,7 @@ public actor CitadelSSHTransport: CmuxSSHTransport {
                         case .stderr(let buf):
                             stderrTail.append(contentsOf: buf.readableBytesView)
                             stderrBuffer.append(contentsOf: buf.readableBytesView)
+                            Self.trimStreamingStderrTail(&stderrBuffer)
                             while let nl = stderrTail.firstIndex(of: 0x0A) {
                                 let lineData = stderrTail.prefix(upTo: nl)
                                 stderrTail.removeSubrange(...nl)

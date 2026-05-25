@@ -43,7 +43,9 @@ struct PencilOverlayView: View {
                 drawing = PKDrawing()
                 recognized = ""
             } label: { Label(L10n.string("common.clear", defaultValue: "Clear"), systemImage: "trash") }
+                .disabled(isSending)
             Button(role: .cancel) { isPresented = false } label: { Text(L10n.string("common.cancel", defaultValue: "Cancel")) }
+                .disabled(isSending)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
