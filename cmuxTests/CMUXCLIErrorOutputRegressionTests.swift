@@ -181,6 +181,32 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertTrue(payload.isEmpty, result.stdout)
     }
 
+    func testCodexTeamsAppServerLogUTF8PrefixDefersIncompleteMultibyteSuffix() {
+        var data = Data("spawn failed: ".utf8)
+        let multibyteCharacterBytes: [UInt8] = [0xF0, 0x9F, 0x98, 0xB5]
+        data.append(contentsOf: multibyteCharacterBytes.prefix(2))
+
+        let completeByteCount = CMUXCLI.debugCodexTeamsCompleteUTF8PrefixLengthForTesting(data)
+
+        XCTAssertEqual(completeByteCount, Data("spawn failed: ".utf8).count)
+        XCTAssertEqual(String(decoding: data.prefix(completeByteCount), as: UTF8.self), "spawn failed: ")
+
+        data.append(contentsOf: multibyteCharacterBytes.dropFirst(2))
+        XCTAssertEqual(
+            CMUXCLI.debugCodexTeamsCompleteUTF8PrefixLengthForTesting(data),
+            data.count
+        )
+    }
+
+    func testCodexTeamsAppServerLogUTF8PrefixDoesNotDeferInvalidTrailingBytes() {
+        let data = Data([0x73, 0x70, 0x61, 0x77, 0x6e, 0x80])
+
+        XCTAssertEqual(
+            CMUXCLI.debugCodexTeamsCompleteUTF8PrefixLengthForTesting(data),
+            data.count
+        )
+    }
+
     func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-socket-\(UUID().uuidString.lowercased())"

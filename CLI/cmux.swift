@@ -16430,6 +16430,7 @@ struct CMUXCLI {
         private var appServerLogSource: DispatchSourceFileSystemObject?
         private var appServerLogOffset: UInt64 = 0
         private var appServerLogBuffer = ""
+        private var appServerLogPendingUTF8Bytes = Data()
 
         private struct SpawnFailureDeliveryState {
             var diagnostic: CodexTeamsSpawnFailureDiagnostic
@@ -16544,6 +16545,7 @@ struct CMUXCLI {
             if appServerLogOffset > endOffset {
                 appServerLogOffset = 0
                 appServerLogBuffer = ""
+                appServerLogPendingUTF8Bytes.removeAll(keepingCapacity: true)
             }
             let startOffset = appServerLogOffset
             guard startOffset < endOffset else { return }
@@ -16555,9 +16557,15 @@ struct CMUXCLI {
 
             let data = handle.readDataToEndOfFile()
             appServerLogOffset = startOffset + UInt64(data.count)
-            guard let text = String(data: data, encoding: .utf8), !text.isEmpty else {
+            var pendingData = appServerLogPendingUTF8Bytes
+            pendingData.append(data)
+            let completeByteCount = CMUXCLI.codexTeamsCompleteUTF8PrefixLength(pendingData)
+            appServerLogPendingUTF8Bytes = Data(pendingData.suffix(pendingData.count - completeByteCount))
+            guard completeByteCount > 0 else {
                 return
             }
+            let text = String(decoding: pendingData.prefix(completeByteCount), as: UTF8.self)
+            guard !text.isEmpty else { return }
             consumeAppServerLogText(text, logPath: path)
         }
 
@@ -17397,6 +17405,45 @@ struct CMUXCLI {
         guard value.count > maxLength else { return value }
         let index = value.index(value.startIndex, offsetBy: max(0, maxLength - 1))
         return String(value[..<index]) + "…"
+    }
+
+    private static func codexTeamsCompleteUTF8PrefixLength(_ data: Data) -> Int {
+        guard !data.isEmpty else { return 0 }
+
+        let suffix = [UInt8](data.suffix(4))
+        var continuationCount = 0
+        var index = suffix.count - 1
+        while index >= 0 {
+            let byte = suffix[index]
+            guard byte & 0b1100_0000 == 0b1000_0000 else { break }
+            continuationCount += 1
+            index -= 1
+        }
+
+        guard index >= 0 else {
+            return data.count
+        }
+
+        let leadByte = suffix[index]
+        let expectedByteCount: Int
+        switch leadByte {
+        case 0x00...0x7F:
+            expectedByteCount = 1
+        case 0xC2...0xDF:
+            expectedByteCount = 2
+        case 0xE0...0xEF:
+            expectedByteCount = 3
+        case 0xF0...0xF4:
+            expectedByteCount = 4
+        default:
+            return data.count
+        }
+
+        let availableByteCount = continuationCount + 1
+        if expectedByteCount > availableByteCount {
+            return data.count - availableByteCount
+        }
+        return data.count
     }
 
     private func runCodexTeams(
@@ -30238,6 +30285,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         idFormat: CLIIDFormat = .refs
     ) -> String {
         formatDebugTerminalsPayload(payload, idFormat: idFormat)
+    }
+
+    static func debugCodexTeamsCompleteUTF8PrefixLengthForTesting(_ data: Data) -> Int {
+        codexTeamsCompleteUTF8PrefixLength(data)
     }
 #endif
 }

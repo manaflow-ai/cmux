@@ -21765,88 +21765,23 @@
     },
     "cli.codexTeams.spawnFailure.body.fullHistoryForkOverride": {
       "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォークされたサブエージェントは親セッションの設定を使う必要があるため、Codex はサブエージェントを開始できませんでした。サブエージェントペインは開かれていません。エラー: %@ ログ: %@"
-          }
-        }
-      }
+      "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"bs":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"da":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"de":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"en":{"stringUnit":{"state":"translated","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"es":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"fr":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"it":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"ja":{"stringUnit":{"state":"translated","value":"フォークされたサブエージェントは親セッションの設定を使う必要があるため、Codex はサブエージェントを開始できませんでした。サブエージェントペインは開かれていません。エラー: %@ ログ: %@"}},"km":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"ko":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"nb":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"pl":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"ru":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"th":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"tr":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"uk":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"}}}
     },
     "cli.codexTeams.spawnFailure.body.generic": {
       "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex はサブエージェントを開始できませんでした。サブエージェントペインは開かれていません。エラー: %@ ログ: %@"
-          }
-        }
-      }
+      "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"bs":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"da":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"de":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"en":{"stringUnit":{"state":"translated","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"es":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"fr":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"it":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"ja":{"stringUnit":{"state":"translated","value":"Codex はサブエージェントを開始できませんでした。サブエージェントペインは開かれていません。エラー: %@ ログ: %@"}},"km":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"ko":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"nb":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"pl":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"ru":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"th":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"tr":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"uk":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"}}}
     },
     "cli.codexTeams.spawnFailure.logPath.unknown": {
       "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "unknown"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不明"
-          }
-        }
-      }
+      "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"unknown"}},"bs":{"stringUnit":{"state":"needs_review","value":"unknown"}},"da":{"stringUnit":{"state":"needs_review","value":"unknown"}},"de":{"stringUnit":{"state":"needs_review","value":"unknown"}},"en":{"stringUnit":{"state":"translated","value":"unknown"}},"es":{"stringUnit":{"state":"needs_review","value":"unknown"}},"fr":{"stringUnit":{"state":"needs_review","value":"unknown"}},"it":{"stringUnit":{"state":"needs_review","value":"unknown"}},"ja":{"stringUnit":{"state":"translated","value":"不明"}},"km":{"stringUnit":{"state":"needs_review","value":"unknown"}},"ko":{"stringUnit":{"state":"needs_review","value":"unknown"}},"nb":{"stringUnit":{"state":"needs_review","value":"unknown"}},"pl":{"stringUnit":{"state":"needs_review","value":"unknown"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"unknown"}},"ru":{"stringUnit":{"state":"needs_review","value":"unknown"}},"th":{"stringUnit":{"state":"needs_review","value":"unknown"}},"tr":{"stringUnit":{"state":"needs_review","value":"unknown"}},"uk":{"stringUnit":{"state":"needs_review","value":"unknown"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"unknown"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"unknown"}}}
     },
     "cli.codexTeams.spawnFailure.status": {
       "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex subagent spawn failed"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex サブエージェントの起動失敗"
-          }
-        }
-      }
+      "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}},"bs":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}},"da":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}},"de":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}},"en":{"stringUnit":{"state":"translated","value":"Codex subagent spawn failed"}},"es":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}},"fr":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}},"it":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}},"ja":{"stringUnit":{"state":"translated","value":"Codex サブエージェントの起動失敗"}},"km":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}},"ko":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}},"nb":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}},"pl":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}},"ru":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}},"th":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}},"tr":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}},"uk":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Codex subagent spawn failed"}}}
     },
     "cli.codexTeams.spawnFailure.subtitle": {
       "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Subagent spawn failed"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サブエージェントの起動失敗"
-          }
-        }
-      }
+      "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}},"bs":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}},"da":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}},"de":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}},"en":{"stringUnit":{"state":"translated","value":"Subagent spawn failed"}},"es":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}},"fr":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}},"it":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}},"ja":{"stringUnit":{"state":"translated","value":"サブエージェントの起動失敗"}},"km":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}},"ko":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}},"nb":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}},"pl":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}},"ru":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}},"th":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}},"tr":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}},"uk":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Subagent spawn failed"}}}
     },
     "agent.claude.completion.subtitle.completed": {
       "extractionState": "manual",
