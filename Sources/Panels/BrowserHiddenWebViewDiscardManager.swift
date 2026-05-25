@@ -19,6 +19,8 @@ protocol BrowserHiddenWebViewDiscardManagerDelegate: AnyObject {
 
 @MainActor
 final class BrowserHiddenWebViewDiscardManager {
+    private static let retentionCoordinator = BrowserHiddenWebViewRetentionCoordinator()
+
     struct BlockerSnapshot {
         let isClosing: Bool
         let isVisibleInUI: Bool
@@ -62,7 +64,6 @@ final class BrowserHiddenWebViewDiscardManager {
     /// (https://github.com/manaflow-ai/cmux/issues/5261).
     private(set) var isSystemSleeping = false
     private(set) var lastSystemWakeAt: Date?
-
     private(set) var isDiscardedForMemory: Bool = false
     private(set) var discardedAt: Date?
     private(set) var lastDiscardReason: String?
@@ -72,6 +73,7 @@ final class BrowserHiddenWebViewDiscardManager {
 
     var hasScheduledDiscard: Bool {
         discardTimer != nil
+        || Self.retentionCoordinator.contains(self)
     }
 
     func blockers(for snapshot: BlockerSnapshot) -> [String] {
@@ -165,7 +167,6 @@ final class BrowserHiddenWebViewDiscardManager {
         delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: reason)
         return true
     }
-
     func cancel() {
         scheduleGeneration &+= 1
         discardTimer?.cancel()
@@ -248,6 +249,7 @@ final class BrowserHiddenWebViewDiscardManager {
         discardedAt = now
         lastDiscardReason = reason
         updateRestoredSessionRenderIntent(true)
+        Self.retentionCoordinator.retainIfEligible(self, reason: reason)
     }
 
     @discardableResult
@@ -287,7 +289,6 @@ final class BrowserHiddenWebViewDiscardManager {
         cmuxDebugLog("browser.discard.restoreNavigation.didNotCommit reason=\(reason)")
 #endif
     }
-
     @discardableResult
     func reactivateWithoutNavigation(reason: String, performReactivate: () -> Void) -> Bool {
         guard isDiscardedForMemory else { return false }
@@ -308,11 +309,13 @@ final class BrowserHiddenWebViewDiscardManager {
         discardedAt = nil
         lastRestoreReason = reason
         updateRestoredSessionRenderIntent(nil)
+        Self.retentionCoordinator.remove(self)
         return true
     }
 
     func resetMetadata() {
         cancel()
+        Self.retentionCoordinator.remove(self)
         isDiscardedForMemory = false
         isRestoreNavigationPending = false
         discardedAt = nil
@@ -320,7 +323,6 @@ final class BrowserHiddenWebViewDiscardManager {
         lastRestoreReason = nil
         updateRestoredSessionRenderIntent(nil)
     }
-
     private func handlePolicyDefaultsChanged() {
         let nextPolicyState = BrowserHiddenWebViewDiscardPolicy.resolved(defaults: policyDefaults)
         guard policyState != nextPolicyState else { return }
@@ -332,7 +334,6 @@ final class BrowserHiddenWebViewDiscardManager {
         guard let lastSystemWakeAt else { return false }
         return now.timeIntervalSince(lastSystemWakeAt) < BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: policyDefaults)
     }
-
     private func stopOnMainActor() {
         cancel()
         if let policyObserver {
@@ -346,5 +347,93 @@ final class BrowserHiddenWebViewDiscardManager {
         }
         systemSleepObservers.removeAll()
         systemSleepObserverCenter = nil
+    }
+}
+
+@MainActor
+private final class BrowserHiddenWebViewRetentionCoordinator {
+    private struct Entry {
+        weak var manager: BrowserHiddenWebViewDiscardManager?
+        let hiddenAt: Date
+        let sequence: UInt64
+        let webViewInstanceID: UUID
+        var lastReason: String
+    }
+
+    private struct EntryWithID {
+        let id: ObjectIdentifier
+        let entry: Entry
+    }
+
+    private var entriesByManagerId: [ObjectIdentifier: Entry] = [:]
+    private var nextSequence: UInt64 = 0
+
+    func contains(_ manager: BrowserHiddenWebViewDiscardManager) -> Bool {
+        pruneInvalidEntries()
+        return entriesByManagerId[ObjectIdentifier(manager)] != nil
+    }
+
+    func retainIfEligible(_ manager: BrowserHiddenWebViewDiscardManager, reason: String) {
+        pruneInvalidEntries()
+        guard BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: .standard),
+              manager.isDiscardedForMemory,
+              let delegate = manager.delegate,
+              manager.blockers(for: delegate.hiddenWebViewDiscardSnapshot)
+                .allSatisfy({ $0 == "already_discarded" }) else {
+            remove(manager)
+            return
+        }
+        let managerID = ObjectIdentifier(manager)
+        let hiddenAt = delegate.hiddenWebViewDiscardHiddenAt ?? Date()
+        let instanceID = delegate.hiddenWebViewDiscardWebViewInstanceID
+        if var entry = entriesByManagerId[managerID], entry.webViewInstanceID == instanceID {
+            entry.lastReason = reason
+            entriesByManagerId[managerID] = entry
+        } else {
+            nextSequence &+= 1
+            entriesByManagerId[managerID] = Entry(
+                manager: manager,
+                hiddenAt: hiddenAt,
+                sequence: nextSequence,
+                webViewInstanceID: instanceID,
+                lastReason: reason
+            )
+        }
+        enforceLimit(reason: reason)
+    }
+
+    func remove(_ manager: BrowserHiddenWebViewDiscardManager) {
+        entriesByManagerId.removeValue(forKey: ObjectIdentifier(manager))
+    }
+
+    func enforceLimit(reason: String) {
+        pruneInvalidEntries()
+        let limit = BrowserHiddenWebViewDiscardPolicy.hiddenWebViewRetentionLimit
+        guard BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: .standard), limit >= 0 else {
+            entriesByManagerId.removeAll()
+            return
+        }
+        let entries = entriesByManagerId.map { EntryWithID(id: $0.key, entry: $0.value) }.sorted {
+            $0.entry.hiddenAt == $1.entry.hiddenAt
+                ? $0.entry.sequence < $1.entry.sequence
+                : $0.entry.hiddenAt < $1.entry.hiddenAt
+        }
+        let now = Date()
+        for item in entries.filter({ now.timeIntervalSince($0.entry.hiddenAt) >= BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: .standard) }).prefix(max(0, entries.count - limit)) {
+            guard let manager = item.entry.manager, let delegate = manager.delegate else {
+                entriesByManagerId.removeValue(forKey: item.id)
+                continue
+            }
+            entriesByManagerId.removeValue(forKey: item.id)
+            delegate.hiddenWebViewDiscardManagerDidRequestDiscard(manager, reason: "lru_retention_limit.\(reason)")
+        }
+    }
+    private func pruneInvalidEntries() {
+        entriesByManagerId = entriesByManagerId.filter { _, entry in
+            guard let manager = entry.manager, let delegate = manager.delegate else { return false }
+            return delegate.hiddenWebViewDiscardWebViewInstanceID == entry.webViewInstanceID
+                && manager.blockers(for: delegate.hiddenWebViewDiscardSnapshot)
+                    .allSatisfy({ $0 == "already_discarded" })
+        }
     }
 }

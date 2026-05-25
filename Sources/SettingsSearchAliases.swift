@@ -1,5 +1,4 @@
 import Foundation
-
 enum SettingsSearchAliasIndex {
     static func sectionAliases(for target: SettingsNavigationTarget) -> String {
         switch target {
