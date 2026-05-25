@@ -1005,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "Mais um dia, mais um projeto baseado em libghostty, desta vez um terminal macOS com abas verticais, melhor organização/notificações, navegador integrado/programável voltado especificamente para quem usa muitos workflows de agentes baseados em terminal.",
+    "steipete": "Cheguei atrasado, mas o cmux é ótimo. Divisão atual: app Codex para Mac para trabalho de conhecimento, aprendizado e leitura; cmux + Codex CLI para programar.",
     "schrockn": "Isso é exatamente o produto que eu estava procurando. Depois de duas horas esta manhã, estou apaixonado.",
     "egrefen": "Estou usando isso o fim de semana inteiro e é incrível.",
     "max4c": "essa tem sido minha ferramenta favorita nas últimas duas semanas",
