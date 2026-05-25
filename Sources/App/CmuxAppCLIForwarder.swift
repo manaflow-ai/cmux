@@ -100,7 +100,7 @@ nonisolated enum CmuxAppCLIForwarder {
         }
 
         let code = errno
-        let reason = String(cString: strerror(code))
+        let reason = localizedExecutionFailureReason(forErrno: code)
         let message = String(
             format: String(localized: "cli.forward.error.execFailed", defaultValue: "Failed to run bundled cmux CLI at %@: %@."),
             cliURL.path,
@@ -114,5 +114,18 @@ nonisolated enum CmuxAppCLIForwarder {
         let prefix = String(localized: "cli.error.prefix", defaultValue: "error:")
         fputs("\(prefix) \(message)\n", stderr)
         fflush(stderr)
+    }
+
+    static func localizedExecutionFailureReason(forErrno code: Int32) -> String {
+        switch code {
+        case ENOENT:
+            return String(localized: "cli.forward.error.reason.notFound", defaultValue: "not found")
+        case EACCES, EPERM:
+            return String(localized: "cli.forward.error.reason.permissionDenied", defaultValue: "permission denied")
+        case ENOEXEC:
+            return String(localized: "cli.forward.error.reason.notExecutable", defaultValue: "not executable")
+        default:
+            return String(localized: "cli.forward.error.reason.executableFailed", defaultValue: "executable failed")
+        }
     }
 }

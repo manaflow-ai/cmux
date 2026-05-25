@@ -142,8 +142,6 @@ final class BundledCLILinkageTests: XCTestCase {
         Bundle(for: Self.self)
             .bundleURL
             .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
     }
 
     private func builtAppBundleURL() throws -> URL {
@@ -171,19 +169,12 @@ final class BundledCLILinkageTests: XCTestCase {
     }
 
     private func bundledCLIURL() throws -> URL {
-        let fileManager = FileManager.default
-        let appBundleURL = builtProductsURL()
-        let enumerator = fileManager.enumerator(at: appBundleURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
-
-        while let item = enumerator?.nextObject() as? URL {
-            guard item.lastPathComponent == "cmux",
-                  item.path.contains(".app/Contents/Resources/bin/cmux") else {
-                continue
-            }
-            return item
+        let appBundleURL = try builtAppBundleURL()
+        let cliURL = appBundleURL.appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+        guard FileManager.default.fileExists(atPath: cliURL.path) else {
+            throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
         }
-
-        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+        return cliURL
     }
 
     private func runProcess(
