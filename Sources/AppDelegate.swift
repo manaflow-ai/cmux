@@ -7402,6 +7402,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let tabManagerSnapshot = sessionWindowSnapshot?.tabManager {
             tabManager.restoreSessionSnapshot(tabManagerSnapshot)
         }
+        if mainWindowContexts.isEmpty {
+            // Bind the automation socket as soon as the initial model exists.
+            // Startup probes and CLI automation should not be gated on AppKit
+            // window construction or SwiftUI view materialization.
+            startSocketListenerIfEnabled(
+                tabManager: tabManager,
+                source: "createMainWindow.initialModelReady"
+            )
+        }
 
         let sidebarWidth = sessionWindowSnapshot?.sidebar.width
             .map(SessionPersistencePolicy.sanitizedSidebarWidth)
