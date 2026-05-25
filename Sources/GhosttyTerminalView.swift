@@ -6775,6 +6775,29 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    @MainActor
+    func ensureBackgroundSurfaceStartedForSocketAccess(reason: String) {
+        guard allowsRuntimeSurfaceCreation() else { return }
+        guard surface == nil else { return }
+    #if DEBUG
+        let startedAt = ProcessInfo.processInfo.systemUptime
+    #endif
+        if let view = attachedView, view.window != nil {
+            createSurface(for: view)
+        } else {
+            startRuntimeUsingHeadlessWindowIfNeeded(reason: reason)
+        }
+    #if DEBUG
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+        let view = attachedView ?? surfaceView
+        cmuxDebugLog(
+            "surface.socket_access.start surface=\(id.uuidString.prefix(8)) " +
+            "reason=\(reason) inWindow=\(view.window != nil ? 1 : 0) " +
+            "ready=\(surface != nil ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs))"
+        )
+    #endif
+    }
+
     private func writeTextData(_ data: Data, to surface: ghostty_surface_t) {
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
