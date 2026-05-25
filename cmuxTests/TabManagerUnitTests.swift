@@ -2304,7 +2304,7 @@ final class TabManagerEqualizeSplitsTests: XCTestCase {
             return
         }
 
-        seedUnevenDividerPositions(in: workspace)
+        guard seedUnevenDividerPositions(in: workspace) else { return }
 
         XCTAssertTrue(manager.equalizeSplits(tabId: workspace.id), "Expected equalize splits command to succeed")
 
@@ -2331,7 +2331,7 @@ final class TabManagerEqualizeSplitsTests: XCTestCase {
             return
         }
 
-        seedUnevenDividerPositions(in: workspace)
+        guard seedUnevenDividerPositions(in: workspace) else { return }
 
         XCTAssertTrue(manager.equalizeSplits(tabId: workspace.id), "Expected equalize splits command to succeed")
 
@@ -2347,21 +2347,23 @@ final class TabManagerEqualizeSplitsTests: XCTestCase {
         }
     }
 
-    private func seedUnevenDividerPositions(in workspace: Workspace) {
+    private func seedUnevenDividerPositions(in workspace: Workspace) -> Bool {
         let initialSplits = splitNodes(in: workspace.bonsplitController.treeSnapshot())
         XCTAssertGreaterThanOrEqual(initialSplits.count, 3, "Expected mixed split tree to contain nested splits")
+        guard initialSplits.count >= 3 else { return false }
 
         for (index, split) in initialSplits.enumerated() {
             guard let splitId = UUID(uuidString: split.id) else {
                 XCTFail("Expected split ID to be a UUID")
-                return
+                return false
             }
             let targetPosition: CGFloat = index.isMultiple(of: 2) ? 0.2 : 0.8
-            XCTAssertTrue(
-                workspace.bonsplitController.setDividerPosition(targetPosition, forSplit: splitId),
-                "Expected to seed divider position for split \(splitId)"
-            )
+            guard workspace.bonsplitController.setDividerPosition(targetPosition, forSplit: splitId) else {
+                XCTFail("Expected to seed divider position for split \(splitId)")
+                return false
+            }
         }
+        return true
     }
 }
 
