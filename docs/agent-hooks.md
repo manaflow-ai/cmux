@@ -88,6 +88,29 @@ and browser state. Restored agent terminals stay idle until you resume them manu
 | Factory | none | `CMUX_FACTORY_HOOKS_DISABLED=1` |
 | Qoder | `QODER_CONFIG_DIR` | `CMUX_QODER_HOOKS_DISABLED=1` |
 
+Vault always scans the default Codex home at `~/.codex`. To include additional
+isolated Codex environments in the right sidebar, add them to `cmux.json`:
+
+```json
+{
+  "codex": {
+    "additionalHomes": [
+      "~/.codex-work",
+      { "path": "~/.codex-personal", "displayName": "Personal Codex" }
+    ]
+  }
+}
+```
+
+When Vault scans more than one valid Codex home, sessions from every home show
+their source label, including the default home as `Default Codex`. When resuming
+a session from an additional home, cmux sets `CODEX_HOME` to the matching
+directory.
+
+Missing, unreadable, or empty additional homes do not block discovery from other
+homes. Empty homes simply contribute no sessions, and invalid paths have no
+effect until they are fixed or removed from `cmux.json`.
+
 Pi uses Pi's extension system, not the legacy Pi hooks API. The installed extension is auto-discovered from `~/.pi/agent/extensions/` or `$PI_CODING_AGENT_DIR/extensions/`.
 
 ## Troubleshooting

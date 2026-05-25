@@ -102,19 +102,32 @@ final class SessionDragRegistry {
     static let shared = SessionDragRegistry()
 
     private var pending: [UUID: SessionEntry] = [:]
+    private var expirationTimers: [UUID: DispatchSourceTimer] = [:]
 
     func register(_ entry: SessionEntry) -> UUID {
         let id = UUID()
         pending[id] = entry
-        // Auto-expire so a cancelled drag doesn't leak forever.
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(60))
-            self?.pending.removeValue(forKey: id)
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + .seconds(60), leeway: .seconds(1))
+        timer.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.expire(id: id)
+            }
         }
+        expirationTimers[id] = timer
+        timer.resume()
         return id
     }
 
     func consume(id: UUID) -> SessionEntry? {
+        expirationTimers[id]?.cancel()
+        expirationTimers[id] = nil
+        return pending.removeValue(forKey: id)
+    }
+
+    private func expire(id: UUID) {
+        expirationTimers[id]?.cancel()
+        expirationTimers[id] = nil
         pending.removeValue(forKey: id)
     }
 }
@@ -250,12 +263,28 @@ final class SessionIndexStore: ObservableObject {
     private var sectionsCacheRevision: UInt64 = 0
     private var cachedSectionsRevision: UInt64?
     private var cachedSections: [IndexSection] = []
+    private var codexSessionHomesObserver: NSObjectProtocol?
 
     init() {
         self.agentOrder = Self.loadAgentOrder()
         self.directoryOrder = Self.loadDirectoryOrder()
         let storedGrouping = UserDefaults.standard.string(forKey: Self.groupingKey)
         self.grouping = SessionGrouping(rawValue: storedGrouping ?? "") ?? .directory
+        codexSessionHomesObserver = NotificationCenter.default.addObserver(
+            forName: CodexSessionHomeSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reload()
+            }
+        }
+    }
+
+    deinit {
+        if let codexSessionHomesObserver {
+            NotificationCenter.default.removeObserver(codexSessionHomesObserver)
+        }
     }
 
     /// Returns the sections for the current grouping mode, in the user-saved order.
@@ -1533,24 +1562,124 @@ final class SessionIndexStore: ObservableObject {
         return Array(matched.prefix(target).dropFirst(offset).prefix(limit))
     }
 
-    /// Returns Codex session entries paginated by mtime desc.
-    /// Primary path: query Codex's own `~/.codex/state_5.sqlite` (`threads`
-    /// table) — Codex pre-extracts cwd, title, model, branch, approval, sandbox,
-    /// effort, and rollout_path so we don't need to read jsonl files at all.
-    /// Fallback (DB missing): the file-scan path below.
+    /// Returns Codex session entries paginated by mtime desc across the default
+    /// CODEX_HOME plus any additional homes configured in cmux.json.
     nonisolated private static func loadCodexEntries(
         needle: String, cwdFilter: String?, offset: Int, limit: Int,
         errorBag: ErrorBag
     ) async -> [SessionEntry] {
+        let homes = codexSessionHomes(errorBag: errorBag)
+        guard !homes.isEmpty, limit > 0 else { return [] }
+
+        let target = offset + limit
+        let sourceLabels = codexSourceLabels(for: homes)
+        let merged = await withTaskGroup(of: [SessionEntry].self) { group in
+            for (home, sourceLabel) in zip(homes, sourceLabels) {
+                group.addTask {
+                    await loadCodexEntries(
+                        home: home,
+                        sourceLabel: sourceLabel,
+                        needle: needle,
+                        cwdFilter: cwdFilter,
+                        offset: 0,
+                        limit: target,
+                        errorBag: errorBag
+                    )
+                }
+            }
+            var merged: [SessionEntry] = []
+            for await entries in group {
+                merged.append(contentsOf: entries)
+            }
+            return merged
+        }
+        return Array(merged.sorted { $0.modified > $1.modified }.dropFirst(offset).prefix(limit))
+    }
+
+    nonisolated private static func codexSourceLabels(for homes: [CodexSessionHome]) -> [String?] {
+        let showSourceLabels = homes.count > 1
+        let labelCounts = Dictionary(grouping: homes.map(\.label), by: { $0 }).mapValues(\.count)
+        return homes.map {
+            codexSourceLabel(
+                for: $0,
+                showSourceLabels: showSourceLabels,
+                labelCounts: labelCounts
+            )
+        }
+    }
+
+    nonisolated private static func codexSourceLabel(
+        for home: CodexSessionHome,
+        showSourceLabels: Bool,
+        labelCounts: [String: Int]
+    ) -> String? {
+        guard showSourceLabels || !home.isDefault else { return nil }
+        guard (labelCounts[home.label] ?? 0) > 1 else { return home.label }
+        return (home.path as NSString).abbreviatingWithTildeInPath
+    }
+
+    /// Primary path: query Codex's own `state_5.sqlite` (`threads` table) for a
+    /// single CODEX_HOME. Fallback (DB missing or unsupported): file scan below.
+    nonisolated private static func loadCodexEntries(
+        home: CodexSessionHome,
+        sourceLabel: String?,
+        needle: String,
+        cwdFilter: String?,
+        offset: Int,
+        limit: Int,
+        errorBag: ErrorBag
+    ) async -> [SessionEntry] {
         if let viaSQL = await loadCodexEntriesViaSQL(
-            needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit,
-            errorBag: errorBag
+            needle: needle,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit,
+            errorBag: errorBag,
+            home: home,
+            sourceLabel: sourceLabel
         ) {
             return viaSQL
         }
         return await loadCodexEntriesFromDisk(
-            needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit
+            home: home,
+            sourceLabel: sourceLabel,
+            needle: needle,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit,
+            errorBag: errorBag
         )
+    }
+
+    nonisolated private static func codexSessionHomes(errorBag: ErrorBag) -> [CodexSessionHome] {
+        let fm = FileManager.default
+        var homes: [CodexSessionHome] = []
+        var seen: Set<String> = []
+
+        func append(_ home: CodexSessionHome) {
+            guard seen.insert(home.path).inserted else { return }
+            var isDirectory: ObjCBool = false
+            let exists = fm.fileExists(atPath: home.path, isDirectory: &isDirectory)
+            guard exists, isDirectory.boolValue, fm.isReadableFile(atPath: home.path) else {
+                guard !home.isDefault else { return }
+                let format = String(
+                    localized: "sessionIndex.codexHome.warning.unavailable",
+                    defaultValue: "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
+                )
+                let message = String(format: format, (home.path as NSString).abbreviatingWithTildeInPath)
+                errorBag.add(message)
+                sessionIndexLogger.warning("Codex home unavailable and skipped: \(home.path, privacy: .private)")
+                return
+            }
+            homes.append(home)
+        }
+
+        append(CodexSessionHome.defaultHome())
+        for setting in CodexSessionHomeSettings.additionalHomes() {
+            guard let home = CodexSessionHome.additionalHome(from: setting) else { continue }
+            append(home)
+        }
+        return homes
     }
 
     nonisolated static func fileContainsNeedle(url: URL, needle: String) -> Bool {
@@ -1565,9 +1694,15 @@ final class SessionIndexStore: ObservableObject {
     /// Disk-scan fallback for Codex when state_5.sqlite isn't present (very old
     /// Codex installs, or non-default config). Same shape as the original loader.
     nonisolated private static func loadCodexEntriesFromDisk(
-        needle: String, cwdFilter: String?, offset: Int, limit: Int
+        home: CodexSessionHome,
+        sourceLabel: String?,
+        needle: String,
+        cwdFilter: String?,
+        offset: Int,
+        limit: Int,
+        errorBag: ErrorBag
     ) async -> [SessionEntry] {
-        let root = ("~/.codex/sessions" as NSString).expandingTildeInPath
+        let root = home.sessionsRoot
         let fm = FileManager.default
 
         var rgFiltered = false
@@ -1586,7 +1721,19 @@ final class SessionIndexStore: ObservableObject {
                 at: rootURL,
                 includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
                 options: [.skipsHiddenFiles]
-            ) else { return [] }
+            ) else {
+                let exists = fm.fileExists(atPath: root)
+                if !home.isDefault, exists {
+                    let format = String(
+                        localized: "sessionIndex.codexHome.warning.unavailable",
+                        defaultValue: "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
+                    )
+                    let message = String(format: format, (home.path as NSString).abbreviatingWithTildeInPath)
+                    errorBag.add(message)
+                    sessionIndexLogger.warning("Codex sessions root unavailable and skipped: \(root, privacy: .private)")
+                }
+                return []
+            }
             for case let url as URL in enumerator {
                 guard url.pathExtension == "jsonl" else { continue }
                 let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
@@ -1633,12 +1780,44 @@ final class SessionIndexStore: ObservableObject {
                     model: parsed.model,
                     approvalPolicy: parsed.approvalPolicy,
                     sandboxMode: parsed.sandboxMode,
-                    effort: parsed.effort
-                )
+                    effort: parsed.effort,
+                    codexHome: home.resumeCodexHome
+                ),
+                sourceLabel: sourceLabel
             ))
         }
         return Array(matches.dropFirst(offset).prefix(limit))
     }
+
+    #if DEBUG
+    nonisolated static func loadCodexEntriesFromDiskForTesting(
+        codexHome: String,
+        sourceLabel: String? = nil,
+        isDefault: Bool = false,
+        needle: String = "",
+        cwdFilter: String? = nil,
+        offset: Int = 0,
+        limit: Int = 100
+    ) async -> SearchOutcome {
+        let bag = ErrorBag()
+        let standardizedHome = (codexHome as NSString).standardizingPath
+        let home = CodexSessionHome(
+            path: standardizedHome,
+            label: sourceLabel ?? (standardizedHome as NSString).abbreviatingWithTildeInPath,
+            isDefault: isDefault
+        )
+        let entries = await loadCodexEntriesFromDisk(
+            home: home,
+            sourceLabel: sourceLabel,
+            needle: needle,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit,
+            errorBag: bag
+        )
+        return SearchOutcome(entries: entries, errors: bag.snapshot())
+    }
+    #endif
 
     /// Returns OpenCode session entries paginated by `time_updated` desc.
     /// Empty needle skips the `LIKE` clause entirely so it's just `ORDER BY … LIMIT/OFFSET`.

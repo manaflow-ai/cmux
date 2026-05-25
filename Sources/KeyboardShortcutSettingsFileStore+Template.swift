@@ -89,6 +89,16 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "codex": [
+                    "additionalHomes": [
+                        [
+                            "path": "~/.codex-work",
+                            "displayName": "Work Codex",
+                        ],
+                    ],
+                ],
+            ],
+            [
                 "notifications": [
                     "dockBadge": NotificationBadgeSettings.defaultDockBadgeEnabled,
                     "showInMenuBar": MenuBarExtraSettings.defaultShowInMenuBar,

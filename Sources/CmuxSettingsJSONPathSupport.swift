@@ -75,6 +75,7 @@ extension CmuxSettingsFileStore {
         "terminal.autoResumeAgentSessions",
         "terminal.textBoxMaxLines",
         "terminal.resumeCommands",
+        "codex.additionalHomes",
         "notifications.dockBadge",
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",
