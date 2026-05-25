@@ -2110,7 +2110,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8::1:2022]:/tmp/cmux-drop-123.png")
     }
 
-    func testDetectsEternalTerminalSessionIgnoresOptionsAfterDestination() {
+    func testDetectsEternalTerminalSessionParsesOptionsAfterDestination() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
             processes: [
@@ -2126,13 +2126,14 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         XCTAssertEqual(session?.destination, "lawrence@example.com")
-        XCTAssertNil(session?.port)
+        XCTAssertEqual(session?.port, 2200)
 
         let scpArgs = session?.scpArgumentsForTesting(
             localPath: "/tmp/local.png",
             remotePath: "/tmp/cmux-drop-123.png"
         ) ?? []
-        XCTAssertFalse(scpArgs.contains("-P"))
+        XCTAssertTrue(scpArgs.contains("-P"))
+        XCTAssertTrue(scpArgs.contains("2200"))
         XCTAssertEqual(scpArgs.last, "lawrence@example.com:/tmp/cmux-drop-123.png")
     }
 
@@ -2204,6 +2205,98 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 ]
             )
         )
+    }
+
+    func testDetectsEternalTerminalSessionWithCurrentETOptionSurface() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "et",
+                    "--logtostdout",
+                    "--silent",
+                    "--no-terminal",
+                    "--noexit",
+                    "--kill-other-sessions",
+                    "--macserver",
+                    "--forward-ssh-agent",
+                    "--telemetry", "false",
+                    "--terminal-path=/usr/local/bin/etterminal",
+                    "--tunnel", "10080:80,10443:443",
+                    "--reversetunnel=10090:90",
+                    "--jserverfifo", "jump.fifo",
+                    "--serverfifo=server.fifo",
+                    "--ssh-socket", "/tmp/agent.sock",
+                    "--port", "2022",
+                    "--jport=2023",
+                    "--keepalive", "1",
+                    "--logdir", "/tmp/et-logs",
+                    "--command", "printf ok",
+                    "--ssh-option", "Port=2200",
+                    "--ssh-option=IdentityFile=/Users/test/.ssh/id_ed25519",
+                    "--ssh-option", "User=lawrence",
+                    "--host=example.com:2024",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.destination, "lawrence@example.com")
+        XCTAssertEqual(session?.port, 2200)
+        XCTAssertEqual(session?.identityFile, "/Users/test/.ssh/id_ed25519")
+        XCTAssertTrue(session?.forwardAgent == true)
+
+        let scpArgs = session?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        ) ?? []
+        XCTAssertTrue(scpArgs.contains("-A"))
+        XCTAssertTrue(scpArgs.contains("-P"))
+        XCTAssertTrue(scpArgs.contains("2200"))
+        XCTAssertFalse(scpArgs.contains("2022"))
+        XCTAssertFalse(scpArgs.contains("2023"))
+        XCTAssertFalse(scpArgs.contains("2024"))
+        XCTAssertEqual(scpArgs.last, "lawrence@example.com:/tmp/cmux-drop-123.png")
+    }
+
+    func testDetectsEternalTerminalSessionWithBundledShortAndUnknownOptions() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "et",
+                    "--future-flag",
+                    "--future-value=ignored",
+                    "-ZefxN",
+                    "-v2",
+                    "-p2022",
+                    "-k1",
+                    "-l/tmp/et-logs",
+                    "-t10080:80",
+                    "-r10090:90",
+                    "-cprintf ok",
+                    "--ssh-option=User=lawrence",
+                    "example.com",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.destination, "lawrence@example.com")
+        XCTAssertNil(session?.port)
+        XCTAssertTrue(session?.forwardAgent == true)
+
+        let scpArgs = session?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        ) ?? []
+        XCTAssertTrue(scpArgs.contains("-A"))
+        XCTAssertFalse(scpArgs.contains("-P"))
+        XCTAssertEqual(scpArgs.last, "lawrence@example.com:/tmp/cmux-drop-123.png")
     }
 
     func testDaemonTransportArgumentsReuseConfiguredControlPath() {

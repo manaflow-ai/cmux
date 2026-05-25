@@ -145,7 +145,7 @@ nonisolated enum RemoteShellSessionParsing {
             }
         }
 
-        while index < arguments.count {
+        argumentLoop: while index < arguments.count {
             let argument = arguments[index]
             if argument == "--" {
                 let nextIndex = index + 1
@@ -158,7 +158,8 @@ nonisolated enum RemoteShellSessionParsing {
                 if destination == nil {
                     destination = argument
                 }
-                break
+                index += 1
+                continue
             }
 
             if argument == "--ssh-option" {
@@ -188,7 +189,10 @@ nonisolated enum RemoteShellSessionParsing {
                     continue
                 }
                 if optionName == "telemetry" {
-                    if parts.count == 1, index + 1 < arguments.count, isBoolLiteral(arguments[index + 1]) {
+                    if parts.count == 2 {
+                        guard isBoolLiteral(String(parts[1])) else { return nil }
+                        index += 1
+                    } else if index + 1 < arguments.count, isBoolLiteral(arguments[index + 1]) {
                         index += 2
                     } else {
                         index += 1
@@ -198,10 +202,15 @@ nonisolated enum RemoteShellSessionParsing {
                 if optionName == "verbose" {
                     if parts.count == 2 {
                         guard Int(String(parts[1])) != nil else { return nil }
-                    } else if index + 1 < arguments.count, Int(arguments[index + 1]) != nil {
                         index += 1
+                    } else {
+                        let nextIndex = index + 1
+                        guard nextIndex < arguments.count,
+                              Int(arguments[nextIndex]) != nil else {
+                            return nil
+                        }
+                        index += 2
                     }
-                    index += 1
                     continue
                 }
                 if eternalTerminalLongValueOptions.contains(optionName) {
@@ -222,44 +231,57 @@ nonisolated enum RemoteShellSessionParsing {
                     index += 1
                     continue
                 }
-                return nil
-            }
-
-            let shortOptions = Array(argument.dropFirst())
-            guard let option = shortOptions.first else { return nil }
-            if option == "f" {
-                forwardAgent = true
-                guard shortOptions.count == 1 else { return nil }
                 index += 1
                 continue
             }
-            if option == "v" {
-                if shortOptions.count > 1 {
-                    guard Int(String(argument.dropFirst(2))) != nil else { return nil }
-                    index += 1
-                } else if index + 1 < arguments.count, Int(arguments[index + 1]) != nil {
-                    index += 2
-                } else {
-                    index += 1
-                }
-                continue
-            }
-            if eternalTerminalValueArgumentFlags.contains(option) {
-                if shortOptions.count > 1 {
-                    guard consumeETValue(String(argument.dropFirst(2)), for: option) else { return nil }
-                    index += 1
-                } else {
-                    let nextIndex = index + 1
-                    guard nextIndex < arguments.count,
-                          consumeETValue(arguments[nextIndex], for: option) else {
-                        return nil
+
+            let shortOptions = Array(argument.dropFirst())
+            guard !shortOptions.isEmpty else { return nil }
+            var shortOptionIndex = 0
+            while shortOptionIndex < shortOptions.count {
+                let option = shortOptions[shortOptionIndex]
+
+                if option == "v" {
+                    if shortOptionIndex + 1 < shortOptions.count {
+                        let value = String(shortOptions[(shortOptionIndex + 1)...])
+                        guard Int(value) != nil else { return nil }
+                        index += 1
+                    } else {
+                        let nextIndex = index + 1
+                        guard nextIndex < arguments.count,
+                              Int(arguments[nextIndex]) != nil else {
+                            return nil
+                        }
+                        index += 2
                     }
-                    index += 2
+                    continue argumentLoop
                 }
-                continue
-            }
-            guard shortOptions.allSatisfy({ eternalTerminalNoArgumentFlags.contains($0) }) else {
-                return nil
+
+                if eternalTerminalValueArgumentFlags.contains(option) {
+                    if shortOptionIndex + 1 < shortOptions.count {
+                        let value = String(shortOptions[(shortOptionIndex + 1)...])
+                        guard consumeETValue(value, for: option) else { return nil }
+                        index += 1
+                    } else {
+                        let nextIndex = index + 1
+                        guard nextIndex < arguments.count,
+                              consumeETValue(arguments[nextIndex], for: option) else {
+                            return nil
+                        }
+                        index += 2
+                    }
+                    continue argumentLoop
+                }
+
+                if eternalTerminalNoArgumentFlags.contains(option) {
+                    if option == "f" {
+                        forwardAgent = true
+                    }
+                    shortOptionIndex += 1
+                    continue
+                }
+
+                shortOptionIndex += 1
             }
             index += 1
         }
