@@ -1,6 +1,8 @@
 import Darwin
 import Foundation
 
+private nonisolated let cmuxTopPhysicalMemoryBytes = max(Double(ProcessInfo.processInfo.physicalMemory), 1)
+
 nonisolated struct CmuxTopResourceSummary: Sendable {
     var cpuPercent: Double = 0
     var memoryBytes: Int64 = 0
@@ -17,6 +19,7 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
     func payload() -> [String: Any] {
         [
             "cpu_percent": cpuPercent,
+            "memory_percent": memoryPercent,
             "memory_bytes": memoryBytes,
             "resident_bytes": residentBytes,
             "virtual_bytes": virtualBytes,
@@ -32,6 +35,11 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
             "unavailable_resident_memory_pids": unavailableResidentMemoryPIDs,
             "unavailable_resident_memory_count": unavailableResidentMemoryPIDs.count
         ]
+    }
+
+    private var memoryPercent: Double {
+        guard residentBytes > 0 else { return 0 }
+        return (Double(residentBytes) / cmuxTopPhysicalMemoryBytes) * 100
     }
 
     func attributedPayload(sharedAcross occurrenceCount: Int) -> [String: Any] {
@@ -64,6 +72,8 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
     let cmuxAttributionReason: String?
     let processGroupID: Int?
     let terminalProcessGroupID: Int?
+    let startSeconds: Int
+    let startMicroseconds: Int
     var cpuPercent: Double
     let memoryBytes: Int64
     let memorySource: CmuxTopProcessMemorySource
@@ -83,6 +93,8 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
         cmuxAttributionReason: String?,
         processGroupID: Int?,
         terminalProcessGroupID: Int?,
+        startSeconds: Int = 0,
+        startMicroseconds: Int = 0,
         cpuPercent: Double,
         memoryBytes: Int64? = nil,
         memorySource: CmuxTopProcessMemorySource? = nil,
@@ -101,6 +113,8 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
         self.cmuxAttributionReason = cmuxAttributionReason
         self.processGroupID = processGroupID
         self.terminalProcessGroupID = terminalProcessGroupID
+        self.startSeconds = startSeconds
+        self.startMicroseconds = startMicroseconds
         self.cpuPercent = cpuPercent
         self.memoryBytes = memoryBytes ?? residentBytes
         self.memorySource = memorySource
@@ -573,6 +587,8 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "ppid": process.parentPID,
             "name": process.name,
             "path": process.path ?? NSNull(),
+            "start_seconds": process.startSeconds,
+            "start_microseconds": process.startMicroseconds,
             "attribution_reason": attributionReason(for: process, allowedPIDs: allowedPIDs, rootPIDs: rootPIDs),
             "thread_count": process.threadCount,
             "memory_source": process.memorySource.rawValue,

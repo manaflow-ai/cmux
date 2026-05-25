@@ -1,0 +1,404 @@
+import Foundation
+import SQLite3
+
+extension CMUXCLI {
+    final class MemoryTelemetryDatabase {
+        private let url: URL
+        private var db: OpaquePointer?
+
+        var path: String {
+            url.path
+        }
+
+        init(url: URL) {
+            self.url = url
+        }
+
+        private var telemetryAccessErrorMessage: String {
+            String(
+                localized: "cli.memory.error.telemetryUnavailable",
+                defaultValue: "Could not access memory telemetry. Try again, or run `cmux memory snapshot` after opening cmux to collect a fresh sample."
+            )
+        }
+
+        private var telemetrySaveErrorMessage: String {
+            String(
+                localized: "cli.memory.error.telemetrySaveFailed",
+                defaultValue: "Could not save memory telemetry. Try again after opening cmux, or check that cmux can write app data."
+            )
+        }
+
+        deinit {
+            close()
+        }
+
+        func open() throws {
+            guard db == nil else { return }
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let flags = SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
+            let result = sqlite3_open_v2(url.path, &db, flags, nil)
+            guard result == SQLITE_OK, db != nil else {
+                close()
+                throw CLIError(message: telemetryAccessErrorMessage)
+            }
+            _ = sqlite3_busy_timeout(db, 1000)
+            do {
+                try exec("PRAGMA journal_mode=WAL", failureMessage: telemetryAccessErrorMessage)
+                try exec("PRAGMA foreign_keys=ON", failureMessage: telemetryAccessErrorMessage)
+                try migrate()
+            } catch {
+                close()
+                throw error
+            }
+        }
+
+        func close() {
+            if let db {
+                sqlite3_close(db)
+            }
+            db = nil
+        }
+
+        func insert(samples: [MemoryWorkspaceSample], retention: TimeInterval) throws {
+            try open()
+            try exec("BEGIN IMMEDIATE", failureMessage: telemetrySaveErrorMessage)
+            do {
+                for sample in samples {
+                    try insert(sample: sample)
+                }
+                try prune(retention: retention)
+                try exec("COMMIT", failureMessage: telemetrySaveErrorMessage)
+            } catch {
+                try? exec("ROLLBACK", failureMessage: telemetrySaveErrorMessage)
+                throw error
+            }
+        }
+
+        func topRows(since: TimeInterval, limit: Int, retention: TimeInterval, sort: MemoryTopSort) throws -> [[String: Any]] {
+            try open()
+            try prune(retention: retention)
+
+            let cutoff = Date.now.addingTimeInterval(-since).timeIntervalSince1970
+            let orderBy: String
+            switch sort {
+            case .peak:
+                orderBy = "peak_rss_bytes DESC, avg_rss_bytes DESC"
+            case .average:
+                orderBy = "avg_rss_bytes DESC, peak_rss_bytes DESC"
+            }
+            let sql = """
+            WITH filtered AS (
+                SELECT *
+                FROM workspace_memory_samples
+                WHERE sampled_at >= ?
+            ),
+            aggregated AS (
+                SELECT
+                    workspace_id,
+                    COUNT(*) AS sample_count,
+                    MAX(rss_bytes) AS peak_rss_bytes,
+                    AVG(rss_bytes) AS avg_rss_bytes,
+                    MAX(memory_percent) AS peak_memory_percent,
+                    AVG(memory_percent) AS avg_memory_percent,
+                    MAX(cpu_percent) AS peak_cpu_percent,
+                    AVG(cpu_percent) AS avg_cpu_percent,
+                    MAX(process_count) AS peak_process_count,
+                    MAX(sampled_at) AS last_sampled_at
+                FROM filtered
+                GROUP BY workspace_id
+            ),
+            latest AS (
+                SELECT
+                    current.workspace_id,
+                    current.workspace_ref,
+                    current.workspace_title
+                FROM filtered AS current
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM filtered AS newer
+                    WHERE newer.workspace_id = current.workspace_id
+                      AND (
+                        newer.sampled_at > current.sampled_at
+                        OR (newer.sampled_at = current.sampled_at AND newer.id > current.id)
+                      )
+                )
+            )
+            SELECT
+                aggregated.workspace_id,
+                COALESCE(latest.workspace_ref, ''),
+                COALESCE(latest.workspace_title, ''),
+                aggregated.sample_count,
+                aggregated.peak_rss_bytes,
+                aggregated.avg_rss_bytes,
+                aggregated.peak_memory_percent,
+                aggregated.avg_memory_percent,
+                aggregated.peak_cpu_percent,
+                aggregated.avg_cpu_percent,
+                aggregated.peak_process_count,
+                aggregated.last_sampled_at
+            FROM aggregated
+            LEFT JOIN latest ON latest.workspace_id = aggregated.workspace_id
+            ORDER BY \(orderBy)
+            LIMIT ?
+            """
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+                throw CLIError(message: telemetryAccessErrorMessage)
+            }
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_bind_double(stmt, 1, cutoff)
+            sqlite3_bind_int64(stmt, 2, sqlite3_int64(max(1, limit)))
+
+            var rows: [[String: Any]] = []
+            var stepResult = sqlite3_step(stmt)
+            while stepResult == SQLITE_ROW {
+                rows.append([
+                    "workspace_id": sqliteText(stmt, 0) ?? "",
+                    "workspace_ref": sqliteText(stmt, 1) ?? "",
+                    "workspace_title": sqliteText(stmt, 2) ?? "",
+                    "sample_count": Int(sqlite3_column_int64(stmt, 3)),
+                    "peak_rss_bytes": sqlite3_column_int64(stmt, 4),
+                    "avg_rss_bytes": sqlite3_column_double(stmt, 5),
+                    "peak_memory_percent": sqlite3_column_double(stmt, 6),
+                    "avg_memory_percent": sqlite3_column_double(stmt, 7),
+                    "peak_cpu_percent": sqlite3_column_double(stmt, 8),
+                    "avg_cpu_percent": sqlite3_column_double(stmt, 9),
+                    "peak_process_count": Int(sqlite3_column_int64(stmt, 10)),
+                    "last_sampled_at": ISO8601DateFormatter().string(
+                        from: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 11))
+                    ),
+                    "approximate": true
+                ])
+                stepResult = sqlite3_step(stmt)
+            }
+            guard stepResult == SQLITE_DONE else {
+                throw CLIError(message: telemetryAccessErrorMessage)
+            }
+            return rows
+        }
+
+        private func migrate() throws {
+            try exec("""
+            CREATE TABLE IF NOT EXISTS workspace_memory_samples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sampled_at REAL NOT NULL,
+                workspace_id TEXT NOT NULL,
+                workspace_ref TEXT,
+                workspace_title TEXT,
+                window_id TEXT,
+                window_ref TEXT,
+                rss_bytes INTEGER NOT NULL,
+                virtual_bytes INTEGER NOT NULL,
+                memory_percent REAL NOT NULL DEFAULT 0,
+                cpu_percent REAL NOT NULL,
+                process_count INTEGER NOT NULL,
+                top_process_names TEXT NOT NULL
+            )
+            """, failureMessage: telemetryAccessErrorMessage)
+            if try !columnExists("workspace_memory_samples", column: "memory_percent") {
+                try exec(
+                    "ALTER TABLE workspace_memory_samples ADD COLUMN memory_percent REAL NOT NULL DEFAULT 0",
+                    failureMessage: telemetryAccessErrorMessage
+                )
+            }
+            try exec(
+                "CREATE INDEX IF NOT EXISTS idx_workspace_memory_samples_time ON workspace_memory_samples(sampled_at)",
+                failureMessage: telemetryAccessErrorMessage
+            )
+            try exec(
+                "CREATE INDEX IF NOT EXISTS idx_workspace_memory_samples_workspace_time ON workspace_memory_samples(workspace_id, sampled_at)",
+                failureMessage: telemetryAccessErrorMessage
+            )
+        }
+
+        private func insert(sample: MemoryWorkspaceSample) throws {
+            let sql = """
+            INSERT INTO workspace_memory_samples (
+                sampled_at, workspace_id, workspace_ref, workspace_title, window_id, window_ref,
+                rss_bytes, virtual_bytes, memory_percent, cpu_percent, process_count, top_process_names
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+                throw CLIError(message: telemetrySaveErrorMessage)
+            }
+            defer { sqlite3_finalize(stmt) }
+            let transient = unsafeBitCast(OpaquePointer(bitPattern: -1)!, to: sqlite3_destructor_type.self)
+            sqlite3_bind_double(stmt, 1, sample.sampledAt.timeIntervalSince1970)
+            bindText(stmt, 2, sample.workspaceId, transient: transient)
+            bindText(stmt, 3, sample.workspaceRef, transient: transient)
+            bindText(stmt, 4, sample.workspaceTitle, transient: transient)
+            bindText(stmt, 5, sample.windowId, transient: transient)
+            bindText(stmt, 6, sample.windowRef, transient: transient)
+            sqlite3_bind_int64(stmt, 7, sample.residentBytes)
+            sqlite3_bind_int64(stmt, 8, sample.virtualBytes)
+            sqlite3_bind_double(stmt, 9, sample.memoryPercent)
+            sqlite3_bind_double(stmt, 10, sample.cpuPercent)
+            sqlite3_bind_int64(stmt, 11, Int64(sample.processCount))
+            bindText(stmt, 12, Self.jsonArray(sample.topProcessNames), transient: transient)
+            guard sqlite3_step(stmt) == SQLITE_DONE else {
+                throw CLIError(message: telemetrySaveErrorMessage)
+            }
+        }
+
+        private func columnExists(_ table: String, column: String) throws -> Bool {
+            var stmt: OpaquePointer?
+            let sql = "SELECT 1 FROM pragma_table_info(?) WHERE name = ? LIMIT 1"
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+                throw CLIError(message: telemetryAccessErrorMessage)
+            }
+            defer { sqlite3_finalize(stmt) }
+            let transient = unsafeBitCast(OpaquePointer(bitPattern: -1)!, to: sqlite3_destructor_type.self)
+            bindText(stmt, 1, table, transient: transient)
+            bindText(stmt, 2, column, transient: transient)
+            let stepResult = sqlite3_step(stmt)
+            if stepResult == SQLITE_ROW {
+                return true
+            }
+            guard stepResult == SQLITE_DONE else {
+                throw CLIError(message: telemetryAccessErrorMessage)
+            }
+            return false
+        }
+
+        private func prune(retention: TimeInterval) throws {
+            guard retention > 0 else { return }
+            let cutoff = Date.now.addingTimeInterval(-retention).timeIntervalSince1970
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, "DELETE FROM workspace_memory_samples WHERE sampled_at < ?", -1, &stmt, nil) == SQLITE_OK,
+                  let stmt else {
+                throw CLIError(message: telemetryAccessErrorMessage)
+            }
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_bind_double(stmt, 1, cutoff)
+            guard sqlite3_step(stmt) == SQLITE_DONE else {
+                throw CLIError(message: telemetryAccessErrorMessage)
+            }
+        }
+
+        private func exec(_ sql: String, failureMessage: String) throws {
+            var errorMessage: UnsafeMutablePointer<CChar>?
+            guard sqlite3_exec(db, sql, nil, nil, &errorMessage) == SQLITE_OK else {
+                if let errorMessage { sqlite3_free(errorMessage) }
+                throw CLIError(message: failureMessage)
+            }
+        }
+
+        private func bindText(
+            _ stmt: OpaquePointer,
+            _ index: Int32,
+            _ value: String?,
+            transient: sqlite3_destructor_type
+        ) {
+            guard let value else {
+                sqlite3_bind_null(stmt, index)
+                return
+            }
+            sqlite3_bind_text(stmt, index, value, -1, transient)
+        }
+
+        private func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
+            guard sqlite3_column_type(stmt, index) != SQLITE_NULL,
+                  let cString = sqlite3_column_text(stmt, index) else {
+                return nil
+            }
+            return String(cString: cString)
+        }
+
+        private static func jsonArray(_ values: [String]) -> String {
+            guard JSONSerialization.isValidJSONObject(values),
+                  let data = try? JSONSerialization.data(withJSONObject: values, options: []),
+                  let text = String(data: data, encoding: .utf8) else {
+                return "[]"
+            }
+            return text
+        }
+    }
+
+#if DEBUG
+    func runMemoryTelemetryOpenRetrySelfTest() throws {
+        let url = try memoryTelemetryDatabaseURL()
+        try executeMemoryTelemetrySelfTestSQL(
+            at: url,
+            [
+                "CREATE VIEW workspace_memory_samples AS SELECT 1 AS id"
+            ]
+        )
+
+        let database = MemoryTelemetryDatabase(url: url)
+        do {
+            try database.open()
+        } catch {
+            // Expected: the view blocks migration after sqlite3_open_v2 succeeds.
+        }
+
+        try executeMemoryTelemetrySelfTestSQL(
+            at: url,
+            [
+                "DROP VIEW workspace_memory_samples"
+            ]
+        )
+
+        try database.insert(
+            samples: [
+                MemoryWorkspaceSample(
+                    sampledAt: Date(),
+                    windowId: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+                    windowRef: "window:1",
+                    workspaceId: "88888888-8888-8888-8888-888888888888",
+                    workspaceRef: "workspace:8",
+                    workspaceTitle: "Retried Init Workspace",
+                    cpuPercent: 1.5,
+                    memoryPercent: 0.2,
+                    residentBytes: 2048,
+                    virtualBytes: 4096,
+                    processCount: 1,
+                    topProcessNames: ["codex"]
+                )
+            ],
+            retention: 3600
+        )
+    }
+
+    private func executeMemoryTelemetrySelfTestSQL(at url: URL, _ statements: [String]) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        var db: OpaquePointer?
+        let flags = SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
+        guard sqlite3_open_v2(url.path, &db, flags, nil) == SQLITE_OK, db != nil else {
+            if let db {
+                sqlite3_close(db)
+            }
+            throw CLIError(message: memoryTelemetrySelfTestErrorMessage)
+        }
+        defer {
+            sqlite3_close(db)
+        }
+
+        for statement in statements {
+            var errorMessage: UnsafeMutablePointer<CChar>?
+            let result = sqlite3_exec(db, statement, nil, nil, &errorMessage)
+            if let errorMessage {
+                sqlite3_free(errorMessage)
+            }
+            guard result == SQLITE_OK else {
+                throw CLIError(message: memoryTelemetrySelfTestErrorMessage)
+            }
+        }
+    }
+
+    private var memoryTelemetrySelfTestErrorMessage: String {
+        String(
+            localized: "cli.memory.error.telemetryUnavailable",
+            defaultValue: "Could not access memory telemetry. Try again, or run `cmux memory snapshot` after opening cmux to collect a fresh sample."
+        )
+    }
+#endif
+
+}

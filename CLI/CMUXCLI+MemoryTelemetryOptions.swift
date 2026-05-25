@@ -1,0 +1,366 @@
+import Foundation
+
+extension CMUXCLI {
+    private static let memoryTrimMaximumGraceSeconds: TimeInterval = 24 * 60 * 60
+
+    enum MemorySubcommand: String {
+        case snapshot
+        case list
+        case top
+        case trim
+#if DEBUG
+        case debugOpenRetry
+#endif
+    }
+
+    struct MemoryTopCommandOptions {
+        let since: TimeInterval
+        let jsonOutput: Bool
+        let limit: Int
+        let sort: MemoryTopSort
+    }
+
+    struct MemoryCurrentCommandOptions {
+        let workspaceHandle: String?
+        let jsonOutput: Bool
+        let limit: Int?
+    }
+
+    struct MemoryTrimCommandOptions {
+        let workspaceHandle: String?
+        let agent: String?
+        let graceSeconds: TimeInterval
+        let dryRun: Bool
+        let jsonOutput: Bool
+    }
+
+    enum MemoryTopSort: String {
+        case peak
+        case average
+
+        var payloadValue: String {
+            rawValue
+        }
+
+        static func parse(_ raw: String?) throws -> MemoryTopSort {
+            guard let raw else { return .peak }
+            let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            switch normalized {
+            case "peak", "max", "rss", "peak-rss":
+                return .peak
+            case "avg", "average", "mean", "avg-rss", "average-rss":
+                return .average
+            default:
+                throw CLIError(message: String(
+                    localized: "cli.memory.error.sortInvalid",
+                    defaultValue: "--sort must be one of: peak, avg"
+                ))
+            }
+        }
+    }
+
+    func isMemoryTelemetryInvocation(command: String, args: [String]) -> Bool {
+        switch command {
+        case "memory-snapshot", "memory-list", "memory-top", "memory-trim":
+            return true
+        case "memory":
+            let rawSubcommand = args.first?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            switch rawSubcommand {
+            case "snapshot", "snap", "list", "ls", "top", "trim":
+                return true
+#if DEBUG
+            case "_test-open-retry":
+                return true
+#endif
+            default:
+                return false
+            }
+        default:
+            return false
+        }
+    }
+
+    func parseMemorySubcommand(command: String, args: [String]) throws -> (MemorySubcommand, [String]) {
+        switch command {
+        case "memory-snapshot":
+            return (.snapshot, args)
+        case "memory-list":
+            return (.list, args)
+        case "memory-top":
+            return (.top, args)
+        case "memory-trim":
+            return (.trim, args)
+        case "memory":
+            guard let rawSubcommand = args.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                  !rawSubcommand.isEmpty else {
+                throw CLIError(message: String(
+                    localized: "cli.memory.error.usage",
+                    defaultValue: "Usage: cmux memory <snapshot|list|top|trim> [flags]"
+                ))
+            }
+            let rest = Array(args.dropFirst())
+            switch rawSubcommand {
+            case "snapshot", "snap":
+                return (.snapshot, rest)
+            case "list", "ls":
+                return (.list, rest)
+            case "top":
+                return (.top, rest)
+            case "trim":
+                return (.trim, rest)
+#if DEBUG
+            case "_test-open-retry":
+                return (.debugOpenRetry, rest)
+#endif
+            default:
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.memory.error.unknownSubcommand",
+                        defaultValue: "Unknown memory subcommand '%@'. Usage: cmux memory <snapshot|list|top|trim> [flags]"
+                    ),
+                    rawSubcommand
+                ))
+            }
+        default:
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.unknownCommand",
+                    defaultValue: "Unknown memory command '%@'"
+                ),
+                command
+            ))
+        }
+    }
+
+    func parseMemoryCurrentOptions(_ args: [String], commandName: String) throws -> MemoryCurrentCommandOptions {
+        let (workspaceOpt, rem0) = parseOption(args, name: "--workspace")
+        let (limitOpt, rem1) = parseOption(rem0, name: "--limit")
+        var jsonOutput = false
+        var remaining: [String] = []
+        for arg in rem1 {
+            switch arg {
+            case "--json":
+                jsonOutput = true
+            case "--all":
+                continue
+            default:
+                remaining.append(arg)
+            }
+        }
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.currentUnknownFlag",
+                    defaultValue: "%@: unknown flag '%@'. Known flags: --workspace <id|ref|index> --limit <n> --json"
+                ),
+                commandName,
+                unknown
+            ))
+        }
+        if let extra = remaining.first {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.currentUnexpectedArgument",
+                    defaultValue: "%@: unexpected argument '%@'"
+                ),
+                commandName,
+                extra
+            ))
+        }
+        let limit = try parsePositiveInt(limitOpt, label: "--limit")
+        return MemoryCurrentCommandOptions(
+            workspaceHandle: workspaceOpt,
+            jsonOutput: jsonOutput,
+            limit: limit
+        )
+    }
+
+    func parseMemoryTopOptions(_ args: [String], jsonOutput globalJSONOutput: Bool) throws -> MemoryTopCommandOptions {
+        let (sinceOpt, rem0) = parseOption(args, name: "--since")
+        let (limitOpt, rem1) = parseOption(rem0, name: "--limit")
+        let (sortOpt, rem2) = parseOption(rem1, name: "--sort")
+        var jsonOutput = globalJSONOutput
+        var remaining: [String] = []
+        for arg in rem2 {
+            if arg == "--json" {
+                jsonOutput = true
+            } else {
+                remaining.append(arg)
+            }
+        }
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.topUnknownFlag",
+                    defaultValue: "memory top: unknown flag '%@'. Known flags: --since <duration> --limit <n> --sort <peak|avg> --json"
+                ),
+                unknown
+            ))
+        }
+        if let extra = remaining.first {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.topUnexpectedArgument",
+                    defaultValue: "memory top: unexpected argument '%@'"
+                ),
+                extra
+            ))
+        }
+        let since = try parseMemoryDuration(sinceOpt ?? "6h", label: "--since")
+        let limit = try parsePositiveInt(limitOpt, label: "--limit") ?? 20
+        return MemoryTopCommandOptions(
+            since: since,
+            jsonOutput: jsonOutput,
+            limit: limit,
+            sort: try MemoryTopSort.parse(sortOpt)
+        )
+    }
+
+    func parseMemoryTrimOptions(_ args: [String], jsonOutput globalJSONOutput: Bool) throws -> MemoryTrimCommandOptions {
+        let (workspaceOpt, rem0) = parseOption(args, name: "--workspace")
+        let (agentOpt, rem1) = parseOption(rem0, name: "--agent")
+        let (graceOpt, rem2) = parseOption(rem1, name: "--grace")
+        let (graceSecondsOpt, rem3) = parseOption(rem2, name: "--grace-seconds")
+        var dryRun = false
+        var jsonOutput = globalJSONOutput
+        var remaining: [String] = []
+        for arg in rem3 {
+            switch arg {
+            case "--dry-run":
+                dryRun = true
+            case "--json":
+                jsonOutput = true
+            default:
+                remaining.append(arg)
+            }
+        }
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.trimUnknownFlag",
+                    defaultValue: "memory trim: unknown flag '%@'. Known flags: --workspace <id|ref|index> --agent <name|pid|auto> --grace <duration> --grace-seconds <n> --dry-run --json"
+                ),
+                unknown
+            ))
+        }
+        if let extra = remaining.first {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.trimUnexpectedArgument",
+                    defaultValue: "memory trim: unexpected argument '%@'"
+                ),
+                extra
+            ))
+        }
+        let graceSeconds: TimeInterval
+        if let graceSecondsOpt {
+            graceSeconds = try parseMemoryDuration(
+                graceSecondsOpt,
+                label: "--grace-seconds",
+                maximum: Self.memoryTrimMaximumGraceSeconds,
+                allowZero: false
+            )
+        } else {
+            graceSeconds = try parseMemoryDuration(
+                graceOpt ?? "5s",
+                label: "--grace",
+                maximum: Self.memoryTrimMaximumGraceSeconds,
+                allowZero: false
+            )
+        }
+        let workspaceHandle = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+        return MemoryTrimCommandOptions(
+            workspaceHandle: workspaceHandle,
+            agent: agentOpt,
+            graceSeconds: graceSeconds,
+            dryRun: dryRun,
+            jsonOutput: jsonOutput
+        )
+    }
+
+    func parseMemoryDuration(
+        _ raw: String,
+        label: String,
+        maximum: TimeInterval? = nil,
+        allowZero: Bool = true
+    ) throws -> TimeInterval {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.durationRequired",
+                    defaultValue: "%@ requires a duration"
+                ),
+                label
+            ))
+        }
+        var suffixStart = trimmed.endIndex
+        while suffixStart > trimmed.startIndex {
+            let previous = trimmed.index(before: suffixStart)
+            guard trimmed[previous].isLetter else { break }
+            suffixStart = previous
+        }
+        let numberText = String(trimmed[..<suffixStart])
+        let suffix = String(trimmed[suffixStart...])
+        guard let value = Double(numberText), value.isFinite, value >= 0 else {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.durationInvalid",
+                    defaultValue: "%@ must be a non-negative duration like 30s, 15m, 6h, or 1d"
+                ),
+                label
+            ))
+        }
+        let multiplier: TimeInterval
+        switch suffix {
+        case "", "s", "sec", "secs", "second", "seconds":
+            multiplier = 1
+        case "m", "min", "mins", "minute", "minutes":
+            multiplier = 60
+        case "h", "hr", "hrs", "hour", "hours":
+            multiplier = 60 * 60
+        case "d", "day", "days":
+            multiplier = 60 * 60 * 24
+        default:
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.durationUnsupportedUnit",
+                    defaultValue: "%@ has unsupported duration unit '%@'"
+                ),
+                label,
+                suffix
+            ))
+        }
+        let seconds = value * multiplier
+        guard seconds.isFinite else {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.durationInvalid",
+                    defaultValue: "%@ must be a non-negative duration like 30s, 15m, 6h, or 1d"
+                ),
+                label
+            ))
+        }
+        if !allowZero, seconds <= 0 {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.durationPositiveRequired",
+                    defaultValue: "%@ must be a positive duration like 30s, 15m, 6h, or 1d"
+                ),
+                label
+            ))
+        }
+        if let maximum, seconds > maximum {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.durationInvalid",
+                    defaultValue: "%@ must be a non-negative duration like 30s, 15m, 6h, or 1d"
+                ),
+                label
+            ))
+        }
+        return seconds
+    }
+}

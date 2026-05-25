@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import SQLite3
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -374,6 +375,1508 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let activeSessions = try XCTUnwrap(savedState["activeSessionsByWorkspace"] as? [String: Any])
         let active = try XCTUnwrap(activeSessions[context.workspaceId] as? [String: Any])
         XCTAssertEqual(active["turnId"] as? String, "turn-2")
+    }
+
+    func testMemorySnapshotPersistsSystemTopWorkspaceSamplesWithoutCommandLines() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-snapshot")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let dbURL = temporaryMemoryTelemetryDatabaseURL(name: "snapshot")
+        let secretCommandLine = "/usr/local/bin/codex --api-key SECRET_TOKEN_DO_NOT_STORE"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent())
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.top" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual((params["all_windows"] as? NSNumber)?.boolValue, true)
+            XCTAssertEqual((params["include_processes"] as? NSNumber)?.boolValue, true)
+            XCTAssertNil(params["workspace_id"])
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: self.memorySystemTopFixture(
+                    workspaceId: workspaceId,
+                    workspaceRef: "workspace:2",
+                    surfaceId: surfaceId,
+                    agentKey: "codex",
+                    agentPID: 424_242,
+                    secretCommandLine: secretCommandLine
+                )
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_MEMORY_TELEMETRY_DB_PATH"] = dbURL.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "snapshot", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(payload["sample_count"] as? Int, 1)
+        let samples = try XCTUnwrap(payload["samples"] as? [[String: Any]])
+        let sample = try XCTUnwrap(samples.first)
+        XCTAssertEqual(sample["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(sample["resident_bytes"] as? Int, 314_572_800)
+        XCTAssertEqual(sample["memory_percent"] as? Double, 1.8)
+        XCTAssertTrue((sample["top_process_names"] as? [String] ?? []).contains("codex"))
+
+        let persistedProcessNames = try memoryTelemetryTopProcessNames(in: dbURL)
+        XCTAssertTrue(persistedProcessNames.contains("codex"))
+        XCTAssertTrue(persistedProcessNames.contains("node"))
+        XCTAssertFalse(persistedProcessNames.contains(secretCommandLine))
+        XCTAssertFalse(
+            persistedProcessNames.contains { $0.contains("SECRET_TOKEN_DO_NOT_STORE") },
+            "Persisted process names must not include command-line secrets: \(persistedProcessNames)"
+        )
+        XCTAssertFalse(
+            persistedProcessNames.contains { $0.hasPrefix("/") || $0.contains(" --") },
+            "Persisted process names must be bare process names: \(persistedProcessNames)"
+        )
+        XCTAssertFalse(result.stdout.contains("SECRET_TOKEN_DO_NOT_STORE"), result.stdout)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top"]
+        )
+    }
+
+    func testMemorySnapshotLimitOnlyFiltersOutputNotPersistence() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-snapshot-limit")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let primaryWorkspaceId = "11111111-2222-3333-4444-555555555555"
+        let secondaryWorkspaceId = "66666666-7777-8888-9999-AAAAAAAAAAAA"
+        let surfaceId = "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"
+        let dbURL = temporaryMemoryTelemetryDatabaseURL(name: "snapshot-limit")
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent())
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.top" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+            var topPayload = self.memorySystemTopFixture(
+                workspaceId: primaryWorkspaceId,
+                workspaceRef: "workspace:1",
+                surfaceId: surfaceId,
+                agentKey: "codex",
+                agentPID: 111_111,
+                secretCommandLine: "/usr/local/bin/codex"
+            )
+            var windows = topPayload["windows"] as? [[String: Any]] ?? []
+            var window = windows[0]
+            var workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            var secondary = workspaces[0]
+            secondary["id"] = secondaryWorkspaceId
+            secondary["ref"] = "workspace:2"
+            secondary["title"] = "Second Memory Workspace"
+            secondary["resources"] = [
+                "cpu_percent": 2.5,
+                "memory_percent": 0.9,
+                "resident_bytes": 157_286_400,
+                "virtual_bytes": 314_572_800,
+                "process_count": 1,
+            ]
+            secondary["tags"] = []
+            secondary["panes"] = []
+            workspaces.append(secondary)
+            window["workspaces"] = workspaces
+            windows[0] = window
+            topPayload["windows"] = windows
+            return self.v2Response(id: id, ok: true, result: topPayload)
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_MEMORY_TELEMETRY_DB_PATH"] = dbURL.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "snapshot", "--limit", "1", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(payload["sample_count"] as? Int, 2)
+        XCTAssertEqual(payload["display_sample_count"] as? Int, 1)
+        let samples = try XCTUnwrap(payload["samples"] as? [[String: Any]])
+        XCTAssertEqual(samples.count, 1)
+        XCTAssertEqual(try memoryTelemetrySampleCount(in: dbURL), 2)
+    }
+
+    func testMemoryTopReadsPersistedWorkspaceSamples() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-top")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "33333333-3333-3333-3333-333333333333"
+        let dbURL = temporaryMemoryTelemetryDatabaseURL(name: "top")
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent())
+        }
+
+        let snapshotHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "system.top")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: self.memorySystemTopFixture(
+                    workspaceId: workspaceId,
+                    workspaceRef: "workspace:4",
+                    surfaceId: "44444444-4444-4444-4444-444444444444",
+                    agentKey: "codex",
+                    agentPID: 525_252,
+                    secretCommandLine: "/usr/local/bin/codex --secret ignored"
+                )
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_MEMORY_TELEMETRY_DB_PATH"] = dbURL.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let snapshotResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "snapshot", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+        wait(for: [snapshotHandled], timeout: 5)
+        XCTAssertFalse(snapshotResult.timedOut, snapshotResult.stderr)
+        XCTAssertEqual(snapshotResult.status, 0, snapshotResult.stderr)
+
+        let topHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            XCTFail("memory top should read SQLite and not resample system.top, saw \(line)")
+            return "{}"
+        }
+        topHandled.isInverted = true
+
+        let topResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "top", "--since", "1d", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+        wait(for: [topHandled], timeout: 0.1)
+        XCTAssertFalse(topResult.timedOut, topResult.stderr)
+        XCTAssertEqual(topResult.status, 0, topResult.stderr)
+        XCTAssertTrue(topResult.stderr.isEmpty, topResult.stderr)
+
+        let payload = try jsonPayload(from: topResult.stdout)
+        let rows = try XCTUnwrap(payload["rows"] as? [[String: Any]])
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(row["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(row["sample_count"] as? Int, 1)
+        XCTAssertEqual((row["peak_rss_bytes"] as? NSNumber)?.int64Value, 314_572_800)
+        XCTAssertEqual(row["peak_memory_percent"] as? Double, 1.8)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top"]
+        )
+    }
+
+    func testMemoryTopTruncatesFloatBackedResidentBytes() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-top-float-rss")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "55555555-5555-5555-5555-555555555555"
+        let dbURL = temporaryMemoryTelemetryDatabaseURL(name: "top-float-rss")
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent())
+        }
+
+        let snapshotHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "system.top")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: self.memorySystemTopFixture(
+                    workspaceId: workspaceId,
+                    workspaceRef: "workspace:5",
+                    surfaceId: "66666666-6666-6666-6666-666666666666",
+                    agentKey: "codex",
+                    agentPID: 525_253,
+                    secretCommandLine: "/usr/local/bin/codex --secret ignored",
+                    workspaceResidentBytes: 314_572_800.75
+                )
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_MEMORY_TELEMETRY_DB_PATH"] = dbURL.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let snapshotResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "snapshot", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+        wait(for: [snapshotHandled], timeout: 5)
+        XCTAssertFalse(snapshotResult.timedOut, snapshotResult.stderr)
+        XCTAssertEqual(snapshotResult.status, 0, snapshotResult.stderr)
+
+        let topHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            XCTFail("memory top should read SQLite and not resample system.top, saw \(line)")
+            return "{}"
+        }
+        topHandled.isInverted = true
+
+        let topResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "top", "--since", "1d", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+        wait(for: [topHandled], timeout: 0.1)
+        XCTAssertFalse(topResult.timedOut, topResult.stderr)
+        XCTAssertEqual(topResult.status, 0, topResult.stderr)
+        XCTAssertTrue(topResult.stderr.isEmpty, topResult.stderr)
+
+        let payload = try jsonPayload(from: topResult.stdout)
+        let rows = try XCTUnwrap(payload["rows"] as? [[String: Any]])
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(row["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual((row["peak_rss_bytes"] as? NSNumber)?.int64Value, 314_572_800)
+    }
+
+    func testMemoryTopSortsByAverageRSSBeforeLimit() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-top-sort")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let dbURL = temporaryMemoryTelemetryDatabaseURL(name: "top-sort")
+        let steadyWorkspace = "11111111-1111-1111-1111-111111111111"
+        let spikyWorkspace = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent())
+        }
+
+        try insertMemoryTelemetrySample(
+            in: dbURL,
+            sampledAt: Date().addingTimeInterval(-120),
+            workspaceId: steadyWorkspace,
+            workspaceRef: "workspace:1",
+            rssBytes: 900
+        )
+        try insertMemoryTelemetrySample(
+            in: dbURL,
+            sampledAt: Date().addingTimeInterval(-60),
+            workspaceId: steadyWorkspace,
+            workspaceRef: "workspace:1",
+            rssBytes: 900
+        )
+        try insertMemoryTelemetrySample(
+            in: dbURL,
+            sampledAt: Date().addingTimeInterval(-120),
+            workspaceId: spikyWorkspace,
+            workspaceRef: "workspace:2",
+            rssBytes: 1_000
+        )
+        try insertMemoryTelemetrySample(
+            in: dbURL,
+            sampledAt: Date().addingTimeInterval(-60),
+            workspaceId: spikyWorkspace,
+            workspaceRef: "workspace:2",
+            rssBytes: 1
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_MEMORY_TELEMETRY_DB_PATH"] = dbURL.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "top", "--since", "1h", "--sort", "avg", "--limit", "1", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(payload["sort"] as? String, "average")
+        let rows = try XCTUnwrap(payload["rows"] as? [[String: Any]])
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(row["workspace_id"] as? String, steadyWorkspace)
+        XCTAssertEqual((row["peak_rss_bytes"] as? NSNumber)?.int64Value, 900)
+    }
+
+    func testMemoryTopUsesLatestWorkspaceMetadataForGroupedRows() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-top-latest-metadata")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let dbURL = temporaryMemoryTelemetryDatabaseURL(name: "top-latest-metadata")
+        let workspaceId = "99999999-9999-9999-9999-999999999999"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent())
+        }
+
+        try insertMemoryTelemetrySample(
+            in: dbURL,
+            sampledAt: Date().addingTimeInterval(-120),
+            workspaceId: workspaceId,
+            workspaceRef: "workspace:9",
+            workspaceTitle: "z-project",
+            rssBytes: 1_000
+        )
+        try insertMemoryTelemetrySample(
+            in: dbURL,
+            sampledAt: Date().addingTimeInterval(-60),
+            workspaceId: workspaceId,
+            workspaceRef: "workspace:1",
+            workspaceTitle: "a-project",
+            rssBytes: 10
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_MEMORY_TELEMETRY_DB_PATH"] = dbURL.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "top", "--since", "1h", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        let rows = try XCTUnwrap(payload["rows"] as? [[String: Any]])
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(row["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(row["workspace_ref"] as? String, "workspace:1")
+        XCTAssertEqual(row["workspace_title"] as? String, "a-project")
+        XCTAssertEqual((row["peak_rss_bytes"] as? NSNumber)?.int64Value, 1_000)
+    }
+
+    func testMemoryTopPrunesExpiredRowsOnRead() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-top-prune")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let dbURL = temporaryMemoryTelemetryDatabaseURL(name: "top-prune")
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent())
+        }
+
+        try insertMemoryTelemetrySample(
+            in: dbURL,
+            sampledAt: Date().addingTimeInterval(-3600),
+            workspaceId: "77777777-7777-7777-7777-777777777777"
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_MEMORY_TELEMETRY_DB_PATH"] = dbURL.path
+        environment["CMUX_MEMORY_TELEMETRY_RETENTION_SECONDS"] = "1"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "top", "--since", "2h", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        let rows = try XCTUnwrap(payload["rows"] as? [[String: Any]])
+        XCTAssertTrue(rows.isEmpty, "Expected expired rows to be pruned on read, got \(rows)")
+        XCTAssertEqual(try memoryTelemetrySampleCount(in: dbURL), 0)
+    }
+
+    func testMemoryTelemetryDatabaseRetriesInitializationAfterMigrationFailure() throws {
+        let cliPath = try bundledCLIPath()
+        let dbURL = temporaryMemoryTelemetryDatabaseURL(name: "open-retry")
+        defer {
+            try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent())
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_MEMORY_TELEMETRY_DB_PATH"] = dbURL.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "_test-open-retry"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertTrue(
+            result.stdout.contains("PASS: memory telemetry database retries initialization after migration failure"),
+            result.stdout
+        )
+        XCTAssertEqual(try memoryTelemetrySampleCount(in: dbURL), 1)
+    }
+
+    func testMemoryTrimDryRunSelectsOwnedAgentWithoutSendingOrKilling() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+        let lowercaseWorkspaceId = workspaceId.lowercased()
+        let surfaceId = "66666666-6666-6666-6666-666666666666"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.top" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["workspace_id"] as? String, lowercaseWorkspaceId)
+            var result = self.memorySystemTopFixture(
+                workspaceId: workspaceId,
+                workspaceRef: "workspace:2",
+                surfaceId: surfaceId,
+                agentKey: "claude_code",
+                agentPID: 626_262,
+                secretCommandLine: "/opt/homebrew/bin/claude --dangerous-secret ignored"
+            )
+            if var windows = result["windows"] as? [[String: Any]] {
+                windows.insert(
+                    [
+                        "id": "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC",
+                        "ref": "window:0",
+                        "workspaces": [
+                            [
+                                "id": "44444444-4444-4444-4444-444444444444",
+                                "ref": "workspace:1",
+                                "title": "Decoy Workspace",
+                                "resources": ["resident_bytes": 1],
+                                "tags": [],
+                                "panes": [],
+                            ],
+                        ],
+                    ],
+                    at: 0
+                )
+                result["windows"] = windows
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: result
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                lowercaseWorkspaceId,
+                "--agent",
+                "claude",
+                "--dry-run",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(payload["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(payload["dry_run"] as? Bool, true)
+        XCTAssertEqual(payload["graceful_action"] as? String, "send /exit")
+        let agent = try XCTUnwrap(payload["agent"] as? [String: Any])
+        XCTAssertEqual(agent["key"] as? String, "claude")
+        XCTAssertEqual(agent["pid"] as? Int, 626_262)
+        XCTAssertEqual(agent["surface_id"] as? String, surfaceId)
+        XCTAssertFalse(
+            state.commands.contains { $0.contains(#""method":"surface.send_text""#) },
+            "dry-run trim must not send terminal input, saw \(state.commands)"
+        )
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top"]
+        )
+    }
+
+    func testMemoryTrimAutoPrefersKnownResidentBytesOverUnknown() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim-known-rss")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "31313131-3131-3131-3131-313131313131"
+        let knownSurfaceId = "32323232-3232-3232-3232-323232323232"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.top" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
+                    "windows": [
+                        [
+                            "id": "33333333-3333-3333-3333-333333333333",
+                            "ref": "window:1",
+                            "workspaces": [
+                                [
+                                    "id": workspaceId,
+                                    "ref": "workspace:31",
+                                    "title": "Memory Workspace",
+                                    "tags": [
+                                        [
+                                            "kind": "tag",
+                                            "key": "codex",
+                                            "pid": 111,
+                                            "surface_id": "34343434-3434-3434-3434-343434343434",
+                                            "surface_ref": "surface:unknown-rss",
+                                        ],
+                                        [
+                                            "kind": "tag",
+                                            "key": "claude_code",
+                                            "pid": 222,
+                                            "surface_id": knownSurfaceId,
+                                            "surface_ref": "surface:known-rss",
+                                            "resources": ["resident_bytes": 0],
+                                        ],
+                                    ],
+                                    "panes": [],
+                                ],
+                            ],
+                        ],
+                    ],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:31",
+                "--dry-run",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        let agent = try XCTUnwrap(payload["agent"] as? [String: Any])
+        XCTAssertEqual(agent["pid"] as? Int, 222)
+        XCTAssertEqual(agent["surface_id"] as? String, knownSurfaceId)
+        XCTAssertEqual(agent["resident_bytes"] as? Int, 0)
+        XCTAssertFalse(
+            state.commands.contains { $0.contains(#""method":"surface.send_text""#) },
+            "dry-run trim must not send terminal input, saw \(state.commands)"
+        )
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top"]
+        )
+    }
+
+    func testMemoryTrimRejectsZeroGraceBeforeSocketAccess() throws {
+        let cliPath = try bundledCLIPath()
+        let missingSocketPath = makeSocketPath("mem-trim-zero-grace")
+        unlink(missingSocketPath)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = missingSocketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:7",
+                "--agent",
+                "claude",
+                "--grace-seconds",
+                "1",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(
+            result.stderr.contains("--grace-seconds must be a positive duration"),
+            result.stderr
+        )
+    }
+
+    func testMemoryTrimSendsGracefulExitToSurfaceUUID() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim-send")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "12121212-1212-1212-1212-121212121212"
+        let surfaceId = "34343434-3434-3434-3434-343434343434"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "system.top":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: self.memorySystemTopFixture(
+                        workspaceId: workspaceId,
+                        workspaceRef: "workspace:7",
+                        surfaceId: surfaceId,
+                        agentKey: "claude_code",
+                        agentPID: 626_263,
+                        secretCommandLine: "/opt/homebrew/bin/claude --dangerous-secret ignored"
+                    )
+                )
+            case "surface.send_text":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["text"] as? String, "/exit\r")
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:7",
+                "--agent",
+                "claude",
+                "--grace-seconds",
+                "0",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top", "surface.send_text"]
+        )
+    }
+
+    func testMemoryTrimReturnsResultWhenGracefulRevalidationDisappears() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim-revalidate")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "41414141-4141-4141-4141-414141414141"
+        let surfaceId = "42424242-4242-4242-4242-424242424242"
+        let sleeper = Process()
+        sleeper.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        sleeper.arguments = ["30"]
+        try sleeper.run()
+        let agentPID = Int(sleeper.processIdentifier)
+
+        defer {
+            terminateProcess(sleeper)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "system.top":
+                let systemTopRequestCount = state.commands
+                    .compactMap { self.jsonObject($0)?["method"] as? String }
+                    .filter { $0 == "system.top" }
+                    .count
+                if systemTopRequestCount == 1 {
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: self.memorySystemTopFixture(
+                            workspaceId: workspaceId,
+                            workspaceRef: "workspace:12",
+                            surfaceId: surfaceId,
+                            agentKey: "claude_code",
+                            agentPID: agentPID,
+                            secretCommandLine: "/opt/homebrew/bin/claude --dangerous-secret ignored"
+                        )
+                    )
+                }
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
+                        "windows": [
+                            [
+                                "id": "43434343-4343-4343-4343-434343434343",
+                                "ref": "window:1",
+                                "workspaces": [
+                                    [
+                                        "id": workspaceId,
+                                        "ref": "workspace:12",
+                                        "title": "Memory Workspace",
+                                        "resources": [
+                                            "cpu_percent": 1,
+                                            "memory_percent": 1,
+                                            "resident_bytes": 268_435_456,
+                                            "virtual_bytes": 536_870_912,
+                                            "process_count": 1,
+                                        ],
+                                        "tags": [],
+                                        "panes": [],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ]
+                )
+            case "surface.send_text":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["text"] as? String, "/exit\r")
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:12",
+                "--agent",
+                "claude",
+                "--grace-seconds",
+                "0",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(payload["attempted_shutdown"] as? Bool, true)
+        XCTAssertEqual(payload["graceful_action"] as? String, "send /exit")
+        XCTAssertEqual(payload["terminated"] as? Bool, false)
+        XCTAssertEqual(payload["killed"] as? Bool, false)
+        XCTAssertEqual(payload["still_running"] as? Bool, true)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top", "surface.send_text", "system.top", "system.top"]
+        )
+    }
+
+    func testMemoryTrimRecoversSurfaceUUIDWhenOwnedTagOnlyHasSurfaceRef() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim-surface-ref")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "15151515-1515-1515-1515-151515151515"
+        let surfaceId = "25252525-2525-2525-2525-252525252525"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "system.top":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: self.memorySystemTopFixture(
+                        workspaceId: workspaceId,
+                        workspaceRef: "workspace:8",
+                        surfaceId: surfaceId,
+                        agentKey: "claude_code",
+                        agentPID: 626_264,
+                        secretCommandLine: "/opt/homebrew/bin/claude --dangerous-secret ignored",
+                        includeAgentTagSurfaceId: false
+                    )
+                )
+            case "surface.send_text":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["text"] as? String, "/exit\r")
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:8",
+                "--agent",
+                "claude",
+                "--grace-seconds",
+                "0",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top", "surface.send_text"]
+        )
+    }
+
+    func testMemoryTrimWithoutIdentityOrGracefulActionReportsStillRunning() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim-no-identity")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "35353535-3535-3535-3535-353535353535"
+        let sleeper = Process()
+        sleeper.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        sleeper.arguments = ["30"]
+        try sleeper.run()
+
+        defer {
+            terminateProcess(sleeper)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.top" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
+                    "windows": [
+                        [
+                            "id": "36363636-3636-3636-3636-363636363636",
+                            "ref": "window:1",
+                            "workspaces": [
+                                [
+                                    "id": workspaceId,
+                                    "ref": "workspace:11",
+                                    "title": "Memory Workspace",
+                                    "tags": [
+                                        [
+                                            "kind": "tag",
+                                            "key": "opencode",
+                                            "pid": Int(sleeper.processIdentifier),
+                                            "surface_ref": "surface:11",
+                                            "resources": ["resident_bytes": 268_435_456],
+                                        ],
+                                    ],
+                                    "panes": [],
+                                ],
+                            ],
+                        ],
+                    ],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:11",
+                "--agent",
+                "opencode",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(payload["attempted_shutdown"] as? Bool, false)
+        XCTAssertEqual(payload["terminated"] as? Bool, false)
+        XCTAssertEqual(payload["killed"] as? Bool, false)
+        XCTAssertEqual(payload["still_running"] as? Bool, true)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top"]
+        )
+    }
+
+    func testMemoryTrimTextOutputDistinguishesNoShutdownAction() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim-no-action")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "33333333-3333-3333-3333-333333333333"
+        let sleeper = Process()
+        sleeper.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        sleeper.arguments = ["30"]
+        try sleeper.run()
+
+        defer {
+            terminateProcess(sleeper)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.top" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
+                    "windows": [
+                        [
+                            "id": "36363636-3636-3636-3636-363636363636",
+                            "ref": "window:1",
+                            "workspaces": [
+                                [
+                                    "id": workspaceId,
+                                    "ref": "workspace:11",
+                                    "title": "Memory Workspace",
+                                    "tags": [
+                                        [
+                                            "kind": "tag",
+                                            "key": "opencode",
+                                            "pid": Int(sleeper.processIdentifier),
+                                            "surface_ref": "surface:11",
+                                            "resources": ["resident_bytes": 268_435_456],
+                                        ],
+                                    ],
+                                    "panes": [],
+                                ],
+                            ],
+                        ],
+                    ],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:11",
+                "--agent",
+                "opencode",
+                "--id-format",
+                "refs",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertTrue(result.stdout.hasPrefix("No trim action opencode"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("attempted=no"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("still_running=yes"), result.stdout)
+        XCTAssertFalse(result.stdout.hasPrefix("Trimmed "), result.stdout)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top"]
+        )
+    }
+
+    func testMemoryTrimKillExitObservationOverridesStaleTelemetry() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim-kill-exit")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "45454545-4545-4545-4545-454545454545"
+        let surfaceId = "55555555-5555-5555-5555-555555555555"
+        let stubborn = Process()
+        stubborn.executableURL = URL(fileURLWithPath: "/bin/sh")
+        stubborn.arguments = ["-c", "trap '' TERM; while :; do sleep 1; done"]
+        try stubborn.run()
+
+        defer {
+            terminateProcess(stubborn)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.top" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: self.memorySystemTopFixture(
+                    workspaceId: workspaceId,
+                    workspaceRef: "workspace:14",
+                    surfaceId: surfaceId,
+                    agentKey: "opencode",
+                    agentPID: Int(stubborn.processIdentifier),
+                    secretCommandLine: "/opt/homebrew/bin/opencode --secret ignored"
+                )
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:14",
+                "--agent",
+                "opencode",
+                "--grace-seconds",
+                "0",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(payload["attempted_shutdown"] as? Bool, true)
+        XCTAssertEqual(payload["terminated"] as? Bool, true)
+        XCTAssertEqual(payload["killed"] as? Bool, true)
+        XCTAssertEqual(payload["still_running"] as? Bool, false)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top", "system.top", "system.top"]
+        )
+    }
+
+    func testMemoryTrimAutoRejectsProcessNameFallbackWithoutOwnedTag() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim-auto")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.top" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: self.memorySystemTopFixture(
+                    workspaceId: "88888888-8888-8888-8888-888888888888",
+                    workspaceRef: "workspace:9",
+                    surfaceId: "99999999-9999-9999-9999-999999999999",
+                    agentKey: "codex",
+                    agentPID: 737_373,
+                    secretCommandLine: "/usr/local/bin/codex --secret ignored",
+                    includeAgentTag: false
+                )
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:9",
+                "--dry-run",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("no cmux-owned recoverable agent PIDs"), result.stderr)
+        XCTAssertFalse(
+            state.commands.contains { $0.contains(#""method":"surface.send_text""#) },
+            "auto trim must not act on process-name-only fallback candidates, saw \(state.commands)"
+        )
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top"]
+        )
+    }
+
+    func testMemoryTrimExplicitSelectionRejectsProcessNameFallbackWithoutOwnedTag() throws {
+        let cliPath = try bundledCLIPath()
+        let cases = [
+            ("pid", "737373"),
+            ("name", "codex"),
+        ]
+
+        for testCase in cases {
+            let socketPath = makeSocketPath("mem-trim-explicit-\(testCase.0)")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+            }
+
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line),
+                      let id = payload["id"] as? String,
+                      let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(raw: line)
+                }
+                guard method == "system.top" else {
+                    return self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                    )
+                }
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: self.memorySystemTopFixture(
+                        workspaceId: "88888888-8888-8888-8888-888888888888",
+                        workspaceRef: "workspace:9",
+                        surfaceId: "99999999-9999-9999-9999-999999999999",
+                        agentKey: "codex",
+                        agentPID: 737_373,
+                        secretCommandLine: "/usr/local/bin/codex --secret ignored",
+                        includeAgentTag: false
+                    )
+                )
+            }
+
+            var environment = ProcessInfo.processInfo.environment
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "memory",
+                    "trim",
+                    "--workspace",
+                    "workspace:9",
+                    "--agent",
+                    testCase.1,
+                    "--dry-run",
+                    "--json",
+                    "--id-format",
+                    "uuids",
+                ],
+                environment: environment,
+                timeout: 5
+            )
+
+            wait(for: [serverHandled], timeout: 5)
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertNotEqual(result.status, 0)
+            XCTAssertTrue(result.stderr.contains("not a cmux-owned recoverable agent"), result.stderr)
+            XCTAssertFalse(
+                state.commands.contains { $0.contains(#""method":"surface.send_text""#) },
+                "explicit trim must not act on process-name-only fallback candidates, saw \(state.commands)"
+            )
+            XCTAssertEqual(
+                state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+                ["system.top"]
+            )
+        }
     }
 
     func testClaudeSessionEndClearsMatchingSurfaceResumeBinding() throws {
@@ -7778,6 +9281,229 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
             "Expected JSON object, got: \(stdout)"
         )
+    }
+
+    private func terminateProcess(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+        let deadline = Date().addingTimeInterval(2)
+        while process.isRunning, Date() < deadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        if process.isRunning {
+            Darwin.kill(process.processIdentifier, SIGKILL)
+            process.waitUntilExit()
+        }
+    }
+
+    private func temporaryMemoryTelemetryDatabaseURL(name: String) -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-memory-\(name)-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("telemetry.db", isDirectory: false)
+    }
+
+    private func memorySystemTopFixture(
+        workspaceId: String,
+        workspaceRef: String,
+        surfaceId: String,
+        agentKey: String,
+        agentPID: Int,
+        secretCommandLine: String,
+        includeAgentTag: Bool = true,
+        includeAgentTagSurfaceId: Bool = true,
+        workspaceResidentBytes: Any = 314_572_800
+    ) -> [String: Any] {
+        var tags: [[String: Any]] = []
+        if includeAgentTag {
+            var tag: [String: Any] = [
+                "kind": "tag",
+                "key": agentKey,
+                "pid": agentPID,
+                "surface_ref": "surface:3",
+                "resources": ["resident_bytes": 268_435_456],
+                "command_line": secretCommandLine,
+            ]
+            if includeAgentTagSurfaceId {
+                tag["surface_id"] = surfaceId
+            }
+            tags = [tag]
+        }
+        return [
+            "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
+            "windows": [
+                [
+                    "id": "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+                    "ref": "window:1",
+                    "workspaces": [
+                        [
+                            "id": workspaceId,
+                            "ref": workspaceRef,
+                            "title": "Memory Workspace",
+                            "resources": [
+                                "cpu_percent": 12.5,
+                                "memory_percent": 1.8,
+                                "resident_bytes": workspaceResidentBytes,
+                                "virtual_bytes": 629_145_600,
+                                "process_count": 3,
+                            ],
+                            "tags": tags,
+                            "panes": [
+                                [
+                                    "id": "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
+                                    "surfaces": [
+                                        [
+                                            "id": surfaceId,
+                                            "ref": "surface:3",
+                                            "processes": [
+                                                [
+                                                    "pid": 101,
+                                                    "name": "zsh",
+                                                    "start_seconds": 100,
+                                                    "start_microseconds": 1,
+                                                    "resources": ["resident_bytes": 2_097_152],
+                                                    "command_line": "/bin/zsh",
+                                                    "children": [
+                                                        [
+                                                            "pid": agentPID,
+                                                            "name": agentKey == "claude_code" ? "claude" : "codex",
+                                                            "start_seconds": 200,
+                                                            "start_microseconds": 2,
+                                                            "resources": ["resident_bytes": 268_435_456],
+                                                            "command_line": secretCommandLine,
+                                                            "children": [
+                                                                [
+                                                                    "pid": 202,
+                                                                    "name": "node",
+                                                                    "start_seconds": 300,
+                                                                    "start_microseconds": 3,
+                                                                    "resources": ["resident_bytes": 44_040_192],
+                                                                    "command_line": "node server.js --token SECRET_TOKEN_DO_NOT_STORE",
+                                                                ],
+                                                            ],
+                                                        ],
+                                                    ],
+                                                ],
+                                            ],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+    }
+
+    private func memoryTelemetryTopProcessNames(in dbURL: URL) throws -> [String] {
+        var db: OpaquePointer?
+        let openResult = sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_READONLY, nil)
+        XCTAssertEqual(openResult, SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        var stmt: OpaquePointer?
+        let sql = "SELECT top_process_names FROM workspace_memory_samples LIMIT 1"
+        let prepareResult = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
+        XCTAssertEqual(prepareResult, SQLITE_OK)
+        defer { sqlite3_finalize(stmt) }
+
+        XCTAssertEqual(sqlite3_step(stmt), SQLITE_ROW)
+        let textPointer = try XCTUnwrap(sqlite3_column_text(stmt, 0))
+        let text = String(cString: textPointer)
+        return try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(text.utf8), options: []) as? [String],
+            "Expected process-name JSON array, got: \(text)"
+        )
+    }
+
+    private func insertMemoryTelemetrySample(
+        in dbURL: URL,
+        sampledAt: Date,
+        workspaceId: String,
+        workspaceRef: String = "workspace:7",
+        workspaceTitle: String = "Expired Memory Workspace",
+        rssBytes: Int64 = 1024,
+        memoryPercent: Double = 0.1,
+        cpuPercent: Double = 1
+    ) throws {
+        try FileManager.default.createDirectory(
+            at: dbURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        var db: OpaquePointer?
+        let openResult = sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE, nil)
+        XCTAssertEqual(openResult, SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        try sqliteExec(
+            db,
+            """
+            CREATE TABLE IF NOT EXISTS workspace_memory_samples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sampled_at REAL NOT NULL,
+                workspace_id TEXT NOT NULL,
+                workspace_ref TEXT,
+                workspace_title TEXT,
+                window_id TEXT,
+                window_ref TEXT,
+                rss_bytes INTEGER NOT NULL,
+                virtual_bytes INTEGER NOT NULL,
+                memory_percent REAL NOT NULL DEFAULT 0,
+                cpu_percent REAL NOT NULL,
+                process_count INTEGER NOT NULL,
+                top_process_names TEXT NOT NULL
+            )
+            """
+        )
+
+        var stmt: OpaquePointer?
+        let insert = """
+        INSERT INTO workspace_memory_samples (
+            sampled_at, workspace_id, workspace_ref, workspace_title, window_id, window_ref,
+            rss_bytes, virtual_bytes, memory_percent, cpu_percent, process_count, top_process_names
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        XCTAssertEqual(sqlite3_prepare_v2(db, insert, -1, &stmt, nil), SQLITE_OK)
+        defer { sqlite3_finalize(stmt) }
+        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1)!, to: sqlite3_destructor_type.self)
+        sqlite3_bind_double(stmt, 1, sampledAt.timeIntervalSince1970)
+        sqlite3_bind_text(stmt, 2, workspaceId, -1, transient)
+        sqlite3_bind_text(stmt, 3, workspaceRef, -1, transient)
+        sqlite3_bind_text(stmt, 4, workspaceTitle, -1, transient)
+        sqlite3_bind_text(stmt, 5, "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", -1, transient)
+        sqlite3_bind_text(stmt, 6, "window:1", -1, transient)
+        sqlite3_bind_int64(stmt, 7, rssBytes)
+        sqlite3_bind_int64(stmt, 8, rssBytes * 2)
+        sqlite3_bind_double(stmt, 9, memoryPercent)
+        sqlite3_bind_double(stmt, 10, cpuPercent)
+        sqlite3_bind_int64(stmt, 11, 1)
+        sqlite3_bind_text(stmt, 12, #"["codex"]"#, -1, transient)
+        XCTAssertEqual(sqlite3_step(stmt), SQLITE_DONE)
+    }
+
+    private func memoryTelemetrySampleCount(in dbURL: URL) throws -> Int {
+        var db: OpaquePointer?
+        let openResult = sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_READONLY, nil)
+        XCTAssertEqual(openResult, SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        var stmt: OpaquePointer?
+        XCTAssertEqual(sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM workspace_memory_samples", -1, &stmt, nil), SQLITE_OK)
+        defer { sqlite3_finalize(stmt) }
+        XCTAssertEqual(sqlite3_step(stmt), SQLITE_ROW)
+        return Int(sqlite3_column_int64(stmt, 0))
+    }
+
+    private func sqliteExec(_ db: OpaquePointer?, _ sql: String) throws {
+        var errorMessage: UnsafeMutablePointer<CChar>?
+        let result = sqlite3_exec(db, sql, nil, nil, &errorMessage)
+        defer {
+            if let errorMessage {
+                sqlite3_free(errorMessage)
+            }
+        }
+        XCTAssertEqual(result, SQLITE_OK, errorMessage.map { String(cString: $0) } ?? "")
     }
 
 }

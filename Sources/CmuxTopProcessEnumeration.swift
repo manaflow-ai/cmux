@@ -138,6 +138,8 @@ nonisolated extension CmuxTopProcessSnapshot {
             cmuxAttributionReason: cmuxScope?.attributionReason,
             processGroupID: processGroupID,
             terminalProcessGroupID: terminalProcessGroupID,
+            startSeconds: cacheKey.startSeconds,
+            startMicroseconds: cacheKey.startMicroseconds,
             cpuPercent: 0,
             memoryBytes: memoryBytes,
             memorySource: memorySource,

@@ -3703,8 +3703,27 @@ struct CMUXCLI {
         case "top":
             try runTopCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        case "memory-snapshot", "memory-list", "memory-top", "memory-trim":
+            try runMemoryCommand(
+                command: command,
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat
+            )
+
         case "memory":
-            try runMemoryCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            if isMemoryTelemetryInvocation(command: command, args: commandArgs) {
+                try runMemoryCommand(
+                    command: command,
+                    commandArgs: commandArgs,
+                    client: client,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
+            } else {
+                try runMemoryCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            }
 
         case "focus-pane":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
@@ -4961,10 +4980,25 @@ struct CMUXCLI {
         }
     }
 
-    private func parsePositiveInt(_ raw: String?, label: String) throws -> Int? {
+    func parsePositiveInt(_ raw: String?, label: String) throws -> Int? {
         guard let raw else { return nil }
         guard let value = Int(raw) else {
-            throw CLIError(message: "\(label) must be an integer")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.error.optionMustBeInteger",
+                    defaultValue: "%@ must be an integer"
+                ),
+                label
+            ))
+        }
+        guard value > 0 else {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.error.optionMustBePositive",
+                    defaultValue: "%@ must be positive"
+                ),
+                label
+            ))
         }
         return value
     }
@@ -12378,28 +12412,63 @@ struct CMUXCLI {
               cmux top --workspace workspace:2 --processes
               cmux --json top --all
             """
-        case "memory":
-            return String(localized: "cli.help.memory", defaultValue: """
+        case "memory", "memory-snapshot", "memory-list", "memory-top", "memory-trim":
+            return String(
+                localized: "cli.help.memory",
+                defaultValue: """
             Usage: cmux memory [flags]
+                   cmux memory <snapshot|list|top|trim> [flags]
 
-            Diagnose cmux app memory separately from recursive terminal child-process RSS.
+            Diagnose live cmux memory, or persist and inspect approximate per-workspace memory telemetry.
+
+            Commands:
+              memory                   Show live app footprint and recursive child-process RSS
+              snapshot                 Sample current workspace usage and persist it to SQLite
+              list                     Show current workspace usage without persisting
+              top                      Sort historical samples by peak/average RSS
+              trim                     Stop a recoverable agent process while preserving the workspace
 
             Flags:
-              --all                         Include all windows (default: current window only)
-              --workspace <id|ref|index>   Limit workspace context for attribution labels
-              --groups <count>              Number of child command groups to show (default: 12)
-              --json                        Structured JSON output
+              memory:
+                --all                         Include all windows (default: current window only)
+                --workspace <id|ref|index>   Limit workspace context for attribution labels
+                --groups <count>              Number of child command groups to show (default: 12)
+                --json                        Structured JSON output
 
-            Output:
-              App footprint is the direct cmux process physical footprint from macOS process accounting.
-              Child RSS is recursive resident memory for descendants of the cmux app process,
-              grouped by command name and attributed back to workspace, pane, and surface when known.
+              snapshot/list:
+                --workspace <id|ref|index>  Restrict to one workspace
+                --limit <n>                 Limit displayed rows
+                --json                      Structured JSON output
 
-            Example:
+              top:
+                --since <duration>          Time window (default: 6h; units: s, m, h, d)
+                --limit <n>                 Limit rows (default: 20)
+                --sort <peak|avg>           Rank rows by peak or average RSS (default: peak)
+                --json                      Structured JSON output
+
+              trim:
+                --workspace <id|ref|index>  Target workspace (default: current/$CMUX_WORKSPACE_ID)
+                --agent <name|pid|auto>     Agent to trim (default: largest known agent)
+                --grace <duration>          Grace period before TERM/KILL (default: 5s)
+                --dry-run                   Print the selected agent without stopping it
+                --json                      Structured JSON output
+
+            Notes:
+              Live diagnostics separate the cmux app footprint from recursive terminal child-process RSS.
+              RSS is approximate because shared pages can be counted in more than one workspace.
+              Stored top process data contains process names only, not full command lines.
+
+            Examples:
               cmux memory
               cmux memory --groups 20
               cmux --json memory --all
-            """)
+              cmux memory snapshot
+              cmux memory list --workspace workspace:2
+              cmux memory top --since 6h
+              cmux memory top --since 1d --sort avg
+              cmux memory trim --workspace workspace:2 --agent codex
+            """
+            )
         case "focus-pane":
             return """
             Usage: cmux focus-pane [--pane <id|ref|index> | <id|ref|index>] [flags]
@@ -13817,6 +13886,101 @@ struct CMUXCLI {
         let requestedFormat: Bool
     }
 
+    private func runMemoryCommand(
+        command: String,
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let (subcommand, args) = try parseMemorySubcommand(command: command, args: commandArgs)
+        switch subcommand {
+        case .snapshot:
+            let options = try parseMemoryCurrentOptions(args, commandName: "memory snapshot")
+            let allSamples = try buildMemorySamples(options: options, client: client)
+            let samples = limitedMemorySamples(allSamples, limit: options.limit)
+            let database = MemoryTelemetryDatabase(url: try memoryTelemetryDatabaseURL())
+            let retention = try memoryTelemetryRetention()
+            try database.insert(samples: allSamples, retention: retention)
+            let payload: [String: Any] = [
+                "sample_count": allSamples.count,
+                "display_sample_count": samples.count,
+                "database_path": database.path,
+                "retention_seconds": retention,
+                "samples": samples.map(\.payload)
+            ]
+            if jsonOutput || options.jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                if allSamples.count == 1 {
+                    print(String(
+                        localized: "cli.memory.snapshot.recorded.one",
+                        defaultValue: "Recorded 1 workspace memory sample"
+                    ))
+                } else {
+                    print(String(
+                        format: String(
+                            localized: "cli.memory.snapshot.recorded.many",
+                            defaultValue: "Recorded %@ workspace memory samples"
+                        ),
+                        String(allSamples.count)
+                    ))
+                }
+                if !samples.isEmpty {
+                    print(renderMemorySamples(samples, idFormat: idFormat))
+                }
+            }
+
+        case .list:
+            let options = try parseMemoryCurrentOptions(args, commandName: "memory list")
+            let samples = limitedMemorySamples(
+                try buildMemorySamples(options: options, client: client),
+                limit: options.limit
+            )
+            let payload: [String: Any] = [
+                "sample_count": samples.count,
+                "samples": samples.map(\.payload)
+            ]
+            if jsonOutput || options.jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                print(renderMemorySamples(samples, idFormat: idFormat))
+            }
+
+        case .top:
+            let options = try parseMemoryTopOptions(args, jsonOutput: jsonOutput)
+            let retention = try memoryTelemetryRetention()
+            let rows = try MemoryTelemetryDatabase(url: try memoryTelemetryDatabaseURL())
+                .topRows(since: options.since, limit: options.limit, retention: retention, sort: options.sort)
+            let payload: [String: Any] = [
+                "since_seconds": options.since,
+                "limit": options.limit,
+                "sort": options.sort.payloadValue,
+                "rows": rows
+            ]
+            if jsonOutput || options.jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                print(renderMemoryTopRows(rows, idFormat: idFormat))
+            }
+
+        case .trim:
+            let options = try parseMemoryTrimOptions(args, jsonOutput: jsonOutput)
+            let result = try MemoryTrimmer(cli: self, client: client).trim(options: options)
+            if jsonOutput || options.jsonOutput {
+                print(jsonString(formatIDs(result.payload, mode: idFormat)))
+            } else {
+                print(renderMemoryTrimResult(result, idFormat: idFormat))
+            }
+
+#if DEBUG
+        case .debugOpenRetry:
+            try runMemoryTelemetryOpenRetrySelfTest()
+            print("PASS: memory telemetry database retries initialization after migration failure")
+#endif
+        }
+    }
+
     private struct TreePath {
         let windowHandle: String?
         let workspaceHandle: String?
@@ -15195,12 +15359,30 @@ struct CMUXCLI {
         return String(repeating: " ", count: width - value.count) + value
     }
 
+    func padRight(_ value: String, width: Int) -> String {
+        guard value.count < width else { return value }
+        return value + String(repeating: " ", count: width - value.count)
+    }
+
     func topInt(_ raw: Any?) -> Int? {
+        Self.topIntValue(raw)
+    }
+
+    static func topIntValue(_ raw: Any?) -> Int? {
         if let value = raw as? Int {
             return value
         }
+        if let value = raw as? Int64 {
+            return Int(exactly: value)
+        }
         if let value = raw as? NSNumber {
-            return value.intValue
+            return topInt64NumberValue(value).flatMap { Int(exactly: $0) }
+        }
+        if let value = raw as? Double {
+            return Int(exactly: value)
+        }
+        if let value = raw as? Float {
+            return Int(exactly: Double(value))
         }
         if let value = raw as? String {
             return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -15209,6 +15391,10 @@ struct CMUXCLI {
     }
 
     func topInt64(_ raw: Any?) -> Int64 {
+        Self.topInt64Value(raw)
+    }
+
+    static func topInt64Value(_ raw: Any?) -> Int64 {
         if let value = raw as? Int64 {
             return value
         }
@@ -15216,7 +15402,13 @@ struct CMUXCLI {
             return Int64(value)
         }
         if let value = raw as? NSNumber {
-            return value.int64Value
+            return topInt64NumberValue(value) ?? 0
+        }
+        if let value = raw as? Double {
+            return topTruncatedInt64Value(value) ?? 0
+        }
+        if let value = raw as? Float {
+            return topTruncatedInt64Value(Double(value)) ?? 0
         }
         if let value = raw as? String,
            let parsed = Int64(value.trimmingCharacters(in: .whitespacesAndNewlines)) {
@@ -15225,7 +15417,32 @@ struct CMUXCLI {
         return 0
     }
 
-    private func topDouble(_ raw: Any?) -> Double {
+    private static func topInt64NumberValue(_ value: NSNumber) -> Int64? {
+        let number = value as CFNumber
+        if CFGetTypeID(number) == CFBooleanGetTypeID() {
+            return value.boolValue ? 1 : 0
+        }
+        if CFNumberIsFloatType(number) {
+            return topTruncatedInt64Value(value.doubleValue)
+        }
+        var integer: Int64 = 0
+        guard CFNumberGetValue(number, .sInt64Type, &integer) else {
+            return nil
+        }
+        return integer
+    }
+
+    static func topTruncatedInt64Value(_ value: Double) -> Int64? {
+        guard value.isFinite else { return nil }
+        let truncated = value.rounded(.towardZero)
+        guard truncated >= Double(Int64.min),
+              truncated < Double(Int64.max) else {
+            return nil
+        }
+        return Int64(truncated)
+    }
+
+    func topDouble(_ raw: Any?) -> Double {
         if let value = raw as? Double {
             return value
         }
@@ -29524,6 +29741,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           tree [--all] [--workspace <id|ref|index>] [--window <id|ref|index>]
           top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           memory [--all] [--workspace <id|ref|index>] [--groups <count>]
+          memory <snapshot|list|top|trim> [flags]
           focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--focus <true|false>]
           new-surface [--type <terminal|browser>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--focus <true|false>]
