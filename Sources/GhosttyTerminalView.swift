@@ -5296,8 +5296,43 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var searchNeedleCancellable: AnyCancellable?
     var currentKeyStateIndicatorText: String? { surfaceView.currentKeyStateIndicatorText }
 
+    private static func cmuxContextEnvironment(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        socketPath: String
+    ) -> CmuxContextEnvironment {
+        CmuxContextEnvironment(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            socketPath: socketPath
+        )
+    }
+
+    /// Pre-spawn lookup for managed context keys and explicit startup overrides.
+    /// Full runtime-only values such as bundle, port, PATH, and shell-integration
+    /// entries are assembled when a Ghostty surface is created.
+    @MainActor
     func startupEnvironmentValue(_ key: String) -> String? {
-        additionalEnvironment[key] ?? initialEnvironmentOverrides[key]
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        var environment: [String: String] = [:]
+        var protectedKeys: Set<String> = []
+        Self.applyManagedCmuxContextEnvironment(
+            Self.cmuxContextEnvironment(
+                workspaceId: tabId,
+                surfaceId: id,
+                socketPath: socketPath
+            ),
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+        return Self.mergedStartupEnvironment(
+            base: environment,
+            protectedKeys: protectedKeys,
+            additionalEnvironment: additionalEnvironment,
+            initialEnvironmentOverrides: initialEnvironmentOverrides
+        )[key]
     }
 
     init(
@@ -6053,15 +6088,18 @@ final class TerminalSurface: Identifiable, ObservableObject {
             protectedStartupEnvironmentKeys.insert(key)
         }
 
-        setManagedEnvironmentValue("CMUX_SURFACE_ID", id.uuidString)
-        setManagedEnvironmentValue("CMUX_WORKSPACE_ID", tabId.uuidString)
-        // Backward-compatible shell integration keys used by existing scripts/tests.
-        setManagedEnvironmentValue("CMUX_PANEL_ID", id.uuidString)
-        setManagedEnvironmentValue("CMUX_TAB_ID", tabId.uuidString)
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
-        setManagedEnvironmentValue("CMUX_SOCKET_PATH", socketPath)
+        Self.applyManagedCmuxContextEnvironment(
+            Self.cmuxContextEnvironment(
+                workspaceId: tabId,
+                surfaceId: id,
+                socketPath: socketPath
+            ),
+            to: &env,
+            protectedKeys: &protectedStartupEnvironmentKeys
+        )
         setManagedEnvironmentValue("CMUX_SOCKET", "")
         if let inheritedClaudeConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"],
            !inheritedClaudeConfigDir.isEmpty {
