@@ -475,7 +475,7 @@ def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root:
             raise AssertionError(f"monitor exited before publishing transcript failure: {fake.frames!r}")
 
 
-def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dict | None) -> tuple[dict, dict]:
+def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dict | None, source: str = "codex") -> tuple[dict, dict]:
     env = os.environ.copy()
     env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
     env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
@@ -488,7 +488,7 @@ def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dic
                 "hooks",
                 "feed",
                 "--source",
-                "codex",
+                source,
                 "--event",
                 payload.get("hook_event_name", ""),
             ],
@@ -555,17 +555,26 @@ def codex_command_hook_hash(
 
 
 def cmux_codex_hook_command(subcommand: str) -> str:
+    routed_arguments = f"hooks codex {subcommand}"
     return (
-        '[ -n "$CMUX_SURFACE_ID" ] && [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] '
-        f"&& command -v cmux >/dev/null 2>&1 && cmux hooks codex {subcommand} || echo '{{}}'"
+        'cmux_cli="${CMUX_BUNDLED_CLI_PATH:-}"; if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; '
+        'then cmux_cli="$(command -v cmux 2>/dev/null || true)"; fi; if [ -n "$CMUX_SURFACE_ID" ] '
+        '&& [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] && [ -n "$cmux_cli" ]; then { '
+        f'if [ -n "${{CMUX_SOCKET_PATH:-}}" ]; then "$cmux_cli" --socket "$CMUX_SOCKET_PATH" {routed_arguments}; '
+        f'else "$cmux_cli" {routed_arguments}; fi; '
+        "} || echo '{}'; else echo '{}'; fi"
     )
 
 
 def cmux_codex_feed_command(agent_event: str) -> str:
+    routed_arguments = f"hooks feed --source codex --event {agent_event}"
     return (
-        '[ -n "$CMUX_SURFACE_ID" ] && [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] '
-        f"&& command -v cmux >/dev/null 2>&1 && cmux hooks feed --source codex --event {agent_event} "
-        "|| echo '{}'"
+        'cmux_cli="${CMUX_BUNDLED_CLI_PATH:-}"; if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; '
+        'then cmux_cli="$(command -v cmux 2>/dev/null || true)"; fi; if [ -n "$CMUX_SURFACE_ID" ] '
+        '&& [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] && [ -n "$cmux_cli" ]; then { '
+        f'if [ -n "${{CMUX_SOCKET_PATH:-}}" ]; then "$cmux_cli" --socket "$CMUX_SOCKET_PATH" {routed_arguments}; '
+        f'else "$cmux_cli" {routed_arguments}; fi; '
+        "} || echo '{}'; else echo '{}'; fi"
     )
 
 
@@ -704,7 +713,7 @@ def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -
         if not groups:
             raise AssertionError(f"missing {event_name} hook group: {hooks!r}")
         command = groups[-1]["hooks"][0]["command"]
-        if f"cmux hooks feed --source codex --event {event_name}" not in command:
+        if command != cmux_codex_feed_command(event_name):
             raise AssertionError(f"wrong {event_name} feed command: {command!r}")
         if groups[-1]["hooks"][0].get("timeout") != 120_000:
             raise AssertionError(f"wrong {event_name} timeout: {groups[-1]!r}")
@@ -760,10 +769,7 @@ def test_install_escapes_codex_hook_trust_state_keys(cli_path: str, root: Path) 
 def test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home-third-party"
     codex_home.mkdir()
-    cmux_pre_tool = (
-        '[ -n "$CMUX_SURFACE_ID" ] && [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] '
-        "&& command -v cmux >/dev/null 2>&1 && cmux hooks feed --source codex --event PreToolUse || echo '{}'"
-    )
+    cmux_pre_tool = cmux_codex_feed_command("PreToolUse")
     orca_hook = (
         "if [ -x '/Users/lawrence/Library/Application Support/orca/agent-hooks/codex-hook.sh' ]; "
         "then /bin/sh '/Users/lawrence/Library/Application Support/orca/agent-hooks/codex-hook.sh'; fi"
@@ -802,13 +808,13 @@ def test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path: 
     groups = hooks["hooks"]["PreToolUse"]
     first_command = groups[0]["hooks"][0]["command"]
     second_command = groups[1]["hooks"][0]["command"]
-    if "cmux hooks feed --source codex --event PreToolUse" not in first_command:
+    if first_command != cmux_pre_tool:
         raise AssertionError(f"cmux hook did not keep its existing position: {groups!r}")
     if second_command != orca_hook:
         raise AssertionError(f"third-party hook was not preserved after cmux hook: {groups!r}")
 
 
-def test_install_preserves_each_codex_hook_position_with_interleaved_third_party_hooks(
+def test_install_deduplicates_interleaved_codex_hook_positions(
     cli_path: str, root: Path
 ) -> None:
     codex_home = root / "codex-home-interleaved"
@@ -856,11 +862,10 @@ def test_install_preserves_each_codex_hook_position_with_interleaved_third_party
         user_hook_before,
         cmux_pre_tool,
         user_hook_middle,
-        cmux_pre_tool,
         user_hook_after,
     ]
     if commands != expected:
-        raise AssertionError(f"interleaved cmux hook positions changed: {commands!r}")
+        raise AssertionError(f"interleaved cmux hook dedupe changed: {commands!r}")
 
 
 def test_install_collapses_consecutive_codex_hook_positions(cli_path: str, root: Path) -> None:
@@ -1373,6 +1378,447 @@ def test_install_recovers_hook_trust_when_cmux_marker_is_unclosed(
             )
 
 
+def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
+    cli_path: str, root: Path
+) -> None:
+    codex_home = root / "codex-home-stale-trust-with-plugins"
+    codex_home.mkdir()
+    hooks_path = codex_home / "hooks.json"
+    stale_key = f"{hooks_path.resolve()}:pre_tool_use:0:0"
+    stale_old_cmux_key = f"{hooks_path.resolve()}:pre_tool_use:9:0"
+    stale_old_cmux_hash = codex_command_hook_hash(
+        event_label="pre_tool_use",
+        matcher=None,
+        command=cmux_codex_feed_command("PreToolUse"),
+        timeout=120_000,
+        status_message=None,
+    )
+    stale_legacy_key = f"{hooks_path.resolve()}:pre_tool_use:10:0"
+    stale_legacy_hash = codex_command_hook_hash(
+        event_label="pre_tool_use",
+        matcher=None,
+        command="cmux feed-hook --source codex --event PreToolUse",
+        timeout=120_000,
+        status_message=None,
+    )
+    same_file_user_key = f"{hooks_path.resolve()}:pre_tool_use:8:0"
+    escaped_user_key = "/tmp/third-party\\t/hooks.json:pre_tool_use:0:0"
+    third_party_key = "/tmp/third-party/hooks.json:pre_tool_use:0:0"
+    config_path = codex_home / "config.toml"
+    config_path.write_text(
+        "[features]\n"
+        "hooks = true\n"
+        "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin\n"
+        "preserve_loose_config = true\n"
+        f'[ hooks . state . "{stale_key}" ] # stale cmux trust\n'
+        'trusted_hash = "sha256:stale"\n'
+        "\n"
+        f'[hooks.state."{escaped_user_key}"]\n'
+        'trusted_hash = "sha256:escaped-user"\n'
+        "\n"
+        f'[hooks.state."{stale_old_cmux_key}"]\n'
+        f'trusted_hash = "{stale_old_cmux_hash}"\n'
+        "\n"
+        f'[hooks.state."{stale_legacy_key}"]\n'
+        f'trusted_hash = "{stale_legacy_hash}"\n'
+        "\n"
+        f'[hooks.state."{same_file_user_key}"]\n'
+        'trusted_hash = "sha256:same-file-user"\n'
+        "\n"
+        f'[hooks.state."{third_party_key}"]\n'
+        'trusted_hash = "sha256:third-party"\n'
+        "\n"
+        '[plugins."documents@openai-primary-runtime"]\n'
+        "enabled = true\n"
+        "\n"
+        '[plugins."browser@openai-bundled"]\n'
+        "enabled = true\n"
+        "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    config_toml = config_path.read_text(encoding="utf-8")
+    if '[plugins."documents@openai-primary-runtime"]' not in config_toml:
+        raise AssertionError(f"documents plugin table was removed: {config_toml!r}")
+    if '[plugins."browser@openai-bundled"]' not in config_toml:
+        raise AssertionError(f"browser plugin table was removed: {config_toml!r}")
+    if "preserve_loose_config = true" not in config_toml:
+        raise AssertionError(f"loose config line was removed: {config_toml!r}")
+    if 'trusted_hash = "sha256:third-party"' not in config_toml:
+        raise AssertionError(f"third-party hook trust was removed: {config_toml!r}")
+    if 'trusted_hash = "sha256:same-file-user"' not in config_toml:
+        raise AssertionError(f"same-file user hook trust was removed: {config_toml!r}")
+    if 'trusted_hash = "sha256:escaped-user"' not in config_toml:
+        raise AssertionError(f"escaped-key user hook trust was removed: {config_toml!r}")
+    if 'trusted_hash = "sha256:stale"' in config_toml:
+        raise AssertionError(f"stale cmux hook trust was preserved: {config_toml!r}")
+    if stale_old_cmux_key in config_toml:
+        raise AssertionError(f"old cmux hook trust was preserved: {config_toml!r}")
+    if stale_legacy_key in config_toml or stale_legacy_hash in config_toml:
+        raise AssertionError(f"legacy cmux hook trust was preserved: {config_toml!r}")
+    trust_begin = "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin"
+    trust_end = "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end"
+    if config_toml.count(trust_begin) != 1:
+        raise AssertionError(f"install did not write one fresh cmux hook trust marker: {config_toml!r}")
+    if config_toml.count(trust_end) != 1:
+        raise AssertionError(f"install did not close the fresh cmux trust block: {config_toml!r}")
+    trust_begin_index = config_toml.index(trust_begin)
+    trust_end_index = config_toml.index(trust_end)
+    for plugin_header in (
+        '[plugins."documents@openai-primary-runtime"]',
+        '[plugins."browser@openai-bundled"]',
+    ):
+        plugin_index = config_toml.index(plugin_header)
+        if trust_begin_index < plugin_index < trust_end_index:
+            raise AssertionError(f"plugin table remained inside fresh cmux trust block: {config_toml!r}")
+
+    hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
+    state = codex_hook_trust_state(config_toml)
+    expected_trust = expected_cmux_codex_hook_trust(hooks, hooks_path)
+    for key, trusted_hash in expected_trust.items():
+        if state.get(key, {}).get("trusted_hash") != trusted_hash:
+            raise AssertionError(
+                f"missing fresh trusted hash for {key}: expected {trusted_hash!r}, got state {state!r}"
+            )
+
+
+def test_install_enables_hooks_when_stale_trust_marker_captures_dotted_feature(
+    cli_path: str, root: Path
+) -> None:
+    codex_home = root / "codex-home-stale-trust-with-dotted-feature"
+    codex_home.mkdir()
+    hooks_path = codex_home / "hooks.json"
+    stale_key = f"{hooks_path.resolve()}:pre_tool_use:0:0"
+    config_path = codex_home / "config.toml"
+    config_path.write_text(
+        "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin\n"
+        f'[hooks.state."{stale_key}"]\n'
+        'trusted_hash = "sha256:stale"\n'
+        "features.experimental = true\n"
+        "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    config_toml = config_path.read_text(encoding="utf-8")
+    if "hooks = true" not in config_toml and "features.hooks = true" not in config_toml:
+        raise AssertionError(f"install did not enable Codex hooks: {config_toml!r}")
+    if 'trusted_hash = "sha256:stale"' in config_toml:
+        raise AssertionError(f"stale cmux hook trust was preserved: {config_toml!r}")
+
+
+def test_uninstall_preserves_third_party_hook_trust_inside_cmux_marker(
+    cli_path: str, root: Path
+) -> None:
+    codex_home = root / "codex-home-uninstall-stale-third-party-trust"
+    codex_home.mkdir()
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    config_path = codex_home / "config.toml"
+    trust_end = "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end"
+    same_file_user_key = f"{(codex_home / 'hooks.json').resolve()}:pre_tool_use:8:0"
+    third_party_key = "/tmp/third-party/hooks.json:pre_tool_use:0:0"
+    config_toml = config_path.read_text(encoding="utf-8")
+    config_path.write_text(
+        config_toml.replace(
+            trust_end,
+            f'[hooks.state."{same_file_user_key}"]\n'
+            'trusted_hash = "sha256:same-file-user"\n'
+            f'[hooks.state."{third_party_key}"]\n'
+            'trusted_hash = "sha256:third-party"\n'
+            f"{trust_end}",
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "uninstall", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex uninstall failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    config_toml = config_path.read_text(encoding="utf-8")
+    if "cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738" in config_toml:
+        raise AssertionError(f"cmux hook trust marker was preserved: {config_toml!r}")
+    state = codex_hook_trust_state(config_toml)
+    for key in state:
+        if key.startswith(f"{(codex_home / 'hooks.json').resolve()}:") and key != same_file_user_key:
+            raise AssertionError(f"cmux hook trust was preserved: {config_toml!r}")
+    if 'trusted_hash = "sha256:same-file-user"' not in config_toml:
+        raise AssertionError(f"same-file user hook trust was removed: {config_toml!r}")
+    if 'trusted_hash = "sha256:third-party"' not in config_toml:
+        raise AssertionError(f"third-party hook trust was removed: {config_toml!r}")
+
+
+def test_uninstall_retry_removes_stale_cmux_hook_trust_after_hooks_are_cleaned(
+    cli_path: str, root: Path
+) -> None:
+    codex_home = root / "codex-home-uninstall-retry-stale-trust"
+    codex_home.mkdir()
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    hooks_path = codex_home / "hooks.json"
+    hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
+    expected_trust = expected_cmux_codex_hook_trust(hooks, hooks_path)
+    if not expected_trust:
+        raise AssertionError(f"expected cmux Codex trust entries, got {expected_trust!r}")
+
+    config_path = codex_home / "config.toml"
+    trust_end = "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end"
+    same_file_user_key = f"{hooks_path.resolve()}:pre_tool_use:8:0"
+    legacy_key = f"{hooks_path.resolve()}:pre_tool_use:9:0"
+    legacy_hash = codex_command_hook_hash(
+        event_label="pre_tool_use",
+        matcher=None,
+        command="cmux feed-hook --source codex --event PreToolUse",
+        timeout=120_000,
+        status_message=None,
+    )
+    third_party_key = "/tmp/third-party/hooks.json:pre_tool_use:0:0"
+    config_toml = config_path.read_text(encoding="utf-8")
+    config_path.write_text(
+        config_toml.replace(
+            trust_end,
+            f'[hooks.state."{same_file_user_key}"]\n'
+            'trusted_hash = "sha256:same-file-user"\n'
+            f'[hooks.state."{legacy_key}"]\n'
+            f'trusted_hash = "{legacy_hash}"\n'
+            f'[hooks.state."{third_party_key}"]\n'
+            'trusted_hash = "sha256:third-party"\n'
+            f"{trust_end}",
+        ),
+        encoding="utf-8",
+    )
+    hooks_path.write_text('{"hooks": {}}\n', encoding="utf-8")
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "uninstall", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex uninstall retry failed exit={result.returncode}\n"
+            f"stdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    config_toml = config_path.read_text(encoding="utf-8")
+    if "cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738" in config_toml:
+        raise AssertionError(f"cmux hook trust marker was preserved: {config_toml!r}")
+    for key, trusted_hash in expected_trust.items():
+        if key in config_toml or trusted_hash in config_toml:
+            raise AssertionError(f"stale cmux hook trust was preserved: {config_toml!r}")
+    if legacy_key in config_toml or legacy_hash in config_toml:
+        raise AssertionError(f"legacy cmux hook trust was preserved: {config_toml!r}")
+    if 'trusted_hash = "sha256:same-file-user"' not in config_toml:
+        raise AssertionError(f"same-file user hook trust was removed: {config_toml!r}")
+    if 'trusted_hash = "sha256:third-party"' not in config_toml:
+        raise AssertionError(f"third-party hook trust was removed: {config_toml!r}")
+
+
+def test_uninstall_retry_preserves_user_hook_trust_at_default_cmux_key(
+    cli_path: str, root: Path
+) -> None:
+    codex_home = root / "codex-home-uninstall-retry-user-default-key"
+    codex_home.mkdir()
+    hooks_path = codex_home / "hooks.json"
+    config_path = codex_home / "config.toml"
+    user_key = f"{hooks_path.resolve()}:pre_tool_use:0:0"
+    user_hooks = {
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "hooks": [
+                        {"type": "command", "command": "printf user", "timeout": 1000}
+                    ]
+                }
+            ]
+        }
+    }
+    hooks_path.write_text(json.dumps(user_hooks, indent=2) + "\n", encoding="utf-8")
+    config_path.write_text(
+        f'[hooks.state."{user_key}"]\n'
+        'trusted_hash = "sha256:user-default-index"\n',
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    installed_hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
+    expected_trust = expected_cmux_codex_hook_trust(installed_hooks, hooks_path)
+    if not expected_trust:
+        raise AssertionError(f"expected cmux Codex trust entries, got {expected_trust!r}")
+    hooks_path.write_text(json.dumps(user_hooks, indent=2) + "\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "uninstall", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex uninstall retry failed exit={result.returncode}\n"
+            f"stdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    config_toml = config_path.read_text(encoding="utf-8")
+    if 'trusted_hash = "sha256:user-default-index"' not in config_toml:
+        raise AssertionError(f"user hook trust at default cmux key was removed: {config_toml!r}")
+    for key, trusted_hash in expected_trust.items():
+        if trusted_hash in config_toml:
+            raise AssertionError(f"stale cmux hook trust was preserved: {config_toml!r}")
+        if key != user_key and key in config_toml:
+            raise AssertionError(f"stale cmux hook trust was preserved: {config_toml!r}")
+
+
+def test_uninstall_removes_legacy_codex_hook_trust(cli_path: str, root: Path) -> None:
+    codex_home = root / "codex-home-uninstall-legacy-trust"
+    codex_home.mkdir()
+    hooks_path = codex_home / "hooks.json"
+    config_path = codex_home / "config.toml"
+    legacy_command = "cmux feed-hook --source codex --event PreToolUse"
+    legacy_key = f"{hooks_path.resolve()}:pre_tool_use:0:0"
+    legacy_hash = codex_command_hook_hash(
+        event_label="pre_tool_use",
+        matcher=None,
+        command=legacy_command,
+        timeout=120_000,
+        status_message=None,
+    )
+    hooks_path.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": legacy_command,
+                                    "timeout": 120_000,
+                                }
+                            ]
+                        }
+                    ]
+                }
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    config_path.write_text(
+        f'[hooks.state."{legacy_key}"]\n'
+        f'trusted_hash = "{legacy_hash}"\n',
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "uninstall", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex uninstall failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
+    if legacy_command in json.dumps(hooks):
+        raise AssertionError(f"legacy cmux hook command was preserved: {hooks!r}")
+    config_toml = config_path.read_text(encoding="utf-8")
+    if legacy_key in config_toml or legacy_hash in config_toml:
+        raise AssertionError(f"legacy cmux hook trust was preserved: {config_toml!r}")
+
+
 def test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home-legacy-uninstall"
     codex_home.mkdir()
@@ -1597,6 +2043,28 @@ def test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path: str, root: Pat
         raise AssertionError(f"wrong PreToolUse event: {frame!r}")
 
 
+def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root: Path) -> None:
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-claude-subagent-stop.sock",
+        {
+            "session_id": "claude-session",
+            "cwd": "/tmp/project",
+            "hook_event_name": "SubagentStop",
+        },
+        None,
+        source="claude",
+    )
+    if stdout != {}:
+        raise AssertionError(f"SubagentStop telemetry should not emit a decision: {stdout!r}")
+    params = frame["params"]
+    if params.get("wait_timeout_seconds") != 0:
+        raise AssertionError(f"SubagentStop should not wait for Feed reply: {frame!r}")
+    event = params["event"]
+    if event.get("hook_event_name") != "SubagentStop" or event.get("_source") != "claude":
+        raise AssertionError(f"SubagentStop should stay distinct in Feed, got {event!r}")
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -1604,7 +2072,7 @@ def main() -> int:
         print(f"FAIL: {exc}")
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="cmux-codex-feed-hooks-") as td:
+    with tempfile.TemporaryDirectory(prefix="cmux-codex-feed-hooks-", dir="/tmp") as td:
         root = Path(td)
         try:
             test_codex_stop_reaps_transcript_monitor(cli_path, root)
@@ -1615,7 +2083,7 @@ def main() -> int:
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
             test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path, root)
-            test_install_preserves_each_codex_hook_position_with_interleaved_third_party_hooks(cli_path, root)
+            test_install_deduplicates_interleaved_codex_hook_positions(cli_path, root)
             test_install_collapses_consecutive_codex_hook_positions(cli_path, root)
             test_install_replaces_legacy_codex_hook_commands(cli_path, root)
             test_install_migrates_legacy_codex_hooks_feature(cli_path, root)
@@ -1629,6 +2097,12 @@ def main() -> int:
             test_uninstall_removes_cmux_owned_codex_hooks_feature(cli_path, root)
             test_uninstall_preserves_unowned_hook_trust_when_cmux_marker_is_unclosed(cli_path, root)
             test_install_recovers_hook_trust_when_cmux_marker_is_unclosed(cli_path, root)
+            test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(cli_path, root)
+            test_install_enables_hooks_when_stale_trust_marker_captures_dotted_feature(cli_path, root)
+            test_uninstall_preserves_third_party_hook_trust_inside_cmux_marker(cli_path, root)
+            test_uninstall_retry_removes_stale_cmux_hook_trust_after_hooks_are_cleaned(cli_path, root)
+            test_uninstall_retry_preserves_user_hook_trust_at_default_cmux_key(cli_path, root)
+            test_uninstall_removes_legacy_codex_hook_trust(cli_path, root)
             test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path, root)
             test_install_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_uninstall_surfaces_invalid_codex_config_encoding(cli_path, root)
@@ -1636,6 +2110,7 @@ def main() -> int:
             test_permission_reply_uses_codex_permission_request_schema(cli_path, root)
             test_codex_persistent_permission_modes_degrade_to_once(cli_path, root)
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
+            test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")
             return 1

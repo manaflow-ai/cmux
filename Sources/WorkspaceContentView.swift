@@ -231,7 +231,8 @@ struct WorkspaceContentView: View {
                         forTabId: workspace.id,
                         surfaceId: panel.id
                     ),
-                    isManuallyUnread: workspace.manualUnreadPanelIds.contains(panel.id),
+                    hasPanelUnreadIndicator: workspace.manualUnreadPanelIds.contains(panel.id) ||
+                        workspace.restoredUnreadPanelIds.contains(panel.id),
                     isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
                     isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panel.id
                 )
@@ -246,6 +247,7 @@ struct WorkspaceContentView: View {
                     isSplit: isSplit,
                     appearance: appearance,
                     hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                    terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
                     onFocus: {
                         // Keep bonsplit focus in sync with the AppKit first responder for the
                         // active workspace. This prevents divergence between the blue focused-tab
@@ -300,6 +302,9 @@ struct WorkspaceContentView: View {
         .onChange(of: workspace.manualUnreadPanelIds) { _, _ in
             syncBonsplitNotificationBadges()
         }
+        .onChange(of: workspace.restoredUnreadPanelIds) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
         .onChange(of: isWorkspaceManuallyUnread) { _, _ in
             syncBonsplitNotificationBadges()
         }
@@ -338,6 +343,7 @@ struct WorkspaceContentView: View {
 
     private func syncBonsplitNotificationBadges() {
         let manualUnread = workspace.manualUnreadPanelIds
+        let restoredUnread = workspace.restoredUnreadPanelIds
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
@@ -352,7 +358,7 @@ struct WorkspaceContentView: View {
                             forTabId: workspace.id,
                             surfaceId: $0
                         ),
-                        isManuallyUnread: manualUnread.contains($0),
+                        hasPanelUnreadIndicator: manualUnread.contains($0) || restoredUnread.contains($0),
                         isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
                         isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == $0
                     )
@@ -453,7 +459,8 @@ struct WorkspaceContentView: View {
                     forTabId: workspace.id,
                     surfaceId: panelId
                 ),
-                isManuallyUnread: workspace.manualUnreadPanelIds.contains(panelId),
+                hasPanelUnreadIndicator: workspace.manualUnreadPanelIds.contains(panelId) ||
+                    workspace.restoredUnreadPanelIds.contains(panelId),
                 isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
                 isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panelId
             )
@@ -676,6 +683,30 @@ struct WorkspaceContentView: View {
 }
 
 extension WorkspaceContentView {
+    static func terminalAgentContext(panel: any Panel, workspace: Workspace) -> String {
+        var parts: [String] = []
+        if let terminalPanel = panel as? TerminalPanel {
+            if let initialCommand = terminalPanel.surface.initialCommand {
+                parts.append("initialCommand:\(initialCommand)")
+            }
+            if let tmuxStartCommand = terminalPanel.surface.tmuxStartCommand {
+                parts.append("tmuxStartCommand:\(tmuxStartCommand)")
+            }
+        }
+        if let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[panel.id] {
+            parts.append("restoredAgent:\(restoredAgent.kind.rawValue)")
+        }
+        if let agentPIDKeys = workspace.agentPIDKeysByPanelId[panel.id], !agentPIDKeys.isEmpty {
+            for key in agentPIDKeys.sorted() {
+                parts.append("agentPIDKey:\(key)")
+            }
+        }
+        return parts
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+
     #if DEBUG
     static func debugPanelLookup(tab: Bonsplit.Tab, workspace: Workspace) {
         let found = workspace.panel(for: tab.id) != nil

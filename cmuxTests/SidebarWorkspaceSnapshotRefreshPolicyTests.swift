@@ -113,7 +113,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             latestLog: nil,
             progress: nil,
             compactGitBranchSummaryText: nil,
-            compactBranchDirectoryRow: nil,
+            compactDirectoryCandidates: [],
+            compactBranchDirectoryCandidates: [],
             branchDirectoryLines: [],
             branchLinesContainBranch: false,
             pullRequestRows: [],
@@ -125,6 +126,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         showsWorkspaceDescription: Bool = true,
         usesVerticalBranchLayout: Bool = true,
         showsGitBranch: Bool = true,
+        usesViewportAwarePath: Bool = false,
         visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
             showsMetadata: true,
             showsLog: true,
@@ -138,6 +140,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             showsWorkspaceDescription: showsWorkspaceDescription,
             usesVerticalBranchLayout: usesVerticalBranchLayout,
             showsGitBranch: showsGitBranch,
+            usesViewportAwarePath: usesViewportAwarePath,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }

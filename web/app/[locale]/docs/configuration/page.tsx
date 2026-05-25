@@ -6,10 +6,12 @@ import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 import settingsSchema from "../../../../data/cmux.schema.json";
 import { shortcutCategories, type LocalizedText } from "../../../../data/cmux-shortcuts";
+import { DocsHeading } from "../../components/docs-heading";
 
 type SchemaProperty = {
   title?: string;
   description?: string;
+  descriptionKey?: string;
   type?: string | string[];
   enum?: string[];
   default?: unknown;
@@ -56,6 +58,7 @@ const settingsFileExample = `{
   //   "appearance": "dark",
   //   "menuBarOnly": false,
   //   "newWorkspacePlacement": "afterCurrent",
+  //   "confirmQuit": "always",
   //   "openSupportedFilesInCmux": true,
   //   "workspaceInheritWorkingDirectory": true,
   //   "iMessageMode": true
@@ -63,12 +66,18 @@ const settingsFileExample = `{
 
   // "terminal": {
   //   "showScrollBar": false,
-  //   "autoResumeAgentSessions": true
+  //   "copyOnSelect": true,
+  //   "autoResumeAgentSessions": true,
+  //   "textBoxMaxLines": 10
   // },
 
   // "browser": {
   //   "openTerminalLinksInCmuxBrowser": true,
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
+  // },
+
+  // "automation": {
+  //   "suppressSubagentNotifications": true
   // },
 
   // "workspaceColors": {
@@ -159,12 +168,15 @@ function hasComplexDefaultValue(value: unknown): boolean {
 }
 
 function PropertyCard({ path, property }: { path: string; property: SchemaProperty }) {
+  const t = useTranslations("docs.configuration");
+  const description = property.descriptionKey ? t(property.descriptionKey) : property.description;
+
   return (
     <div className="rounded-xl border border-border/70 bg-background/40 p-4">
       <div className="mb-2 flex items-center gap-2">
         <code className="text-[12px] font-medium">{path}</code>
       </div>
-      {property.description && <p className="mb-3 text-sm text-muted">{property.description}</p>}
+      {description && <p className="mb-3 text-sm text-muted">{description}</p>}
       <dl className="space-y-2 text-sm">
         <div>
           <dt className="font-medium text-foreground">Type</dt>
@@ -232,10 +244,10 @@ export default function ConfigurationPage() {
 
   return (
     <>
-      <h1>{t("title")}</h1>
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
-      <h2>{t("configLocations")}</h2>
+      <DocsHeading level={2} id="config-locations">{t("configLocations")}</DocsHeading>
       <p>{t("configLocationsDesc")}</p>
       <ol>
         <li>
@@ -249,7 +261,7 @@ export default function ConfigurationPage() {
       <CodeBlock lang="bash">{`mkdir -p ~/.config/ghostty
 touch ~/.config/ghostty/config`}</CodeBlock>
 
-      <h2>{t("exampleConfig")}</h2>
+      <DocsHeading level={2} id="example-config">{t("exampleConfig")}</DocsHeading>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`font-family = SF Mono
 font-size = 13
 theme = One Dark
@@ -257,7 +269,7 @@ scrollback-limit = 50000000
 split-divider-color = #3e4451
 working-directory = ~/code`}</CodeBlock>
 
-      <h2 id="cmux-json" className="scroll-mt-24">cmux.json</h2>
+      <DocsHeading level={2} id="cmux-json" className="scroll-mt-24">cmux.json</DocsHeading>
       <p>
         cmux keeps app-owned settings, shortcuts, actions, custom commands, and workspace layouts in{" "}
         <code>~/.config/cmux/cmux.json</code>. Terminal rendering still lives in Ghostty config.
@@ -300,7 +312,7 @@ working-directory = ~/code`}</CodeBlock>
         {settingsFileExample}
       </CodeBlock>
 
-      <h2>Schema reference</h2>
+      <DocsHeading level={2} id="schema-reference">Schema reference</DocsHeading>
       <p>
         This reference covers every supported global settings key in <code>cmux.json</code>. The embedded
         browser, terminal, sidebar, notifications, automation, and cmux-owned keyboard shortcuts
@@ -308,7 +320,7 @@ working-directory = ~/code`}</CodeBlock>
         <Link href="/docs/custom-commands">custom commands page</Link>.
       </p>
 
-      <h3>Metadata</h3>
+      <DocsHeading level={3} id="metadata">Metadata</DocsHeading>
       <PropertyGrid
         prefix=""
         properties={Object.fromEntries(
@@ -326,9 +338,9 @@ working-directory = ~/code`}</CodeBlock>
 
         return (
           <section key={sectionName}>
-            <h3>
+            <DocsHeading level={3} id={`schema-${sectionName}`}>
               <code>{sectionName}</code>
-            </h3>
+            </DocsHeading>
             {property.description && <p>{property.description}</p>}
             <PropertyGrid prefix={sectionName} properties={property.properties} skip={skipBindings} />
             {sectionName === "workspaceColors" && (
@@ -355,9 +367,9 @@ working-directory = ~/code`}</CodeBlock>
         );
       })}
 
-      <h3>
+      <DocsHeading level={3} id="shortcuts-bindings">
         <code>shortcuts.bindings</code>
-      </h3>
+      </DocsHeading>
       <p>
         Use a string for a single shortcut, a two-item array for a chord, or <code>null</code> to
         unbind a shortcut in <code>shortcuts.bindings</code>. Unbind aliases also include

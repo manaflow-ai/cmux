@@ -44,6 +44,40 @@ extension SocketListenerAcceptPolicyTests {
         )
     }
 
+    func testAntigravityResumeCommandUsesConversationAndDropsStartupSelectors() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .antigravity,
+            sessionId: "antigravity-conversation-123",
+            workingDirectory: "/tmp/antigravity repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "antigravity",
+                executablePath: "/Users/example/.local/bin/agy",
+                arguments: [
+                    "/Users/example/.local/bin/agy",
+                    "--conversation",
+                    "old-conversation",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--add-dir",
+                    "/tmp/extra repo",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/antigravity repo",
+                environment: [
+                    "GEMINI_CLI_HOME": "/tmp/gemini home",
+                    "GEMINI_API_KEY": "secret"
+                ],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/tmp/antigravity repo' && 'env' 'GEMINI_CLI_HOME=/tmp/gemini home' '/Users/example/.local/bin/agy' '--conversation' 'antigravity-conversation-123' '--sandbox' 'danger-full-access' '--add-dir' '/tmp/extra repo'"
+        )
+    }
+
     func testRovoDevResumeCommandUsesRestoreAndPreservesYolo() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .rovodev,
@@ -74,6 +108,36 @@ extension SocketListenerAcceptPolicyTests {
         XCTAssertEqual(
             snapshot.resumeCommand,
             "cd '/tmp/rovo repo' && 'env' 'CMUX_ROVODEV_SESSIONS_DIR=/tmp/rovo sessions' '/opt/homebrew/bin/acli' 'rovodev' 'run' '--restore' 'session with space' '--yolo'"
+        )
+    }
+
+    func testCursorResumeCommandDropsCapturedNodeRuntimeFlags() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .cursor,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "~/.cursor",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "cursor",
+                executablePath: "/usr/local/bin/agent",
+                arguments: [
+                    "/usr/local/bin/agent",
+                    "agent",
+                    "--use-system-ca",
+                    "--model",
+                    "gpt-5.4",
+                    "--resume",
+                    "old-chat"
+                ],
+                workingDirectory: "~/.cursor",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '~/.cursor' && '/usr/local/bin/agent' '--resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4'"
         )
     }
 
@@ -211,6 +275,34 @@ extension SocketListenerAcceptPolicyTests {
                 source: "process"
             )
         )
+        let grok = SessionRestorableAgentSnapshot(
+            kind: .grok,
+            sessionId: "grok-session-123",
+            workingDirectory: "/tmp/grok repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "grok",
+                executablePath: "/Users/example/.grok/bin/grok",
+                arguments: [
+                    "/Users/example/.grok/bin/grok",
+                    "--model",
+                    "grok-4",
+                    "--resume",
+                    "old-session",
+                    "--permission-mode",
+                    "auto",
+                    "--cwd",
+                    "/tmp/grok repo",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/grok repo",
+                environment: [
+                    "GROK_HOME": "/tmp/grok home",
+                    "XAI_API_KEY": "secret"
+                ],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
         let pi = SessionRestorableAgentSnapshot(
             kind: .pi, sessionId: "pi-session-123", workingDirectory: "/tmp/pi repo",
             launchCommand: AgentLaunchCommandSnapshot(
@@ -264,6 +356,10 @@ extension SocketListenerAcceptPolicyTests {
         XCTAssertEqual(
             qoder.resumeCommand,
             "cd '/tmp/qoder repo' && 'env' 'QODER_CONFIG_DIR=/tmp/qoder config' '/Users/example/.npm/bin/qodercli' '--resume' 'qoder-session-123' '--model' 'gemini-2.5-pro' '--permission-mode' 'plan' '--workspace' '/tmp/qoder repo'"
+        )
+        XCTAssertEqual(
+            grok.resumeCommand,
+            "cd '/tmp/grok repo' && 'env' 'GROK_HOME=/tmp/grok home' '/Users/example/.grok/bin/grok' '-r' 'grok-session-123' '--model' 'grok-4' '--permission-mode' 'auto' '--cwd' '/tmp/grok repo'"
         )
         XCTAssertEqual(pi.resumeCommand, "cd '/tmp/pi repo' && 'env' 'PI_CODING_AGENT_DIR=/tmp/pi home' '/Users/example/.bun/bin/pi' '--session' 'pi-session-123' '--model' 'anthropic/claude-sonnet-4-5' '--thinking' 'high'")
         XCTAssertEqual(

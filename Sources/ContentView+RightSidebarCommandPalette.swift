@@ -27,6 +27,8 @@ extension ContentView {
             return .showNotifications
         case "palette.jumpUnread":
             return .jumpToUnread
+        case "palette.toggleUnread":
+            return .toggleUnread
         case "palette.markOldestUnreadAndJumpNext":
             return .markOldestUnreadAndJumpNext
         case "palette.renameTab":
@@ -69,6 +71,10 @@ extension ContentView {
             return .hideFind
         case "palette.terminalUseSelectionForFind":
             return .useSelectionForFind
+        case "palette.terminalFocusTextBoxInput":
+            return .focusTextBoxInput
+        case "palette.terminalAttachTextBoxFile":
+            return .attachTextBoxFile
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
         case "palette.equalizeSplits":

@@ -17,6 +17,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     let isVisibleInUI: Bool
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
+    let drawsBackground: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(panel: panel)
@@ -29,7 +30,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        scrollView.drawsBackground = false
+        scrollView.drawsBackground = drawsBackground
 
         let textView = SavingTextView()
         textView.panel = panel
@@ -42,7 +43,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.usesFindPanel = true
         textView.usesFontPanel = false
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        textView.drawsBackground = false
+        textView.drawsBackground = drawsBackground
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
@@ -58,14 +59,24 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         panel.attachTextView(textView)
 
         scrollView.documentView = textView
-        Self.applyTheme(to: scrollView, backgroundColor: themeBackgroundColor, foregroundColor: themeForegroundColor)
+        Self.applyTheme(
+            to: scrollView,
+            backgroundColor: themeBackgroundColor,
+            foregroundColor: themeForegroundColor,
+            drawsBackground: drawsBackground
+        )
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.panel = panel
         scrollView.isHidden = !isVisibleInUI
-        Self.applyTheme(to: scrollView, backgroundColor: themeBackgroundColor, foregroundColor: themeForegroundColor)
+        Self.applyTheme(
+            to: scrollView,
+            backgroundColor: themeBackgroundColor,
+            foregroundColor: themeForegroundColor,
+            drawsBackground: drawsBackground
+        )
         guard let textView = scrollView.documentView as? SavingTextView else { return }
         textView.panel = panel
         textView.applyFilePreviewTextEditorInsets()
@@ -79,9 +90,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     static func applyTheme(
         to scrollView: NSScrollView,
         backgroundColor: NSColor,
-        foregroundColor: NSColor
+        foregroundColor: NSColor,
+        drawsBackground: Bool
     ) {
-        let drawsBackground = shouldDrawBackground(for: backgroundColor)
         let resolvedBackgroundColor = drawsBackground ? backgroundColor : .clear
         scrollView.drawsBackground = drawsBackground
         scrollView.backgroundColor = resolvedBackgroundColor
@@ -93,10 +104,6 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             textView.textColor = foregroundColor
             textView.insertionPointColor = foregroundColor
         }
-    }
-
-    static func shouldDrawBackground(for backgroundColor: NSColor) -> Bool {
-        backgroundColor.alphaComponent > 0.001
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {

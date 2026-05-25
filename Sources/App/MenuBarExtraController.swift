@@ -332,18 +332,19 @@ enum NotificationMenuSnapshotBuilder {
 
     static func make(
         notifications: [TerminalNotification],
+        workspaceUnreadIndicatorCount: Int = 0,
         maxInlineNotificationItems: Int = defaultInlineNotificationLimit
     ) -> NotificationMenuSnapshot {
         let unreadCount = notifications.reduce(into: 0) { count, notification in
             if !notification.isRead {
                 count += 1
             }
-        }
+        } + workspaceUnreadIndicatorCount
 
         let inlineLimit = max(0, maxInlineNotificationItems)
         return NotificationMenuSnapshot(
             unreadCount: unreadCount,
-            hasNotifications: !notifications.isEmpty,
+            hasNotifications: !notifications.isEmpty || workspaceUnreadIndicatorCount > 0,
             recentNotifications: Array(notifications.prefix(inlineLimit))
         )
     }
