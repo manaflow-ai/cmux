@@ -134,6 +134,7 @@ export default function CustomCommandsPage() {
         "cmux.newBrowser",
         "cmux.splitRight",
         "cmux.splitDown",
+        "cmux.rightSidebar.toggle",
         "claude"
       ]
     }
@@ -154,6 +155,7 @@ export default function CustomCommandsPage() {
           newBrowser: (chunks) => <code>{chunks}</code>,
           splitRight: (chunks) => <code>{chunks}</code>,
           splitDown: (chunks) => <code>{chunks}</code>,
+          rightSidebarToggle: (chunks) => <code>{chunks}</code>,
         })}
       </p>
       <p>
@@ -468,6 +470,7 @@ export default function CustomCommandsPage() {
         "cmux.newBrowser",
         "cmux.splitRight",
         "cmux.splitDown",
+        "cmux.rightSidebar.toggle",
         {
           "action": "claude",
           "title": "Claude Here"

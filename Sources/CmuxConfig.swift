@@ -1499,34 +1499,11 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     }
 
     static func builtIn(_ builtIn: CmuxSurfaceTabBarBuiltInAction) -> CmuxResolvedConfigAction {
-        let title: String
-        let keywords: [String]
-        switch builtIn {
-        case .newWorkspace:
-            title = String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")
-            keywords = ["create", "new", "workspace"]
-        case .cloudVM:
-            title = String(localized: "command.cloudVM.title", defaultValue: "Start Cloud VM")
-            keywords = ["cloud", "vm", "virtual", "machine", "remote"]
-        case .newTerminal:
-            title = String(localized: "command.newTerminalTab.title", defaultValue: "New Terminal Tab")
-            keywords = ["new", "terminal", "tab", "surface"]
-        case .newBrowser:
-            title = String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab")
-            keywords = ["new", "browser", "tab", "surface"]
-        case .splitRight:
-            title = String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right")
-            keywords = ["terminal", "split", "right"]
-        case .splitDown:
-            title = String(localized: "command.terminalSplitDown.title", defaultValue: "Split Down")
-            keywords = ["terminal", "split", "down"]
-        }
-
         return CmuxResolvedConfigAction(
             id: builtIn.configID,
-            title: title,
+            title: builtIn.defaultTitle,
             subtitle: String(localized: "command.cmuxConfig.builtInSubtitle", defaultValue: "cmux"),
-            keywords: keywords,
+            keywords: builtIn.defaultKeywords,
             palette: true,
             shortcut: nil,
             icon: .symbol(builtIn.defaultIcon),

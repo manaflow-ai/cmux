@@ -16772,18 +16772,11 @@ extension Workspace: BonsplitDelegate {
             ?? NSApp.mainWindow
 
         if let builtInAction = executable.builtInAction {
-            switch builtInAction {
-            case .newWorkspace:
-                owningTabManager?.addWorkspace()
-            case .cloudVM:
-                _ = AppDelegate.shared?.performCloudVMAction(
-                    tabManager: owningTabManager,
-                    preferredWindow: presentingWindow,
-                    debugSource: "surfaceTabBar.cloudVM"
-                )
-            case .newTerminal, .newBrowser, .splitRight, .splitDown:
-                break
-            }
+            _ = AppDelegate.shared?.executeSurfaceTabBarBuiltInAction(
+                builtInAction,
+                tabManager: owningTabManager,
+                preferredWindow: presentingWindow
+            )
             return
         }
 

@@ -5980,9 +5980,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applyRightSidebarRemoteCommand(
         _ command: RightSidebarRemoteCommand,
-        target: RightSidebarRemoteTarget = RightSidebarRemoteTarget()
+        target: RightSidebarRemoteTarget = RightSidebarRemoteTarget(),
+        preferredWindow: NSWindow? = nil
     ) -> RightSidebarRemoteApplyResult {
-        let context = rightSidebarRemoteContext(target: target)
+        let context = rightSidebarRemoteContext(target: target, preferredWindow: preferredWindow)
         if !target.isActiveTarget, context == nil {
             return .failure(String(localized: "rightSidebar.remote.error.targetNotFound", defaultValue: "ERROR: Right sidebar target not found"))
         }
@@ -6068,7 +6069,156 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func rightSidebarRemoteContext(target: RightSidebarRemoteTarget) -> MainWindowContext? {
+    @discardableResult
+    func executeBuiltInRightSidebarAction(
+        _ action: CmuxSurfaceTabBarBuiltInAction,
+        preferredWindow: NSWindow? = nil,
+        onExecuted: (() -> Void)? = nil
+    ) -> Bool {
+        executeBuiltInAction(
+            action,
+            scope: .rightSidebarOnly,
+            preferredWindow: preferredWindow,
+            onExecuted: onExecuted
+        )
+    }
+
+    @discardableResult
+    func executeSurfaceTabBarBuiltInAction(
+        _ action: CmuxSurfaceTabBarBuiltInAction,
+        tabManager: TabManager?,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        executeBuiltInAction(
+            action,
+            scope: .surfaceTabBar(tabManager),
+            preferredWindow: preferredWindow
+        )
+    }
+
+    private enum BuiltInActionExecutionScope {
+        case configured(MainWindowContext)
+        case surfaceTabBar(TabManager?)
+        case rightSidebarOnly
+    }
+
+    @discardableResult
+    private func executeBuiltInAction(
+        _ action: CmuxSurfaceTabBarBuiltInAction,
+        scope: BuiltInActionExecutionScope,
+        preferredWindow: NSWindow? = nil,
+        onExecuted: (() -> Void)? = nil
+    ) -> Bool {
+        switch action {
+        case .rightSidebarToggle, .rightSidebarShow, .rightSidebarHide, .rightSidebarFocus,
+             .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault, .rightSidebarSessions,
+             .rightSidebarFeed, .rightSidebarDock:
+            guard let command = action.rightSidebarRemoteCommand else {
+                return false
+            }
+            switch applyRightSidebarRemoteCommand(command, preferredWindow: preferredWindow) {
+            case .ok:
+                onExecuted?()
+                return true
+            case .state, .failure:
+                return false
+            }
+
+        case .newWorkspace:
+            switch scope {
+            case .configured(let context):
+                context.tabManager.addWorkspace()
+                onExecuted?()
+                return true
+            case .surfaceTabBar(let tabManager):
+                guard let tabManager else { return false }
+                tabManager.addWorkspace()
+                return true
+            case .rightSidebarOnly:
+                return false
+            }
+
+        case .cloudVM:
+            switch scope {
+            case .configured(let context):
+                let didStart = performCloudVMAction(
+                    tabManager: context.tabManager,
+                    preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
+                    debugSource: "configured.cmux.cloudvm"
+                )
+                if didStart { onExecuted?() }
+                return didStart
+            case .surfaceTabBar(let tabManager):
+                return performCloudVMAction(
+                    tabManager: tabManager,
+                    preferredWindow: preferredWindow,
+                    debugSource: "surfaceTabBar.cloudVM"
+                )
+            case .rightSidebarOnly:
+                return false
+            }
+
+        case .newTerminal:
+            guard case .configured(let context) = scope else {
+                return false
+            }
+            context.tabManager.newSurface()
+            onExecuted?()
+            return true
+
+        case .newBrowser:
+            guard case .configured(let context) = scope else {
+                return false
+            }
+            let previousTabManager = tabManager
+            tabManager = context.tabManager
+            defer { tabManager = previousTabManager }
+            guard openBrowserAndFocusAddressBar(insertAtEnd: true) != nil else {
+                return false
+            }
+            onExecuted?()
+            return true
+
+        case .splitRight:
+            guard case .configured(let context) = scope else {
+                return false
+            }
+            if shouldSuppressSplitShortcutForTransientTerminalFocusState(
+                direction: .right,
+                tabManager: context.tabManager
+            ) {
+                return true
+            }
+            let didSplit = performSplitShortcut(
+                direction: .right,
+                preferredWindow: preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            if didSplit { onExecuted?() }
+            return didSplit
+
+        case .splitDown:
+            guard case .configured(let context) = scope else {
+                return false
+            }
+            if shouldSuppressSplitShortcutForTransientTerminalFocusState(
+                direction: .down,
+                tabManager: context.tabManager
+            ) {
+                return true
+            }
+            let didSplit = performSplitShortcut(
+                direction: .down,
+                preferredWindow: preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            if didSplit { onExecuted?() }
+            return didSplit
+        }
+    }
+
+    private func rightSidebarRemoteContext(
+        target: RightSidebarRemoteTarget,
+        preferredWindow: NSWindow? = nil
+    ) -> MainWindowContext? {
         if let windowId = target.windowId {
             return mainWindowContexts.values.first(where: { $0.windowId == windowId })
         }
@@ -6077,7 +6227,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 context.tabManager.tabs.contains(where: { $0.id == workspaceId })
             }
         }
-        return preferredRegisteredMainWindowContext()
+        return preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
     }
 
     @discardableResult
@@ -13791,59 +13941,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         switch action.action {
         case .builtIn(let builtIn):
-            switch builtIn {
-            case .newWorkspace:
-                context.tabManager.addWorkspace()
-                onExecuted?()
-                return true
-            case .cloudVM:
-                let didStart = performCloudVMAction(
-                    tabManager: context.tabManager,
-                    preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
-                    debugSource: "configured.cmux.cloudvm"
-                )
-                if didStart { onExecuted?() }
-                return didStart
-            case .newTerminal:
-                context.tabManager.newSurface()
-                onExecuted?()
-                return true
-            case .newBrowser:
-                let previousTabManager = tabManager
-                tabManager = context.tabManager
-                defer { tabManager = previousTabManager }
-                guard openBrowserAndFocusAddressBar(insertAtEnd: true) != nil else {
-                    return false
-                }
-                onExecuted?()
-                return true
-            case .splitRight:
-                if shouldSuppressSplitShortcutForTransientTerminalFocusState(
-                    direction: .right,
-                    tabManager: context.tabManager
-                ) {
-                    return true
-                }
-                let didSplit = performSplitShortcut(
-                    direction: .right,
-                    preferredWindow: preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
-                )
-                if didSplit { onExecuted?() }
-                return didSplit
-            case .splitDown:
-                if shouldSuppressSplitShortcutForTransientTerminalFocusState(
-                    direction: .down,
-                    tabManager: context.tabManager
-                ) {
-                    return true
-                }
-                let didSplit = performSplitShortcut(
-                    direction: .down,
-                    preferredWindow: preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
-                )
-                if didSplit { onExecuted?() }
-                return didSplit
-            }
+            return executeBuiltInAction(
+                builtIn,
+                scope: .configured(context),
+                preferredWindow: preferredWindow,
+                onExecuted: onExecuted
+            )
         case .command, .agent, .workspaceCommand:
             guard let cmuxConfigStore = context.cmuxConfigStore else {
                 return false
