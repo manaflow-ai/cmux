@@ -154,7 +154,10 @@ public enum AgentDecisionMapper {
             let payload = try? JSONSerialization.jsonObject(with: event.payload) as? [String: Any]
         else { return nil }
 
-        let hookName = (payload["hook_event_name"] as? String) ?? event.name
+        let rawHookName = (payload["hook_event_name"] as? String) ?? event.name
+        let hookName = rawHookName.hasPrefix("agent.hook.")
+            ? String(rawHookName.dropFirst("agent.hook.".count))
+            : rawHookName
         let source = (payload["_source"] as? String) ?? event.source
         guard let id = FeedDecisionIdentifier.extract(from: payload) else {
             return nil

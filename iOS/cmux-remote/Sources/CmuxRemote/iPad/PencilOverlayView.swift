@@ -14,16 +14,18 @@ import CmuxKit
 /// candidates).
 struct PencilOverlayView: View {
     @Binding var isPresented: Bool
-    let onRecognized: (String) -> Void
+    let onRecognized: (String) async throws -> Void
 
     @State private var drawing = PKDrawing()
     @State private var recognized: String = ""
+    @State private var sendError: String?
 
     var body: some View {
         VStack(spacing: 0) {
             header
             PencilCanvas(drawing: $drawing) { recognized in
                 self.recognized = recognized
+                self.sendError = nil
             }
             footer
         }
@@ -54,16 +56,25 @@ struct PencilOverlayView: View {
                     "pencil.empty_hint",
                     defaultValue: "Write with Apple Pencil - finger gestures still scroll the terminal."
                 )
-                : recognized
+                : (sendError ?? recognized)
             )
-                .foregroundStyle(recognized.isEmpty ? .secondary : .primary)
+                .foregroundStyle(footerTextColor)
                 .lineLimit(1)
             Spacer()
             Button {
                 let payload = recognized.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !payload.isEmpty else { return }
-                onRecognized(payload)
-                isPresented = false
+                Task {
+                    do {
+                        try await onRecognized(payload)
+                        isPresented = false
+                    } catch {
+                        sendError = L10n.string(
+                            "pencil.send_failed",
+                            defaultValue: "Could not send handwriting."
+                        )
+                    }
+                }
             } label: { Label(L10n.string("common.send", defaultValue: "Send"), systemImage: "paperplane.fill") }
                 .buttonStyle(.borderedProminent)
                 .disabled(recognized.isEmpty)
@@ -71,6 +82,11 @@ struct PencilOverlayView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(.thinMaterial)
+    }
+
+    private var footerTextColor: Color {
+        if sendError != nil { return .red }
+        return recognized.isEmpty ? .secondary : .primary
     }
 }
 
@@ -99,12 +115,21 @@ private struct PencilCanvas: UIViewRepresentable {
 
     final class Coordinator: NSObject, PKCanvasViewDelegate, UIPencilInteractionDelegate {
         let onRecognized: (String) -> Void
+        private var recognitionTask: Task<Void, Never>?
+
         init(onRecognized: @escaping (String) -> Void) { self.onRecognized = onRecognized }
 
+        deinit {
+            recognitionTask?.cancel()
+        }
+
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-            Task { @MainActor in
-                let drawing = canvasView.drawing
+            recognitionTask?.cancel()
+            let drawing = canvasView.drawing
+            recognitionTask = Task { @MainActor [weak self, weak canvasView] in
+                guard let self, let canvasView else { return }
                 let recognized = await Self.recognize(drawing: drawing, on: canvasView)
+                guard !Task.isCancelled else { return }
                 onRecognized(recognized)
             }
         }
@@ -154,13 +179,15 @@ enum VisionHandwriting {
     static func recognize(image: UIImage) async -> String? {
         guard let cgImage = image.cgImage else { return nil }
         return await Task.detached(priority: .userInitiated) {
+            guard !Task.isCancelled else { return nil }
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.usesLanguageCorrection = true
-            request.recognitionLanguages = ["en-US"]
+            request.recognitionLanguages = Locale.preferredLanguages
             let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up, options: [:])
             do {
                 try handler.perform([request])
+                guard !Task.isCancelled else { return nil }
                 let text = (request.results ?? [])
                     .compactMap { $0.topCandidates(1).first?.string }
                     .joined(separator: " ")

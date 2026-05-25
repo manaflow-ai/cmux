@@ -8,6 +8,7 @@ struct SurfaceDetailView: View {
     @State private var showCommandPalette = false
     @State private var showPencilOverlay = false
     @State private var showSnippets = false
+    @State private var pencilError: String?
 
     private var workspace: CmuxWorkspace? {
         connection.snapshot.workspaces[surface.workspaceID]
@@ -31,9 +32,21 @@ struct SurfaceDetailView: View {
             }
             if showPencilOverlay {
                 PencilOverlayView(isPresented: $showPencilOverlay) { recognized in
-                    Task {
-                        guard let client = await connection.client(for: "send") else { return }
-                        try? await client.sendText(recognized, surfaceID: surface.id, workspaceID: workspace?.id)
+                    guard let client = await connection.client(for: "send") else {
+                        pencilError = L10n.string(
+                            "pencil.send_failed",
+                            defaultValue: "Could not send handwriting."
+                        )
+                        throw CmuxError.transport("No active cmux connection", underlying: nil)
+                    }
+                    do {
+                        try await client.sendText(recognized, surfaceID: surface.id, workspaceID: workspace?.id)
+                    } catch {
+                        pencilError = L10n.string(
+                            "pencil.send_failed",
+                            defaultValue: "Could not send handwriting."
+                        )
+                        throw error
                     }
                 }
             }
@@ -67,6 +80,17 @@ struct SurfaceDetailView: View {
         }
         .sheet(isPresented: $showSnippets) {
             SnippetPickerView(surface: surface, workspace: workspace)
+        }
+        .alert(
+            L10n.string("pencil.send_failed.title", defaultValue: "Handwriting not sent"),
+            isPresented: Binding(
+                get: { pencilError != nil },
+                set: { if !$0 { pencilError = nil } }
+            )
+        ) {
+            Button(L10n.string("common.ok", defaultValue: "OK"), role: .cancel) {}
+        } message: {
+            Text(pencilError ?? "")
         }
     }
 

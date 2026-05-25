@@ -68,13 +68,16 @@ public actor AgentWatchdog {
     private func loop() async {
         while !Task.isCancelled {
             try? await Task.sleep(for: config.pollInterval)
+            guard !Task.isCancelled else { break }
             await scan()
         }
     }
 
     private func scan() async {
         let now = Date()
-        let threshold = Double(config.stuckThreshold.components.seconds)
+        let thresholdComponents = config.stuckThreshold.components
+        let threshold = Double(thresholdComponents.seconds)
+            + Double(thresholdComponents.attoseconds) / 1.0e18
         for (surfaceID, value) in lastActivity {
             if alerted.contains(surfaceID) { continue }
             if now.timeIntervalSince(value.timestamp) > threshold {

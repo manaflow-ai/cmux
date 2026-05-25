@@ -10839,10 +10839,14 @@ class TerminalController {
                 data: nil
             )
         }
-        if params["selections"] != nil && params["question_selections"] != nil {
+        let hasSelections = params["selections"] != nil
+        let hasQuestionSelections = params["question_selections"] != nil
+        let hasSelectionIds = params["selection_ids"] != nil
+        let providedSelectionForms = [hasSelections, hasQuestionSelections, hasSelectionIds].filter { $0 }.count
+        guard providedSelectionForms == 1 else {
             return .err(
                 code: "invalid_params",
-                message: "feed.question.reply accepts either selections or question_selections, not both",
+                message: "feed.question.reply accepts exactly one of selections, question_selections, or selection_ids",
                 data: nil
             )
         }

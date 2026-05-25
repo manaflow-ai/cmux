@@ -179,7 +179,10 @@ struct HostAddView: View {
             hostStore.setActive(host.id)
             dismiss()
         } catch {
-            self.error = error.localizedDescription
+            self.error = L10n.string(
+                "host.edit.error.save_failed",
+                defaultValue: "Could not save this host. Check the settings and try again."
+            )
         }
     }
 }

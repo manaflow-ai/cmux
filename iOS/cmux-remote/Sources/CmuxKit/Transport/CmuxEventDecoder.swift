@@ -133,14 +133,33 @@ public struct CmuxEventDecoder: Sendable {
 
     static func parseTimestamp(_ value: Any?) -> Date? {
         guard let s = value as? String else { return nil }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: s) {
+        if let date = Self.fractionalTimestampParser.date(from: s) {
             return date
         }
+        return Self.wholeSecondTimestampParser.date(from: s)
+    }
 
-        let wholeSecond = ISO8601DateFormatter()
-        wholeSecond.formatOptions = [.withInternetDateTime]
-        return wholeSecond.date(from: s)
+    private static let fractionalTimestampParser = LockedISO8601Parser(
+        options: [.withInternetDateTime, .withFractionalSeconds]
+    )
+    private static let wholeSecondTimestampParser = LockedISO8601Parser(
+        options: [.withInternetDateTime]
+    )
+}
+
+private final class LockedISO8601Parser: @unchecked Sendable {
+    private let formatter: ISO8601DateFormatter
+    private let lock = NSLock()
+
+    init(options: ISO8601DateFormatter.Options) {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = options
+        self.formatter = formatter
+    }
+
+    func date(from value: String) -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        return formatter.date(from: value)
     }
 }

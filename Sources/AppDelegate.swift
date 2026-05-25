@@ -555,6 +555,7 @@ enum FeedNotificationActionSecurity {
         "feed.diff.reject",
         "feed.exit_plan.ultraplan",
         "feed.exit_plan.manual",
+        "feed.exit_plan.bypassPermissions",
         "feed.exit_plan.autoAccept"
     ]
 
@@ -14198,6 +14199,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     identifier: "feed.exit_plan.manual",
                     title: String(localized: "feed.notification.exitPlan.manual", defaultValue: "Manual"),
                     options: FeedNotificationActionSecurity.options(for: "feed.exit_plan.manual")
+                ),
+                UNNotificationAction(
+                    identifier: "feed.exit_plan.bypassPermissions",
+                    title: String(localized: "feed.notification.exitPlan.bypass", defaultValue: "Bypass"),
+                    options: FeedNotificationActionSecurity.options(for: "feed.exit_plan.bypassPermissions")
                 ),
                 UNNotificationAction(
                     identifier: "feed.exit_plan.autoAccept",

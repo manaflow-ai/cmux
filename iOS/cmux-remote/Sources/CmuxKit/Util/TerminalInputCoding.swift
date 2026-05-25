@@ -27,15 +27,14 @@ public enum SmartPasteSanitiser {
                 stripped = true
             }
         }
-        let beforeLineCount = s.split(separator: "\n").count
+        let containedNewline = s.contains("\n") || s.contains("\r")
         let normalisedNewlines = s.contains("\r\n") || s.contains("\r")
         s = s.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-        let lineCount = s.split(separator: "\n").count
         return Result(
             cleaned: s,
             didStripSmartQuotes: stripped,
             didNormaliseNewlines: normalisedNewlines,
-            isMultiLine: lineCount > 1 || beforeLineCount > 1
+            isMultiLine: containedNewline
         )
     }
 }

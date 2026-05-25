@@ -47,7 +47,7 @@ is not real-time).
 | Agent decision fan-out                       | `events.stream --category agent --category feed`, v2 `feed.list` |
 | Agent decision replies                       | v2 `feed.permission.reply`, `feed.question.reply`, `feed.exit_plan.reply` |
 | Sidebar metadata                             | `set-status`, `log`, `set-progress`, `list-status`, `list-log`   |
-| Browser control                              | `browser open|goto|click|fill|press|find|...`                    |
+| Browser control                              | `browser open\|goto\|click\|fill\|press\|find\|...`              |
 | Workspace + tab actions                      | `workspace-action`, `tab-action`                                 |
 | Live stream                                  | v2 `events.stream` (resume by `seq`)                             |
 | Capabilities probe                           | v2 `system.capabilities`, `system.identify`                       |
@@ -84,7 +84,7 @@ catalog is at [`docs/events.md`](../../docs/events.md).
   annotation and screenshot-with-handwriting. Pencil Pro double-tap and
   squeeze gestures cycle surfaces / open command palette. Hover preview on
   command palette rows.
-- **Gestures** — Two-finger horizontal swipe switches pane; three-finger
+- **Gestures** — Two-finger horizontal swipe switches surface; three-finger
   swipe-down opens command palette; pinch-zoom changes terminal font size.
 
 ## Library dependencies
@@ -104,7 +104,7 @@ Versions are pinned in `Package.swift` / `project.yml`.
 
 ## Repo layout
 
-```
+```text
 iOS/cmux-remote/
 ├── README.md
 ├── project.yml                # XcodeGen spec (source of truth)
@@ -143,7 +143,7 @@ open cmux-remote.xcodeproj
 ```
 
 The Xcode project file (`cmux-remote.xcodeproj`) is regenerated from
-`project.yml`; the `.xcodeproj` itself is **not** committed (the spec is).
+`project.yml` and committed so CI can build without requiring XcodeGen.
 
 ## Verification
 

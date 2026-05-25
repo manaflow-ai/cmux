@@ -243,16 +243,19 @@ public actor CMUXClient {
         guard let id = (payload["workspace_id"] as? String) ?? (payload["workspace_ref"] as? String) else {
             return nil
         }
-        let resolvedWindowID = (payload["window_id"] as? String)
-            ?? (payload["window_ref"] as? String)
-            ?? ""
-        let lookupWindowID = resolvedWindowID.isEmpty ? windowID : WindowID(resolvedWindowID)
+        let responseWindowID = Self.nonEmptyString(payload["window_id"])
+            ?? Self.nonEmptyString(payload["window_ref"])
+        let resolvedWindowID = responseWindowID.map { WindowID($0) } ?? windowID
+        let lookupWindowID = resolvedWindowID
         if let workspace = try await listWorkspaces(windowID: lookupWindowID).first(where: { $0.id == WorkspaceID(id) }) {
             return workspace
         }
+        guard let resolvedWindowID else {
+            return nil
+        }
         return CmuxWorkspace(
             id: WorkspaceID(id),
-            windowID: WindowID(resolvedWindowID),
+            windowID: resolvedWindowID,
             index: 0,
             title: nil,
             cwd: cwd,
@@ -386,8 +389,25 @@ public actor CMUXClient {
         var parts = [cmuxBinaryPath]
         parts.append(contentsOf: args)
         let command = ShellEscape.command(parts)
-        log.debug("cmux exec", metadata: ["cmd": .string(command)])
+        log.debug("cmux exec", metadata: Self.redactedCommandMetadata(args))
         return try await transport.runOneShot(command: command, stdin: nil)
+    }
+
+    private static func nonEmptyString(_ value: Any?) -> String? {
+        guard let string = value as? String else { return nil }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func redactedCommandMetadata(_ args: [String]) -> Logger.Metadata {
+        var metadata: Logger.Metadata = ["argc": "\(args.count)"]
+        if let command = args.first {
+            metadata["command"] = "\(command)"
+        }
+        if args.first == "rpc", args.count > 1 {
+            metadata["rpc_method"] = "\(args[1])"
+        }
+        return metadata
     }
 
     private func runJSONObject(_ args: [String]) async throws -> [String: Any] {

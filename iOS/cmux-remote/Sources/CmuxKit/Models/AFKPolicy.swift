@@ -140,7 +140,10 @@ extension Array where Element == AFKPolicy.Rule {
         // from Settings if they understand the trade-off.
         [
             AFKPolicy.Rule(
-                label: "Read-only file inspection (strict)",
+                label: String(
+                    localized: "afk.default_rule.read_only_files",
+                    defaultValue: "Read-only file inspection (strict)"
+                ),
                 match: AFKPolicy.Match(
                     toolNameRegex: "^(read|read_file|cat|head|tail|grep|rg|ls|find|stat|file|wc)$",
                     onlyReadOnly: true
@@ -153,7 +156,10 @@ extension Array where Element == AFKPolicy.Rule {
                 // earlier `\b`-terminated regex and auto-approved a
                 // chained destructive command (caught by adversarial
                 // review).
-                label: "git status / log / diff (read-only)",
+                label: String(
+                    localized: "afk.default_rule.git_read_only",
+                    defaultValue: "git status / log / diff (read-only)"
+                ),
                 match: AFKPolicy.Match(
                     commandRegex: "^git\\s+(status|log|diff|show|blame|branch\\s+--list)(\\s+[^;&|`$()<>]*)?$",
                     onlyReadOnly: true
@@ -161,7 +167,10 @@ extension Array where Element == AFKPolicy.Rule {
                 action: .autoApprove
             ),
             AFKPolicy.Rule(
-                label: "Block any rm -rf",
+                label: String(
+                    localized: "afk.default_rule.block_rm_rf",
+                    defaultValue: "Block any rm -rf"
+                ),
                 match: AFKPolicy.Match(commandRegex: "rm\\s+-rf\\b"),
                 action: .alwaysAskNoQuietHours
             )

@@ -4,6 +4,7 @@ import CmuxKit
 struct NotificationsListView: View {
     @EnvironmentObject var connection: ConnectionManager
     @Environment(\.dismiss) private var dismiss
+    @State private var actionError: String?
 
     var body: some View {
         NavigationStack {
@@ -26,8 +27,15 @@ struct NotificationsListView: View {
                             Button {
                                 Task {
                                     guard let client = await connection.client(for: "open") else { return }
-                                    try? await client.openNotification(notification.id)
-                                    dismiss()
+                                    do {
+                                        try await client.openNotification(notification.id)
+                                        dismiss()
+                                    } catch {
+                                        actionError = L10n.string(
+                                            "notifications.error.action_failed",
+                                            defaultValue: "Could not complete the notification action."
+                                        )
+                                    }
                                 }
                             } label: { Label(L10n.string("notifications.action.open", defaultValue: "Open"), systemImage: "arrow.up.right.square") }
                             Button(role: .destructive) {
@@ -54,8 +62,15 @@ struct NotificationsListView: View {
                     Button(L10n.string("notifications.action.jump_to_unread", defaultValue: "Jump to unread")) {
                         Task {
                             guard let client = await connection.client(for: "jump-to-unread") else { return }
-                            try? await client.jumpToUnread()
-                            dismiss()
+                            do {
+                                try await client.jumpToUnread()
+                                dismiss()
+                            } catch {
+                                actionError = L10n.string(
+                                    "notifications.error.action_failed",
+                                    defaultValue: "Could not complete the notification action."
+                                )
+                            }
                         }
                     }
                     Menu {
@@ -78,6 +93,17 @@ struct NotificationsListView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(L10n.string("common.done", defaultValue: "Done")) { dismiss() }
                 }
+            }
+            .alert(
+                L10n.string("notifications.error.title", defaultValue: "Notification action failed"),
+                isPresented: Binding(
+                    get: { actionError != nil },
+                    set: { if !$0 { actionError = nil } }
+                )
+            ) {
+                Button(L10n.string("common.ok", defaultValue: "OK"), role: .cancel) {}
+            } message: {
+                Text(actionError ?? "")
             }
         }
     }

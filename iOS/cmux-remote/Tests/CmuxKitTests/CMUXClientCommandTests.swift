@@ -100,7 +100,8 @@ final class CMUXClientCommandTests: XCTestCase {
         XCTAssertTrue(issued.contains("feed.question.reply"))
         XCTAssertTrue(issued.contains(#""request_id":"req-1""#))
         XCTAssertTrue(issued.contains(#""item_id":"807EB044-5EE6-442D-9C35-690956F5591F""#))
-        XCTAssertTrue(issued.contains(#""selections":["iPadOS"]"#))
+        XCTAssertTrue(issued.contains(#""selection_ids":["ipad"]"#))
+        XCTAssertFalse(issued.contains("selections"))
     }
 
     func testResolveExitPlanDecisionUsesExitPlanReply() async throws {

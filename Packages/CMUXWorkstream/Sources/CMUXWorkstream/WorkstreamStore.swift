@@ -272,7 +272,7 @@ public final class WorkstreamStore {
                 .permissionRequest(
                     requestId: event.requestId ?? event.sessionId,
                     toolName: event.hookEventName == .diffApprovalRequest
-                        ? "DiffApprovalRequest"
+                        ? event.hookEventName.rawValue
                         : (event.toolName ?? "unknown"),
                     toolInputJSON: toolInput,
                     pattern: nil

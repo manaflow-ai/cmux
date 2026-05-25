@@ -2,7 +2,7 @@
 
 ## Layered overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │  SwiftUI views                                          │
 │  • Workspace sidebar / pane tree / surface detail       │

@@ -8,7 +8,7 @@ struct WorkspaceSidebarView: View {
 
     var body: some View {
         List {
-            ForEach(Array(connection.snapshot.windows.values), id: \.id) { window in
+            ForEach(sortedWindows, id: \.id) { window in
                 Section(window.title ?? L10n.string("window.default_title", defaultValue: "Window")) {
                     let workspaces = connection.snapshot.workspaces.values
                         .filter { $0.windowID == window.id }
@@ -33,7 +33,17 @@ struct WorkspaceSidebarView: View {
         }
         .listStyle(.sidebar)
         .refreshable {
-            Task { await connection.handleEnterForeground() }
+            await connection.handleEnterForeground()
+        }
+    }
+
+    private var sortedWindows: [CmuxWindow] {
+        connection.snapshot.windows.values.sorted { lhs, rhs in
+            if lhs.isKey != rhs.isKey { return lhs.isKey && !rhs.isKey }
+            let lhsTitle = lhs.title ?? ""
+            let rhsTitle = rhs.title ?? ""
+            if lhsTitle != rhsTitle { return lhsTitle < rhsTitle }
+            return lhs.id.raw < rhs.id.raw
         }
     }
 

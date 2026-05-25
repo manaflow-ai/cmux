@@ -31,21 +31,26 @@ public final class CmuxWidgetStateStore: @unchecked Sendable {
         appGroup: "group.com.cmuxterm.remote"
     )
 
-    private let fileURL: URL
+    private let fileURL: URL?
 
     public init(appGroup: String) {
-        let dir = FileManager.default.containerURL(
+        guard let dir = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: appGroup
-        ) ?? FileManager.default.temporaryDirectory
+        ) else {
+            self.fileURL = nil
+            return
+        }
         self.fileURL = dir.appendingPathComponent("widget-state.json", isDirectory: false)
     }
 
     public func write(_ entry: CmuxWidgetEntry) {
+        guard let fileURL else { return }
         guard let data = try? JSONEncoder().encode(entry) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }
 
     public func load() -> CmuxWidgetEntry? {
+        guard let fileURL else { return nil }
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
         return try? JSONDecoder().decode(CmuxWidgetEntry.self, from: data)
     }

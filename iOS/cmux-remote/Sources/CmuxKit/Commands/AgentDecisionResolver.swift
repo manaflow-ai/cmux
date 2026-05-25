@@ -7,7 +7,7 @@ import Foundation
 ///   * `feed.permission.reply { request_id, item_id, mode }` — for
 ///     tool-call / diff-approval requests. `mode` is one of
 ///     `once | always | all | bypass | deny`.
-///   * `feed.question.reply { request_id, item_id, selections }` — for
+///   * `feed.question.reply { request_id, item_id, selection_ids }` — for
 ///     question hooks with a finite list of options.
 ///
 /// There is no `cmux feed resolve` CLI subcommand; the resolver goes
@@ -58,7 +58,6 @@ extension CMUXClient {
             if let questionSelections = chosen.questionSelections {
                 questionParams["question_selections"] = Self.questionSelectionsPayload(questionSelections)
             } else {
-                questionParams["selections"] = [chosen.label]
                 questionParams["selection_ids"] = [chosen.id]
             }
             params = questionParams
@@ -121,9 +120,6 @@ extension CMUXClient {
                 questionParams["question_selections"] = Self.questionSelectionsPayload(questionSelections)
             } else {
                 questionParams["selection_ids"] = [choiceID]
-                if let choiceLabel, !choiceLabel.isEmpty {
-                    questionParams["selections"] = [choiceLabel]
-                }
             }
             params = questionParams
         case .exitPlan:
@@ -138,10 +134,11 @@ extension CMUXClient {
         case .freeform:
             method = "feed.question.reply"
             let itemID = try Self.requiredItemID(itemID, decisionID: decisionID, kind: kind)
+            let replyText = Self.nonEmptyLabel(choiceLabel) ?? choiceID
             params = [
                 "request_id": decisionID,
                 "item_id": itemID,
-                "selections": [choiceLabel ?? choiceID]
+                "selections": [replyText]
             ]
         }
         return try await resolve(method: method, params: params)
@@ -177,6 +174,12 @@ extension CMUXClient {
             )
         }
         return trimmed
+    }
+
+    private static func nonEmptyLabel(_ label: String?) -> String? {
+        guard let label else { return nil }
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : label
     }
 
     private func resolve(method: String, params: [String: Any]) async throws -> CmuxExecResult {

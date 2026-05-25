@@ -17,8 +17,14 @@ struct WorkspaceStatusWidget: Widget {
             WorkspaceStatusView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("cmux Workspace")
-        .description("Latest unread workspace and pending count.")
+        .configurationDisplayName(WidgetL10n.string(
+            "widget.workspace.display_name",
+            defaultValue: "cmux Workspace"
+        ))
+        .description(WidgetL10n.string(
+            "widget.workspace.description",
+            defaultValue: "Latest unread workspace and pending count."
+        ))
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryCircular])
     }
 
@@ -63,11 +69,7 @@ struct WorkspaceStatusView: View {
                 Label(entry.workspaceTitle, systemImage: "terminal").font(.headline)
                 if entry.unread > 0 {
                     Label(
-                        WidgetL10n.format(
-                            "widget.pending_count",
-                            defaultValue: "%lld waiting",
-                            Int64(entry.unread)
-                        ),
+                        pendingCountText(entry.unread),
                         systemImage: "bell.badge"
                     )
                         .font(.caption)
@@ -85,11 +87,7 @@ struct WorkspaceStatusView: View {
                 }
                 if entry.unread > 0 {
                     Label(
-                        WidgetL10n.format(
-                            "widget.pending_count",
-                            defaultValue: "%lld waiting",
-                            Int64(entry.unread)
-                        ),
+                        pendingCountText(entry.unread),
                         systemImage: "bell.badge.fill"
                     )
                         .foregroundStyle(.red)
@@ -100,6 +98,17 @@ struct WorkspaceStatusView: View {
             }
             .padding(.horizontal, 4)
         }
+    }
+
+    private func pendingCountText(_ unread: Int) -> String {
+        if unread == 1 {
+            return WidgetL10n.string("widget.pending_count.one", defaultValue: "1 waiting")
+        }
+        return WidgetL10n.format(
+            "widget.pending_count.other",
+            defaultValue: "%lld waiting",
+            Int64(unread)
+        )
     }
 }
 
@@ -121,8 +130,14 @@ struct NotificationCountWidget: Widget {
             }
             .containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("cmux Pending")
-        .description("How many agents need your attention.")
+        .configurationDisplayName(WidgetL10n.string(
+            "widget.pending.display_name",
+            defaultValue: "cmux Pending"
+        ))
+        .description(WidgetL10n.string(
+            "widget.pending.description",
+            defaultValue: "How many agents need your attention."
+        ))
         .supportedFamilies([.systemSmall, .accessoryCircular])
     }
 }

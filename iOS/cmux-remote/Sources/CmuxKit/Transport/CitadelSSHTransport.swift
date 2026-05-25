@@ -297,6 +297,9 @@ public actor CitadelSSHTransport: CmuxSSHTransport {
                     if !stdoutTail.isEmpty, let trailing = String(data: stdoutTail, encoding: .utf8) {
                         continuation.yield(trailing)
                     }
+                    if !stderrTail.isEmpty, let trailing = String(data: stderrTail, encoding: .utf8) {
+                        onStderrLine(trailing)
+                    }
                     continuation.finish()
                 } catch let failure as SSHClient.CommandFailed {
                     continuation.finish(throwing: CmuxError.command(
@@ -338,6 +341,9 @@ public actor CitadelSSHTransport: CmuxSSHTransport {
                                 }
                             }
                         }
+                    }
+                    if !stderrTail.isEmpty, let trailing = String(data: stderrTail, encoding: .utf8) {
+                        onStderrLine(trailing)
                     }
                     continuation.finish()
                 } catch let failure as SSHClient.CommandFailed {

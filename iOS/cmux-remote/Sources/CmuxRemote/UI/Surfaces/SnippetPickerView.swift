@@ -8,6 +8,7 @@ struct SnippetPickerView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var connection: ConnectionManager
     @State private var snippets: [CmuxSnippet] = []
+    @State private var sendError: String?
 
     private let store = CmuxSnippetStore.shared
 
@@ -49,6 +50,17 @@ struct SnippetPickerView: View {
                 }
             }
             .task { await refresh() }
+            .alert(
+                L10n.string("snippets.error.title", defaultValue: "Snippet failed"),
+                isPresented: Binding(
+                    get: { sendError != nil },
+                    set: { if !$0 { sendError = nil } }
+                )
+            ) {
+                Button(L10n.string("common.ok", defaultValue: "OK"), role: .cancel) {}
+            } message: {
+                Text(sendError ?? "")
+            }
         }
     }
 
@@ -57,12 +69,21 @@ struct SnippetPickerView: View {
     }
 
     private func send(_ snippet: CmuxSnippet) async {
-        await store.markUsed(id: snippet.id)
         guard let client = await connection.client(for: "send") else { return }
-        try? await client.sendText(snippet.renderedPayload,
-                                    surfaceID: surface.id,
-                                    workspaceID: workspace?.id)
-        dismiss()
+        do {
+            try await client.sendText(
+                snippet.renderedPayload,
+                surfaceID: surface.id,
+                workspaceID: workspace?.id
+            )
+            await store.markUsed(id: snippet.id)
+            dismiss()
+        } catch {
+            sendError = L10n.string(
+                "snippets.error.send_failed",
+                defaultValue: "Could not send this snippet."
+            )
+        }
     }
 }
 
@@ -72,7 +93,8 @@ extension CmuxSnippetStore {
         if let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.cmuxterm.remote") {
             url = group
         } else {
-            url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? FileManager.default.temporaryDirectory
         }
         return CmuxSnippetStore(appGroupURL: url)
     }()

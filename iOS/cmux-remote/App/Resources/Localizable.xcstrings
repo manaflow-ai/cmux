@@ -2319,13 +2319,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux command failed (exit %d): %@"
+            "value": "cmux command failed (exit %d). Open cmux for details."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxコマンドが失敗しました（終了 %d）: %@"
+            "value": "cmuxコマンドが失敗しました（終了コード%d）。詳細はcmuxで確認してください。"
           }
         }
       }
@@ -2336,13 +2336,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not decode cmux response: %@"
+            "value": "Could not decode cmux response."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux応答をデコードできませんでした: %@"
+            "value": "cmux応答をデコードできませんでした。"
           }
         }
       }
@@ -2370,13 +2370,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connection failed: %@"
+            "value": "Connection failed. Check the host, network, and credentials."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続に失敗しました: %@"
+            "value": "接続に失敗しました。ホスト、ネットワーク、認証情報を確認してください。"
           }
         }
       }
@@ -2387,13 +2387,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not authenticated to cmux: %@"
+            "value": "Not authenticated to cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxで認証されていません: %@"
+            "value": "cmuxで認証されていません。"
           }
         }
       }
@@ -2404,13 +2404,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Server is too old to support %@"
+            "value": "This cmux version is too old for that remote action."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サーバーが古すぎて %@ をサポートしていません"
+            "value": "このcmuxバージョンはそのリモート操作に対応していません。"
           }
         }
       }
@@ -2982,13 +2982,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't deliver: %@"
+            "value": "Couldn't deliver. Open cmux to check the connection."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "送信できませんでした: %@"
+            "value": "送信できませんでした。接続を確認するにはcmuxを開いてください。"
           }
         }
       }
@@ -4672,6 +4672,346 @@
           "stringUnit": {
             "state": "translated",
             "value": "（無題）"
+          }
+        }
+      }
+    },
+    "afk.default_rule.read_only_files": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read-only file inspection (strict)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取り専用ファイル確認（厳格）"
+          }
+        }
+      }
+    },
+    "afk.default_rule.git_read_only": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git status / log / diff (read-only)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git status / log / diff（読み取り専用）"
+          }
+        }
+      }
+    },
+    "afk.default_rule.block_rm_rf": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block any rm -rf"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rm -rfを常にブロック"
+          }
+        }
+      }
+    },
+    "browser.error.action_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser action failed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ操作に失敗しました。"
+          }
+        }
+      }
+    },
+    "common.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "host.edit.error.save_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not save this host. Check the settings and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このホストを保存できませんでした。設定を確認してもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "notifications.error.action_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not complete the notification action."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知操作を完了できませんでした。"
+          }
+        }
+      }
+    },
+    "notifications.error.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification action failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知操作に失敗しました"
+          }
+        }
+      }
+    },
+    "notifications.toolbar.count.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読1件"
+          }
+        }
+      }
+    },
+    "notifications.toolbar.count.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読 %lld 件"
+          }
+        }
+      }
+    },
+    "pencil.send_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not send handwriting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手書き入力を送信できませんでした。"
+          }
+        }
+      }
+    },
+    "pencil.send_failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handwriting not sent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手書き入力は送信されませんでした"
+          }
+        }
+      }
+    },
+    "snippets.error.send_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not send this snippet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このスニペットを送信できませんでした。"
+          }
+        }
+      }
+    },
+    "snippets.error.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snippet failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スニペットに失敗しました"
+          }
+        }
+      }
+    },
+    "widget.pending.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How many agents need your attention."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応が必要なエージェント数を表示します。"
+          }
+        }
+      }
+    },
+    "widget.pending.display_name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Pending"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux保留中"
+          }
+        }
+      }
+    },
+    "widget.pending_count.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 waiting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1件待機中"
+          }
+        }
+      }
+    },
+    "widget.pending_count.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld waiting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件待機中"
+          }
+        }
+      }
+    },
+    "widget.workspace.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latest unread workspace and pending count."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新の未読ワークスペースと保留件数を表示します。"
+          }
+        }
+      }
+    },
+    "widget.workspace.display_name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxワークスペース"
           }
         }
       }

@@ -197,9 +197,20 @@ private struct NotificationsToolbar: View {
             }
         }
         .accessibilityLabel(L10n.string("notifications.toolbar.label", defaultValue: "Notifications"))
-        .accessibilityValue(L10n.format("notifications.toolbar.count", defaultValue: "%lld unread", Int64(count)))
+        .accessibilityValue(unreadAccessibilityText)
         .sheet(isPresented: $showList) {
             NotificationsListView()
         }
+    }
+
+    private var unreadAccessibilityText: String {
+        if count == 1 {
+            return L10n.string("notifications.toolbar.count.one", defaultValue: "1 unread")
+        }
+        return L10n.format(
+            "notifications.toolbar.count.other",
+            defaultValue: "%lld unread",
+            Int64(count)
+        )
     }
 }

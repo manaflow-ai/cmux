@@ -68,7 +68,8 @@ final class ConnectionManager: ObservableObject {
         ) {
             directory = appGroup.appendingPathComponent("cmux-remote", isDirectory: true)
         } else {
-            directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            directory = (FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? FileManager.default.temporaryDirectory)
                 .appendingPathComponent("cmux-remote", isDirectory: true)
         }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

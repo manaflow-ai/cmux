@@ -17,25 +17,15 @@ struct CmuxGestureModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .gesture(
-                DragGesture(minimumDistance: 30, coordinateSpace: .local)
-                    .onEnded { value in
-                        let dx = value.translation.width
-                        let dy = value.translation.height
-                        if abs(dx) > abs(dy) {
-                            if dx > 0 { previousSurface() } else { nextSurface() }
-                        }
-                    }
-            )
             .simultaneousGesture(
                 MagnificationGesture()
                     .onEnded { _ in /* TerminalView handles font sizing via its internal pinch */ }
             )
             .overlay(MultiFingerGestureBridge(
                 onThreeFingerSwipeDown: openPalette,
-                onTwoFingerSwipeLeft: nextWorkspace,
-                onTwoFingerSwipeRight: previousWorkspace
-            ).allowsHitTesting(false))
+                onTwoFingerSwipeLeft: nextSurface,
+                onTwoFingerSwipeRight: previousSurface
+            ))
     }
 }
 
@@ -60,7 +50,7 @@ extension View {
 /// SwiftUI's gesture system doesn't expose multi-finger swipes with the
 /// fidelity we want. We drop down to UIKit gesture recognizers, anchored on
 /// a transparent passthrough view that doesn't intercept touches the
-/// terminal needs (`allowsHitTesting(false)` at the SwiftUI level).
+/// terminal needs.
 struct MultiFingerGestureBridge: UIViewRepresentable {
     let onThreeFingerSwipeDown: () -> Void
     let onTwoFingerSwipeLeft: () -> Void

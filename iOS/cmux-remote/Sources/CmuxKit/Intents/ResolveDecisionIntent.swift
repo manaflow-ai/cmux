@@ -106,14 +106,10 @@ public struct ResolveDecisionIntent: LiveActivityIntent {
                     defaultValue: "Not connected - open cmux to deliver this decision."
                 )
             ))
-        case .failed(let message):
+        case .failed:
             let dialog = String(
-                format: String(
-                    localized: "intent.resolve_decision.failed",
-                    defaultValue: "Couldn't deliver: %@"
-                ),
-                locale: Locale.current,
-                message
+                localized: "intent.resolve_decision.failed",
+                defaultValue: "Couldn't deliver. Open cmux to check the connection."
             )
             return .result(dialog: IntentDialog(
                 stringLiteral: dialog

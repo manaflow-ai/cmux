@@ -20,11 +20,10 @@ public enum CmuxError: Error, Sendable {
 extension CmuxError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case .transport(let message, _):
+        case .transport:
             return String(
-                format: String(localized: "error.transport", defaultValue: "Connection failed: %@"),
-                locale: Locale.current,
-                message
+                localized: "error.transport",
+                defaultValue: "Connection failed. Check the host, network, and credentials."
             )
         case .command(let exitCode, let stderr):
             let trimmed = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -40,30 +39,20 @@ extension CmuxError: LocalizedError {
                 : String(
                     format: String(
                         localized: "error.command_with_stderr",
-                        defaultValue: "cmux command failed (exit %d): %@"
+                        defaultValue: "cmux command failed (exit %d). Open cmux for details."
                     ),
                     locale: Locale.current,
-                    exitCode,
-                    trimmed
+                    exitCode
                 )
-        case .unauthenticated(let message):
+        case .unauthenticated:
+            return String(localized: "error.unauthenticated", defaultValue: "Not authenticated to cmux.")
+        case .unsupportedCapability:
             return String(
-                format: String(localized: "error.unauthenticated", defaultValue: "Not authenticated to cmux: %@"),
-                locale: Locale.current,
-                message
+                localized: "error.unsupported_capability",
+                defaultValue: "This cmux version is too old for that remote action."
             )
-        case .unsupportedCapability(let method):
-            return String(
-                format: String(localized: "error.unsupported_capability", defaultValue: "Server is too old to support %@"),
-                locale: Locale.current,
-                method
-            )
-        case .decoding(let message, _):
-            return String(
-                format: String(localized: "error.decoding", defaultValue: "Could not decode cmux response: %@"),
-                locale: Locale.current,
-                message
-            )
+        case .decoding:
+            return String(localized: "error.decoding", defaultValue: "Could not decode cmux response.")
         case .resumeGap(let oldest, let latest):
             return String(
                 format: String(

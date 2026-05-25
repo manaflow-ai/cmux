@@ -101,7 +101,10 @@ enum CmuxRemoteIntentHandlers {
             )
             return .delivered
         } catch {
-            return .failed(message: error.localizedDescription)
+            return .failed(message: L10n.string(
+                "intent.resolve_decision.failed",
+                defaultValue: "Couldn't deliver. Open cmux to check the connection."
+            ))
         }
     }
 }

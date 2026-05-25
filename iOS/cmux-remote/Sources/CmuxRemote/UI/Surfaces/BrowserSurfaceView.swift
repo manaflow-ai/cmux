@@ -76,6 +76,7 @@ struct BrowserSurfaceView: View {
             await MainActor.run {
                 self.currentURL = url
                 self.urlInput = url.absoluteString
+                self.lastError = nil
             }
         }
     }
@@ -88,26 +89,27 @@ struct BrowserSurfaceView: View {
         guard let client = await connection.client(for: "browser.goto") else { return }
         do {
             _ = try await client.browserGoto(url, surfaceID: surface.id)
+            lastError = nil
             await refreshURL()
-        } catch { lastError = error.localizedDescription }
+        } catch { showBrowserActionError() }
     }
 
     private func goBack() async {
         guard let client = await connection.client(for: "browser.back") else { return }
-        do { _ = try await client.browserBack(surfaceID: surface.id); await refreshURL() }
-        catch { lastError = error.localizedDescription }
+        do { _ = try await client.browserBack(surfaceID: surface.id); lastError = nil; await refreshURL() }
+        catch { showBrowserActionError() }
     }
 
     private func goForward() async {
         guard let client = await connection.client(for: "browser.forward") else { return }
-        do { _ = try await client.browserForward(surfaceID: surface.id); await refreshURL() }
-        catch { lastError = error.localizedDescription }
+        do { _ = try await client.browserForward(surfaceID: surface.id); lastError = nil; await refreshURL() }
+        catch { showBrowserActionError() }
     }
 
     private func reload() async {
         guard let client = await connection.client(for: "browser.reload") else { return }
-        do { _ = try await client.browserReload(surfaceID: surface.id); await refreshURL() }
-        catch { lastError = error.localizedDescription }
+        do { _ = try await client.browserReload(surfaceID: surface.id); lastError = nil; await refreshURL() }
+        catch { showBrowserActionError() }
     }
 
     private func captureScreenshot() async {
@@ -116,8 +118,16 @@ struct BrowserSurfaceView: View {
             let data = try await client.browserScreenshot(surfaceID: surface.id)
             await MainActor.run {
                 self.screenshot = UIImage(data: data)
+                self.lastError = nil
             }
-        } catch { lastError = error.localizedDescription }
+        } catch { showBrowserActionError() }
+    }
+
+    private func showBrowserActionError() {
+        lastError = L10n.string(
+            "browser.error.action_failed",
+            defaultValue: "Browser action failed."
+        )
     }
 }
 

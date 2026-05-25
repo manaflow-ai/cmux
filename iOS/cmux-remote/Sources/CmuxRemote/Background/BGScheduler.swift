@@ -16,7 +16,11 @@ final class BGScheduler {
             forTaskWithIdentifier: refreshIdentifier,
             using: nil
         ) { task in
-            self.handleAppRefresh(task as! BGAppRefreshTask)
+            guard let refreshTask = task as? BGAppRefreshTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            self.handleAppRefresh(refreshTask)
         }
     }
 
