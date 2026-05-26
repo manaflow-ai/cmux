@@ -4,6 +4,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let customDescription: String?
         let isPinned: Bool
         let customColorHex: String?
+        let splitPaneCount: Int
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -11,7 +12,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
-            customColorHex: customColorHex
+            customColorHex: customColorHex,
+            splitPaneCount: splitPaneCount
         )
     }
 
@@ -38,7 +40,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             branchDirectoryLines: branchDirectoryLines,
             branchLinesContainBranch: branchLinesContainBranch,
             pullRequestRows: pullRequestRows,
-            listeningPorts: listeningPorts
+            listeningPorts: listeningPorts,
+            splitPaneCount: snapshot.splitPaneCount
         )
     }
 }

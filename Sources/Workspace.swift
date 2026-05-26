@@ -9220,6 +9220,11 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
+    private let sidebarLayoutObservationSubject = PassthroughSubject<Void, Never>()
+
+    private func publishSidebarLayoutChanged() {
+        sidebarLayoutObservationSubject.send()
+    }
 
     private func sidebarObservationSignal<Value: Equatable>(
         _ publisher: Published<Value>.Publisher
@@ -9270,6 +9275,7 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($remoteConnectionDetail),
             sidebarObservationSignal($activeRemoteTerminalSessionCount),
             sidebarObservationSignal($listeningPorts),
+            sidebarLayoutObservationSubject.eraseToAnyPublisher(),
         ]
 
         return Publishers.MergeMany(publishers).eraseToAnyPublisher()
@@ -16500,6 +16506,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
+        publishSidebarLayoutChanged()
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
 
@@ -16558,6 +16565,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
+        publishSidebarLayoutChanged()
 #if DEBUG
         let panelKindForTab: (TabID) -> String = { tabId in
             guard let panelId = self.panelIdFromSurfaceId(tabId),

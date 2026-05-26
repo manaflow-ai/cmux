@@ -92973,6 +92973,23 @@
         }
       }
     },
+    "sidebar.workspace.splitPaneCount.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contains %lld split panes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個の分割ペインを含みます"
+          }
+        }
+      }
+    },
     "sidebar.remote.badge": {
       "extractionState": "manual",
       "localizations": {
