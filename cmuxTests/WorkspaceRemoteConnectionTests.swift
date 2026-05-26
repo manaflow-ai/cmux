@@ -436,25 +436,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
         XCTAssertEqual(currentProcessRunCount(), 1)
 
-        portalRenderingGate.setEnabled(false)
         controller.syncWorkspaceSchedulerMountState(enabled: false)
         state = try controller.debugWorkspaceSchedulerStateForTesting()
-        XCTAssertFalse(state.workspaceSchedulersEnabled)
-        XCTAssertTrue(state.remotePortPollTimerExists)
-        XCTAssertTrue(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
-
-        try controller.debugPollRemotePortsForTesting()
-        XCTAssertEqual(currentProcessRunCount(), 1)
-
-        portalRenderingGate.setEnabled(false)
-        controller.syncWorkspaceSchedulerMountState(enabled: false)
-        state = try controller.debugWorkspaceSchedulerStateForTesting()
-        XCTAssertFalse(state.workspaceSchedulersEnabled)
+        XCTAssertTrue(state.workspaceSchedulersEnabled)
         XCTAssertTrue(state.remotePortPollTimerExists)
         XCTAssertTrue(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
         XCTAssertEqual(currentProcessRunCount(), 1)
 
-        portalRenderingGate.setEnabled(true)
         controller.syncWorkspaceSchedulerMountState(enabled: true)
         state = try controller.debugWorkspaceSchedulerStateForTesting()
         XCTAssertTrue(state.workspaceSchedulersEnabled)
@@ -464,6 +452,22 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         portalRenderingGate.setEnabled(false)
         controller.syncWorkspaceSchedulerMountState(enabled: false)
+        state = try controller.debugWorkspaceSchedulerStateForTesting()
+        XCTAssertFalse(state.workspaceSchedulersEnabled)
+        XCTAssertTrue(state.remotePortPollTimerExists)
+        XCTAssertTrue(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
+
+        try controller.debugPollRemotePortsForTesting()
+        XCTAssertEqual(currentProcessRunCount(), 2)
+
+        portalRenderingGate.setEnabled(false)
+        controller.syncWorkspaceSchedulerMountState(enabled: false)
+        state = try controller.debugWorkspaceSchedulerStateForTesting()
+        XCTAssertFalse(state.workspaceSchedulersEnabled)
+        XCTAssertTrue(state.remotePortPollTimerExists)
+        XCTAssertTrue(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
+        XCTAssertEqual(currentProcessRunCount(), 2)
+
         portalRenderingGate.setEnabled(true)
         controller.syncWorkspaceSchedulerMountState(enabled: true)
         state = try controller.debugWorkspaceSchedulerStateForTesting()
@@ -471,6 +475,16 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(state.remotePortPollTimerExists)
         XCTAssertFalse(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
         XCTAssertEqual(currentProcessRunCount(), 3)
+
+        portalRenderingGate.setEnabled(false)
+        controller.syncWorkspaceSchedulerMountState(enabled: false)
+        portalRenderingGate.setEnabled(true)
+        controller.syncWorkspaceSchedulerMountState(enabled: true)
+        state = try controller.debugWorkspaceSchedulerStateForTesting()
+        XCTAssertTrue(state.workspaceSchedulersEnabled)
+        XCTAssertTrue(state.remotePortPollTimerExists)
+        XCTAssertFalse(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
+        XCTAssertEqual(currentProcessRunCount(), 4)
 
         portalRenderingGate.setEnabled(false)
         controller.syncWorkspaceSchedulerMountState(enabled: false)
