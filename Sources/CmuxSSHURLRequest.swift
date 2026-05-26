@@ -5,6 +5,7 @@ enum CmuxSSHURLParseError: Error, Equatable {
     case destinationTooLong(maxLength: Int)
     case destinationContainsUnsafeCharacters
     case destinationStartsWithDash
+    case identityFileContainsUnsafeCharacters
     case titleTooLong(maxLength: Int)
     case titleContainsUnsafeCharacters
     case invalidPort
@@ -114,6 +115,14 @@ struct CmuxSSHURLRequest: Equatable {
             return .failure(error)
         }
 
+        let identityFile: String?
+        switch normalizedManualIdentityFile(rawIdentityFile) {
+        case .success(let value):
+            identityFile = value
+        case .failure(let error):
+            return .failure(error)
+        }
+
         let title: String?
         switch normalizedManualTitle(rawTitle) {
         case .success(let value):
@@ -127,7 +136,7 @@ struct CmuxSSHURLRequest: Equatable {
                 originalURL: manualOriginalURL(),
                 destination: destination,
                 port: port,
-                identityFile: normalizedManualIdentityFile(rawIdentityFile),
+                identityFile: identityFile,
                 title: title,
                 windowId: windowId,
                 sshOptions: [],
@@ -445,11 +454,11 @@ struct CmuxSSHURLRequest: Equatable {
             guard !user.hasPrefix("-"), !host.hasPrefix("-") else {
                 return .failure(.destinationStartsWithDash)
             }
-            guard isAllowedSSHUser(user), isAllowedSSHHost(host) else {
+            guard isAllowedSSHUser(user), isAllowedManualSSHHost(host) else {
                 return .failure(.destinationContainsUnsafeCharacters)
             }
         } else {
-            guard isAllowedSSHHost(value) else {
+            guard isAllowedManualSSHHost(value) else {
                 return .failure(.destinationContainsUnsafeCharacters)
             }
         }
@@ -470,10 +479,14 @@ struct CmuxSSHURLRequest: Equatable {
         return .success(port)
     }
 
-    private static func normalizedManualIdentityFile(_ rawValue: String?) -> String? {
-        guard let rawValue else { return nil }
+    private static func normalizedManualIdentityFile(_ rawValue: String?) -> Result<String?, CmuxSSHURLParseError> {
+        guard let rawValue else { return .success(nil) }
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value
+        guard !value.isEmpty else { return .success(nil) }
+        guard !containsUnsafeHiddenCharacter(value) else {
+            return .failure(.identityFileContainsUnsafeCharacters)
+        }
+        return .success(value)
     }
 
     private static func normalizedManualTitle(_ rawValue: String?) -> Result<String?, CmuxSSHURLParseError> {
@@ -494,5 +507,11 @@ struct CmuxSSHURLRequest: Equatable {
         components.scheme = AuthEnvironment.callbackScheme
         components.host = "ssh"
         return components.url ?? URL(fileURLWithPath: "/")
+    }
+
+    private static func isAllowedManualSSHHost(_ value: String) -> Bool {
+        guard !containsUnsafeHiddenCharacter(value) else { return false }
+        let disallowed = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "@"))
+        return value.unicodeScalars.allSatisfy { !disallowed.contains($0) }
     }
 }

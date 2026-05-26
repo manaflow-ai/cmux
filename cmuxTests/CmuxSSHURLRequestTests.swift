@@ -148,6 +148,35 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
+    func testManualSSHWorkspaceRequestAcceptsSSHConfigPatternHost() {
+        switch CmuxSSHURLRequest.manual(
+            destination: " prod-* ",
+            port: "",
+            identityFile: "",
+            title: ""
+        ) {
+        case .success(let request):
+            XCTAssertEqual(request.destination, "prod-*")
+            XCTAssertEqual(request.cliArguments, ["ssh", "prod-*"])
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testManualSSHWorkspaceRequestRejectsHiddenIdentityFileCharacters() {
+        switch CmuxSSHURLRequest.manual(
+            destination: "dev.example.com",
+            port: "",
+            identityFile: "~/.ssh/id_ed25519\u{202E}",
+            title: ""
+        ) {
+        case .failure(.identityFileContainsUnsafeCharacters):
+            break
+        default:
+            XCTFail("Expected hidden identity file character rejection")
+        }
+    }
+
     func testParsesNoFocusFlagWithoutValue() throws {
         let url = try XCTUnwrap(URL(string: "\(supportedScheme)://ssh?host=dev.example.com&no-focus"))
 

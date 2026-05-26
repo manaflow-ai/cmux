@@ -241,7 +241,7 @@ extension AppDelegate {
         let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         let targetWindowId = targetWindow.flatMap { mainWindowId(from: $0) }
         while true {
-            guard let nextDraft = promptForNewSSHWorkspace(draft: draft, preferredWindow: preferredWindow) else {
+            guard let nextDraft = promptForNewSSHWorkspace(draft: draft, preferredWindow: targetWindow) else {
 #if DEBUG
                 cmuxDebugLog("sshWorkspace.dialog.cancelled source=\(debugSource)")
 #endif
@@ -286,13 +286,8 @@ extension AppDelegate {
         alert.accessoryView = fields.accessoryView()
         alert.window.initialFirstResponder = fields.destinationField
 
-        let response: NSApplication.ModalResponse
-        if let preferredWindow {
-            preferredWindow.makeKey()
-            response = alert.runModal()
-        } else {
-            response = alert.runModal()
-        }
+        preferredWindow?.makeKey()
+        let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return nil }
         return fields.draft
     }
@@ -331,6 +326,11 @@ extension AppDelegate {
                 localized: "dialog.newSSHWorkspace.validation.destinationStartsWithDash",
                 defaultValue: "The SSH destination cannot start with a dash."
             )
+        case .identityFileContainsUnsafeCharacters:
+            return String(
+                localized: "dialog.newSSHWorkspace.validation.identityFileContainsUnsafeCharacters",
+                defaultValue: "The identity file path contains hidden control or formatting characters."
+            )
         case .titleTooLong(let maxLength):
             return String(
                 format: String(localized: "dialog.newSSHWorkspace.validation.titleTooLong", defaultValue: "The workspace name is too long. The maximum length is %lld characters."),
@@ -346,8 +346,18 @@ extension AppDelegate {
                 localized: "dialog.newSSHWorkspace.validation.invalidPort",
                 defaultValue: "The SSH port must be between 1 and 65535."
             )
-        default:
-            return cmuxSSHURLParseErrorMessage(error)
+        case .invalidIntegerParameter,
+             .invalidHostKeyPolicy,
+             .invalidBooleanParameter,
+             .conflictingDestinationParameters,
+             .conflictingTitleParameters,
+             .duplicateParameter,
+             .unsupportedParameter,
+             .multipleLinks:
+            return String(
+                localized: "dialog.newSSHWorkspace.validation.invalidDetails",
+                defaultValue: "The SSH workspace details are invalid."
+            )
         }
     }
 
@@ -589,6 +599,11 @@ extension AppDelegate {
             return String(
                 localized: "dialog.sshURL.error.destinationStartsWithDash",
                 defaultValue: "The SSH host or user cannot start with a dash."
+            )
+        case .identityFileContainsUnsafeCharacters:
+            return String(
+                localized: "dialog.sshURL.error.identityFileContainsUnsafeCharacters",
+                defaultValue: "The identity file path contains hidden control or formatting characters, so cmux refused to use it."
             )
         case .titleTooLong(let maxLength):
             return String(

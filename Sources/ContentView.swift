@@ -7450,8 +7450,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.newSSHWorkspace") {
             DispatchQueue.main.async {
-                AppDelegate.shared?.performNewSSHWorkspaceAction(
-                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+                guard let appDelegate = AppDelegate.shared else { return }
+                appDelegate.performNewSSHWorkspaceAction(
+                    preferredWindow: appDelegate.mainWindow(for: windowId),
                     debugSource: "palette.newSSHWorkspace"
                 )
             }

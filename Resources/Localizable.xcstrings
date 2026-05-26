@@ -20675,6 +20675,23 @@
         }
       }
     },
+    "dialog.sshURL.error.identityFileContainsUnsafeCharacters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The identity file path contains hidden control or formatting characters, so cmux refused to use it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "秘密鍵ファイルのパスに隠し制御文字または書式文字が含まれているため、cmux は使用を拒否しました。"
+          }
+        }
+      }
+    },
     "dialog.sshURL.error.conflictingDestinationParameters": {
       "extractionState": "manual",
       "localizations": {
@@ -117734,6 +117751,8 @@
     "dialog.newSSHWorkspace.validation.destinationContainsUnsafeCharacters": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "The SSH destination contains unsupported or hidden characters." } }, "ja": { "stringUnit": { "state": "translated", "value": "SSH 接続先にサポートされていない文字または隠し文字が含まれています。" } } } },
     "dialog.newSSHWorkspace.validation.destinationStartsWithDash": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "The SSH destination cannot start with a dash." } }, "ja": { "stringUnit": { "state": "translated", "value": "SSH 接続先はダッシュで始められません。" } } } },
     "dialog.newSSHWorkspace.validation.destinationTooLong": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "The SSH destination is too long. The maximum length is %lld characters." } }, "ja": { "stringUnit": { "state": "translated", "value": "SSH 接続先が長すぎます。最大長は %lld 文字です。" } } } },
+    "dialog.newSSHWorkspace.validation.identityFileContainsUnsafeCharacters": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "The identity file path contains hidden control or formatting characters." } }, "ja": { "stringUnit": { "state": "translated", "value": "秘密鍵ファイルのパスに隠し制御文字または書式文字が含まれています。" } } } },
+    "dialog.newSSHWorkspace.validation.invalidDetails": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "The SSH workspace details are invalid." } }, "ja": { "stringUnit": { "state": "translated", "value": "SSH ワークスペースの詳細が無効です。" } } } },
     "dialog.newSSHWorkspace.validation.invalidPort": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "The SSH port must be between 1 and 65535." } }, "ja": { "stringUnit": { "state": "translated", "value": "SSH ポートは 1 から 65535 の範囲で指定してください。" } } } },
     "dialog.newSSHWorkspace.validation.missingDestination": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Enter an SSH destination." } }, "ja": { "stringUnit": { "state": "translated", "value": "SSH 接続先を入力してください。" } } } },
     "dialog.newSSHWorkspace.validation.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Check SSH Workspace Details" } }, "ja": { "stringUnit": { "state": "translated", "value": "SSH ワークスペースの詳細を確認" } } } },
