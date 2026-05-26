@@ -9648,6 +9648,48 @@ enum SidebarShortcutHintFreezePolicy {
     }
 }
 
+enum SidebarWorkspaceSelectionReducer {
+    struct Result<ID: Hashable>: Equatable {
+        let selectedIds: Set<ID>
+        let anchorIndex: Int?
+    }
+
+    static func select<ID: Hashable>(
+        workspaceId: ID,
+        index: Int,
+        workspaceIds: [ID],
+        selectedIds: Set<ID>,
+        anchorIndex: Int?,
+        isCommand: Bool,
+        isShift: Bool
+    ) -> Result<ID> {
+        if isShift,
+           let anchorIndex,
+           workspaceIds.indices.contains(anchorIndex),
+           workspaceIds.indices.contains(index) {
+            let lower = min(anchorIndex, index)
+            let upper = max(anchorIndex, index)
+            let rangeIds = Set(workspaceIds[lower...upper])
+            return Result(
+                selectedIds: isCommand ? selectedIds.union(rangeIds) : rangeIds,
+                anchorIndex: index
+            )
+        }
+
+        if isCommand {
+            var nextSelectedIds = selectedIds
+            if nextSelectedIds.contains(workspaceId) {
+                nextSelectedIds.remove(workspaceId)
+            } else {
+                nextSelectedIds.insert(workspaceId)
+            }
+            return Result(selectedIds: nextSelectedIds, anchorIndex: index)
+        }
+
+        return Result(selectedIds: [workspaceId], anchorIndex: index)
+    }
+}
+
 struct VerticalTabsSidebar: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @ObservedObject var fileExplorerState: FileExplorerState
@@ -14661,26 +14703,17 @@ private struct TabItemView: View, Equatable {
         let isShift = modifiers.contains(.shift)
         let wasSelected = tabManager.selectedTabId == tab.id
 
-        if isShift, let lastIndex = lastSidebarSelectionIndex {
-            let lower = min(lastIndex, index)
-            let upper = max(lastIndex, index)
-            let rangeIds = tabManager.tabs[lower...upper].map { $0.id }
-            if isCommand {
-                selectedTabIds.formUnion(rangeIds)
-            } else {
-                selectedTabIds = Set(rangeIds)
-            }
-        } else if isCommand {
-            if selectedTabIds.contains(tab.id) {
-                selectedTabIds.remove(tab.id)
-            } else {
-                selectedTabIds.insert(tab.id)
-            }
-        } else {
-            selectedTabIds = [tab.id]
-        }
-
-        lastSidebarSelectionIndex = index
+        let selectionResult = SidebarWorkspaceSelectionReducer.select(
+            workspaceId: tab.id,
+            index: index,
+            workspaceIds: tabManager.tabs.map(\.id),
+            selectedIds: selectedTabIds,
+            anchorIndex: lastSidebarSelectionIndex,
+            isCommand: isCommand,
+            isShift: isShift
+        )
+        selectedTabIds = selectionResult.selectedIds
+        lastSidebarSelectionIndex = selectionResult.anchorIndex
         tabManager.selectTab(tab)
         if wasSelected, !isCommand, !isShift {
             tabManager.dismissNotificationOnDirectInteraction(
