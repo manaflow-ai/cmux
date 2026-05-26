@@ -1,6 +1,29 @@
 import Cocoa
 @preconcurrency import Sparkle
 
+private final class UpdateInstallConfirmationState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var summary: UpdateInstallGate.TerminalSessionSummary?
+
+    func snapshot() -> UpdateInstallGate.TerminalSessionSummary? {
+        lock.lock()
+        defer { lock.unlock() }
+        return summary
+    }
+
+    func record(_ summary: UpdateInstallGate.TerminalSessionSummary) {
+        lock.lock()
+        defer { lock.unlock() }
+        self.summary = summary
+    }
+
+    func reset() {
+        lock.lock()
+        defer { lock.unlock() }
+        summary = nil
+    }
+}
+
 /// SPUUserDriver that updates the view model for custom update UI.
 class UpdateDriver: NSObject, SPUUserDriver, @unchecked Sendable {
     let viewModel: UpdateViewModel
@@ -11,7 +34,7 @@ class UpdateDriver: NSObject, SPUUserDriver, @unchecked Sendable {
     private var pendingCheckTransition: DispatchWorkItem?
     private var checkTimeoutWorkItem: DispatchWorkItem?
     private var lastFeedURLString: String?
-    private var confirmedTerminalTerminationSummaryForInstall: UpdateInstallGate.TerminalSessionSummary?
+    private let terminalInstallConfirmationState = UpdateInstallConfirmationState()
 
     init(
         viewModel: UpdateViewModel,
@@ -61,7 +84,7 @@ class UpdateDriver: NSObject, SPUUserDriver, @unchecked Sendable {
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         UpdateLogStore.shared.append("show update found: \(appcastItem.displayVersionString)")
-        confirmedTerminalTerminationSummaryForInstall = nil
+        terminalInstallConfirmationState.reset()
         setStateAfterMinimumCheckDelay(.updateAvailable(.init(
             appcastItem: appcastItem,
             reply: installGateReply(reply)
@@ -175,7 +198,7 @@ class UpdateDriver: NSObject, SPUUserDriver, @unchecked Sendable {
 
     func dismissUpdateInstallation() {
         UpdateLogStore.shared.append("dismiss update installation")
-        confirmedTerminalTerminationSummaryForInstall = nil
+        terminalInstallConfirmationState.reset()
         if case .error = viewModel.state {
             UpdateLogStore.shared.append("dismiss update installation ignored (error visible)")
             return
@@ -208,7 +231,7 @@ class UpdateDriver: NSObject, SPUUserDriver, @unchecked Sendable {
         reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void
     ) {
         guard choice == .install else {
-            confirmedTerminalTerminationSummaryForInstall = nil
+            terminalInstallConfirmationState.reset()
             reply(choice)
             return
         }
@@ -254,16 +277,16 @@ class UpdateDriver: NSObject, SPUUserDriver, @unchecked Sendable {
         let summary = terminalSessionSummaryProvider()
         switch UpdateInstallGate.decision(
             terminalSessions: summary,
-            confirmedTerminalSessions: confirmedTerminalTerminationSummaryForInstall
+            confirmedTerminalSessions: terminalInstallConfirmationState.snapshot()
         ) {
         case .installNow:
             return true
         case .requireConfirmation(let warningSummary):
             guard terminalTerminationConfirmation(warningSummary) else {
-                confirmedTerminalTerminationSummaryForInstall = nil
+                terminalInstallConfirmationState.reset()
                 return false
             }
-            confirmedTerminalTerminationSummaryForInstall = warningSummary
+            terminalInstallConfirmationState.record(warningSummary)
             return true
         }
     }
