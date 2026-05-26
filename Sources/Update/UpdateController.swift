@@ -48,6 +48,7 @@ enum UpdateSettings {
 }
 
 /// Controller for managing Sparkle updates in cmux.
+@MainActor
 class UpdateController {
     private(set) var updater: SPUUpdater
     private let userDriver: UpdateDriver
@@ -152,9 +153,11 @@ class UpdateController {
         // for a while when a new version is published.
         backgroundProbeTimer?.invalidate()
         backgroundProbeTimer = Timer.scheduledTimer(withTimeInterval: backgroundProbeInterval, repeats: true) { [weak self] _ in
-            guard let self, self.updater.automaticallyChecksForUpdates else { return }
-            UpdateLogStore.shared.append("periodic background update probe")
-            self.updater.checkForUpdateInformation()
+            Task { @MainActor [weak self] in
+                guard let self, self.updater.automaticallyChecksForUpdates else { return }
+                UpdateLogStore.shared.append("periodic background update probe")
+                self.updater.checkForUpdateInformation()
+            }
         }
     }
 

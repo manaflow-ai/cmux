@@ -101405,6 +101405,103 @@
         }
       }
     },
+    "update.error.checkTimedOut.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't finish checking for updates in time. Try again in a moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は時間内にアップデート確認を完了できませんでした。しばらくしてからもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "update.error.downloadStalled.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update download stopped making progress. Check your connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートのダウンロードが進まなくなりました。接続を確認してもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "update.error.details.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Message" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "メッセージ" } }
+      }
+    },
+    "update.error.details.domain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Domain" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ドメイン" } }
+      }
+    },
+    "update.error.details.code": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Code" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コード" } }
+      }
+    },
+    "update.error.details.underlyingDomain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Underlying Domain" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "基礎ドメイン" } }
+      }
+    },
+    "update.error.details.underlyingCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Underlying Code" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "基礎コード" } }
+      }
+    },
+    "update.error.details.feed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード" } }
+      }
+    },
+    "update.error.details.feedConfigured": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "configured" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "設定済み" } }
+      }
+    },
+    "update.error.details.debug": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Debug" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デバッグ" } }
+      }
+    },
+    "update.error.details.log": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Log" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ログ" } }
+      }
+    },
     "update.error.timedOut.message": {
       "extractionState": "manual",
       "localizations": {

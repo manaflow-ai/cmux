@@ -3,6 +3,7 @@ import AppKit
 import SwiftUI
 import Sparkle
 
+@MainActor
 class UpdateViewModel: ObservableObject {
     @Published var state: UpdateState = .idle
     @Published var overrideState: UpdateState?
@@ -248,8 +249,11 @@ class UpdateViewModel: ObservableObject {
         }
     }
 
-    static func userFacingErrorTitle(for error: Swift.Error) -> String {
+    nonisolated static func userFacingErrorTitle(for error: Swift.Error) -> String {
         let nsError = error as NSError
+        if nsError.domain == UpdateOperationTimeoutError.domain {
+            return String(localized: "update.error.timedOut.title", defaultValue: "Update Timed Out")
+        }
         if let networkError = networkError(from: nsError) {
             switch networkError.code {
             case NSURLErrorNotConnectedToInternet:
@@ -295,8 +299,11 @@ class UpdateViewModel: ObservableObject {
         return String(localized: "update.error.failed.title", defaultValue: "Update Failed")
     }
 
-    static func userFacingErrorMessage(for error: Swift.Error) -> String {
+    nonisolated static func userFacingErrorMessage(for error: Swift.Error) -> String {
         let nsError = error as NSError
+        if nsError.domain == UpdateOperationTimeoutError.domain {
+            return nsError.localizedDescription
+        }
         if let networkError = networkError(from: nsError) {
             switch networkError.code {
             case NSURLErrorNotConnectedToInternet:
@@ -340,46 +347,53 @@ class UpdateViewModel: ObservableObject {
         return nsError.localizedDescription
     }
 
-    static func errorDetails(for error: Swift.Error, technicalDetails: String?, feedURLString: String?) -> String {
+    nonisolated static func errorDetails(for error: Swift.Error, technicalDetails: String?, feedURLString: String?) -> String {
         let nsError = error as NSError
+        let messageLabel = String(localized: "update.error.details.message", defaultValue: "Message")
+        let domainLabel = String(localized: "update.error.details.domain", defaultValue: "Domain")
+        let codeLabel = String(localized: "update.error.details.code", defaultValue: "Code")
+        let underlyingDomainLabel = String(localized: "update.error.details.underlyingDomain", defaultValue: "Underlying Domain")
+        let underlyingCodeLabel = String(localized: "update.error.details.underlyingCode", defaultValue: "Underlying Code")
+        let feedLabel = String(localized: "update.error.details.feed", defaultValue: "Feed")
+        let feedConfiguredLabel = String(localized: "update.error.details.feedConfigured", defaultValue: "configured")
+        let debugLabel = String(localized: "update.error.details.debug", defaultValue: "Debug")
+        let logLabel = String(localized: "update.error.details.log", defaultValue: "Log")
         var lines: [String] = []
-        lines.append("Message: \(nsError.localizedDescription)")
-        lines.append("Domain: \(nsError.domain)")
-        if nsError.domain == SUSparkleErrorDomain,
-           let sparkleName = sparkleErrorCodeName(for: nsError.code) {
-            lines.append("Code: \(sparkleName) (\(nsError.code))")
-        } else {
-            lines.append("Code: \(nsError.code)")
-        }
+        lines.append("\(messageLabel): \(userFacingErrorMessage(for: error))")
+        lines.append("\(domainLabel): \(displayDomain(for: nsError))")
+        lines.append("\(codeLabel): \(nsError.code)")
 
-        if let url = nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL {
-            lines.append("URL: \(url.absoluteString)")
-        } else if let urlString = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String {
-            lines.append("URL: \(urlString)")
-        }
-
-        if let failure = nsError.userInfo[NSLocalizedFailureReasonErrorKey] as? String,
-           !failure.isEmpty {
-            lines.append("Failure: \(failure)")
-        }
-        if let recovery = nsError.userInfo[NSLocalizedRecoverySuggestionErrorKey] as? String,
-           !recovery.isEmpty {
-            lines.append("Recovery: \(recovery)")
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+            lines.append("\(underlyingDomainLabel): \(displayDomain(for: underlying))")
+            lines.append("\(underlyingCodeLabel): \(underlying.code)")
         }
 
         if let feedURLString, !feedURLString.isEmpty {
-            lines.append("Feed: \(feedURLString)")
+            lines.append("\(feedLabel): \(feedConfiguredLabel)")
         }
 
         if let technicalDetails, !technicalDetails.isEmpty {
-            lines.append("Debug: \(technicalDetails)")
+            lines.append("\(debugLabel): \(technicalDetails)")
         }
 
-        lines.append("Log: \(UpdateLogStore.shared.logPath())")
+        lines.append("\(logLabel): \(UpdateLogStore.shared.logPath())")
         return lines.joined(separator: "\n")
     }
 
-    private static func networkError(from error: NSError) -> NSError? {
+    nonisolated private static func displayDomain(for error: NSError) -> String {
+        if error.domain == SUSparkleErrorDomain {
+            return "cmux.update"
+        }
+        if error.domain == NSURLErrorDomain {
+            return "network"
+        }
+        if error.domain.hasPrefix("cmux.") {
+            return error.domain
+        }
+        return "cmux.update"
+    }
+
+    nonisolated private static func networkError(from error: NSError) -> NSError? {
         if error.domain == NSURLErrorDomain {
             return error
         }
@@ -390,26 +404,7 @@ class UpdateViewModel: ObservableObject {
         return nil
     }
 
-    private static func sparkleErrorCodeName(for code: Int) -> String? {
-        switch code {
-        case 1: return "SUNoPublicDSAFoundError"
-        case 2: return "SUInsufficientSigningError"
-        case 3: return "SUInsecureFeedURLError"
-        case 4: return "SUInvalidFeedURLError"
-        case 1000: return "SUAppcastParseError"
-        case 1001: return "SUNoUpdateError"
-        case 1002: return "SUAppcastError"
-        case 1003: return "SURunningFromDiskImageError"
-        case 1005: return "SURunningTranslocated"
-        case 2001: return "SUDownloadError"
-        case 3001: return "SUSignatureError"
-        case 3002: return "SUValidationError"
-        default:
-            return nil
-        }
-    }
-
-    static func normalizedDetectedUpdateVersion(from version: String) -> String? {
+    nonisolated static func normalizedDetectedUpdateVersion(from version: String) -> String? {
         let trimmed = version.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }

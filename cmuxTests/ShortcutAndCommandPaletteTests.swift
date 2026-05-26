@@ -1888,6 +1888,7 @@ final class UpdateSettingsTests: XCTestCase {
     }
 }
 
+@MainActor
 final class UpdateViewModelPresentationTests: XCTestCase {
     func testDetectedBackgroundUpdateShowsPillWhileIdle() {
         let viewModel = UpdateViewModel()
@@ -1964,6 +1965,32 @@ final class UpdateViewModelPresentationTests: XCTestCase {
         XCTAssertTrue(viewModel.showsDetectedBackgroundUpdate)
     }
 
+    func testErrorDetailsKeepDiagnosticsWithoutRawUpdateURLs() {
+        let error = NSError(
+            domain: SUSparkleErrorDomain,
+            code: 2001,
+            userInfo: [
+                NSLocalizedDescriptionKey: "SUDownloadError https://updates.example.com/appcast.xml",
+                NSLocalizedFailureReasonErrorKey: "raw upstream failure",
+                NSURLErrorFailingURLStringErrorKey: "https://updates.example.com/appcast.xml",
+                NSUnderlyingErrorKey: NSError(domain: NSURLErrorDomain, code: -1009),
+            ]
+        )
+
+        let details = UpdateViewModel.errorDetails(
+            for: error,
+            technicalDetails: "code=2001 | underlyingCode=-1009 | networkContext=available",
+            feedURLString: "https://updates.example.com/appcast.xml"
+        )
+
+        XCTAssertTrue(details.contains("Domain: cmux.update"))
+        XCTAssertTrue(details.contains("Underlying Domain: network"))
+        XCTAssertTrue(details.contains("Debug: code=2001 | underlyingCode=-1009 | networkContext=available"))
+        XCTAssertFalse(details.contains("https://updates.example.com"))
+        XCTAssertFalse(details.contains("SUDownloadError"))
+        XCTAssertFalse(details.contains("raw upstream failure"))
+    }
+
     private func makeAppcastItem(displayVersion: String) -> SUAppcastItem? {
         let enclosure: [String: Any] = [
             "url": "https://example.com/cmux.zip",
@@ -1977,6 +2004,224 @@ final class UpdateViewModelPresentationTests: XCTestCase {
             "enclosure": enclosure,
         ]
         return SUAppcastItem(dictionary: dict)
+    }
+}
+
+private final class ManualUpdateOperationTimeoutScheduler: UpdateOperationTimeoutScheduling {
+    private struct ScheduledAction {
+        let token: Token
+        let action: @MainActor () -> Void
+    }
+
+    private final class Token: UpdateOperationTimeoutCancellable {
+        private(set) var isCancelled = false
+
+        @MainActor
+        func cancel() {
+            isCancelled = true
+        }
+    }
+
+    private var scheduledActions: [ScheduledAction] = []
+    private(set) var intervals: [TimeInterval] = []
+
+    @MainActor
+    func schedule(
+        after interval: TimeInterval,
+        action: @escaping @MainActor () -> Void
+    ) -> any UpdateOperationTimeoutCancellable {
+        let token = Token()
+        intervals.append(interval)
+        scheduledActions.append(.init(token: token, action: action))
+        return token
+    }
+
+    @MainActor
+    func fireNext() {
+        guard !scheduledActions.isEmpty else { return }
+        let scheduledAction = scheduledActions.removeFirst()
+        guard !scheduledAction.token.isCancelled else { return }
+        scheduledAction.action()
+    }
+
+    @MainActor
+    func fireAll() {
+        while !scheduledActions.isEmpty {
+            fireNext()
+        }
+    }
+}
+
+@MainActor
+final class UpdateOperationCoordinatorTimeoutTests: XCTestCase {
+    func testCheckingTimeoutCancelsAndShowsRetryableError() async throws {
+        let viewModel = UpdateViewModel()
+        let scheduler = ManualUpdateOperationTimeoutScheduler()
+        let coordinator = UpdateOperationCoordinator(
+            viewModel: viewModel,
+            minimumCheckDuration: 0,
+            checkTimeoutDuration: 0.01,
+            downloadStallTimeoutDuration: 1,
+            timeoutScheduler: scheduler
+        )
+        let cancelCount = ThreadSafeCounter()
+        let retryCount = ThreadSafeCounter()
+
+        coordinator.beginChecking(
+            cancel: { cancelCount.increment() },
+            retry: { retryCount.increment() }
+        )
+
+        scheduler.fireNext()
+
+        XCTAssertEqual(cancelCount.value(), 1)
+        guard case .error(let errorState) = viewModel.state else {
+            XCTFail("Expected checking timeout to show an error")
+            return
+        }
+
+        let nsError = errorState.error as NSError
+        XCTAssertEqual(nsError.domain, UpdateOperationTimeoutError.domain)
+        XCTAssertEqual(nsError.code, UpdateOperationTimeoutError.Code.checking.rawValue)
+        XCTAssertEqual(UpdateViewModel.userFacingErrorTitle(for: errorState.error), "Update Timed Out")
+        XCTAssertEqual(
+            UpdateViewModel.userFacingErrorMessage(for: errorState.error),
+            "cmux couldn't finish checking for updates in time. Try again in a moment."
+        )
+
+        errorState.retry()
+        await Task.yield()
+        XCTAssertEqual(retryCount.value(), 1)
+    }
+
+    func testExpectedCancellationAfterTimeoutDoesNotReplaceTimeoutError() {
+        let viewModel = UpdateViewModel()
+        let scheduler = ManualUpdateOperationTimeoutScheduler()
+        let coordinator = UpdateOperationCoordinator(
+            viewModel: viewModel,
+            minimumCheckDuration: 0,
+            checkTimeoutDuration: 0.01,
+            downloadStallTimeoutDuration: 1,
+            timeoutScheduler: scheduler
+        )
+
+        coordinator.beginChecking(cancel: {}, retry: {})
+        scheduler.fireNext()
+
+        coordinator.showUpdaterError(
+            NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled),
+            retry: {},
+            dismiss: {},
+            technicalDetails: "code=-999",
+            feedURLString: nil
+        )
+
+        guard case .error(let errorState) = viewModel.state else {
+            XCTFail("Expected timeout error to remain visible")
+            return
+        }
+        let nsError = errorState.error as NSError
+        XCTAssertEqual(nsError.domain, UpdateOperationTimeoutError.domain)
+        XCTAssertEqual(nsError.code, UpdateOperationTimeoutError.Code.checking.rawValue)
+    }
+
+    func testDownloadStallTimeoutCancelsAndShowsRetryableError() async throws {
+        let viewModel = UpdateViewModel()
+        let scheduler = ManualUpdateOperationTimeoutScheduler()
+        let coordinator = UpdateOperationCoordinator(
+            viewModel: viewModel,
+            minimumCheckDuration: 0,
+            checkTimeoutDuration: 1,
+            downloadStallTimeoutDuration: 0.01,
+            timeoutScheduler: scheduler
+        )
+        let cancelCount = ThreadSafeCounter()
+        let retryCount = ThreadSafeCounter()
+
+        coordinator.showDownloadInitiated(
+            cancellation: { cancelCount.increment() },
+            retry: { retryCount.increment() }
+        )
+
+        scheduler.fireNext()
+
+        XCTAssertEqual(cancelCount.value(), 1)
+        guard case .error(let errorState) = viewModel.state else {
+            XCTFail("Expected download stall timeout to show an error")
+            return
+        }
+
+        let nsError = errorState.error as NSError
+        XCTAssertEqual(nsError.domain, UpdateOperationTimeoutError.domain)
+        XCTAssertEqual(nsError.code, UpdateOperationTimeoutError.Code.downloading.rawValue)
+        XCTAssertEqual(
+            UpdateViewModel.userFacingErrorMessage(for: errorState.error),
+            "The update download stopped making progress. Check your connection and try again."
+        )
+
+        errorState.retry()
+        await Task.yield()
+        XCTAssertEqual(retryCount.value(), 1)
+    }
+
+    func testCompletedCheckCancelsTimeout() async throws {
+        let viewModel = UpdateViewModel()
+        let scheduler = ManualUpdateOperationTimeoutScheduler()
+        let coordinator = UpdateOperationCoordinator(
+            viewModel: viewModel,
+            minimumCheckDuration: 0,
+            checkTimeoutDuration: 0.01,
+            downloadStallTimeoutDuration: 1,
+            timeoutScheduler: scheduler
+        )
+        let cancelCount = ThreadSafeCounter()
+        let acknowledgementCount = ThreadSafeCounter()
+
+        coordinator.beginChecking(
+            cancel: { cancelCount.increment() },
+            retry: {}
+        )
+        coordinator.showUpdateNotFound {
+            acknowledgementCount.increment()
+        }
+
+        scheduler.fireAll()
+
+        XCTAssertEqual(cancelCount.value(), 0)
+        XCTAssertEqual(acknowledgementCount.value(), 0)
+        XCTAssertEqual(viewModel.state, .notFound(.init(acknowledgement: {})))
+    }
+
+    func testReadyWhileInstallingConfirmsInstall() {
+        let viewModel = UpdateViewModel()
+        let coordinator = UpdateOperationCoordinator(viewModel: viewModel)
+        let recorder = UpdateChoiceRecorder()
+
+        viewModel.state = .installing(.init(
+            retryTerminatingApplication: {},
+            dismiss: {}
+        ))
+
+        coordinator.showReady(toInstallAndRelaunch: { recorder.record($0) })
+
+        XCTAssertEqual(recorder.snapshot(), [.install])
+    }
+}
+
+private final class ThreadSafeCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
+    }
+
+    func value() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
     }
 }
 

@@ -9,7 +9,7 @@ enum UpdateTestSupport {
 
         if let detectedVersion = env["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"],
            !detectedVersion.isEmpty {
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 if let item = makeAppcastItem(displayVersion: detectedVersion) {
                     viewModel.recordDetectedUpdate(item)
                 } else {
@@ -20,7 +20,7 @@ enum UpdateTestSupport {
 
         guard let state = env["CMUX_UI_TEST_UPDATE_STATE"] else { return }
 
-        DispatchQueue.main.async {
+        Task { @MainActor in
             switch state {
             case "available":
                 let version = env["CMUX_UI_TEST_UPDATE_VERSION"] ?? "9.9.9"
@@ -44,7 +44,7 @@ enum UpdateTestSupport {
 
         UpdateLogStore.shared.append("ui test mock feed check: \(feedURLString)")
         UpdateTestURLProtocol.registerIfNeeded()
-        DispatchQueue.main.async {
+        Task { @MainActor in
             viewModel.applyDriverState(.checking(.init(cancel: {})))
         }
 
@@ -52,7 +52,7 @@ enum UpdateTestSupport {
             let xml = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
             let version = env["CMUX_UI_TEST_UPDATE_VERSION"] ?? "9.9.9"
             let hasItem = xml.contains("<item>")
-            let applyState = {
+            let applyState: @MainActor () -> Void = {
                 if hasItem {
                     let appcastItem = makeAppcastItem(displayVersion: version) ?? SUAppcastItem.empty()
                     viewModel.applyDriverState(.updateAvailable(.init(appcastItem: appcastItem, reply: { _ in })))
@@ -60,11 +60,13 @@ enum UpdateTestSupport {
                     viewModel.applyDriverState(.notFound(.init(acknowledgement: {})))
                 }
             }
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 let delayMilliseconds = Int(env["CMUX_UI_TEST_MOCK_FEED_DELAY_MS"] ?? "") ?? 0
                 if delayMilliseconds > 0 {
                     DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delayMilliseconds)) {
-                        applyState()
+                        Task { @MainActor in
+                            applyState()
+                        }
                     }
                 } else {
                     applyState()
@@ -75,10 +77,13 @@ enum UpdateTestSupport {
         return true
     }
 
+    @MainActor
     private static func transition(to state: UpdateState, on viewModel: UpdateViewModel) {
         viewModel.applyDriverState(.checking(.init(cancel: {})))
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            viewModel.applyDriverState(state)
+            Task { @MainActor in
+                viewModel.applyDriverState(state)
+            }
         }
     }
 
