@@ -1696,6 +1696,7 @@ class GhosttyApp {
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
+    private let runtimeAppInitializationLock = OSAllocatedUnfairLock(initialState: false)
     /// Coalesce wakeup → tick dispatches.  The I/O thread may fire wakeup_cb
     /// thousands of times per second during bulk output.  We only need one
     /// pending tick on the main queue at any time.
@@ -2176,6 +2177,11 @@ class GhosttyApp {
                     }
                 }
             }
+        }
+
+        runtimeAppInitializationLock.withLock { $0 = true }
+        defer {
+            runtimeAppInitializationLock.withLock { $0 = false }
         }
 
         if let created = ghostty_app_new(&runtimeConfig, primaryConfig) {
@@ -4215,6 +4221,10 @@ class GhosttyApp {
         return runtimeApp(from: userdata)
     }
 
+    private var shouldReloadSettingsFileForAppAction: Bool {
+        runtimeAppInitializationLock.withLock { !$0 }
+    }
+
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
         if target.tag != GHOSTTY_TARGET_SURFACE {
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
@@ -4262,7 +4272,7 @@ class GhosttyApp {
 
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG {
                 let soft = action.action.reload_config.soft
-                let reloadSettingsFromFile = app != nil
+                let reloadSettingsFromFile = shouldReloadSettingsFileForAppAction
                 logThemeAction("reload request target=app soft=\(soft)")
                 performOnMain {
                     guard self.shouldProcessGhosttyReloadAction(
@@ -4271,8 +4281,8 @@ class GhosttyApp {
                     ) else {
                         return
                     }
-                    // libghostty may request a reload from ghostty_app_new before
-                    // `self.app` is attached. Startup already loaded the cmux settings
+                    // libghostty may request a reload while ghostty_app_new is still
+                    // constructing the runtime. Startup already loaded the cmux settings
                     // file, so avoid recursively re-entering that settings load path.
                     self.reloadConfiguration(
                         soft: soft,
