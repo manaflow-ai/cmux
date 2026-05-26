@@ -201,11 +201,6 @@ enum TerminalSessionBackend: String, Codable, Sendable, CaseIterable, Identifiab
 struct TerminalSessionIdentity: Codable, Sendable, Equatable {
     var backend: TerminalSessionBackend
     var name: String
-
-    init(backend: TerminalSessionBackend, name: String) {
-        self.backend = backend
-        self.name = name
-    }
 }
 
 enum TerminalSessionBackendSettings {
@@ -246,7 +241,8 @@ enum TerminalSessionBackendSettings {
             return normalizedIdentity(identity)
         }
 
-        guard environment["ZELLIJ"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
+        if let zellijEnvironment = environment["ZELLIJ"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !zellijEnvironment.isEmpty {
             return nil
         }
 

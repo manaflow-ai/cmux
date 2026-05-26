@@ -6317,8 +6317,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
             if let initialCommand, !initialCommand.isEmpty {
                 return initialCommand
             }
-            if let baseCommand = baseConfig.command, !baseCommand.isEmpty {
-                return baseCommand
+            let trimmedBaseCommand = baseConfig.command?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let trimmedBaseCommand, !trimmedBaseCommand.isEmpty {
+                return trimmedBaseCommand
             }
             if let terminalSessionIdentity,
                let command = TerminalSessionBackendSettings.zellijAttachCommand(
@@ -6327,7 +6329,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                ) {
                 return command
             }
-            return baseConfig.command
+            return nil
         }()
         let runtimeInitialInput = nextRuntimeInitialInput
         let resolvedInitialInput: String? = {

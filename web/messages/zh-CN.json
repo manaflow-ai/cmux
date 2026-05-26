@@ -498,7 +498,8 @@
           "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。"
         },
         "terminal": {
-          "copyOnSelect": "确认选择后，将所选终端文本复制到系统剪贴板，包括通过双击和三击选择的单词和整行。"
+          "copyOnSelect": "确认选择后，将所选终端文本复制到系统剪贴板，包括通过双击和三击选择的单词和整行。",
+          "sessionBackend": "Choose how new local terminal surfaces are launched. native starts a normal Ghostty-backed shell. zellij launches each eligible terminal inside a stable zellij session so live processes can survive cmux quit and relaunch. The zellij CLI must be on PATH."
         }
       }
     },
