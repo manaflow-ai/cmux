@@ -2161,7 +2161,6 @@ struct ContentView: View {
             sidebarBackdropLayer(width: width, role: role, appearance: appearance)
             content()
                 .environment(\.colorScheme, appearance.sidebarContentColorScheme)
-                .environment(\.sidebarMatchesTerminalBackground, appearance.unifySurfaceBackdrops)
         }
         .frame(width: width)
     }
@@ -16731,12 +16730,8 @@ struct WindowChromeBorder: View {
 
 /// 1px trailing border on the sidebar, derived from the terminal chrome background.
 private struct SidebarTrailingBorder: View {
-    @Environment(\.sidebarMatchesTerminalBackground) private var sidebarMatchesTerminalBackground
-
     var body: some View {
-        if !sidebarMatchesTerminalBackground {
-            WindowChromeBorder(orientation: .vertical)
-        }
+        WindowChromeBorder(orientation: .vertical)
     }
 }
 

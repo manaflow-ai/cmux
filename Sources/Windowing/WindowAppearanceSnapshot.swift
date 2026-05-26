@@ -309,9 +309,7 @@ struct WindowAppearanceSnapshot {
 
     func shouldDrawSidebarSeparator(for role: WindowBackdropRole) -> Bool {
         switch role {
-        case .leftSidebar, .rightSidebar:
-            return !unifySurfaceBackdrops
-        case .windowRoot, .terminalCanvas, .bonsplitChrome, .titlebar, .browserSurface:
+        case .leftSidebar, .rightSidebar, .windowRoot, .terminalCanvas, .bonsplitChrome, .titlebar, .browserSurface:
             return true
         }
     }
@@ -339,16 +337,5 @@ struct WindowAppearanceSnapshot {
             opacity: terminalBackgroundOpacity,
             renderingMode: terminalRenderingMode
         )
-    }
-}
-
-private struct SidebarMatchesTerminalBackgroundKey: EnvironmentKey {
-    static let defaultValue = false
-}
-
-extension EnvironmentValues {
-    var sidebarMatchesTerminalBackground: Bool {
-        get { self[SidebarMatchesTerminalBackgroundKey.self] }
-        set { self[SidebarMatchesTerminalBackgroundKey.self] = newValue }
     }
 }
