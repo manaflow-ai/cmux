@@ -209,6 +209,38 @@ final class BrowserWebExtensionActionPopupPositioningTests: XCTestCase {
     }
 }
 
+@MainActor
+final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
+    func testWebExtensionPagesBlockHiddenDiscard() {
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let blockers = manager.blockers(for: blockerSnapshot(hasWebExtensionPageConfiguration: true))
+
+        XCTAssertEqual(blockers, ["web_extension_page"])
+    }
+
+    private func blockerSnapshot(
+        hasWebExtensionPageConfiguration: Bool = false
+    ) -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
+        BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
+            isClosing: false,
+            isVisibleInUI: false,
+            shouldRenderWebView: true,
+            hasPendingRemoteNavigation: false,
+            hasCurrentURL: true,
+            isLoading: false,
+            webViewIsLoading: false,
+            isDownloading: false,
+            activeDownloadCount: 0,
+            preferredDeveloperToolsVisible: false,
+            isDeveloperToolsVisible: false,
+            isElementFullscreenActive: false,
+            isReactGrabActive: false,
+            hasPopups: false,
+            hasWebExtensionPageConfiguration: hasWebExtensionPageConfiguration
+        )
+    }
+}
+
 final class BrowserWebExtensionInstallStoreTests: XCTestCase {
     func testRejectsUnpackedManifestDirectory() throws {
         let root = try temporaryDirectory()

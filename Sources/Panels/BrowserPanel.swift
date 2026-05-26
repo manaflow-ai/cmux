@@ -5326,7 +5326,8 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isDeveloperToolsVisible: isDeveloperToolsVisible(),
             isElementFullscreenActive: isElementFullscreenActive,
             isReactGrabActive: isReactGrabActive,
-            hasPopups: !popupControllers.isEmpty
+            hasPopups: !popupControllers.isEmpty,
+            hasWebExtensionPageConfiguration: currentWebViewUsesWebExtensionPageConfiguration
         )
     }
 

@@ -3956,7 +3956,7 @@ private final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
         } else if let panel,
                   let currentURL = panel.webView.url ?? panel.currentURL,
                   context.webExtensionController?.extensionContext(for: currentURL) === context {
-            panel.loadBrowserPage(url)
+            panel.navigate(to: url)
         } else {
             panel?.navigate(to: url)
         }

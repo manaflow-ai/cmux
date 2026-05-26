@@ -33,6 +33,7 @@ final class BrowserHiddenWebViewDiscardManager {
         let isElementFullscreenActive: Bool
         let isReactGrabActive: Bool
         let hasPopups: Bool
+        let hasWebExtensionPageConfiguration: Bool
     }
 
     weak var delegate: BrowserHiddenWebViewDiscardManagerDelegate?
@@ -69,6 +70,7 @@ final class BrowserHiddenWebViewDiscardManager {
         if snapshot.isElementFullscreenActive { blockers.append("fullscreen") }
         if snapshot.isReactGrabActive { blockers.append("react_grab") }
         if snapshot.hasPopups { blockers.append("popup") }
+        if snapshot.hasWebExtensionPageConfiguration { blockers.append("web_extension_page") }
         return blockers
     }
 
