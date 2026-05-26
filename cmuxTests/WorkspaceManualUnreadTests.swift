@@ -772,6 +772,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
         workspace.focusPanel(leftPanelId)
 
+        XCTAssertFalse(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: nil))
         XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
         XCTAssertTrue(workspace.manualUnreadPanelIds.contains(leftPanelId))
         XCTAssertFalse(workspace.manualUnreadPanelIds.contains(rightPanel.id))
