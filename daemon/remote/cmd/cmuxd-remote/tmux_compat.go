@@ -709,6 +709,9 @@ func tmuxResolveWorkspaceId(rc *rpcContext, raw string) (string, error) {
 	}
 
 	token, sigiled := tmuxSelectorToken(raw)
+	if isUUIDish(token) {
+		return token, nil
+	}
 
 	// Try to resolve as ref, tmux numeric id, or workspace index.
 	items, err := tmuxWorkspaceItems(rc)

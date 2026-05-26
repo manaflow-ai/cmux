@@ -529,6 +529,21 @@ func TestTmuxSigiledSelectorsSkipRefsAndIndexes(t *testing.T) {
 	}
 }
 
+func TestTmuxResolveWorkspaceIdAcceptsSigiledUUIDWithoutList(t *testing.T) {
+	workspaceId := "11111111-1111-4111-8111-111111111111"
+	rc := &rpcContext{socketPath: filepath.Join(t.TempDir(), "missing.sock")}
+
+	for _, raw := range []string{"$" + workspaceId, "@" + workspaceId} {
+		got, err := tmuxResolveWorkspaceId(rc, raw)
+		if err != nil {
+			t.Fatalf("tmuxResolveWorkspaceId(%q) returned error: %v", raw, err)
+		}
+		if got != workspaceId {
+			t.Fatalf("tmuxResolveWorkspaceId(%q) = %q, want %s", raw, got, workspaceId)
+		}
+	}
+}
+
 func TestTmuxCanonicalSelectorsPreferRefsBeforeIndexFallback(t *testing.T) {
 	sockPath := startMockTmuxSelectorPrioritySocket(t)
 	rc := &rpcContext{socketPath: sockPath}
