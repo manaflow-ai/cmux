@@ -249,6 +249,101 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNil(environment["CLAUDE_CONFIG_DIR"])
     }
 
+    func testClaudeWrapperInstallsSingleParentStopHook() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-claude-wrapper-\(UUID().uuidString)", isDirectory: true)
+        let binURL = root.appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(at: binURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let fakeClaudeURL = binURL.appendingPathComponent("claude")
+        let fakeCmuxURL = binURL.appendingPathComponent("cmux")
+        let argvURL = root.appendingPathComponent("claude-argv.txt")
+        try #"""
+        #!/bin/sh
+        : > "$CMUX_FAKE_CLAUDE_ARGV_PATH"
+        for arg in "$@"; do
+          printf '%s\n' "$arg" >> "$CMUX_FAKE_CLAUDE_ARGV_PATH"
+        done
+        exit 0
+        """#.write(to: fakeClaudeURL, atomically: true, encoding: .utf8)
+        try #"""
+        #!/bin/sh
+        while [ "$#" -gt 0 ]; do
+          if [ "$1" = "ping" ]; then
+            exit 0
+          fi
+          shift
+        done
+        exit 0
+        """#.write(to: fakeCmuxURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeClaudeURL.path)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCmuxURL.path)
+
+        let socketPath = makeSocketPath("claude-wrapper")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let wrapperURL = repoRoot.appendingPathComponent("Resources/bin/claude")
+        let result = runProcess(
+            executablePath: wrapperURL.path,
+            arguments: ["Explain extended thinking"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "\(binURL.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_BUNDLED_CLI_PATH": fakeCmuxURL.path,
+                "CMUX_FAKE_CLAUDE_ARGV_PATH": argvURL.path,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let argv = try String(contentsOf: argvURL, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        let settingsFlagIndex = try XCTUnwrap(argv.firstIndex(of: "--settings"))
+        let settingsJSON = argv[settingsFlagIndex + 1]
+        let settings = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(settingsJSON.utf8)) as? [String: Any]
+        )
+
+        func hookCommands(for eventName: String) throws -> [String] {
+            let hooks = try XCTUnwrap(settings["hooks"] as? [String: Any])
+            let entries = try XCTUnwrap(hooks[eventName] as? [[String: Any]])
+            return entries.flatMap { entry -> [String] in
+                guard let hookItems = entry["hooks"] as? [[String: Any]] else {
+                    return []
+                }
+                return hookItems.compactMap { $0["command"] as? String }
+            }
+        }
+
+        let stopCommands = try hookCommands(for: "Stop")
+        XCTAssertEqual(stopCommands.count, 1, stopCommands.joined(separator: "\n"))
+        XCTAssertEqual(stopCommands.filter { $0.contains("hooks claude stop") }.count, 1)
+        XCTAssertFalse(
+            stopCommands.contains { $0.contains("hooks feed --source claude") },
+            stopCommands.joined(separator: "\n")
+        )
+
+        let subagentStopCommands = try hookCommands(for: "SubagentStop")
+        XCTAssertEqual(subagentStopCommands.count, 1, subagentStopCommands.joined(separator: "\n"))
+        XCTAssertEqual(subagentStopCommands.filter { $0.contains("hooks feed --source claude") }.count, 1)
+    }
+
     func testClaudeSessionEndChecksConsumedWorkspaceBeforeClearingVisibleState() throws {
         let context = try makeClaudeHookContext(name: "claude-stale-session-end-workspace")
         defer { context.cleanup() }
