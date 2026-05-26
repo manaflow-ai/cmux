@@ -868,7 +868,10 @@ struct TitlebarControlsView: View {
         )
         let count = notificationStore.unreadCount
         guard count > 0, let latest = notificationStore.notifications.first else { return base }
-        return "\(base) — \(count) unread. Latest: \(latest.title). \(latest.tooltipStatusText)"
+        return String(
+            localized: "titlebar.notifications.tooltip.unread.latest",
+            defaultValue: "\(base) — \(count) unread. Latest: \(latest.title). \(latest.tooltipStatusText)"
+        )
     }
 
     private var titlebarHintTrailingInset: CGFloat {

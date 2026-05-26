@@ -861,7 +861,7 @@ final class TerminalNotificationStore: ObservableObject {
                 let currentSocketPath = TerminalController.shared.activeSocketPath(
                     preferredPath: SocketControlSettings.socketPath()
                 )
-                RestorableAgentSessionIndex.pollOpenCodeCompletionNotifications(
+                await RestorableAgentSessionIndex.pollOpenCodeCompletionNotifications(
                     currentSocketPath: currentSocketPath
                 )
             }

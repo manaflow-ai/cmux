@@ -1360,7 +1360,7 @@ struct BrowserPanelView: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        .safeHelp("Open in Default Browser")
+        .safeHelp(String(localized: "browser.openInDefaultBrowser", defaultValue: "Open in Default Browser"))
         .accessibilityIdentifier("BrowserOpenInExternalBrowserButton")
         .disabled(!hasURL)
         .opacity(hasURL ? 1 : 0.4)

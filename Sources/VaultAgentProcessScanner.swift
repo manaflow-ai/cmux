@@ -4,11 +4,38 @@ import SQLite3
 
 /// Tracks fingerprint of latest assistant message per (workspace, panel, session)
 /// to emit completion notifications only on change, not on first observation.
-private enum OpenCodeCompletionTracker {
-    nonisolated(unsafe) static var fingerprintsByKey: [String: (timeCreated: Int64, dataLength: Int)] = [:]
-    nonisolated(unsafe) static var isPolling = false
+private actor OpenCodeCompletionTracker {
     // Key: "workspaceId:panelId:sessionId"
+    private var fingerprintsByKey: [String: (timeCreated: Int64, dataLength: Int)] = [:]
+    private var isPolling = false
+
+    func beginPolling() -> Bool {
+        guard !isPolling else { return false }
+        isPolling = true
+        return true
+    }
+
+    func endPolling() {
+        isPolling = false
+    }
+
+    func updateFingerprint(
+        _ fingerprint: (timeCreated: Int64, dataLength: Int),
+        for key: String
+    ) -> Bool {
+        if let existing = fingerprintsByKey[key] {
+            let changed = existing.timeCreated != fingerprint.timeCreated
+                || existing.dataLength != fingerprint.dataLength
+            fingerprintsByKey[key] = fingerprint
+            return changed
+        }
+
+        fingerprintsByKey[key] = fingerprint
+        return false
+    }
 }
+
+private let openCodeCompletionTracker = OpenCodeCompletionTracker()
 
 extension AgentLaunchCommandSnapshot {
     init(
@@ -149,10 +176,8 @@ extension RestorableAgentSessionIndex {
     static func pollOpenCodeCompletionNotifications(
         currentSocketPath: String? = nil,
         fileManager: FileManager = .default
-    ) {
-        guard !OpenCodeCompletionTracker.isPolling else { return }
-        OpenCodeCompletionTracker.isPolling = true
-        defer { OpenCodeCompletionTracker.isPolling = false }
+    ) async {
+        guard await openCodeCompletionTracker.beginPolling() else { return }
 
         let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
@@ -162,11 +187,12 @@ extension RestorableAgentSessionIndex {
             fileManager: fileManager,
             currentSocketPath: currentSocketPath
         )
-        processOpenCodeCompletionNotifications(
+        await processOpenCodeCompletionNotifications(
             resolved: openCodeResult.resolved,
             perPanelDBURLs: openCodeResult.perPanelDBURLs,
             fileManager: fileManager
         )
+        await openCodeCompletionTracker.endPolling()
     }
     static func processLooksLikeOpenCode(
         processName: String,
@@ -719,7 +745,7 @@ extension RestorableAgentSessionIndex {
         resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)],
         perPanelDBURLs: [PanelKey: URL],
         fileManager: FileManager
-    ) {
+    ) async {
         _ = fileManager
         guard !resolved.isEmpty else { return }
 
@@ -755,7 +781,7 @@ extension RestorableAgentSessionIndex {
             defer { sqlite3_close(db) }
 
             for (panelKey, panelSnapshot) in panels {
-                processOpenCodePanelCompletion(db: db, panelKey: panelKey, snapshot: panelSnapshot)
+                await processOpenCodePanelCompletion(db: db, panelKey: panelKey, snapshot: panelSnapshot)
             }
         }
     }
@@ -764,7 +790,7 @@ extension RestorableAgentSessionIndex {
         db: OpaquePointer,
         panelKey: PanelKey,
         snapshot: SessionRestorableAgentSnapshot
-    ) {
+    ) async {
         let sessionId = snapshot.sessionId
         guard let (dataJSON, timeCreated) = queryLatestAssistantMessage(db: db, sessionId: sessionId),
               !dataJSON.isEmpty else {
@@ -774,17 +800,12 @@ extension RestorableAgentSessionIndex {
         let dedupeKey = "\(panelKey.workspaceId.uuidString):\(panelKey.panelId.uuidString):\(sessionId)"
         let fingerprint = (timeCreated, dataJSON.count)
 
-        if let existing = OpenCodeCompletionTracker.fingerprintsByKey[dedupeKey] {
-            if existing.timeCreated != timeCreated || existing.dataLength != dataJSON.count {
-                OpenCodeCompletionTracker.fingerprintsByKey[dedupeKey] = fingerprint
-                emitOpenCodeCompletionNotification(
-                    panelKey: panelKey,
-                    workingDirectory: snapshot.workingDirectory,
-                    dataJSON: dataJSON
-                )
-            }
-        } else {
-            OpenCodeCompletionTracker.fingerprintsByKey[dedupeKey] = fingerprint
+        if await openCodeCompletionTracker.updateFingerprint(fingerprint, for: dedupeKey) {
+            emitOpenCodeCompletionNotification(
+                panelKey: panelKey,
+                workingDirectory: snapshot.workingDirectory,
+                dataJSON: dataJSON
+            )
         }
     }
 
@@ -820,14 +841,14 @@ extension RestorableAgentSessionIndex {
         workingDirectory: String?,
         dataJSON: String
     ) {
-        let body = extractAssistantText(from: dataJSON) ?? "OpenCode produced a new response."
+        let body = extractAssistantText(from: dataJSON) ?? String(localized: "opencode.completion.fallbackBody", defaultValue: "OpenCode produced a new response.")
         let subtitle = workingDirectory.map { ($0 as NSString).lastPathComponent } ?? "OpenCode"
 
         Task { @MainActor in
             TerminalNotificationStore.shared.addNotification(
                 tabId: panelKey.workspaceId,
                 surfaceId: panelKey.panelId,
-                title: "OpenCode completed",
+                title: String(localized: "opencode.completion.title", defaultValue: "OpenCode completed"),
                 subtitle: subtitle,
                 body: body
             )
