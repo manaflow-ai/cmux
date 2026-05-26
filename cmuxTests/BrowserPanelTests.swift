@@ -241,6 +241,7 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
     }
 }
 
+@MainActor
 final class BrowserWebExtensionInstallStoreTests: XCTestCase {
     func testRejectsUnpackedManifestDirectory() throws {
         let root = try temporaryDirectory()

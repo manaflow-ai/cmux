@@ -5335,7 +5335,9 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         guard let url = request.url else { return }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return }
-        invalidatePendingWebExtensionPreparationNavigation()
+        if intent == .currentTab {
+            invalidatePendingWebExtensionPreparationNavigation()
+        }
 
         let alert = insecureHTTPAlertFactory()
         alert.alertStyle = .warning
@@ -5404,10 +5406,6 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     deinit {
-        let panelID = id
-        Task { @MainActor in
-            BrowserWebExtensionSupport.unregister(panelID: panelID)
-        }
         hiddenWebViewDiscardManager.stop()
         developerToolsRestoreRetryWorkItem?.cancel()
         developerToolsRestoreRetryWorkItem = nil

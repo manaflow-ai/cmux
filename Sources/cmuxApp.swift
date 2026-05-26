@@ -8307,6 +8307,7 @@ struct SettingsView: View {
         browserDisabled = BrowserAvailabilitySettings.defaultDisabled
         UserDefaults.standard.removeObject(forKey: BrowserExtensionDeveloperModeSettings.key)
         UserDefaults.standard.removeObject(forKey: BrowserExtensionFileURLAccessSettings.key)
+        browserExtensionsDeveloperMode = BrowserExtensionDeveloperModeSettings.defaultEnabled
         browserExtensionsAllowFileURLAccess = BrowserExtensionFileURLAccessSettings.defaultEnabled
         browserHiddenWebViewDiscardEnabled = BrowserHiddenWebViewDiscardPolicy.defaultEnabled
         browserHiddenWebViewDiscardDelay = BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay

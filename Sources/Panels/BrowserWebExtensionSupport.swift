@@ -882,6 +882,7 @@ enum BrowserWebExtensionInstallError: LocalizedError, Equatable {
     }
 }
 
+@MainActor
 final class BrowserWebExtensionInstallStore {
     private enum AppExtensionValidationResult: Equatable {
         case valid
@@ -890,7 +891,7 @@ final class BrowserWebExtensionInstallStore {
         case notSafariWebExtension
     }
 
-    private static let safariWebExtensionPointIdentifier = "com.apple.Safari.web-extension"
+    private nonisolated static let safariWebExtensionPointIdentifier = "com.apple.Safari.web-extension"
 
     private let registryURL: URL
     private let fileManager: FileManager
@@ -907,7 +908,7 @@ final class BrowserWebExtensionInstallStore {
         reload()
     }
 
-    static func defaultSupportDirectoryURL() -> URL {
+    nonisolated static func defaultSupportDirectoryURL() -> URL {
         let fm = FileManager.default
         let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support", isDirectory: true)
@@ -918,7 +919,7 @@ final class BrowserWebExtensionInstallStore {
             .appendingPathComponent("browser_extensions", isDirectory: true)
     }
 
-    static func defaultRegistryURL() -> URL {
+    nonisolated static func defaultRegistryURL() -> URL {
         defaultSupportDirectoryURL().appendingPathComponent("installed_extensions.json", isDirectory: false)
     }
 
@@ -1154,7 +1155,7 @@ final class BrowserWebExtensionInstallStore {
         _ = record
     }
 
-    static func discoverSource(
+    nonisolated static func discoverSource(
         from url: URL,
         developerModeEnabled: Bool = BrowserExtensionDeveloperModeSettings.isEnabled(),
         fileManager: FileManager = .default
@@ -1202,7 +1203,7 @@ final class BrowserWebExtensionInstallStore {
         throw BrowserWebExtensionInstallError.unsupportedSource(resolvedURL)
     }
 
-    private static func verifiedSourceTrust(
+    nonisolated private static func verifiedSourceTrust(
         containingAppURL: URL,
         appExtensionURL: URL,
         developerModeEnabled: Bool
@@ -1238,7 +1239,7 @@ final class BrowserWebExtensionInstallStore {
         )
     }
 
-    private static func optionalSourceTrust(
+    nonisolated private static func optionalSourceTrust(
         containingAppURL: URL,
         appExtensionURL: URL
     ) -> BrowserWebExtensionSourceTrust? {
@@ -1249,14 +1250,14 @@ final class BrowserWebExtensionInstallStore {
         return BrowserWebExtensionSourceTrust(containingApp: containingApp, appExtension: appExtension)
     }
 
-    private static func optionalDirectAppExtensionTrust(for appExtensionURL: URL) -> BrowserWebExtensionSourceTrust? {
+    nonisolated private static func optionalDirectAppExtensionTrust(for appExtensionURL: URL) -> BrowserWebExtensionSourceTrust? {
         guard let appExtension = try? requiredCodeSignatureInfo(for: appExtensionURL) else {
             return nil
         }
         return BrowserWebExtensionSourceTrust(containingApp: appExtension, appExtension: appExtension)
     }
 
-    private static func appExtensionIsEmbeddedInContainingApp(
+    nonisolated private static func appExtensionIsEmbeddedInContainingApp(
         _ appExtensionURL: URL,
         containingAppURL: URL
     ) -> Bool {
@@ -1269,7 +1270,7 @@ final class BrowserWebExtensionInstallStore {
         return standardizedAppExtensionPath.hasPrefix(pluginPath + "/")
     }
 
-    private static func requiredCodeSignatureInfo(for url: URL) throws -> BrowserWebExtensionCodeSignatureInfo {
+    nonisolated private static func requiredCodeSignatureInfo(for url: URL) throws -> BrowserWebExtensionCodeSignatureInfo {
         var staticCode: SecStaticCode?
         let createStatus = SecStaticCodeCreateWithPath(
             url as CFURL,
@@ -1328,7 +1329,7 @@ final class BrowserWebExtensionInstallStore {
         )
     }
 
-    private static func codeSigningErrorDescription(_ status: OSStatus) -> String {
+    nonisolated private static func codeSigningErrorDescription(_ status: OSStatus) -> String {
         if let message = SecCopyErrorMessageString(status, nil) as String? {
             return message
         }
@@ -1399,11 +1400,11 @@ final class BrowserWebExtensionInstallStore {
         }
     }
 
-    private static func registryObjects(from data: Data) -> [[String: Any]] {
+    nonisolated private static func registryObjects(from data: Data) -> [[String: Any]] {
         (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
     }
 
-    private static func registryData(
+    nonisolated private static func registryData(
         supportedRecords: [BrowserWebExtensionInstallRecord],
         unsupportedRecordObjects: [[String: Any]]
     ) throws -> Data {
@@ -1446,15 +1447,15 @@ final class BrowserWebExtensionInstallStore {
         return record
     }
 
-    private static func union(_ lhs: [String], _ rhs: [String]) -> [String] {
+    nonisolated private static func union(_ lhs: [String], _ rhs: [String]) -> [String] {
         Array(Set(lhs).union(rhs)).sorted()
     }
 
-    private static func subtract(_ lhs: [String], _ rhs: [String]) -> [String] {
+    nonisolated private static func subtract(_ lhs: [String], _ rhs: [String]) -> [String] {
         Array(Set(lhs).subtracting(rhs)).sorted()
     }
 
-    private static func firstWebExtensionAppExtension(
+    nonisolated private static func firstWebExtensionAppExtension(
         in appURL: URL,
         fileManager: FileManager
     ) -> URL? {
@@ -1478,7 +1479,7 @@ final class BrowserWebExtensionInstallStore {
         return validAppExtensions[0]
     }
 
-    private static func appExtensionValidationResult(
+    nonisolated private static func appExtensionValidationResult(
         for appexURL: URL,
         fileManager: FileManager
     ) -> AppExtensionValidationResult {
@@ -1496,7 +1497,7 @@ final class BrowserWebExtensionInstallStore {
         return .valid
     }
 
-    private static func appExtensionHasManifest(
+    nonisolated private static func appExtensionHasManifest(
         _ appexURL: URL,
         fileManager: FileManager
     ) -> Bool {
@@ -1509,14 +1510,14 @@ final class BrowserWebExtensionInstallStore {
         )
     }
 
-    private static func appExtensionInfoPlistExists(
+    nonisolated private static func appExtensionInfoPlistExists(
         _ appexURL: URL,
         fileManager: FileManager
     ) -> Bool {
         fileManager.fileExists(atPath: appExtensionInfoPlistURL(for: appexURL).path)
     }
 
-    private static func appExtensionPointIdentifier(
+    nonisolated private static func appExtensionPointIdentifier(
         in appexURL: URL,
         fileManager: FileManager
     ) -> String? {
@@ -1529,7 +1530,7 @@ final class BrowserWebExtensionInstallStore {
         return extensionDictionary["NSExtensionPointIdentifier"] as? String
     }
 
-    private static func appExtensionInfoPlistURL(for appexURL: URL) -> URL {
+    nonisolated private static func appExtensionInfoPlistURL(for appexURL: URL) -> URL {
         appexURL
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Info.plist", isDirectory: false)
@@ -1750,6 +1751,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     private var activeActionPopupByPanelID: [UUID: BrowserWebExtensionActivePopupState] = [:]
     private var windowAdaptersByRuntimeKey: [BrowserWebExtensionRuntimeKey: BrowserWebExtensionWindowAdapter] = [:]
     private var activeTabsByRuntimeKey: [BrowserWebExtensionRuntimeKey: any WKWebExtensionTab] = [:]
+    private var focusedWindowsByRuntimeKey: [BrowserWebExtensionRuntimeKey: any WKWebExtensionWindow] = [:]
     private var runtimePermissionPromptTasks: [UUID: Task<Void, Never>] = [:]
     private var runtimePermissionPromptDenyHandlers: [UUID: () -> Void] = [:]
     private var runtimePermissionPromptWindows: [UUID: NSWindow] = [:]
@@ -1816,6 +1818,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             if isSameTab(activeTabsByRuntimeKey[existingAdapter.runtimeKey], existingAdapter) {
                 activeTabsByRuntimeKey[existingAdapter.runtimeKey] = nil
             }
+            if !hasVisibleWindow(runtimeKey: existingAdapter.runtimeKey) {
+                focusedWindowsByRuntimeKey[existingAdapter.runtimeKey] = nil
+            }
             tabAdaptersByPanelID[panel.id] = nil
         }
         let adapter = tabAdaptersByPanelID[panel.id]
@@ -1847,6 +1852,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         controllersByRuntimeKey[adapter.runtimeKey]?.didCloseTab(adapter, windowIsClosing: false)
         if isSameTab(activeTabsByRuntimeKey[adapter.runtimeKey], adapter) {
             activeTabsByRuntimeKey[adapter.runtimeKey] = nil
+        }
+        if !hasVisibleWindow(runtimeKey: adapter.runtimeKey) {
+            focusedWindowsByRuntimeKey[adapter.runtimeKey] = nil
         }
         postDidChange()
     }
@@ -2616,6 +2624,19 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         return (lhs as AnyObject) === (rhs as AnyObject)
     }
 
+    private func isSameWindow(_ lhs: (any WKWebExtensionWindow)?, _ rhs: any WKWebExtensionWindow) -> Bool {
+        guard let lhs else { return false }
+        return (lhs as AnyObject) === (rhs as AnyObject)
+    }
+
+    private func hasVisibleWindow(runtimeKey: BrowserWebExtensionRuntimeKey) -> Bool {
+        tabAdaptersByPanelID.values.contains { adapter in
+            adapter.runtimeKey == runtimeKey && adapter.panel != nil
+        } || auxiliaryWindowAdaptersByID.values.contains { adapter in
+            adapter.runtimeKey == runtimeKey && adapter.isVisible
+        }
+    }
+
     private func noteActiveTab(
         _ tab: any WKWebExtensionTab,
         runtimeKey: BrowserWebExtensionRuntimeKey,
@@ -2623,7 +2644,10 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     ) {
         guard let controller = controllersByRuntimeKey[runtimeKey] else { return }
         if let focusedWindow {
-            controller.didFocusWindow(focusedWindow)
+            if !isSameWindow(focusedWindowsByRuntimeKey[runtimeKey], focusedWindow) {
+                focusedWindowsByRuntimeKey[runtimeKey] = focusedWindow
+                controller.didFocusWindow(focusedWindow)
+            }
         }
         let previousTab = activeTabsByRuntimeKey[runtimeKey]
         guard !isSameTab(previousTab, tab) else { return }
@@ -2781,6 +2805,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         if isSameTab(activeTabsByRuntimeKey[runtimeKey], window.tabAdapter) {
             activeTabsByRuntimeKey[runtimeKey] = nil
         }
+        if isSameWindow(focusedWindowsByRuntimeKey[runtimeKey], window) {
+            focusedWindowsByRuntimeKey[runtimeKey] = nil
+        }
         cleanupTransientRuntimeIfUnused(runtimeKey)
         postDidChange()
     }
@@ -2811,6 +2838,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         websiteDataStoresByRuntimeKey[runtimeKey] = nil
         windowAdaptersByRuntimeKey[runtimeKey] = nil
         activeTabsByRuntimeKey[runtimeKey] = nil
+        focusedWindowsByRuntimeKey[runtimeKey] = nil
         loadedRuntimeKeys.remove(runtimeKey)
     }
 
