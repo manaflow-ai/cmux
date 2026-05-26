@@ -186,6 +186,14 @@ export function statusLabel(state: SessionState): string {
   }
 }
 
+export function canStartProvider(state: SessionState): boolean {
+  return (state.status === "idle" || state.status === "failed") && !state.runningSessionId && Boolean(state.context);
+}
+
+export function canStopProvider(state: SessionState): boolean {
+  return Boolean(state.runningSessionId) && state.status !== "stopping";
+}
+
 function applyEvent(state: SessionState, event: AgentEvent): SessionState {
   switch (event.type) {
     case "app.theme":
@@ -237,10 +245,6 @@ function appendContextReadyLog(state: SessionState): SessionState {
     ...state,
     log: appendLog(state, "info", formatCopy(state, "rendererReadyFormat", "%@ ready", renderer)),
   };
-}
-
-function canStartProvider(state: SessionState): boolean {
-  return (state.status === "idle" || state.status === "failed") && !state.runningSessionId && Boolean(state.context);
 }
 
 function appendLog(state: SessionState, level: LogEntry["level"], text: string): LogEntry[] {

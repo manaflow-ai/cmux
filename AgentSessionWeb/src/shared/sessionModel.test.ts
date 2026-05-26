@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { makeClientId } from "./ids";
-import { initialState, reduceSession, shouldAutoStartProvider, statusLabel } from "./sessionModel";
+import { canStopProvider, initialState, reduceSession, shouldAutoStartProvider, statusLabel } from "./sessionModel";
 import type { AppContext, ProviderInfo } from "./types";
 
 const theme = {
@@ -197,6 +197,19 @@ test("stop preserves running session until provider exit arrives", () => {
   expect(stopping.status).toBe("stopping");
   expect(stopping.runningSessionId).toBe("session-1");
   expect(statusLabel(stopping)).toBe("Stopping");
+});
+
+test("failed calls with an active session keep stop available", () => {
+  const running = {
+    ...reduceSession(initialState("react"), { type: "context", context }),
+    status: "running" as const,
+    runningSessionId: "session-1",
+  };
+  const failed = reduceSession(running, { type: "failed", message: "Native bridge request failed." });
+
+  expect(failed.status).toBe("failed");
+  expect(failed.runningSessionId).toBe("session-1");
+  expect(canStopProvider(failed)).toBe(true);
 });
 
 test("claude does not auto start", () => {

@@ -4,6 +4,8 @@ import { subscribeToAgentEvents } from "../shared/bridge";
 import {
   initialState,
   autoStartProvider,
+  canStartProvider,
+  canStopProvider,
   loadInitialData,
   reduceSession,
   sendInput,
@@ -49,7 +51,8 @@ function SessionSurface({
   renderer: string;
 }) {
   const provider = state.providers.find((item) => item.id === state.selectedProviderId);
-  const canStart = (state.status === "idle" || state.status === "failed") && !state.runningSessionId;
+  const canStart = canStartProvider(state);
+  const canStop = canStopProvider(state);
   const canSend = state.status === "running" && state.input.trim().length > 0;
   const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
@@ -137,7 +140,7 @@ function SessionSurface({
             {
               className: "codex-action codex-circle-action",
               type: "button",
-              disabled: state.status !== "running",
+              disabled: !canStop,
               "aria-label": state.context?.copy.stop ?? "Stop",
               onClick: () => void stopProvider(state, dispatch),
             },

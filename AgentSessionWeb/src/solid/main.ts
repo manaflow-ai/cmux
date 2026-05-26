@@ -4,6 +4,8 @@ import { subscribeToAgentEvents } from "../shared/bridge";
 import {
   initialState,
   autoStartProvider,
+  canStartProvider,
+  canStopProvider,
   loadInitialData,
   reduceSession,
   sendInput,
@@ -43,7 +45,8 @@ function SessionSurface({
   renderer: string;
 }) {
   const provider = () => state().providers.find((item) => item.id === state().selectedProviderId);
-  const canStart = () => (state().status === "idle" || state().status === "failed") && !state().runningSessionId;
+  const canStart = () => canStartProvider(state());
+  const canStop = () => canStopProvider(state());
   const canSend = () => state().status === "running" && state().input.trim().length > 0;
   const root = document.createElement("section");
   root.className = "agent-shell";
@@ -165,7 +168,7 @@ function SessionSurface({
   controlsRight.append(stop);
   createEffect(() => {
     stop.setAttribute("aria-label", state().context?.copy.stop ?? "Stop");
-    stop.disabled = state().status !== "running";
+    stop.disabled = !canStop();
   });
 
   const mic = document.createElement("button");
