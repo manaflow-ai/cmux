@@ -2443,15 +2443,30 @@ private struct NotificationPopoverRow: View {
                     )
             }
             .buttonStyle(.plain)
+            // Identifier/action live on the Button itself so XCUITest's
+            // `app.buttons["NotificationPopoverRow.<id>"]` query keeps matching. A previous
+            // pass put them on the combined outer ZStack, which exposed the row as a
+            // container rather than a button to accessibility clients.
+            .accessibilityIdentifier("NotificationPopoverRow.\(notification.id.uuidString)")
+            // XCUITest's `.click()` isn't always reliable for SwiftUI buttons hosted in an
+            // `NSPopover`. Provide an explicit accessibility action so AXPress always routes to onOpen.
+            .accessibilityAction { onOpen() }
+            // The clear button is hover-only for pointer users; expose dismiss as a row-level
+            // accessibility action so VoiceOver / keyboard / assistive tech can dismiss too.
+            .accessibilityAction(
+                named: Text(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
+            ) {
+                onClear()
+            }
 
             clearButton
                 .padding(.trailing, 10)
                 .opacity(isHovering ? 1 : 0)
                 .allowsHitTesting(isHovering)
-                // Dismissal is exposed through the row's accessibility action and context
-                // menu, so hide this hover-only affordance from keyboard focus/VoiceOver
-                // when not visible — otherwise Full Keyboard Access can tab to an invisible
-                // button.
+                // Dismissal is exposed through the row Button's accessibility action and the
+                // context menu, so hide this hover-only affordance from keyboard focus /
+                // VoiceOver when not visible — otherwise Full Keyboard Access can tab to an
+                // invisible button.
                 .accessibilityHidden(!isHovering)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2464,18 +2479,6 @@ private struct NotificationPopoverRow: View {
                 if isHovering != hovering { isHovering = hovering }
             }
         )
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("NotificationPopoverRow.\(notification.id.uuidString)")
-        // XCUITest's `.click()` is not always reliable for SwiftUI buttons hosted in an
-        // `NSPopover`. Provide an explicit accessibility action so AXPress always routes to onOpen.
-        .accessibilityAction { onOpen() }
-        // The clear button is hover-only for pointer users; expose dismiss as a row-level
-        // accessibility action so VoiceOver / keyboard / assistive tech can dismiss too.
-        .accessibilityAction(
-            named: Text(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
-        ) {
-            onClear()
-        }
         .contextMenu {
                 Button(String(localized: "notifications.open", defaultValue: "Open")) {
                     onOpen()
