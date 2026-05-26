@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import Carbon.HIToolbox
+import SwiftUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -251,6 +252,41 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         KeyboardShortcutRecorderActivity.stopAllRecording()
 
         XCTAssertFalse(KeyboardShortcutRecorderActivity.isAnyRecorderActive)
+    }
+
+    func testFocusHistoryShortcutsConsumeEventWhenNoHistoryIsAvailable() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        let originalTabManager = appDelegate.tabManager
+        let manager = TabManager()
+        appDelegate.tabManager = manager
+        defer {
+            appDelegate.tabManager = originalTabManager
+        }
+
+        XCTAssertFalse(manager.canNavigateBack)
+        XCTAssertFalse(manager.canNavigateForward)
+        let backEvent = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "[",
+            charactersIgnoringModifiers: "[",
+            keyCode: 33
+        )
+        let forwardEvent = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "]",
+            charactersIgnoringModifiers: "]",
+            keyCode: 30
+        )
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: backEvent))
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: forwardEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
     }
 
     func testCmdNUsesEventWindowContextWhenActiveManagerIsStale() {
@@ -2470,6 +2506,58 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(12), 28)
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(32), 32)
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(96), 72)
+    }
+
+    func testRightSidebarHeaderChromeUsesSharedButtonsWithCompactIcons() {
+        let titlebarConfig = TitlebarControlsStyle.classic.config
+
+        XCTAssertEqual(HeaderChromeControlMetrics.buttonSize, titlebarConfig.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(HeaderChromeControlMetrics.iconSize, titlebarConfig.iconSize, accuracy: 0.001)
+        XCTAssertEqual(HeaderChromeControlMetrics.cornerRadius, titlebarConfig.buttonCornerRadius, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeMetrics.headerControlSize, titlebarConfig.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeMetrics.headerIconSize, 10, accuracy: 0.001)
+        XCTAssertEqual(
+            RightSidebarChromeMetrics.headerIconFrameSize,
+            RightSidebarChromeMetrics.headerIconSize,
+            accuracy: 0.001
+        )
+        XCTAssertLessThan(RightSidebarChromeMetrics.headerIconSize, titlebarConfig.iconSize)
+        XCTAssertLessThan(
+            RightSidebarChromeMetrics.headerIconFrameSize,
+            HeaderChromeIconStyle.iconFrameSize(forIconSize: titlebarConfig.iconSize)
+        )
+        XCTAssertEqual(RightSidebarChromeMetrics.headerControlCornerRadius, titlebarConfig.buttonCornerRadius, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeMetrics.controlHeight, RightSidebarChromeMetrics.headerControlSize, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeMetrics.barVerticalPadding, 4, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeMetrics.headerControlCenterAlignmentAdjustment, 0, accuracy: 0.001)
+    }
+
+    func testRightSidebarPillChromeUsesHeaderIconColorAndWeight() {
+        XCTAssertEqual(RightSidebarChromeControlStyle.iconWeight, HeaderChromeIconStyle.weight)
+        XCTAssertEqual(RightSidebarChromeControlStyle.labelWeight, HeaderChromeIconStyle.weight)
+        XCTAssertEqual(RightSidebarChromeControlStyle.modeIconSize, 11, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeControlStyle.secondaryIconSize, 10, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeControlStyle.labelSize, 11, accuracy: 0.001)
+        XCTAssertEqual(
+            RightSidebarChromeControlStyle.foregroundOpacity(isSelected: false, isHovered: false),
+            HeaderChromeIconStyle.foregroundOpacity(isHovering: false, isPressed: false),
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            RightSidebarChromeControlStyle.foregroundOpacity(isSelected: false, isHovered: true),
+            HeaderChromeIconStyle.foregroundOpacity(isHovering: true, isPressed: false),
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            RightSidebarChromeControlStyle.foregroundOpacity(isSelected: true, isHovered: false),
+            HeaderChromeIconStyle.pressedOpacity,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            RightSidebarChromeControlStyle.foregroundOpacity(isSelected: false, isHovered: true, isEnabled: false),
+            HeaderChromeIconStyle.disabledOpacity,
+            accuracy: 0.001
+        )
     }
 
     func testMinimalModeCollapsedSidebarResyncsTrafficLightInsetAfterNewWorkspaceCreation() {
@@ -9617,6 +9705,85 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertFalse(remountedTextView.hasPendingAttachmentUploadPlaceholder())
         XCTAssertEqual(remountedTextView.submissionText(), "hello world")
+    }
+
+    func testTextBoxRepresentableDismantleDoesNotWriteSwiftUIBindings() {
+        var text = "old"
+        var attachments: [TextBoxAttachment] = []
+        var height: CGFloat = 24
+        var hasPendingAttachmentUpload = true
+        var textWriteCount = 0
+        var attachmentWriteCount = 0
+        var heightWriteCount = 0
+        var pendingWriteCount = 0
+        var dismantledText: String?
+
+        let inputView = TextBoxInputView(
+            text: Binding(
+                get: { text },
+                set: { newValue in
+                    textWriteCount += 1
+                    text = newValue
+                }
+            ),
+            attachments: Binding(
+                get: { attachments },
+                set: { newValue in
+                    attachmentWriteCount += 1
+                    attachments = newValue
+                }
+            ),
+            textViewHeight: Binding(
+                get: { height },
+                set: { newValue in
+                    heightWriteCount += 1
+                    height = newValue
+                }
+            ),
+            hasPendingAttachmentUpload: Binding(
+                get: { hasPendingAttachmentUpload },
+                set: { newValue in
+                    pendingWriteCount += 1
+                    hasPendingAttachmentUpload = newValue
+                }
+            ),
+            font: NSFont.systemFont(ofSize: 14),
+            backgroundColor: .textBackgroundColor,
+            foregroundColor: .labelColor,
+            terminalTitle: "codex",
+            completionRootDirectory: nil,
+            onSubmit: {},
+            onEscape: {},
+            onFocusTextBox: {},
+            onToggleFocus: {},
+            onForwardText: { _, _ in },
+            onForwardKey: { _ in },
+            onForwardControl: { _ in },
+            onPaste: { _, _ in false },
+            onInsertFileURLs: { _, _ in false },
+            onChooseFiles: {},
+            onContentChanged: {},
+            onTextViewCreated: { _ in },
+            onTextViewMovedToWindow: { _ in },
+            onTextViewDismantled: { textView in
+                dismantledText = textView.plainText()
+            }
+        )
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "preserve this"
+        let scrollView = NSScrollView(frame: textView.frame)
+        scrollView.documentView = textView
+
+        TextBoxInputView.dismantleNSView(
+            scrollView,
+            coordinator: TextBoxInputView.Coordinator(parent: inputView)
+        )
+
+        XCTAssertEqual(dismantledText, "preserve this")
+        XCTAssertEqual(textWriteCount, 0)
+        XCTAssertEqual(attachmentWriteCount, 0)
+        XCTAssertEqual(heightWriteCount, 0)
+        XCTAssertEqual(pendingWriteCount, 0)
     }
 
     func testTextBoxPendingAttachmentUploadPreservesOriginalInsertionPoint() throws {
