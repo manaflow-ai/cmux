@@ -7418,6 +7418,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastScrollEventTime: CFTimeInterval = 0
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
+    private var hostedContentSurfaceSize: CGSize?
     private var deferredSurfaceSizeRetryQueued = false
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
@@ -7757,6 +7758,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return size
         }
 
+        if let hostedContentSurfaceSize,
+           hostedContentSurfaceSize.width > 0,
+           hostedContentSurfaceSize.height > 0 {
+            return hostedContentSurfaceSize
+        }
+
         let currentBounds = bounds.size
         if currentBounds.width > 0, currentBounds.height > 0 {
             return currentBounds
@@ -7934,6 +7941,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     fileprivate func pushTargetSurfaceSize(_ size: CGSize) -> Bool {
+        if size.width > 0, size.height > 0 {
+            hostedContentSurfaceSize = size
+        }
         updateSurfaceSize(size: size)
     }
 
@@ -8004,7 +8014,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         guard window != nil else { return nil }
         terminalSurface?.attachToView(self)
-        updateSurfaceSize(size: bounds.size)
+        updateSurfaceSize()
         applySurfaceColorScheme(force: true)
         return surface
     }
@@ -11032,6 +11042,7 @@ final class GhosttySurfaceScrollView: NSView {
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
     private static var debugPreferredScrollerStyleOverride: NSScroller.Style?
+    private var debugVerticalScrollerPresentationOverride: (hidden: Bool, alpha: CGFloat)?
     private static var flashCounts: [UUID: Int] = [:]
     private static var drawCounts: [UUID: Int] = [:]
     private static var lastDrawTimes: [UUID: CFTimeInterval] = [:]
@@ -11172,6 +11183,19 @@ final class GhosttySurfaceScrollView: NSView {
         }
         #endif
         return NSScroller.preferredScrollerStyle
+    }
+
+    private static func verticalScrollerInsetWidth(
+        hasVerticalScroller: Bool,
+        scrollerIsHidden: Bool,
+        scrollerAlphaValue: CGFloat,
+        preferredScrollerStyle: NSScroller.Style,
+        scrollerWidth: CGFloat
+    ) -> CGFloat {
+        guard hasVerticalScroller else { return 0 }
+        guard preferredScrollerStyle == .legacy else { return 0 }
+        guard !scrollerIsHidden, scrollerAlphaValue > 0 else { return 0 }
+        return max(0, scrollerWidth)
     }
 
     func portalBindingGuardState() -> (surfaceId: UUID?, generation: UInt64?, state: String) {
@@ -11638,6 +11662,31 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.terminalSurface?.forceRefresh(reason: reason)
     }
 
+    private func verticalScrollerPresentation() -> (hidden: Bool, alpha: CGFloat) {
+        #if DEBUG
+        if let debugVerticalScrollerPresentationOverride {
+            return debugVerticalScrollerPresentationOverride
+        }
+        #endif
+
+        guard let verticalScroller = scrollView.verticalScroller else {
+            return (hidden: true, alpha: 0)
+        }
+        return (hidden: verticalScroller.isHidden, alpha: verticalScroller.alphaValue)
+    }
+
+    private func verticalScrollerInsetWidth() -> CGFloat {
+        let style = Self.preferredScrollerStyleForTerminalGeometry()
+        let presentation = verticalScrollerPresentation()
+        return Self.verticalScrollerInsetWidth(
+            hasVerticalScroller: scrollView.hasVerticalScroller,
+            scrollerIsHidden: presentation.hidden,
+            scrollerAlphaValue: presentation.alpha,
+            preferredScrollerStyle: style,
+            scrollerWidth: NSScroller.scrollerWidth(for: .regular, scrollerStyle: style)
+        )
+    }
+
     @discardableResult
     private func synchronizeGeometryAndContent() -> Bool {
         CATransaction.begin()
@@ -11648,7 +11697,17 @@ final class GhosttySurfaceScrollView: NSView {
         let previousSurfaceSize = surfaceView.frame.size
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         _ = setFrameIfNeeded(scrollView, to: bounds)
-        let targetSize = scrollView.bounds.size
+        // NSScrollView can defer clip-view/scroller updates until its own
+        // layout pass. Tile before computing the terminal content width so
+        // scroller visibility reflects the latest scrollbar state.
+        if didScrollbarAppearanceChange {
+            scrollView.tile()
+        }
+        let scrollerInsetWidth = verticalScrollerInsetWidth()
+        let targetSize = CGSize(
+            width: max(0, scrollView.bounds.width - scrollerInsetWidth),
+            height: scrollView.bounds.height
+        )
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
 #endif
@@ -11686,11 +11745,6 @@ final class GhosttySurfaceScrollView: NSView {
             _ = setFrameIfNeeded(overlay, to: bounds)
         }
         bringPaneDropTargetToFrontIfNeeded()
-        // NSScrollView can defer clip-view/content-size updates until its own layout pass,
-        // which makes interactive width changes arrive a queue turn late on Sequoia.
-        if didScrollbarAppearanceChange {
-            scrollView.tile()
-        }
         scrollView.layoutSubtreeIfNeeded()
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
@@ -12706,6 +12760,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func debugSetVerticalScrollerPresentationForTesting(hidden: Bool, alpha: CGFloat) {
+        debugVerticalScrollerPresentationOverride = (hidden: hidden, alpha: alpha)
         scrollView.hasVerticalScroller = true
         if let verticalScroller = scrollView.verticalScroller {
             verticalScroller.isHidden = hidden
@@ -13861,8 +13916,9 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.frame.origin = visibleRect.origin
     }
 
-    /// Match upstream Ghostty behavior: use content area width (excluding non-content
-    /// regions such as scrollbar space) when telling libghostty the terminal size.
+    /// Match upstream Ghostty behavior: use the host-owned content width
+    /// (excluding non-content regions such as persistent scrollbar space) when
+    /// telling libghostty the terminal size.
     @discardableResult
     private func synchronizeCoreSurface() -> Bool {
         let width = max(0, surfaceView.frame.width)
@@ -14037,12 +14093,9 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        synchronizeScrollbarAppearance()
-
-        // Retile just the scroll view so contentSize reflects the current
-        // scroller preference without perturbing hosted terminal geometry.
-        scrollView.tile()
-        _ = synchronizeCoreSurface()
+        // The preferred scroller style changes whether persistent scrollers
+        // reserve terminal content width, so re-run the full geometry owner.
+        _ = synchronizeGeometryAndContent()
     }
 
     private func handleTerminalScrollBarPreferenceChange() {
