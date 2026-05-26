@@ -13894,22 +13894,15 @@ final class GhosttySurfaceScrollView: NSView {
                     CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
                 let targetOrigin = CGPoint(x: 0, y: offsetY)
 
-                // Check if we're currently at the bottom (with threshold for float drift)
                 let currentOrigin = scrollView.contentView.bounds.origin
-                let documentHeight = documentView.frame.height
-                let viewportHeight = scrollView.contentView.bounds.height
-                let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
-                let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
-
-                // Update userScrolledAwayFromBottom based on current position
-                if isAtBottom {
-                    userScrolledAwayFromBottom = false
-                }
 
                 // Passive bottom packets should not override an explicit scrollback review,
                 // but the first scrollbar packet caused by the user's own wheel input should
                 // still move the viewport to the requested scrollback position.
-                let shouldAutoScroll = !userScrolledAwayFromBottom || allowExplicitScrollbarSync
+                let shouldAutoScroll =
+                    allowExplicitScrollbarSync ||
+                    !userScrolledAwayFromBottom ||
+                    !scrollbarIsAtBottom(scrollbar)
 
                 if shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
                     scrollView.contentView.scroll(to: targetOrigin)
@@ -13958,7 +13951,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
         let wasVisible = scrollView.hasVerticalScroller
         if pendingExplicitWheelScroll {
-            userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
+            userScrolledAwayFromBottom = !scrollbarIsAtBottom(scrollbar)
             allowExplicitScrollbarSync = true
             pendingExplicitWheelScroll = false
         }
@@ -14002,6 +13995,10 @@ final class GhosttySurfaceScrollView: NSView {
         // scroller preference without perturbing hosted terminal geometry.
         scrollView.tile()
         _ = synchronizeCoreSurface()
+    }
+
+    private func scrollbarIsAtBottom(_ scrollbar: GhosttyScrollbar) -> Bool {
+        scrollbar.offset >= scrollbar.total || scrollbar.len >= scrollbar.total - scrollbar.offset
     }
 
     private func handleTerminalScrollBarPreferenceChange() {
