@@ -3240,8 +3240,9 @@ extension CMUXCLI {
               --cmux-diff-fg-dark: #fff;
               --cmux-diff-selection-bg-light: #abd8ff;
               --cmux-diff-selection-bg-dark: #3f638b;
-              --cmux-diff-ui-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+              --cmux-diff-ui-font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
               --cmux-diff-ui-font-size: 12px;
+              --cmux-diff-ui-line-height: 16px;
               --cmux-diff-code-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
               --cmux-diff-font-size: 10px;
               --cmux-diff-line-height: 20px;
@@ -3280,7 +3281,7 @@ extension CMUXCLI {
               overflow: hidden;
               font-family: var(--cmux-diff-ui-font-family);
               font-size: var(--cmux-diff-ui-font-size);
-              line-height: var(--cmux-diff-line-height);
+              line-height: var(--cmux-diff-ui-line-height);
             }
             #app {
               height: 100vh;
@@ -3296,8 +3297,8 @@ extension CMUXCLI {
               display: flex;
               align-items: center;
               gap: 7px;
-              min-height: 34px;
-              padding: 4px 8px;
+              min-height: 32px;
+              padding: 3px 8px;
               border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 14%, transparent);
               background: color-mix(in lab, var(--cmux-diff-bg) 98%, var(--cmux-diff-fg));
               color: color-mix(in lab, var(--cmux-diff-fg) 76%, var(--cmux-diff-bg));
@@ -3326,16 +3327,16 @@ extension CMUXCLI {
             #base-select,
             #jump-select {
               appearance: none;
-              height: 25px;
+              height: 24px;
               min-width: 118px;
               max-width: min(30vw, 320px);
               padding: 0 24px 0 9px;
-              border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 15%, transparent);
-              border-radius: 5px;
+              border: 1px solid transparent;
+              border-radius: 6px;
               background:
                 linear-gradient(45deg, transparent 50%, currentColor 50%) right 11px center / 4px 4px no-repeat,
                 linear-gradient(135deg, currentColor 50%, transparent 50%) right 7px center / 4px 4px no-repeat,
-                color-mix(in lab, var(--cmux-diff-bg) 97%, var(--cmux-diff-fg));
+                color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
               color: inherit;
               font: inherit;
             }
@@ -3344,7 +3345,7 @@ extension CMUXCLI {
             #base-select:hover,
             #jump-select:hover {
               border-color: color-mix(in lab, var(--cmux-diff-fg) 24%, transparent);
-              background-color: color-mix(in lab, var(--cmux-diff-fg) 5%, transparent);
+              background-color: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
             }
             #source-select[hidden],
             #repo-select[hidden],
@@ -3381,13 +3382,13 @@ extension CMUXCLI {
               color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
             }
             .toolbar-icon {
-              width: 27px;
-              height: 25px;
+              width: 28px;
+              height: 26px;
               display: inline-flex;
               align-items: center;
               justify-content: center;
               border: 1px solid transparent;
-              border-radius: 5px;
+              border-radius: 6px;
               background: transparent;
               color: color-mix(in lab, var(--cmux-diff-fg) 60%, var(--cmux-diff-bg));
               padding: 0;
@@ -3523,7 +3524,7 @@ extension CMUXCLI {
               flex-direction: column;
               overflow: hidden;
               border-left: 1px solid var(--cmux-diff-border);
-              background: var(--cmux-diff-sidebar-bg);
+              background: color-mix(in lab, var(--cmux-diff-bg) 99%, var(--cmux-diff-fg));
               contain: strict;
             }
             body[data-files-hidden="true"] #files-sidebar {
@@ -3540,7 +3541,7 @@ extension CMUXCLI {
               gap: 8px;
               padding: 0 7px 0 10px;
               border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-              background: var(--cmux-diff-sidebar-bg);
+              background: color-mix(in lab, var(--cmux-diff-bg) 99%, var(--cmux-diff-fg));
               color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
             }
             #files-title {
@@ -3585,16 +3586,18 @@ extension CMUXCLI {
               --trees-fg-override: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
               --trees-fg-muted-override: color-mix(in lab, var(--cmux-diff-fg) 48%, var(--cmux-diff-bg));
               --trees-bg-muted-override: var(--cmux-diff-hover-bg);
-              --trees-selected-bg-override: color-mix(in lab, var(--cmux-diff-accent) 18%, var(--cmux-diff-bg));
+              --trees-selected-bg-override: color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
               --trees-selected-fg-override: var(--cmux-diff-fg);
-              --trees-selected-focused-border-color-override: color-mix(in lab, var(--cmux-diff-accent) 70%, transparent);
+              --trees-selected-focused-border-color-override: transparent;
               --trees-border-color-override: var(--cmux-diff-border);
               --trees-focus-ring-color-override: color-mix(in lab, var(--cmux-diff-accent) 72%, transparent);
               --trees-font-family-override: var(--cmux-diff-ui-font-family);
               --trees-font-size-override: var(--cmux-diff-ui-font-size);
               --trees-font-weight-semibold-override: 500;
-              --trees-density-override: 0.82;
+              --trees-density-override: 0.78;
+              --trees-border-radius-override: 5px;
               --trees-item-padding-x-override: 7px;
+              --trees-item-margin-x-override: 0;
               --trees-padding-inline-override: 0;
               --trees-search-bg-override: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
               --trees-status-added-override: light-dark(#257a3e, #8fd88f);
@@ -3719,7 +3722,7 @@ extension CMUXCLI {
               padding: 16px;
               font-family: var(--cmux-diff-ui-font-family);
               font-size: 13px;
-              line-height: var(--cmux-diff-line-height);
+              line-height: var(--cmux-diff-ui-line-height);
               color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
             }
             #status[data-error="true"] {
