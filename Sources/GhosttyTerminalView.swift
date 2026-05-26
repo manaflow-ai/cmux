@@ -14170,7 +14170,10 @@ final class GhosttySurfaceScrollView: NSView {
                 let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
                 let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
 
-                if isAtBottom, pendingVisibilityRestoreAnchor == nil {
+                if surfaceView.isVisibleInUI,
+                   !isHidden,
+                   isAtBottom,
+                   pendingVisibilityRestoreAnchor == nil {
                     scrollViewportAnchor = .tail
                 }
 
