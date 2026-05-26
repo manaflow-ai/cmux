@@ -544,9 +544,28 @@ enum TerminalCopyCleaner {
     }
 
     private static func looksLikePathContinuation(_ line: String) -> Bool {
+        // Guards: non-empty, no whitespace, all scalars path-safe
         guard !line.isEmpty, !line.contains(where: \.isWhitespace) else { return false }
         guard line.unicodeScalars.allSatisfy(isPathSafeScalar) else { return false }
-        return line.contains("/") || line.count >= 2
+
+        let count = line.count
+
+        // Slash or backslash -> strong path signal
+        if line.contains("/") || line.contains("\\") { return true }
+
+        // Path punctuation / signal characters -> strong signal
+        let pathSignals: Set<Character> = [".", "~", "_", "-", "@", "%", "+", "=", ":"]
+        if line.contains(where: { pathSignals.contains($0) }) { return true }
+
+        // Any digit + length >= 2 -> likely versioned/numbered path segment
+        if line.contains(where: { $0.isNumber }) && count >= 2 { return true }
+
+        // Longer plausible path tokens: must be >= 8 chars and not all letters
+        // (all-letter tokens like "Something" without path signal are too risky)
+        if count >= 8 && !line.allSatisfy({ $0.isLetter }) { return true }
+
+        // Everything else (short all-letter words like "to", "be", "in", "of"): false
+        return false
     }
 
     private static func previousPathLineLooksTerminalWrapped(_ line: String) -> Bool {

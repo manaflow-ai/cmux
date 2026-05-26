@@ -739,7 +739,7 @@
 		A5001014 /* GhosttyConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfig.swift; sourceTree = "<group>"; };
 		C4041001000000000000001A /* CommandClickFileOpenRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandClickFileOpenRouter.swift; sourceTree = "<group>"; };
 		A5001015 /* GhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalView.swift; sourceTree = "<group>"; };
-		A5001015A1B2C3D4E5F60719 /* TerminalCopyCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCopyCleaner.swift; sourceTree = "<group>"; };
+		A5001015A1B2C3D4E5F60719 /* TerminalCopyCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Terminal/TerminalCopyCleaner.swift; sourceTree = "<group>"; };
 		C13519000000000000000002 /* TerminalStartupEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStartupEnvironment.swift; sourceTree = "<group>"; };
 		C13519000000000000000006 /* RestorableAgentTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentTypes.swift; sourceTree = "<group>"; };
 		B3575000000000000000000B /* SessionIndexModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexModels.swift; sourceTree = "<group>"; };

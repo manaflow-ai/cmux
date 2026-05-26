@@ -841,14 +841,14 @@ extension RestorableAgentSessionIndex {
         workingDirectory: String?,
         dataJSON: String
     ) {
-        let body = extractAssistantText(from: dataJSON) ?? String(localized: "opencode.completion.fallbackBody", defaultValue: "OpenCode produced a new response.")
-        let subtitle = workingDirectory.map { ($0 as NSString).lastPathComponent } ?? "OpenCode"
+        let body = extractAssistantText(from: dataJSON) ?? String(localized: "opencode.completion.fallbackBody", defaultValue: "Agent produced a new response.")
+        let subtitle = workingDirectory.map { ($0 as NSString).lastPathComponent } ?? "Agent"
 
         Task { @MainActor in
             TerminalNotificationStore.shared.addNotification(
                 tabId: panelKey.workspaceId,
                 surfaceId: panelKey.panelId,
-                title: String(localized: "opencode.completion.title", defaultValue: "OpenCode completed"),
+                title: String(localized: "opencode.completion.title", defaultValue: "Agent completed"),
                 subtitle: subtitle,
                 body: body
             )
