@@ -125,6 +125,75 @@ final class CMUXLayoutTests: XCTestCase {
         }
     }
 
+    func testExternalSplitNodeNormalizesInvalidInitializerState() {
+        let first = externalPaneNode(id: "first")
+        let second = externalPaneNode(id: "second")
+
+        let oversized = ExternalSplitNode(
+            id: "split",
+            orientation: "diagonal",
+            dividerPosition: 1.5,
+            first: first,
+            second: second
+        )
+        let nonFinite = ExternalSplitNode(
+            id: "split",
+            orientation: "vertical",
+            dividerPosition: .nan,
+            first: first,
+            second: second
+        )
+
+        XCTAssertEqual(oversized.orientation, "horizontal")
+        XCTAssertEqual(oversized.dividerPosition, 1)
+        XCTAssertEqual(nonFinite.orientation, "vertical")
+        XCTAssertEqual(nonFinite.dividerPosition, 0.5)
+    }
+
+    func testExternalSplitNodeNormalizesDecodedState() throws {
+        let data = Data("""
+        {
+          "id": "split",
+          "orientation": "sideways",
+          "dividerPosition": -0.25,
+          "first": {
+            "type": "pane",
+            "pane": {
+              "id": "first",
+              "frame": { "x": 0, "y": 0, "width": 100, "height": 100 },
+              "tabs": [],
+              "selectedTabId": null
+            }
+          },
+          "second": {
+            "type": "pane",
+            "pane": {
+              "id": "second",
+              "frame": { "x": 100, "y": 0, "width": 100, "height": 100 },
+              "tabs": [],
+              "selectedTabId": null
+            }
+          }
+        }
+        """.utf8)
+
+        let split = try JSONDecoder().decode(ExternalSplitNode.self, from: data)
+
+        XCTAssertEqual(split.orientation, "horizontal")
+        XCTAssertEqual(split.dividerPosition, 0)
+    }
+
+    private func externalPaneNode(id: String) -> ExternalTreeNode {
+        .pane(
+            ExternalPaneNode(
+                id: id,
+                frame: PixelRect(x: 0, y: 0, width: 100, height: 100),
+                tabs: [],
+                selectedTabId: nil
+            )
+        )
+    }
+
     @MainActor
     func testControllerCreation() {
         let controller = WorkspaceLayoutController()

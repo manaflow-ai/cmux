@@ -96,10 +96,54 @@ public struct ExternalSplitNode: Codable, Sendable, Equatable {
 
     public init(id: String, orientation: String, dividerPosition: Double, first: ExternalTreeNode, second: ExternalTreeNode) {
         self.id = id
-        self.orientation = orientation
-        self.dividerPosition = dividerPosition
+        self.orientation = Self.normalizedOrientation(orientation)
+        self.dividerPosition = Self.normalizedDividerPosition(dividerPosition)
         self.first = first
         self.second = second
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case orientation
+        case dividerPosition
+        case first
+        case second
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.orientation = Self.normalizedOrientation(
+            try container.decode(String.self, forKey: .orientation)
+        )
+        self.dividerPosition = Self.normalizedDividerPosition(
+            try container.decode(Double.self, forKey: .dividerPosition)
+        )
+        self.first = try container.decode(ExternalTreeNode.self, forKey: .first)
+        self.second = try container.decode(ExternalTreeNode.self, forKey: .second)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(orientation, forKey: .orientation)
+        try container.encode(dividerPosition, forKey: .dividerPosition)
+        try container.encode(first, forKey: .first)
+        try container.encode(second, forKey: .second)
+    }
+
+    private static func normalizedOrientation(_ orientation: String) -> String {
+        switch orientation {
+        case "horizontal", "vertical":
+            return orientation
+        default:
+            return "horizontal"
+        }
+    }
+
+    private static func normalizedDividerPosition(_ dividerPosition: Double) -> Double {
+        guard dividerPosition.isFinite else { return 0.5 }
+        return min(max(dividerPosition, 0), 1)
     }
 }
 
