@@ -2480,6 +2480,63 @@ final class TabManagerEqualizeSplitsTests: XCTestCase {
         XCTAssertEqual(leftStack.orientation, "vertical")
         XCTAssertEqual(leftStack.dividerPosition, 0.5, accuracy: 0.000_1)
     }
+
+    func testEqualizeSplitsDoesNotPropagateSameAxisSpansThroughCrossAxisBoundary() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
+            return
+        }
+
+        workspace.applyCustomLayout(
+            .split(CmuxSplitDefinition(
+                direction: .horizontal,
+                split: 0.2,
+                children: [
+                    .split(CmuxSplitDefinition(
+                        direction: .vertical,
+                        split: 0.8,
+                        children: [
+                            .split(CmuxSplitDefinition(
+                                direction: .horizontal,
+                                split: 0.8,
+                                children: [
+                                    .pane(CmuxPaneDefinition(surfaces: [
+                                        CmuxSurfaceDefinition(type: .terminal, name: "Top Left")
+                                    ])),
+                                    .pane(CmuxPaneDefinition(surfaces: [
+                                        CmuxSurfaceDefinition(type: .terminal, name: "Top Right")
+                                    ]))
+                                ]
+                            )),
+                            .pane(CmuxPaneDefinition(surfaces: [
+                                CmuxSurfaceDefinition(type: .terminal, name: "Bottom")
+                            ]))
+                        ]
+                    )),
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(type: .browser, name: "Browser", url: "https://example.com")
+                    ]))
+                ]
+            )),
+            baseCwd: NSTemporaryDirectory()
+        )
+
+        XCTAssertTrue(manager.equalizeSplits(tabId: workspace.id), "Expected equalize splits command to succeed")
+
+        guard case .split(let root) = workspace.bonsplitController.treeSnapshot(),
+              case .split(let leftStack) = root.first,
+              case .split(let topRow) = leftStack.first else {
+            XCTFail("Expected browser beside a mixed nested terminal subtree")
+            return
+        }
+        XCTAssertEqual(root.orientation, "horizontal")
+        XCTAssertEqual(root.dividerPosition, 0.5, accuracy: 0.000_1)
+        XCTAssertEqual(leftStack.orientation, "vertical")
+        XCTAssertEqual(leftStack.dividerPosition, 0.5, accuracy: 0.000_1)
+        XCTAssertEqual(topRow.orientation, "horizontal")
+        XCTAssertEqual(topRow.dividerPosition, 0.5, accuracy: 0.000_1)
+    }
 }
 
 @MainActor
