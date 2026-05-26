@@ -495,6 +495,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     func testEscapeDismissesCommandPaletteOpenedByCmdShiftP() {
         let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_TAG"] = "ui-esc-\(UUID().uuidString.prefix(8))"
         launchAndEnsureForeground(app)

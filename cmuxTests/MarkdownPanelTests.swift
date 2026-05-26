@@ -11,6 +11,13 @@ import XCTest
 
 @MainActor
 final class MarkdownPanelTests: XCTestCase {
+    private struct HostedWebViewFixture {
+        let webView: WKWebView
+        let window: NSWindow
+    }
+
+    private static var retainedHostedWebViews: [HostedWebViewFixture] = []
+
     func testMarkdownThemeUsesTransparentPageAndOverlayTintsForTranslucentBackgrounds() throws {
         let theme = MarkdownWebTheme.resolve(
             backgroundColor: NSColor(
@@ -370,8 +377,7 @@ final class MarkdownPanelTests: XCTestCase {
         window.contentView = webView
         window.orderFrontRegardless()
         defer {
-            webView.navigationDelegate = nil
-            window.close()
+            tearDownHostedWebView(webView, window: window)
         }
 
         let loaded = expectation(description: "markdown shell loaded")
@@ -457,9 +463,9 @@ final class MarkdownPanelTests: XCTestCase {
         window.contentView = webView
         window.orderFrontRegardless()
         defer {
-            webView.navigationDelegate = nil
+            coordinator.cancelLocalImageLoads()
             coordinator.webView = nil
-            window.close()
+            tearDownHostedWebView(webView, window: window)
         }
 
         let loaded = expectation(description: "markdown shell loaded")
@@ -473,8 +479,6 @@ final class MarkdownPanelTests: XCTestCase {
         if let error = loadDelegate.error {
             throw error
         }
-        defer { coordinator.cancelLocalImageLoads() }
-
         try await renderMarkdown(
             """
             ![Local pixel](pixel.png)
@@ -555,8 +559,7 @@ final class MarkdownPanelTests: XCTestCase {
         window.contentView = webView
         window.orderFrontRegardless()
         defer {
-            webView.navigationDelegate = nil
-            window.close()
+            tearDownHostedWebView(webView, window: window)
         }
 
         let loaded = expectation(description: "markdown shell loaded")
@@ -598,11 +601,10 @@ final class MarkdownPanelTests: XCTestCase {
         window.contentView = webView
         window.orderFrontRegardless()
         defer {
-            webView.navigationDelegate = nil
             coordinator.webView = nil
             coordinator.cancelImageLoads()
             remoteImageHandler.cancelOpenTasks()
-            window.close()
+            tearDownHostedWebView(webView, window: window)
         }
 
         let loaded = expectation(description: "markdown shell loaded")
@@ -1148,6 +1150,24 @@ final class MarkdownPanelTests: XCTestCase {
         let data = try JSONSerialization.data(withJSONObject: [markdown])
         let literal = try XCTUnwrap(String(data: data, encoding: .utf8))
         _ = try await webView.evaluateJavaScript("window.__cmuxRenderMarkdown(\(literal)[0]);")
+    }
+
+    private func tearDownHostedWebView(_ webView: WKWebView, window: NSWindow) {
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        webView.removeFromSuperview()
+        window.orderOut(nil)
+        window.contentView = nil
+        window.close()
+        Self.retainedHostedWebViews.append(HostedWebViewFixture(webView: webView, window: window))
+        drainAppHostTeardown()
+    }
+
+    private func drainAppHostTeardown(turns: Int = 3) {
+        for _ in 0..<turns {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
     }
 
     private func evaluateScrollSnapshot(_ script: String, in webView: WKWebView) async throws -> [String: Double] {

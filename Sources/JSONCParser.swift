@@ -112,7 +112,7 @@ enum JSONCParser {
                     let next = source[nextIndex]
                     if next == "/" {
                         index = source.index(after: nextIndex)
-                        while index < source.endIndex && source[index] != "\n" {
+                        while index < source.endIndex && !source[index].isNewline {
                             index = source.index(after: index)
                         }
                         continue
@@ -355,7 +355,7 @@ enum JSONCObjectEditor {
                 let next = source.index(after: index)
                 if next < source.endIndex, source[next] == "/" {
                     index = source.index(after: next)
-                    while index < source.endIndex, source[index] != "\n" {
+                    while index < source.endIndex, !source[index].isNewline {
                         index = source.index(after: index)
                     }
                     continue
@@ -452,7 +452,7 @@ enum JSONCObjectEditor {
                 let next = source.index(after: index)
                 if next < source.endIndex, source[next] == "/" {
                     index = source.index(after: next)
-                    while index < source.endIndex, source[index] != "\n" {
+                    while index < source.endIndex, !source[index].isNewline {
                         index = source.index(after: index)
                     }
                     continue
@@ -483,7 +483,7 @@ enum JSONCObjectEditor {
         var lineStart = index
         while lineStart > source.startIndex {
             let previous = source.index(before: lineStart)
-            if source[previous] == "\n" || source[previous] == "\r" {
+            if source[previous].isNewline {
                 break
             }
             lineStart = previous

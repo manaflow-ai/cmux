@@ -575,6 +575,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Self.detectRunningUnderXCTest(env)
     }
 
+    private func shouldBootstrapInitialMainWindowDuringLaunch(
+        environment env: [String: String],
+        isRunningUnderXCTest: Bool
+    ) -> Bool {
+        if env.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) {
+            return true
+        }
+        return !isRunningUnderXCTest
+    }
+
+    private func shouldRunUITestLaunchWindowFallback(
+        environment env: [String: String],
+        isRunningUnderXCTest: Bool
+    ) -> Bool {
+        isRunningUnderXCTest && env.keys.contains { $0.hasPrefix("CMUX_UI_TEST_") }
+    }
+
     @MainActor
     final class MainWindowContext {
         let windowId: UUID
@@ -1229,8 +1246,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AgentHibernationController.shared.start()
         NSApp.servicesProvider = self
 
-        StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
-        scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
+        if shouldBootstrapInitialMainWindowDuringLaunch(
+            environment: env,
+            isRunningUnderXCTest: isRunningUnderXCTest
+        ) {
+            StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
+            scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
+        } else {
+            StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.skipped.unitTest")
+        }
         StartupBreadcrumbLog.append("appDelegate.didFinish.complete")
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
@@ -1254,7 +1278,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // In UI tests, `WindowGroup` occasionally fails to materialize a window quickly on the VM.
         // If there are no windows shortly after launch, force-create one so XCUITest can proceed.
-        if isRunningUnderXCTest {
+        if shouldRunUITestLaunchWindowFallback(
+            environment: env,
+            isRunningUnderXCTest: isRunningUnderXCTest
+        ) {
             if let rawVariant = env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_VARIANT"] {
                 UserDefaults.standard.set(
                     BrowserImportHintSettings.variant(for: rawVariant).rawValue,
@@ -14983,6 +15010,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         guard let window else {
 #if DEBUG
+            if SocketControlSettings.isRunningUnderXCTest(environment: ProcessInfo.processInfo.environment) {
+                return openNotificationInWindowlessTestContext(context, tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+            }
+#endif
+#if DEBUG
             recordMultiWindowNotificationOpenFailureIfNeeded(
                 tabId: tabId,
                 surfaceId: surfaceId,
@@ -15037,6 +15069,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         return true
     }
+
+#if DEBUG
+    private func openNotificationInWindowlessTestContext(_ context: MainWindowContext, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+        context.sidebarSelectionState.selection = .tabs
+        guard context.tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId) else {
+            recordMultiWindowNotificationOpenFailureIfNeeded(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                notificationId: notificationId,
+                reason: "windowless_test_focus_failed"
+            )
+            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+                writeJumpUnreadTestData(["jumpUnreadOpenResult": "0"])
+            }
+            return false
+        }
+
+        recordJumpUnreadFocusFromModelIfNeeded(
+            tabManager: context.tabManager,
+            tabId: tabId,
+            expectedSurfaceId: surfaceId
+        )
+
+        if let notificationId, let store = notificationStore {
+            store.markRead(id: notificationId)
+        }
+
+        recordMultiWindowNotificationFocusIfNeeded(
+            windowId: context.windowId,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sidebarSelection: context.sidebarSelectionState.selection
+        )
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+            writeJumpUnreadTestData(["jumpUnreadOpenInWindowlessTestContext": "1", "jumpUnreadOpenResult": "1"])
+        }
+        return true
+    }
+#endif
 
     private func openNotificationFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
         // If the owning window context hasn't been registered yet, fall back to the "active" window.

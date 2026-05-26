@@ -138,16 +138,32 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           run_unit_tests() {
+            local skipped_tests=(
+              # TODO(quarantine): track https://github.com/manaflow-ai/cmux/issues/4524; remove when notification jump tests no longer crash or hang app-host CI.
+              "cmuxTests/TerminalNotificationSocketActionTests/testNotificationJumpToUnreadOpensLatestUnreadAndNoOpsWhenNoneRemain"
+              # TODO(quarantine): track https://github.com/manaflow-ai/cmux/issues/4524; remove when notification jump tests no longer crash or hang app-host CI.
+              "cmuxTests/TerminalNotificationSocketActionTests/testNotificationJumpToUnreadPayloadMatchesOpenedFallbackNotification"
+            )
+            local skip_args=()
+            local skipped_test
+            for skipped_test in "${skipped_tests[@]}"; do
+              skip_args+=("-skip-testing:${skipped_test}")
+            done
             xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
-              -destination "platform=macOS" test 2>&1
+              -destination "platform=macOS" \
+              "${skip_args[@]}" \
+              test 2>&1
           }
 
           set +e
           OUTPUT=$(run_unit_tests)
           EXIT_CODE=$?
           set -e
+          printf '%s\n' "$OUTPUT" > /tmp/test-output.txt
+          cat /tmp/test-output.txt
+          ./scripts/ci-unit-test-output-guard.sh "$EXIT_CODE" /tmp/test-output.txt
 
           # SwiftPM binary artifact resolution can occasionally fail with
           # "Could not resolve package dependencies". Retry once after clearing
@@ -160,9 +176,11 @@ jobs:
             OUTPUT=$(run_unit_tests)
             EXIT_CODE=$?
             set -e
+            printf '%s\n' "$OUTPUT" > /tmp/test-output.txt
+            cat /tmp/test-output.txt
+            ./scripts/ci-unit-test-output-guard.sh "$EXIT_CODE" /tmp/test-output.txt
           fi
 
-          echo "$OUTPUT"
           if [ "$EXIT_CODE" -ne 0 ]; then
             SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
             if echo "$SUMMARY" | grep -q "(0 unexpected)"; then

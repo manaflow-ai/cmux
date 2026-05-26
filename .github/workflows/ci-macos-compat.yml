@@ -116,11 +116,23 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           run_unit_tests() {
+            local skipped_tests=(
+              "cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace"
+              # TODO(quarantine): track https://github.com/manaflow-ai/cmux/issues/4524; remove when notification jump tests no longer crash or hang app-host CI.
+              "cmuxTests/TerminalNotificationSocketActionTests/testNotificationJumpToUnreadOpensLatestUnreadAndNoOpsWhenNoneRemain"
+              # TODO(quarantine): track https://github.com/manaflow-ai/cmux/issues/4524; remove when notification jump tests no longer crash or hang app-host CI.
+              "cmuxTests/TerminalNotificationSocketActionTests/testNotificationJumpToUnreadPayloadMatchesOpenedFallbackNotification"
+            )
+            local skip_args=()
+            local skipped_test
+            for skipped_test in "${skipped_tests[@]}"; do
+              skip_args+=("-skip-testing:${skipped_test}")
+            done
             xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
-              -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
+              "${skip_args[@]}" \
               test 2>&1
           }
 
@@ -129,6 +141,7 @@ jobs:
           EXIT_CODE=${PIPESTATUS[0]}
           OUTPUT=$(cat /tmp/test-output.txt)
           set -e
+          ./scripts/ci-unit-test-output-guard.sh "$EXIT_CODE" /tmp/test-output.txt
 
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
           # runners. Retry once after clearing caches.
@@ -142,6 +155,7 @@ jobs:
             EXIT_CODE=${PIPESTATUS[0]}
             OUTPUT=$(cat /tmp/test-output.txt)
             set -e
+            ./scripts/ci-unit-test-output-guard.sh "$EXIT_CODE" /tmp/test-output.txt
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then

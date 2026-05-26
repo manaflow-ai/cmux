@@ -3939,6 +3939,16 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         return window
     }
 
+    private func tearDownHostedTerminalPanel(_ panel: TerminalPanel, window: NSWindow) {
+        panel.close()
+        window.contentView = nil
+        window.orderOut(nil)
+        window.close()
+        for _ in 0..<3 {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+    }
+
     func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() {
         let workspace = Workspace()
         guard let sourcePaneId = workspace.bonsplitController.focusedPaneId else {
@@ -3984,7 +3994,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         )
     }
 
-    func testNewTerminalSplitSkipsFreedInheritedSurfacePointer() throws {
+    func testNewTerminalSplitSkipsStaleInheritedSurfacePointer() throws {
 #if DEBUG
         let workspace = Workspace()
         guard let sourcePanelId = workspace.focusedPanelId,
@@ -3993,15 +4003,12 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
             return
         }
 
-        let window = try hostTerminalPanelInWindow(sourcePanel)
-        defer { window.orderOut(nil) }
+        XCTAssertNil(sourcePanel.surface.surface, "Expected hostless test setup to avoid starting Ghostty renderer threads")
 
-        XCTAssertNotNil(sourcePanel.surface.surface, "Expected runtime surface before forcing stale pointer")
-
-        sourcePanel.surface.replaceSurfaceWithFreedPointerForTesting()
+        sourcePanel.surface.replaceSurfaceWithStalePointerForTesting()
         XCTAssertNotNil(
             sourcePanel.surface.surface,
-            "Expected Swift wrapper to remain non-nil while simulating a stale native surface"
+            "Expected Swift wrapper to remain non-nil while simulating a stale runtime surface"
         )
 
         let splitPanel = workspace.newTerminalSplit(
@@ -4010,14 +4017,14 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
             focus: false
         )
 
-        XCTAssertNotNil(splitPanel, "Expected split creation to survive a stale inherited surface pointer")
+        XCTAssertNotNil(splitPanel, "Expected split creation to survive a stale inherited runtime surface")
         XCTAssertNil(sourcePanel.surface.surface, "Expected stale surface pointer to be quarantined")
 #else
         throw XCTSkip("Debug-only regression test")
 #endif
     }
 
-    func testNewTerminalSurfaceSkipsFreedInheritedSurfacePointer() throws {
+    func testNewTerminalSurfaceSkipsStaleInheritedSurfacePointer() throws {
 #if DEBUG
         let workspace = Workspace()
         guard let sourcePanelId = workspace.focusedPanelId,
@@ -4027,15 +4034,12 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
             return
         }
 
-        let window = try hostTerminalPanelInWindow(sourcePanel)
-        defer { window.orderOut(nil) }
+        XCTAssertNil(sourcePanel.surface.surface, "Expected hostless test setup to avoid starting Ghostty renderer threads")
 
-        XCTAssertNotNil(sourcePanel.surface.surface, "Expected runtime surface before forcing stale pointer")
-
-        sourcePanel.surface.replaceSurfaceWithFreedPointerForTesting()
+        sourcePanel.surface.replaceSurfaceWithStalePointerForTesting()
         XCTAssertNotNil(
             sourcePanel.surface.surface,
-            "Expected Swift wrapper to remain non-nil while simulating a stale native surface"
+            "Expected Swift wrapper to remain non-nil while simulating a stale runtime surface"
         )
 
         let createdPanel = workspace.newTerminalSurface(
@@ -4043,7 +4047,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
             focus: false
         )
 
-        XCTAssertNotNil(createdPanel, "Expected terminal creation to survive a stale inherited surface pointer")
+        XCTAssertNotNil(createdPanel, "Expected terminal creation to survive a stale inherited runtime surface")
         XCTAssertNil(sourcePanel.surface.surface, "Expected stale surface pointer to be quarantined")
 #else
         throw XCTSkip("Debug-only regression test")
