@@ -898,6 +898,8 @@ final class BrowserWebExtensionInstallStore {
 
     private(set) var records: [BrowserWebExtensionInstallRecord] = []
     private var unsupportedPersistedRecordObjects: [[String: Any]] = []
+    private var pendingPersistTask: Task<Void, Error>?
+    private var pendingPersistGeneration = 0
 
     init(
         registryURL: URL = BrowserWebExtensionInstallStore.defaultRegistryURL(),
@@ -946,8 +948,11 @@ final class BrowserWebExtensionInstallStore {
             }
             records = decoded.compactMap(sanitizedRecord)
             if records.count != persisted.count || records != decoded {
-                Task { @MainActor [weak self] in
-                    try? await self?.persist()
+                if let data = try? Self.registryData(
+                    supportedRecords: records,
+                    unsupportedRecordObjects: unsupportedPersistedRecordObjects
+                ) {
+                    try? Self.writeRegistryData(data, to: registryURL)
                 }
             }
         } catch {
@@ -993,9 +998,9 @@ final class BrowserWebExtensionInstallStore {
         guard source.kind == .appExtensionBundle else {
             throw BrowserWebExtensionInstallError.unsupportedSource(source.url)
         }
+        let previousRecords = records
         let existingRecord = existingRecord(for: source)
         let recordID = existingRecord?.id ?? UUID()
-        let previousRecords = records
         let sanitizedPermissions = browserWebExtensionHostGrantablePermissionNames(
             from: grantedPermissions,
             sourceKind: source.kind
@@ -1051,14 +1056,7 @@ final class BrowserWebExtensionInstallStore {
             $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
         }
 
-        do {
-            try await persist(nextRecords)
-            records = nextRecords
-        } catch {
-            records = previousRecords
-            try? await persist(previousRecords)
-            throw error
-        }
+        try await replaceRecords(nextRecords)
         return record
     }
 
@@ -1066,8 +1064,7 @@ final class BrowserWebExtensionInstallStore {
         guard let index = records.firstIndex(where: { $0.id == recordID }) else { return }
         var nextRecords = records
         nextRecords[index].isEnabled = isEnabled
-        try await persist(nextRecords)
-        records = nextRecords
+        try await replaceRecords(nextRecords)
     }
 
     func setEnabled(_ isEnabled: Bool, for recordID: UUID, profileID: UUID) async throws {
@@ -1079,8 +1076,7 @@ final class BrowserWebExtensionInstallStore {
             state.lastError = nil
         }
         nextRecords[index].setProfileState(state, for: profileID)
-        try await persist(nextRecords)
-        records = nextRecords
+        try await replaceRecords(nextRecords)
     }
 
     func recordRuntimePermissionDecision(
@@ -1131,8 +1127,7 @@ final class BrowserWebExtensionInstallStore {
         }
 
         nextRecords[index].setProfileState(state, for: profileID)
-        try await persist(nextRecords)
-        records = nextRecords
+        try await replaceRecords(nextRecords)
     }
 
     func setLastError(_ error: String?, for recordID: UUID, profileID: UUID) async throws {
@@ -1142,8 +1137,7 @@ final class BrowserWebExtensionInstallStore {
         let trimmedError = error?.trimmingCharacters(in: .whitespacesAndNewlines)
         state.lastError = trimmedError?.isEmpty == false ? trimmedError : nil
         nextRecords[index].setProfileState(state, for: profileID)
-        try await persist(nextRecords)
-        records = nextRecords
+        try await replaceRecords(nextRecords)
     }
 
     func remove(recordID: UUID) async throws {
@@ -1152,8 +1146,7 @@ final class BrowserWebExtensionInstallStore {
         let record = previousRecords[index]
         var nextRecords = previousRecords
         nextRecords.remove(at: index)
-        try await persist(nextRecords)
-        records = nextRecords
+        try await replaceRecords(nextRecords)
         _ = record
     }
 
@@ -1370,7 +1363,23 @@ final class BrowserWebExtensionInstallStore {
                 supportedRecords: recordsToPersist,
                 unsupportedRecordObjects: unsupportedPersistedRecordObjects
             )
-            try await Self.writeRegistryData(data, to: registryURL)
+            let priorPersistTask = pendingPersistTask
+            let registryURL = registryURL
+            pendingPersistGeneration += 1
+            let generation = pendingPersistGeneration
+            let task = Task.detached(priority: .utility) {
+                if let priorPersistTask {
+                    _ = try? await priorPersistTask.value
+                }
+                try Self.writeRegistryData(data, to: registryURL)
+            }
+            pendingPersistTask = task
+            defer {
+                if pendingPersistGeneration == generation {
+                    pendingPersistTask = nil
+                }
+            }
+            try await task.value
         } catch {
             browserWebExtensionLogger.error(
                 "Failed to save extension registry: \(error.localizedDescription, privacy: .private)"
@@ -1379,15 +1388,27 @@ final class BrowserWebExtensionInstallStore {
         }
     }
 
-    nonisolated private static func writeRegistryData(_ data: Data, to registryURL: URL) async throws {
-        try await Task.detached(priority: .utility) {
-            let fileManager = FileManager()
-            try fileManager.createDirectory(
-                at: registryURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try data.write(to: registryURL, options: .atomic)
-        }.value
+    private func replaceRecords(_ nextRecords: [BrowserWebExtensionInstallRecord]) async throws {
+        let previousRecords = records
+        records = nextRecords
+        do {
+            try await persist(nextRecords)
+        } catch {
+            if records == nextRecords {
+                records = previousRecords
+                try? await persist(previousRecords)
+            }
+            throw error
+        }
+    }
+
+    nonisolated private static func writeRegistryData(_ data: Data, to registryURL: URL) throws {
+        let fileManager = FileManager()
+        try fileManager.createDirectory(
+            at: registryURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: registryURL, options: .atomic)
     }
 
     private func quarantineCorruptRegistry(after error: Error) {
