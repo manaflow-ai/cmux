@@ -51926,6 +51926,23 @@
         }
       }
     },
+    "notifications.resize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resize notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知をリサイズ"
+          }
+        }
+      }
+    },
     "notifications.markAsRead": {
       "extractionState": "manual",
       "localizations": {

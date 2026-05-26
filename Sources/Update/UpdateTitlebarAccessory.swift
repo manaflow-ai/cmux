@@ -2123,13 +2123,12 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 }
 
 private enum NotificationsPopoverMetrics {
-    static let minWidth: CGFloat = 460
-    static let idealWidth: CGFloat = 560
-    static let maxWidth: CGFloat = 760
-    static let minHeight: CGFloat = 480
-    static let idealHeight: CGFloat = 620
-    static let maxHeight: CGFloat = 760
-    static let emptyMinHeight: CGFloat = 320
+    static let defaultWidth: CGFloat = 560
+    static let defaultHeight: CGFloat = 760
+    static let minWidth: CGFloat = 420
+    static let minHeight: CGFloat = 320
+    static let maxWidth: CGFloat = 1000
+    static let maxHeight: CGFloat = 1200
 }
 
 private struct NotificationsPopoverView: View {
@@ -2137,23 +2136,64 @@ private struct NotificationsPopoverView: View {
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     let onDismiss: () -> Void
 
+    @AppStorage("cmux.notifications.popover.width")
+    private var savedWidth: Double = Double(NotificationsPopoverMetrics.defaultWidth)
+    @AppStorage("cmux.notifications.popover.height")
+    private var savedHeight: Double = Double(NotificationsPopoverMetrics.defaultHeight)
+
+    @State private var dragStartSize: CGSize = .zero
+
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
             content
         }
-        .frame(
-            minWidth: NotificationsPopoverMetrics.minWidth,
-            idealWidth: NotificationsPopoverMetrics.idealWidth,
-            maxWidth: NotificationsPopoverMetrics.maxWidth,
-            minHeight: notificationStore.notifications.isEmpty
-                ? NotificationsPopoverMetrics.emptyMinHeight
-                : NotificationsPopoverMetrics.minHeight,
-            idealHeight: NotificationsPopoverMetrics.idealHeight,
-            maxHeight: NotificationsPopoverMetrics.maxHeight
-        )
+        .frame(width: clampedWidth, height: clampedHeight)
         .background(Color(nsColor: .windowBackgroundColor))
+        .overlay(alignment: .bottomTrailing) {
+            resizeHandle
+        }
+    }
+
+    private var clampedWidth: CGFloat {
+        min(NotificationsPopoverMetrics.maxWidth, max(NotificationsPopoverMetrics.minWidth, CGFloat(savedWidth)))
+    }
+
+    private var clampedHeight: CGFloat {
+        min(NotificationsPopoverMetrics.maxHeight, max(NotificationsPopoverMetrics.minHeight, CGFloat(savedHeight)))
+    }
+
+    private var resizeHandle: some View {
+        Image(systemName: "arrow.down.right")
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundColor(.secondary.opacity(0.55))
+            .frame(width: 18, height: 18)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if dragStartSize == .zero {
+                            dragStartSize = CGSize(width: clampedWidth, height: clampedHeight)
+                        }
+                        let newW = dragStartSize.width + value.translation.width
+                        let newH = dragStartSize.height + value.translation.height
+                        savedWidth = Double(min(NotificationsPopoverMetrics.maxWidth, max(NotificationsPopoverMetrics.minWidth, newW)))
+                        savedHeight = Double(min(NotificationsPopoverMetrics.maxHeight, max(NotificationsPopoverMetrics.minHeight, newH)))
+                    }
+                    .onEnded { _ in
+                        dragStartSize = .zero
+                    }
+            )
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.crosshair.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .padding(4)
+            .accessibilityLabel(String(localized: "notifications.resize", defaultValue: "Resize notifications"))
     }
 
     private var header: some View {
