@@ -144,12 +144,6 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 
 ## Keyboard Shortcuts
 
-cmux-owned shortcuts are configurable in `Settings → Keyboard Shortcuts` and in
-`~/.config/cmux/cmux.json`. This includes the numbered workspace and surface
-families: bind `selectWorkspaceByNumber` and `selectSurfaceByNumber` to the
-modifier-plus-digit family you prefer. Ghostty config keybinds only affect
-terminal-owned behavior after cmux has handled its own shortcuts.
-
 ### Workspaces
 
 | Shortcut | Action |
