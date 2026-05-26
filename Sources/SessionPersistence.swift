@@ -1700,10 +1700,10 @@ enum SessionPersistenceStore {
             throw NamedSessionPersistenceError.deleteFailed
         }
 
-        let snapshot = load(fileURL: fileURL)
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             throw NamedSessionPersistenceError.notFound
         }
+        let snapshot = load(fileURL: fileURL)
         do {
             try FileManager.default.removeItem(at: fileURL)
         } catch {
