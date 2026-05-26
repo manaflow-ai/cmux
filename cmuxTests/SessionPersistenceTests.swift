@@ -126,6 +126,58 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(store.notificationMenuSnapshot.hasUnreadNotifications)
     }
 
+    @MainActor
+    func testRestoredInactivePageRestoresPaneNotificationsWhenSelected() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let originalNotificationStore = appDelegate.notificationStore
+        appDelegate.notificationStore = store
+        store.replaceNotificationsForTesting([])
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let source = Workspace()
+        let firstPageId = source.activePageId
+        let firstPanelId = try XCTUnwrap(source.focusedPanelId)
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: source.id,
+            surfaceId: firstPanelId,
+            panelId: firstPanelId,
+            title: "Agent finished",
+            subtitle: "codex",
+            body: "Inactive page completed",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_100),
+            isRead: false,
+            paneFlash: true
+        )
+        store.replaceNotificationsForTesting([notification])
+
+        _ = source.newPage(select: true)
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        let firstPageSnapshot = try XCTUnwrap(snapshot.pages?.first { $0.id == firstPageId })
+        XCTAssertEqual(firstPageSnapshot.state.panels.first?.notifications?.first?.body, "Inactive page completed")
+
+        store.replaceNotificationsForTesting([])
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        XCTAssertNil(store.latestNotification(forTabId: restored.id))
+
+        restored.selectPage(firstPageId)
+
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredNotification = try XCTUnwrap(store.latestNotification(forTabId: restored.id))
+        XCTAssertEqual(restoredNotification.surfaceId, restoredPanelId)
+        XCTAssertEqual(restoredNotification.panelId, restoredPanelId)
+        XCTAssertEqual(restoredNotification.body, "Inactive page completed")
+        XCTAssertFalse(restoredNotification.isRead)
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: restoredPanelId))
+        let restoredSurfaceId = try XCTUnwrap(restored.surfaceIdFromPanelId(restoredPanelId))
+        XCTAssertEqual(restored.bonsplitController.tab(restoredSurfaceId)?.showsNotificationBadge, true)
+    }
+
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)

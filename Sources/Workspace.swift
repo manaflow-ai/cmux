@@ -265,12 +265,16 @@ extension Workspace {
         nextAutoPageNumber = max(nextAutoPageNumber, pageModels.count + 1)
 
         let activeOldToNewPanelIds: [UUID: UUID]
+        let activePageStateSnapshot: SessionWorkspacePageStateSnapshot?
         if let activePageSnapshot = restoredPages.first(where: { $0.id == restoredActivePageId }) {
+            activePageStateSnapshot = activePageSnapshot.state
             activeOldToNewPanelIds = restoreSessionPageState(activePageSnapshot.state)
         } else if let fallbackPageSnapshot = restoredPages.first {
             activePageId = fallbackPageSnapshot.id
+            activePageStateSnapshot = fallbackPageSnapshot.state
             activeOldToNewPanelIds = restoreSessionPageState(fallbackPageSnapshot.state)
         } else {
+            activePageStateSnapshot = nil
             activeOldToNewPanelIds = restoreSessionPageState(emptyPageSessionStateSnapshot(currentDirectory: currentDirectory))
         }
 
@@ -289,6 +293,7 @@ extension Workspace {
         restoreWorkspaceManualUnread(isWorkspaceManuallyUnread)
         let restoredNotifications = restoredSessionNotifications(
             from: snapshot,
+            activePageState: activePageStateSnapshot,
             oldToNewPanelIds: activeOldToNewPanelIds
         )
         let hasUnreadWorkspaceNotification = snapshot.notifications?.contains { !$0.isRead } == true
@@ -1326,13 +1331,36 @@ extension Workspace {
 
     private func restoredSessionNotifications(
         from snapshot: SessionWorkspaceSnapshot,
+        activePageState: SessionWorkspacePageStateSnapshot?,
         oldToNewPanelIds: [UUID: UUID]
     ) -> [TerminalNotification] {
         var notifications = (snapshot.notifications ?? []).map {
             $0.terminalNotification(tabId: id, surfaceId: nil, panelId: nil)
         }
 
-        for panelSnapshot in snapshot.panels {
+        let usesPageSnapshots = snapshot.pages?.isEmpty == false
+        let panelSnapshots = usesPageSnapshots ? (activePageState?.panels ?? snapshot.panels) : snapshot.panels
+        notifications.append(contentsOf: restoredPanelSessionNotifications(
+            from: panelSnapshots,
+            oldToNewPanelIds: oldToNewPanelIds
+        ))
+
+        return notifications
+    }
+
+    private func restoredPageSessionNotifications(
+        from pageState: SessionWorkspacePageStateSnapshot,
+        oldToNewPanelIds: [UUID: UUID]
+    ) -> [TerminalNotification] {
+        restoredPanelSessionNotifications(from: pageState.panels, oldToNewPanelIds: oldToNewPanelIds)
+    }
+
+    private func restoredPanelSessionNotifications(
+        from panelSnapshots: [SessionPanelSnapshot],
+        oldToNewPanelIds: [UUID: UUID]
+    ) -> [TerminalNotification] {
+        var notifications: [TerminalNotification] = []
+        for panelSnapshot in panelSnapshots {
             guard let newPanelId = oldToNewPanelIds[panelSnapshot.id] else { continue }
             notifications.append(
                 contentsOf: (panelSnapshot.notifications ?? []).map {
@@ -1344,7 +1372,6 @@ extension Workspace {
                 }
             )
         }
-
         return notifications
     }
 
@@ -10483,7 +10510,13 @@ final class Workspace: Identifiable, ObservableObject {
             restoreRuntimePageState(runtimeState)
         } else {
             teardownDetachedSurfaces(storedState.runtimeState?.detachedSurfaces)
-            restoreSessionPageState(storedState.sessionState)
+            let oldToNewPanelIds = restoreSessionPageState(storedState.sessionState)
+            let restoredNotifications = restoredPageSessionNotifications(
+                from: storedState.sessionState,
+                oldToNewPanelIds: oldToNewPanelIds
+            )
+            AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
+            syncUnreadBadgeStateForAllPanels()
         }
     }
 
