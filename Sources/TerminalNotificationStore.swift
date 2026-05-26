@@ -1140,6 +1140,10 @@ final class TerminalNotificationStore: ObservableObject {
         indexes.latestByTabId[tabId]
     }
 
+    func latestUnreadNotification(forTabId tabId: UUID) -> TerminalNotification? {
+        indexes.latestUnreadByTabId[tabId]
+    }
+
     func notifications(forTabId tabId: UUID, surfaceId: UUID?) -> [TerminalNotification] {
         notifications.filter { $0.matches(tabId: tabId, surfaceId: surfaceId) }
     }

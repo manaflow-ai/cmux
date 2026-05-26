@@ -295,6 +295,59 @@ private func postNotificationsPopoverVisibilityDidChange(isShown: Bool, source: 
     )
 }
 
+private enum NotificationTooltipStatus {
+    case needsInput
+    case completed
+    case latest
+}
+
+private extension TerminalNotification {
+    var tooltipStatus: NotificationTooltipStatus {
+        let combinedText = [title, subtitle, body]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+
+        guard !combinedText.isEmpty else { return .latest }
+
+        let needsInputPhrases = [
+            "needs input",
+            "waiting for your input",
+            "waiting for input",
+            "requires input",
+            "requires your input",
+            "approval required",
+            "permission required",
+            "confirm",
+            "continue?"
+        ]
+        if needsInputPhrases.contains(where: { combinedText.localizedCaseInsensitiveContains($0) }) {
+            return .needsInput
+        }
+
+        if combinedText.localizedCaseInsensitiveContains("completed") ||
+            combinedText.localizedCaseInsensitiveContains("complete") ||
+            combinedText.localizedCaseInsensitiveContains("done") ||
+            combinedText.localizedCaseInsensitiveContains("finished") ||
+            combinedText.localizedCaseInsensitiveContains("exited") {
+            return .completed
+        }
+
+        return .latest
+    }
+
+    var tooltipStatusText: String {
+        switch tooltipStatus {
+        case .needsInput:
+            return String(localized: "notification.tooltip.needsInput", defaultValue: "Agent needs your input")
+        case .completed:
+            return String(localized: "notification.tooltip.completed", defaultValue: "Agent task completed")
+        case .latest:
+            return String(localized: "notification.tooltip.latest", defaultValue: "Latest notification")
+        }
+    }
+}
+
 struct NotificationsAnchorView: NSViewRepresentable {
     let onResolve: (NSView) -> Void
 
@@ -809,6 +862,15 @@ struct TitlebarControlsView: View {
             }
     }
 
+    private var notificationsTooltip: String {
+        let base = KeyboardShortcutSettings.Action.showNotifications.tooltip(
+            String(localized: "titlebar.notifications.tooltip", defaultValue: "Click to open notification panel")
+        )
+        let count = notificationStore.unreadCount
+        guard count > 0, let latest = notificationStore.notifications.first else { return base }
+        return "\(base) — \(count) unread. Latest: \(latest.title). \(latest.tooltipStatusText)"
+    }
+
     private var titlebarHintTrailingInset: CGFloat {
         // Keep room for blur + shadow so the rightmost hint never clips.
         TitlebarControlsLayoutMetrics.hintTrailingInset(titlebarShortcutHintXOffset: titlebarShortcutHintXOffset)
@@ -874,7 +936,7 @@ struct TitlebarControlsView: View {
                 .frame(width: config.buttonSize, height: config.buttonSize)
             }
             .background(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 })
-            .safeHelp(KeyboardShortcutSettings.Action.showNotifications.tooltip(String(localized: "titlebar.notifications.tooltip", defaultValue: "Show notifications")))
+            .safeHelp(notificationsTooltip)
 
             TitlebarControlButton(
                 config: config,
@@ -2433,6 +2495,12 @@ private struct NotificationPopoverRow: View {
 
     private static let rowHeight: CGFloat = 56
 
+    private var openButtonTooltip: String {
+        let base = String(localized: "notifications.row.tooltip.open", defaultValue: "Click to open the corresponding workspace or surface.")
+        guard notification.tooltipStatus == .needsInput else { return base }
+        return base + " " + String(localized: "notifications.row.tooltip.needsInput", defaultValue: "This agent is waiting for your input.")
+    }
+
     var body: some View {
         // Row uses a ZStack so the hover-only clear button is a *sibling* of the row's
         // primary-action Button, not nested in its label. Nested SwiftUI buttons don't
@@ -2450,10 +2518,7 @@ private struct NotificationPopoverRow: View {
                     )
             }
             .buttonStyle(.plain)
-            // Identifier/action live on the Button itself so XCUITest's
-            // `app.buttons["NotificationPopoverRow.<id>"]` query keeps matching. A previous
-            // pass put them on the combined outer ZStack, which exposed the row as a
-            // container rather than a button to accessibility clients.
+            .safeHelp(openButtonTooltip)
             .accessibilityIdentifier("NotificationPopoverRow.\(notification.id.uuidString)")
             // XCUITest's `.click()` isn't always reliable for SwiftUI buttons hosted in an
             // `NSPopover`. Provide an explicit accessibility action so AXPress always routes to onOpen.

@@ -8180,6 +8180,11 @@ class TabManager: ObservableObject {
         if let targetPanelId = desiredPanelId ?? tab.focusedPanelId,
            tab.panels[targetPanelId] != nil {
             _ = dismissNotificationOnDirectInteraction(tabId: tabId, surfaceId: targetPanelId)
+            tab.triggerNotificationFocusFlash(
+                panelId: targetPanelId,
+                requiresSplit: false,
+                shouldFocus: false
+            )
         }
         return true
     }
