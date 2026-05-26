@@ -576,17 +576,27 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertFalse(store.notifications.last?.isRead ?? true)
     }
 
-    func testMarkLatestNotificationAsOldestUnreadFallsBackToManualUnreadWhenNoNotificationExists() {
+    func testMarkLatestNotificationAsOldestUnreadFallsBackToManualWorkspaceUnreadWhenNoSurfaceExists() {
+        let store = TerminalNotificationStore.shared
+        let workspaceId = UUID()
+
+        store.replaceNotificationsForTesting([])
+
+        XCTAssertNil(store.markLatestNotificationAsOldestUnread(forTabId: workspaceId, surfaceId: nil))
+        XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 1)
+    }
+
+    func testMarkLatestNotificationAsOldestUnreadDoesNotCreateWorkspaceUnreadForMissingPanelNotification() {
         let store = TerminalNotificationStore.shared
         let workspaceId = UUID()
 
         store.replaceNotificationsForTesting([])
 
         XCTAssertNil(store.markLatestNotificationAsOldestUnread(forTabId: workspaceId, surfaceId: UUID()))
-        XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 1)
+        XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 0)
     }
 
-    func testToggleFocusedNotificationUnreadTogglesCurrentWorkspaceWithoutJumping() {
+    func testToggleFocusedNotificationUnreadTogglesCurrentPanelWithoutJumping() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let store = TerminalNotificationStore.shared
 
@@ -603,15 +613,10 @@ final class WorkspaceManualUnreadTests: XCTestCase {
             appDelegate.notificationStore = originalNotificationStore
         }
 
-        guard let window = appDelegate.windowForMainWindowId(windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected test window and tab manager")
-            return
-        }
-        guard let currentWorkspace = manager.selectedWorkspace else {
-            XCTFail("Expected selected workspace")
-            return
-        }
+        let window = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let currentPanelId = try XCTUnwrap(currentWorkspace.focusedPanelId)
         let laterWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
         let currentNotificationId = UUID()
         let laterNotificationId = UUID()
@@ -646,13 +651,57 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(store.notifications.map(\.id), [currentNotificationId, laterNotificationId])
         XCTAssertEqual(store.notifications.map(\.isRead), [true, true])
         XCTAssertTrue(store.workspaceIsUnread(forTabId: currentWorkspace.id))
+        XCTAssertFalse(store.hasManualUnread(forTabId: currentWorkspace.id))
+        XCTAssertTrue(currentWorkspace.manualUnreadPanelIds.contains(currentPanelId))
         XCTAssertTrue(store.workspaceIsUnread(forTabId: laterWorkspace.id))
 
         XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
 
         XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
         XCTAssertFalse(store.workspaceIsUnread(forTabId: currentWorkspace.id))
+        XCTAssertFalse(currentWorkspace.manualUnreadPanelIds.contains(currentPanelId))
         XCTAssertTrue(store.workspaceIsUnread(forTabId: laterWorkspace.id))
+    }
+
+    func testToggleFocusedNotificationUnreadKeepsManualUnreadOnOriginalPanelAfterFocusMoves() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let window = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false))
+        let leftTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(leftPanelId))
+        let rightTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(rightPanel.id))
+
+        workspace.focusPanel(leftPanelId)
+
+        XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+        XCTAssertTrue(workspace.manualUnreadPanelIds.contains(leftPanelId))
+        XCTAssertFalse(workspace.manualUnreadPanelIds.contains(rightPanel.id))
+        XCTAssertTrue(workspace.bonsplitController.tab(leftTabId)?.showsNotificationBadge ?? false)
+        XCTAssertFalse(workspace.bonsplitController.tab(rightTabId)?.showsNotificationBadge ?? true)
+
+        workspace.focusPanel(rightPanel.id)
+
+        XCTAssertTrue(workspace.manualUnreadPanelIds.contains(leftPanelId))
+        XCTAssertFalse(workspace.manualUnreadPanelIds.contains(rightPanel.id))
+        XCTAssertTrue(workspace.bonsplitController.tab(leftTabId)?.showsNotificationBadge ?? false)
+        XCTAssertFalse(workspace.bonsplitController.tab(rightTabId)?.showsNotificationBadge ?? true)
     }
 
     func testMarkOldestUnreadAndJumpNextExcludesNewManualWorkspaceUnread() throws {
@@ -675,6 +724,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let window = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
         let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
         let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let currentPanelId = try XCTUnwrap(currentWorkspace.focusedPanelId)
         let nextWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
         store.markUnread(forTabId: nextWorkspace.id)
 
@@ -682,6 +732,8 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
         XCTAssertEqual(manager.selectedTabId, nextWorkspace.id)
         XCTAssertTrue(store.workspaceIsUnread(forTabId: currentWorkspace.id))
+        XCTAssertFalse(store.hasManualUnread(forTabId: currentWorkspace.id))
+        XCTAssertTrue(currentWorkspace.manualUnreadPanelIds.contains(currentPanelId))
         XCTAssertFalse(store.workspaceIsUnread(forTabId: nextWorkspace.id))
     }
 
@@ -742,7 +794,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(store.notifications.first(where: { $0.id == nextNotificationId })?.isRead, true)
     }
 
-    func testJumpToLatestManualWorkspaceUnreadFlashesAfterSwitchingAway() throws {
+    func testJumpToLatestManualPanelUnreadFlashesAfterSwitchingAway() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let store = TerminalNotificationStore.shared
         let defaults = UserDefaults.standard
@@ -784,6 +836,8 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
         XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
         XCTAssertTrue(store.workspaceIsUnread(forTabId: unreadWorkspace.id))
+        XCTAssertFalse(store.hasManualUnread(forTabId: unreadWorkspace.id))
+        XCTAssertTrue(unreadWorkspace.manualUnreadPanelIds.contains(unreadPanelId))
 
         let otherWorkspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
         XCTAssertEqual(manager.selectedTabId, otherWorkspace.id)
@@ -793,6 +847,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
         XCTAssertEqual(manager.selectedTabId, unreadWorkspace.id)
         XCTAssertFalse(store.workspaceIsUnread(forTabId: unreadWorkspace.id))
+        XCTAssertFalse(unreadWorkspace.manualUnreadPanelIds.contains(unreadPanelId))
         XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashToken, 1)
         XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashPanelId, unreadPanelId)
         XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashReason, .unreadIndicatorDismiss)
