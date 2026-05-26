@@ -336,62 +336,108 @@ type focusedContext struct {
 }
 
 func getFocusedContext(rc *rpcContext) *focusedContext {
+	return getFocusedContextWithTimeout(rc, 5*time.Second)
+}
+
+func getFocusedContextWithTimeout(rc *rpcContext, timeout time.Duration) *focusedContext {
 	// Use a goroutine with timeout so a slow/stale relay doesn't block agent launch.
 	type result struct {
-		focused *focusedContext
+		payload map[string]any
 	}
 	ch := make(chan result, 1)
+	started := time.Now()
 	go func() {
 		payload, err := rc.call("system.identify", nil)
 		if err != nil {
 			ch <- result{}
 			return
 		}
-		focused, _ := payload["focused"].(map[string]any)
-		if focused == nil {
-			ch <- result{}
-			return
-		}
+		ch <- result{payload: payload}
+	}()
 
-		wsId := stringFromAny(focused["workspace_id"], focused["workspace_ref"])
-		paneHandle := stringFromAny(focused["pane_id"], focused["pane_ref"])
-		if wsId == "" || paneHandle == "" {
-			ch <- result{}
-			return
-		}
+	var payload map[string]any
+	select {
+	case r := <-ch:
+		payload = r.payload
+	case <-time.After(timeout):
+		return nil
+	}
 
-		canonicalPaneId := strings.TrimSpace(stringFromAny(focused["pane_uuid"]))
-		if canonicalWsId, err := tmuxResolveWorkspaceId(rc, wsId); err == nil {
-			if canonicalPaneId == "" {
-				if pid := strings.TrimSpace(stringFromAny(focused["pane_id"])); pid != "" {
-					if resolved, err := tmuxCanonicalPaneId(rc, pid, canonicalWsId); err == nil {
-						canonicalPaneId = resolved
-					}
-				}
-			}
-			if canonicalPaneId == "" {
-				if pid, err := tmuxCanonicalPaneId(rc, paneHandle, canonicalWsId); err == nil {
-					canonicalPaneId = pid
-				}
-			}
-		}
-		if canonicalPaneId == "" {
-			canonicalPaneId = strings.TrimSpace(stringFromAny(focused["pane_id"]))
-		}
+	focused, _ := payload["focused"].(map[string]any)
+	if focused == nil {
+		return nil
+	}
+	ctx := focusedContextFromIdentify(focused)
+	if ctx == nil {
+		return nil
+	}
 
-		ch <- result{focused: &focusedContext{
-			workspaceId: wsId,
-			windowId:    stringFromAny(focused["window_id"], focused["window_ref"]),
-			paneHandle:  strings.TrimSpace(paneHandle),
-			paneId:      strings.TrimSpace(canonicalPaneId),
-			surfaceId:   stringFromAny(focused["surface_id"], focused["surface_ref"]),
-		}}
+	remaining := timeout - time.Since(started)
+	if remaining <= 0 {
+		return ctx
+	}
+	return canonicalizeFocusedContextWithTimeout(rc, focused, ctx, remaining)
+}
+
+func focusedContextFromIdentify(focused map[string]any) *focusedContext {
+	wsId := stringFromAny(focused["workspace_id"], focused["workspace_ref"])
+	paneHandle := stringFromAny(focused["pane_id"], focused["pane_ref"])
+	if wsId == "" || paneHandle == "" {
+		return nil
+	}
+	return &focusedContext{
+		workspaceId: wsId,
+		windowId:    stringFromAny(focused["window_id"], focused["window_ref"]),
+		paneHandle:  strings.TrimSpace(paneHandle),
+		paneId:      strings.TrimSpace(stringFromAny(focused["pane_uuid"], focused["pane_id"])),
+		surfaceId:   stringFromAny(focused["surface_id"], focused["surface_ref"]),
+	}
+}
+
+func canonicalizeFocusedContextWithTimeout(
+	rc *rpcContext,
+	focused map[string]any,
+	base *focusedContext,
+	timeout time.Duration,
+) *focusedContext {
+	type result struct {
+		focused *focusedContext
+	}
+	ch := make(chan result, 1)
+	go func() {
+		enriched := *base
+		canonicalizeFocusedContext(rc, focused, &enriched)
+		ch <- result{focused: &enriched}
 	}()
 	select {
 	case r := <-ch:
 		return r.focused
-	case <-time.After(5 * time.Second):
-		return nil
+	case <-time.After(timeout):
+		return base
+	}
+}
+
+func canonicalizeFocusedContext(rc *rpcContext, focused map[string]any, ctx *focusedContext) {
+	canonicalPaneId := strings.TrimSpace(stringFromAny(focused["pane_uuid"]))
+	if canonicalWsId, err := tmuxResolveWorkspaceId(rc, ctx.workspaceId); err == nil {
+		if canonicalPaneId == "" {
+			if pid := strings.TrimSpace(stringFromAny(focused["pane_id"])); pid != "" {
+				if resolved, err := tmuxCanonicalPaneId(rc, pid, canonicalWsId); err == nil {
+					canonicalPaneId = resolved
+				}
+			}
+		}
+		if canonicalPaneId == "" {
+			if pid, err := tmuxCanonicalPaneId(rc, ctx.paneHandle, canonicalWsId); err == nil {
+				canonicalPaneId = pid
+			}
+		}
+	}
+	if canonicalPaneId == "" {
+		canonicalPaneId = strings.TrimSpace(stringFromAny(focused["pane_id"]))
+	}
+	if canonicalPaneId != "" {
+		ctx.paneId = strings.TrimSpace(canonicalPaneId)
 	}
 }
 

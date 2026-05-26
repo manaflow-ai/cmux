@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSplitTmuxCmd(t *testing.T) {
@@ -503,6 +504,25 @@ func TestGetFocusedContextCanonicalizesPaneRef(t *testing.T) {
 	}
 }
 
+func TestGetFocusedContextKeepsBaseContextWhenCanonicalizationTimesOut(t *testing.T) {
+	sockPath := startSlowFocusedCanonicalizationSocket(t, 200*time.Millisecond)
+	rc := &rpcContext{socketPath: sockPath}
+
+	focused := getFocusedContextWithTimeout(rc, 50*time.Millisecond)
+	if focused == nil {
+		t.Fatal("getFocusedContextWithTimeout returned nil")
+	}
+	if focused.workspaceId != "11111111-1111-4111-8111-111111111111" {
+		t.Fatalf("workspaceId = %q", focused.workspaceId)
+	}
+	if focused.paneHandle != "pane:1" {
+		t.Fatalf("paneHandle = %q, want pane:1", focused.paneHandle)
+	}
+	if focused.paneId != "pane:1" {
+		t.Fatalf("paneId = %q, want base pane id when canonicalization times out", focused.paneId)
+	}
+}
+
 func TestTmuxSigiledSelectorsSkipRefsAndIndexes(t *testing.T) {
 	sockPath := startMockTmuxCompatSocket(t)
 	rc := &rpcContext{socketPath: sockPath}
@@ -607,6 +627,72 @@ func startMockTmuxSelectorPrioritySocket(t *testing.T) string {
 							{"id": "44444444-4444-4444-8444-444444444444", "ref": "surface:index", "index": 1},
 							{"id": "55555555-5555-4555-8555-555555555555", "ref": "1", "index": 2},
 						},
+					}
+				default:
+					resp["result"] = map[string]any{}
+				}
+
+				data, _ := json.Marshal(resp)
+				_, _ = conn.Write(append(data, '\n'))
+			}(conn)
+		}
+	}()
+
+	return sockPath
+}
+
+func startSlowFocusedCanonicalizationSocket(t *testing.T, delay time.Duration) string {
+	t.Helper()
+	sockPath := makeShortUnixSocketPath(t)
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				reader := bufio.NewReader(conn)
+				line, err := reader.ReadBytes('\n')
+				if err != nil {
+					return
+				}
+
+				var req map[string]any
+				if err := json.Unmarshal(line, &req); err != nil {
+					_, _ = conn.Write([]byte(`{"ok":false,"error":{"code":"parse","message":"bad json"}}` + "\n"))
+					return
+				}
+
+				method, _ := req["method"].(string)
+				resp := map[string]any{
+					"id": req["id"],
+					"ok": true,
+				}
+				switch method {
+				case "system.identify":
+					resp["result"] = map[string]any{
+						"focused": map[string]any{
+							"workspace_id": "11111111-1111-4111-8111-111111111111",
+							"pane_id":      "pane:1",
+							"pane_ref":     "pane:1",
+							"surface_ref":  "surface:1",
+						},
+					}
+				case "pane.list":
+					time.Sleep(delay)
+					resp["result"] = map[string]any{
+						"panes": []map[string]any{{
+							"id":    "33333333-3333-4333-8333-333333333333",
+							"ref":   "pane:1",
+							"index": 1,
+						}},
 					}
 				default:
 					resp["result"] = map[string]any{}
