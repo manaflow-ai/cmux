@@ -290,6 +290,35 @@ class CmuxPerfRunner:
         out = self.run_cli(["rpc", method, raw_params], timeout=timeout)
         return json.loads(out)
 
+    def require_string_field(self, payload: dict, key: str, context: str) -> str:
+        value = payload.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise PerfFailure(f"{context} missing {key}: {payload!r}")
+        return value
+
+    def workspace_ids(self) -> list[str]:
+        payload = self.rpc("workspace.list")
+        workspaces = payload.get("workspaces")
+        if not isinstance(workspaces, list):
+            raise PerfFailure(f"workspace.list returned invalid workspaces: {payload!r}")
+
+        ids: list[str] = []
+        for index, workspace in enumerate(workspaces):
+            if not isinstance(workspace, dict):
+                raise PerfFailure(f"workspace.list item {index} is invalid: {workspace!r}")
+            ids.append(self.require_string_field(workspace, "id", f"workspace.list item {index}"))
+        return ids
+
+    def create_workspace(self, title: str, cwd: pathlib.Path, description: str | None = None) -> str:
+        params: dict[str, object] = {
+            "title": title,
+            "cwd": str(cwd),
+        }
+        if description is not None:
+            params["description"] = description
+        payload = self.rpc("workspace.create", params, timeout=90)
+        return self.require_string_field(payload, "workspace_id", f"workspace.create {title!r}")
+
     def report_shell_prompt(self, workspace: str, surface: str) -> bool:
         try:
             self.rpc(
@@ -332,30 +361,17 @@ class CmuxPerfRunner:
         return repo
 
     def create_fixture(self) -> list[tuple[str, str, pathlib.Path]]:
-        existing = [w["ref"] for w in self.json_cli(["list-workspaces"]).get("workspaces", [])]
-        guard_ws = self.ref(
-            self.run_cli(["new-workspace", "--name", "perf-guard", "--cwd", str(self.fixture_root)]),
-            "workspace",
-        )
+        existing = self.workspace_ids()
+        guard_ws = self.create_workspace("perf-guard", self.fixture_root)
 
         terminals: list[tuple[str, str, pathlib.Path]] = []
         workspaces: list[str] = []
         for i in range(1, self.args.workspace_count + 1):
             cwd = self.make_repo(i)
-            ws = self.ref(
-                self.run_cli(
-                    [
-                        "new-workspace",
-                        "--name",
-                        f"perf-{i:02d}-dirty-agent",
-                        "--description",
-                        f"activation perf fixture {i:02d}",
-                        "--cwd",
-                        str(cwd),
-                    ],
-                    timeout=90,
-                ),
-                "workspace",
+            ws = self.create_workspace(
+                f"perf-{i:02d}-dirty-agent",
+                cwd,
+                description=f"activation perf fixture {i:02d}",
             )
             workspaces.append(ws)
             pane_target = self.args.heavy_workspace_panes if i == 1 else self.args.other_workspace_panes
