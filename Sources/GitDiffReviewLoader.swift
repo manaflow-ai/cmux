@@ -107,13 +107,21 @@ nonisolated enum GitDiffReviewLoader {
             termination.finish(completedProcess.terminationStatus)
         }
 
-        cancellationState.setProcess(process)
+        guard cancellationState.setProcess(process) else {
+            stdout.fileHandleForReading.closeFile()
+            stderr.fileHandleForReading.closeFile()
+            throw GitDiffReviewLoadError.cancelled
+        }
 
         async let outputData = readAllData(from: stdout.fileHandleForReading)
         async let errorData = readAllData(from: stderr.fileHandleForReading)
 
         do {
-            try process.run()
+            try cancellationState.runProcessIfNotCancelled()
+        } catch GitDiffReviewLoadError.cancelled {
+            stdout.fileHandleForReading.closeFile()
+            stderr.fileHandleForReading.closeFile()
+            throw GitDiffReviewLoadError.cancelled
         } catch {
             cancellationState.clear()
             stdout.fileHandleForReading.closeFile()
@@ -243,11 +251,32 @@ private final class GitDiffPipeDataReader: @unchecked Sendable {
 private final class GitDiffProcessCancellationState: @unchecked Sendable {
     private let lock = NSLock()
     private var process: Process?
+    private var isCancelled = false
 
-    func setProcess(_ process: Process) {
+    func setProcess(_ process: Process) -> Bool {
         lock.lock()
+        defer { lock.unlock() }
+        guard !isCancelled else { return false }
         self.process = process
-        lock.unlock()
+        return true
+    }
+
+    func runProcessIfNotCancelled() throws {
+        lock.lock()
+        guard !isCancelled, let process else {
+            self.process = nil
+            lock.unlock()
+            throw GitDiffReviewLoadError.cancelled
+        }
+
+        do {
+            try process.run()
+            lock.unlock()
+        } catch {
+            self.process = nil
+            lock.unlock()
+            throw error
+        }
     }
 
     func clear() {
@@ -260,6 +289,7 @@ private final class GitDiffProcessCancellationState: @unchecked Sendable {
         let processToTerminate: Process?
 
         lock.lock()
+        isCancelled = true
         processToTerminate = process
         process = nil
         lock.unlock()

@@ -93,7 +93,7 @@ final class GitDiffReviewParserTests: XCTestCase {
 
         XCTAssertEqual(files.count, 1)
         XCTAssertEqual(files[0].path, "src/tests b/helpers/foo.swift")
-        XCTAssertEqual(files[0].oldPath, "src/tests b/helpers/foo.swift")
+        XCTAssertNil(files[0].oldPath)
         XCTAssertEqual(files[0].additions, 1)
         XCTAssertEqual(files[0].deletions, 1)
     }
@@ -117,7 +117,7 @@ final class GitDiffReviewParserTests: XCTestCase {
 
         XCTAssertEqual(files.count, 1)
         XCTAssertEqual(files[0].path, path)
-        XCTAssertEqual(files[0].oldPath, path)
+        XCTAssertNil(files[0].oldPath)
         XCTAssertEqual(files[0].status, .modified)
         XCTAssertEqual(files[0].additions, 1)
         XCTAssertEqual(files[0].deletions, 1)
@@ -142,7 +142,7 @@ final class GitDiffReviewParserTests: XCTestCase {
 
         XCTAssertEqual(files.count, 1)
         XCTAssertEqual(files[0].path, path)
-        XCTAssertEqual(files[0].oldPath, path)
+        XCTAssertNil(files[0].oldPath)
         XCTAssertEqual(files[0].status, .modified)
         XCTAssertEqual(files[0].additions, 1)
         XCTAssertEqual(files[0].deletions, 1)
@@ -235,5 +235,47 @@ final class GitDiffReviewParserTests: XCTestCase {
 
         XCTAssertEqual(files.count, 1)
         XCTAssertEqual(files[0].hunks[0].lines.map(\.kind), [.deletion, .addition])
+    }
+
+    func testParserKeepsOldPathForRenamesOnly() {
+        let diffText = """
+        diff --git a/old name.txt b/new name.txt
+        similarity index 88%
+        rename from old name.txt
+        rename to new name.txt
+        index 1111111..2222222 100644
+        --- a/old name.txt
+        +++ b/new name.txt
+        @@ -1 +1 @@
+        -old
+        +new
+        """
+
+        let files = GitDiffReviewParser.parse(
+            diffText: diffText,
+            statusText: "R  new name.txt\u{0}old name.txt\u{0}"
+        )
+
+        XCTAssertEqual(files.count, 1)
+        XCTAssertEqual(files[0].path, "new name.txt")
+        XCTAssertEqual(files[0].oldPath, "old name.txt")
+        XCTAssertEqual(files[0].status, .renamed)
+    }
+
+    func testParserMapsPorcelainConflictCodesToUnmerged() {
+        let statusText = [
+            "DD conflicted-DD.txt",
+            "AU conflicted-AU.txt",
+            "UD conflicted-UD.txt",
+            "UA conflicted-UA.txt",
+            "DU conflicted-DU.txt",
+            "AA conflicted-AA.txt",
+            "UU conflicted-UU.txt",
+        ].joined(separator: "\u{0}") + "\u{0}"
+
+        let files = GitDiffReviewParser.parse(diffText: "", statusText: statusText)
+
+        XCTAssertEqual(files.count, 7)
+        XCTAssertTrue(files.allSatisfy { $0.status == .unmerged })
     }
 }

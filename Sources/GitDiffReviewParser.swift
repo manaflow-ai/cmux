@@ -41,11 +41,13 @@ nonisolated enum GitDiffReviewParser {
             guard let path = currentPath else { return }
             flushHunk()
             let statusEntry = statusEntries[path]
+            let status = statusEntry?.status ?? currentStatus
+            let oldPath = oldPathForStatus(status, statusEntry: statusEntry, diffOldPath: currentOldPath)
             files.append(
                 GitDiffReviewFile(
                     path: path,
-                    oldPath: statusEntry?.oldPath ?? currentOldPath,
-                    status: statusEntry?.status ?? currentStatus,
+                    oldPath: oldPath,
+                    status: status,
                     additions: additions,
                     deletions: deletions,
                     hunks: currentHunks
@@ -225,8 +227,13 @@ nonisolated enum GitDiffReviewParser {
     }
 
     private static func statusFromPorcelain(_ code: String) -> GitDiffReviewFileStatus {
-        if code == "??" {
+        let trimmedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedCode == "??" {
             return .untracked
+        }
+        let unmergedCodes: Set<String> = ["DD", "AU", "UD", "UA", "DU", "AA", "UU"]
+        if unmergedCodes.contains(trimmedCode) {
+            return .unmerged
         }
         if code.contains("R") {
             return .renamed
@@ -246,7 +253,20 @@ nonisolated enum GitDiffReviewParser {
         if code.contains("M") {
             return .modified
         }
-        return .unknown(code.trimmingCharacters(in: .whitespacesAndNewlines))
+        return .unknown(trimmedCode)
+    }
+
+    private static func oldPathForStatus(
+        _ status: GitDiffReviewFileStatus,
+        statusEntry: StatusEntry?,
+        diffOldPath: String?
+    ) -> String? {
+        switch status {
+        case .renamed, .copied:
+            return statusEntry?.oldPath ?? diffOldPath
+        case .modified, .added, .deleted, .untracked, .unmerged, .typeChanged, .unknown:
+            return nil
+        }
     }
 
     private static func parseDiffGitPaths(_ line: String) -> (oldPath: String?, newPath: String) {

@@ -7,6 +7,7 @@ nonisolated enum GitDiffReviewFileStatus: Equatable, Sendable {
     case renamed
     case copied
     case untracked
+    case unmerged
     case typeChanged
     case unknown(String)
 
@@ -24,6 +25,8 @@ nonisolated enum GitDiffReviewFileStatus: Equatable, Sendable {
             return String(localized: "codeReview.status.copied", defaultValue: "Copied")
         case .untracked:
             return String(localized: "codeReview.status.untracked", defaultValue: "Untracked")
+        case .unmerged:
+            return String(localized: "codeReview.status.unmerged", defaultValue: "Unmerged")
         case .typeChanged:
             return String(localized: "codeReview.status.typeChanged", defaultValue: "Type changed")
         case .unknown:
