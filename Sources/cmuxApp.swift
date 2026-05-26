@@ -5931,6 +5931,7 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
+                            configurationReview: .settingsOnly,
                             String(localized: "settings.app.uiScaleFactor", defaultValue: "UI Scale Factor"),
                             subtitle: String(localized: "settings.app.uiScaleFactor.subtitle", defaultValue: "Scale fonts and UI elements. Does not affect terminal text.")
                         ) {
