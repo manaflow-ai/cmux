@@ -4915,8 +4915,8 @@ struct CMUXCLI {
 
         for session in sessions {
             let name = session["name"] as? String ?? "?"
-            let windows = intFromAny(session["windows"])
-            let workspaces = intFromAny(session["workspaces"])
+            let windows = intFromAny(session["windows"]) ?? 0
+            let workspaces = intFromAny(session["workspaces"]) ?? 0
             print("\(name)  windows=\(windows)  workspaces=\(workspaces)")
         }
     }
