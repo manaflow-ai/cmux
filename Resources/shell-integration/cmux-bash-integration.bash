@@ -32,6 +32,11 @@ _cmux_send() {
     esac
 }
 
+_cmux_send_bg() {
+    local payload="$1"
+    ( _cmux_send "$payload" >/dev/null 2>&1 & )
+}
+
 _cmux_socket_is_unix() {
     [[ -n "$CMUX_SOCKET_PATH" && -S "$CMUX_SOCKET_PATH" ]]
 }
@@ -72,10 +77,7 @@ _cmux_relay_rpc_bg() {
     local relay_cli=""
     _cmux_socket_uses_remote_relay || return 1
     relay_cli="$(_cmux_relay_cli_path)" || return 1
-    {
-        "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1 || true
-    } >/dev/null 2>&1 &
-    disown 2>/dev/null || true
+    ( "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1 & )
 }
 
 _cmux_relay_rpc() {
@@ -402,9 +404,7 @@ _cmux_report_tty_once() {
         payload="$(_cmux_report_tty_payload)"
         [[ -n "$payload" ]] || return 0
         _CMUX_TTY_REPORTED=1
-        {
-            _cmux_send "$payload"
-        } >/dev/null 2>&1 & disown
+        _cmux_send_bg "$payload"
     else
         [[ -n "$_CMUX_TTY_NAME" ]] || return 0
         # Keep the first relay TTY report synchronous so the server can resolve
@@ -422,9 +422,7 @@ _cmux_report_shell_activity_state() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
     _CMUX_SHELL_ACTIVITY_LAST="$state"
-    {
-        _cmux_send "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    } >/dev/null 2>&1 & disown
+    _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
 _cmux_reset_terminal_keyboard_protocols() {
@@ -445,9 +443,7 @@ _cmux_ports_kick() {
     fi
     _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
     if _cmux_socket_is_unix; then
-        {
-            _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=$reason"
-        } >/dev/null 2>&1 & disown
+        _cmux_send_bg "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=$reason"
     else
         _cmux_ports_kick_via_relay "$reason"
     fi
@@ -544,9 +540,7 @@ _cmux_emit_pr_command_hint() {
         local quoted_target="${_CMUX_LAST_PR_TARGET//\"/\\\"}"
         payload+=" --target=\"$quoted_target\""
     fi
-    {
-        _cmux_send "$payload"
-    } >/dev/null 2>&1 & disown
+    _cmux_send_bg "$payload"
     _CMUX_LAST_PR_ACTION=""
     _CMUX_LAST_PR_TARGET=""
 }
@@ -1262,10 +1256,8 @@ _cmux_prompt_command() {
     # CWD: keep the app in sync with the actual shell directory.
     if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
         _CMUX_PWD_LAST_PWD="$pwd"
-        {
-            local qpwd="${pwd//\"/\\\"}"
-            _cmux_send "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-        } >/dev/null 2>&1 & disown
+        local qpwd="${pwd//\"/\\\"}"
+        _cmux_send_bg "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     fi
 
     # Branch can change via aliases/tools while an older probe is still in flight.
