@@ -980,7 +980,7 @@
       "supportedNote": "Claude Code é tratado pelo wrapper Claude do cmux quando a integração Claude está ativada em Settings. Antigravity também aceita agy como alias de setup, e Rovo Dev aceita rovo.",
       "manualTitle": "Restauração manual",
       "manualDesc": "O cmux restaura o último snapshot salvo na inicialização normal. Você também pode reaplicar manualmente o snapshot anterior:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "Desativar retomada automática de agentes",
       "disableDesc": "Para restaurar painéis sem iniciar comandos de resume de agentes salvos, desative Settings > Terminal > Resume Agent Sessions on Reopen ou defina:",
       "disableNote": "Isso desativa apenas comandos de resume de agentes. O cmux ainda restaura layout, diretórios de trabalho, scrollback e histórico do navegador.",
