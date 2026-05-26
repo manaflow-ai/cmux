@@ -100,6 +100,36 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertFalse(bridge.isLocalEventMonitorInstalledForTesting)
     }
 
+    func testHighlightedBridgeDoesNotInstallEventMonitorWhileHidden() {
+        let bridge = HighlightedEditorBridge()
+        bridge.setVisibleInUI(false)
+
+        bridge.installLocalEventMonitor(scrollView: NSScrollView())
+
+        XCTAssertFalse(bridge.isLocalEventMonitorInstalledForTesting)
+    }
+
+    func testHighlightedBridgeDoesNotSaveWhileHidden() throws {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "u", command: true, shift: false, option: true, control: false),
+            for: .saveFilePreview
+        )
+
+        let bridge = HighlightedEditorBridge()
+        bridge.setVisibleInUI(false)
+
+        let event = try XCTUnwrap(keyEvent(
+            key: "u",
+            keyCode: UInt16(kVK_ANSI_U),
+            modifierFlags: [.command, .option]
+        ))
+
+        XCTAssertFalse(bridge.handleSaveShortcut(event: event))
+    }
+
     func testHighlightedBridgeIgnoresEditsAfterDestroy() throws {
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }

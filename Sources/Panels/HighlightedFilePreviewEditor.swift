@@ -89,8 +89,12 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
     private nonisolated(unsafe) var coordinatorDestroyed = false
     private weak var innerScrollView: NSScrollView?
     private var pendingSaveChordPrefix: ShortcutStroke?
+    private var isVisibleInUI = true
 
     func installLocalEventMonitor(scrollView: NSScrollView) {
+        innerScrollView = scrollView
+        guard isVisibleInUI else { return }
+
         eventMonitorLock.lock()
         if coordinatorDestroyed || localEventMonitor != nil {
             eventMonitorLock.unlock()
@@ -98,7 +102,6 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
         }
         eventMonitorLock.unlock()
 
-        innerScrollView = scrollView
         // NSEvent.addLocalMonitorForEvents handlers fire on the main thread (documented),
         // so MainActor.assumeIsolated lets the closure body call our @MainActor-isolated
         // properties and methods without crossing the actor at compile time.
@@ -132,8 +135,27 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
         let alreadyInstalled = localEventMonitor != nil
         let destroyed = coordinatorDestroyed
         eventMonitorLock.unlock()
-        guard let sv = innerScrollView, !alreadyInstalled, !destroyed else { return }
+        guard isVisibleInUI,
+              let sv = innerScrollView,
+              !alreadyInstalled,
+              !destroyed else { return }
         installLocalEventMonitor(scrollView: sv)
+    }
+
+    func setVisibleInUI(_ visible: Bool) {
+        guard isVisibleInUI != visible else {
+            if visible { reinstallLocalEventMonitorIfNeeded() }
+            return
+        }
+
+        isVisibleInUI = visible
+        pendingSaveChordPrefix = nil
+
+        if visible {
+            reinstallLocalEventMonitorIfNeeded()
+        } else {
+            removeLocalEventMonitor()
+        }
     }
 
     var isLocalEventMonitorInstalledForTesting: Bool {
@@ -194,7 +216,12 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
     }
 
     func handleSaveShortcut(event: NSEvent) -> Bool {
-        guard event.type == .keyDown else { return false }
+        guard event.type == .keyDown,
+              isVisibleInUI,
+              !isCoordinatorDestroyed() else {
+            pendingSaveChordPrefix = nil
+            return false
+        }
         let shortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
         guard shortcut.hasChord else {
             pendingSaveChordPrefix = nil
@@ -431,6 +458,7 @@ struct HighlightedFilePreviewEditor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> HighlightedEditorContainerView {
         let bridge = context.coordinator
+        bridge.setVisibleInUI(isVisibleInUI)
         bridge.updateThemeIfNeeded(background: themeBackgroundColor, foreground: themeForegroundColor, drawsBackground: drawsBackground)
 
         let container = HighlightedEditorContainerView(bridge: bridge)
@@ -447,14 +475,10 @@ struct HighlightedFilePreviewEditor: NSViewRepresentable {
     func updateNSView(_ container: HighlightedEditorContainerView, context: Context) {
         let bridge = context.coordinator
         container.isHidden = !isVisibleInUI
+        bridge.setVisibleInUI(isVisibleInUI)
         bridge.panel = panel
         bridge.setContent(panel.textContent)
         bridge.updateThemeIfNeeded(background: themeBackgroundColor, foreground: themeForegroundColor, drawsBackground: drawsBackground)
-        if isVisibleInUI {
-            bridge.reinstallLocalEventMonitorIfNeeded()
-        } else {
-            bridge.removeLocalEventMonitor()
-        }
     }
 
     static func dismantleNSView(_ container: HighlightedEditorContainerView, coordinator: HighlightedEditorBridge) {
