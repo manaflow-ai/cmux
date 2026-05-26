@@ -14008,11 +14008,11 @@ struct CMUXCLI {
                 defaultValue: "%@: unexpected argument '%@'"
             ), commandName, extra))
         }
-        if includeAll, windowOpt != nil {
+        if includeAll, let scopedOption = windowOpt != nil ? "--window" : (workspaceOpt != nil ? "--workspace" : nil) {
             throw CLIError(message: String(format: String(
                 localized: "cli.listSurfaces.error.windowWithAll",
-                defaultValue: "%@: --window cannot be combined with --all"
-            ), commandName))
+                defaultValue: "%@: %@ cannot be combined with --all"
+            ), commandName, scopedOption))
         }
 
         let includeAllByDefault = windowOpt == nil && workspaceOpt == nil

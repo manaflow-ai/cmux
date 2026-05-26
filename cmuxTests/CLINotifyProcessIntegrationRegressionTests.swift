@@ -3618,6 +3618,30 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("https://example.test"), result.stdout)
     }
 
+    func testListSurfacesRejectsWorkspaceWithAll() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = makeSocketPath("nosocket")
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["list-surfaces", "--workspace", "workspace:2", "--all"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1)
+        XCTAssertTrue(
+            result.stderr.contains("list-surfaces: --workspace cannot be combined with --all"),
+            result.stderr
+        )
+    }
+
     func testSSHSessionListAllWorkspacesReportsQueryErrors() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshlist")
