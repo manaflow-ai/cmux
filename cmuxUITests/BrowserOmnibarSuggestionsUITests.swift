@@ -3,11 +3,13 @@ import Foundation
 
 final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     private var dataPath = ""
+    private var browserHistorySeedJSON: String?
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
         dataPath = "/tmp/cmux-ui-test-omnibar-suggestions-\(UUID().uuidString).json"
+        browserHistorySeedJSON = nil
         try? FileManager.default.removeItem(atPath: dataPath)
 
         // Terminate any lingering app from a prior test so its debounced
@@ -17,7 +19,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
     }
 
-    func testOmnibarSuggestionsAlignToPillAndCmdNP() {
+    func testOmnibarSuggestionsAlignToPillAndCtrlNP() {
         seedBrowserHistoryForTest(seedEntries: [
             SeedEntry(url: "https://example.com/", title: "Example Domain", visitCount: 12, typedCount: 4),
             SeedEntry(url: "https://example.org/", title: "Example Organization", visitCount: 9, typedCount: 3),
@@ -76,20 +78,20 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         )
 
         // Row 0 should be the autocompletable example.com history entry.
-        // Verify Cmd+N moves to row 1, Cmd+P returns to row 0, then Enter navigates.
+        // Verify Ctrl+N moves to row 1, Ctrl+P returns to row 0, then Enter navigates.
         let row1 = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions.Row.1").firstMatch
         XCTAssertTrue(row1.waitForExistence(timeout: 6.0))
 
-        app.typeKey("n", modifierFlags: [.command])
+        app.typeKey("n", modifierFlags: [.control])
         XCTAssertTrue(
             waitForSuggestionRowToBeSelected(row1, timeout: 3.0),
-            "Expected Cmd+N to move selection to row 1. row1Value=\(String(describing: row1.value))"
+            "Expected Ctrl+N to move selection to row 1. row1Value=\(String(describing: row1.value))"
         )
 
-        app.typeKey("p", modifierFlags: [.command])
+        app.typeKey("p", modifierFlags: [.control])
         XCTAssertTrue(
             waitForSuggestionRowToBeSelected(row0, timeout: 3.0),
-            "Expected Cmd+P to move selection back to row 0. row0Value=\(String(describing: row0.value))"
+            "Expected Ctrl+P to move selection back to row 0. row0Value=\(String(describing: row0.value))"
         )
 
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
@@ -185,7 +187,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertEqual(afterOutsideTyping, beforeOutsideTyping, "Expected typing after click-outside to not modify omnibar (blurred)")
     }
 
-    func testOmnibarSuggestionsCmdNPWhenAddressBarFocused() {
+    func testOmnibarSuggestionsCtrlNPWhenAddressBarFocused() {
         seedBrowserHistoryForTest()
 
         let app = XCUIApplication()
@@ -211,22 +213,22 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertTrue(row1.waitForExistence(timeout: 6.0))
         XCTAssertTrue(row2.waitForExistence(timeout: 6.0))
 
-        app.typeKey("n", modifierFlags: [.command])
+        app.typeKey("n", modifierFlags: [.control])
         XCTAssertTrue(
             waitForSuggestionRowToBeSelected(row1, timeout: 3.0),
-            "Expected Cmd+N to move selection to row 1. row1Value=\(String(describing: row1.value))"
+            "Expected Ctrl+N to move selection to row 1. row1Value=\(String(describing: row1.value))"
         )
 
-        app.typeKey("n", modifierFlags: [.command])
+        app.typeKey("n", modifierFlags: [.control])
         XCTAssertTrue(
             waitForSuggestionRowToBeSelected(row2, timeout: 3.0),
-            "Expected repeated Cmd+N to move selection to row 2. row2Value=\(String(describing: row2.value))"
+            "Expected repeated Ctrl+N to move selection to row 2. row2Value=\(String(describing: row2.value))"
         )
 
-        app.typeKey("p", modifierFlags: [.command])
+        app.typeKey("p", modifierFlags: [.control])
         XCTAssertTrue(
             waitForSuggestionRowToBeSelected(row1, timeout: 3.0),
-            "Expected Cmd+P to move selection back to row 1. row1Value=\(String(describing: row1.value))"
+            "Expected Ctrl+P to move selection back to row 1. row1Value=\(String(describing: row1.value))"
         )
     }
 
@@ -284,7 +286,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         loadObserved = waitForCondition(timeout: 8.0) {
             ((omnibar.value as? String) ?? "").lowercased().contains("example.com")
         }
-        XCTAssertTrue(loadObserved, "Expected omnibar to reflect the navigated URL after load. value=\(omnibar.value)")
+        XCTAssertTrue(loadObserved, "Expected omnibar to reflect the navigated URL after load. value=\(String(describing: omnibar.value))")
 
         let valueAfterLoad = (omnibar.value as? String) ?? ""
         omnibar.typeText("zx")
@@ -351,7 +353,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         seedBrowserHistoryForTest(
             seedEntries: [
                 SeedEntry(url: "https://news.ycombinator.com/", title: "News Y Combinator", visitCount: 12, typedCount: 1),
-                SeedEntry(url: "https://gmail.com/", title: "Gmail", visitCount: 10, typedCount: 2),
+                SeedEntry(url: "https://example.com/gmail", title: "Gmail", visitCount: 10, typedCount: 2),
             ]
         )
 
@@ -393,18 +395,19 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
                 guard row.exists else { return nil }
                 return "row\(index)=\((row.value as? String) ?? "<nil>")"
             }.joined(separator: ", ")
-            XCTFail("Expected a Gmail suggestion row. rows=\(rowValues)")
+            let seedBytes = browserHistorySeedJSON?.utf8.count ?? 0
+            XCTFail("Expected a Gmail suggestion row. rows=\(rowValues) seedBytes=\(seedBytes)")
             return
         }
 
         if gmailRowIndex > 0 {
             let gmailRow = rows[gmailRowIndex]
             for _ in 0..<gmailRowIndex {
-                app.typeKey("n", modifierFlags: [.command])
+                app.typeKey("n", modifierFlags: [.control])
             }
             XCTAssertTrue(
                 waitForSuggestionRowToBeSelected(gmailRow, timeout: 3.0),
-                "Expected Cmd+N to select Gmail row \(gmailRowIndex). value=\(String(describing: gmailRow.value))"
+                "Expected Ctrl+N to select Gmail row \(gmailRowIndex). value=\(String(describing: gmailRow.value))"
             )
         }
 
@@ -412,9 +415,9 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         let committedToGmail = waitForCondition(timeout: 8.0) {
             let value = (omnibar.value as? String) ?? ""
-            return value.localizedCaseInsensitiveContains("gmail.com")
+            return value.localizedCaseInsensitiveContains("example.com/gmail")
         }
-        XCTAssertTrue(committedToGmail, "Expected Enter to commit Gmail autocomplete target. value=\(String(describing: omnibar.value))")
+        XCTAssertTrue(committedToGmail, "Expected Enter to commit Gmail history target. value=\(String(describing: omnibar.value))")
     }
 
     func testOmnibarSingleRowPopupUsesMinimumHeight() {
@@ -536,6 +539,9 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     }
 
     private func launchAndEnsureForeground(_ app: XCUIApplication, timeout: TimeInterval = 12.0) {
+        if let browserHistorySeedJSON {
+            app.launchEnvironment["CMUX_UI_TEST_BROWSER_HISTORY_JSON"] = browserHistorySeedJSON
+        }
         app.launch()
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: timeout),
@@ -564,22 +570,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     private func seedBrowserHistoryForTest(entries: [(String, String)]? = nil, seedEntries: [SeedEntry]? = nil) {
         // Keep the test hermetic: write a deterministic history file in the app's support dir
         // so the omnibar always has at least one local suggestion row.
-        let fileManager = FileManager.default
-        guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            XCTFail("Missing Application Support directory")
-            return
-        }
-
-        let bundleId = "com.cmuxterm.app.debug"
-        let dir = appSupport.appendingPathComponent(bundleId, isDirectory: true)
-        let url = dir.appendingPathComponent("browser_history.json", isDirectory: false)
-        do {
-            try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
-        } catch {
-            XCTFail("Failed to create app support dir: \(error)")
-            return
-        }
-
         let now = Date().timeIntervalSinceReferenceDate
         let resolved: [SeedEntry]
         if let seedEntries {
@@ -619,11 +609,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
           \(entriesJSON)
         ]
         """
-        do {
-            try json.write(to: url, atomically: true, encoding: .utf8)
-        } catch {
-            XCTFail("Failed to write browser history seed file: \(error)")
-        }
+        browserHistorySeedJSON = json
     }
 
     private func attachElementDebug(name: String, element: XCUIElement) {

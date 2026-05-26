@@ -4,10 +4,124 @@ import Foundation
 import Bonsplit
 import CoreVideo
 import Combine
+import CoreServices
+import Darwin
 
 // MARK: - Tab Type Alias for Backwards Compatibility
 // The old Tab class is replaced by Workspace
 typealias Tab = Workspace
+
+private final class WorkspaceGitMetadataWatcherCallbackBox: @unchecked Sendable {
+    let handleEvent: @Sendable () -> Void
+
+    init(handleEvent: @escaping @Sendable () -> Void) {
+        self.handleEvent = handleEvent
+    }
+}
+
+private let workspaceGitMetadataWatcherCallback: FSEventStreamCallback = { _, info, _, _, _, _ in
+    guard let info else { return }
+    let box = Unmanaged<WorkspaceGitMetadataWatcherCallbackBox>.fromOpaque(info).takeUnretainedValue()
+    box.handleEvent()
+}
+
+private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
+    struct Descriptor: Equatable, Sendable {
+        let directory: String
+        let watchedPaths: [String]
+    }
+
+    let descriptor: Descriptor
+
+    private let queue = DispatchQueue(label: "com.cmux.workspace-git-metadata-watcher", qos: .utility)
+    private let queueSpecificKey = DispatchSpecificKey<UInt8>()
+    private var callbackBox: WorkspaceGitMetadataWatcherCallbackBox?
+    private let onChange: @Sendable () -> Void
+    private var stream: FSEventStreamRef?
+    private var debounceWorkItem: DispatchWorkItem?
+
+    init?(descriptor: Descriptor, onChange: @escaping @Sendable () -> Void) {
+        guard !descriptor.watchedPaths.isEmpty else { return nil }
+        self.descriptor = descriptor
+        self.onChange = onChange
+        queue.setSpecific(key: queueSpecificKey, value: 1)
+        let callbackBox = WorkspaceGitMetadataWatcherCallbackBox { [weak self] in
+            self?.scheduleChange()
+        }
+        self.callbackBox = callbackBox
+
+        var context = FSEventStreamContext(
+            version: 0,
+            info: Unmanaged.passUnretained(callbackBox).toOpaque(),
+            retain: nil,
+            release: nil,
+            copyDescription: nil
+        )
+        let flags = FSEventStreamCreateFlags(
+            kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer
+        )
+        guard let stream = FSEventStreamCreate(
+            nil,
+            workspaceGitMetadataWatcherCallback,
+            &context,
+            descriptor.watchedPaths as CFArray,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            0.25,
+            flags
+        ) else {
+            return nil
+        }
+        self.stream = stream
+        FSEventStreamSetDispatchQueue(stream, queue)
+        guard FSEventStreamStart(stream) else {
+            stop()
+            return nil
+        }
+    }
+
+    func stop() {
+        if DispatchQueue.getSpecific(key: queueSpecificKey) != nil {
+            stopOnQueue()
+        } else {
+            queue.sync {
+                stopOnQueue()
+            }
+        }
+    }
+
+    private func stopOnQueue() {
+        debounceWorkItem?.cancel()
+        debounceWorkItem = nil
+        guard let stream else { return }
+        FSEventStreamStop(stream)
+        FSEventStreamInvalidate(stream)
+        FSEventStreamRelease(stream)
+        self.stream = nil
+    }
+
+    private func scheduleChange() {
+        if DispatchQueue.getSpecific(key: queueSpecificKey) != nil {
+            scheduleChangeOnQueue()
+        } else {
+            queue.async { [weak self] in
+                self?.scheduleChangeOnQueue()
+            }
+        }
+    }
+
+    private func scheduleChangeOnQueue() {
+        debounceWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.onChange()
+        }
+        debounceWorkItem = workItem
+        queue.asyncAfter(deadline: .now() + 0.25, execute: workItem)
+    }
+
+    deinit {
+        stop()
+    }
+}
 
 enum NewWorkspacePlacement: String, CaseIterable, Identifiable {
     case top
@@ -60,10 +174,25 @@ enum WorkspaceAutoReorderSettings {
     }
 }
 
+enum WorkspaceOrderChangeNotificationKey {
+    static let movedWorkspaceIds = "movedWorkspaceIds"
+}
+
+struct WorkspaceReorderPlanItem: Equatable {
+    let workspaceId: UUID
+    let fromIndex: Int
+    let toIndex: Int
+}
+
+enum WorkspaceBatchReorderError: Error, Equatable {
+    case duplicateWorkspace(UUID)
+    case workspaceNotFound(UUID)
+}
+
 enum LastSurfaceCloseShortcutSettings {
     static let key = "closeWorkspaceOnLastSurfaceShortcut"
     // Keep the legacy stored meaning so existing values still map to the same
-    // behavior. The default is flipped to preserve current Cmd+W behavior.
+    // behavior. The default is flipped to preserve the current Close Tab shortcut behavior.
     static let defaultValue = true
 
     static func closesWorkspace(defaults: UserDefaults = .standard) -> Bool {
@@ -88,8 +217,10 @@ enum SidebarBranchLayoutSettings {
 
 enum SidebarWorkspaceDetailSettings {
     static let hideAllDetailsKey = "sidebarHideAllDetails"
+    static let showWorkspaceDescriptionKey = "sidebarShowWorkspaceDescription"
     static let showNotificationMessageKey = "sidebarShowNotificationMessage"
     static let defaultHideAllDetails = false
+    static let defaultShowWorkspaceDescription = true
     static let defaultShowNotificationMessage = true
 
     static func hidesAllDetails(defaults: UserDefaults = .standard) -> Bool {
@@ -99,6 +230,13 @@ enum SidebarWorkspaceDetailSettings {
         return defaults.bool(forKey: hideAllDetailsKey)
     }
 
+    static func showsWorkspaceDescription(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: showWorkspaceDescriptionKey) == nil {
+            return defaultShowWorkspaceDescription
+        }
+        return defaults.bool(forKey: showWorkspaceDescriptionKey)
+    }
+
     static func showsNotificationMessage(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: showNotificationMessageKey) == nil {
             return defaultShowNotificationMessage
@@ -106,11 +244,30 @@ enum SidebarWorkspaceDetailSettings {
         return defaults.bool(forKey: showNotificationMessageKey)
     }
 
+    static func resolvedWorkspaceDescriptionVisibility(
+        showWorkspaceDescription: Bool,
+        hideAllDetails: Bool
+    ) -> Bool {
+        showWorkspaceDescription && !hideAllDetails
+    }
+
     static func resolvedNotificationMessageVisibility(
         showNotificationMessage: Bool,
         hideAllDetails: Bool
     ) -> Bool {
         showNotificationMessage && !hideAllDetails
+    }
+}
+
+enum SidebarPullRequestClickabilitySettings {
+    static let key = "sidebarMakePullRequestClickable"
+    static let defaultClickable = true
+
+    static func isClickable(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultClickable
+        }
+        return defaults.bool(forKey: key)
     }
 }
 
@@ -206,6 +363,19 @@ enum WorkspacePlacementSettings {
         return placement
     }
 
+    static func effectivePlacement(
+        placementOverride: NewWorkspacePlacement?,
+        defaults: UserDefaults = .standard
+    ) -> NewWorkspacePlacement {
+        if let placementOverride {
+            return placementOverride
+        }
+        if IMessageModeSettings.isEnabled(defaults: defaults) {
+            return .top
+        }
+        return current(defaults: defaults)
+    }
+
     static func insertionIndex(
         placement: NewWorkspacePlacement,
         selectedIndex: Int?,
@@ -232,6 +402,18 @@ enum WorkspacePlacementSettings {
             }
             return min(clampedSelectedIndex + 1, clampedTotalCount)
         }
+    }
+}
+
+enum WorkspaceWorkingDirectoryInheritanceSettings {
+    static let key = "workspaceInheritWorkingDirectory"
+    static let defaultValue = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: key) != nil else {
+            return defaultValue
+        }
+        return defaults.bool(forKey: key)
     }
 }
 
@@ -716,6 +898,7 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 @MainActor
 class TabManager: ObservableObject {
     private enum WorkspacePullRequestSnapshot: Equatable {
+        case deferred
         case unsupportedRepository
         case notFound
         case resolved(SidebarPullRequestState)
@@ -723,12 +906,42 @@ class TabManager: ObservableObject {
     }
 
     private struct InitialWorkspaceGitMetadataSnapshot: Equatable {
+        let isRepository: Bool
         let branch: String?
         let isDirty: Bool
+        let indexSignature: String?
+        let indexContentSignature: String?
+        let headSignature: String?
         let pullRequest: WorkspacePullRequestSnapshot
     }
 
-    private struct CommandResult {
+    private struct ResolvedGitRepository: Equatable, Sendable {
+        let workTreeRoot: String
+        let gitDirectory: String
+        let commonDirectory: String
+    }
+
+    private struct GitIndexEntryStat: Sendable {
+        let path: String
+        let mode: UInt32
+        let objectID: String
+        let mtimeSeconds: UInt32
+        let mtimeNanoseconds: UInt32
+        let size: UInt32
+    }
+
+    private struct GitIndexSnapshot: Sendable {
+        let entries: [GitIndexEntryStat]
+        let signature: String
+        let contentSignature: String
+    }
+
+    private struct WorkspaceGitMetadataWatcherDescriptorRequest: Equatable, Sendable {
+        let generation: UInt64
+        let directory: String
+    }
+
+    struct CommandResult: Sendable {
         let stdout: String?
         let stderr: String?
         let exitStatus: Int32?
@@ -736,21 +949,154 @@ class TabManager: ObservableObject {
         let executionError: String?
     }
 
-    private struct WorkspaceGitProbeKey: Hashable {
+#if DEBUG
+    nonisolated(unsafe) static var commandRunnerForTesting: (
+        @Sendable (String, String, [String], TimeInterval?) -> CommandResult?
+    )?
+#endif
+
+    private struct WorkspaceGitProbeKey: Hashable, Sendable {
         let workspaceId: UUID
         let panelId: UUID
     }
 
-    struct GitHubPullRequestProbeItem: Decodable, Equatable {
+    private enum WorkspaceGitProbeState: Equatable {
+        case idle
+        case inFlight(rerunPending: Bool)
+    }
+
+    private struct WorkspacePullRequestCandidate: Sendable {
+        let workspaceId: UUID
+        let panelId: UUID
+        let branch: String
+        let repoSlugs: [String]
+    }
+
+    private struct WorkspacePullRequestCandidateSeed: Sendable {
+        let workspaceId: UUID
+        let panelId: UUID
+        let branch: String
+        let directory: String?
+    }
+
+    private struct WorkspacePullRequestCandidateResolution: Sendable {
+        let candidates: [WorkspacePullRequestCandidate]
+        let candidateBranchesByRepo: [String: Set<String>]
+        let repoDirectoriesBySlug: [String: String]
+    }
+
+    private struct WorkspacePullRequestResolvedItem: Sendable {
+        let number: Int
+        let urlString: String
+        let statusRawValue: String
+        let branch: String
+    }
+
+    private struct WorkspacePullRequestRefreshResult: Sendable {
+        enum Resolution: Sendable {
+            case unsupportedRepository
+            case notFound
+            case resolved(WorkspacePullRequestResolvedItem)
+            case transientFailure
+        }
+
+        let workspaceId: UUID
+        let panelId: UUID
+        let resolution: Resolution
+        let usedCachedRepoData: Bool
+    }
+
+    private struct WorkspacePullRequestRepoCacheEntry: Sendable {
+        let fetchedAt: Date
+        let pullRequestsByBranch: [String: GitHubPullRequestProbeItem]
+        let knownAbsentBranches: Set<String>
+
+        init(
+            fetchedAt: Date,
+            pullRequestsByBranch: [String: GitHubPullRequestProbeItem],
+            knownAbsentBranches: Set<String> = []
+        ) {
+            self.fetchedAt = fetchedAt
+            self.pullRequestsByBranch = pullRequestsByBranch
+            self.knownAbsentBranches = knownAbsentBranches
+        }
+    }
+
+    private enum WorkspacePullRequestRepoFetchResult: Sendable {
+        case success(
+            WorkspacePullRequestRepoCacheEntry,
+            usedCache: Bool,
+            transientBranches: Set<String>
+        )
+        case transientFailure
+    }
+
+    private enum WorkspacePullRequestBranchFetchResult: Sendable {
+        case found(GitHubPullRequestProbeItem)
+        case notFound
+        case transientFailure
+    }
+
+    private struct WorkspacePullRequestBranchLookupOutcome: Sendable {
+        let cacheEntry: WorkspacePullRequestRepoCacheEntry
+        let transientBranches: Set<String>
+    }
+
+    private struct WorkspacePullRequestHTTPResponse: Sendable {
+        let statusCode: Int
+        let data: Data
+    }
+
+    private struct WorkspacePullRequestRESTItem: Decodable, Sendable {
+        struct Ref: Decodable, Sendable {
+            let ref: String
+        }
+
+        let number: Int
+        let state: String
+        let htmlURL: String
+        let updatedAt: String?
+        let mergedAt: String?
+        let head: Ref
+        let base: Ref?
+
+        enum CodingKeys: String, CodingKey {
+            case number
+            case state
+            case htmlURL = "html_url"
+            case updatedAt = "updated_at"
+            case mergedAt = "merged_at"
+            case head
+            case base
+        }
+    }
+
+    struct GitHubPullRequestProbeItem: Decodable, Equatable, Sendable {
         let number: Int
         let state: String
         let url: String
         let updatedAt: String?
-    }
+        let mergedAt: String?
+        let headRefName: String?
+        let baseRefName: String?
 
-    private struct GitHubPullRequestCheckItem: Decodable {
-        let bucket: String?
-        let state: String?
+        init(
+            number: Int,
+            state: String,
+            url: String,
+            updatedAt: String?,
+            mergedAt: String? = nil,
+            headRefName: String? = nil,
+            baseRefName: String? = nil
+        ) {
+            self.number = number
+            self.state = state
+            self.url = url
+            self.updatedAt = updatedAt
+            self.mergedAt = mergedAt
+            self.headRefName = headRefName
+            self.baseRefName = baseRefName
+        }
     }
 
     /// The window that owns this TabManager. Set by AppDelegate.registerMainWindow().
@@ -760,15 +1106,24 @@ class TabManager: ObservableObject {
     @Published var tabs: [Workspace] = []
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
+    @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
-    private static var nextPortOrdinal: Int = 0
-    private static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]
-    private static let workspaceGitMetadataPollInterval: TimeInterval = 30
-    private static let selectedWorkspaceGitMetadataPollInterval: TimeInterval = 5
+    static var nextPortOrdinal: Int = 0
+    private nonisolated static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]
+    private nonisolated static let workspaceGitMetadataFallbackRefreshInterval: TimeInterval = 5 * 60
+    private nonisolated static let backgroundPollInterval: TimeInterval = 60
+    private nonisolated static let selectedPollInterval: TimeInterval = 10
+    private nonisolated static let workspacePullRequestRepoCacheLifetime: TimeInterval = 15
+    private nonisolated static let workspacePullRequestRepoCachePruneLifetime: TimeInterval = 60
+    private nonisolated static let workspacePullRequestRepoPageSize = 100
+    private nonisolated static let workspacePullRequestRepoPageLimit = 2
+    private nonisolated static let workspacePullRequestTerminalStateSweepInterval: TimeInterval = 15 * 60
+    private nonisolated static let workspacePullRequestPollJitterFraction = 0.10
     private nonisolated static let workspacePullRequestProbeTimeout: TimeInterval = 5.0
+    private nonisolated static let mergedPullRequestBadgeStaleAfter: TimeInterval = 14 * 24 * 60 * 60
     @Published var selectedTabId: UUID? {
         willSet {
 #if DEBUG
@@ -810,12 +1165,15 @@ class TabManager: ObservableObject {
             if !isNavigatingHistory, let selectedTabId {
                 recordTabInHistory(selectedTabId)
             }
+            publishCmuxWorkspaceSelectedChange(from: previousTabId)
+            let notificationDismissalContext = pendingSelectedTabNotificationDismissContext ?? .activeFocus
+            pendingSelectedTabNotificationDismissContext = nil
 #if DEBUG
             let switchId = debugWorkspaceSwitchId
             let switchDtMs = debugWorkspaceSwitchStartTime > 0
                 ? (CACurrentMediaTime() - debugWorkspaceSwitchStartTime) * 1000
                 : 0
-            dlog(
+            cmuxDebugLog(
                 "ws.select.didSet id=\(switchId) from=\(Self.debugShortWorkspaceId(previousTabId)) " +
                 "to=\(Self.debugShortWorkspaceId(selectedTabId)) dt=\(Self.debugMsText(switchDtMs))"
             )
@@ -827,13 +1185,16 @@ class TabManager: ObservableObject {
                 self.focusSelectedTabPanel(previousTabId: previousTabId)
                 self.updateWindowTitleForSelectedTab()
                 if let selectedTabId = self.selectedTabId {
-                    self.dismissFocusedPanelNotificationIfActive(tabId: selectedTabId)
+                    self.dismissFocusedPanelNotificationIfActive(
+                        tabId: selectedTabId,
+                        context: notificationDismissalContext
+                    )
                 }
 #if DEBUG
                 let dtMs = self.debugWorkspaceSwitchStartTime > 0
                     ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
                     : 0
-                dlog(
+                cmuxDebugLog(
                     "ws.select.asyncDone id=\(self.debugWorkspaceSwitchId) dt=\(Self.debugMsText(dtMs)) " +
                     "selected=\(Self.debugShortWorkspaceId(self.selectedTabId))"
                 )
@@ -843,6 +1204,7 @@ class TabManager: ObservableObject {
     }
     private var observers: [NSObjectProtocol] = []
     private var suppressFocusFlash = false
+    private var pendingSelectedTabNotificationDismissContext: NotificationDismissalContext?
     private var lastFocusedPanelByTab: [UUID: UUID] = [:]
     private struct PanelTitleUpdateKey: Hashable {
         let tabId: UUID
@@ -855,9 +1217,26 @@ class TabManager: ObservableObject {
         label: "com.cmux.initial-workspace-git-probe",
         qos: .utility
     )
-    private var workspaceGitProbeGenerationByKey: [WorkspaceGitProbeKey: UUID] = [:]
+    private var workspaceGitProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
     private var workspaceGitProbeTimersByKey: [WorkspaceGitProbeKey: [DispatchSourceTimer]] = [:]
     private var workspaceGitTrackedDirectoryByKey: [WorkspaceGitProbeKey: String] = [:]
+    private var workspaceGitCleanIndexSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
+    private var workspaceGitCleanIndexContentSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
+    private var workspaceGitHeadSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
+    private var workspaceGitMetadataWatchersByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcher] = [:]
+    private var workspaceGitMetadataWatcherSourceDirectoryByKey: [WorkspaceGitProbeKey: String] = [:]
+    private var workspaceGitMetadataWatcherDescriptorRequestsByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest] = [:]
+    private var workspaceGitMetadataWatcherDescriptorGeneration: UInt64 = 0
+    private var workspaceGitMetadataFallbackTimer: DispatchSourceTimer?
+    private var lastSidebarGitMetadataWatchEnabled = SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
+    private var workspacePullRequestProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
+    private var workspacePullRequestNextPollAtByKey: [WorkspaceGitProbeKey: Date] = [:]
+    private var workspacePullRequestLastTerminalStateRefreshAtByKey: [WorkspaceGitProbeKey: Date] = [:]
+    private var workspacePullRequestTransientFailureCountByKey: [WorkspaceGitProbeKey: Int] = [:]
+    private var workspacePullRequestRepoCacheBySlug: [String: WorkspacePullRequestRepoCacheEntry] = [:]
+    private var workspacePullRequestPollTimer: DispatchSourceTimer?
+    private var workspacePullRequestRefreshTask: Task<Void, Never>?
+    private var workspacePullRequestFollowUpShouldBypassRepoCache = false
 
     // Recent tab history for back/forward navigation (like browser history)
     private var tabHistory: [UUID] = []
@@ -869,28 +1248,10 @@ class TabManager: ObservableObject {
     private var workspaceCycleCooldownTask: Task<Void, Never>?
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     private var sidebarSelectedWorkspaceIds: Set<UUID> = []
+    private var currentWindowTabBarLeadingInset: CGFloat?
+    private var closeConfirmationInFlight = false
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
-    private struct WorkspaceCreationTabSnapshot {
-        let id: UUID
-        let isPinned: Bool
-
-        @MainActor
-        init(workspace: Workspace) {
-            self.id = workspace.id
-            self.isPinned = workspace.isPinned
-        }
-    }
-
-    private struct WorkspaceCreationSnapshot {
-        let tabs: [WorkspaceCreationTabSnapshot]
-        let selectedTabId: UUID?
-        let selectedTabWasPinned: Bool
-        let preferredWorkingDirectory: String?
-        let inheritedTerminalFontPoints: Float?
-    }
     private var agentPIDSweepTimer: DispatchSourceTimer?
-    private var workspaceGitMetadataPollTimer: DispatchSourceTimer?
-    private var selectedWorkspaceGitMetadataPollTimer: DispatchSourceTimer?
 #if DEBUG
     private var debugWorkspaceSwitchCounter: UInt64 = 0
     private var debugWorkspaceSwitchId: UInt64 = 0
@@ -908,8 +1269,18 @@ class TabManager: ObservableObject {
     private var uiTestCancellables = Set<AnyCancellable>()
 #endif
 
-    init(initialWorkingDirectory: String? = nil) {
-        addWorkspace(workingDirectory: initialWorkingDirectory)
+    init(
+        initialWorkspaceTitle: String? = nil,
+        initialWorkingDirectory: String? = nil,
+        initialTerminalInput: String? = nil,
+        autoWelcomeIfNeeded: Bool = true
+    ) {
+        addWorkspace(
+            title: initialWorkspaceTitle,
+            workingDirectory: initialWorkingDirectory,
+            initialTerminalInput: initialTerminalInput,
+            autoWelcomeIfNeeded: autoWelcomeIfNeeded
+        )
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -932,13 +1303,24 @@ class TabManager: ObservableObject {
                 guard let self else { return }
                 guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
                 guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
-                dismissPanelNotificationOnFocusIfActive(tabId: tabId, panelId: surfaceId)
+                let explicitFocusIntent = notification.userInfo?[GhosttyNotificationKey.explicitFocusIntent] as? Bool ?? false
+                dismissPanelNotificationOnFocus(tabId: tabId, panelId: surfaceId, explicitFocusIntent: explicitFocusIntent)
+                focusedSurfaceTitleDidChange(tabId: tabId)
             }
         })
 
         startAgentPIDSweepTimer()
-        startWorkspaceGitMetadataPollTimer()
-        startSelectedWorkspaceGitMetadataPollTimer()
+        updateWorkspacePullRequestPollTimer()
+        updateWorkspaceGitMetadataFallbackTimer()
+        observers.append(NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { [weak self] in
+                self?.sidebarGitMetadataWatchSettingsDidChange()
+            }
+        })
 #if DEBUG
         setupUITestFocusShortcutsIfNeeded()
         setupSplitCloseRightUITestIfNeeded()
@@ -950,8 +1332,9 @@ class TabManager: ObservableObject {
     deinit {
         workspaceCycleCooldownTask?.cancel()
         agentPIDSweepTimer?.cancel()
-        workspaceGitMetadataPollTimer?.cancel()
-        selectedWorkspaceGitMetadataPollTimer?.cancel()
+        workspacePullRequestPollTimer?.cancel()
+        workspaceGitMetadataFallbackTimer?.cancel()
+        workspacePullRequestRefreshTask?.cancel()
     }
 
     // MARK: - Agent PID Sweep
@@ -973,44 +1356,74 @@ class TabManager: ObservableObject {
         agentPIDSweepTimer = timer
     }
 
-    /// Periodically refreshes git/PR metadata for tracked workspace branches so
-    /// remote GitHub state changes (e.g. PR open -> merged) reach sidebar state
-    /// even when the local branch/directory does not change.
-    private func startWorkspaceGitMetadataPollTimer() {
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        let interval = Self.workspaceGitMetadataPollInterval
-        timer.schedule(deadline: .now() + interval, repeating: interval)
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.refreshTrackedWorkspaceGitMetadata()
-            }
+    private func updateWorkspacePullRequestPollTimer() {
+        guard sidebarGitMetadataWatchEnabled else {
+            workspacePullRequestPollTimer?.cancel()
+            workspacePullRequestPollTimer = nil
+            return
         }
-        timer.resume()
-        workspaceGitMetadataPollTimer = timer
+
+        guard workspacePullRequestRefreshTask == nil else {
+            workspacePullRequestPollTimer?.cancel()
+            workspacePullRequestPollTimer = nil
+            return
+        }
+
+        guard let nextPollAt = workspacePullRequestNextPollAtByKey.values.min() else {
+            workspacePullRequestPollTimer?.cancel()
+            workspacePullRequestPollTimer = nil
+            return
+        }
+
+        if workspacePullRequestPollTimer == nil {
+            let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+            timer.setEventHandler { [weak self] in
+                guard let self else { return }
+                DispatchQueue.main.async { [weak self] in
+                    self?.refreshTrackedWorkspacePullRequestsIfNeeded(reason: "timer")
+                }
+            }
+            timer.resume()
+            workspacePullRequestPollTimer = timer
+        }
+
+        let delay = max(0.25, nextPollAt.timeIntervalSinceNow)
+        workspacePullRequestPollTimer?.schedule(
+            deadline: .now() + delay,
+            repeating: .never,
+            leeway: .milliseconds(250)
+        )
     }
 
-    /// Refresh the selected workspace more aggressively so branch checkouts and
-    /// newly created PRs show up in the sidebar without waiting for the slower
-    /// background sweep across every tracked workspace.
-    private func startSelectedWorkspaceGitMetadataPollTimer() {
+    private func updateWorkspaceGitMetadataFallbackTimer() {
+        guard sidebarGitMetadataWatchEnabled,
+              !workspaceGitTrackedDirectoryByKey.isEmpty else {
+            workspaceGitMetadataFallbackTimer?.cancel()
+            workspaceGitMetadataFallbackTimer = nil
+            return
+        }
+
+        guard workspaceGitMetadataFallbackTimer == nil else {
+            return
+        }
+
         let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        let interval = Self.selectedWorkspaceGitMetadataPollInterval
-        timer.schedule(deadline: .now() + interval, repeating: interval)
         timer.setEventHandler { [weak self] in
-            guard let self else { return }
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.refreshSelectedWorkspaceGitMetadata()
+                self?.refreshTrackedWorkspaceGitMetadata(reason: "fallbackTimer")
             }
         }
+        timer.schedule(
+            deadline: .now() + Self.workspaceGitMetadataFallbackRefreshInterval,
+            repeating: Self.workspaceGitMetadataFallbackRefreshInterval,
+            leeway: .seconds(15)
+        )
         timer.resume()
-        selectedWorkspaceGitMetadataPollTimer = timer
+        workspaceGitMetadataFallbackTimer = timer
     }
 
-    private func refreshTrackedWorkspaceGitMetadata() {
-        let activeProbeKeys = Set(workspaceGitProbeGenerationByKey.keys)
+    private func refreshTrackedWorkspaceGitMetadata(reason: String) {
+        let activeProbeKeys = activeWorkspaceGitProbeKeys
 
         for workspace in tabs {
             for panelId in trackedWorkspaceGitMetadataPollCandidatePanelIds(
@@ -1020,38 +1433,702 @@ class TabManager: ObservableObject {
                 scheduleWorkspaceGitMetadataRefreshIfPossible(
                     workspaceId: workspace.id,
                     panelId: panelId,
-                    reason: "periodicPoll"
+                    reason: reason
                 )
             }
         }
     }
 
-    private func refreshSelectedWorkspaceGitMetadata() {
-        guard let workspace = selectedWorkspace,
-              let focusedPanelId = workspace.focusedPanelId else {
+    private var sidebarGitMetadataWatchEnabled: Bool {
+        SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
+    }
+
+    private func sidebarGitMetadataWatchSettingsDidChange() {
+        let isEnabled = sidebarGitMetadataWatchEnabled
+        guard isEnabled != lastSidebarGitMetadataWatchEnabled else {
+            return
+        }
+        lastSidebarGitMetadataWatchEnabled = isEnabled
+
+        guard isEnabled else {
+            stopAllWorkspaceGitMetadataWatchers()
+            workspaceGitMetadataFallbackTimer?.cancel()
+            workspaceGitMetadataFallbackTimer = nil
+            workspaceGitProbeStateByKey.removeAll()
+            for timers in workspaceGitProbeTimersByKey.values {
+                for timer in timers {
+                    timer.setEventHandler {}
+                    timer.cancel()
+                }
+            }
+            workspaceGitProbeTimersByKey.removeAll()
+            workspaceGitTrackedDirectoryByKey.removeAll()
+            workspaceGitCleanIndexSignatureByKey.removeAll()
+            workspaceGitCleanIndexContentSignatureByKey.removeAll()
+            workspaceGitHeadSignatureByKey.removeAll()
+            resetWorkspacePullRequestRefreshState()
+            clearAllWorkspaceSidebarGitMetadata()
             return
         }
 
-        let activeProbeKeys = Set(workspaceGitProbeGenerationByKey.keys)
-        let candidatePanelIds = trackedWorkspaceGitMetadataPollCandidatePanelIds(
-            in: workspace,
-            activeProbeKeys: activeProbeKeys
-        )
-        guard candidatePanelIds.contains(focusedPanelId) else { return }
+        restartWorkspaceGitMetadataWatching(reason: "gitWatchSettingEnabled")
+        updateWorkspaceGitMetadataFallbackTimer()
+    }
 
-        scheduleWorkspaceGitMetadataRefreshIfPossible(
-            workspaceId: workspace.id,
-            panelId: focusedPanelId,
-            reason: "selectedPeriodicPoll"
+    private func restartWorkspaceGitMetadataWatching(reason: String) {
+        for workspace in tabs where !workspace.isRemoteWorkspace {
+            for panelId in workspace.panels.keys {
+                guard workspace.terminalPanel(for: panelId) != nil else {
+                    continue
+                }
+                if let directory = gitProbeDirectory(for: workspace, panelId: panelId) {
+                    let key = WorkspaceGitProbeKey(workspaceId: workspace.id, panelId: panelId)
+                    workspaceGitTrackedDirectoryByKey[key] = directory
+                    updateWorkspaceGitMetadataWatcher(for: key, directory: directory)
+                }
+                scheduleWorkspaceGitMetadataRefreshIfPossible(
+                    workspaceId: workspace.id,
+                    panelId: panelId,
+                    reason: reason
+                )
+            }
+        }
+        updateWorkspaceGitMetadataFallbackTimer()
+    }
+
+    private func updateWorkspaceGitMetadataWatcher(
+        for key: WorkspaceGitProbeKey,
+        directory: String
+    ) {
+        guard sidebarGitMetadataWatchEnabled else {
+            stopWorkspaceGitMetadataWatcher(for: key)
+            return
+        }
+
+        if workspaceGitMetadataWatcherSourceDirectoryByKey[key] == directory,
+           workspaceGitMetadataWatchersByKey[key] != nil {
+            if workspaceGitMetadataWatcherDescriptorRequestsByKey[key]?.directory != directory {
+                workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
+            }
+            return
+        }
+
+        if workspaceGitMetadataWatcherDescriptorRequestsByKey[key]?.directory == directory {
+            return
+        }
+
+        workspaceGitMetadataWatcherDescriptorGeneration &+= 1
+        let request = WorkspaceGitMetadataWatcherDescriptorRequest(
+            generation: workspaceGitMetadataWatcherDescriptorGeneration,
+            directory: directory
         )
+        workspaceGitMetadataWatcherDescriptorRequestsByKey[key] = request
+
+        Task { [weak self] in
+            let descriptor = await Task.detached(priority: .utility) {
+                Self.workspaceGitMetadataWatcherDescriptor(for: directory)
+            }.value
+            await MainActor.run { [weak self] in
+                self?.applyWorkspaceGitMetadataWatcherDescriptor(
+                    descriptor,
+                    for: key,
+                    request: request
+                )
+            }
+        }
+    }
+
+    private func applyWorkspaceGitMetadataWatcherDescriptor(
+        _ descriptor: WorkspaceGitMetadataWatcher.Descriptor?,
+        for key: WorkspaceGitProbeKey,
+        request: WorkspaceGitMetadataWatcherDescriptorRequest
+    ) {
+        guard workspaceGitMetadataWatcherDescriptorRequestsByKey[key] == request else {
+            return
+        }
+        workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
+
+        guard sidebarGitMetadataWatchEnabled,
+              workspaceGitTrackedDirectoryByKey[key] == request.directory,
+              let descriptor else {
+            stopWorkspaceGitMetadataWatcher(for: key)
+            return
+        }
+
+        if workspaceGitMetadataWatchersByKey[key]?.descriptor == descriptor {
+            workspaceGitMetadataWatcherSourceDirectoryByKey[key] = request.directory
+            return
+        }
+
+        stopWorkspaceGitMetadataWatcher(for: key)
+        workspaceGitMetadataWatchersByKey[key] = WorkspaceGitMetadataWatcher(
+            descriptor: descriptor
+        ) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.scheduleWorkspaceGitMetadataRefreshIfPossible(
+                    workspaceId: key.workspaceId,
+                    panelId: key.panelId,
+                    reason: "filesystemEvent"
+                )
+            }
+        }
+        workspaceGitMetadataWatcherSourceDirectoryByKey[key] = request.directory
+    }
+
+    private func stopWorkspaceGitMetadataWatcher(for key: WorkspaceGitProbeKey) {
+        workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
+        workspaceGitMetadataWatcherSourceDirectoryByKey.removeValue(forKey: key)
+        workspaceGitMetadataWatchersByKey.removeValue(forKey: key)?.stop()
+    }
+
+    private func stopWorkspaceGitMetadataWatchers(workspaceId: UUID) {
+        let keys = workspaceGitMetadataWatchersByKey.keys.filter { $0.workspaceId == workspaceId }
+        for key in keys {
+            stopWorkspaceGitMetadataWatcher(for: key)
+        }
+    }
+
+    private func stopAllWorkspaceGitMetadataWatchers() {
+        for watcher in workspaceGitMetadataWatchersByKey.values {
+            watcher.stop()
+        }
+        workspaceGitMetadataWatchersByKey.removeAll()
+        workspaceGitMetadataWatcherSourceDirectoryByKey.removeAll()
+        workspaceGitMetadataWatcherDescriptorRequestsByKey.removeAll()
+    }
+
+    private func refreshTrackedWorkspacePullRequestsIfNeeded(
+        reason: String,
+        allowCachedResultsOverride: Bool? = nil
+    ) {
+        guard sidebarGitMetadataWatchEnabled else {
+            resetWorkspacePullRequestRefreshState()
+            clearAllWorkspaceSidebarGitMetadata()
+            return
+        }
+
+        let now = Date()
+        var candidateSeeds: [WorkspacePullRequestCandidateSeed] = []
+        var requestedKeys: [WorkspaceGitProbeKey] = []
+        var validKeys: Set<WorkspaceGitProbeKey> = []
+
+        for workspace in tabs {
+            for panelId in Set(workspace.panelGitBranches.keys).union(workspace.panelPullRequests.keys) {
+                let key = WorkspaceGitProbeKey(workspaceId: workspace.id, panelId: panelId)
+                validKeys.insert(key)
+                let branch = Self.normalizedBranchName(
+                    workspace.panelGitBranches[panelId]?.branch
+                        ?? workspace.panelPullRequests[panelId]?.branch
+                )
+                guard let branch else {
+                    clearWorkspacePullRequestTracking(for: key)
+                    continue
+                }
+
+                if Self.shouldSkipWorkspacePullRequestLookup(branch: branch) {
+                    workspace.clearPanelPullRequest(panelId: panelId)
+                    clearWorkspacePullRequestTracking(for: key)
+                    continue
+                }
+
+                guard shouldRefreshWorkspacePullRequest(
+                    key: key,
+                    now: now,
+                    currentPullRequest: workspace.panelPullRequests[panelId]
+                ) else {
+                    continue
+                }
+
+                if case .inFlight = workspacePullRequestProbeStateByKey[key] {
+                    markWorkspacePullRequestProbeRerunPending(
+                        for: key,
+                        bypassRepoCache: !Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
+                    )
+                    continue
+                }
+
+                let candidateSeed = workspacePullRequestCandidateSeed(
+                    workspace: workspace,
+                    panelId: panelId,
+                    branch: branch
+                )
+                candidateSeeds.append(candidateSeed)
+                requestedKeys.append(key)
+            }
+        }
+
+        pruneWorkspacePullRequestTracking(validKeys: validKeys)
+        guard workspacePullRequestRefreshTask == nil else {
+            updateWorkspacePullRequestPollTimer()
+            return
+        }
+        guard !candidateSeeds.isEmpty else {
+            updateWorkspacePullRequestPollTimer()
+            return
+        }
+        workspacePullRequestPollTimer?.cancel()
+        workspacePullRequestPollTimer = nil
+        for key in requestedKeys {
+            workspacePullRequestProbeStateByKey[key] = .inFlight(rerunPending: false)
+        }
+
+        let cacheBySlug = workspacePullRequestRepoCacheBySlug
+        let allowCachedResults = allowCachedResultsOverride
+            ?? Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
+        workspacePullRequestRefreshTask = Task.detached(priority: .utility) { [weak self] in
+            let candidateResolution = await Self.resolveWorkspacePullRequestCandidateSeeds(candidateSeeds)
+            guard !Task.isCancelled else { return }
+            let repoResults = await Self.fetchWorkspacePullRequestRepoResults(
+                repoDirectoriesBySlug: candidateResolution.repoDirectoriesBySlug,
+                candidateBranchesByRepo: candidateResolution.candidateBranchesByRepo,
+                cacheBySlug: cacheBySlug,
+                now: now,
+                allowCachedResults: allowCachedResults
+            )
+            let results = Self.resolveWorkspacePullRequestRefreshResults(
+                candidates: candidateResolution.candidates,
+                repoResults: repoResults
+            )
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                guard !Task.isCancelled else { return }
+                self.workspacePullRequestRefreshTask = nil
+                self.applyWorkspacePullRequestRefreshResults(
+                    results,
+                    repoResults: repoResults,
+                    requestedKeys: requestedKeys,
+                    now: Date(),
+                    reason: reason
+                )
+            }
+        }
+    }
+
+    private func shouldRefreshWorkspacePullRequest(
+        key: WorkspaceGitProbeKey,
+        now: Date,
+        currentPullRequest: SidebarPullRequestState?
+    ) -> Bool {
+        Self.shouldRefreshWorkspacePullRequest(
+            now: now,
+            nextPollAt: workspacePullRequestNextPollAtByKey[key],
+            lastTerminalStateRefreshAt: workspacePullRequestLastTerminalStateRefreshAtByKey[key],
+            currentPullRequestStatus: currentPullRequest?.status
+        )
+    }
+
+    private func workspacePullRequestCandidateSeed(
+        workspace: Workspace,
+        panelId: UUID,
+        branch: String
+    ) -> WorkspacePullRequestCandidateSeed {
+        let directory = gitProbeDirectory(for: workspace, panelId: panelId)
+        return WorkspacePullRequestCandidateSeed(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            branch: branch,
+            directory: directory
+        )
+    }
+
+    private nonisolated static func resolveWorkspacePullRequestCandidateSeeds(
+        _ seeds: [WorkspacePullRequestCandidateSeed]
+    ) async -> WorkspacePullRequestCandidateResolution {
+        var candidates: [WorkspacePullRequestCandidate] = []
+        candidates.reserveCapacity(seeds.count)
+        var candidateBranchesByRepo: [String: Set<String>] = [:]
+        var repoDirectoriesBySlug: [String: String] = [:]
+        var repoSlugsByDirectory: [String: [String]] = [:]
+
+        for seed in seeds {
+            let repoSlugs: [String]
+            if let directory = seed.directory {
+                if let cachedRepoSlugs = repoSlugsByDirectory[directory] {
+                    repoSlugs = cachedRepoSlugs
+                } else {
+                    let resolvedRepoSlugs = await githubRepositorySlugs(directory: directory)
+                    repoSlugsByDirectory[directory] = resolvedRepoSlugs
+                    repoSlugs = resolvedRepoSlugs
+                }
+            } else {
+                repoSlugs = []
+            }
+
+            candidates.append(
+                WorkspacePullRequestCandidate(
+                    workspaceId: seed.workspaceId,
+                    panelId: seed.panelId,
+                    branch: seed.branch,
+                    repoSlugs: repoSlugs
+                )
+            )
+            for repoSlug in repoSlugs {
+                candidateBranchesByRepo[repoSlug, default: []].insert(seed.branch)
+            }
+            if let directory = seed.directory {
+                for repoSlug in repoSlugs where repoDirectoriesBySlug[repoSlug] == nil {
+                    repoDirectoriesBySlug[repoSlug] = directory
+                }
+            }
+        }
+
+        return WorkspacePullRequestCandidateResolution(
+            candidates: candidates,
+            candidateBranchesByRepo: candidateBranchesByRepo,
+            repoDirectoriesBySlug: repoDirectoriesBySlug
+        )
+    }
+
+    private func scheduleWorkspacePullRequestRefresh(
+        workspaceId: UUID,
+        panelId: UUID,
+        reason: String
+    ) {
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        guard sidebarGitMetadataWatchEnabled else {
+            clearWorkspaceGitMetadata(for: key)
+            return
+        }
+        let shouldBypassRepoCache = !Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
+        if shouldBypassRepoCache, workspacePullRequestRefreshTask != nil {
+            workspacePullRequestFollowUpShouldBypassRepoCache = true
+        }
+        if case .inFlight = workspacePullRequestProbeStateByKey[key] {
+            markWorkspacePullRequestProbeRerunPending(
+                for: key,
+                bypassRepoCache: shouldBypassRepoCache
+            )
+        } else {
+            workspacePullRequestNextPollAtByKey[key] = .distantPast
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "workspace.prRefresh.schedule workspace=\(workspaceId.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) reason=\(reason)"
+        )
+#endif
+        refreshTrackedWorkspacePullRequestsIfNeeded(reason: reason)
+    }
+
+    private func applyWorkspacePullRequestRefreshResults(
+        _ results: [WorkspacePullRequestRefreshResult],
+        repoResults: [String: WorkspacePullRequestRepoFetchResult],
+        requestedKeys: [WorkspaceGitProbeKey],
+        now: Date,
+        reason: String
+    ) {
+        for (repoSlug, repoResult) in repoResults {
+            guard case .success(let cacheEntry, let usedCache, _) = repoResult,
+                  !usedCache else {
+                continue
+            }
+            workspacePullRequestRepoCacheBySlug[repoSlug] = cacheEntry
+        }
+
+        let requestedKeySet = Set(requestedKeys)
+        let resultsByKey = Dictionary(
+            uniqueKeysWithValues: results.map {
+                (WorkspaceGitProbeKey(workspaceId: $0.workspaceId, panelId: $0.panelId), $0)
+            }
+        )
+        var needsFollowUpPass = false
+
+        defer {
+            if needsFollowUpPass {
+                let shouldBypassRepoCache = workspacePullRequestFollowUpShouldBypassRepoCache
+                workspacePullRequestFollowUpShouldBypassRepoCache = false
+                refreshTrackedWorkspacePullRequestsIfNeeded(
+                    reason: "\(reason).followUp",
+                    allowCachedResultsOverride: shouldBypassRepoCache ? false : nil
+                )
+            }
+        }
+
+        for key in requestedKeys {
+            let rerunPending = workspacePullRequestProbeRerunPending(for: key)
+            workspacePullRequestProbeStateByKey[key] = .idle
+            if rerunPending {
+                workspacePullRequestNextPollAtByKey[key] = .distantPast
+                needsFollowUpPass = true
+            }
+
+            guard requestedKeySet.contains(key),
+                  let result = resultsByKey[key] else {
+                continue
+            }
+
+            if rerunPending,
+               workspacePullRequestFollowUpShouldBypassRepoCache,
+               result.usedCachedRepoData {
+                continue
+            }
+
+            guard let workspace = tabs.first(where: { $0.id == result.workspaceId }),
+                  workspace.panels[result.panelId] != nil else {
+                clearWorkspacePullRequestTracking(for: key)
+                continue
+            }
+
+            let priorPullRequest = workspace.panelPullRequests[result.panelId]
+            let countsAsTerminalSweep = priorPullRequest.map { $0.status != .open } ?? false
+
+            switch result.resolution {
+            case .resolved(let resolvedPullRequest):
+                workspacePullRequestTransientFailureCountByKey[key] = 0
+                guard let status = SidebarPullRequestStatus(rawValue: resolvedPullRequest.statusRawValue),
+                      let url = URL(string: resolvedPullRequest.urlString) else {
+                    continue
+                }
+                workspace.updatePanelPullRequest(
+                    panelId: result.panelId,
+                    number: resolvedPullRequest.number,
+                    label: "PR",
+                    url: url,
+                    status: status,
+                    branch: resolvedPullRequest.branch,
+                    isStale: false
+                )
+            case .notFound:
+                workspacePullRequestTransientFailureCountByKey[key] = 0
+                workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
+                if workspace.panelPullRequests[result.panelId] != nil {
+                    workspace.clearPanelPullRequest(panelId: result.panelId)
+                }
+            case .unsupportedRepository:
+                workspacePullRequestTransientFailureCountByKey[key] = 0
+                workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
+                if workspace.panelPullRequests[result.panelId] != nil {
+                    workspace.clearPanelPullRequest(panelId: result.panelId)
+                }
+            case .transientFailure:
+                let nextFailureCount = (workspacePullRequestTransientFailureCountByKey[key] ?? 0) + 1
+                workspacePullRequestTransientFailureCountByKey[key] = nextFailureCount
+                if nextFailureCount >= 3,
+                   let currentPullRequest = workspace.panelPullRequests[result.panelId] {
+                    workspace.updatePanelPullRequest(
+                        panelId: result.panelId,
+                        number: currentPullRequest.number,
+                        label: currentPullRequest.label,
+                        url: currentPullRequest.url,
+                        status: currentPullRequest.status,
+                        branch: currentPullRequest.branch,
+                        isStale: true
+                    )
+                }
+            }
+
+            scheduleNextWorkspacePullRequestPoll(
+                key: key,
+                workspace: workspace,
+                panelId: result.panelId,
+                now: now,
+                resolution: result.resolution,
+                countsAsTerminalSweep: countsAsTerminalSweep
+            )
+            if rerunPending {
+                workspacePullRequestNextPollAtByKey[key] = .distantPast
+            }
+
+#if DEBUG
+            let label: String = {
+                switch result.resolution {
+                case .unsupportedRepository:
+                    return "unsupported"
+                case .notFound:
+                    return "none"
+                case .transientFailure:
+                    return "transientFailure"
+                case .resolved(let resolvedPullRequest):
+                    return "#\(resolvedPullRequest.number):\(resolvedPullRequest.statusRawValue)"
+                }
+            }()
+            cmuxDebugLog(
+                "workspace.prRefresh.apply workspace=\(result.workspaceId.uuidString.prefix(5)) " +
+                "panel=\(result.panelId.uuidString.prefix(5)) result=\(label) reason=\(reason)"
+            )
+#endif
+        }
+
+        updateWorkspacePullRequestPollTimer()
+    }
+
+    private func scheduleNextWorkspacePullRequestPoll(
+        key: WorkspaceGitProbeKey,
+        workspace: Workspace,
+        panelId: UUID,
+        now: Date,
+        resolution: WorkspacePullRequestRefreshResult.Resolution,
+        countsAsTerminalSweep: Bool
+    ) {
+        if countsAsTerminalSweep {
+            workspacePullRequestLastTerminalStateRefreshAtByKey[key] = now
+        }
+
+        if case .resolved(let resolvedPullRequest) = resolution,
+           let status = SidebarPullRequestStatus(rawValue: resolvedPullRequest.statusRawValue),
+           status != .open {
+            workspacePullRequestLastTerminalStateRefreshAtByKey[key] = now
+            workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(Self.workspacePullRequestTerminalStateSweepInterval)
+            return
+        }
+
+        if case .transientFailure = resolution,
+           workspacePullRequestLastTerminalStateRefreshAtByKey[key] != nil {
+            workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(Self.workspacePullRequestTerminalStateSweepInterval)
+            return
+        }
+
+        if case .unsupportedRepository = resolution {
+            workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
+            workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(Self.jitteredPollInterval(base: Self.backgroundPollInterval))
+            return
+        }
+
+        workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
+        let baseInterval = isSelectedFocusedPanel(workspace: workspace, panelId: panelId)
+            ? Self.selectedPollInterval
+            : Self.backgroundPollInterval
+        workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(Self.jitteredPollInterval(base: baseInterval))
+    }
+
+    private func pruneWorkspacePullRequestTracking(validKeys: Set<WorkspaceGitProbeKey>) {
+        workspacePullRequestNextPollAtByKey = workspacePullRequestNextPollAtByKey.filter { validKeys.contains($0.key) }
+        workspacePullRequestProbeStateByKey = workspacePullRequestProbeStateByKey.filter { validKeys.contains($0.key) }
+        workspacePullRequestLastTerminalStateRefreshAtByKey = workspacePullRequestLastTerminalStateRefreshAtByKey.filter { validKeys.contains($0.key) }
+        workspacePullRequestTransientFailureCountByKey = workspacePullRequestTransientFailureCountByKey.filter { validKeys.contains($0.key) }
+        let repoCacheCutoff = Date().addingTimeInterval(-Self.workspacePullRequestRepoCachePruneLifetime)
+        workspacePullRequestRepoCacheBySlug = workspacePullRequestRepoCacheBySlug.filter {
+            $0.value.fetchedAt >= repoCacheCutoff
+        }
+        updateWorkspacePullRequestPollTimer()
+    }
+
+    private func clearWorkspacePullRequestTracking(for key: WorkspaceGitProbeKey) {
+        workspacePullRequestNextPollAtByKey.removeValue(forKey: key)
+        workspacePullRequestProbeStateByKey.removeValue(forKey: key)
+        workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
+        workspacePullRequestTransientFailureCountByKey.removeValue(forKey: key)
+        updateWorkspacePullRequestPollTimer()
+    }
+
+    private func clearWorkspacePullRequestTracking(workspaceId: UUID) {
+        workspacePullRequestNextPollAtByKey = workspacePullRequestNextPollAtByKey.filter { $0.key.workspaceId != workspaceId }
+        workspacePullRequestProbeStateByKey = workspacePullRequestProbeStateByKey.filter { $0.key.workspaceId != workspaceId }
+        workspacePullRequestLastTerminalStateRefreshAtByKey = workspacePullRequestLastTerminalStateRefreshAtByKey.filter { $0.key.workspaceId != workspaceId }
+        workspacePullRequestTransientFailureCountByKey = workspacePullRequestTransientFailureCountByKey.filter { $0.key.workspaceId != workspaceId }
+        updateWorkspacePullRequestPollTimer()
+    }
+
+    private func resetWorkspacePullRequestRefreshState() {
+        workspacePullRequestRefreshTask?.cancel()
+        workspacePullRequestRefreshTask = nil
+        workspacePullRequestProbeStateByKey.removeAll()
+        workspacePullRequestNextPollAtByKey.removeAll()
+        workspacePullRequestLastTerminalStateRefreshAtByKey.removeAll()
+        workspacePullRequestTransientFailureCountByKey.removeAll()
+        workspacePullRequestRepoCacheBySlug.removeAll()
+        workspacePullRequestFollowUpShouldBypassRepoCache = false
+        updateWorkspacePullRequestPollTimer()
+    }
+
+    private var activeWorkspaceGitProbeKeys: Set<WorkspaceGitProbeKey> {
+        Set(workspaceGitProbeStateByKey.compactMap { key, state in
+            guard case .inFlight = state else { return nil }
+            return key
+        })
+    }
+
+    private func markWorkspaceGitProbeRerunPending(for key: WorkspaceGitProbeKey) {
+        guard case .inFlight(let rerunPending) = workspaceGitProbeStateByKey[key],
+              !rerunPending else {
+            return
+        }
+        workspaceGitProbeStateByKey[key] = .inFlight(rerunPending: true)
+    }
+
+    private func workspaceGitProbeRerunPending(for key: WorkspaceGitProbeKey) -> Bool {
+        guard case .inFlight(let rerunPending) = workspaceGitProbeStateByKey[key] else {
+            return false
+        }
+        return rerunPending
+    }
+
+    private func markWorkspacePullRequestProbeRerunPending(
+        for key: WorkspaceGitProbeKey,
+        bypassRepoCache: Bool
+    ) {
+        guard case .inFlight(let rerunPending) = workspacePullRequestProbeStateByKey[key],
+              !rerunPending else {
+            if bypassRepoCache {
+                workspacePullRequestFollowUpShouldBypassRepoCache = true
+            }
+            return
+        }
+        workspacePullRequestProbeStateByKey[key] = .inFlight(rerunPending: true)
+        if bypassRepoCache {
+            workspacePullRequestFollowUpShouldBypassRepoCache = true
+        }
+    }
+
+    private func workspacePullRequestProbeRerunPending(for key: WorkspaceGitProbeKey) -> Bool {
+        guard case .inFlight(let rerunPending) = workspacePullRequestProbeStateByKey[key] else {
+            return false
+        }
+        return rerunPending
+    }
+
+    private func isSelectedFocusedPanel(workspace: Workspace, panelId: UUID) -> Bool {
+        selectedWorkspace?.id == workspace.id && selectedWorkspace?.focusedPanelId == panelId
+    }
+
+    private nonisolated static func jitteredPollInterval(base: TimeInterval) -> TimeInterval {
+        let jitter = base * Self.workspacePullRequestPollJitterFraction
+        return base + Double.random(in: -jitter...jitter)
+    }
+
+    nonisolated static func workspacePullRequestRefreshAllowsRepoCache(reason: String) -> Bool {
+        let periodicPrefixes = [
+            "periodicPoll",
+            "selectedPeriodicPoll",
+            "timer",
+        ]
+        return periodicPrefixes.contains { prefix in
+            reason == prefix || reason.hasPrefix("\(prefix).")
+        }
+    }
+
+    nonisolated static func shouldRefreshWorkspacePullRequest(
+        now: Date,
+        nextPollAt: Date?,
+        lastTerminalStateRefreshAt: Date?,
+        currentPullRequestStatus: SidebarPullRequestStatus?
+    ) -> Bool {
+        let nextPollAt = nextPollAt ?? .distantPast
+        if nextPollAt <= now {
+            return true
+        }
+
+        guard let currentPullRequestStatus,
+              currentPullRequestStatus != .open else {
+            return false
+        }
+
+        let lastTerminalRefreshAt = lastTerminalStateRefreshAt ?? .distantPast
+        return now.timeIntervalSince(lastTerminalRefreshAt) >= Self.workspacePullRequestTerminalStateSweepInterval
     }
 
     func refreshTrackedWorkspaceGitMetadataForTesting() {
-        refreshTrackedWorkspaceGitMetadata()
+        refreshTrackedWorkspaceGitMetadata(reason: "test")
+    }
+
+    func sidebarGitMetadataWatchSettingsDidChangeForTesting() {
+        sidebarGitMetadataWatchSettingsDidChange()
     }
 
     func trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
-        let activeProbeKeys = Set(workspaceGitProbeGenerationByKey.keys)
+        let activeProbeKeys = activeWorkspaceGitProbeKeys
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else {
             return []
         }
@@ -1062,7 +2139,7 @@ class TabManager: ObservableObject {
     }
 
     func activeWorkspaceGitProbePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
-        let probeKeys = Set(workspaceGitProbeGenerationByKey.keys.filter { $0.workspaceId == workspaceId })
+        let probeKeys = Set(workspaceGitProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitProbeTimersByKey.keys.filter { $0.workspaceId == workspaceId })
         return Set(probeKeys.map(\.panelId))
     }
@@ -1120,8 +2197,7 @@ class TabManager: ObservableObject {
             }
             if !keysToRemove.isEmpty {
                 for key in keysToRemove {
-                    tab.statusEntries.removeValue(forKey: key)
-                    tab.agentPIDs.removeValue(forKey: key)
+                    tab.clearAgentPID(key: key, clearStatus: true, refreshPorts: false)
                 }
                 let remainingAgentPIDs = Set(tab.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
                 PortScanner.shared.refreshAgentPorts(workspaceId: tab.id, agentPIDs: remainingAgentPIDs)
@@ -1164,6 +2240,11 @@ class TabManager: ObservableObject {
         reason: String,
         delays: [TimeInterval] = [0]
     ) {
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        guard sidebarGitMetadataWatchEnabled else {
+            clearWorkspaceGitMetadata(for: key)
+            return
+        }
         guard let workspace = tabs.first(where: { $0.id == workspaceId }),
               workspace.panels[panelId] != nil,
               let directory = gitProbeDirectory(for: workspace, panelId: panelId) else {
@@ -1179,7 +2260,7 @@ class TabManager: ObservableObject {
         )
     }
 
-    private func wireClosedBrowserTracking(for workspace: Workspace) {
+    func wireClosedBrowserTracking(for workspace: Workspace) {
         workspace.onClosedBrowserPanel = { [weak self] snapshot in
             self?.recentlyClosedBrowsers.push(snapshot)
         }
@@ -1217,32 +2298,32 @@ class TabManager: ObservableObject {
         selectedTerminalPanel?.hasSelection() == true
     }
 
-    func startSearch() {
-        if let panel = selectedTerminalPanel {
-            if panel.searchState == nil {
-                panel.searchState = TerminalSurface.SearchState()
-            }
-            NSLog("Find: startSearch workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
-            NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-            _ = panel.performBindingAction("start_search")
-            return
-        }
+    @discardableResult
+    func startSearch() -> Bool {
         if let panel = selectedTerminalPanel {
             let hadExistingSearch = panel.searchState != nil
-            let handled = startOrFocusTerminalSearch(panel.surface)
-            NSLog("Find: startSearch workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
+            panel.hostedView.preparePanelFocusIntentForActivation(.findField)
+            let recoveredNeedle = hadExistingSearch ? "" : panel.surface.lastSearchNeedle
+            let handled = startOrFocusTerminalSearch(panel.surface, initialNeedle: recoveredNeedle) { surface in
+                NotificationCenter.default.post(
+                    name: .ghosttySearchFocus,
+                    object: surface,
+                    userInfo: [FindFocusNotificationKey.selectAll: !hadExistingSearch && !recoveredNeedle.isEmpty]
+                )
+            }
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "find.startSearch workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
                 "panel=\(panel.id.uuidString.prefix(5)) existing=\(hadExistingSearch ? "yes" : "no") " +
                 "handled=\(handled ? 1 : 0) " +
-                "firstResponder=\(String(describing: panel.surface.hostedView.window?.firstResponder))"
+                "firstResponder=\(String(describing: panel.surface.uiWindow?.firstResponder))"
             )
 #endif
-            return
+            return handled
         }
-
-        focusedBrowserPanel?.startFind()
+        guard let browserPanel = focusedBrowserPanel else { return false }
+        browserPanel.startFind()
+        return browserPanel.searchState != nil
     }
 
     func searchSelection() {
@@ -1250,7 +2331,12 @@ class TabManager: ObservableObject {
         if panel.searchState == nil {
             panel.searchState = TerminalSurface.SearchState()
         }
-        NSLog("Find: searchSelection workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
+#if DEBUG
+        cmuxDebugLog(
+            "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+            "panel=\(panel.id.uuidString.prefix(5))"
+        )
+#endif
         NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
         _ = panel.performBindingAction("search_selection")
     }
@@ -1294,6 +2380,7 @@ class TabManager: ObservableObject {
         portOrdinal: Int,
         configTemplate: CmuxSurfaceConfigTemplate?,
         initialTerminalCommand: String?,
+        initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String]
     ) -> Workspace {
         Workspace(
@@ -1302,15 +2389,43 @@ class TabManager: ObservableObject {
             portOrdinal: portOrdinal,
             configTemplate: configTemplate,
             initialTerminalCommand: initialTerminalCommand,
+            initialTerminalInput: initialTerminalInput,
             initialTerminalEnvironment: initialTerminalEnvironment
         )
+    }
+
+    func applyCreationChromeInheritance(
+        to newWorkspace: Workspace,
+        from sourceWorkspace: Workspace?
+    ) {
+        // Sidebar-toggle relayout updates the live Bonsplit leading inset so minimal-mode
+        // workspaces reserve traffic-light space. New workspaces need that same inset
+        // copied immediately because creation itself does not trigger the resync path.
+        let inheritedLeadingInset = currentWindowTabBarLeadingInset
+            ?? sourceWorkspace?.bonsplitController.configuration.appearance.tabBarLeadingInset
+        guard let inheritedLeadingInset else { return }
+        applyTabBarLeadingInset(inheritedLeadingInset, to: newWorkspace)
+    }
+
+    func syncWorkspaceTabBarLeadingInset(_ inset: CGFloat) {
+        let normalizedInset = max(0, inset)
+        currentWindowTabBarLeadingInset = normalizedInset
+        for tab in tabs {
+            applyTabBarLeadingInset(normalizedInset, to: tab)
+        }
+    }
+
+    private func applyTabBarLeadingInset(_ inset: CGFloat, to workspace: Workspace) {
+        if workspace.bonsplitController.configuration.appearance.tabBarLeadingInset != inset {
+            workspace.bonsplitController.configuration.appearance.tabBarLeadingInset = inset
+        }
     }
 
     /// Test seam for mutating live workspace state after the creation snapshot is captured.
     func didCaptureWorkspaceCreationSnapshot() {}
 
 #if DEBUG
-    private func maybeMutateSelectionDuringWorkspaceCreationForDev(
+    func maybeMutateSelectionDuringWorkspaceCreationForDev(
         snapshot: WorkspaceCreationSnapshot
     ) {
         let env = ProcessInfo.processInfo.environment
@@ -1326,7 +2441,7 @@ class TabManager: ObservableObject {
               tabs.contains(where: { $0.id == targetId }) else {
             return
         }
-        dlog(
+        cmuxDebugLog(
             "workspace.create.devSelectionMutation from=\(selectedTabId.uuidString.prefix(5)) " +
             "to=\(targetId.uuidString.prefix(5))"
         )
@@ -1339,7 +2454,9 @@ class TabManager: ObservableObject {
         title: String? = nil,
         workingDirectory overrideWorkingDirectory: String? = nil,
         initialTerminalCommand: String? = nil,
+        initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String] = [:],
+        inheritWorkingDirectory: Bool = true,
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil,
@@ -1355,7 +2472,9 @@ class TabManager: ObservableObject {
         // entire creation path. Release ARC can otherwise drop retains early across the
         // helper/insertion chain, which reintroduces use-after-free crashes in optimized builds.
         return withExtendedLifetime((capturedTabs, sourceWorkspace)) {
-            let dir = preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
+            let dir = inheritWorkingDirectory
+                ? implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
+                : nil
             let font = inheritedTerminalFontPointsForNewWorkspace(workspace: sourceWorkspace)
             let snapshot = workspaceCreationSnapshotLite(
                 currentTabs: capturedTabs,
@@ -1386,7 +2505,12 @@ class TabManager: ObservableObject {
                 portOrdinal: ordinal,
                 configTemplate: inheritedConfig,
                 initialTerminalCommand: initialTerminalCommand,
+                initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment
+            )
+            applyCreationChromeInheritance(
+                to: newWorkspace,
+                from: sourceWorkspace ?? capturedTabs.first
             )
             newWorkspace.owningTabManager = self
             if title != nil {
@@ -1416,6 +2540,8 @@ class TabManager: ObservableObject {
                     newWorkspace.focusedTerminalPanel?.surface.requestBackgroundSurfaceStartIfNeeded()
                 }
             }
+            publishCmuxWorkspaceCreated(newWorkspace, selected: select)
+            publishCmuxInitialSurfaceCreated(newWorkspace, selected: select)
             if select {
 #if DEBUG
                 debugPrimeWorkspaceSwitchTrigger("create", to: newWorkspace.id)
@@ -1528,12 +2654,13 @@ class TabManager: ObservableObject {
     ) {
         let normalizedDirectory = normalizeDirectory(directory)
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
-        let generation = UUID()
         cancelWorkspaceGitProbeTimers(for: key)
-        workspaceGitProbeGenerationByKey[key] = generation
+        if workspaceGitProbeStateByKey[key] == nil {
+            workspaceGitProbeStateByKey[key] = .idle
+        }
 
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "workspace.gitProbe.schedule workspace=\(workspaceId.uuidString.prefix(5)) " +
             "panel=\(panelId.uuidString.prefix(5)) dir=\(normalizedDirectory) reason=\(reason)"
         )
@@ -1545,11 +2672,8 @@ class TabManager: ObservableObject {
             let timer = DispatchSource.makeTimerSource(queue: initialWorkspaceGitProbeQueue)
             timer.schedule(deadline: .now() + delay, repeating: .never)
             timer.setEventHandler { [weak self] in
-                let snapshot = Self.initialWorkspaceGitMetadataSnapshot(for: normalizedDirectory)
                 Task { @MainActor [weak self] in
-                    self?.applyWorkspaceGitMetadataSnapshot(
-                        snapshot,
-                        generation: generation,
+                    self?.beginWorkspaceGitMetadataProbeAttempt(
                         probeKey: key,
                         expectedDirectory: normalizedDirectory,
                         isLastAttempt: isLastAttempt
@@ -1560,6 +2684,33 @@ class TabManager: ObservableObject {
             timer.resume()
         }
         workspaceGitProbeTimersByKey[key] = timers
+    }
+
+    private func beginWorkspaceGitMetadataProbeAttempt(
+        probeKey: WorkspaceGitProbeKey,
+        expectedDirectory: String,
+        isLastAttempt: Bool
+    ) {
+        switch workspaceGitProbeStateByKey[probeKey] ?? .idle {
+        case .idle:
+            workspaceGitProbeStateByKey[probeKey] = .inFlight(rerunPending: false)
+        case .inFlight:
+            markWorkspaceGitProbeRerunPending(for: probeKey)
+            return
+        }
+
+        Task.detached(priority: .utility) { [weak self] in
+            let snapshot = await Self.initialWorkspaceGitMetadataSnapshot(for: expectedDirectory)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                self?.applyWorkspaceGitMetadataSnapshot(
+                    snapshot,
+                    probeKey: probeKey,
+                    expectedDirectory: expectedDirectory,
+                    isLastAttempt: isLastAttempt
+                )
+            }
+        }
     }
 
     private func cancelWorkspaceGitProbeTimers(for key: WorkspaceGitProbeKey) {
@@ -1573,12 +2724,40 @@ class TabManager: ObservableObject {
     }
 
     private func clearWorkspaceGitProbe(_ key: WorkspaceGitProbeKey) {
-        workspaceGitProbeGenerationByKey.removeValue(forKey: key)
+        workspaceGitProbeStateByKey.removeValue(forKey: key)
+        workspaceGitCleanIndexSignatureByKey.removeValue(forKey: key)
+        workspaceGitCleanIndexContentSignatureByKey.removeValue(forKey: key)
+        workspaceGitHeadSignatureByKey.removeValue(forKey: key)
+        cancelWorkspaceGitProbeTimers(for: key)
+        stopWorkspaceGitMetadataWatcher(for: key)
+        updateWorkspaceGitMetadataFallbackTimer()
+    }
+
+    private func finishWorkspaceGitProbeAttempt(_ key: WorkspaceGitProbeKey) {
+        workspaceGitProbeStateByKey.removeValue(forKey: key)
         cancelWorkspaceGitProbeTimers(for: key)
     }
 
+    private func clearWorkspaceGitMetadata(for key: WorkspaceGitProbeKey) {
+        clearWorkspaceGitProbe(key)
+        workspaceGitTrackedDirectoryByKey.removeValue(forKey: key)
+        updateWorkspaceGitMetadataFallbackTimer()
+        clearWorkspacePullRequestTracking(for: key)
+        guard let workspace = tabs.first(where: { $0.id == key.workspaceId }) else {
+            return
+        }
+        workspace.clearPanelGitBranch(panelId: key.panelId)
+        workspace.clearPanelPullRequest(panelId: key.panelId)
+    }
+
+    private func clearAllWorkspaceSidebarGitMetadata() {
+        for workspace in tabs {
+            workspace.clearSidebarGitMetadata()
+        }
+    }
+
     private func clearWorkspaceGitProbes(workspaceId: UUID) {
-        let keys = Set(workspaceGitProbeGenerationByKey.keys.filter { $0.workspaceId == workspaceId })
+        let keys = Set(workspaceGitProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitProbeTimersByKey.keys.filter { $0.workspaceId == workspaceId })
         for key in keys {
             clearWorkspaceGitProbe(key)
@@ -1586,40 +2765,83 @@ class TabManager: ObservableObject {
         workspaceGitTrackedDirectoryByKey = workspaceGitTrackedDirectoryByKey.filter { key, _ in
             key.workspaceId != workspaceId
         }
+        workspaceGitCleanIndexSignatureByKey = workspaceGitCleanIndexSignatureByKey.filter { key, _ in
+            key.workspaceId != workspaceId
+        }
+        workspaceGitCleanIndexContentSignatureByKey = workspaceGitCleanIndexContentSignatureByKey.filter { key, _ in
+            key.workspaceId != workspaceId
+        }
+        workspaceGitHeadSignatureByKey = workspaceGitHeadSignatureByKey.filter { key, _ in
+            key.workspaceId != workspaceId
+        }
+        stopWorkspaceGitMetadataWatchers(workspaceId: workspaceId)
+        updateWorkspaceGitMetadataFallbackTimer()
+        clearWorkspacePullRequestTracking(workspaceId: workspaceId)
     }
 
     private func applyWorkspaceGitMetadataSnapshot(
         _ snapshot: InitialWorkspaceGitMetadataSnapshot,
-        generation: UUID,
         probeKey: WorkspaceGitProbeKey,
         expectedDirectory: String,
         isLastAttempt: Bool
     ) {
+        let wasInFlight: Bool = {
+            if case .inFlight = workspaceGitProbeStateByKey[probeKey] { return true }
+            return false
+        }()
+        let resolvedPullRequest: SidebarPullRequestState? = {
+            guard case .resolved(let pullRequest) = snapshot.pullRequest else { return nil }
+            return pullRequest
+        }()
+        let shouldTrackGitDirectory = snapshot.isRepository || resolvedPullRequest != nil
+        let shouldFinishProbe = shouldStopWorkspaceGitMetadataRefresh(snapshot) || isLastAttempt
+        let shouldStopTrackingGitDirectory = shouldFinishProbe && !shouldTrackGitDirectory
+        var didClearProbe = false
         defer {
-            if shouldStopWorkspaceGitMetadataRefresh(snapshot) || isLastAttempt,
-               workspaceGitProbeGenerationByKey[probeKey] == generation {
-                clearWorkspaceGitProbe(probeKey)
+            if wasInFlight, !didClearProbe {
+                let rerunPending = workspaceGitProbeRerunPending(for: probeKey)
+                if rerunPending {
+                    workspaceGitProbeStateByKey[probeKey] = .idle
+                    if shouldFinishProbe {
+                        cancelWorkspaceGitProbeTimers(for: probeKey)
+                    }
+                    scheduleWorkspaceGitMetadataRefreshIfPossible(
+                        workspaceId: probeKey.workspaceId,
+                        panelId: probeKey.panelId,
+                        reason: "rerunPending"
+                    )
+                } else if shouldStopTrackingGitDirectory {
+                    clearWorkspaceGitProbe(probeKey)
+                } else if shouldFinishProbe {
+                    finishWorkspaceGitProbeAttempt(probeKey)
+                } else {
+                    workspaceGitProbeStateByKey[probeKey] = .idle
+                }
             }
         }
 
-        guard workspaceGitProbeGenerationByKey[probeKey] == generation else { return }
+        guard wasInFlight else { return }
         guard let workspace = tabs.first(where: { $0.id == probeKey.workspaceId }) else {
             clearWorkspaceGitProbe(probeKey)
+            didClearProbe = true
             return
         }
         guard workspace.panels[probeKey.panelId] != nil else {
             clearWorkspaceGitProbe(probeKey)
+            didClearProbe = true
             return
         }
 
         guard let currentDirectory = gitProbeDirectory(for: workspace, panelId: probeKey.panelId) else {
             clearWorkspaceGitProbe(probeKey)
+            didClearProbe = true
             return
         }
         if currentDirectory != expectedDirectory {
             clearWorkspaceGitProbe(probeKey)
+            didClearProbe = true
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "workspace.gitProbe.skip workspace=\(probeKey.workspaceId.uuidString.prefix(5)) " +
                 "panel=\(probeKey.panelId.uuidString.prefix(5)) reason=directoryChanged " +
                 "expected=\(expectedDirectory) current=\(currentDirectory)"
@@ -1630,25 +2852,61 @@ class TabManager: ObservableObject {
 
         workspace.updatePanelDirectory(panelId: probeKey.panelId, directory: expectedDirectory)
 
-        let resolvedPullRequest: SidebarPullRequestState? = {
-            guard case .resolved(let pullRequest) = snapshot.pullRequest else { return nil }
-            return pullRequest
-        }()
-        let resolvedSidebarMetadata = snapshot.branch != nil || resolvedPullRequest != nil
-        if resolvedSidebarMetadata {
+        if shouldTrackGitDirectory {
             workspaceGitTrackedDirectoryByKey[probeKey] = expectedDirectory
-        } else if workspaceGitTrackedDirectoryByKey[probeKey] != expectedDirectory {
+            updateWorkspaceGitMetadataWatcher(for: probeKey, directory: expectedDirectory)
+        } else {
             workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
+            stopWorkspaceGitMetadataWatcher(for: probeKey)
         }
+        updateWorkspaceGitMetadataFallbackTimer()
 
         let nextBranch = snapshot.branch
         if let nextBranch {
+            if let headSignature = snapshot.headSignature {
+                if let previousHeadSignature = workspaceGitHeadSignatureByKey[probeKey],
+                   previousHeadSignature != headSignature {
+                    workspaceGitCleanIndexSignatureByKey.removeValue(forKey: probeKey)
+                    workspaceGitCleanIndexContentSignatureByKey.removeValue(forKey: probeKey)
+                }
+                workspaceGitHeadSignatureByKey[probeKey] = headSignature
+            } else {
+                workspaceGitHeadSignatureByKey.removeValue(forKey: probeKey)
+            }
+            var isDirty = snapshot.isDirty
+            if !isDirty,
+               let indexSignature = snapshot.indexSignature,
+               let cleanIndexSignature = workspaceGitCleanIndexSignatureByKey[probeKey],
+               cleanIndexSignature != indexSignature {
+                if let indexContentSignature = snapshot.indexContentSignature,
+                   let cleanIndexContentSignature = workspaceGitCleanIndexContentSignatureByKey[probeKey],
+                   cleanIndexContentSignature == indexContentSignature {
+                    workspaceGitCleanIndexSignatureByKey[probeKey] = indexSignature
+                } else {
+                    isDirty = true
+                }
+            }
             workspace.updatePanelGitBranch(
                 panelId: probeKey.panelId,
                 branch: nextBranch,
-                isDirty: snapshot.isDirty
+                isDirty: isDirty
             )
+            if !isDirty {
+                if let indexSignature = snapshot.indexSignature {
+                    workspaceGitCleanIndexSignatureByKey[probeKey] = indexSignature
+                } else {
+                    workspaceGitCleanIndexSignatureByKey.removeValue(forKey: probeKey)
+                }
+                if let indexContentSignature = snapshot.indexContentSignature {
+                    workspaceGitCleanIndexContentSignatureByKey[probeKey] = indexContentSignature
+                } else {
+                    workspaceGitCleanIndexContentSignatureByKey.removeValue(forKey: probeKey)
+                }
+            }
         } else {
+            workspaceGitCleanIndexSignatureByKey.removeValue(forKey: probeKey)
+            workspaceGitCleanIndexContentSignatureByKey.removeValue(forKey: probeKey)
+            workspaceGitHeadSignatureByKey.removeValue(forKey: probeKey)
             workspace.clearPanelGitBranch(panelId: probeKey.panelId)
         }
 
@@ -1660,20 +2918,31 @@ class TabManager: ObservableObject {
                 label: pullRequest.label,
                 url: pullRequest.url,
                 status: pullRequest.status,
-                checks: pullRequest.checks
+                branch: pullRequest.branch,
+                isStale: false
             )
         case .notFound:
             if workspace.panelPullRequests[probeKey.panelId] != nil {
                 workspace.clearPanelPullRequest(panelId: probeKey.panelId)
             }
-        case .unsupportedRepository, .transientFailure:
+        case .deferred, .unsupportedRepository, .transientFailure:
             break
+        }
+
+        if snapshot.branch != nil {
+            scheduleWorkspacePullRequestRefresh(
+                workspaceId: probeKey.workspaceId,
+                panelId: probeKey.panelId,
+                reason: "localGitProbe"
+            )
         }
 
 #if DEBUG
         let branchLabel = snapshot.branch ?? "none"
         let prLabel: String = {
             switch snapshot.pullRequest {
+            case .deferred:
+                return "deferred"
             case .unsupportedRepository:
                 return "unsupported"
             case .notFound:
@@ -1681,11 +2950,10 @@ class TabManager: ObservableObject {
             case .transientFailure:
                 return "transientFailure"
             case .resolved(let pullRequest):
-                let checks = pullRequest.checks?.rawValue ?? "none"
-                return "#\(pullRequest.number):\(pullRequest.status.rawValue):\(checks)"
+                return "#\(pullRequest.number):\(pullRequest.status.rawValue)"
             }
         }()
-        dlog(
+        cmuxDebugLog(
             "workspace.gitProbe.apply workspace=\(probeKey.workspaceId.uuidString.prefix(5)) " +
             "panel=\(probeKey.panelId.uuidString.prefix(5)) branch=\(branchLabel) dirty=\(snapshot.isDirty ? 1 : 0) " +
             "pr=\(prLabel)"
@@ -1696,8 +2964,11 @@ class TabManager: ObservableObject {
     private func shouldStopWorkspaceGitMetadataRefresh(
         _ snapshot: InitialWorkspaceGitMetadataSnapshot
     ) -> Bool {
+        if snapshot.isRepository {
+            return false
+        }
         switch snapshot.pullRequest {
-        case .transientFailure:
+        case .deferred, .transientFailure:
             return false
         case .unsupportedRepository, .notFound, .resolved:
             return true
@@ -1706,173 +2977,1507 @@ class TabManager: ObservableObject {
 
     private nonisolated static func initialWorkspaceGitMetadataSnapshot(
         for directory: String
-    ) -> InitialWorkspaceGitMetadataSnapshot {
-        let branch = normalizedBranchName(runGitCommand(directory: directory, arguments: ["branch", "--show-current"]))
-        guard let branch else {
+    ) async -> InitialWorkspaceGitMetadataSnapshot {
+        guard let repository = resolveGitRepository(containing: directory) else {
             return InitialWorkspaceGitMetadataSnapshot(
+                isRepository: false,
                 branch: nil,
                 isDirty: false,
+                indexSignature: nil,
+                indexContentSignature: nil,
+                headSignature: nil,
+                pullRequest: .notFound
+            )
+        }
+        let trackedChanges = gitTrackedChangesSnapshot(repository: repository)
+        let headSignature = gitHeadSignature(repository: repository)
+
+        let branch = normalizedBranchName(gitBranchName(repository: repository))
+        guard let branch else {
+            return InitialWorkspaceGitMetadataSnapshot(
+                isRepository: true,
+                branch: nil,
+                isDirty: trackedChanges.isDirty,
+                indexSignature: trackedChanges.indexSignature,
+                indexContentSignature: trackedChanges.indexContentSignature,
+                headSignature: headSignature,
                 pullRequest: .notFound
             )
         }
 
-        let statusOutput = runGitCommand(directory: directory, arguments: ["status", "--porcelain", "-uno"])
-        let isDirty = !(statusOutput?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        let pullRequest = workspacePullRequestSnapshot(directory: directory, branch: branch)
-        return InitialWorkspaceGitMetadataSnapshot(branch: branch, isDirty: isDirty, pullRequest: pullRequest)
-    }
-
-    private nonisolated static func runGitCommand(directory: String, arguments: [String]) -> String? {
-        runCommand(
-            directory: directory,
-            executable: "git",
-            arguments: arguments
+        return InitialWorkspaceGitMetadataSnapshot(
+            isRepository: true,
+            branch: branch,
+            isDirty: trackedChanges.isDirty,
+            indexSignature: trackedChanges.indexSignature,
+            indexContentSignature: trackedChanges.indexContentSignature,
+            headSignature: headSignature,
+            pullRequest: .deferred
         )
     }
 
-    private nonisolated static func workspacePullRequestSnapshot(
-        directory: String,
-        branch: String
-    ) -> WorkspacePullRequestSnapshot {
-        guard !shouldSkipWorkspacePullRequestLookup(branch: branch) else {
-            return .notFound
+    private nonisolated static func resolveGitRepository(containing directory: String) -> ResolvedGitRepository? {
+        let startURL = URL(fileURLWithPath: directory).standardizedFileURL
+        let fileManager = FileManager.default
+        var currentURL = startURL
+        var isDirectory: ObjCBool = false
+
+        if !fileManager.fileExists(atPath: currentURL.path, isDirectory: &isDirectory) || !isDirectory.boolValue {
+            currentURL.deleteLastPathComponent()
         }
 
-        let repoSlugs = githubRepositorySlugs(directory: directory)
-        guard !repoSlugs.isEmpty else {
-            return .unsupportedRepository
+        while true {
+            let dotGitURL = currentURL.appendingPathComponent(".git")
+            if fileManager.fileExists(atPath: dotGitURL.path, isDirectory: &isDirectory) {
+                let gitDirectory: String?
+                if isDirectory.boolValue {
+                    gitDirectory = dotGitURL.standardizedFileURL.path
+                } else {
+                    gitDirectory = gitDirectoryFromDotGitFile(dotGitURL, relativeTo: currentURL)
+                }
+
+                if let gitDirectory {
+                    let commonDirectory = gitCommonDirectory(gitDirectory: gitDirectory)
+                    return ResolvedGitRepository(
+                        workTreeRoot: currentURL.standardizedFileURL.path,
+                        gitDirectory: gitDirectory,
+                        commonDirectory: commonDirectory
+                    )
+                }
+            }
+
+            let parentURL = currentURL.deletingLastPathComponent()
+            if Self.shouldStopGitRepositorySearch(currentURL: currentURL, parentURL: parentURL) {
+                return nil
+            }
+            currentURL = parentURL
+        }
+    }
+
+    nonisolated static func shouldStopGitRepositorySearch(currentURL: URL, parentURL: URL) -> Bool {
+        if parentURL.path == currentURL.path {
+            return true
         }
 
-        var sawTransientFailure = false
-        for repoSlug in repoSlugs {
-            switch workspacePullRequestSnapshot(directory: directory, branch: branch, repoSlug: repoSlug) {
-            case .resolved(let pullRequest):
-                return .resolved(pullRequest)
-            case .transientFailure:
-                sawTransientFailure = true
-            case .notFound, .unsupportedRepository:
+        let standardizedCurrentPath = currentURL.standardizedFileURL.path
+        if standardizedCurrentPath == "/" {
+            return true
+        }
+
+        return parentURL.standardizedFileURL.path == standardizedCurrentPath
+    }
+
+    private nonisolated static func gitDirectoryFromDotGitFile(
+        _ dotGitURL: URL,
+        relativeTo workTreeRootURL: URL
+    ) -> String? {
+        guard let contents = try? String(contentsOf: dotGitURL, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "gitdir:"
+        guard trimmed.lowercased().hasPrefix(prefix) else {
+            return nil
+        }
+
+        let rawPath = trimmed.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawPath.isEmpty else { return nil }
+        if rawPath.hasPrefix("/") {
+            return URL(fileURLWithPath: String(rawPath)).standardizedFileURL.path
+        }
+        return workTreeRootURL
+            .appendingPathComponent(String(rawPath))
+            .standardizedFileURL
+            .path
+    }
+
+    private nonisolated static func gitCommonDirectory(gitDirectory: String) -> String {
+        let gitDirectoryURL = URL(fileURLWithPath: gitDirectory)
+        let commonDirURL = gitDirectoryURL.appendingPathComponent("commondir")
+        guard let contents = try? String(contentsOf: commonDirURL, encoding: .utf8) else {
+            return gitDirectory
+        }
+
+        let rawPath = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawPath.isEmpty else { return gitDirectory }
+        if rawPath.hasPrefix("/") {
+            return URL(fileURLWithPath: rawPath).standardizedFileURL.path
+        }
+        return gitDirectoryURL
+            .appendingPathComponent(rawPath)
+            .standardizedFileURL
+            .path
+    }
+
+    private nonisolated static func workspaceGitMetadataWatcherDescriptor(
+        for directory: String
+    ) -> WorkspaceGitMetadataWatcher.Descriptor? {
+        guard let repository = resolveGitRepository(containing: directory) else {
+            return nil
+        }
+
+        let candidatePaths = [
+            repository.workTreeRoot,
+        ] + gitRepositoryMetadataWatchPaths(repository: repository)
+            + gitlinkMetadataWatchPaths(repository: repository)
+        var watchedPaths: [String] = []
+        var seen: Set<String> = []
+        for path in candidatePaths {
+            let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+            guard seen.insert(normalized).inserted else { continue }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: normalized, isDirectory: &isDirectory) else {
                 continue
             }
+            watchedPaths.append(normalized)
         }
 
-        return sawTransientFailure ? .transientFailure : .notFound
+        return WorkspaceGitMetadataWatcher.Descriptor(
+            directory: repository.workTreeRoot,
+            watchedPaths: watchedPaths.sorted()
+        )
     }
 
-    private nonisolated static func workspacePullRequestSnapshot(
-        directory: String,
+    private nonisolated static func gitRepositoryMetadataWatchPaths(
+        repository: ResolvedGitRepository
+    ) -> [String] {
+        [
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD").path,
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index").path,
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("refs").path,
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("refs").path,
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("packed-refs").path,
+        ] + gitConfigURLs(repository: repository).map(\.path)
+    }
+
+    private nonisolated static func gitlinkMetadataWatchPaths(
+        repository: ResolvedGitRepository
+    ) -> [String] {
+        let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
+        guard let indexSnapshot = gitIndexSnapshot(indexURL: indexURL) else {
+            return []
+        }
+
+        let gitlinkMode: UInt32 = 0o160000
+        var paths: [String] = []
+        for entry in indexSnapshot.entries where (entry.mode & 0o170000) == gitlinkMode {
+            let gitlinkURL = URL(fileURLWithPath: repository.workTreeRoot)
+                .appendingPathComponent(entry.path)
+                .standardizedFileURL
+            guard let submoduleRepository = resolveGitRepository(containing: gitlinkURL.path),
+                  submoduleRepository.workTreeRoot == gitlinkURL.path else {
+                continue
+            }
+            paths.append(contentsOf: gitRepositoryMetadataWatchPaths(repository: submoduleRepository))
+        }
+        return paths
+    }
+
+    private nonisolated static func gitBranchName(repository: ResolvedGitRepository) -> String? {
+        let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
+        guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        let branchPrefix = "ref: refs/heads/"
+        guard trimmed.hasPrefix(branchPrefix) else {
+            return nil
+        }
+        let branch = String(trimmed.dropFirst(branchPrefix.count))
+        return branch.isEmpty ? nil : branch
+    }
+
+    private nonisolated static func gitHeadSignature(repository: ResolvedGitRepository) -> String? {
+        let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
+        guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        let refPrefix = "ref: "
+        guard trimmed.hasPrefix(refPrefix) else {
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        let refName = String(trimmed.dropFirst(refPrefix.count))
+        guard !refName.isEmpty else { return trimmed }
+        let refValue = gitRefValue(repository: repository, refName: refName) ?? ""
+        return "\(trimmed)\n\(refValue)"
+    }
+
+    private nonisolated static func gitRefValue(repository: ResolvedGitRepository, refName: String) -> String? {
+        let refURLs = [
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent(refName),
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent(refName),
+        ]
+        var seenPaths: Set<String> = []
+        for refURL in refURLs {
+            let path = refURL.standardizedFileURL.path
+            guard seenPaths.insert(path).inserted,
+                  let contents = try? String(contentsOf: refURL, encoding: .utf8) else {
+                continue
+            }
+            let value = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty {
+                return value
+            }
+        }
+
+        let packedRefsURL = URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("packed-refs")
+        guard let packedRefs = try? String(contentsOf: packedRefsURL, encoding: .utf8) else {
+            return nil
+        }
+        for rawLine in packedRefs.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("^") else { continue }
+            let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            guard parts.count == 2, String(parts[1]) == refName else { continue }
+            return String(parts[0])
+        }
+        return nil
+    }
+
+    private nonisolated static func gitRemoteVOutput(repository: ResolvedGitRepository) -> String? {
+        var lines: [String] = []
+        var seenConfigPaths: Set<String> = []
+        for configURL in gitRootConfigURLs(repository: repository) {
+            appendGitRemoteVLines(
+                fromConfigURL: configURL,
+                repository: repository,
+                seenConfigPaths: &seenConfigPaths,
+                lines: &lines
+            )
+        }
+        return lines.isEmpty ? nil : lines.joined()
+    }
+
+    private nonisolated static func gitRootConfigURLs(repository: ResolvedGitRepository) -> [URL] {
+        [
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
+        ]
+    }
+
+    private nonisolated static func gitConfigURLs(repository: ResolvedGitRepository) -> [URL] {
+        var urls: [URL] = []
+        var pendingURLs = gitRootConfigURLs(repository: repository)
+        var seenConfigPaths: Set<String> = []
+
+        while !pendingURLs.isEmpty {
+            let configURL = pendingURLs.removeFirst().standardizedFileURL
+            let path = configURL.path
+            guard seenConfigPaths.insert(path).inserted else { continue }
+            urls.append(configURL)
+            guard let config = try? String(contentsOf: configURL, encoding: .utf8) else {
+                continue
+            }
+            pendingURLs.append(
+                contentsOf: gitIncludedConfigURLs(
+                    fromConfig: config,
+                    configURL: configURL,
+                    repository: repository
+                )
+            )
+        }
+
+        return urls
+    }
+
+    private nonisolated static func gitRemoteVLines(fromConfig config: String) -> [String] {
+        var currentRemoteName: String?
+        var lines: [String] = []
+
+        for rawLine in config.components(separatedBy: .newlines) {
+            let line = gitConfigLineRemovingInlineComment(rawLine)
+                .trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") && line.hasSuffix("]") {
+                currentRemoteName = gitConfigRemoteName(fromSectionHeader: line)
+                continue
+            }
+
+            guard let currentRemoteName else { continue }
+            let parts = line.split(separator: "=", maxSplits: 1).map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            guard parts.count == 2, parts[0] == "url" else {
+                continue
+            }
+            let remoteURL = gitConfigUnquotedValue(parts[1])
+            guard !remoteURL.isEmpty else {
+                continue
+            }
+            lines.append("\(currentRemoteName)\t\(remoteURL) (fetch)\n")
+        }
+
+        return lines
+    }
+
+    private nonisolated static func appendGitRemoteVLines(
+        fromConfigURL configURL: URL,
+        repository: ResolvedGitRepository,
+        seenConfigPaths: inout Set<String>,
+        lines: inout [String]
+    ) {
+        let configURL = configURL.standardizedFileURL
+        guard seenConfigPaths.insert(configURL.path).inserted,
+              let config = try? String(contentsOf: configURL, encoding: .utf8) else {
+            return
+        }
+
+        var currentRemoteName: String?
+        var currentSectionAllowsIncludePath = false
+
+        for rawLine in config.components(separatedBy: .newlines) {
+            let line = gitConfigLineRemovingInlineComment(rawLine)
+                .trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") && line.hasSuffix("]") {
+                currentRemoteName = gitConfigRemoteName(fromSectionHeader: line)
+                if line == "[include]" {
+                    currentSectionAllowsIncludePath = true
+                } else if let condition = gitConfigIncludeIfCondition(fromSectionHeader: line) {
+                    currentSectionAllowsIncludePath = gitConfigIncludeIfConditionMatches(
+                        condition,
+                        repository: repository
+                    )
+                } else {
+                    currentSectionAllowsIncludePath = false
+                }
+                continue
+            }
+
+            let parts = line.split(separator: "=", maxSplits: 1).map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+
+            if let currentRemoteName,
+               parts.count == 2,
+               parts[0] == "url" {
+                let remoteURL = gitConfigUnquotedValue(parts[1])
+                guard !remoteURL.isEmpty else {
+                    continue
+                }
+                lines.append("\(currentRemoteName)\t\(remoteURL) (fetch)\n")
+                continue
+            }
+
+            guard currentSectionAllowsIncludePath,
+                  parts.count == 2,
+                  parts[0] == "path",
+                  let includeURL = gitConfigIncludeURL(
+                      fromPathValue: parts[1],
+                      relativeTo: configURL
+                  ) else {
+                continue
+            }
+            appendGitRemoteVLines(
+                fromConfigURL: includeURL,
+                repository: repository,
+                seenConfigPaths: &seenConfigPaths,
+                lines: &lines
+            )
+        }
+    }
+
+    private nonisolated static func gitIncludedConfigURLs(
+        fromConfig config: String,
+        configURL: URL,
+        repository: ResolvedGitRepository
+    ) -> [URL] {
+        var currentSectionAllowsPath = false
+        var urls: [URL] = []
+
+        for rawLine in config.components(separatedBy: .newlines) {
+            let line = gitConfigLineRemovingInlineComment(rawLine)
+                .trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") && line.hasSuffix("]") {
+                if line == "[include]" {
+                    currentSectionAllowsPath = true
+                } else if let condition = gitConfigIncludeIfCondition(fromSectionHeader: line) {
+                    currentSectionAllowsPath = gitConfigIncludeIfConditionMatches(
+                        condition,
+                        repository: repository
+                    )
+                } else {
+                    currentSectionAllowsPath = false
+                }
+                continue
+            }
+
+            guard currentSectionAllowsPath else { continue }
+            let parts = line.split(separator: "=", maxSplits: 1).map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            guard parts.count == 2,
+                  parts[0].lowercased() == "path",
+                  let includeURL = gitConfigIncludeURL(
+                    fromPathValue: parts[1],
+                    relativeTo: configURL
+                  ) else {
+                continue
+            }
+            urls.append(includeURL)
+        }
+
+        return urls
+    }
+
+    private nonisolated static func gitConfigUnquotedValue(_ value: String) -> String {
+        let trimmedValue = value.trimmingCharacters(in: .whitespaces)
+        guard trimmedValue.first == "\"",
+              trimmedValue.last == "\"",
+              trimmedValue.count >= 2 else {
+            return trimmedValue
+        }
+
+        var result = ""
+        var isEscaped = false
+        for character in trimmedValue.dropFirst().dropLast() {
+            if isEscaped {
+                result.append(character)
+                isEscaped = false
+                continue
+            }
+
+            if character == "\\" {
+                isEscaped = true
+                continue
+            }
+
+            result.append(character)
+        }
+
+        if isEscaped {
+            result.append("\\")
+        }
+        return result
+    }
+
+    private nonisolated static func gitConfigLineRemovingInlineComment(_ line: String) -> String {
+        var result = ""
+        var isInsideDoubleQuotedString = false
+        var isEscaped = false
+        var previousWasWhitespace = true
+
+        for character in line {
+            if isEscaped {
+                result.append(character)
+                isEscaped = false
+                previousWasWhitespace = character.isWhitespace
+                continue
+            }
+
+            if isInsideDoubleQuotedString && character == "\\" {
+                result.append(character)
+                isEscaped = true
+                previousWasWhitespace = false
+                continue
+            }
+
+            if character == "\"" {
+                result.append(character)
+                isInsideDoubleQuotedString.toggle()
+                previousWasWhitespace = false
+                continue
+            }
+
+            if !isInsideDoubleQuotedString,
+               previousWasWhitespace,
+               (character == "#" || character == ";") {
+                break
+            }
+
+            result.append(character)
+            previousWasWhitespace = character.isWhitespace
+        }
+
+        return result
+    }
+
+    private nonisolated static func gitConfigRemoteName(fromSectionHeader header: String) -> String? {
+        let prefix = "[remote \""
+        let suffix = "\"]"
+        guard header.hasPrefix(prefix), header.hasSuffix(suffix) else {
+            return nil
+        }
+        let name = header.dropFirst(prefix.count).dropLast(suffix.count)
+        return name.isEmpty ? nil : String(name)
+    }
+
+    private nonisolated static func gitConfigIncludeIfCondition(fromSectionHeader header: String) -> String? {
+        let prefix = "[includeIf \""
+        let suffix = "\"]"
+        guard header.hasPrefix(prefix), header.hasSuffix(suffix) else {
+            return nil
+        }
+        let condition = header.dropFirst(prefix.count).dropLast(suffix.count)
+        return condition.isEmpty ? nil : String(condition)
+    }
+
+    private nonisolated static func gitConfigIncludeURL(
+        fromPathValue pathValue: String,
+        relativeTo configURL: URL
+    ) -> URL? {
+        let path = gitConfigUnquotedValue(pathValue)
+        guard !path.isEmpty else { return nil }
+        if path == "~" {
+            return FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+        }
+        if path.hasPrefix("~/") {
+            let relativePath = String(path.dropFirst(2))
+            return FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(relativePath)
+                .standardizedFileURL
+        }
+        if path.hasPrefix("/") {
+            return URL(fileURLWithPath: path).standardizedFileURL
+        }
+        return configURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(path)
+            .standardizedFileURL
+    }
+
+    private nonisolated static func gitConfigIncludeIfConditionMatches(
+        _ condition: String,
+        repository: ResolvedGitRepository
+    ) -> Bool {
+        let lowercasedCondition = condition.lowercased()
+        if lowercasedCondition.hasPrefix("gitdir/i:") {
+            let pattern = String(condition.dropFirst("gitdir/i:".count))
+            return gitConfigGitdirPatternMatches(pattern, repository: repository, caseInsensitive: true)
+        }
+        if lowercasedCondition.hasPrefix("gitdir:") {
+            let pattern = String(condition.dropFirst("gitdir:".count))
+            return gitConfigGitdirPatternMatches(pattern, repository: repository, caseInsensitive: false)
+        }
+        if lowercasedCondition.hasPrefix("onbranch:") {
+            let pattern = String(condition.dropFirst("onbranch:".count))
+            guard let branch = gitBranchName(repository: repository) else { return false }
+            return gitConfigGlobMatches(branch, pattern: pattern, caseInsensitive: false)
+        }
+        return false
+    }
+
+    private nonisolated static func gitConfigGitdirPatternMatches(
+        _ pattern: String,
+        repository: ResolvedGitRepository,
+        caseInsensitive: Bool
+    ) -> Bool {
+        let isRecursiveDirectoryPattern = pattern.hasSuffix("/")
+        var expandedPattern = gitConfigExpandedPattern(pattern)
+        if isRecursiveDirectoryPattern, !expandedPattern.hasSuffix("/") {
+            expandedPattern.append("/")
+        }
+        if isRecursiveDirectoryPattern {
+            expandedPattern.append("**")
+        }
+        let candidates = [
+            repository.gitDirectory,
+            repository.commonDirectory,
+            repository.workTreeRoot,
+        ].map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+
+        for candidate in candidates {
+            if gitConfigGlobMatches(candidate, pattern: expandedPattern, caseInsensitive: caseInsensitive) ||
+                gitConfigGlobMatches(candidate + "/", pattern: expandedPattern, caseInsensitive: caseInsensitive) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private nonisolated static func gitConfigExpandedPattern(_ pattern: String) -> String {
+        if pattern == "~" {
+            return FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+        }
+        if pattern.hasPrefix("~/") {
+            let relativePath = String(pattern.dropFirst(2))
+            return FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(relativePath)
+                .standardizedFileURL
+                .path
+        }
+        return URL(fileURLWithPath: pattern).standardizedFileURL.path
+    }
+
+    private nonisolated static func gitConfigGlobMatches(
+        _ value: String,
+        pattern: String,
+        caseInsensitive: Bool
+    ) -> Bool {
+        let candidateValue = caseInsensitive ? value.lowercased() : value
+        let candidatePattern = caseInsensitive ? pattern.lowercased() : pattern
+        guard let regex = try? NSRegularExpression(
+            pattern: gitConfigGlobRegexPattern(candidatePattern)
+        ) else {
+            return fnmatch(candidatePattern, candidateValue, 0) == 0
+        }
+        let range = NSRange(candidateValue.startIndex..<candidateValue.endIndex, in: candidateValue)
+        return regex.firstMatch(in: candidateValue, range: range) != nil
+    }
+
+    private nonisolated static func gitConfigGlobRegexPattern(_ pattern: String) -> String {
+        let characters = Array(pattern)
+        var regex = "^"
+        var index = 0
+
+        while index < characters.count {
+            let character = characters[index]
+
+            if character == "*" {
+                var starCount = 1
+                while index + starCount < characters.count,
+                      characters[index + starCount] == "*" {
+                    starCount += 1
+                }
+                index += starCount
+
+                if starCount >= 2 {
+                    if index < characters.count, characters[index] == "/" {
+                        index += 1
+                        regex += "(?:.*/)?"
+                    } else {
+                        regex += ".*"
+                    }
+                } else {
+                    regex += "[^/]*"
+                }
+                continue
+            }
+
+            if character == "?" {
+                regex += "[^/]"
+                index += 1
+                continue
+            }
+
+            if character == "[" {
+                let parsedClass = gitConfigGlobCharacterClass(characters, startIndex: index)
+                if let parsedClass {
+                    regex += parsedClass.regex
+                    index = parsedClass.endIndex
+                    continue
+                }
+            }
+
+            regex += NSRegularExpression.escapedPattern(for: String(character))
+            index += 1
+        }
+
+        regex += "$"
+        return regex
+    }
+
+    private nonisolated static func gitConfigGlobCharacterClass(
+        _ characters: [Character],
+        startIndex: Int
+    ) -> (regex: String, endIndex: Int)? {
+        guard startIndex < characters.count, characters[startIndex] == "[" else {
+            return nil
+        }
+
+        var index = startIndex + 1
+        guard index < characters.count else { return nil }
+
+        var regex = "["
+        if characters[index] == "!" {
+            regex += "^"
+            index += 1
+        } else if characters[index] == "^" {
+            regex += "\\^"
+            index += 1
+        }
+
+        if index < characters.count, characters[index] == "]" {
+            regex += "\\]"
+            index += 1
+        }
+
+        var hasTerminator = false
+        while index < characters.count {
+            let character = characters[index]
+            if character == "]" {
+                hasTerminator = true
+                index += 1
+                break
+            }
+            switch character {
+            case "\\":
+                regex += "\\\\"
+            case "[":
+                regex += "\\["
+            default:
+                regex += String(character)
+            }
+            index += 1
+        }
+
+        guard hasTerminator else { return nil }
+        regex += "]"
+        return (regex, index)
+    }
+
+    private nonisolated static func gitTrackedChangesSnapshot(
+        repository: ResolvedGitRepository
+    ) -> (isDirty: Bool, indexSignature: String?, indexContentSignature: String?) {
+        let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
+        guard let indexSnapshot = gitIndexSnapshot(indexURL: indexURL) else {
+            return (false, gitIndexFileSignature(indexURL: indexURL), nil)
+        }
+
+        for entry in indexSnapshot.entries {
+            let fileURL = URL(fileURLWithPath: repository.workTreeRoot).appendingPathComponent(entry.path)
+            let gitlinkMode: UInt32 = 0o160000
+            if (entry.mode & 0o170000) == gitlinkMode {
+                guard let submoduleCommit = gitlinkWorktreeCommit(
+                    parentRepository: repository,
+                    gitlinkPath: entry.path
+                ) else {
+                    return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
+                }
+                if submoduleCommit.caseInsensitiveCompare(entry.objectID) != .orderedSame {
+                    return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
+                }
+                continue
+            }
+
+            var statValue = stat()
+            guard lstat(fileURL.path, &statValue) == 0 else {
+                return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
+            }
+            let size = gitIndexUInt32Field(statValue.st_size)
+            let mtimeSeconds = gitIndexUInt32Field(statValue.st_mtimespec.tv_sec)
+            let mtimeNanoseconds = gitIndexUInt32Field(statValue.st_mtimespec.tv_nsec)
+            guard let mode = gitIndexComparableMode(for: statValue.st_mode) else {
+                return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
+            }
+            if size != entry.size ||
+                mode != entry.mode ||
+                mtimeSeconds != entry.mtimeSeconds ||
+                mtimeNanoseconds != entry.mtimeNanoseconds {
+                return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
+            }
+        }
+
+        return (false, indexSnapshot.signature, indexSnapshot.contentSignature)
+    }
+
+    private nonisolated static func gitIndexSnapshot(indexURL: URL) -> GitIndexSnapshot? {
+        guard let data = try? Data(contentsOf: indexURL), data.count >= 32 else {
+            return nil
+        }
+        let bytes = [UInt8](data)
+        guard bytes[0] == 0x44, bytes[1] == 0x49, bytes[2] == 0x52, bytes[3] == 0x43 else {
+            return nil
+        }
+        let version = readBigEndianUInt32(bytes, at: 4)
+        guard version == 2 || version == 3 || version == 4 else {
+            return nil
+        }
+        let entryCount = Int(readBigEndianUInt32(bytes, at: 8))
+        let contentEnd = bytes.count - 20
+        var offset = 12
+        var entries: [GitIndexEntryStat] = []
+        var contentEntries: [GitIndexEntryStat] = []
+        entries.reserveCapacity(min(entryCount, 1024))
+        contentEntries.reserveCapacity(min(entryCount, 1024))
+        var previousPathBytes: [UInt8] = []
+
+        for _ in 0..<entryCount {
+            guard offset + 62 <= contentEnd else { return nil }
+            let entryStart = offset
+            let mtimeSeconds = readBigEndianUInt32(bytes, at: offset + 8)
+            let mtimeNanoseconds = readBigEndianUInt32(bytes, at: offset + 12)
+            let mode = readBigEndianUInt32(bytes, at: offset + 24)
+            let size = readBigEndianUInt32(bytes, at: offset + 36)
+            let objectID = bytes[(offset + 40)..<(offset + 60)].map {
+                String(format: "%02x", $0)
+            }.joined()
+            let flags = readBigEndianUInt16(bytes, at: offset + 60)
+            let pathLength = Int(flags & 0x0fff)
+            let hasExtendedFlags = version >= 3 && (flags & 0x4000) != 0
+            var extendedFlags: UInt16 = 0
+            offset += 62
+            if hasExtendedFlags {
+                guard offset + 2 <= contentEnd else { return nil }
+                extendedFlags = readBigEndianUInt16(bytes, at: offset)
+                offset += 2
+            }
+
+            let pathBytes: [UInt8]
+            if version == 4 {
+                guard let stripLength = readGitIndexV4PathStripLength(bytes, offset: &offset),
+                      stripLength <= previousPathBytes.count else {
+                    return nil
+                }
+                let suffixStart = offset
+                while offset < contentEnd, bytes[offset] != 0 {
+                    offset += 1
+                }
+                guard offset < contentEnd else { return nil }
+                pathBytes = Array(previousPathBytes.dropLast(stripLength)) + Array(bytes[suffixStart..<offset])
+            } else {
+                let pathStart = offset
+                if pathLength < 0x0fff {
+                    offset += pathLength
+                    guard offset < contentEnd else { return nil }
+                } else {
+                    while offset < contentEnd, bytes[offset] != 0 {
+                        offset += 1
+                    }
+                    guard offset < contentEnd else { return nil }
+                }
+                pathBytes = Array(bytes[pathStart..<offset])
+            }
+
+            let pathData = Data(pathBytes)
+            guard let path = String(data: pathData, encoding: .utf8), !path.isEmpty else {
+                return nil
+            }
+            previousPathBytes = pathBytes
+            let entryStat = GitIndexEntryStat(
+                path: path,
+                mode: mode,
+                objectID: objectID,
+                mtimeSeconds: mtimeSeconds,
+                mtimeNanoseconds: mtimeNanoseconds,
+                size: size
+            )
+            contentEntries.append(entryStat)
+
+            let assumeUnchangedFlag: UInt16 = 0x8000
+            let skipWorktreeExtendedFlag: UInt16 = 0x4000
+            if (flags & assumeUnchangedFlag) == 0,
+               (extendedFlags & skipWorktreeExtendedFlag) == 0 {
+                entries.append(entryStat)
+            }
+
+            offset += 1
+            if version != 4 {
+                let entryLength = offset - entryStart
+                let padding = (8 - (entryLength % 8)) % 8
+                offset += padding
+            }
+        }
+
+        let checksum = bytes[(bytes.count - 20)..<bytes.count].map { String(format: "%02x", $0) }.joined()
+        return GitIndexSnapshot(
+            entries: entries,
+            signature: checksum,
+            contentSignature: gitIndexContentSignature(entries: contentEntries)
+        )
+    }
+
+    private nonisolated static func gitIndexContentSignature(entries: [GitIndexEntryStat]) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+
+        func appendByte(_ byte: UInt8) {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+
+        func appendUInt32(_ value: UInt32) {
+            appendByte(UInt8((value >> 24) & 0xff))
+            appendByte(UInt8((value >> 16) & 0xff))
+            appendByte(UInt8((value >> 8) & 0xff))
+            appendByte(UInt8(value & 0xff))
+        }
+
+        func appendString(_ value: String) {
+            for byte in value.utf8 {
+                appendByte(byte)
+            }
+        }
+
+        appendUInt32(UInt32(truncatingIfNeeded: entries.count))
+        for entry in entries {
+            appendString(entry.path)
+            appendByte(0)
+            appendUInt32(entry.mode)
+            appendByte(0)
+            appendString(entry.objectID)
+            appendByte(0)
+        }
+        return String(format: "%016llx", CUnsignedLongLong(hash))
+    }
+
+    private nonisolated static func gitlinkWorktreeCommit(
+        parentRepository: ResolvedGitRepository,
+        gitlinkPath: String
+    ) -> String? {
+        let gitlinkURL = URL(fileURLWithPath: parentRepository.workTreeRoot)
+            .appendingPathComponent(gitlinkPath)
+            .standardizedFileURL
+        guard let submoduleRepository = resolveGitRepository(containing: gitlinkURL.path),
+              submoduleRepository.workTreeRoot == gitlinkURL.path else {
+            return nil
+        }
+        return gitCurrentCommit(repository: submoduleRepository)
+    }
+
+    private nonisolated static func gitCurrentCommit(repository: ResolvedGitRepository) -> String? {
+        let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
+        guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        let refPrefix = "ref: "
+        let value: String
+        if trimmed.hasPrefix(refPrefix) {
+            let refName = String(trimmed.dropFirst(refPrefix.count))
+            guard !refName.isEmpty, let refValue = gitRefValue(repository: repository, refName: refName) else {
+                return nil
+            }
+            value = refValue
+        } else {
+            value = trimmed
+        }
+
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalized.count == 40,
+              normalized.allSatisfy({ $0.isHexDigit }) else {
+            return nil
+        }
+        return normalized
+    }
+
+    private nonisolated static func gitIndexComparableMode(for statMode: mode_t) -> UInt32? {
+        let type = statMode & mode_t(S_IFMT)
+        switch type {
+        case mode_t(S_IFREG):
+            return (statMode & 0o111) == 0 ? 0o100644 : 0o100755
+        case mode_t(S_IFLNK):
+            return 0o120000
+        default:
+            return nil
+        }
+    }
+
+    private nonisolated static func gitIndexUInt32Field<T: BinaryInteger>(_ value: T) -> UInt32 {
+        UInt32(truncatingIfNeeded: UInt64(truncatingIfNeeded: value))
+    }
+
+    private nonisolated static func gitIndexFileSignature(indexURL: URL) -> String? {
+        guard let data = try? Data(contentsOf: indexURL), data.count >= 20 else {
+            return nil
+        }
+        return data.suffix(20).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private nonisolated static func readGitIndexV4PathStripLength(
+        _ bytes: [UInt8],
+        offset: inout Int
+    ) -> Int? {
+        guard offset < bytes.count else { return nil }
+        var byte = bytes[offset]
+        offset += 1
+        var value = Int(byte & 0x7f)
+        while (byte & 0x80) != 0 {
+            guard offset < bytes.count else { return nil }
+            // Git's index v4 path compression uses varint.c's encode/decode pair.
+            // Continuation bytes increment the accumulated value before shifting.
+            value += 1
+            byte = bytes[offset]
+            offset += 1
+            value = (value << 7) + Int(byte & 0x7f)
+        }
+        return value
+    }
+
+    private nonisolated static func readBigEndianUInt16(_ bytes: [UInt8], at offset: Int) -> UInt16 {
+        (UInt16(bytes[offset]) << 8) | UInt16(bytes[offset + 1])
+    }
+
+    private nonisolated static func readBigEndianUInt32(_ bytes: [UInt8], at offset: Int) -> UInt32 {
+        (UInt32(bytes[offset]) << 24) |
+            (UInt32(bytes[offset + 1]) << 16) |
+            (UInt32(bytes[offset + 2]) << 8) |
+            UInt32(bytes[offset + 3])
+    }
+
+    private nonisolated static func fetchWorkspacePullRequestRepoResults(
+        repoDirectoriesBySlug: [String: String],
+        candidateBranchesByRepo: [String: Set<String>],
+        cacheBySlug: [String: WorkspacePullRequestRepoCacheEntry],
+        now: Date,
+        allowCachedResults: Bool
+    ) async -> [String: WorkspacePullRequestRepoFetchResult] {
+        guard !repoDirectoriesBySlug.isEmpty else { return [:] }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = max(Self.workspacePullRequestProbeTimeout, 8)
+        configuration.timeoutIntervalForResource = max(Self.workspacePullRequestProbeTimeout, 8)
+        let session = URLSession(configuration: configuration)
+        let authHeader = await workspacePullRequestAuthHeaderValue()
+        var results: [String: WorkspacePullRequestRepoFetchResult] = [:]
+
+        let fetchedResults = await withTaskGroup(
+            of: (String, WorkspacePullRequestRepoFetchResult).self,
+            returning: [(String, WorkspacePullRequestRepoFetchResult)].self
+        ) { group in
+            for repoSlug in repoDirectoriesBySlug.keys {
+                group.addTask {
+                    let result = await Self.workspacePullRequestRepoFetchResult(
+                        repoSlug: repoSlug,
+                        candidateBranches: candidateBranchesByRepo[repoSlug] ?? [],
+                        cachedEntry: cacheBySlug[repoSlug],
+                        useCachedRecentWindow: allowCachedResults
+                            && (cacheBySlug[repoSlug].map {
+                                now.timeIntervalSince($0.fetchedAt) < Self.workspacePullRequestRepoCacheLifetime
+                            } ?? false),
+                        session: session,
+                        authHeader: authHeader
+                    )
+                    return (repoSlug, result)
+                }
+            }
+
+            var collected: [(String, WorkspacePullRequestRepoFetchResult)] = []
+            for await result in group {
+                collected.append(result)
+            }
+            return collected
+        }
+
+        for (repoSlug, result) in fetchedResults {
+            results[repoSlug] = result
+        }
+        return results
+    }
+
+    private nonisolated static func resolveWorkspacePullRequestRefreshResults(
+        candidates: [WorkspacePullRequestCandidate],
+        repoResults: [String: WorkspacePullRequestRepoFetchResult]
+    ) -> [WorkspacePullRequestRefreshResult] {
+        candidates.map { candidate in
+            if candidate.repoSlugs.isEmpty {
+                return WorkspacePullRequestRefreshResult(
+                    workspaceId: candidate.workspaceId,
+                    panelId: candidate.panelId,
+                    resolution: .unsupportedRepository,
+                    usedCachedRepoData: false
+                )
+            }
+
+            var matchedPullRequest: GitHubPullRequestProbeItem?
+            var matchedPullRequestUsedCache = false
+            var sawTransientFailure = false
+            var sawCachedSuccess = false
+
+            for repoSlug in candidate.repoSlugs {
+                guard let repoResult = repoResults[repoSlug] else { continue }
+                switch repoResult {
+                case .success(let cacheEntry, let usedCache, let transientBranches):
+                    if usedCache {
+                        sawCachedSuccess = true
+                    }
+                    if let candidateMatch = cacheEntry.pullRequestsByBranch[candidate.branch] {
+                        matchedPullRequest = candidateMatch
+                        matchedPullRequestUsedCache = usedCache
+                        break
+                    }
+                    if transientBranches.contains(candidate.branch) {
+                        sawTransientFailure = true
+                    }
+                case .transientFailure:
+                    sawTransientFailure = true
+                }
+            }
+
+            let resolution: WorkspacePullRequestRefreshResult.Resolution
+            let usedCachedRepoData: Bool
+            if let matchedPullRequest,
+               let status = pullRequestStatus(from: matchedPullRequest.state) {
+                resolution = .resolved(
+                    WorkspacePullRequestResolvedItem(
+                        number: matchedPullRequest.number,
+                        urlString: matchedPullRequest.url,
+                        statusRawValue: status.rawValue,
+                        branch: candidate.branch
+                    )
+                )
+                usedCachedRepoData = matchedPullRequestUsedCache
+            } else if sawTransientFailure {
+                resolution = .transientFailure
+                usedCachedRepoData = false
+            } else {
+                resolution = .notFound
+                usedCachedRepoData = sawCachedSuccess
+            }
+
+            return WorkspacePullRequestRefreshResult(
+                workspaceId: candidate.workspaceId,
+                panelId: candidate.panelId,
+                resolution: resolution,
+                usedCachedRepoData: usedCachedRepoData
+            )
+        }
+    }
+
+    private nonisolated static func workspacePullRequestRepoFetchResult(
+        repoSlug: String,
+        candidateBranches: Set<String>,
+        cachedEntry: WorkspacePullRequestRepoCacheEntry?,
+        useCachedRecentWindow: Bool,
+        session: URLSession,
+        authHeader: String?
+    ) async -> WorkspacePullRequestRepoFetchResult {
+        let normalizedCandidateBranches = Set(candidateBranches.compactMap(normalizedBranchName))
+
+        if useCachedRecentWindow,
+           let cachedEntry {
+            let unresolvedBranches = unresolvedWorkspacePullRequestBranches(
+                normalizedCandidateBranches,
+                in: cachedEntry
+            )
+            if unresolvedBranches.isEmpty {
+#if DEBUG
+                cmuxDebugLog(
+                    "workspace.prRefresh.repo.cache repo=\(repoSlug) " +
+                    "branches=\(cachedEntry.pullRequestsByBranch.count)"
+                )
+#endif
+                return .success(cachedEntry, usedCache: true, transientBranches: [])
+            }
+
+            let lookupOutcome = await workspacePullRequestBranchLookupOutcome(
+                repoSlug: repoSlug,
+                candidateBranches: unresolvedBranches,
+                baseEntry: cachedEntry,
+                refreshedAt: Date(),
+                session: session,
+                authHeader: authHeader
+            )
+#if DEBUG
+            cmuxDebugLog(
+                "workspace.prRefresh.repo.cache.miss repo=\(repoSlug) " +
+                "branchLookups=\(unresolvedBranches.count) transient=\(lookupOutcome.transientBranches.count)"
+            )
+#endif
+            return .success(
+                lookupOutcome.cacheEntry,
+                usedCache: false,
+                transientBranches: lookupOutcome.transientBranches
+            )
+        }
+
+        let fetchTimestamp = Date()
+        var page = 1
+        var fetchedPageCount = 0
+        var allPullRequests: [GitHubPullRequestProbeItem] = []
+
+        while page <= Self.workspacePullRequestRepoPageLimit {
+            let endpoint = "repos/\(repoSlug)/pulls?state=all&sort=updated&direction=desc&per_page=\(Self.workspacePullRequestRepoPageSize)&page=\(page)"
+            guard let response = await performWorkspacePullRequestRequest(
+                session: session,
+                endpoint: endpoint,
+                authHeader: authHeader
+            ) else {
+#if DEBUG
+                cmuxDebugLog("workspace.prRefresh.repo.fail repo=\(repoSlug) page=\(page) status=nil")
+#endif
+                return .transientFailure
+            }
+
+            guard response.statusCode == 200,
+                  let pullRequests = decodeJSON([WorkspacePullRequestRESTItem].self, from: response.data) else {
+#if DEBUG
+                cmuxDebugLog("workspace.prRefresh.repo.fail repo=\(repoSlug) page=\(page) status=\(response.statusCode)")
+#endif
+                return .transientFailure
+            }
+
+            fetchedPageCount += 1
+            allPullRequests.append(contentsOf: pullRequests.map(Self.workspacePullRequestProbeItem))
+            if pullRequests.count < Self.workspacePullRequestRepoPageSize {
+                break
+            }
+            page += 1
+        }
+
+        let recentWindowEntry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: fetchTimestamp,
+            pullRequestsByBranch: pullRequestMapByNormalizedBranch(from: allPullRequests)
+        )
+        let unresolvedBranches = unresolvedWorkspacePullRequestBranches(
+            normalizedCandidateBranches,
+            in: recentWindowEntry
+        )
+        let lookupOutcome: WorkspacePullRequestBranchLookupOutcome
+        if unresolvedBranches.isEmpty {
+            lookupOutcome = WorkspacePullRequestBranchLookupOutcome(
+                cacheEntry: recentWindowEntry,
+                transientBranches: []
+            )
+        } else {
+            lookupOutcome = await workspacePullRequestBranchLookupOutcome(
+                repoSlug: repoSlug,
+                candidateBranches: unresolvedBranches,
+                baseEntry: recentWindowEntry,
+                refreshedAt: fetchTimestamp,
+                session: session,
+                authHeader: authHeader
+            )
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "workspace.prRefresh.repo.success repo=\(repoSlug) pages=\(fetchedPageCount) " +
+            "branches=\(lookupOutcome.cacheEntry.pullRequestsByBranch.count) " +
+            "branchLookups=\(unresolvedBranches.count) transient=\(lookupOutcome.transientBranches.count)"
+        )
+#endif
+        return .success(
+            lookupOutcome.cacheEntry,
+            usedCache: false,
+            transientBranches: lookupOutcome.transientBranches
+        )
+    }
+
+    private nonisolated static func unresolvedWorkspacePullRequestBranches(
+        _ candidateBranches: Set<String>,
+        in cacheEntry: WorkspacePullRequestRepoCacheEntry
+    ) -> [String] {
+        candidateBranches
+            .filter {
+                cacheEntry.pullRequestsByBranch[$0] == nil
+                    && !cacheEntry.knownAbsentBranches.contains($0)
+            }
+            .sorted()
+    }
+
+    private nonisolated static func workspacePullRequestBranchLookupOutcome(
+        repoSlug: String,
+        candidateBranches: [String],
+        baseEntry: WorkspacePullRequestRepoCacheEntry,
+        refreshedAt: Date,
+        session: URLSession,
+        authHeader: String?
+    ) async -> WorkspacePullRequestBranchLookupOutcome {
+        guard !candidateBranches.isEmpty else {
+            return WorkspacePullRequestBranchLookupOutcome(
+                cacheEntry: baseEntry,
+                transientBranches: []
+            )
+        }
+
+        let branchResults = await withTaskGroup(
+            of: (String, WorkspacePullRequestBranchFetchResult).self,
+            returning: [(String, WorkspacePullRequestBranchFetchResult)].self
+        ) { group in
+            for branch in candidateBranches {
+                group.addTask {
+                    let result = await Self.workspacePullRequestBranchFetchResult(
+                        repoSlug: repoSlug,
+                        branch: branch,
+                        session: session,
+                        authHeader: authHeader
+                    )
+                    return (branch, result)
+                }
+            }
+
+            var collected: [(String, WorkspacePullRequestBranchFetchResult)] = []
+            for await result in group {
+                collected.append(result)
+            }
+            return collected
+        }
+
+        var pullRequestsByBranch = baseEntry.pullRequestsByBranch
+        var knownAbsentBranches = baseEntry.knownAbsentBranches
+        var transientBranches: Set<String> = []
+
+        for (branch, result) in branchResults {
+            switch result {
+            case .found(let pullRequest):
+                pullRequestsByBranch[branch] = pullRequest
+                knownAbsentBranches.remove(branch)
+            case .notFound:
+                knownAbsentBranches.insert(branch)
+            case .transientFailure:
+                transientBranches.insert(branch)
+            }
+        }
+
+        return WorkspacePullRequestBranchLookupOutcome(
+            cacheEntry: WorkspacePullRequestRepoCacheEntry(
+                fetchedAt: refreshedAt,
+                pullRequestsByBranch: pullRequestsByBranch,
+                knownAbsentBranches: knownAbsentBranches
+            ),
+            transientBranches: transientBranches
+        )
+    }
+
+    private nonisolated static func workspacePullRequestBranchFetchResult(
+        repoSlug: String,
         branch: String,
-        repoSlug: String
-    ) -> WorkspacePullRequestSnapshot {
-        let result = runCommandResult(
+        session: URLSession,
+        authHeader: String?
+    ) async -> WorkspacePullRequestBranchFetchResult {
+        guard let endpoint = workspacePullRequestBranchEndpoint(
+            repoSlug: repoSlug,
+            branch: branch
+        ) else {
+            return .transientFailure
+        }
+
+        guard let response = await performWorkspacePullRequestRequest(
+            session: session,
+            endpoint: endpoint,
+            authHeader: authHeader
+        ) else {
+#if DEBUG
+            cmuxDebugLog("workspace.prRefresh.branch.fail repo=\(repoSlug) branch=\(branch) status=nil")
+#endif
+            return .transientFailure
+        }
+
+        guard response.statusCode == 200,
+              let pullRequests = decodeJSON([WorkspacePullRequestRESTItem].self, from: response.data) else {
+#if DEBUG
+            cmuxDebugLog(
+                "workspace.prRefresh.branch.fail repo=\(repoSlug) " +
+                "branch=\(branch) status=\(response.statusCode)"
+            )
+#endif
+            return .transientFailure
+        }
+
+        let matchingPullRequests = pullRequests
+            .map(Self.workspacePullRequestProbeItem)
+            .filter { normalizedBranchName($0.headRefName) == branch }
+        if let preferredPullRequest = preferredPullRequest(from: matchingPullRequests) {
+            return .found(preferredPullRequest)
+        }
+        return .notFound
+    }
+
+    private nonisolated static func workspacePullRequestBranchEndpoint(
+        repoSlug: String,
+        branch: String
+    ) -> String? {
+        let components = repoSlug.split(separator: "/", maxSplits: 1).map(String.init)
+        guard components.count == 2,
+              !components[0].isEmpty,
+              !components[1].isEmpty else {
+            return nil
+        }
+
+        var query = URLComponents()
+        query.queryItems = [
+            URLQueryItem(name: "state", value: "all"),
+            URLQueryItem(name: "head", value: "\(components[0]):\(branch)"),
+            URLQueryItem(name: "sort", value: "updated"),
+            URLQueryItem(name: "direction", value: "desc"),
+            URLQueryItem(name: "per_page", value: String(Self.workspacePullRequestRepoPageSize)),
+        ]
+        guard let percentEncodedQuery = query.percentEncodedQuery else {
+            return nil
+        }
+        return "repos/\(repoSlug)/pulls?\(percentEncodedQuery)"
+    }
+
+    private nonisolated static func workspacePullRequestProbeItem(
+        from pullRequest: WorkspacePullRequestRESTItem
+    ) -> GitHubPullRequestProbeItem {
+        let rawState = pullRequest.mergedAt?.isEmpty == false ? "MERGED" : pullRequest.state
+        return GitHubPullRequestProbeItem(
+            number: pullRequest.number,
+            state: rawState,
+            url: pullRequest.htmlURL,
+            updatedAt: pullRequest.updatedAt,
+            mergedAt: pullRequest.mergedAt,
+            headRefName: pullRequest.head.ref,
+            baseRefName: pullRequest.base?.ref
+        )
+    }
+
+    private nonisolated static func performWorkspacePullRequestRequest(
+        session: URLSession,
+        endpoint: String,
+        authHeader: String?
+    ) async -> WorkspacePullRequestHTTPResponse? {
+        guard let url = URL(string: "https://api.github.com/\(endpoint)") else {
+            return nil
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("cmux-workspace-pr-poller", forHTTPHeaderField: "User-Agent")
+        if let authHeader, !authHeader.isEmpty {
+            request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        }
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return nil
+            }
+            return WorkspacePullRequestHTTPResponse(
+                statusCode: httpResponse.statusCode,
+                data: data
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    private nonisolated static func workspacePullRequestAuthHeaderValue() async -> String? {
+        let environment = ProcessInfo.processInfo.environment
+        if let envToken = environment["GH_TOKEN"] ?? environment["GITHUB_TOKEN"] {
+            let trimmed = envToken.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return "Bearer \(trimmed)"
+            }
+        }
+
+        let directory = FileManager.default.currentDirectoryPath
+        let token = await runCommand(
             directory: directory,
             executable: "gh",
-            arguments: [
-                "pr", "list",
-                "--repo", repoSlug,
-                "--state", "all",
-                "--head", branch,
-                "--json", "number,state,url,updatedAt",
-            ],
+            arguments: ["auth", "token"],
             timeout: workspacePullRequestProbeTimeout
-        )
+        )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !token.isEmpty else { return nil }
+        return "Bearer \(token)"
+    }
 
-        guard let result else {
-#if DEBUG
-            dlog(
-                "workspace.gitProbe.pr.fail dir=\(directory) branch=\(branch) " +
-                "repo=\(repoSlug) status=nil"
-            )
-#endif
-            return .transientFailure
-        }
+    nonisolated static func pullRequestMapByNormalizedBranchForTesting(
+        from pullRequests: [GitHubPullRequestProbeItem],
+        now: Date
+    ) -> [String: GitHubPullRequestProbeItem] {
+        pullRequestMapByNormalizedBranch(from: pullRequests, now: now)
+    }
 
-        guard !result.timedOut,
-              result.executionError == nil,
-              let exitStatus = result.exitStatus else {
-#if DEBUG
-            let statusText: String
-            if result.timedOut {
-                statusText = "timeout"
-            } else if let executionError = result.executionError {
-                statusText = "error=\(executionError)"
-            } else {
-                statusText = "unknown"
+    private nonisolated static func pullRequestMapByNormalizedBranch(
+        from pullRequests: [GitHubPullRequestProbeItem],
+        now: Date = Date()
+    ) -> [String: GitHubPullRequestProbeItem] {
+        var pullRequestsByBranch: [String: GitHubPullRequestProbeItem] = [:]
+
+        for pullRequest in pullRequests {
+            guard let branch = normalizedBranchName(pullRequest.headRefName),
+                  isSidebarPullRequestCandidate(pullRequest, now: now) else {
+                continue
             }
-            let stderr = debugLogSnippet(result.stderr) ?? "none"
-            dlog(
-                "workspace.gitProbe.pr.fail dir=\(directory) branch=\(branch) " +
-                "repo=\(repoSlug) status=\(statusText) stderr=\(stderr)"
-            )
-#endif
-            return .transientFailure
+
+            if let currentBest = pullRequestsByBranch[branch] {
+                pullRequestsByBranch[branch] = preferredPullRequest(
+                    from: [currentBest, pullRequest],
+                    now: now
+                ) ?? currentBest
+            } else {
+                pullRequestsByBranch[branch] = pullRequest
+            }
         }
 
-        if exitStatus != 0 {
-#if DEBUG
-            dlog(
-                "workspace.gitProbe.pr.fail dir=\(directory) branch=\(branch) " +
-                "repo=\(repoSlug) status=exit=\(exitStatus) stderr=\(debugLogSnippet(result.stderr) ?? "none")"
-            )
-#endif
-            return .transientFailure
-        }
-
-        let output = result.stdout ?? ""
-        guard let pullRequests = decodeJSON([GitHubPullRequestProbeItem].self, from: output) else {
-#if DEBUG
-            dlog(
-                "workspace.gitProbe.pr.parseFail dir=\(directory) branch=\(branch) " +
-                "repo=\(repoSlug) output=\(debugLogSnippet(output) ?? "none")"
-            )
-#endif
-            return .transientFailure
-        }
-
-        guard let pullRequest = preferredPullRequest(from: pullRequests) else {
-#if DEBUG
-            dlog(
-                "workspace.gitProbe.pr.none dir=\(directory) branch=\(branch) " +
-                "repo=\(repoSlug)"
-            )
-#endif
-            return .notFound
-        }
-
-        guard let status = pullRequestStatus(from: pullRequest.state),
-              let url = URL(string: pullRequest.url) else {
-#if DEBUG
-            dlog(
-                "workspace.gitProbe.pr.parseFail dir=\(directory) branch=\(branch) " +
-                "repo=\(repoSlug) output=\(debugLogSnippet(output) ?? "none")"
-            )
-#endif
-            return .transientFailure
-        }
-
-        let checks = status == .open
-            ? pullRequestChecksStatus(number: pullRequest.number, directory: directory, repoSlug: repoSlug)
-            : nil
-
-#if DEBUG
-        dlog(
-            "workspace.gitProbe.pr.success dir=\(directory) branch=\(branch) " +
-            "repo=\(repoSlug) number=\(pullRequest.number) state=\(status.rawValue) checks=\(checks?.rawValue ?? "none")"
-        )
-#endif
-        return .resolved(
-            SidebarPullRequestState(
-                number: pullRequest.number,
-                label: "PR",
-                url: url,
-                status: status,
-                branch: branch,
-                checks: checks
-            )
-        )
+        return pullRequestsByBranch
     }
 
     nonisolated static func preferredPullRequest(
-        from pullRequests: [GitHubPullRequestProbeItem]
+        from pullRequests: [GitHubPullRequestProbeItem],
+        now: Date = Date()
     ) -> GitHubPullRequestProbeItem? {
         func statusPriority(_ status: SidebarPullRequestStatus) -> Int {
             switch status {
@@ -1911,8 +4516,7 @@ class TabManager: ObservableObject {
 
         var best: GitHubPullRequestProbeItem?
         for pullRequest in pullRequests {
-            guard pullRequestStatus(from: pullRequest.state) != nil,
-                  URL(string: pullRequest.url) != nil else {
+            guard isSidebarPullRequestCandidate(pullRequest, now: now) else {
                 continue
             }
             guard let currentBest = best else {
@@ -1926,58 +4530,39 @@ class TabManager: ObservableObject {
         return best
     }
 
-    private nonisolated static func pullRequestChecksStatus(
-        number: Int,
-        directory: String,
-        repoSlug: String
-    ) -> SidebarPullRequestChecksStatus? {
-        let result = runCommandResult(
-            directory: directory,
-            executable: "gh",
-            arguments: [
-                "pr", "checks", String(number),
-                "--repo", repoSlug,
-                "--json", "bucket,state"
-            ],
-            timeout: workspacePullRequestProbeTimeout
-        )
+    private nonisolated static func isSidebarPullRequestCandidate(
+        _ pullRequest: GitHubPullRequestProbeItem,
+        now: Date
+    ) -> Bool {
+        guard pullRequestStatus(from: pullRequest.state) != nil,
+              URL(string: pullRequest.url) != nil else {
+            return false
+        }
+        return !isStaleMergedPullRequest(pullRequest, now: now)
+    }
 
-        guard let result,
-              !result.timedOut,
-              result.executionError == nil,
-              let output = result.stdout,
-              let exitStatus = result.exitStatus,
-              exitStatus == 0 || exitStatus == 8,
-              let checks = decodeJSON([GitHubPullRequestCheckItem].self, from: output) else {
-            return nil
+    private nonisolated static func isStaleMergedPullRequest(
+        _ pullRequest: GitHubPullRequestProbeItem,
+        now: Date
+    ) -> Bool {
+        guard pullRequestStatus(from: pullRequest.state) == .merged,
+              let mergedAt = githubTimestampDate(from: pullRequest.mergedAt) else {
+            return false
+        }
+        return now.timeIntervalSince(mergedAt) > mergedPullRequestBadgeStaleAfter
+    }
+
+    private nonisolated static func githubTimestampDate(from rawTimestamp: String?) -> Date? {
+        let timestamp = rawTimestamp?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !timestamp.isEmpty else { return nil }
+
+        let formatter = ISO8601DateFormatter()
+        if let date = formatter.date(from: timestamp) {
+            return date
         }
 
-        var sawPending = false
-        var sawPass = false
-
-        for check in checks {
-            let bucket = check.bucket?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let state = check.state?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-
-            if isFailingCheckState(bucket: bucket, state: state) {
-                return .fail
-            }
-            if isPendingCheckState(bucket: bucket, state: state) {
-                sawPending = true
-                continue
-            }
-            if isPassingCheckState(bucket: bucket, state: state) {
-                sawPass = true
-            }
-        }
-
-        if sawPending {
-            return .pending
-        }
-        if sawPass {
-            return .pass
-        }
-        return nil
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: timestamp)
     }
 
     private nonisolated static func pullRequestStatus(
@@ -2000,32 +4585,8 @@ class TabManager: ObservableObject {
         return try? JSONDecoder().decode(T.self, from: data)
     }
 
-    private nonisolated static func isFailingCheckState(bucket: String?, state: String?) -> Bool {
-        switch bucket ?? state ?? "" {
-        case "fail", "failure", "failed", "error", "timed_out", "timedout",
-             "cancel", "cancelled", "canceled", "action_required", "startup_failure":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private nonisolated static func isPendingCheckState(bucket: String?, state: String?) -> Bool {
-        switch bucket ?? state ?? "" {
-        case "pending", "queued", "in_progress", "requested", "waiting", "expected":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private nonisolated static func isPassingCheckState(bucket: String?, state: String?) -> Bool {
-        switch bucket ?? state ?? "" {
-        case "pass", "success", "successful", "completed", "neutral", "skipping", "skipped":
-            return true
-        default:
-            return false
-        }
+    private nonisolated static func decodeJSON<T: Decodable>(_ type: T.Type, from data: Data) -> T? {
+        try? JSONDecoder().decode(T.self, from: data)
     }
 
     private nonisolated static let fallbackCommandSearchDirectories: [String] = [
@@ -2091,13 +4652,122 @@ class TabManager: ObservableObject {
         return nil
     }
 
+    private final class CommandRunState: @unchecked Sendable {
+        fileprivate typealias Continuation = CheckedContinuation<CommandResult?, Never>
+
+        private let lock = NSLock()
+        private var continuation: Continuation?
+        private var stdoutData: Data?
+        private var stderrData: Data?
+        private var exitStatus: Int32?
+        private var didTerminate = false
+        private var didResume = false
+        private var timeoutWorkItem: DispatchWorkItem?
+
+        fileprivate init(continuation: Continuation) {
+            self.continuation = continuation
+        }
+
+        func setTimeoutWorkItem(_ item: DispatchWorkItem?) {
+            guard let item else { return }
+            lock.lock()
+            if didResume {
+                lock.unlock()
+                item.cancel()
+                return
+            }
+            timeoutWorkItem = item
+            lock.unlock()
+        }
+
+        func hasResumed() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return didResume
+        }
+
+        func completeStdout(_ data: Data) {
+            complete {
+                stdoutData = data
+            }
+        }
+
+        func completeStderr(_ data: Data) {
+            complete {
+                stderrData = data
+            }
+        }
+
+        func completeTermination(exitStatus: Int32) {
+            complete {
+                self.exitStatus = exitStatus
+                didTerminate = true
+            }
+        }
+
+        func resume(returning result: CommandResult?) {
+            var continuationToResume: Continuation?
+            var timeoutToCancel: DispatchWorkItem?
+            lock.lock()
+            guard !didResume else {
+                lock.unlock()
+                return
+            }
+            didResume = true
+            continuationToResume = continuation
+            continuation = nil
+            timeoutToCancel = timeoutWorkItem
+            timeoutWorkItem = nil
+            lock.unlock()
+
+            timeoutToCancel?.cancel()
+            continuationToResume?.resume(returning: result)
+        }
+
+        private func complete(_ mutate: () -> Void) {
+            var continuationToResume: Continuation?
+            var timeoutToCancel: DispatchWorkItem?
+            var resultToResume: CommandResult?
+
+            lock.lock()
+            guard !didResume else {
+                lock.unlock()
+                return
+            }
+
+            mutate()
+            if let stdoutData,
+               let stderrData,
+               didTerminate {
+                didResume = true
+                resultToResume = CommandResult(
+                    stdout: String(data: stdoutData, encoding: .utf8),
+                    stderr: String(data: stderrData, encoding: .utf8),
+                    exitStatus: exitStatus,
+                    timedOut: false,
+                    executionError: nil
+                )
+                continuationToResume = continuation
+                continuation = nil
+                timeoutToCancel = timeoutWorkItem
+                timeoutWorkItem = nil
+            }
+            lock.unlock()
+
+            timeoutToCancel?.cancel()
+            if let resultToResume {
+                continuationToResume?.resume(returning: resultToResume)
+            }
+        }
+    }
+
     private nonisolated static func runCommand(
         directory: String,
         executable: String,
         arguments: [String],
         timeout: TimeInterval? = nil
-    ) -> String? {
-        let result = runCommandResult(
+    ) async -> String? {
+        let result = await runCommandResult(
             directory: directory,
             executable: executable,
             arguments: arguments,
@@ -2116,65 +4786,92 @@ class TabManager: ObservableObject {
         executable: String,
         arguments: [String],
         timeout: TimeInterval? = nil
-    ) -> CommandResult? {
-        let process = Process()
-        let stdout = Pipe()
-        let stderr = Pipe()
-        if let resolvedExecutable = resolvedCommandPath(executable: executable) {
-            process.executableURL = URL(fileURLWithPath: resolvedExecutable)
-            process.arguments = arguments
-        } else {
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = [executable] + arguments
+    ) async -> CommandResult? {
+#if DEBUG
+        assert(!Thread.isMainThread, "TabManager.runCommandResult must not run on the main thread")
+        if let commandRunnerForTesting {
+            return commandRunnerForTesting(directory, executable, arguments, timeout)
         }
-        process.currentDirectoryURL = URL(fileURLWithPath: directory)
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        let completion = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in
-            completion.signal()
-        }
-
-        do {
-            try process.run()
-        } catch {
-            return CommandResult(
-                stdout: nil,
-                stderr: nil,
-                exitStatus: nil,
-                timedOut: false,
-                executionError: String(describing: error)
-            )
-        }
-
-        if let timeout,
-           completion.wait(timeout: .now() + timeout) == .timedOut {
-            process.terminate()
-            if completion.wait(timeout: .now() + 0.2) == .timedOut {
-                kill(process.processIdentifier, SIGKILL)
-                _ = completion.wait(timeout: .now() + 0.2)
+#endif
+        return await withCheckedContinuation { continuation in
+            let process = Process()
+            let stdout = Pipe()
+            let stderr = Pipe()
+            if let resolvedExecutable = resolvedCommandPath(executable: executable) {
+                process.executableURL = URL(fileURLWithPath: resolvedExecutable)
+                process.arguments = arguments
+            } else {
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                process.arguments = [executable] + arguments
             }
-            return CommandResult(
-                stdout: nil,
-                stderr: nil,
-                exitStatus: nil,
-                timedOut: true,
-                executionError: nil
-            )
-        } else if timeout == nil {
-            completion.wait()
-        }
+            process.currentDirectoryURL = URL(fileURLWithPath: directory)
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = stdout
+            process.standardError = stderr
 
-        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
-        return CommandResult(
-            stdout: String(data: stdoutData, encoding: .utf8),
-            stderr: String(data: stderrData, encoding: .utf8),
-            exitStatus: process.terminationStatus,
-            timedOut: false,
-            executionError: nil
-        )
+            let state = CommandRunState(continuation: continuation)
+            let timeoutWorkItem = timeout.map { _ in
+                DispatchWorkItem { [state, process] in
+                    guard !state.hasResumed() else { return }
+                    guard process.isRunning else { return }
+                    process.terminate()
+                    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.2) {
+                        if process.isRunning {
+                            kill(process.processIdentifier, SIGKILL)
+                        }
+                    }
+                    state.resume(
+                        returning: CommandResult(
+                            stdout: nil,
+                            stderr: nil,
+                            exitStatus: nil,
+                            timedOut: true,
+                            executionError: nil
+                        )
+                    )
+                }
+            }
+            state.setTimeoutWorkItem(timeoutWorkItem)
+            process.terminationHandler = { terminatedProcess in
+                state.completeTermination(exitStatus: terminatedProcess.terminationStatus)
+            }
+
+            do {
+                try process.run()
+            } catch {
+                try? stdout.fileHandleForWriting.close()
+                try? stderr.fileHandleForWriting.close()
+                state.resume(
+                    returning: CommandResult(
+                        stdout: nil,
+                        stderr: nil,
+                        exitStatus: nil,
+                        timedOut: false,
+                        executionError: String(describing: error)
+                    )
+                )
+                return
+            }
+
+            try? stdout.fileHandleForWriting.close()
+            try? stderr.fileHandleForWriting.close()
+
+            DispatchQueue.global(qos: .utility).async {
+                let data = stdout.fileHandleForReading.readDataToEndOfFile()
+                state.completeStdout(data)
+            }
+            DispatchQueue.global(qos: .utility).async {
+                let data = stderr.fileHandleForReading.readDataToEndOfFile()
+                state.completeStderr(data)
+            }
+            if let timeout,
+               let timeoutWorkItem {
+                DispatchQueue.global(qos: .utility).asyncAfter(
+                    deadline: .now() + timeout,
+                    execute: timeoutWorkItem
+                )
+            }
+        }
     }
 
     nonisolated static func githubRepositorySlugs(fromGitRemoteVOutput output: String) -> [String] {
@@ -2192,9 +4889,7 @@ class TabManager: ObservableObject {
                 continue
             }
 
-            if slugByRemoteName[remoteName] == nil {
-                slugByRemoteName[remoteName] = repoSlug
-            }
+            slugByRemoteName[remoteName] = repoSlug
         }
 
         let orderedRemoteNames = slugByRemoteName.keys.sorted { lhs, rhs in
@@ -2218,8 +4913,27 @@ class TabManager: ObservableObject {
         return orderedSlugs
     }
 
-    private nonisolated static func githubRepositorySlugs(directory: String) -> [String] {
-        guard let output = runGitCommand(directory: directory, arguments: ["remote", "-v"]) else {
+#if DEBUG
+    nonisolated static func workspaceGitMetadataWatchedPathsForTesting(directory: String) -> [String] {
+        workspaceGitMetadataWatcherDescriptor(for: directory)?.watchedPaths ?? []
+    }
+
+    nonisolated static func githubRepositorySlugs(fromGitConfigForTesting config: String) -> [String] {
+        githubRepositorySlugs(fromGitRemoteVOutput: gitRemoteVLines(fromConfig: config).joined())
+    }
+
+    nonisolated static func githubRepositorySlugs(directoryForTesting directory: String) -> [String] {
+        guard let repository = resolveGitRepository(containing: directory),
+              let output = gitRemoteVOutput(repository: repository) else {
+            return []
+        }
+        return githubRepositorySlugs(fromGitRemoteVOutput: output)
+    }
+#endif
+
+    private nonisolated static func githubRepositorySlugs(directory: String) async -> [String] {
+        guard let repository = resolveGitRepository(containing: directory),
+              let output = gitRemoteVOutput(repository: repository) else {
             return []
         }
         return githubRepositorySlugs(fromGitRemoteVOutput: output)
@@ -2258,6 +4972,14 @@ class TabManager: ObservableObject {
             return nil
         }
 
+        return normalizedGitHubRepositorySlug(url.path)
+    }
+
+    private nonisolated static func githubRepositorySlug(fromPullRequestURL url: URL) -> String? {
+        guard let host = url.host?.lowercased(),
+              host == "github.com" else {
+            return nil
+        }
         return normalizedGitHubRepositorySlug(url.path)
     }
 
@@ -2307,6 +5029,21 @@ class TabManager: ObservableObject {
         var updated = pendingBackgroundWorkspaceLoadIds
         updated.remove(workspaceId)
         pendingBackgroundWorkspaceLoadIds = updated
+        releaseBackgroundWorkspaceMount(for: workspaceId)
+    }
+
+    func retainBackgroundWorkspaceMount(for workspaceId: UUID) {
+        guard !mountedBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
+        var updated = mountedBackgroundWorkspaceLoadIds
+        updated.insert(workspaceId)
+        mountedBackgroundWorkspaceLoadIds = updated
+    }
+
+    func releaseBackgroundWorkspaceMount(for workspaceId: UUID) {
+        guard mountedBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
+        var updated = mountedBackgroundWorkspaceLoadIds
+        updated.remove(workspaceId)
+        mountedBackgroundWorkspaceLoadIds = updated
     }
 
     func retainDebugWorkspaceLoads(for workspaceIds: Set<UUID>) {
@@ -2330,6 +5067,10 @@ class TabManager: ObservableObject {
         if pruned != pendingBackgroundWorkspaceLoadIds {
             pendingBackgroundWorkspaceLoadIds = pruned
         }
+        let mounted = mountedBackgroundWorkspaceLoadIds.intersection(existingIds)
+        if mounted != mountedBackgroundWorkspaceLoadIds {
+            mountedBackgroundWorkspaceLoadIds = mounted
+        }
         let retained = debugPinnedWorkspaceLoadIds.intersection(existingIds)
         if retained != debugPinnedWorkspaceLoadIds {
             debugPinnedWorkspaceLoadIds = retained
@@ -2350,7 +5091,7 @@ class TabManager: ObservableObject {
     /// for obtaining `preferredWorkingDirectory` and `inheritedTerminalFontPoints` through
     /// `self` (where `self.tabs` keeps all Workspace objects alive) so that no local
     /// Workspace references are needed here.
-    private func workspaceCreationSnapshotLite(
+    func workspaceCreationSnapshotLite(
         currentTabs: [Workspace],
         currentSelectedTabId: UUID?,
         preferredWorkingDirectory: String?,
@@ -2400,7 +5141,7 @@ class TabManager: ObservableObject {
         for workspace in currentTabs {
             guard let tabSnapshot = snapshotTabsById[workspace.id] else {
 #if DEBUG
-                dlog(
+                cmuxDebugLog(
                     "workspace.create.reentrantSnapshotFallback " +
                     "snapshotCount=\(snapshot.tabs.count) liveCount=\(currentTabs.count)"
                 )
@@ -2477,13 +5218,13 @@ class TabManager: ObservableObject {
         inheritedTerminalFontPointsForNewWorkspace(workspace: selectedWorkspace)
     }
 
-    private func inheritedTerminalFontPointsForNewWorkspace(
+    func inheritedTerminalFontPointsForNewWorkspace(
         workspace: Workspace?
     ) -> Float? {
         cachedInheritedTerminalFontPointsForNewWorkspace(workspace: workspace)
     }
 
-    private func workspaceCreationConfigTemplate(
+    func workspaceCreationConfigTemplate(
         inheritedTerminalFontPoints: Float?
     ) -> CmuxSurfaceConfigTemplate? {
         guard let inheritedTerminalFontPoints, inheritedTerminalFontPoints > 0 else {
@@ -2496,7 +5237,7 @@ class TabManager: ObservableObject {
         return config
     }
 
-    private func normalizedWorkingDirectory(_ directory: String?) -> String? {
+    func normalizedWorkingDirectory(_ directory: String?) -> String? {
         guard let directory else { return nil }
         let normalized = normalizeDirectory(directory)
         let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2507,11 +5248,11 @@ class TabManager: ObservableObject {
         newTabInsertIndex(snapshot: workspaceCreationSnapshot(), placementOverride: placementOverride)
     }
 
-    private func newTabInsertIndex(
+    func newTabInsertIndex(
         snapshot: WorkspaceCreationSnapshot,
         placementOverride: NewWorkspacePlacement? = nil
     ) -> Int {
-        let placement = placementOverride ?? WorkspacePlacementSettings.current()
+        let placement = WorkspacePlacementSettings.effectivePlacement(placementOverride: placementOverride)
         let liveTabs = orderedLiveWorkspaceCreationTabs(from: snapshot) ?? snapshot.tabs
         let pinnedCount = liveTabs.reduce(into: 0) { partial, tab in
             if tab.isPinned {
@@ -2543,7 +5284,7 @@ class TabManager: ObservableObject {
         preferredWorkingDirectoryForNewTab(workspace: selectedWorkspace)
     }
 
-    private func preferredWorkingDirectoryForNewTab(
+    func preferredWorkingDirectoryForNewTab(
         workspace: Workspace?
     ) -> String? {
         guard let workspace else {
@@ -2560,25 +5301,39 @@ class TabManager: ObservableObject {
         }.first
     }
 
+    func implicitWorkingDirectoryForNewWorkspace(from sourceWorkspace: Workspace?) -> String? {
+        guard WorkspaceWorkingDirectoryInheritanceSettings.isEnabled() else {
+            return nil
+        }
+        return preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
+    }
+
     func moveTabToTop(_ tabId: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        guard index != 0 else { return }
-        let tab = tabs.remove(at: index)
+        let tab = tabs[index]
+        let targetIndex = tab.isPinned ? 0 : tabs.filter { $0.isPinned }.count
+        guard index != targetIndex else { return }
+        tabs.remove(at: index)
         let pinnedCount = tabs.filter { $0.isPinned }.count
         let insertIndex = tab.isPinned ? 0 : pinnedCount
         tabs.insert(tab, at: insertIndex)
+        postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
     }
 
     func moveTabsToTop(_ tabIds: Set<UUID>) {
         guard !tabIds.isEmpty else { return }
         let selectedTabs = tabs.filter { tabIds.contains($0.id) }
         guard !selectedTabs.isEmpty else { return }
+        let previousOrder = tabs.map(\.id)
         let remainingTabs = tabs.filter { !tabIds.contains($0.id) }
         let selectedPinned = selectedTabs.filter { $0.isPinned }
         let selectedUnpinned = selectedTabs.filter { !$0.isPinned }
         let remainingPinned = remainingTabs.filter { $0.isPinned }
         let remainingUnpinned = remainingTabs.filter { !$0.isPinned }
         tabs = selectedPinned + remainingPinned + selectedUnpinned + remainingUnpinned
+        if tabs.map(\.id) != previousOrder {
+            postWorkspaceOrderDidChange(movedWorkspaceIds: selectedTabs.map(\.id))
+        }
     }
 
     func moveTabToTopForNotification(_ tabId: UUID) {
@@ -2589,34 +5344,120 @@ class TabManager: ObservableObject {
         guard !tab.isPinned else { return }
         tabs.remove(at: index)
         tabs.insert(tab, at: pinnedCount)
+        postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
     }
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int) -> Bool {
-        guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
-        if tabs.count <= 1 { return true }
+        guard let plan = workspaceReorderPlan(tabId: tabId, toIndex: targetIndex) else { return false }
+        if tabs.count <= 1 || plan.fromIndex == plan.toIndex { return true }
+
+        let workspace = tabs.remove(at: plan.fromIndex)
+        tabs.insert(workspace, at: plan.toIndex)
+        postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
+        return true
+    }
+
+    func workspaceReorderPlan(tabId: UUID, toIndex targetIndex: Int) -> WorkspaceReorderPlanItem? {
+        guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
+        if tabs.count <= 1 {
+            return WorkspaceReorderPlanItem(workspaceId: tabId, fromIndex: currentIndex, toIndex: currentIndex)
+        }
 
         let workspace = tabs[currentIndex]
         let clamped = clampedReorderIndex(for: workspace, targetIndex: targetIndex)
-        if currentIndex == clamped { return true }
+        return WorkspaceReorderPlanItem(workspaceId: tabId, fromIndex: currentIndex, toIndex: clamped)
+    }
 
-        tabs.remove(at: currentIndex)
-        tabs.insert(workspace, at: clamped)
-        return true
+    private func postWorkspaceOrderDidChange(movedWorkspaceIds: [UUID]) {
+        guard !movedWorkspaceIds.isEmpty else { return }
+        NotificationCenter.default.post(
+            name: .workspaceOrderDidChange,
+            object: self,
+            userInfo: [WorkspaceOrderChangeNotificationKey.movedWorkspaceIds: movedWorkspaceIds]
+        )
     }
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> Bool {
-        guard tabs.contains(where: { $0.id == tabId }) else { return false }
+        guard let plan = workspaceReorderPlan(tabId: tabId, before: beforeId, after: afterId) else { return false }
+        return reorderWorkspace(tabId: tabId, toIndex: plan.toIndex)
+    }
+
+    func workspaceReorderPlan(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> WorkspaceReorderPlanItem? {
+        guard tabs.contains(where: { $0.id == tabId }) else { return nil }
         if let beforeId {
-            guard let idx = tabs.firstIndex(where: { $0.id == beforeId }) else { return false }
-            return reorderWorkspace(tabId: tabId, toIndex: idx)
+            guard let idx = tabs.firstIndex(where: { $0.id == beforeId }) else { return nil }
+            return workspaceReorderPlan(tabId: tabId, toIndex: idx)
         }
         if let afterId {
-            guard let idx = tabs.firstIndex(where: { $0.id == afterId }) else { return false }
-            return reorderWorkspace(tabId: tabId, toIndex: idx + 1)
+            guard let idx = tabs.firstIndex(where: { $0.id == afterId }) else { return nil }
+            return workspaceReorderPlan(tabId: tabId, toIndex: idx + 1)
         }
-        return false
+        return nil
+    }
+
+    func workspaceBatchReorderPlan(
+        orderedWorkspaceIds: [UUID]
+    ) -> Result<[WorkspaceReorderPlanItem], WorkspaceBatchReorderError> {
+        var seen = Set<UUID>()
+        for workspaceId in orderedWorkspaceIds {
+            guard seen.insert(workspaceId).inserted else {
+                return .failure(.duplicateWorkspace(workspaceId))
+            }
+        }
+
+        let currentIndexes = Dictionary(uniqueKeysWithValues: tabs.enumerated().map { ($0.element.id, $0.offset) })
+        for workspaceId in orderedWorkspaceIds where currentIndexes[workspaceId] == nil {
+            return .failure(.workspaceNotFound(workspaceId))
+        }
+
+        let finalIds = batchWorkspaceReorderFinalIds(orderedWorkspaceIds: orderedWorkspaceIds)
+        let finalIndexes = Dictionary(uniqueKeysWithValues: finalIds.enumerated().map { ($0.element, $0.offset) })
+
+        let plan = orderedWorkspaceIds.map { workspaceId in
+            WorkspaceReorderPlanItem(
+                workspaceId: workspaceId,
+                fromIndex: currentIndexes[workspaceId] ?? 0,
+                toIndex: finalIndexes[workspaceId] ?? 0
+            )
+        }
+        return .success(plan)
+    }
+
+    @discardableResult
+    func reorderWorkspaces(
+        orderedWorkspaceIds: [UUID],
+        dryRun: Bool = false
+    ) -> Result<[WorkspaceReorderPlanItem], WorkspaceBatchReorderError> {
+        let result = workspaceBatchReorderPlan(orderedWorkspaceIds: orderedWorkspaceIds)
+        guard case .success(let plan) = result else { return result }
+        guard !dryRun else { return result }
+
+        let movedWorkspaceIds = plan
+            .filter { $0.fromIndex != $0.toIndex }
+            .map(\.workspaceId)
+        guard !movedWorkspaceIds.isEmpty else { return result }
+
+        let workspacesById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        let finalIds = batchWorkspaceReorderFinalIds(orderedWorkspaceIds: orderedWorkspaceIds)
+        tabs = finalIds.compactMap { workspacesById[$0] }
+        postWorkspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
+        return result
+    }
+
+    private func batchWorkspaceReorderFinalIds(orderedWorkspaceIds: [UUID]) -> [UUID] {
+        let orderedSet = Set(orderedWorkspaceIds)
+        let workspacesById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        let orderedPinnedIds = orderedWorkspaceIds.filter { workspacesById[$0]?.isPinned == true }
+        let orderedUnpinnedIds = orderedWorkspaceIds.filter { workspacesById[$0]?.isPinned == false }
+        let remainingPinnedIds = tabs
+            .map(\.id)
+            .filter { !orderedSet.contains($0) && workspacesById[$0]?.isPinned == true }
+        let remainingUnpinnedIds = tabs
+            .map(\.id)
+            .filter { !orderedSet.contains($0) && workspacesById[$0]?.isPinned == false }
+        return orderedPinnedIds + remainingPinnedIds + orderedUnpinnedIds + remainingUnpinnedIds
     }
 
     func setCustomTitle(tabId: UUID, title: String?) {
@@ -2643,6 +5484,22 @@ class TabManager: ObservableObject {
     func setTabColor(tabId: UUID, color: String?) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         tab.setCustomColor(color)
+    }
+
+    func applyWorkspaceColor(_ color: String?, toWorkspaceIds workspaceIds: [UUID]) {
+        for workspaceId in workspaceIds {
+            setTabColor(tabId: workspaceId, color: color)
+        }
+    }
+
+    func applyWorkspacePaletteColor(named name: String, toWorkspaceIds workspaceIds: [UUID]) {
+        guard let color = WorkspaceTabColorSettings.currentColorHex(named: name) else { return }
+        applyWorkspaceColor(color, toWorkspaceIds: workspaceIds)
+    }
+
+    func setWorkspaceTerminalScrollBarHidden(tabId: UUID, hidden: Bool) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        tab.setTerminalScrollBarHidden(hidden)
     }
 
     func togglePin(tabId: UUID) {
@@ -2683,6 +5540,15 @@ class TabManager: ObservableObject {
         tab.updatePanelDirectory(panelId: surfaceId, directory: normalized)
         let nextDirectory = normalizedWorkingDirectory(normalized)
         if previousDirectory != nextDirectory {
+            guard sidebarGitMetadataWatchEnabled else {
+                clearWorkspaceGitMetadata(for: WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId))
+                return
+            }
+            scheduleWorkspacePullRequestRefresh(
+                workspaceId: tabId,
+                panelId: surfaceId,
+                reason: "directoryChange"
+            )
             scheduleWorkspaceGitMetadataRefreshIfPossible(
                 workspaceId: tabId,
                 panelId: surfaceId,
@@ -2695,17 +5561,29 @@ class TabManager: ObservableObject {
         tabId: UUID,
         surfaceId: UUID,
         branch: String,
-        isDirty: Bool
+        isDirty: Bool?
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        let probeKey = WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
+        guard sidebarGitMetadataWatchEnabled else {
+            clearWorkspaceGitMetadata(for: probeKey)
+            return
+        }
         let current = tab.panelGitBranches[surfaceId]
         let normalizedBranch = Self.normalizedBranchName(branch) ?? branch
-        guard current?.branch != normalizedBranch || current?.isDirty != isDirty else { return }
-        tab.updatePanelGitBranch(panelId: surfaceId, branch: normalizedBranch, isDirty: isDirty)
+        let nextIsDirty = isDirty ?? (current?.branch == normalizedBranch ? current?.isDirty ?? false : false)
+        guard current?.branch != normalizedBranch || current?.isDirty != nextIsDirty else { return }
+        tab.updatePanelGitBranch(panelId: surfaceId, branch: normalizedBranch, isDirty: nextIsDirty)
         if let directory = gitProbeDirectory(for: tab, panelId: surfaceId) {
-            let probeKey = WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
             workspaceGitTrackedDirectoryByKey[probeKey] = directory
+            updateWorkspaceGitMetadataWatcher(for: probeKey, directory: directory)
+            updateWorkspaceGitMetadataFallbackTimer()
         }
+        scheduleWorkspacePullRequestRefresh(
+            workspaceId: tabId,
+            panelId: surfaceId,
+            reason: "branchChange"
+        )
         scheduleWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: tabId,
             panelId: surfaceId,
@@ -2718,6 +5596,13 @@ class TabManager: ObservableObject {
         let hadBranch = tab.panelGitBranches[surfaceId] != nil
         let hadPullRequest = tab.panelPullRequests[surfaceId] != nil
         guard hadBranch || hadPullRequest else { return }
+        clearWorkspacePullRequestTracking(
+            for: WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
+        )
+        let probeKey = WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
+        workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
+        stopWorkspaceGitMetadataWatcher(for: probeKey)
+        updateWorkspaceGitMetadataFallbackTimer()
         tab.clearPanelGitBranch(panelId: surfaceId)
         tab.clearPanelPullRequest(panelId: surfaceId)
         scheduleWorkspaceGitMetadataRefreshIfPossible(
@@ -2734,6 +5619,103 @@ class TabManager: ObservableObject {
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         tab.updatePanelShellActivityState(panelId: surfaceId, state: state)
+        if state == .promptIdle {
+            scheduleWorkspacePullRequestRefresh(
+                workspaceId: tabId,
+                panelId: surfaceId,
+                reason: "shellPrompt"
+            )
+        }
+    }
+
+    func handleWorkspacePullRequestCommandHint(
+        tabId: UUID,
+        surfaceId: UUID,
+        action: String,
+        target: String?
+    ) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        reconcileLocalPullRequestActionIfPossible(
+            workspace: tab,
+            panelId: surfaceId,
+            action: action,
+            target: target
+        )
+        scheduleWorkspacePullRequestRefresh(
+            workspaceId: tabId,
+            panelId: surfaceId,
+            reason: "commandHint:\(action)"
+        )
+    }
+
+    private func reconcileLocalPullRequestActionIfPossible(
+        workspace: Workspace,
+        panelId: UUID,
+        action: String,
+        target: String?
+    ) {
+        guard let currentPullRequest = workspace.panelPullRequests[panelId],
+              pullRequestCommandTargetMatchesCurrentPullRequest(
+                target,
+                currentPullRequest: currentPullRequest
+              ) else {
+            return
+        }
+
+        let nextStatus: SidebarPullRequestStatus
+        switch action {
+        case "merge":
+            guard currentPullRequest.status == .open else { return }
+            nextStatus = .merged
+        case "close":
+            guard currentPullRequest.status == .open else { return }
+            nextStatus = .closed
+        case "reopen":
+            guard currentPullRequest.status != .open else { return }
+            nextStatus = .open
+        default:
+            return
+        }
+
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: currentPullRequest.number,
+            label: currentPullRequest.label,
+            url: currentPullRequest.url,
+            status: nextStatus,
+            branch: currentPullRequest.branch,
+            isStale: false
+        )
+    }
+
+    private func pullRequestCommandTargetMatchesCurrentPullRequest(
+        _ rawTarget: String?,
+        currentPullRequest: SidebarPullRequestState
+    ) -> Bool {
+        let trimmedTarget = rawTarget?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmedTarget.isEmpty else { return true }
+
+        let numberToken = trimmedTarget.hasPrefix("#") ? String(trimmedTarget.dropFirst()) : trimmedTarget
+        if let number = Int(numberToken), number == currentPullRequest.number {
+            return true
+        }
+
+        if let targetURL = URL(string: trimmedTarget) {
+            if targetURL == currentPullRequest.url {
+                return true
+            }
+            if let lastComponent = targetURL.pathComponents.last,
+               let number = Int(lastComponent),
+               number == currentPullRequest.number {
+                return true
+            }
+        }
+
+        if Self.normalizedBranchName(trimmedTarget) == Self.normalizedBranchName(currentPullRequest.branch) {
+            return true
+        }
+
+        return false
     }
 
     private func normalizeDirectory(_ directory: String) -> String {
@@ -2751,6 +5733,7 @@ class TabManager: ObservableObject {
         guard tabs.count > 1 else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         clearWorkspaceGitProbes(workspaceId: workspace.id)
+        clearWorkspacePullRequestTracking(workspaceId: workspace.id)
         sidebarSelectedWorkspaceIds.remove(workspace.id)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
@@ -2770,6 +5753,7 @@ class TabManager: ObservableObject {
                 selectedTabId = tabs[newIndex].id
             }
         }
+        publishCmuxWorkspaceClosed(workspace)
     }
 
     /// Detach a workspace from this window without closing its panels.
@@ -2827,6 +5811,7 @@ class TabManager: ObservableObject {
 #if DEBUG
         UITestRecorder.incrementInt("closePanelInvocations")
 #endif
+        guard !closeConfirmationInFlight else { return }
         guard let selectedId = selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedId }) else { return }
         reconcileFocusedPanelFromFirstResponderForKeyboard()
@@ -2839,16 +5824,17 @@ class TabManager: ObservableObject {
     }
 
     func closeOtherTabsInFocusedPaneWithConfirmation() {
+        guard !closeConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
-        let count = plan.panelIds.count
-        let titleLines = plan.titles.map { "• \($0)" }.joined(separator: "\n")
-        let message = "This is about to close \(count) tab\(count == 1 ? "" : "s") in this pane:\n\(titleLines)"
-        guard confirmClose(
-            title: "Close other tabs?",
-            message: message,
-            acceptCmdD: false
-        ) else { return }
+        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: true) {
+            let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
+            guard confirmClose(
+                title: prompt.title,
+                message: prompt.message,
+                acceptCmdD: false
+            ) else { return }
+        }
 
         for panelId in plan.panelIds {
             _ = plan.workspace.closePanel(panelId, force: true)
@@ -2859,6 +5845,7 @@ class TabManager: ObservableObject {
 #if DEBUG
         UITestRecorder.incrementInt("closeTabInvocations")
 #endif
+        guard !closeConfirmationInFlight else { return }
         let sidebarSelectionIds = orderedSidebarSelectedWorkspaceIds()
         if sidebarSelectionIds.count > 1 {
             closeWorkspacesWithConfirmation(sidebarSelectionIds, allowPinned: true)
@@ -2876,20 +5863,22 @@ class TabManager: ObservableObject {
     @discardableResult
     func closeWorkspaceWithConfirmation(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {
-            guard confirmClose(
-                title: String(localized: "dialog.closePinnedWorkspace.title", defaultValue: "Close pinned workspace?"),
-                message: String(
-                    localized: "dialog.closePinnedWorkspace.message",
-                    defaultValue: "This workspace is pinned. Closing it will close the workspace and all of its panels."
-                ),
-                acceptCmdD: tabs.count <= 1
-            ) else {
-                return false
-            }
+            guard confirmPinnedWorkspaceClose(source: .workspace) else { return false }
             closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
             return true
         }
         closeWorkspaceIfRunningProcess(workspace)
+        return true
+    }
+
+    @discardableResult
+    func closeWorkspaceFromCloseTabGesture(_ workspace: Workspace) -> Bool {
+        if workspace.isPinned {
+            guard confirmPinnedWorkspaceClose(source: .tabClose) else { return false }
+            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
+            return true
+        }
+        closeWorkspaceIfRunningProcess(workspace, source: .tabClose)
         return true
     }
 
@@ -2908,16 +5897,18 @@ class TabManager: ObservableObject {
         let workspaces = orderedClosableWorkspaces(workspaceIds, allowPinned: allowPinned)
         guard !workspaces.isEmpty else { return }
         guard workspaces.count > 1 else {
-            closeWorkspaceWithConfirmation(workspaces[0])
+            closeWorkspaceFromCloseTabGesture(workspaces[0])
             return
         }
 
         let plan = closeWorkspacesPlan(for: workspaces)
-        guard confirmClose(
-            title: plan.title,
-            message: plan.message,
-            acceptCmdD: plan.acceptCmdD
-        ) else { return }
+        if shouldConfirmClose(requiresConfirmation: true, source: .tabClose) {
+            guard confirmClose(
+                title: plan.title,
+                message: plan.message,
+                acceptCmdD: plan.acceptCmdD
+            ) else { return }
+        }
 
         for workspace in plan.workspaces {
             guard tabs.contains(where: { $0.id == workspace.id }) else { continue }
@@ -2929,13 +5920,30 @@ class TabManager: ObservableObject {
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("select", to: workspace.id)
 #endif
-        selectedTabId = workspace.id
+        selectWorkspaceId(workspace.id, notificationDismissalContext: .explicitWorkspaceResume)
     }
 
     // Keep selectTab as convenience alias
     func selectTab(_ tab: Workspace) { selectWorkspace(tab) }
 
-    private func confirmClose(title: String, message: String, acceptCmdD: Bool) -> Bool {
+    var isCloseConfirmationInFlight: Bool { closeConfirmationInFlight }
+
+    func beginCloseConfirmationSession() -> Bool {
+        guard !closeConfirmationInFlight else { return false }
+        closeConfirmationInFlight = true
+        return true
+    }
+
+    func endCloseConfirmationSession() {
+        DispatchQueue.main.async { [weak self] in
+            self?.closeConfirmationInFlight = false
+        }
+    }
+
+    func confirmClose(title: String, message: String, acceptCmdD: Bool) -> Bool {
+        guard beginCloseConfirmationSession() else { return false }
+        defer { endCloseConfirmationSession() }
+
         if let confirmCloseHandler {
             return confirmCloseHandler(title, message, acceptCmdD)
         }
@@ -2958,11 +5966,66 @@ class TabManager: ObservableObject {
             cancelButton.keyEquivalent = "\u{1b}"
         }
 
+        #if DEBUG
+        UITestRecorder.record([
+            "closeConfirmationTitle": title,
+            "closeConfirmationMessage": message,
+        ])
+        #endif
+
+        return runCloseConfirmationAlert(alert) == .alertFirstButtonReturn
+    }
+
+    private func runCloseConfirmationAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
         if NSApp.activationPolicy() == .regular {
             NSApp.activate(ignoringOtherApps: true)
         }
 
-        return alert.runModal() == .alertFirstButtonReturn
+        let presentingWindow = closeConfirmationPresentingWindow()
+        let hasAttachedSheet = presentingWindow?.attachedSheet != nil
+        guard let presentingWindow, !hasAttachedSheet else {
+            #if DEBUG
+            UITestRecorder.record([
+                "closeConfirmationPresentation": "appModal",
+                "closeConfirmationAttachedSheet": hasAttachedSheet ? "1" : "0",
+            ])
+            #endif
+
+            return alert.runModal()
+        }
+
+        alert.beginSheetModal(for: presentingWindow) { result in
+            NSApp.stopModal(withCode: result)
+        }
+        #if DEBUG
+        DispatchQueue.main.async {
+            UITestRecorder.record([
+                "closeConfirmationPresentation": "sheet",
+                "closeConfirmationAttachedSheet": presentingWindow.attachedSheet == nil ? "0" : "1",
+            ])
+        }
+        #endif
+        return NSApp.runModal(for: alert.window)
+    }
+
+    private func closeConfirmationPresentingWindow() -> NSWindow? {
+        if let window, window.isVisible, isCloseConfirmationMainWindow(window) {
+            return window
+        }
+        if let keyWindow = NSApp.keyWindow, keyWindow.isVisible, isCloseConfirmationMainWindow(keyWindow) {
+            return keyWindow
+        }
+        if let mainWindow = NSApp.mainWindow, mainWindow.isVisible, isCloseConfirmationMainWindow(mainWindow) {
+            return mainWindow
+        }
+        return NSApp.windows.first { candidate in
+            candidate.isVisible && isCloseConfirmationMainWindow(candidate)
+        }
+    }
+
+    private func isCloseConfirmationMainWindow(_ candidate: NSWindow) -> Bool {
+        guard let raw = candidate.identifier?.rawValue else { return false }
+        return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
     }
 
     private struct CloseOtherTabsInFocusedPanePlan {
@@ -2976,6 +6039,11 @@ class TabManager: ObservableObject {
         let title: String
         let message: String
         let acceptCmdD: Bool
+    }
+
+    private enum CloseConfirmationSource {
+        case workspace
+        case tabClose
     }
 
     private func closeOtherTabsInFocusedPanePlan() -> CloseOtherTabsInFocusedPanePlan? {
@@ -2998,7 +6066,7 @@ class TabManager: ObservableObject {
                 continue
             }
             targetPanelIds.append(panelId)
-            targetTitles.append(closeOtherTabsDisplayTitle(workspace.panelTitle(panelId: panelId)))
+            targetTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(workspace.panelTitle(panelId: panelId)))
         }
 
         guard !targetPanelIds.isEmpty else { return nil }
@@ -3007,17 +6075,6 @@ class TabManager: ObservableObject {
             panelIds: targetPanelIds,
             titles: targetTitles
         )
-    }
-
-    private func closeOtherTabsDisplayTitle(_ title: String?) -> String {
-        let collapsed = title?
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let collapsed, !collapsed.isEmpty {
-            return collapsed
-        }
-        return "Untitled Tab"
     }
 
     private func orderedClosableWorkspaces(_ workspaceIds: [UUID], allowPinned: Bool) -> [Workspace] {
@@ -3072,10 +6129,15 @@ class TabManager: ObservableObject {
         return String(localized: "workspace.displayName.fallback", defaultValue: "Workspace")
     }
 
-    private func closeWorkspaceIfRunningProcess(_ workspace: Workspace, requiresConfirmation: Bool = true) {
+    private func closeWorkspaceIfRunningProcess(
+        _ workspace: Workspace,
+        requiresConfirmation: Bool = true,
+        source: CloseConfirmationSource = .workspace
+    ) {
         let willCloseWindow = tabs.count <= 1
+        let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
         if requiresConfirmation,
-           workspaceNeedsConfirmClose(workspace),
+           shouldConfirmClose(requiresConfirmation: needsCloseConfirmation, source: source),
            !confirmClose(
                title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
                message: String(localized: "dialog.closeWorkspace.message", defaultValue: "This will close the workspace and all of its panels."),
@@ -3084,7 +6146,7 @@ class TabManager: ObservableObject {
             return
         }
         if tabs.count <= 1 {
-            // Last workspace in this window: close the window (Cmd+Shift+W behavior).
+            // Last workspace in this window: match Close Workspace shortcut behavior.
             if let window {
                 window.performClose(nil)
             } else {
@@ -3093,6 +6155,27 @@ class TabManager: ObservableObject {
         } else {
             closeWorkspace(workspace)
         }
+    }
+
+    private func shouldConfirmClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
+        switch source {
+        case .workspace:
+            return requiresConfirmation
+        case .tabClose:
+            return CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: requiresConfirmation)
+        }
+    }
+
+    private func confirmPinnedWorkspaceClose(source: CloseConfirmationSource) -> Bool {
+        guard shouldConfirmClose(requiresConfirmation: true, source: source) else { return true }
+        return confirmClose(
+            title: String(localized: "dialog.closePinnedWorkspace.title", defaultValue: "Close pinned workspace?"),
+            message: String(
+                localized: "dialog.closePinnedWorkspace.message",
+                defaultValue: "This workspace is pinned. Closing it will close the workspace and all of its panels."
+            ),
+            acceptCmdD: tabs.count <= 1
+        )
     }
 
     private func shouldCloseWorkspaceOnLastSurfaceShortcut(_ workspace: Workspace, panelId: UUID) -> Bool {
@@ -3104,7 +6187,7 @@ class TabManager: ObservableObject {
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
         guard tab.panels[panelId] != nil else {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "surface.close.shortcut.skip tab=\(tab.id.uuidString.prefix(5)) " +
                 "panel=\(panelId.uuidString.prefix(5)) reason=missingPanel"
             )
@@ -3123,7 +6206,7 @@ class TabManager: ObservableObject {
         }()
         let closesWorkspaceOnLastSurfaceShortcut = shouldCloseWorkspaceOnLastSurfaceShortcut(tab, panelId: panelId)
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "surface.close.shortcut.begin tab=\(tab.id.uuidString.prefix(5)) " +
             "panel=\(panelId.uuidString.prefix(5)) kind=\(panelKind) " +
             "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount) " +
@@ -3131,15 +6214,16 @@ class TabManager: ObservableObject {
         )
 #endif
 
-        // The last-surface shortcut preference only affects Cmd+W. The tab close button
-        // continues to use Workspace's explicit-close path when it closes the last surface.
+        // The last-surface shortcut preference only affects the Close Tab shortcut path.
+        // The tab close button continues to use Workspace's explicit-close path when it
+        // closes the last surface.
         if closesWorkspaceOnLastSurfaceShortcut,
            let surfaceId = tab.surfaceIdFromPanelId(panelId) {
             tab.markExplicitClose(surfaceId: surfaceId)
         }
         let closed = tab.closePanel(panelId)
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "surface.close.shortcut tab=\(tab.id.uuidString.prefix(5)) " +
             "panel=\(panelId.uuidString.prefix(5)) closed=\(closed ? 1 : 0) " +
             "panelsAfterCall=\(tab.panels.count)"
@@ -3180,8 +6264,15 @@ class TabManager: ObservableObject {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         guard tab.panels[surfaceId] != nil else { return }
 
+        let requiresConfirmation: Bool
         if let terminalPanel = tab.terminalPanel(for: surfaceId),
            tab.panelNeedsConfirmClose(panelId: surfaceId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
+            requiresConfirmation = true
+        } else {
+            requiresConfirmation = false
+        }
+
+        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: requiresConfirmation) {
             guard confirmClose(
                 title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
                 message: String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab."),
@@ -3200,7 +6291,7 @@ class TabManager: ObservableObject {
         guard tab.panels[surfaceId] != nil else { return }
 
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "surface.close.runtime tab=\(tabId.uuidString.prefix(5)) " +
             "surface=\(surfaceId.uuidString.prefix(5)) panelsBefore=\(tab.panels.count)"
         )
@@ -3212,7 +6303,7 @@ class TabManager: ObservableObject {
         reconcileFocusedPanelFromFirstResponderForKeyboard()
         let closed = tab.closePanel(surfaceId, force: true)
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "surface.close.runtime.done tab=\(tabId.uuidString.prefix(5)) " +
             "surface=\(surfaceId.uuidString.prefix(5)) closed=\(closed ? 1 : 0) panelsAfter=\(tab.panels.count)"
         )
@@ -3231,7 +6322,7 @@ class TabManager: ObservableObject {
             tab.panels.count <= 1 && tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
 
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "surface.close.childExited tab=\(tabId.uuidString.prefix(5)) " +
             "surface=\(surfaceId.uuidString.prefix(5)) panels=\(tab.panels.count) workspaces=\(tabs.count) " +
             "remoteWorkspace=\(tab.isRemoteWorkspace ? 1 : 0) keepRemote=\(keepsRemoteWorkspaceOpen ? 1 : 0)"
@@ -3349,7 +6440,7 @@ class TabManager: ObservableObject {
 
         let didRequestExplicitWebViewFocus = browserPanel.requestExplicitWebViewFocus()
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "reactGrab.pasteback h1.focusRequestResult " +
             "workspace=\(workspace.id.uuidString.prefix(5)) " +
             "browser=\(browserPanel.id.uuidString.prefix(5)) " +
@@ -3386,6 +6477,19 @@ class TabManager: ObservableObject {
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let terminalPanel = tab.focusedTerminalPanel else { return }
         terminalPanel.applyWindowBackgroundIfActive()
+    }
+
+    func applyWindowBackdropModeForAllTabs(reason: String) {
+        let backgroundColor = GhosttyApp.shared.defaultBackgroundColor
+        let backgroundOpacity = GhosttyApp.shared.defaultBackgroundOpacity
+        for tab in tabs {
+            tab.applyGhosttyChrome(
+                backgroundColor: backgroundColor,
+                backgroundOpacity: backgroundOpacity,
+                reason: reason
+            )
+        }
+        applyWindowBackgroundForSelectedTab()
     }
 
     private func focusSelectedTabPanel(previousTabId: UUID?) {
@@ -3429,7 +6533,7 @@ class TabManager: ObservableObject {
         ) else {
             pendingWorkspaceUnfocusTarget = nil
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "ws.unfocus.drop tab=\(Self.debugShortWorkspaceId(pending.tabId)) panel=\(String(pending.panelId.uuidString.prefix(5))) reason=selected_again"
             )
 #endif
@@ -3440,12 +6544,12 @@ class TabManager: ObservableObject {
 #if DEBUG
         if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
             let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-            dlog(
+            cmuxDebugLog(
                 "ws.unfocus.complete id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) " +
                 "tab=\(Self.debugShortWorkspaceId(pending.tabId)) panel=\(String(pending.panelId.uuidString.prefix(5))) reason=\(reason)"
             )
         } else {
-            dlog(
+            cmuxDebugLog(
                 "ws.unfocus.complete id=none tab=\(Self.debugShortWorkspaceId(pending.tabId)) " +
                 "panel=\(String(pending.panelId.uuidString.prefix(5))) reason=\(reason)"
             )
@@ -3468,13 +6572,13 @@ class TabManager: ObservableObject {
             ) {
                 unfocusWorkspacePanel(tabId: current.tabId, panelId: current.panelId)
 #if DEBUG
-                dlog(
+                cmuxDebugLog(
                     "ws.unfocus.flush tab=\(Self.debugShortWorkspaceId(current.tabId)) panel=\(String(current.panelId.uuidString.prefix(5))) reason=replaced"
                 )
 #endif
             } else {
 #if DEBUG
-                dlog(
+                cmuxDebugLog(
                     "ws.unfocus.drop tab=\(Self.debugShortWorkspaceId(current.tabId)) panel=\(String(current.panelId.uuidString.prefix(5))) reason=replaced_selected"
                 )
 #endif
@@ -3485,12 +6589,12 @@ class TabManager: ObservableObject {
 #if DEBUG
         if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
             let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-            dlog(
+            cmuxDebugLog(
                 "ws.unfocus.defer id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) " +
                 "tab=\(Self.debugShortWorkspaceId(next.tabId)) panel=\(String(next.panelId.uuidString.prefix(5)))"
             )
         } else {
-            dlog(
+            cmuxDebugLog(
                 "ws.unfocus.defer id=none tab=\(Self.debugShortWorkspaceId(next.tabId)) panel=\(String(next.panelId.uuidString.prefix(5)))"
             )
         }
@@ -3507,37 +6611,185 @@ class TabManager: ObservableObject {
         selectedTabId != pendingTabId
     }
 
-    private func dismissFocusedPanelNotificationIfActive(tabId: UUID) {
+    private enum NotificationDismissalContext: Sendable {
+        case activeFocus
+        case explicitWorkspaceResume
+        case directInteraction
+        case terminalInteraction
+
+        var requiresActiveApp: Bool {
+            switch self {
+            case .activeFocus, .explicitWorkspaceResume:
+                return true
+            case .directInteraction, .terminalInteraction:
+                return false
+            }
+        }
+
+        var canDismissManualUnreadIndicator: Bool {
+            self == .terminalInteraction
+        }
+
+        // Generic active focus can be produced by restore/programmatic selection.
+        // Keep this exhaustive so any future context must make an explicit
+        // restored-unread policy decision.
+        var canDismissRestoredUnreadIndicator: Bool {
+            switch self {
+            case .activeFocus:
+                return false
+            case .explicitWorkspaceResume, .directInteraction, .terminalInteraction:
+                return true
+            }
+        }
+    }
+
+    private func selectWorkspaceId(
+        _ tabId: UUID,
+        notificationDismissalContext: NotificationDismissalContext?
+    ) {
+        guard selectedTabId != tabId else {
+            pendingSelectedTabNotificationDismissContext = nil
+            if let notificationDismissalContext {
+                dismissFocusedPanelNotificationIfActive(tabId: tabId, context: notificationDismissalContext)
+            }
+            return
+        }
+
+        pendingSelectedTabNotificationDismissContext = notificationDismissalContext
+        selectedTabId = tabId
+    }
+
+    private func dismissFocusedPanelNotificationIfActive(
+        tabId: UUID,
+        context: NotificationDismissalContext = .activeFocus
+    ) {
         let shouldSuppressFlash = suppressFocusFlash
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
-        guard AppFocusState.isAppActive() else { return }
         guard let panelId = focusedPanelId(for: tabId) else { return }
-        dismissPanelNotificationOnFocusIfActive(tabId: tabId, panelId: panelId)
+        dismissPanelNotificationOnFocus(tabId: tabId, panelId: panelId, context: context)
     }
 
-    private func dismissPanelNotificationOnFocusIfActive(tabId: UUID, panelId: UUID) {
+    private func dismissPanelNotificationOnFocus(tabId: UUID, panelId: UUID, explicitFocusIntent: Bool) {
+        dismissPanelNotificationOnFocus(
+            tabId: tabId,
+            panelId: panelId,
+            context: explicitFocusIntent ? .directInteraction : .activeFocus
+        )
+    }
+
+    private func dismissPanelNotificationOnFocus(
+        tabId: UUID,
+        panelId: UUID,
+        context: NotificationDismissalContext
+    ) {
         guard selectedTabId == tabId else { return }
         guard !suppressFocusFlash else { return }
-        guard AppFocusState.isAppActive() else { return }
-        _ = dismissNotificationOnDirectInteraction(tabId: tabId, surfaceId: panelId)
+        _ = dismissNotification(
+            tabId: tabId,
+            surfaceId: panelId,
+            context: context
+        )
     }
 
     @discardableResult
     func dismissNotificationOnDirectInteraction(tabId: UUID, surfaceId: UUID?) -> Bool {
+        dismissNotification(tabId: tabId, surfaceId: surfaceId, context: .directInteraction)
+    }
+
+    @discardableResult
+    func dismissNotificationOnTerminalInteraction(tabId: UUID, surfaceId: UUID?) -> Bool {
+        dismissNotification(tabId: tabId, surfaceId: surfaceId, context: .terminalInteraction)
+    }
+
+    @discardableResult
+    private func dismissNotification(
+        tabId: UUID,
+        surfaceId: UUID?,
+        context: NotificationDismissalContext
+    ) -> Bool {
         guard selectedTabId == tabId else { return false }
-        guard AppFocusState.isAppActive() else { return false }
-        guard let notificationStore = AppDelegate.shared?.notificationStore else { return false }
-        let hasUnreadNotification = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId)
-        let hasFocusedIndicator = notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: surfaceId)
-        guard hasUnreadNotification || hasFocusedIndicator else { return false }
-        if hasUnreadNotification {
-            notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+        if context.requiresActiveApp {
+            guard AppFocusState.isAppActive() else { return false }
         }
-        notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
-        if let panelId = surfaceId,
-           let tab = tabs.first(where: { $0.id == tabId }) {
-            tab.triggerNotificationDismissFlash(panelId: panelId)
+        guard let notificationStore = AppDelegate.shared?.notificationStore else { return false }
+        let workspace = tabs.first(where: { $0.id == tabId })
+        let targetPanelId = surfaceId.flatMap { surfaceOrPanelId in
+            workspace.flatMap { panelId(forSurfaceOrPanelId: surfaceOrPanelId, in: $0) }
+        }
+        var notificationSurfaceIds: [UUID] = []
+        if let surfaceId {
+            notificationSurfaceIds.append(surfaceId)
+        }
+        if let targetPanelId, !notificationSurfaceIds.contains(targetPanelId) {
+            notificationSurfaceIds.append(targetPanelId)
+        }
+        let hasManualPanelUnread = targetPanelId.map { workspace?.manualUnreadPanelIds.contains($0) ?? false } ?? false
+        let hasRestoredPanelUnread = targetPanelId.map { workspace?.hasRestoredUnreadIndicator(panelId: $0) ?? false } ?? false
+        let hasManualWorkspaceUnread = notificationStore.hasManualUnread(forTabId: tabId)
+        let hasRestoredWorkspaceUnread = notificationStore.hasRestoredUnreadIndicator(forTabId: tabId)
+        let canDismissManualUnreadIndicator = context.canDismissManualUnreadIndicator &&
+            (hasManualPanelUnread || hasManualWorkspaceUnread)
+        let canDismissRestoredUnreadIndicator = context.canDismissRestoredUnreadIndicator &&
+            (hasRestoredPanelUnread || hasRestoredWorkspaceUnread)
+        let canDismissUnreadIndicator = canDismissManualUnreadIndicator || canDismissRestoredUnreadIndicator
+        let hasUnreadNotification: Bool
+        let hasFocusedIndicator: Bool
+        if notificationSurfaceIds.isEmpty {
+            hasUnreadNotification = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: nil)
+            hasFocusedIndicator = notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: nil)
+        } else {
+            hasUnreadNotification = notificationSurfaceIds.contains {
+                notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: $0)
+            }
+            hasFocusedIndicator = notificationSurfaceIds.contains {
+                notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: $0)
+            }
+        }
+        guard hasUnreadNotification || hasFocusedIndicator || canDismissUnreadIndicator else { return false }
+        if hasUnreadNotification {
+            if notificationSurfaceIds.isEmpty {
+                notificationStore.markRead(forTabId: tabId, surfaceId: nil)
+            } else {
+                for surfaceId in notificationSurfaceIds {
+                    notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+                }
+            }
+        }
+        var didDismissUnreadIndicator = false
+        if context.canDismissManualUnreadIndicator {
+            if let targetPanelId, hasManualPanelUnread {
+                workspace?.clearManualUnread(panelId: targetPanelId)
+                didDismissUnreadIndicator = true
+            }
+            if hasManualWorkspaceUnread {
+                didDismissUnreadIndicator = notificationStore.clearManualUnread(forTabId: tabId) || didDismissUnreadIndicator
+            }
+        }
+        if context.canDismissRestoredUnreadIndicator {
+            if let targetPanelId, hasRestoredPanelUnread {
+                workspace?.clearRestoredUnreadIndicator(panelId: targetPanelId)
+                didDismissUnreadIndicator = true
+            }
+            if hasRestoredWorkspaceUnread {
+                didDismissUnreadIndicator =
+                    notificationStore.clearRestoredUnreadIndicator(forTabId: tabId) || didDismissUnreadIndicator
+            }
+        }
+        if notificationSurfaceIds.isEmpty {
+            notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: nil)
+        } else {
+            for surfaceId in notificationSurfaceIds {
+                notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
+            }
+        }
+        if let targetPanelId,
+           let workspace {
+            if hasUnreadNotification || hasFocusedIndicator {
+                workspace.triggerNotificationDismissFlash(panelId: targetPanelId)
+            } else if didDismissUnreadIndicator {
+                workspace.triggerUnreadIndicatorDismissFlash(panelId: targetPanelId)
+            }
         }
         return true
     }
@@ -3545,6 +6797,12 @@ class TabManager: ObservableObject {
     private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+#if DEBUG
+        cmuxDebugLog(
+            "workspace.title.enqueue workspace=\(Self.debugShortWorkspaceId(tabId)) " +
+            "panel=\(panelId.uuidString.prefix(5)) title=\"\(Self.debugTitlePreview(trimmed))\""
+        )
+#endif
         let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
         pendingPanelTitleUpdates[key] = trimmed
         panelTitleUpdateCoalescer.signal { [weak self] in
@@ -3563,12 +6821,13 @@ class TabManager: ObservableObject {
 
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        let didChange = tab.updatePanelTitle(panelId: panelId, title: title)
-        guard didChange else { return }
+        _ = tab.updatePanelTitle(panelId: panelId, title: title)
 
-        // Update window title if this is the selected tab and focused panel
-        if selectedTabId == tabId && tab.focusedPanelId == panelId {
-            updateWindowTitle(for: tab)
+        if tab.focusedPanelId == panelId {
+            tab.applyProcessTitle(title)
+            if selectedTabId == tabId {
+                updateWindowTitle(for: tab)
+            }
         }
     }
 
@@ -3607,40 +6866,46 @@ class TabManager: ObservableObject {
         return trimmedDirectory.isEmpty ? "cmux" : trimmedDirectory
     }
 
-    func focusTab(_ tabId: UUID, surfaceId: UUID? = nil, suppressFlash: Bool = false) {
+    func focusTab(
+        _ tabId: UUID,
+        surfaceId: UUID? = nil,
+        suppressFlash: Bool = false,
+        focusIntent: PanelFocusIntent? = nil,
+        dismissRestoredUnreadOnResume: Bool? = nil
+    ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        if let surfaceId, tab.panels[surfaceId] != nil {
+        let targetPanelId = surfaceId.flatMap { panelId(forSurfaceOrPanelId: $0, in: tab) }
+        if let targetPanelId {
             // Keep selected-surface intent stable across selectedTabId didSet async restore.
-            lastFocusedPanelByTab[tabId] = surfaceId
+            lastFocusedPanelByTab[tabId] = targetPanelId
         }
+        let shouldDismissRestoredUnread = dismissRestoredUnreadOnResume ?? !suppressFlash
+        let dismissalContext: NotificationDismissalContext? = shouldDismissRestoredUnread ? .explicitWorkspaceResume : nil
+        let shouldDeferSelectedWorkspaceDismissal =
+            selectedTabId == tabId &&
+            targetPanelId.map { $0 != focusedPanelId(for: tabId) } == true
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("focus", to: tabId)
 #endif
-        selectedTabId = tabId
+        selectWorkspaceId(
+            tabId,
+            notificationDismissalContext: shouldDeferSelectedWorkspaceDismissal ? nil : dismissalContext
+        )
         NotificationCenter.default.post(
             name: .ghosttyDidFocusTab,
             object: nil,
             userInfo: [GhosttyNotificationKey.tabId: tabId]
         )
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            NSApp.activate(ignoringOtherApps: true)
-            NSApp.unhide(nil)
-            if let app = AppDelegate.shared,
-               let windowId = app.windowId(for: self),
-               let window = app.mainWindow(for: windowId) {
-                window.makeKeyAndOrderFront(nil)
-            } else if let window = NSApp.keyWindow ?? NSApp.windows.first {
-                window.makeKeyAndOrderFront(nil)
-            }
-        }
-
         if let surfaceId {
+            let focusPanelId = targetPanelId ?? surfaceId
             if !suppressFlash {
-                focusSurface(tabId: tabId, surfaceId: surfaceId)
+                focusSurface(tabId: tabId, surfaceId: focusPanelId)
             } else {
-                tab.focusPanel(surfaceId)
+                tab.focusPanel(focusPanelId, focusIntent: focusIntent)
+            }
+            if let dismissalContext {
+                _ = dismissNotification(tabId: tabId, surfaceId: surfaceId, context: dismissalContext)
             }
         }
     }
@@ -3649,13 +6914,13 @@ class TabManager: ObservableObject {
     func focusTabFromNotification(_ tabId: UUID, surfaceId: UUID? = nil) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else {
 #if DEBUG
-            dlog("notification.focus.fail tab=\(tabId.uuidString.prefix(5)) reason=missingTab")
+            cmuxDebugLog("notification.focus.fail tab=\(tabId.uuidString.prefix(5)) reason=missingTab")
 #endif
             return false
         }
         if let surfaceId, tab.panels[surfaceId] == nil {
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "notification.focus.fail tab=\(tabId.uuidString.prefix(5)) " +
                 "panel=\(surfaceId.uuidString.prefix(5)) reason=missingPanel"
             )
@@ -3684,7 +6949,14 @@ class TabManager: ObservableObject {
 
     func focusSurface(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        tab.focusPanel(surfaceId)
+        tab.focusPanel(panelId(forSurfaceOrPanelId: surfaceId, in: tab) ?? surfaceId)
+    }
+
+    private func panelId(forSurfaceOrPanelId surfaceOrPanelId: UUID, in workspace: Workspace) -> UUID? {
+        if workspace.panels[surfaceOrPanelId] != nil {
+            return surfaceOrPanelId
+        }
+        return workspace.panelIdFromSurfaceId(TabID(uuid: surfaceOrPanelId))
     }
 
     func selectNextTab() {
@@ -3696,7 +6968,10 @@ class TabManager: ObservableObject {
         debugPrepareWorkspaceSwitch("next", from: currentId, to: nextId)
 #endif
         activateWorkspaceCycleHotWindow()
-        selectedTabId = tabs[nextIndex].id
+        selectWorkspaceId(
+            tabs[nextIndex].id,
+            notificationDismissalContext: .explicitWorkspaceResume
+        )
     }
 
     func selectPreviousTab() {
@@ -3708,7 +6983,10 @@ class TabManager: ObservableObject {
         debugPrepareWorkspaceSwitch("prev", from: currentId, to: prevId)
 #endif
         activateWorkspaceCycleHotWindow()
-        selectedTabId = tabs[prevIndex].id
+        selectWorkspaceId(
+            tabs[prevIndex].id,
+            notificationDismissalContext: .explicitWorkspaceResume
+        )
     }
 
     private func activateWorkspaceCycleHotWindow() {
@@ -3723,7 +7001,7 @@ class TabManager: ObservableObject {
         if !isWorkspaceCycleHot {
             isWorkspaceCycleHot = true
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "ws.hot.on id=\(switchId) gen=\(generation) dt=\(Self.debugMsText(switchDtMs))"
             )
 #endif
@@ -3733,7 +7011,7 @@ class TabManager: ObservableObject {
         workspaceCycleCooldownTask?.cancel()
 #if DEBUG
         if hadPendingCooldown {
-            dlog(
+            cmuxDebugLog(
                 "ws.hot.cancelPrev id=\(switchId) gen=\(generation) dt=\(Self.debugMsText(switchDtMs))"
             )
         }
@@ -3748,7 +7026,7 @@ class TabManager: ObservableObject {
                     let dtMs = self.debugWorkspaceSwitchStartTime > 0
                         ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
                         : 0
-                    dlog(
+                    cmuxDebugLog(
                         "ws.hot.cooldownCanceled id=\(self.debugWorkspaceSwitchId) gen=\(generation) dt=\(Self.debugMsText(dtMs))"
                     )
                 }
@@ -3762,7 +7040,7 @@ class TabManager: ObservableObject {
                 let dtMs = self.debugWorkspaceSwitchStartTime > 0
                     ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
                     : 0
-                dlog(
+                cmuxDebugLog(
                     "ws.hot.off id=\(self.debugWorkspaceSwitchId) gen=\(generation) dt=\(Self.debugMsText(dtMs))"
                 )
 #endif
@@ -3778,7 +7056,7 @@ class TabManager: ObservableObject {
         return (debugWorkspaceSwitchId, debugWorkspaceSwitchStartTime)
     }
 
-    private func debugPrimeWorkspaceSwitchTrigger(_ trigger: String, to target: UUID?) {
+    func debugPrimeWorkspaceSwitchTrigger(_ trigger: String, to target: UUID?) {
         guard selectedTabId != target else {
             debugPendingWorkspaceSwitchTrigger = nil
             debugPendingWorkspaceSwitchTarget = nil
@@ -3805,7 +7083,7 @@ class TabManager: ObservableObject {
         debugWorkspaceSwitchCounter &+= 1
         debugWorkspaceSwitchId = debugWorkspaceSwitchCounter
         debugWorkspaceSwitchStartTime = CACurrentMediaTime()
-        dlog(
+        cmuxDebugLog(
             "ws.switch.begin id=\(debugWorkspaceSwitchId) trigger=\(trigger) " +
             "from=\(Self.debugShortWorkspaceId(from)) to=\(Self.debugShortWorkspaceId(to)) " +
             "hot=\(isWorkspaceCycleHot ? 1 : 0) tabs=\(tabs.count)"
@@ -3815,6 +7093,17 @@ class TabManager: ObservableObject {
     private static func debugShortWorkspaceId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
+    }
+
+    private static func debugTitlePreview(_ title: String, limit: Int = 120) -> String {
+        let escaped = title
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\t", with: "\\t")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        guard escaped.count > limit else { return escaped }
+        return "\(escaped.prefix(limit))..."
     }
 
     private static func debugMsText(_ ms: Double) -> String {
@@ -3827,12 +7116,12 @@ class TabManager: ObservableObject {
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("select_index", to: tabs[index].id)
 #endif
-        selectedTabId = tabs[index].id
+        selectWorkspaceId(tabs[index].id, notificationDismissalContext: .explicitWorkspaceResume)
     }
 
     func selectLastTab() {
         guard let lastTab = tabs.last else { return }
-        selectedTabId = lastTab.id
+        selectWorkspaceId(lastTab.id, notificationDismissalContext: .explicitWorkspaceResume)
     }
 
     // MARK: - Surface Navigation
@@ -3862,6 +7151,11 @@ class TabManager: ObservableObject {
         // Cmd+T should always focus the newly created surface.
         selectedWorkspace?.clearSplitZoom()
         selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
+    }
+
+    func newSurface(initialInput: String) {
+        selectedWorkspace?.clearSplitZoom()
+        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
     }
 
     // MARK: - Split Creation
@@ -3908,6 +7202,24 @@ class TabManager: ObservableObject {
         }
     }
 
+    func applySurfaceTabBarButtons(
+        _ buttons: [CmuxSurfaceTabBarButton],
+        sourcePath: String?,
+        globalConfigPath: String,
+        terminalCommandSourcePaths: [String: String],
+        workspaceCommands: [String: CmuxResolvedCommand]
+    ) {
+        for workspace in tabs {
+            workspace.applySurfaceTabBarButtons(
+                buttons,
+                sourcePath: sourcePath,
+                globalConfigPath: globalConfigPath,
+                terminalCommandSourcePaths: terminalCommandSourcePaths,
+                workspaceCommands: workspaceCommands
+            )
+        }
+    }
+
     // MARK: - Pane Focus Navigation
 
     /// Move focus to an adjacent pane in the specified direction
@@ -3950,7 +7262,7 @@ class TabManager: ObservableObject {
             if tabs.contains(where: { $0.id == tabId }) {
                 isNavigatingHistory = true
                 historyIndex = targetIndex
-                selectedTabId = tabId
+                selectWorkspaceId(tabId, notificationDismissalContext: .explicitWorkspaceResume)
                 isNavigatingHistory = false
                 return
             }
@@ -3971,7 +7283,7 @@ class TabManager: ObservableObject {
             if tabs.contains(where: { $0.id == tabId }) {
                 isNavigatingHistory = true
                 historyIndex = targetIndex
-                selectedTabId = tabId
+                selectWorkspaceId(tabId, notificationDismissalContext: .explicitWorkspaceResume)
                 isNavigatingHistory = false
                 return
             }
@@ -3997,13 +7309,30 @@ class TabManager: ObservableObject {
 
     /// Create a new split in the specified direction
     /// Returns the new panel's ID (which is also the surface ID for terminals)
-    func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection, focus: Bool = true) -> UUID? {
+    func newSplit(
+        tabId: UUID,
+        surfaceId: UUID,
+        direction: SplitDirection,
+        focus: Bool = true,
+        workingDirectory: String? = nil,
+        initialCommand: String? = nil,
+        tmuxStartCommand: String? = nil,
+        startupEnvironment: [String: String] = [:],
+        initialDividerPosition: CGFloat? = nil,
+        remotePTYSessionID: String? = nil
+    ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newTerminalSplit(
             from: surfaceId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
-            focus: focus
+            focus: focus,
+            workingDirectory: workingDirectory,
+            initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            startupEnvironment: startupEnvironment,
+            initialDividerPosition: initialDividerPosition,
+            remotePTYSessionID: remotePTYSessionID
         )?.id
     }
 
@@ -4048,21 +7377,6 @@ class TabManager: ObservableObject {
         return tab.bonsplitController.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true)
     }
 
-    /// Equalize splits - not directly supported by bonsplit
-    func equalizeSplits(tabId: UUID) -> Bool {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
-
-        var foundSplit = false
-        var allSucceeded = true
-        equalizeSplits(
-            in: tab.bonsplitController.treeSnapshot(),
-            controller: tab.bonsplitController,
-            foundSplit: &foundSplit,
-            allSucceeded: &allSucceeded
-        )
-        return foundSplit && allSucceeded
-    }
-
     /// Toggle zoom on a panel.
     func toggleSplitZoom(tabId: UUID, surfaceId: UUID) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
@@ -4075,41 +7389,6 @@ class TabManager: ObservableObject {
         guard let tab = selectedWorkspace,
               let focusedPanelId = tab.focusedPanelId else { return false }
         return tab.toggleSplitZoom(panelId: focusedPanelId)
-    }
-
-    private func equalizeSplits(
-        in node: ExternalTreeNode,
-        controller: BonsplitController,
-        foundSplit: inout Bool,
-        allSucceeded: inout Bool
-    ) {
-        switch node {
-        case .pane:
-            return
-        case .split(let splitNode):
-            foundSplit = true
-            guard let splitId = UUID(uuidString: splitNode.id) else {
-                allSucceeded = false
-                return
-            }
-
-            if !controller.setDividerPosition(0.5, forSplit: splitId) {
-                allSucceeded = false
-            }
-
-            equalizeSplits(
-                in: splitNode.first,
-                controller: controller,
-                foundSplit: &foundSplit,
-                allSucceeded: &allSucceeded
-            )
-            equalizeSplits(
-                in: splitNode.second,
-                controller: controller,
-                foundSplit: &foundSplit,
-                allSucceeded: &allSucceeded
-            )
-        }
     }
 
     private struct ResizeSplitCandidate {
@@ -4186,8 +7465,6 @@ class TabManager: ObservableObject {
         return true
     }
 
-    // MARK: - Browser Panel Operations
-
     /// Create a new browser panel in a split
     func newBrowserSplit(
         tabId: UUID,
@@ -4196,8 +7473,10 @@ class TabManager: ObservableObject {
         insertFirst: Bool = false,
         url: URL? = nil,
         preferredProfileID: UUID? = nil,
-        focus: Bool = true
+        focus: Bool = true,
+        initialDividerPosition: CGFloat? = nil
     ) -> UUID? {
+        guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newBrowserSplit(
             from: fromPanelId,
@@ -4205,7 +7484,8 @@ class TabManager: ObservableObject {
             insertFirst: insertFirst,
             url: url,
             preferredProfileID: preferredProfileID,
-            focus: focus
+            focus: focus,
+            initialDividerPosition: initialDividerPosition
         )?.id
     }
 
@@ -4216,6 +7496,7 @@ class TabManager: ObservableObject {
         url: URL? = nil,
         preferredProfileID: UUID? = nil
     ) -> UUID? {
+        guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newBrowserSurface(
             inPane: paneId,
@@ -4239,9 +7520,10 @@ class TabManager: ObservableObject {
         preferredProfileID: UUID? = nil,
         insertAtEnd: Bool = false
     ) -> UUID? {
+        guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
         if selectedTabId != tabId {
-            selectedTabId = tabId
+            selectWorkspaceId(tabId, notificationDismissalContext: .explicitWorkspaceResume)
         }
 
         if preferSplitRight {
@@ -4320,6 +7602,8 @@ class TabManager: ObservableObject {
     /// No-op when no browser panel restore snapshot is available.
     @discardableResult
     func reopenMostRecentlyClosedBrowserPanel() -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled() else { return false }
+
         while let snapshot = recentlyClosedBrowsers.pop() {
             guard let targetWorkspace =
                 tabs.first(where: { $0.id == snapshot.workspaceId })
@@ -4330,7 +7614,10 @@ class TabManager: ObservableObject {
             let preReopenFocusedPanelId = focusedPanelId(for: targetWorkspace.id)
 
             if selectedTabId != targetWorkspace.id {
-                selectedTabId = targetWorkspace.id
+                selectWorkspaceId(
+                    targetWorkspace.id,
+                    notificationDismissalContext: .explicitWorkspaceResume
+                )
             }
 
             if let reopenedPanelId = reopenClosedBrowserPanel(snapshot, in: targetWorkspace) {
@@ -4624,7 +7911,7 @@ class TabManager: ObservableObject {
             timeoutSeconds: timeoutSeconds
         ) { panel in
             panel.surface.requestBackgroundSurfaceStartIfNeeded()
-            attached = panel.hostedView.window != nil
+            attached = panel.surface.isViewInWindow
             hasSurface = panel.surface.surface != nil
             firstResponder = panel.hostedView.isSurfaceViewFirstResponder()
             return attached && hasSurface
@@ -4762,7 +8049,7 @@ class TabManager: ObservableObject {
 
                 DebugUIEventCounters.resetEmptyPanelAppearCount()
 
-                // Close the two right panes via the same path as Cmd+W.
+                // Close the two right panes via the same path as the Close Tab shortcut.
                 tab.focusPanel(topRight.id)
                 tab.closePanel(topRight.id, force: true)
                 tab.focusPanel(bottomRight.id)
@@ -4794,7 +8081,7 @@ class TabManager: ObservableObject {
                         }
                         if let terminal = panel as? TerminalPanel {
                             selectedTerminalCount += 1
-                            if terminal.hostedView.window != nil {
+                            if terminal.surface.isViewInWindow {
                                 selectedTerminalAttachedCount += 1
                             }
                             let size = terminal.hostedView.bounds.size
@@ -5262,7 +8549,7 @@ class TabManager: ObservableObject {
                     panelId: rightPanel.id,
                     timeoutSeconds: 2.0
                 ) { panel in
-                    panel.hostedView.window != nil && panel.surface.surface != nil
+                    panel.surface.isViewInWindow && panel.surface.surface != nil
                 }
                 // Use an explicit shell exit command for deterministic child-exit behavior across
                 // startup timing variance; this still exercises the same SHOW_CHILD_EXITED path.
@@ -5506,7 +8793,7 @@ class TabManager: ObservableObject {
                 }
                 self.ensureFocusedTerminalFirstResponder()
             } else if let exitPanel = tab.terminalPanel(for: exitPanelId) {
-                exitPanelAttachedBeforeCtrlD = exitPanel.hostedView.window != nil
+                exitPanelAttachedBeforeCtrlD = exitPanel.surface.isViewInWindow
                 exitPanelHasSurfaceBeforeCtrlD = exitPanel.surface.surface != nil
             }
 
@@ -5627,7 +8914,7 @@ class TabManager: ObservableObject {
                             panelId: exitPanelId,
                             timeoutSeconds: 5.0
                         ) { panel in
-                            attachedBeforeTrigger = panel.hostedView.window != nil
+                            attachedBeforeTrigger = panel.surface.isViewInWindow
                             hasSurfaceBeforeTrigger = panel.surface.surface != nil
                             return attachedBeforeTrigger && hasSurfaceBeforeTrigger
                         }
@@ -5637,7 +8924,7 @@ class TabManager: ObservableObject {
                             return
                         }
                     } else if let panel = tab.terminalPanel(for: exitPanelId) {
-                        attachedBeforeTrigger = panel.hostedView.window != nil
+                        attachedBeforeTrigger = panel.surface.isViewInWindow
                         hasSurfaceBeforeTrigger = panel.surface.surface != nil
                     }
                     write([
@@ -5690,10 +8977,14 @@ class TabManager: ObservableObject {
 }
 
 extension TabManager {
-    func sessionAutosaveFingerprint() -> Int {
+    func sessionAutosaveFingerprint(
+        restorableAgentIndex: RestorableAgentSessionIndex = .empty,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex = .empty
+    ) -> Int {
         var hasher = Hasher()
         hasher.combine(selectedTabId)
         hasher.combine(tabs.count)
+        let notificationStore = AppDelegate.shared?.notificationStore
 
         for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
             hasher.combine(workspace.id)
@@ -5703,6 +8994,7 @@ extension TabManager {
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
             hasher.combine(workspace.isPinned)
+            hasher.combine(workspace.terminalScrollBarHidden)
             hasher.combine(workspace.panels.count)
             hasher.combine(workspace.statusEntries.count)
             hasher.combine(workspace.metadataBlocks.count)
@@ -5712,6 +9004,44 @@ extension TabManager {
             hasher.combine(workspace.panelPullRequests.count)
             hasher.combine(workspace.panelGitBranches.count)
             hasher.combine(workspace.surfaceListeningPorts.count)
+            hasher.combine(notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false)
+            hasher.combine(notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false)
+            Self.hashNotifications(
+                notificationStore?.notifications(forTabId: workspace.id, surfaceId: nil) ?? [],
+                into: &hasher
+            )
+
+            let panelIds = workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }
+            hasher.combine(panelIds.count)
+            for panelId in panelIds {
+                hasher.combine(panelId)
+                hasher.combine(workspace.manualUnreadPanelIds.contains(panelId))
+                hasher.combine(workspace.restoredUnreadPanelIds.contains(panelId))
+                hasher.combine(
+                    notificationStore?.hasVisibleNotificationIndicator(
+                        forTabId: workspace.id,
+                        surfaceId: panelId
+                    ) ?? false
+                )
+                Self.hashNotifications(
+                    notificationStore?.notifications(forTabId: workspace.id, surfaceId: panelId) ?? [],
+                    into: &hasher
+                )
+                Self.hashRestorableAgentSnapshot(
+                    restorableAgentIndex.snapshot(
+                        workspaceId: workspace.id,
+                        panelId: panelId
+                    ),
+                    into: &hasher
+                )
+                Self.hashSurfaceResumeBindingSnapshot(
+                    workspace.effectiveSurfaceResumeBinding(
+                        panelId: panelId,
+                        surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                    ),
+                    into: &hasher
+                )
+            }
 
             if let progress = workspace.progress {
                 hasher.combine(Int((progress.value * 1000).rounded()))
@@ -5732,12 +9062,149 @@ extension TabManager {
         return hasher.finalize()
     }
 
-    func sessionSnapshot(includeScrollback: Bool) -> SessionTabManagerSnapshot {
+    nonisolated static func restorableAgentSnapshotFingerprint(
+        _ snapshot: SessionRestorableAgentSnapshot?
+    ) -> Int {
+        var hasher = Hasher()
+        hashRestorableAgentSnapshot(snapshot, into: &hasher)
+        return hasher.finalize()
+    }
+
+    nonisolated private static func hashRestorableAgentSnapshot(
+        _ snapshot: SessionRestorableAgentSnapshot?,
+        into hasher: inout Hasher
+    ) {
+        guard let snapshot else {
+            hasher.combine(false)
+            return
+        }
+
+        hasher.combine(true)
+        hasher.combine(snapshot.kind.rawValue)
+        hasher.combine(snapshot.sessionId)
+        hashOptionalString(snapshot.workingDirectory, into: &hasher)
+        hashAgentLaunchCommand(snapshot.launchCommand, into: &hasher)
+    }
+
+    nonisolated private static func hashAgentLaunchCommand(
+        _ launchCommand: AgentLaunchCommandSnapshot?,
+        into hasher: inout Hasher
+    ) {
+        guard let launchCommand else {
+            hasher.combine(false)
+            return
+        }
+
+        hasher.combine(true)
+        hashOptionalString(launchCommand.launcher, into: &hasher)
+        hashOptionalString(launchCommand.executablePath, into: &hasher)
+        hasher.combine(launchCommand.arguments)
+        hashOptionalString(launchCommand.workingDirectory, into: &hasher)
+        if let environment = launchCommand.environment {
+            hasher.combine(true)
+            hasher.combine(environment.count)
+            for key in environment.keys.sorted() {
+                hasher.combine(key)
+                hasher.combine(environment[key])
+            }
+        } else {
+            hasher.combine(false)
+        }
+        hashOptionalDouble(launchCommand.capturedAt, into: &hasher)
+        hashOptionalString(launchCommand.source, into: &hasher)
+    }
+
+    nonisolated private static func hashSurfaceResumeBindingSnapshot(
+        _ snapshot: SurfaceResumeBindingSnapshot?,
+        into hasher: inout Hasher
+    ) {
+        guard let snapshot else {
+            hasher.combine(false)
+            return
+        }
+
+        hasher.combine(true)
+        hashOptionalString(snapshot.name, into: &hasher)
+        hashOptionalString(snapshot.kind, into: &hasher)
+        hasher.combine(snapshot.command)
+        hashOptionalString(snapshot.cwd, into: &hasher)
+        hashOptionalString(snapshot.checkpointId, into: &hasher)
+        hashOptionalString(snapshot.source, into: &hasher)
+        hashStringMap(snapshot.environment, into: &hasher)
+        hasher.combine(snapshot.allowsAutomaticResume)
+        if snapshot.isProcessDetected {
+            hasher.combine(false)
+        } else {
+            hashOptionalDouble(snapshot.updatedAt, into: &hasher)
+        }
+    }
+
+    nonisolated private static func hashNotifications(
+        _ notifications: [TerminalNotification],
+        into hasher: inout Hasher
+    ) {
+        hasher.combine(notifications.count)
+        for notification in notifications.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+            hasher.combine(notification.id)
+            hasher.combine(notification.title)
+            hasher.combine(notification.subtitle)
+            hasher.combine(notification.body)
+            hasher.combine(notification.createdAt.timeIntervalSince1970)
+            hasher.combine(notification.isRead)
+            hasher.combine(notification.paneFlash)
+            hasher.combine(notification.panelId)
+            hasher.combine(notification.clickAction)
+        }
+    }
+
+    nonisolated private static func hashOptionalString(_ value: String?, into hasher: inout Hasher) {
+        if let value {
+            hasher.combine(true)
+            hasher.combine(value)
+        } else {
+            hasher.combine(false)
+        }
+    }
+
+    nonisolated private static func hashOptionalDouble(_ value: Double?, into hasher: inout Hasher) {
+        if let value {
+            hasher.combine(true)
+            hasher.combine(value)
+        } else {
+            hasher.combine(false)
+        }
+    }
+
+    nonisolated private static func hashStringMap(_ value: [String: String]?, into hasher: inout Hasher) {
+        guard let value, !value.isEmpty else {
+            hasher.combine(false)
+            return
+        }
+        hasher.combine(true)
+        let keys = value.keys.sorted()
+        hasher.combine(keys.count)
+        for key in keys {
+            hasher.combine(key)
+            hasher.combine(value[key] ?? "")
+        }
+    }
+
+    func sessionSnapshot(
+        includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex = .empty,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+    ) -> SessionTabManagerSnapshot {
         let restorableTabs = tabs
-            .filter { !$0.isRemoteWorkspace }
+            .filter(\.isRestorableInSessionSnapshot)
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         let workspaceSnapshots = restorableTabs
-            .map { $0.sessionSnapshot(includeScrollback: includeScrollback) }
+            .map {
+                $0.sessionSnapshot(
+                    includeScrollback: includeScrollback,
+                    restorableAgentIndex: restorableAgentIndex,
+                    surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                )
+            }
         let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
             restorableTabs.firstIndex(where: { $0.id == selectedTabId })
         }
@@ -5762,12 +9229,14 @@ extension TabManager {
         for tab in previousTabs {
             unwireClosedBrowserTracking(for: tab)
         }
-        let existingProbeKeys = Set(workspaceGitProbeGenerationByKey.keys)
+        let existingProbeKeys = Set(workspaceGitProbeStateByKey.keys)
             .union(workspaceGitProbeTimersByKey.keys)
         for key in existingProbeKeys {
             clearWorkspaceGitProbe(key)
         }
         workspaceGitTrackedDirectoryByKey.removeAll()
+        updateWorkspaceGitMetadataFallbackTimer()
+        resetWorkspacePullRequestRefreshState()
 
         // Clear non-@Published state without touching tabs/selectedTabId yet.
         lastFocusedPanelByTab.removeAll()
@@ -5850,57 +9319,6 @@ extension TabManager {
     }
 }
 
-// MARK: - Direction Types for Backwards Compatibility
-
-/// Split direction for backwards compatibility with old API
-enum SplitDirection {
-    case left, right, up, down
-
-    var isHorizontal: Bool {
-        self == .left || self == .right
-    }
-
-    var orientation: SplitOrientation {
-        isHorizontal ? .horizontal : .vertical
-    }
-
-    /// If true, insert the new pane on the "first" side (left/top).
-    /// If false, insert on the "second" side (right/bottom).
-    var insertFirst: Bool {
-        self == .left || self == .up
-    }
-}
-
-/// Resize direction for backwards compatibility
-enum ResizeDirection {
-    case left, right, up, down
-
-    var splitOrientation: String {
-        switch self {
-        case .left, .right:
-            return "horizontal"
-        case .up, .down:
-            return "vertical"
-        }
-    }
-
-    /// A split controls the target pane's right/bottom edge when the target is
-    /// the first child, and left/top edge when the target is the second child.
-    var requiresPaneInFirstChild: Bool {
-        switch self {
-        case .right, .down:
-            return true
-        case .left, .up:
-            return false
-        }
-    }
-
-    /// Positive values move the divider toward the second child (right/down).
-    var dividerDeltaSign: CGFloat {
-        requiresPaneInFirstChild ? 1 : -1
-    }
-}
-
 extension Notification.Name {
     static let commandPaletteToggleRequested = Notification.Name("cmux.commandPaletteToggleRequested")
     static let commandPaletteRequested = Notification.Name("cmux.commandPaletteRequested")
@@ -5927,4 +9345,9 @@ extension Notification.Name {
     static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
     static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
     static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
+    static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
+}
+
+enum BrowserFirstResponderNotificationUserInfoKey {
+    static let pointerInitiated = "pointerInitiated"
 }

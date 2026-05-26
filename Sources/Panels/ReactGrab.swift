@@ -180,18 +180,18 @@ class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
         #if DEBUG
         switch bridgeMessage {
         case .stateChange(let isActive):
-            dlog("reactGrab.messageHandler type=stateChange isActive=\(isActive)")
+            cmuxDebugLog("reactGrab.messageHandler type=stateChange isActive=\(isActive)")
         case .copySuccess(let content, _):
-            dlog("reactGrab.messageHandler type=copySuccess len=\(content.count)")
+            cmuxDebugLog("reactGrab.messageHandler type=copySuccess len=\(content.count)")
         }
         #endif
         Task { @MainActor in
             #if DEBUG
             switch bridgeMessage {
             case .stateChange(let isActive):
-                dlog("reactGrab.messageHandler.mainActor type=stateChange isActive=\(isActive)")
+                cmuxDebugLog("reactGrab.messageHandler.mainActor type=stateChange isActive=\(isActive)")
             case .copySuccess(let content, _):
-                dlog("reactGrab.messageHandler.mainActor type=copySuccess len=\(content.count)")
+                cmuxDebugLog("reactGrab.messageHandler.mainActor type=copySuccess len=\(content.count)")
             }
             #endif
             onMessage(bridgeMessage)
@@ -229,7 +229,7 @@ extension BrowserPanel {
     func armReactGrabRoundTrip(returnTo panelId: UUID) {
         let token = UUID().uuidString
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "reactGrab.pasteback h3.arm " +
             "workspace=\(workspaceId.uuidString.prefix(5)) " +
             "browser=\(id.uuidString.prefix(5)) " +
@@ -245,7 +245,7 @@ extension BrowserPanel {
         let previousTarget = pendingReactGrabReturnTargetPanelId.map {
             String($0.uuidString.prefix(5))
         } ?? "nil"
-        dlog(
+        cmuxDebugLog(
             "reactGrab.pasteback h3.clear " +
             "workspace=\(workspaceId.uuidString.prefix(5)) " +
             "browser=\(id.uuidString.prefix(5)) " +
@@ -264,7 +264,7 @@ extension BrowserPanel {
             let pendingTarget = pendingReactGrabReturnTargetPanelId.map {
                 String($0.uuidString.prefix(5))
             } ?? "nil"
-            dlog(
+            cmuxDebugLog(
                 "reactGrab.pasteback h3.stateChange " +
                 "workspace=\(workspaceId.uuidString.prefix(5)) " +
                 "browser=\(id.uuidString.prefix(5)) " +
@@ -275,7 +275,7 @@ extension BrowserPanel {
             guard let returnPanelId = pendingReactGrabReturnTargetPanelId,
                   let expectedToken = pendingReactGrabRoundTripToken else {
 #if DEBUG
-                dlog(
+                cmuxDebugLog(
                     "reactGrab.pasteback h3.copySuccess.drop " +
                     "workspace=\(workspaceId.uuidString.prefix(5)) " +
                     "browser=\(id.uuidString.prefix(5)) reason=noReturnTarget len=\(content.count)"
@@ -285,7 +285,7 @@ extension BrowserPanel {
             }
             guard token == expectedToken else {
 #if DEBUG
-                dlog(
+                cmuxDebugLog(
                     "reactGrab.pasteback h3.copySuccess.drop " +
                     "workspace=\(workspaceId.uuidString.prefix(5)) " +
                     "browser=\(id.uuidString.prefix(5)) reason=tokenMismatch len=\(content.count)"
@@ -295,7 +295,7 @@ extension BrowserPanel {
                 return
             }
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "reactGrab.pasteback h3.copySuccess " +
                 "workspace=\(workspaceId.uuidString.prefix(5)) " +
                 "browser=\(id.uuidString.prefix(5)) " +
@@ -319,16 +319,16 @@ extension BrowserPanel {
 
     func injectReactGrab() async {
         #if DEBUG
-        dlog("reactGrab.inject.start")
+        cmuxDebugLog("reactGrab.inject.start")
         #endif
         guard let scriptSource = await ReactGrabScriptLoader.fetch() else {
             #if DEBUG
-            dlog("reactGrab.inject.fetchFailed")
+            cmuxDebugLog("reactGrab.inject.fetchFailed")
             #endif
             return
         }
         #if DEBUG
-        dlog("reactGrab.inject.fetched len=\(scriptSource.count)")
+        cmuxDebugLog("reactGrab.inject.fetched len=\(scriptSource.count)")
         #endif
 
         let handlerName = reactGrabMessageHandlerName
@@ -395,11 +395,11 @@ extension BrowserPanel {
         \(scriptSource)
         """
         #if DEBUG
-        dlog("reactGrab.inject.evalJS len=\(combined.count)")
+        cmuxDebugLog("reactGrab.inject.evalJS len=\(combined.count)")
         #endif
         webView.evaluateJavaScript(combined) { [weak self] _, error in
             #if DEBUG
-            dlog("reactGrab.inject.evalJS.done error=\(error?.localizedDescription ?? "none")")
+            cmuxDebugLog("reactGrab.inject.evalJS.done error=\(error?.localizedDescription ?? "none")")
             #endif
             if let error {
                 NSLog("ReactGrab: injection failed: %@", error.localizedDescription)
@@ -407,18 +407,18 @@ extension BrowserPanel {
             }
         }
         #if DEBUG
-        dlog("reactGrab.inject.end")
+        cmuxDebugLog("reactGrab.inject.end")
         #endif
     }
 
     func toggleReactGrab() {
         #if DEBUG
-        dlog("reactGrab.toggle.start")
+        cmuxDebugLog("reactGrab.toggle.start")
         #endif
         let script = "window.__REACT_GRAB__?.toggle()"
         webView.evaluateJavaScript(script, completionHandler: nil)
         #if DEBUG
-        dlog("reactGrab.toggle.end")
+        cmuxDebugLog("reactGrab.toggle.end")
         #endif
     }
 
@@ -447,7 +447,7 @@ extension BrowserPanel {
             return (result as? Bool) ?? false
         } catch {
 #if DEBUG
-            dlog("reactGrab.bridgeSessionRefresh.error error=\(error.localizedDescription)")
+            cmuxDebugLog("reactGrab.bridgeSessionRefresh.error error=\(error.localizedDescription)")
 #endif
             return false
         }
@@ -461,7 +461,7 @@ extension BrowserPanel {
         let pendingTarget = pendingReactGrabReturnTargetPanelId.map {
             String($0.uuidString.prefix(5))
         } ?? "nil"
-        dlog(
+        cmuxDebugLog(
             "reactGrab.pasteback h3.reset " +
             "workspace=\(workspaceId.uuidString.prefix(5)) " +
             "browser=\(id.uuidString.prefix(5)) " +

@@ -1,7 +1,10 @@
 import XCTest
 import AppKit
+import Combine
+import CoreText
 import WebKit
 import Darwin
+import SwiftUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -92,6 +95,186 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertTrue(paths.contains("\(pathB)/ghostty/themes/Solarized Light"))
     }
 
+    func testThemeSearchPathsIncludeCmuxUserThemesDirectory() {
+        let paths = GhosttyConfig.themeSearchPaths(
+            forThemeName: "Zag Light",
+            environment: [:],
+            bundleResourceURL: nil
+        )
+
+        XCTAssertTrue(
+            paths.contains(
+                "\(NSHomeDirectory())/Library/Application Support/com.cmuxterm.app/themes/Zag Light"
+            )
+        )
+    }
+
+    func testThemeSearchPathsIncludeCmuxUserThemesDirectoryFromFixedHome() {
+        let fixedHome = "/tmp/cmux-fixed-home-\(UUID().uuidString)"
+        let paths = GhosttyConfig.themeSearchPaths(
+            forThemeName: "Zag Light",
+            environment: ["CFFIXED_USER_HOME": fixedHome],
+            bundleResourceURL: nil
+        )
+
+        XCTAssertTrue(
+            paths.contains(
+                "\(fixedHome)/Library/Application Support/com.cmuxterm.app/themes/Zag Light"
+            )
+        )
+    }
+
+    func testThemesListIncludesCmuxUserThemesDirectory() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-user-theme-list-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let themesDirectory = root
+            .appendingPathComponent("Library/Application Support/com.cmuxterm.app/themes", isDirectory: true)
+        try fileManager.createDirectory(at: themesDirectory, withIntermediateDirectories: true)
+        try "background = #ffffff\nforeground = #1f2328\n".write(
+            to: themesDirectory.appendingPathComponent("Zag Light", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        let configURL = themesDirectory
+            .deletingLastPathComponent()
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        try "theme = Zag Light\n".write(to: configURL, atomically: true, encoding: .utf8)
+
+        let result = runCLI(
+            try bundledCLIPath(),
+            arguments: ["--json", "themes", "list"],
+            environment: ["CFFIXED_USER_HOME": root.path],
+            timeout: 10
+        )
+
+        XCTAssertFalse(result.timedOut, result.output)
+        XCTAssertEqual(result.status, 0, result.output)
+
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.output.utf8)) as? [String: Any]
+        )
+        let themes = try XCTUnwrap(payload["themes"] as? [[String: Any]])
+        XCTAssertTrue(themes.contains { ($0["name"] as? String) == "Zag Light" }, result.output)
+        let current = try XCTUnwrap(payload["current"] as? [String: Any])
+        XCTAssertEqual(current["light"] as? String, "Zag Light")
+        XCTAssertEqual(current["dark"] as? String, "Zag Light")
+        XCTAssertEqual(current["source_path"] as? String, configURL.path)
+    }
+
+    func testCmuxDefaultThemeConfigContentsSkipsInvalidUTF8Candidate() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-managed-theme-search-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let firstDataDir = root.appendingPathComponent("first", isDirectory: true)
+        let secondDataDir = root.appendingPathComponent("second", isDirectory: true)
+        let firstThemeDir = firstDataDir.appendingPathComponent("ghostty/themes", isDirectory: true)
+        let secondThemeDir = secondDataDir.appendingPathComponent("ghostty/themes", isDirectory: true)
+        try fileManager.createDirectory(at: firstThemeDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: secondThemeDir, withIntermediateDirectories: true)
+
+        let firstTheme = firstThemeDir.appendingPathComponent("Apple System Colors Light", isDirectory: false)
+        try Data([0xff, 0xfe]).write(to: firstTheme)
+
+        let secondTheme = secondThemeDir.appendingPathComponent("Apple System Colors Light", isDirectory: false)
+        let expected = "foreground = #123456\n"
+        try expected.write(to: secondTheme, atomically: true, encoding: .utf8)
+
+        let contents = GhosttyConfig.cmuxDefaultThemeConfigContents(
+            preferredColorScheme: .light,
+            environment: ["XDG_DATA_DIRS": "\(firstDataDir.path):\(secondDataDir.path)"],
+            bundleResourceURL: nil
+        )
+
+        XCTAssertEqual(contents, expected)
+    }
+
+    func testLoadReadsSymlinkedGhosttyConfigFile() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-config-symlink-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", root.path, 1)
+        defer {
+            if let originalFixedHome {
+                setenv("CFFIXED_USER_HOME", originalFixedHome, 1)
+            } else {
+                unsetenv("CFFIXED_USER_HOME")
+            }
+            GhosttyConfig.invalidateLoadCache()
+        }
+
+        let ghosttyConfigDir = root.appendingPathComponent(".config/ghostty", isDirectory: true)
+        try fileManager.createDirectory(at: ghosttyConfigDir, withIntermediateDirectories: true)
+
+        let dotfilesDir = root.appendingPathComponent("dotfiles/ghostty", isDirectory: true)
+        try fileManager.createDirectory(at: dotfilesDir, withIntermediateDirectories: true)
+
+        let targetConfig = dotfilesDir.appendingPathComponent("config", isDirectory: false)
+        try "font-size = 15\n".write(to: targetConfig, atomically: true, encoding: .utf8)
+
+        let symlinkedConfig = ghosttyConfigDir.appendingPathComponent("config", isDirectory: false)
+        try fileManager.createSymbolicLink(
+            atPath: symlinkedConfig.path,
+            withDestinationPath: targetConfig.path
+        )
+
+        let loaded = GhosttyConfig.load(preferredColorScheme: .dark, useCache: false)
+
+        XCTAssertEqual(loaded.fontSize, CGFloat(15), accuracy: 0.0001)
+    }
+
+    func testLoadAppliesThemeBeforeLaterCursorColorOverride() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-theme-order-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let resourcesDir = root.appendingPathComponent("resources", isDirectory: true)
+        let themesDir = resourcesDir.appendingPathComponent("themes", isDirectory: true)
+        let configDir = root.appendingPathComponent(".config/ghostty", isDirectory: true)
+        try fileManager.createDirectory(at: themesDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: configDir, withIntermediateDirectories: true)
+
+        let environmentKeys: [String] = ["CFFIXED_USER_HOME", "GHOSTTY_RESOURCES_DIR"]
+        let originalEnvironment = environmentKeys.map { key in
+            (key, getenv(key).map { String(cString: $0) })
+        }
+        setenv("CFFIXED_USER_HOME", root.path, 1)
+        setenv("GHOSTTY_RESOURCES_DIR", resourcesDir.path, 1)
+        defer {
+            for (key, value) in originalEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+            GhosttyConfig.invalidateLoadCache()
+        }
+
+        try "cursor-color = #e0d000\ncursor-text = #000000\n".write(
+            to: themesDir.appendingPathComponent("Yellow Cursor"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "theme = Yellow Cursor\ncursor-color = #ffffff\ncursor-text = #111111\n".write(
+            to: configDir.appendingPathComponent("config.ghostty"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let loaded = GhosttyConfig.load(preferredColorScheme: .dark, useCache: false)
+        XCTAssertEqual(rgb255(loaded.cursorColor), RGB(red: 255, green: 255, blue: 255))
+        XCTAssertEqual(rgb255(loaded.cursorTextColor), RGB(red: 17, green: 17, blue: 17))
+    }
+
     func testLoadThemeResolvesPairedThemeValueByColorScheme() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ghostty-theme-pair-\(UUID().uuidString)")
@@ -140,6 +323,27 @@ final class GhosttyConfigTests: XCTestCase {
         var config = GhosttyConfig()
         config.parse("background-opacity = 0.42")
         XCTAssertEqual(config.backgroundOpacity, 0.42, accuracy: 0.0001)
+    }
+
+    func testParseBackgroundBlurReadsMacOSGlassClear() {
+        var config = GhosttyConfig()
+        config.parse("background-blur = macos-glass-clear")
+        XCTAssertEqual(config.backgroundBlur, .macosGlassClear)
+    }
+
+    func testParseBackgroundBlurReadsMacOSGlassRegular() {
+        var config = GhosttyConfig()
+        config.parse("background-blur = macos-glass-regular")
+        XCTAssertEqual(config.backgroundBlur, .macosGlassRegular)
+    }
+
+    func testParseBackgroundBlurIgnoresMalformedValues() {
+        var config = GhosttyConfig()
+        config.parse("""
+        background-blur = macos-glass-clear
+        background-blur = not-a-blur
+        """)
+        XCTAssertEqual(config.backgroundBlur, .macosGlassClear)
     }
 
     func testLoadThemeResolvesBuiltinAliasFromGhosttyResourcesDir() throws {
@@ -312,190 +516,183 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
-    func testCmuxAppSupportConfigURLsUseReleaseConfigForDebugBundleWithoutCurrentConfig() throws {
-        try withTemporaryAppSupportDirectory { appSupportDirectory in
-            let releaseConfigURL = try writeAppSupportConfig(
-                appSupportDirectory: appSupportDirectory,
-                bundleIdentifier: "com.cmuxterm.app",
-                filename: "config",
-                contents: "font-size = 13\n"
-            )
-
-            XCTAssertEqual(
-                GhosttyApp.cmuxAppSupportConfigURLs(
-                    currentBundleIdentifier: "com.cmuxterm.app.debug",
-                    appSupportDirectory: appSupportDirectory
-                ),
-                [releaseConfigURL]
-            )
-        }
-    }
-
-    func testCmuxAppSupportConfigURLsPreferCurrentBundleConfigWhenPresent() throws {
-        try withTemporaryAppSupportDirectory { appSupportDirectory in
-            _ = try writeAppSupportConfig(
-                appSupportDirectory: appSupportDirectory,
-                bundleIdentifier: "com.cmuxterm.app",
-                filename: "config",
-                contents: "font-size = 13\n"
-            )
-            let currentConfigURL = try writeAppSupportConfig(
-                appSupportDirectory: appSupportDirectory,
-                bundleIdentifier: "com.cmuxterm.app.debug.issue-829",
-                filename: "config.ghostty",
-                contents: "font-size = 14\n"
-            )
-
-            XCTAssertEqual(
-                GhosttyApp.cmuxAppSupportConfigURLs(
-                    currentBundleIdentifier: "com.cmuxterm.app.debug.issue-829",
-                    appSupportDirectory: appSupportDirectory
-                ),
-                [currentConfigURL]
-            )
-        }
-    }
-
-    func testCmuxAppSupportConfigURLsSkipReleaseFallbackForNonDebugBundle() throws {
-        try withTemporaryAppSupportDirectory { appSupportDirectory in
-            _ = try writeAppSupportConfig(
-                appSupportDirectory: appSupportDirectory,
-                bundleIdentifier: "com.cmuxterm.app",
-                filename: "config",
-                contents: "font-size = 13\n"
-            )
-
-            XCTAssertTrue(
-                GhosttyApp.cmuxAppSupportConfigURLs(
-                    currentBundleIdentifier: "com.example.other-app",
-                    appSupportDirectory: appSupportDirectory
-                ).isEmpty
-            )
-        }
-    }
-
-    func testCmuxAppSupportConfigURLsIgnoreMissingOrEmptyFiles() throws {
-        try withTemporaryAppSupportDirectory { appSupportDirectory in
-            _ = try writeAppSupportConfig(
-                appSupportDirectory: appSupportDirectory,
-                bundleIdentifier: "com.cmuxterm.app",
-                filename: "config.ghostty",
-                contents: ""
-            )
-
-            XCTAssertTrue(
-                GhosttyApp.cmuxAppSupportConfigURLs(
-                    currentBundleIdentifier: "com.cmuxterm.app.debug",
-                    appSupportDirectory: appSupportDirectory
-                ).isEmpty
-            )
-        }
-    }
-
     func testDefaultBackgroundUpdateScopePrioritizesSurfaceOverAppAndUnscoped() {
-        XCTAssertTrue(
-            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
-                currentScope: .unscoped,
-                incomingScope: .app
+        let cases: [(GhosttyDefaultBackgroundUpdateScope, GhosttyDefaultBackgroundUpdateScope, Bool)] = [
+            (.unscoped, .app, true),
+            (.app, .surface, true),
+            (.surface, .surface, true),
+            (.surface, .app, false),
+            (.surface, .unscoped, false),
+        ]
+        for (currentScope, incomingScope, expected) in cases {
+            XCTAssertEqual(
+                GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                    currentScope: currentScope,
+                    incomingScope: incomingScope
+                ),
+                expected
             )
-        )
-        XCTAssertTrue(
-            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
-                currentScope: .app,
-                incomingScope: .surface
-            )
-        )
-        XCTAssertTrue(
-            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
-                currentScope: .surface,
-                incomingScope: .surface
-            )
-        )
-        XCTAssertFalse(
-            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
-                currentScope: .surface,
-                incomingScope: .app
-            )
-        )
-        XCTAssertFalse(
-            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
-                currentScope: .surface,
-                incomingScope: .unscoped
-            )
-        )
+        }
     }
 
     func testAppearanceChangeReloadsWhenColorSchemeChanges() {
-        XCTAssertTrue(
-            GhosttyApp.shouldReloadConfigurationForAppearanceChange(
-                previousColorScheme: .dark,
-                currentColorScheme: .light
-            )
-        )
-        XCTAssertTrue(
-            GhosttyApp.shouldReloadConfigurationForAppearanceChange(
-                previousColorScheme: nil,
-                currentColorScheme: .dark
-            )
-        )
+        XCTAssertTrue(GhosttyApp.shouldReloadConfigurationForAppearanceChange(previousColorScheme: .dark, currentColorScheme: .light))
+        XCTAssertTrue(GhosttyApp.shouldReloadConfigurationForAppearanceChange(previousColorScheme: nil, currentColorScheme: .dark))
     }
 
     func testAppearanceChangeSkipsReloadWhenColorSchemeUnchanged() {
-        XCTAssertFalse(
-            GhosttyApp.shouldReloadConfigurationForAppearanceChange(
-                previousColorScheme: .light,
-                currentColorScheme: .light
-            )
+        XCTAssertFalse(GhosttyApp.shouldReloadConfigurationForAppearanceChange(previousColorScheme: .light, currentColorScheme: .light))
+        XCTAssertFalse(GhosttyApp.shouldReloadConfigurationForAppearanceChange(previousColorScheme: .dark, currentColorScheme: .dark))
+    }
+
+    func testAppearanceSynchronizationPlanSkipsRuntimeUpdateWhenColorSchemeIsUnchanged() {
+        let plan = GhosttyApp.appearanceSynchronizationPlan(
+            previousColorScheme: .light,
+            currentColorScheme: .light
         )
-        XCTAssertFalse(
-            GhosttyApp.shouldReloadConfigurationForAppearanceChange(
-                previousColorScheme: .dark,
-                currentColorScheme: .dark
+
+        switch plan {
+        case .unchanged:
+            XCTAssertFalse(plan.shouldReloadConfiguration)
+        case .reload:
+            XCTFail("Unchanged appearance should not produce a reload plan")
+        }
+    }
+
+    func testAppearanceSynchronizationPlanUpdatesGhosttyRuntimeWhenReloading() {
+        let cases: [
+            (
+                previous: GhosttyConfig.ColorSchemePreference?,
+                current: GhosttyConfig.ColorSchemePreference,
+                runtime: ghostty_color_scheme_e
             )
+        ] = [
+            (nil, .dark, GHOSTTY_COLOR_SCHEME_DARK),
+            (.dark, .light, GHOSTTY_COLOR_SCHEME_LIGHT),
+            (.light, .dark, GHOSTTY_COLOR_SCHEME_DARK),
+        ]
+
+        for testCase in cases {
+            let plan = GhosttyApp.appearanceSynchronizationPlan(
+                previousColorScheme: testCase.previous,
+                currentColorScheme: testCase.current
+            )
+
+            switch plan {
+            case .unchanged:
+                XCTFail("Changed appearance should produce a reload plan")
+            case let .reload(colorScheme, runtimeColorScheme):
+                XCTAssertEqual(colorScheme, testCase.current)
+                XCTAssertEqual(runtimeColorScheme, testCase.runtime)
+                XCTAssertTrue(plan.shouldReloadConfiguration)
+            }
+        }
+    }
+
+    func testTerminalRuntimeColorSchemeFollowsResolvedThemeBackground() {
+        XCTAssertEqual(
+            GhosttyApp.terminalRuntimeColorSchemePreference(
+                forBackgroundColor: NSColor(hex: "#F7F7F7")!
+            ),
+            .light
+        )
+        XCTAssertEqual(
+            GhosttyApp.terminalRuntimeColorSchemePreference(
+                forBackgroundColor: NSColor(hex: "#090300")!
+            ),
+            .dark
+        )
+    }
+
+    func testRuntimeColorSchemeSynchronizationDecisionOnlySkipsReentrantCalls() {
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeSynchronizationDecision(
+                applied: nil,
+                requested: GHOSTTY_COLOR_SCHEME_DARK,
+                isSynchronizing: false
+            ),
+            .apply
+        )
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeSynchronizationDecision(
+                applied: GHOSTTY_COLOR_SCHEME_DARK,
+                requested: GHOSTTY_COLOR_SCHEME_DARK,
+                isSynchronizing: false
+            ),
+            .apply
+        )
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeSynchronizationDecision(
+                applied: GHOSTTY_COLOR_SCHEME_LIGHT,
+                requested: GHOSTTY_COLOR_SCHEME_DARK,
+                isSynchronizing: true
+            ),
+            .skipReentrant
+        )
+    }
+
+    func testRuntimeColorSchemeForCmuxSingleThemeReloadKeepsResolvedSchemeDuringConfigLoad() {
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeForConfigLoad(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource,
+                requestedColorScheme: .dark,
+                effectiveTerminalColorScheme: .light,
+                cmuxThemeValue: "light:3024 Day,dark:3024 Day"
+            ),
+            .light
+        )
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeForConfigLoad(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource,
+                requestedColorScheme: .dark,
+                effectiveTerminalColorScheme: .light,
+                cmuxThemeValue: "3024 Day"
+            ),
+            .light
+        )
+    }
+
+    func testRuntimeColorSchemeForPairedThemeReloadUsesAppearanceDuringConfigLoad() {
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeForConfigLoad(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource,
+                requestedColorScheme: .dark,
+                effectiveTerminalColorScheme: .light,
+                cmuxThemeValue: "light:3024 Day,dark:3024 Night"
+            ),
+            .dark
+        )
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeForConfigLoad(
+                source: "socket.reload_config",
+                requestedColorScheme: .dark,
+                effectiveTerminalColorScheme: .light,
+                cmuxThemeValue: "light:3024 Day,dark:3024 Day"
+            ),
+            .dark
         )
     }
 
     func testScrollLagCaptureRequiresSustainedLag() {
-        XCTAssertFalse(
-            GhosttyApp.shouldCaptureScrollLagEvent(
-                samples: 4,
-                averageMs: 18,
-                maxMs: 85,
-                thresholdMs: 40,
-                nowUptime: 1000,
-                lastReportedUptime: nil
+        let cases: [(samples: Int, averageMs: Double, maxMs: Double, expected: Bool)] = [
+            (4, 18, 85, false),
+            (10, 6, 85, false),
+            (10, 18, 35, false),
+            (10, 18, 85, true),
+        ]
+        for testCase in cases {
+            XCTAssertEqual(
+                GhosttyApp.shouldCaptureScrollLagEvent(
+                    samples: testCase.samples,
+                    averageMs: testCase.averageMs,
+                    maxMs: testCase.maxMs,
+                    thresholdMs: 40,
+                    nowUptime: 1000,
+                    lastReportedUptime: nil
+                ),
+                testCase.expected
             )
-        )
-        XCTAssertFalse(
-            GhosttyApp.shouldCaptureScrollLagEvent(
-                samples: 10,
-                averageMs: 6,
-                maxMs: 85,
-                thresholdMs: 40,
-                nowUptime: 1000,
-                lastReportedUptime: nil
-            )
-        )
-        XCTAssertFalse(
-            GhosttyApp.shouldCaptureScrollLagEvent(
-                samples: 10,
-                averageMs: 18,
-                maxMs: 35,
-                thresholdMs: 40,
-                nowUptime: 1000,
-                lastReportedUptime: nil
-            )
-        )
-        XCTAssertTrue(
-            GhosttyApp.shouldCaptureScrollLagEvent(
-                samples: 10,
-                averageMs: 18,
-                maxMs: 85,
-                thresholdMs: 40,
-                nowUptime: 1000,
-                lastReportedUptime: nil
-            )
-        )
+        }
     }
 
     func testScrollLagCaptureRespectsCooldownWindow() {
@@ -554,6 +751,37 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertFalse(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
     }
 
+    func testSubagentNotificationSuppressionDefaultsToEnabledWhenUnset() {
+        let suiteName = "cmux.tests.subagent-notifications.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        XCTAssertTrue(AgentSubagentNotificationSettings.suppressNotifications(defaults: defaults))
+    }
+
+    func testSubagentNotificationSuppressionRespectsStoredPreference() {
+        let suiteName = "cmux.tests.subagent-notifications.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(true, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        XCTAssertTrue(AgentSubagentNotificationSettings.suppressNotifications(defaults: defaults))
+
+        defaults.set(false, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        XCTAssertFalse(AgentSubagentNotificationSettings.suppressNotifications(defaults: defaults))
+    }
+
     func testTelemetryDefaultsToEnabledWhenUnset() {
         let suiteName = "cmux.tests.telemetry.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -599,32 +827,81 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
-    private func withTemporaryAppSupportDirectory(
-        _ body: (URL) throws -> Void
-    ) throws {
-        let fileManager = FileManager.default
-        let directory = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-app-support-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: directory) }
-        try body(directory)
+    private struct CLIResult {
+        let status: Int32
+        let output: String
+        let timedOut: Bool
     }
 
-    private func writeAppSupportConfig(
-        appSupportDirectory: URL,
-        bundleIdentifier: String,
-        filename: String,
-        contents: String
-    ) throws -> URL {
+    private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
-        let bundleDirectory = appSupportDirectory
-            .appendingPathComponent(bundleIdentifier, isDirectory: true)
-        try fileManager.createDirectory(at: bundleDirectory, withIntermediateDirectories: true)
+        let appBundleURL = Bundle(for: Self.self)
+            .bundleURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let enumerator = fileManager.enumerator(
+            at: appBundleURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
 
-        let configURL = bundleDirectory.appendingPathComponent(filename, isDirectory: false)
-        try contents.write(to: configURL, atomically: true, encoding: .utf8)
-        return configURL
+        while let item = enumerator?.nextObject() as? URL {
+            guard item.lastPathComponent == "cmux",
+                  item.path.contains(".app/Contents/Resources/bin/cmux") else {
+                continue
+            }
+            return item.path
+        }
+
+        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
     }
+
+    private func runCLI(
+        _ cliPath: String,
+        arguments: [String],
+        environment overrides: [String: String],
+        timeout: TimeInterval
+    ) -> CLIResult {
+        let process = Process()
+        let outputPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = arguments
+        var environment = ProcessInfo.processInfo.environment
+        for (key, value) in overrides {
+            environment[key] = value
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
+
+        do {
+            try process.run()
+        } catch {
+            return CLIResult(status: -1, output: String(describing: error), timedOut: false)
+        }
+
+        let exitSignal = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exitSignal.signal()
+        }
+
+        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        if timedOut {
+            process.terminate()
+            _ = exitSignal.wait(timeout: .now() + 1)
+        }
+
+        let output = String(
+            data: outputPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        return CLIResult(status: process.terminationStatus, output: output, timedOut: timedOut)
+    }
+
 }
 
 final class WorkspaceChromeThemeTests: XCTestCase {
@@ -636,7 +913,10 @@ final class WorkspaceChromeThemeTests: XCTestCase {
 
         let colors = Workspace.resolvedChromeColors(from: backgroundColor)
         XCTAssertEqual(colors.backgroundHex, "#FDF6E3")
-        XCTAssertNil(colors.borderHex)
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#FDF6E3")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#FDF6E3")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+        XCTAssertEqual(colors.borderHex, "#DED7C442")
     }
 
     func testResolvedChromeColorsUsesDarkGhosttyBackground() {
@@ -647,52 +927,86 @@ final class WorkspaceChromeThemeTests: XCTestCase {
 
         let colors = Workspace.resolvedChromeColors(from: backgroundColor)
         XCTAssertEqual(colors.backgroundHex, "#272822")
-        XCTAssertNil(colors.borderHex)
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#272822")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+        XCTAssertEqual(colors.borderHex, "#4F504A5B")
+    }
+
+    func testResolvedChromeColorsKeepSemanticBackgroundButClearLocalBackdropsWhenSharingWindowBackdrop() {
+        guard let backgroundColor = NSColor(hex: "#272822") else {
+            XCTFail("Expected valid test color")
+            return
+        }
+
+        let colors = Workspace.resolvedChromeColors(
+            from: backgroundColor,
+            sharesWindowBackdrop: true
+        )
+        XCTAssertEqual(colors.backgroundHex, "#272822")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#00000000")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#00000000")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+        XCTAssertEqual(colors.borderHex, "#4F504A5B")
+    }
+
+    func testResolvedChromeColorsKeepPaneClearForRendererOwnedBackgrounds() {
+        guard let backgroundColor = NSColor(hex: "#272822") else {
+            XCTFail("Expected valid test color")
+            return
+        }
+
+        let colors = Workspace.resolvedChromeColors(
+            from: backgroundColor,
+            renderingMode: .ghosttyRendererOwnedBackgroundImage
+        )
+        XCTAssertEqual(colors.backgroundHex, "#272822")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#272822")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+        XCTAssertEqual(colors.borderHex, "#4F504A5B")
     }
 }
 
-final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
-    func testResolvedAppearanceConfigPrefersGhosttyRuntimeBackgroundOverLoadedConfig() {
-        guard let loadedBackground = NSColor(hex: "#112233"),
-              let runtimeBackground = NSColor(hex: "#FDF6E3"),
-              let loadedForeground = NSColor(hex: "#ABCDEF") else {
-            XCTFail("Expected valid test colors")
+final class WindowChromeSeparatorColorTests: XCTestCase {
+    func testDarkChromeSeparatorMatchesBonsplitDerivation() {
+        guard let backgroundColor = NSColor(hex: "#272822") else {
+            XCTFail("Expected valid test color")
             return
         }
 
-        var loaded = GhosttyConfig()
-        loaded.backgroundColor = loadedBackground
-        loaded.foregroundColor = loadedForeground
-        loaded.unfocusedSplitOpacity = 0.42
+        let color = WindowChromeSeparatorColor.color(forChromeBackground: backgroundColor)
+        let rgba = rgbaComponents(color)
 
-        let resolved = WorkspaceContentView.resolveGhosttyAppearanceConfig(
-            loadConfig: { loaded },
-            defaultBackground: { runtimeBackground }
-        )
-
-        XCTAssertEqual(resolved.backgroundColor.hexString(), "#FDF6E3")
-        XCTAssertEqual(resolved.foregroundColor.hexString(), "#ABCDEF")
-        XCTAssertEqual(resolved.unfocusedSplitOpacity, 0.42, accuracy: 0.0001)
+        XCTAssertEqual(rgba.red, CGFloat(39.0 / 255.0) + CGFloat(0.16), accuracy: 0.0001)
+        XCTAssertEqual(rgba.green, CGFloat(40.0 / 255.0) + CGFloat(0.16), accuracy: 0.0001)
+        XCTAssertEqual(rgba.blue, CGFloat(34.0 / 255.0) + CGFloat(0.16), accuracy: 0.0001)
+        XCTAssertEqual(rgba.alpha, CGFloat(0.36), accuracy: 0.0001)
     }
 
-    func testResolvedAppearanceConfigPrefersExplicitBackgroundOverride() {
-        guard let loadedBackground = NSColor(hex: "#112233"),
-              let runtimeBackground = NSColor(hex: "#FDF6E3"),
-              let explicitOverride = NSColor(hex: "#272822") else {
-            XCTFail("Expected valid test colors")
+    func testLightChromeSeparatorMatchesBonsplitDerivation() {
+        guard let backgroundColor = NSColor(hex: "#FDF6E3") else {
+            XCTFail("Expected valid test color")
             return
         }
 
-        var loaded = GhosttyConfig()
-        loaded.backgroundColor = loadedBackground
+        let color = WindowChromeSeparatorColor.color(forChromeBackground: backgroundColor)
+        let rgba = rgbaComponents(color)
 
-        let resolved = WorkspaceContentView.resolveGhosttyAppearanceConfig(
-            backgroundOverride: explicitOverride,
-            loadConfig: { loaded },
-            defaultBackground: { runtimeBackground }
-        )
+        XCTAssertEqual(rgba.red, CGFloat(253.0 / 255.0) - CGFloat(0.12), accuracy: 0.0001)
+        XCTAssertEqual(rgba.green, CGFloat(246.0 / 255.0) - CGFloat(0.12), accuracy: 0.0001)
+        XCTAssertEqual(rgba.blue, CGFloat(227.0 / 255.0) - CGFloat(0.12), accuracy: 0.0001)
+        XCTAssertEqual(rgba.alpha, CGFloat(0.26), accuracy: 0.0001)
+    }
 
-        XCTAssertEqual(resolved.backgroundColor.hexString(), "#272822")
+    private func rgbaComponents(_ color: NSColor) -> (red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
+        let srgb = color.usingColorSpace(.sRGB) ?? color
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        srgb.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        return (red, green, blue, alpha)
     }
 }
 
@@ -720,6 +1034,63 @@ final class WorkspaceChromeColorTests: XCTestCase {
 
         let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
         XCTAssertEqual(hex, "#112233")
+    }
+
+    func testBonsplitChromeHexKeepsBackdropWhenSharingWindowBackdrop() {
+        let color = NSColor(
+            srgbRed: 17.0 / 255.0,
+            green: 34.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 1.0
+        )
+
+        let hex = Workspace.bonsplitChromeHex(
+            backgroundColor: color,
+            backgroundOpacity: 0.5,
+            sharesWindowBackdrop: true
+        )
+        XCTAssertEqual(hex, "#1122337F")
+    }
+
+    func testBonsplitChromeColorsKeepPaneClearWhenTerminalUsesHostLayerBackground() {
+        let color = NSColor(
+            srgbRed: 17.0 / 255.0,
+            green: 34.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 1.0
+        )
+
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: color,
+            backgroundOpacity: 0.5,
+            renderingMode: .windowHostBackdrop
+        )
+
+        XCTAssertEqual(colors.backgroundHex, "#1122337F")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#1122337F")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#1122337F")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+    }
+
+    func testBonsplitChromeColorsKeepSemanticBackgroundButClearLocalBackdropsWhenSharingWindowBackdrop() {
+        let color = NSColor(
+            srgbRed: 17.0 / 255.0,
+            green: 34.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 1.0
+        )
+
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: color,
+            backgroundOpacity: 0.5,
+            sharesWindowBackdrop: true,
+            renderingMode: .windowHostBackdrop
+        )
+
+        XCTAssertEqual(colors.backgroundHex, "#1122337F")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#00000000")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#00000000")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
     }
 }
 
@@ -778,6 +1149,17 @@ final class WindowTransparencyDecisionTests: XCTestCase {
 
             XCTAssertTrue(cmuxShouldUseTransparentBackgroundWindow())
             XCTAssertTrue(cmuxShouldUseClearWindowBackground(for: 1.0))
+        }
+    }
+
+    func testGhosttyGlassStyleForcesClearWindowBackgroundAtOpaqueOpacity() {
+        withTemporaryWindowBackgroundDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set("withinWindow", forKey: sidebarBlendModeKey)
+            defaults.set(false, forKey: bgGlassEnabledKey)
+
+            XCTAssertFalse(cmuxShouldUseTransparentBackgroundWindow())
+            XCTAssertTrue(cmuxShouldUseClearWindowBackground(for: 1.0, usesGhosttyGlassStyle: true))
         }
     }
 
@@ -865,6 +1247,29 @@ final class RemoteLoopbackHTTPRequestRewriterTests: XCTestCase {
         XCTAssertTrue(text.contains("Origin: http://localhost:3000"))
         XCTAssertTrue(text.contains("Referer: http://localhost:3000/app"))
         XCTAssertFalse(text.contains("cmux-loopback.localtest.me"))
+    }
+
+    func testRewritesLoopbackSubdomainAliasHostHeadersToOriginalLocalhostSubdomain() {
+        let original = Data(
+            (
+                "GET /demo HTTP/1.1\r\n" +
+                "Host: api.cmux-loopback.localtest.me:3000\r\n" +
+                "Origin: http://api.cmux-loopback.localtest.me:3000\r\n" +
+                "Referer: http://api.cmux-loopback.localtest.me:3000/app\r\n" +
+                "\r\n"
+            ).utf8
+        )
+
+        let rewritten = RemoteLoopbackHTTPRequestRewriter.rewriteIfNeeded(
+            data: original,
+            aliasHost: "cmux-loopback.localtest.me"
+        )
+
+        let text = String(decoding: rewritten, as: UTF8.self)
+        XCTAssertTrue(text.contains("Host: api.localhost:3000"))
+        XCTAssertTrue(text.contains("Origin: http://api.localhost:3000"))
+        XCTAssertTrue(text.contains("Referer: http://api.localhost:3000/app"))
+        XCTAssertFalse(text.contains("api.cmux-loopback.localtest.me"))
     }
 
     func testRewritesAbsoluteFormRequestLineForLoopbackAlias() {
@@ -985,104 +1390,50 @@ final class RemoteLoopbackHTTPRequestRewriterTests: XCTestCase {
         XCTAssertTrue(text.contains("Access-Control-Allow-Origin: http://cmux-loopback.localtest.me:3000"))
         XCTAssertTrue(text.contains("Set-Cookie: sid=1; Domain=cmux-loopback.localtest.me; Path=/"))
     }
-}
 
-final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
-    func testApplyManagedTerminalIdentityEnvironmentOverridesInheritedValues() {
-        var environment = [
-            "TERM": "xterm-ghostty",
-            "COLORTERM": "24bit",
-            "TERM_PROGRAM": "Apple_Terminal",
-            "CUSTOM_FLAG": "1"
-        ]
-        var protectedKeys: Set<String> = []
-
-        TerminalSurface.applyManagedTerminalIdentityEnvironment(
-            to: &environment,
-            protectedKeys: &protectedKeys
+    func testRewritesLoopbackSubdomainResponseHeadersBackToAliasSubdomain() {
+        let original = Data(
+            (
+                "HTTP/1.1 302 Found\r\n" +
+                "Location: http://api.localhost:3000/login\r\n" +
+                "Access-Control-Allow-Origin: http://api.localhost:3000\r\n" +
+                "Set-Cookie: sid=1; Domain=api.localhost; Path=/\r\n" +
+                "\r\n"
+            ).utf8
         )
 
-        XCTAssertEqual(environment["TERM"], TerminalSurface.managedTerminalType)
-        XCTAssertEqual(environment["COLORTERM"], TerminalSurface.managedColorTerm)
-        XCTAssertEqual(environment["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
-        XCTAssertEqual(environment["CUSTOM_FLAG"], "1")
-        XCTAssertTrue(protectedKeys.contains("TERM"))
-        XCTAssertTrue(protectedKeys.contains("COLORTERM"))
-        XCTAssertTrue(protectedKeys.contains("TERM_PROGRAM"))
+        let rewritten = RemoteLoopbackHTTPResponseRewriter.rewriteIfNeeded(
+            data: original,
+            aliasHost: "cmux-loopback.localtest.me"
+        )
+
+        let text = String(decoding: rewritten, as: UTF8.self)
+        XCTAssertTrue(text.contains("Location: http://api.cmux-loopback.localtest.me:3000/login"))
+        XCTAssertTrue(text.contains("Access-Control-Allow-Origin: http://api.cmux-loopback.localtest.me:3000"))
+        XCTAssertTrue(text.contains("Set-Cookie: sid=1; Domain=api.cmux-loopback.localtest.me; Path=/"))
     }
 
-    func testMergedStartupEnvironmentAllowsSessionReplayAndInitialEnvCMUXKeys() {
-        let replayPath = "/tmp/cmux-replay-\(UUID().uuidString)"
-        let merged = TerminalSurface.mergedStartupEnvironment(
-            base: [
-                "PATH": "/usr/bin",
-                "CMUX_SURFACE_ID": "managed-surface"
-            ],
-            protectedKeys: ["PATH", "CMUX_SURFACE_ID"],
-            additionalEnvironment: [
-                SessionScrollbackReplayStore.environmentKey: replayPath
-            ],
-            initialEnvironmentOverrides: [
-                "CMUX_INITIAL_ENV_TOKEN": "token-123"
-            ]
+    func testRewritesLeadingDotLoopbackCookieDomainsBackToAliasDomains() {
+        let original = Data(
+            (
+                "HTTP/1.1 200 OK\r\n" +
+                "Set-Cookie: root=1; Domain=.localhost; Path=/\r\n" +
+                "Set-Cookie: api=1; Domain=.api.localhost; Path=/\r\n" +
+                "\r\n"
+            ).utf8
         )
 
-        XCTAssertEqual(merged[SessionScrollbackReplayStore.environmentKey], replayPath)
-        XCTAssertEqual(merged["CMUX_INITIAL_ENV_TOKEN"], "token-123")
-    }
-
-    func testMergedStartupEnvironmentProtectsManagedKeysOnly() {
-        let merged = TerminalSurface.mergedStartupEnvironment(
-            base: [
-                "PATH": "/usr/bin",
-                "CMUX_SURFACE_ID": "managed-surface"
-            ],
-            protectedKeys: ["PATH", "CMUX_SURFACE_ID"],
-            additionalEnvironment: [
-                "CMUX_SURFACE_ID": "user-surface",
-                "CUSTOM_FLAG": "1"
-            ],
-            initialEnvironmentOverrides: [
-                "PATH": "/tmp/bin",
-                "CMUX_SURFACE_ID": "override-surface"
-            ]
+        let rewritten = RemoteLoopbackHTTPResponseRewriter.rewriteIfNeeded(
+            data: original,
+            aliasHost: "cmux-loopback.localtest.me"
         )
 
-        XCTAssertEqual(merged["PATH"], "/usr/bin")
-        XCTAssertEqual(merged["CMUX_SURFACE_ID"], "managed-surface")
-        XCTAssertEqual(merged["CUSTOM_FLAG"], "1")
-    }
-
-    func testMergedStartupEnvironmentProtectsManagedTerminalIdentity() {
-        var baseEnvironment = [
-            "PATH": "/usr/bin"
-        ]
-        var protectedKeys: Set<String> = ["PATH"]
-        TerminalSurface.applyManagedTerminalIdentityEnvironment(
-            to: &baseEnvironment,
-            protectedKeys: &protectedKeys
-        )
-
-        let merged = TerminalSurface.mergedStartupEnvironment(
-            base: baseEnvironment,
-            protectedKeys: protectedKeys,
-            additionalEnvironment: [
-                "TERM": "xterm-ghostty",
-                "COLORTERM": "24bit",
-                "TERM_PROGRAM": "Apple_Terminal"
-            ],
-            initialEnvironmentOverrides: [
-                "TERM": "screen-256color",
-                "COLORTERM": "false",
-                "TERM_PROGRAM": "WarpTerminal"
-            ]
-        )
-
-        XCTAssertEqual(merged["TERM"], TerminalSurface.managedTerminalType)
-        XCTAssertEqual(merged["COLORTERM"], TerminalSurface.managedColorTerm)
-        XCTAssertEqual(merged["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
+        let text = String(decoding: rewritten, as: UTF8.self)
+        XCTAssertTrue(text.contains("Set-Cookie: root=1; Domain=.cmux-loopback.localtest.me; Path=/"))
+        XCTAssertTrue(text.contains("Set-Cookie: api=1; Domain=.api.cmux-loopback.localtest.me; Path=/"))
     }
 }
+
 
 @MainActor
 final class BrowserPanelPopupContextTests: XCTestCase {
@@ -1123,6 +1474,314 @@ final class BrowserPanelPopupContextTests: XCTestCase {
             popupWebView.configuration.websiteDataStore === panel.webView.configuration.websiteDataStore
         )
         XCTAssertFalse(popupWebView.configuration.websiteDataStore === WKWebsiteDataStore.default())
+    }
+}
+
+@MainActor
+final class BrowserPanelWebViewLifecycleTests: XCTestCase {
+    func testHiddenDiscardPolicyReadsUserDefaults() throws {
+        let suiteName = "cmux.browserHiddenDiscardPolicyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let hasEnabledEnvironmentOverride =
+            ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"] != nil
+        let hasDelayEnvironmentOverride =
+            ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_DELAY_SECONDS"] != nil
+
+        if !hasEnabledEnvironmentOverride {
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.defaultEnabled
+            )
+        }
+        if !hasDelayEnvironmentOverride {
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
+            )
+        }
+
+        defaults.set(false, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.set(42.5, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+
+        if !hasEnabledEnvironmentOverride {
+            XCTAssertEqual(defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey) as? Bool, false)
+            XCTAssertFalse(BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: defaults))
+        }
+        if !hasDelayEnvironmentOverride {
+            XCTAssertEqual(BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults), 42.5)
+
+            defaults.set(7200, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay
+            )
+
+            defaults.set(-1, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
+            )
+        }
+    }
+
+    func testLifecycleStartsAsNewTabUntilRenderable() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "https://example.test/")!,
+            renderInitialNavigation: false,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        XCTAssertEqual(panel.webViewLifecycleState, .newTab)
+
+        panel.noteWebViewVisibility(true, reason: "test.visible")
+
+        XCTAssertEqual(panel.webViewLifecycleState, .newTab)
+    }
+
+    func testBackgroundInitialNavigationOwnsHeadlessWebKitHostBeforeViewAppears() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            preloadInitialNavigationInBackground: true,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        XCTAssertTrue(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+        XCTAssertTrue(panel.hasBackgroundPreloadHost)
+        XCTAssertNotNil(panel.webView.window)
+        XCTAssertEqual(panel.webView.window?.isVisible, true)
+        XCTAssertLessThan(panel.webView.window?.frame.minX ?? 0, -9_000)
+    }
+
+    func testBackgroundInitialNavigationDoesNotExposeHiddenHostAsModalParent() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            preloadInitialNavigationInBackground: true,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        XCTAssertTrue(panel.hasBackgroundPreloadHost)
+        XCTAssertNotNil(panel.webView.window)
+        XCTAssertNil(browserInteractiveModalHostWindow(for: panel.webView))
+    }
+
+    func testBackgroundPreloadHostStaysOpenUntilWebViewHasRealWindow() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            preloadInitialNavigationInBackground: true,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        XCTAssertTrue(panel.hasBackgroundPreloadHost)
+        panel.webView.removeFromSuperview()
+
+        XCTAssertNil(panel.webView.window)
+
+        panel.releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: "test.detached")
+
+        XCTAssertTrue(panel.hasBackgroundPreloadHost)
+    }
+
+    func testBackgroundPreloadIsConsumedByInitialNavigation() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            preloadInitialNavigationInBackground: true,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        XCTAssertTrue(panel.hasBackgroundPreloadHost)
+
+        let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        let realHostWindow = NSWindow(
+            contentRect: frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            realHostWindow.contentView = nil
+            realHostWindow.close()
+        }
+        let contentView = NSView(frame: frame)
+        realHostWindow.contentView = contentView
+        panel.webView.removeFromSuperview()
+        contentView.addSubview(panel.webView)
+
+        panel.releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: "test.realWindow")
+
+        XCTAssertFalse(panel.hasBackgroundPreloadHost)
+
+        panel.webView.removeFromSuperview()
+        realHostWindow.contentView = nil
+        panel.navigate(to: URL(string: "about:blank#second")!)
+
+        XCTAssertFalse(panel.hasBackgroundPreloadHost)
+    }
+
+    func testLifecycleTracksVisibleHiddenAndClosingStates() {
+        let hiddenAt = Date(timeIntervalSince1970: 100)
+        let duplicateHiddenAt = hiddenAt.addingTimeInterval(10)
+        let now = hiddenAt.addingTimeInterval(11.25)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "https://example.test/")!,
+            isRemoteWorkspace: false
+        )
+
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+
+        panel.noteWebViewVisibility(true, reason: "test.visible", now: hiddenAt)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: hiddenAt)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+        panel.noteWebViewVisibility(
+            false,
+            reason: "test.hidden.duplicate",
+            now: duplicateHiddenAt,
+            recordIfUnchanged: true
+        )
+
+        let payload = panel.webViewLifecycleTopPayload(now: now)
+        XCTAssertEqual(payload["state"] as? String, "live_hidden")
+        XCTAssertEqual(payload["visible_in_ui"] as? Bool, false)
+        XCTAssertEqual(payload["should_render"] as? Bool, true)
+        XCTAssertEqual(payload["last_visibility_change_reason"] as? String, "test.hidden")
+        XCTAssertEqual(payload["hidden_duration_ms"] as? Int, 11250)
+
+        panel.close()
+        XCTAssertEqual(panel.webViewLifecycleState, .closing)
+    }
+
+    func testDiscardReplacesHiddenWebViewAndRestoresOnDemand() {
+        let discardedAt = Date(timeIntervalSince1970: 200)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+        let originalWebView = panel.webView
+
+        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        XCTAssertFalse(panel.webView === originalWebView)
+        XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .discarded)
+
+        let discardedPayload = panel.webViewLifecycleTopPayload(now: discardedAt)
+        XCTAssertEqual(discardedPayload["state"] as? String, "discarded")
+        XCTAssertEqual(discardedPayload["last_discard_reason"] as? String, "test.discard")
+        XCTAssertNotNil(discardedPayload["discarded_at"] as? String)
+
+        var observedStates: [BrowserWebViewLifecycleState] = []
+        var cancellable: AnyCancellable?
+        cancellable = panel.$webViewLifecycleState.sink { state in
+            observedStates.append(state)
+        }
+        defer { cancellable?.cancel() }
+
+        XCTAssertTrue(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
+        XCTAssertTrue(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+        XCTAssertFalse(observedStates.contains(.newTab), "Restore emitted unexpected states: \(observedStates)")
+
+        panel.noteWebViewVisibility(true, reason: "test.visible")
+        XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
+    }
+
+    func testRestoredHistoryBackDoesNotEmitNewTabLifecycleState() {
+        let discardedAt = Date(timeIntervalSince1970: 300)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: ["https://example.test/back"],
+            forwardHistoryURLStrings: [],
+            currentURLString: "https://example.test/current"
+        )
+        XCTAssertTrue(panel.canGoBack)
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        XCTAssertEqual(panel.webViewLifecycleState, .discarded)
+
+        var observedStates: [BrowserWebViewLifecycleState] = []
+        var cancellable: AnyCancellable?
+        cancellable = panel.$webViewLifecycleState.sink { state in
+            observedStates.append(state)
+        }
+        defer { cancellable?.cancel() }
+
+        panel.goBack()
+
+        XCTAssertFalse(observedStates.contains(.newTab), "Back restore emitted unexpected states: \(observedStates)")
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+    }
+}
+
+final class BrowserNewTabNavigationSeedTests: XCTestCase {
+    func testPreservesOriginalRequestHeadersMethodBodyAndBypassHost() throws {
+        let url = try XCTUnwrap(URL(string: "https://www.linkedin.com/redir/redirect?url=https%3A%2F%2Fexample.com"))
+        let body = Data("payload=1".utf8)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+        request.httpMethod = "POST"
+        request.httpBody = body
+        request.setValue("https://www.linkedin.com/feed/", forHTTPHeaderField: "Referer")
+        request.setValue("keep-me", forHTTPHeaderField: "X-Cmux-Test")
+
+        let seed = try XCTUnwrap(
+            browserNewTabNavigationSeed(
+                from: request,
+                bypassInsecureHTTPHostOnce: "www.linkedin.com"
+            )
+        )
+
+        // This covers the pure seeding helper only. WebKit may still rewrite
+        // programmatic loads when the request is replayed in the destination tab.
+        XCTAssertEqual(seed.url, url)
+        XCTAssertEqual(seed.bypassInsecureHTTPHostOnce, "www.linkedin.com")
+        XCTAssertEqual(seed.initialRequest.httpMethod, "POST")
+        XCTAssertEqual(seed.initialRequest.httpBody, body)
+        XCTAssertEqual(
+            seed.initialRequest.value(forHTTPHeaderField: "Referer"),
+            "https://www.linkedin.com/feed/"
+        )
+        XCTAssertEqual(
+            seed.initialRequest.value(forHTTPHeaderField: "X-Cmux-Test"),
+            "keep-me"
+        )
+        XCTAssertEqual(seed.initialRequest.cachePolicy, .reloadIgnoringLocalCacheData)
     }
 }
 
@@ -1172,6 +1831,68 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         XCTAssertEqual(panel.webView.url?.host, "cmux-loopback.localtest.me")
     }
 
+    func testRemoteWorkspacePreservesLocalhostSubdomainWhenAliasingLoopbackURL() {
+        let remoteWorkspaceId = UUID()
+        let url = URL(string: "http://api.localhost:3000/demo")!
+        let panel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            initialURL: url,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
+
+        XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
+        XCTAssertNil(panel.webView.url)
+
+        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876))
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.url == nil, RunLoop.main.run(mode: .default, before: deadline), Date() < deadline {}
+
+        XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
+        XCTAssertEqual(panel.webView.url?.host, "api.cmux-loopback.localtest.me")
+    }
+
+    func testRemoteWorkspaceRuntimeBridgeAliasesMultipleLoopbackPortsFromSamePage() async throws {
+        let remoteWorkspaceId = UUID()
+        let panel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
+        let baseURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:3000/"))
+
+        panel.webView.loadHTMLString(
+            "<!doctype html><html><body>remote loopback bridge</body></html>",
+            baseURL: baseURL
+        )
+        try await waitForBrowserWebViewLoad(panel.webView)
+
+        let result = try await panel.evaluateJavaScript(
+            """
+            (() => {
+              const rewrite = window.__cmuxRewriteRemoteLoopbackURL;
+              if (typeof rewrite !== 'function') {
+                return 'missing bridge';
+              }
+              return JSON.stringify([
+                rewrite('http://localhost:3000/frontend'),
+                rewrite('http://localhost:8000/api'),
+                rewrite('http://api.localhost:8000/v1'),
+                rewrite('ws://localhost:5173/hmr'),
+                rewrite('wss://localhost:5173/hmr'),
+                rewrite('https://localhost:9443/secure')
+              ]);
+            })()
+            """
+        ) as? String
+
+        XCTAssertEqual(
+            result,
+            #"["http://cmux-loopback.localtest.me:3000/frontend","http://cmux-loopback.localtest.me:8000/api","http://api.cmux-loopback.localtest.me:8000/v1","ws://cmux-loopback.localtest.me:5173/hmr","wss://localhost:5173/hmr","https://localhost:9443/secure"]"#
+        )
+    }
+
     func testRemoteWorkspaceKeepsHTTPSLoopbackUnaliased() {
         let remoteWorkspaceId = UUID()
         let url = URL(string: "https://localhost:3443/demo")!
@@ -1192,6 +1913,17 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
 
         XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
         XCTAssertEqual(panel.webView.url?.host, "localhost")
+    }
+
+    private func waitForBrowserWebViewLoad(_ webView: WKWebView, timeout: TimeInterval = 2.0) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while webView.isLoading {
+            if Date() >= deadline {
+                XCTFail("Timed out waiting for browser web view to finish loading")
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
     }
 
     func testBrowserMoveIntoRemoteWorkspaceRebuildsWebsiteDataStoreScope() throws {
@@ -1631,95 +2363,6 @@ final class NotificationBurstCoalescerTests: XCTestCase {
     }
 }
 
-final class GhosttyDefaultBackgroundNotificationDispatcherTests: XCTestCase {
-    func testSignalCoalescesBurstToLatestBackground() {
-        guard let dark = NSColor(hex: "#272822"),
-              let light = NSColor(hex: "#FDF6E3") else {
-            XCTFail("Expected valid test colors")
-            return
-        }
-
-        let expectation = expectation(description: "coalesced notification")
-        expectation.expectedFulfillmentCount = 1
-        var postedUserInfos: [[AnyHashable: Any]] = []
-
-        let dispatcher = GhosttyDefaultBackgroundNotificationDispatcher(
-            delay: 0.01,
-            postNotification: { userInfo in
-                postedUserInfos.append(userInfo)
-                expectation.fulfill()
-            }
-        )
-
-        DispatchQueue.main.async {
-            dispatcher.signal(backgroundColor: dark, opacity: 0.95, eventId: 1, source: "test.dark")
-            dispatcher.signal(backgroundColor: light, opacity: 0.75, eventId: 2, source: "test.light")
-        }
-
-        wait(for: [expectation], timeout: 1.0)
-        XCTAssertEqual(postedUserInfos.count, 1)
-        XCTAssertEqual(
-            (postedUserInfos[0][GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString(),
-            "#FDF6E3"
-        )
-        XCTAssertEqual(
-            postedOpacity(from: postedUserInfos[0][GhosttyNotificationKey.backgroundOpacity]),
-            0.75,
-            accuracy: 0.0001
-        )
-        XCTAssertEqual(
-            (postedUserInfos[0][GhosttyNotificationKey.backgroundEventId] as? NSNumber)?.uint64Value,
-            2
-        )
-        XCTAssertEqual(
-            postedUserInfos[0][GhosttyNotificationKey.backgroundSource] as? String,
-            "test.light"
-        )
-    }
-
-    func testSignalAcrossSeparateBurstsPostsMultipleNotifications() {
-        guard let dark = NSColor(hex: "#272822"),
-              let light = NSColor(hex: "#FDF6E3") else {
-            XCTFail("Expected valid test colors")
-            return
-        }
-
-        let expectation = expectation(description: "two notifications")
-        expectation.expectedFulfillmentCount = 2
-        var postedHexes: [String] = []
-
-        let dispatcher = GhosttyDefaultBackgroundNotificationDispatcher(
-            delay: 0.01,
-            postNotification: { userInfo in
-                let hex = (userInfo[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString() ?? "nil"
-                postedHexes.append(hex)
-                expectation.fulfill()
-            }
-        )
-
-        DispatchQueue.main.async {
-            dispatcher.signal(backgroundColor: dark, opacity: 1.0, eventId: 1, source: "test.dark")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                dispatcher.signal(backgroundColor: light, opacity: 1.0, eventId: 2, source: "test.light")
-            }
-        }
-
-        wait(for: [expectation], timeout: 1.0)
-        XCTAssertEqual(postedHexes, ["#272822", "#FDF6E3"])
-    }
-
-    private func postedOpacity(from value: Any?) -> Double {
-        if let value = value as? Double {
-            return value
-        }
-        if let value = value as? NSNumber {
-            return value.doubleValue
-        }
-        XCTFail("Expected background opacity payload")
-        return -1
-    }
-}
-
 final class RecentlyClosedBrowserStackTests: XCTestCase {
     func testPopReturnsEntriesInLIFOOrder() {
         var stack = RecentlyClosedBrowserStack(capacity: 20)
@@ -1798,6 +2441,7 @@ final class SocketControlSettingsTests: XCTestCase {
     func testStableReleaseIgnoresAmbientSocketOverrideByDefault() {
         let path = SocketControlSettings.socketPath(
             environment: [
+                "CMUX_TAG": "stray-tag",
                 "CMUX_SOCKET_PATH": "/tmp/cmux-debug-issue-153-tmux-compat.sock",
             ],
             bundleIdentifier: "com.cmuxterm.app",
@@ -1806,6 +2450,31 @@ final class SocketControlSettingsTests: XCTestCase {
         )
 
         XCTAssertEqual(path, SocketControlSettings.stableDefaultSocketPath)
+    }
+
+    func testTaggedDebugLaunchUsesTagDefaultWhenNoOverrideIsProvided() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_TAG": "my-tag",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug",
+            isDebugBuild: true
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-my-tag.sock")
+    }
+
+    func testTaggedDebugLaunchStillHonorsSocketOverride() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_TAG": "my-tag",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-forced.sock",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug",
+            isDebugBuild: true
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-forced.sock")
     }
 
     func testNightlyReleaseUsesDedicatedDefaultAndIgnoresAmbientSocketOverride() {
@@ -1821,7 +2490,7 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, "/tmp/cmux-nightly.sock")
     }
 
-    func testDebugBundleHonorsSocketOverrideWithoutOptInFlag() {
+    func testTaggedDebugBundleKeepsMatchingSocketOverrideWithoutOptInFlag() {
         let path = SocketControlSettings.socketPath(
             environment: [
                 "CMUX_SOCKET_PATH": "/tmp/cmux-debug-my-tag.sock",
@@ -1831,6 +2500,46 @@ final class SocketControlSettingsTests: XCTestCase {
         )
 
         XCTAssertEqual(path, "/tmp/cmux-debug-my-tag.sock")
+    }
+
+    func testTaggedDebugBundleIgnoresSocketOverrideInheritedFromDifferentCmuxBundle() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-nightly.sock",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.issue.4355.cmux.themes.set.state.dependent",
+            isDebugBuild: true
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-issue-4355-cmux-themes-set-state-dependent.sock")
+    }
+
+    func testTaggedDebugBundleIgnoresMismatchedInheritedSocketOverride() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-nightly.sock",
+                "CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.fix-grok-notifications",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-fix-grok-notifications.sock")
+    }
+
+    func testTaggedDebugBundleCanOptInToMismatchedSocketOverride() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-nightly.sock",
+                "CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly",
+                "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.fix-grok-notifications",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-nightly.sock")
     }
 
     func testStagingBundleHonorsSocketOverrideWithoutOptInFlag() {
@@ -1878,11 +2587,19 @@ final class SocketControlSettingsTests: XCTestCase {
         )
         XCTAssertEqual(
             SocketControlSettings.defaultSocketPath(
+                bundleIdentifier: "com.cmuxterm.app.nightly.tag",
+                isDebugBuild: false,
+                probeStableDefaultPathEntry: { _ in .missing }
+            ),
+            "/tmp/cmux-nightly-tag.sock"
+        )
+        XCTAssertEqual(
+            SocketControlSettings.defaultSocketPath(
                 bundleIdentifier: "com.cmuxterm.app.debug.tag",
                 isDebugBuild: false,
                 probeStableDefaultPathEntry: { _ in .missing }
             ),
-            "/tmp/cmux-debug.sock"
+            "/tmp/cmux-debug-tag.sock"
         )
         XCTAssertEqual(
             SocketControlSettings.defaultSocketPath(
@@ -1890,7 +2607,7 @@ final class SocketControlSettingsTests: XCTestCase {
                 isDebugBuild: false,
                 probeStableDefaultPathEntry: { _ in .missing }
             ),
-            "/tmp/cmux-staging.sock"
+            "/tmp/cmux-staging-tag.sock"
         )
     }
 
@@ -2257,6 +2974,38 @@ final class GhosttyMouseFocusTests: XCTestCase {
         XCTAssertFalse(hiraginoRanges.contains("U+AC00-U+D7AF"), "Hangul NOT in Hiragino")
     }
 
+    func testResolvedInjectedCJKFontNamePinsRegularWeightForHiraginoSans() throws {
+        guard let plain = GhosttyApp.discoveredCTFont(named: "Hiragino Sans"),
+              let pinned = GhosttyApp.discoveredCTFont(
+                  named: GhosttyApp.resolvedInjectedCJKFontName(named: "Hiragino Sans")
+              ) else {
+            throw XCTSkip("Hiragino Sans is unavailable on this runner")
+        }
+
+        let plainFullName = CTFontCopyFullName(plain) as String
+        let pinnedFullName = CTFontCopyFullName(pinned) as String
+
+        XCTAssertEqual(CTFontCopyFamilyName(pinned) as String, "Hiragino Sans")
+        XCTAssertFalse(pinnedFullName.contains(" W0"))
+        if plainFullName.contains(" W0") {
+            XCTAssertNotEqual(
+                CTFontCopyPostScriptName(plain) as String,
+                CTFontCopyPostScriptName(pinned) as String
+            )
+        }
+    }
+
+    func testResolvedInjectedCJKFontNameLeavesPingFangSCStable() throws {
+        guard GhosttyApp.discoveredCTFont(named: "PingFang SC") != nil else {
+            throw XCTSkip("PingFang SC is unavailable on this runner")
+        }
+
+        XCTAssertEqual(
+            GhosttyApp.resolvedInjectedCJKFontName(named: "PingFang SC"),
+            "PingFang SC"
+        )
+    }
+
     // MARK: autoInjectedCJKFontMappings
 
     func testAutoInjectedCJKFontMappingsSkipsRangesCoveredByConfiguredPrimaryFont() throws {
@@ -2576,7 +3325,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
     }
 
-    func testLoadedCJKScanPathsSkipsReleaseAppSupportWhenTaggedConfigExists() throws {
+    func testLoadedCJKScanPathsIncludesNativeGhosttyAppSupportWhenTaggedConfigExists() throws {
         let appSupport = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-test-cjk-app-support-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
@@ -2591,6 +3340,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         let releaseDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
         try FileManager.default.createDirectory(at: releaseDir, withIntermediateDirectories: true)
         let releaseConfig = releaseDir.appendingPathComponent("config", isDirectory: false)
+        let releaseConfigGhostty = releaseDir.appendingPathComponent("config.ghostty", isDirectory: false)
         try "font-family = LXGW WenKai Mono TC\n"
             .write(to: releaseConfig, atomically: true, encoding: .utf8)
 
@@ -2600,13 +3350,144 @@ final class GhosttyMouseFocusTests: XCTestCase {
         )
 
         XCTAssertTrue(paths.contains(taggedConfig.path))
-        XCTAssertFalse(paths.contains(releaseConfig.path))
-        XCTAssertTrue(
+        XCTAssertTrue(paths.contains(releaseConfig.path))
+        XCTAssertTrue(paths.contains(releaseConfigGhostty.path))
+        XCTAssertFalse(
             GhosttyApp.shouldInjectCJKFontFallback(
                 preferredLanguages: ["zh-Hans-CN"],
                 configPaths: paths
             )
         )
+    }
+
+    func testShouldApplyManagedDefaultAppearanceScansNativeGhosttyAppSupport() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-appearance-app-support-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: appSupport) }
+
+        let ghosttyDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
+        try FileManager.default.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
+        let nativeConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
+        try "theme = Dracula\n"
+            .write(to: nativeConfig, atomically: true, encoding: .utf8)
+
+        let paths = GhosttyApp.loadedGhosttyConfigScanPaths(
+            currentBundleIdentifier: "com.example.cmux-dev",
+            appSupportDirectory: appSupport
+        )
+
+        XCTAssertTrue(paths.contains(nativeConfig.path))
+        XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: paths))
+    }
+
+    // MARK: shouldApplyManagedDefaultAppearance
+
+    func testShouldApplyManagedDefaultAppearanceAllowsNonAppearanceConfig() throws {
+        try withTempConfig("""
+        font-family = JetBrains Mono
+        background-opacity = 0.92
+        """) { path in
+            XCTAssertTrue(
+                GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
+            )
+        }
+    }
+
+    func testShouldApplyManagedDefaultAppearanceSkipsExplicitTheme() throws {
+        try withTempConfig("theme = Catppuccin Mocha\n") { path in
+            XCTAssertFalse(
+                GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
+            )
+        }
+    }
+
+    func testShouldApplyManagedDefaultAppearanceSkipsExplicitTerminalColorDirective() throws {
+        try withTempConfig("background = #101010\n") { path in
+            XCTAssertFalse(
+                GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
+            )
+        }
+    }
+
+    func testShouldApplyManagedDefaultAppearanceFollowsConfigFileIncludes() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-theme-include-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("appearance.conf")
+        try "theme = Catppuccin Latte\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "font-family = JetBrains Mono\nconfig-file = \(included.path)\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(
+            GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
+        )
+    }
+
+    func testShouldApplyManagedDefaultAppearancePreservesQuotedQuestionMarkConfigFile() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-theme-quoted-include-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("?appearance.conf")
+        try "theme = Catppuccin Latte\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "config-file = \"?appearance.conf\"\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(
+            GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
+        )
+    }
+
+    func testShouldApplyManagedDefaultAppearanceProcessesIncludeQueuedAfterReset() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-theme-reset-include-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let themed = dir.appendingPathComponent("appearance.conf")
+        try "theme = Catppuccin Latte\n"
+            .write(to: themed, atomically: true, encoding: .utf8)
+
+        let first = dir.appendingPathComponent("first.conf")
+        try """
+        config-file =
+        config-file = appearance.conf
+        """
+        .write(to: first, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "config-file = first.conf\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(
+            GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
+        )
+    }
+
+    func testStartupAppearanceFreshInstallPreviewUsesManagedDefaultColorsWithoutSettingTheme() {
+        #if DEBUG
+        let previousProfile = GhosttyStartupAppearancePreviewState.profile
+        GhosttyStartupAppearancePreviewState.profile = .freshInstall
+        GhosttyConfig.invalidateLoadCache()
+        defer {
+            GhosttyStartupAppearancePreviewState.profile = previousProfile
+            GhosttyConfig.invalidateLoadCache()
+        }
+
+        let config = GhosttyConfig.load(preferredColorScheme: .light, useCache: false)
+        XCTAssertNil(config.theme)
+        XCTAssertEqual(config.backgroundColor.hexString(), "#FEFFFF")
+        #endif
     }
 }
 
@@ -2825,8 +3706,10 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             fi
 
             cmux_test_ready() {
+              [[ -e "$CMUX_TEST_READY" ]] && return 0
               print -r -- "PRE=$CMUX_STARTUP_THEME_TERM|$CMUX_STARTUP_THEME_BRANCH|$TERM|${CMUX_ZSH_RESTORE_TERM-unset}" > "$CMUX_TEST_OUTPUT"
               : > "$CMUX_TEST_READY"
+              precmd_functions=(${precmd_functions:#cmux_test_ready})
             }
             precmd_functions+=(cmux_test_ready)
             """
@@ -2885,6 +3768,41 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         )
 
         XCTAssertEqual(output, "xterm-256color|xterm-256color|unset|0", output)
+    }
+
+    func testShellIntegrationNormalizesClaudeConfigDirAfterUserZshrc() throws {
+        let output = try runPromptInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            print -r -- "CMD=$CLAUDE_CONFIG_DIR" >> "$CMUX_TEST_OUTPUT"
+            """,
+            userZshRCContents: """
+            mkdir -p "$HOME/.subrouter/codex/claude/_p1775010019397"
+            ln -s "$HOME/.subrouter/codex" "$HOME/.codex-accounts"
+            export CLAUDE_CONFIG_DIR="$HOME/.subrouter/codex/claude/_p1775010019397"
+
+            cmux_test_ready() {
+              [[ -e "$CMUX_TEST_READY" ]] && return 0
+              print -r -- "PRE=$CLAUDE_CONFIG_DIR" > "$CMUX_TEST_OUTPUT"
+              : > "$CMUX_TEST_READY"
+              precmd_functions=(${precmd_functions:#cmux_test_ready})
+            }
+            precmd_functions+=(cmux_test_ready)
+            """
+        )
+
+        XCTAssertTrue(
+            output.contains("PRE=") && output.contains("CMD="),
+            output
+        )
+        for line in output.split(separator: "\n") {
+            XCTAssertTrue(
+                line.hasSuffix("/.codex-accounts/claude/_p1775010019397"),
+                output
+            )
+        }
+        XCTAssertFalse(output.contains("/.subrouter/codex/claude/"), output)
     }
 
     func testShellIntegrationDoesNotRegisterPromptTimeTermRestoreHooks() throws {
@@ -3357,6 +4275,172 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             result.stdout.contains(#"rpc surface.ports_kick {"workspace_id":"11111111-1111-1111-1111-111111111111","reason":"refresh","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
             result.stdout
         )
+    }
+
+    func testBashNoGitWatchSkipsHeadTrackingAndPRClear() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-no-git-watch-\(UUID().uuidString)")
+        let repoA = root.appendingPathComponent("repo-a", isDirectory: true)
+        let repoB = root.appendingPathComponent("repo-b", isDirectory: true)
+        let logPath = root.appendingPathComponent("send.log", isDirectory: false)
+        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let socketFD = try bindUnixSocket(at: socketPath.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketPath.path)
+            try? fileManager.removeItem(at: root)
+        }
+
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            mkdir -p "\(repoA.path)/.git" "\(repoB.path)/.git"
+            printf '%s\\n' 'ref: refs/heads/main' > "\(repoA.path)/.git/HEAD"
+            printf '%s\\n' 'ref: refs/heads/feature' > "\(repoB.path)/.git/HEAD"
+            : > "\(logPath.path)"
+            _cmux_send() { printf '%s\\n' "$1" >> "\(logPath.path)"; }
+            cd "\(repoA.path)"
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN=$(_cmux_now)
+            _CMUX_PWD_LAST_PWD="$PWD"
+            _CMUX_GIT_HEAD_LAST_PWD="$PWD"
+            _CMUX_GIT_HEAD_PATH="$PWD/.git/HEAD"
+            _CMUX_GIT_HEAD_SIGNATURE="$(_cmux_git_head_signature "$_CMUX_GIT_HEAD_PATH")"
+            printf '%s\\n' 'ref: refs/heads/old-cleared' > "$_CMUX_GIT_HEAD_PATH"
+            cd "\(repoB.path)"
+            _CMUX_PWD_LAST_PWD="$PWD"
+            _CMUX_LAST_PR_ACTION="checkout"
+            _CMUX_LAST_PR_TARGET="feature"
+            _cmux_prompt_command
+            printf 'HEAD_PATH=%s\\n' "$_CMUX_GIT_HEAD_PATH"
+            printf 'HEAD_LAST_PWD=%s\\n' "$_CMUX_GIT_HEAD_LAST_PWD"
+            printf 'LAST_PR_ACTION=%s\\n' "$_CMUX_LAST_PR_ACTION"
+            printf 'LOG<<EOF\\n'
+            cat "\(logPath.path)"
+            printf 'EOF\\n'
+            """,
+            extraEnvironment: [
+                "CMUX_NO_GIT_WATCH": "1",
+                "CMUX_SOCKET_PATH": socketPath.path,
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertFalse(result.stdout.contains(repoA.appendingPathComponent(".git/HEAD").path), result.stdout)
+        XCTAssertTrue(result.stdout.contains("HEAD_PATH=\n"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("HEAD_LAST_PWD=\n"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("LAST_PR_ACTION=\n"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("clear_pr"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("report_pr_action"), result.stdout)
+    }
+
+    func testZshNoGitWatchSkipsHeadTrackingAndPRClear() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-no-git-watch-\(UUID().uuidString)")
+        let repoA = root.appendingPathComponent("repo-a", isDirectory: true)
+        let repoB = root.appendingPathComponent("repo-b", isDirectory: true)
+        let logPath = root.appendingPathComponent("send.log", isDirectory: false)
+        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let socketFD = try bindUnixSocket(at: socketPath.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketPath.path)
+            try? fileManager.removeItem(at: root)
+        }
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            mkdir -p "\(repoA.path)/.git" "\(repoB.path)/.git"
+            printf '%s\\n' 'ref: refs/heads/main' > "\(repoA.path)/.git/HEAD"
+            printf '%s\\n' 'ref: refs/heads/feature' > "\(repoB.path)/.git/HEAD"
+            : > "\(logPath.path)"
+            _cmux_send() { printf '%s\\n' "$1" >> "\(logPath.path)"; }
+            cd "\(repoA.path)"
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN=$(_cmux_now)
+            _CMUX_PWD_LAST_PWD="$PWD"
+            _CMUX_GIT_HEAD_LAST_PWD="$PWD"
+            _CMUX_GIT_HEAD_PATH="$PWD/.git/HEAD"
+            _CMUX_GIT_HEAD_SIGNATURE="$(_cmux_git_head_signature "$_CMUX_GIT_HEAD_PATH")"
+            printf '%s\\n' 'ref: refs/heads/old-cleared' > "$_CMUX_GIT_HEAD_PATH"
+            cd "\(repoB.path)"
+            _CMUX_PWD_LAST_PWD="$PWD"
+            _CMUX_LAST_PR_ACTION="checkout"
+            _CMUX_LAST_PR_TARGET="feature"
+            _cmux_precmd
+            printf 'HEAD_PATH=%s\\n' "$_CMUX_GIT_HEAD_PATH"
+            printf 'HEAD_LAST_PWD=%s\\n' "$_CMUX_GIT_HEAD_LAST_PWD"
+            printf 'LAST_PR_ACTION=%s\\n' "$_CMUX_LAST_PR_ACTION"
+            printf 'LOG<<EOF\\n'
+            cat "\(logPath.path)"
+            printf 'EOF\\n'
+            """,
+            extraEnvironment: [
+                "CMUX_NO_GIT_WATCH": "1",
+                "CMUX_SOCKET_PATH": socketPath.path,
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertFalse(output.contains(repoA.appendingPathComponent(".git/HEAD").path), output)
+        XCTAssertTrue(output.contains("HEAD_PATH=\n"), output)
+        XCTAssertTrue(output.contains("HEAD_LAST_PWD=\n"), output)
+        XCTAssertTrue(output.contains("LAST_PR_ACTION=\n"), output)
+        XCTAssertFalse(output.contains("clear_pr"), output)
+        XCTAssertFalse(output.contains("report_pr_action"), output)
+    }
+
+    func testZshPromptResetsTerminalKeyboardProtocols() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN=$(_cmux_now)
+            _cmux_precmd
+            """,
+            extraEnvironment: [
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_BUNDLED_CLI_PATH": "/usr/bin/true",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_TEST_FORCE_KITTY_RESET": "1",
+            ]
+        )
+
+        XCTAssertEqual(output, "\u{1B}[>m\u{1B}[<8u")
+    }
+
+    func testBashPromptResetsTerminalKeyboardProtocols() throws {
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN=$(_cmux_now)
+            _cmux_prompt_command
+            """,
+            extraEnvironment: [
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_BUNDLED_CLI_PATH": "/usr/bin/true",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_TEST_FORCE_KITTY_RESET": "1",
+            ]
+        )
+
+        XCTAssertEqual(result.stdout, "\u{1B}[>m\u{1B}[<8u")
     }
 
     private func runInteractiveZsh(cmuxLoadGhosttyIntegration: Bool) throws -> String {

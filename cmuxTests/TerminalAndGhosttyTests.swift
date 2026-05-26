@@ -26,6 +26,14 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
     }
 
+    private func makeHTMLDocument(containing text: String) -> String {
+        let escaped = text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        return "<html><body><pre>\(escaped)</pre></body></html>"
+    }
+
     func testHTMLOnlyPasteboardExtractsPlainText() {
         let pasteboard = NSPasteboard(name: .init("cmux-test-html-\(UUID().uuidString)"))
         pasteboard.clearContents()
@@ -49,6 +57,68 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
     }
 
+    /// Regression test for https://github.com/manaflow-ai/cmux/issues/2818 —
+    /// Qt-based apps (Telegram Desktop, etc.) register the legacy
+    /// `com.apple.traditional-mac-plain-text` type (Mac OS Roman encoding,
+    /// no CJK/Cyrillic/Arabic support) *before* UTF-8. Iterating the
+    /// pasteboard types in order used to return the lossy legacy value,
+    /// mangling every non-Latin character into "?". The helper must
+    /// prefer UTF-8 whenever it is also present on the pasteboard.
+    func testPrefersUTF8PlainTextOverLegacyMacRomanType() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-utf8-priority-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let koreanText = "삼성전자 거래량 미충족"
+        let legacyType = NSPasteboard.PasteboardType("com.apple.traditional-mac-plain-text")
+        let utf8Type = NSPasteboard.PasteboardType("public.utf8-plain-text")
+
+        // Order matters: declare legacy FIRST to mirror Qt's behaviour.
+        pasteboard.declareTypes([legacyType, utf8Type], owner: nil)
+        pasteboard.setString("?? ??? ???", forType: legacyType)
+        pasteboard.setString(koreanText, forType: utf8Type)
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            koreanText
+        )
+    }
+
+    /// Regression test for https://github.com/manaflow-ai/cmux/issues/3910.
+    /// Some editors expose a lossy plain-text flavor where CJK scalars are
+    /// replaced with literal "?" characters, while the HTML flavor preserves the
+    /// original text. The terminal paste path should recover the faithful text.
+    func testPrefersFaithfulRichTextWhenPlainTextReplacesChineseWithQuestionMarks() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-lossy-chinese-plain-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let chineseText = "您好~"
+        pasteboard.declareTypes([.string, .html], owner: nil)
+        pasteboard.setString("??~", forType: .string)
+        pasteboard.setString("<p>\(chineseText)</p>", forType: .html)
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            chineseText
+        )
+    }
+
+    /// Fallback-loop coverage: when *only* a legacy / unknown plain-text
+    /// type is present and no UTF-8 variant exists, the helper should still
+    /// return whatever string the pasteboard does expose (best-effort).
+    func testFallsBackWhenOnlyNonPreferredPlainTextTypePresent() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-only-legacy-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let legacyType = NSPasteboard.PasteboardType("com.apple.traditional-mac-plain-text")
+        pasteboard.declareTypes([legacyType], owner: nil)
+        pasteboard.setString("plain ascii", forType: legacyType)
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            "plain ascii"
+        )
+    }
+
     func testEmptyPlainTextFallsBackToRichTextPayload() throws {
         let pasteboard = NSPasteboard(name: .init("cmux-test-empty-plain-rich-fallback-\(UUID().uuidString)"))
         pasteboard.clearContents()
@@ -67,6 +137,65 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
     }
 
+    /// Regression test for https://github.com/manaflow-ai/cmux/issues/2940.
+    /// Some apps place the same large clipboard payload onto `.string`, `.html`,
+    /// and `.rtf`. cmux should hand the plain text to the terminal quickly
+    /// instead of first rendering the rich-text variants on the paste path.
+    func testLargePlainTextPasteStaysFastWhenRichTextTypesAreAlsoPresent() throws {
+        final class MockPTY {
+            private(set) var receivedText = ""
+
+            func write(_ text: String) {
+                receivedText += text
+            }
+        }
+
+        let pasteboard = NSPasteboard(name: .init("cmux-test-large-fast-paste-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let text = String(
+            repeating: "abcdefghijklmnopqrstuvwxyz0123456789\n",
+            count: 65_536
+        )
+        let rtfData = try NSAttributedString(string: text).data(
+            from: NSRange(location: 0, length: text.utf16.count),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+        )
+        pasteboard.setString(text, forType: .string)
+        pasteboard.setString(makeHTMLDocument(containing: text), forType: .html)
+        pasteboard.setData(rtfData, forType: .rtf)
+
+        let mockPTY = MockPTY()
+        let startedAt = ProcessInfo.processInfo.systemUptime
+
+        let plan = TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .paste,
+            target: .local
+        )
+        TerminalImageTransferPlanner.executeForTesting(
+            plan: plan,
+            uploadWorkspaceRemote: { _, _, _ in
+                XCTFail("large text paste should not trigger remote upload")
+            },
+            uploadDetectedSSH: { _, _, _, _ in
+                XCTFail("large text paste should not trigger SSH upload")
+            },
+            insertText: { mockPTY.write($0) },
+            onFailure: { error in
+                XCTFail("unexpected paste failure: \(error)")
+            }
+        )
+
+        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+        XCTAssertEqual(mockPTY.receivedText, text)
+        XCTAssertLessThan(
+            elapsed,
+            0.5,
+            "large plain-text pastes should not spend hundreds of milliseconds decoding HTML/RTF before writing to the PTY"
+        )
+    }
+
     func testXHTMLTypeFallsBackToRenderedHTMLText() {
         let pasteboard = NSPasteboard(name: .init("cmux-test-xhtml-html-fallback-\(UUID().uuidString)"))
         pasteboard.clearContents()
@@ -77,6 +206,31 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setString("<p>Hello <strong>world</strong></p>", forType: .html)
 
         XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello world")
+    }
+
+    func testPublicURLPastePreservesOriginalURLText() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-public-url-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let rawURL = "https://example.com?a=1&b=2"
+        let nsURL = try XCTUnwrap(NSURL(string: rawURL))
+        XCTAssertTrue(pasteboard.writeObjects([nsURL]))
+        XCTAssertTrue(pasteboard.types?.contains(.URL) == true)
+        XCTAssertFalse(pasteboard.types?.contains(.fileURL) == true)
+
+        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), rawURL)
+
+        let plan = TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .paste,
+            target: .local
+        )
+
+        guard case .insertText(let text) = plan else {
+            return XCTFail("expected URL text insertion, got \(plan)")
+        }
+
+        XCTAssertEqual(text, rawURL)
     }
 
     func testImageClipboardWithPlainTextFallbackStillFallsBackToImagePath() throws {
@@ -235,6 +389,38 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
     }
 
+    func testAttachmentOnlyRTFDClipboardWithPlainTextFallbackStillFallsBackToImagePath() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-rtfd-attachment-string-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            "https://example.com/keyboard.tiff",
+            forType: .string
+        )
+
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.orange.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        let attributed = NSAttributedString(attachment: attachment)
+        let data = try attributed.data(
+            from: NSRange(location: 0, length: attributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd]
+        )
+        pasteboard.setData(data, forType: .rtfd)
+
+        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+
+        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        defer { try? FileManager.default.removeItem(atPath: imagePath) }
+
+        XCTAssertTrue(imagePath.hasSuffix(".tiff"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
+    }
+
     func testAttachmentOnlyRTFDNonImageClipboardDoesNotFallBackToImagePath() throws {
         let pasteboard = NSPasteboard(name: .init("cmux-test-rtfd-non-image-\(UUID().uuidString)"))
         pasteboard.clearContents()
@@ -344,6 +530,66 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: localPath))
     }
 
+    func testLocalImageFileURLPastePlanUsesSinglePastePayload() throws {
+        let imageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux local image paste \(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: imageDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: imageDirectory) }
+
+        let firstURL = imageDirectory.appendingPathComponent("first image.png")
+        let secondURL = imageDirectory.appendingPathComponent("second image.png")
+        try make1x1PNG(color: .systemRed).write(to: firstURL)
+        try make1x1PNG(color: .systemGreen).write(to: secondURL)
+
+        let plan = TerminalImageTransferPlanner.plan(
+            fileURLs: [firstURL, secondURL],
+            target: .local
+        )
+
+        guard case .insertText(let text) = plan else {
+            return XCTFail("expected one local insert plan for image paths, got \(plan)")
+        }
+
+        XCTAssertEqual(
+            text,
+            [firstURL, secondURL]
+                .map(\.path)
+                .map(TerminalImageTransferPlanner.escapeForShell)
+                .joined(separator: " ")
+        )
+    }
+
+    func testLocalImageFileURLDropPlanUsesDelayedPasteSegments() throws {
+        let imageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux local image drop \(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: imageDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: imageDirectory) }
+
+        let firstURL = imageDirectory.appendingPathComponent("first image.png")
+        let secondURL = imageDirectory.appendingPathComponent("second image.png")
+        try make1x1PNG(color: .systemRed).write(to: firstURL)
+        try make1x1PNG(color: .systemGreen).write(to: secondURL)
+
+        let plan = TerminalImageTransferPlanner.plan(
+            fileURLs: [firstURL, secondURL],
+            target: .local,
+            mode: .drop
+        )
+
+        guard case .insertTextSegments(let segments, let delay) = plan else {
+            return XCTFail("expected delayed local image paste segments, got \(plan)")
+        }
+
+        XCTAssertEqual(
+            segments,
+            [
+                TerminalImageTransferPlanner.escapeForShell(firstURL.path),
+                " " + TerminalImageTransferPlanner.escapeForShell(secondURL.path)
+            ]
+        )
+        XCTAssertEqual(delay, 2.0)
+    }
+
     func testRemoteImagePastePlanUploadsMaterializedFile() throws {
         let pasteboard = NSPasteboard(name: .init("cmux-test-remote-paste-\(UUID().uuidString)"))
         pasteboard.clearContents()
@@ -428,6 +674,24 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
 
         XCTAssertEqual(plan, .insertText("hello from clipboard"))
         XCTAssertEqual(targetResolutionCount, 0)
+    }
+
+    func testPastePlanFallsBackToAlternatePlainTextWhenImageTypeIsUnusable() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-raycast-fallback-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            "hello from Raycast",
+            forType: NSPasteboard.PasteboardType(UTType.plainText.identifier)
+        )
+        pasteboard.setData(Data("not a real tiff".utf8), forType: .tiff)
+
+        let plan = TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .paste,
+            target: .local
+        )
+
+        XCTAssertEqual(plan, .insertText("hello from Raycast"))
     }
 
     func testLazyPastePlanResolvesTargetForFileURLPaste() throws {
@@ -671,6 +935,286 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertTrue(handled)
         let url = try XCTUnwrap(uploadedURL)
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
+}
+
+@MainActor
+final class TerminalOffscreenStartupTests: XCTestCase {
+    func testPlainSurfaceDoesNotStartRuntimeBeforeWindowAttachmentOrInput() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        XCTAssertNil(panel.hostedView.window)
+        XCTAssertFalse(panel.surface.debugHasHeadlessStartupWindowForTesting())
+        XCTAssertEqual(
+            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
+            0,
+            "Empty terminal surfaces should stay lazy until they attach or receive input so tests and background helpers do not spawn idle PTYs."
+        )
+    }
+
+    func testPlainHostedViewWindowAttachmentCreatesRuntimeSurface() throws {
+        let panel = TerminalPanel(workspaceId: UUID())
+        XCTAssertEqual(panel.hostedView.debugSurfaceId, panel.surface.id)
+        XCTAssertNil(panel.surface.surface)
+        XCTAssertFalse(panel.surface.debugHasHeadlessStartupWindowForTesting())
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            panel.hostedView.removeFromSuperview()
+            panel.surface.teardownSurface()
+            window.orderOut(nil)
+        }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        panel.hostedView.frame = contentView.bounds
+        panel.hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(panel.hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNotNil(
+            panel.surface.surface,
+            "A direct AppKit-hosted terminal view must create its runtime surface once it enters a real window."
+        )
+        XCTAssertGreaterThan(panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(), 0)
+    }
+
+    func testInitialInputSurfaceAttemptsRuntimeCreationBeforeWindowAttachment() {
+        let panel = TerminalPanel(
+            workspaceId: UUID(),
+            initialInput: "echo resume\n"
+        )
+
+        XCTAssertTrue(
+            panel.surface.debugHasHeadlessStartupWindowForTesting(),
+            "Restored auto-resume input should bootstrap through a hidden window rather than waiting for a user-focused portal."
+        )
+        XCTAssertGreaterThan(
+            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
+            0,
+            "Restored auto-resume input must start the terminal runtime without waiting for a window attach."
+        )
+    }
+
+    func testInitialCommandSurfaceAttemptsRuntimeCreationBeforeWindowAttachment() {
+        let panel = TerminalPanel(
+            workspaceId: UUID(),
+            initialCommand: "echo startup"
+        )
+
+        XCTAssertTrue(
+            panel.surface.debugHasHeadlessStartupWindowForTesting(),
+            "Command-launched offscreen terminals should bootstrap through a hidden window rather than waiting for a user-focused portal."
+        )
+        XCTAssertGreaterThan(
+            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
+            0,
+            "Offscreen command-launched terminals must start the runtime without waiting for a window attach."
+        )
+    }
+
+    func testHeadlessStartupWindowDoesNotCountAsViewInWindowForHealth() {
+        let panel = TerminalPanel(
+            workspaceId: UUID(),
+            initialCommand: "echo startup"
+        )
+
+        XCTAssertTrue(panel.surface.debugHasHeadlessStartupWindowForTesting())
+        XCTAssertNotNil(panel.hostedView.window)
+        XCTAssertNil(panel.surface.uiWindow)
+        XCTAssertFalse(panel.hostedView.debugPortalVisibleInUI)
+        XCTAssertFalse(panel.hostedView.debugPortalActive)
+        XCTAssertFalse(
+            panel.surface.isViewInWindow,
+            "surface.health must keep reporting offscreen bootstrap terminals as unhosted."
+        )
+    }
+
+    func testForceRefreshIgnoresHeadlessStartupWindow() throws {
+#if DEBUG
+        let panel = TerminalPanel(
+            workspaceId: UUID(),
+            initialCommand: "echo startup"
+        )
+        XCTAssertTrue(panel.surface.debugHasHeadlessStartupWindowForTesting())
+        XCTAssertNotNil(panel.hostedView.window)
+        XCTAssertNil(panel.surface.uiWindow)
+
+        panel.surface.resetDebugForceRefreshCount()
+        panel.surface.forceRefresh(reason: "test.headless")
+
+        XCTAssertEqual(
+            panel.surface.debugForceRefreshCount(),
+            0,
+            "forceRefresh should ignore hidden bootstrap windows and wait for a real UI host."
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testColdSocketInputQueuesInsteadOfDroppingWhenRuntimeSurfaceIsMissing() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        XCTAssertNil(panel.surface.surface)
+        panel.surface.sendInput("touch /tmp/cmux-cold-send\n")
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertGreaterThan(
+            pending.items,
+            0,
+            "Socket input sent before runtime surface creation must be queued or the caller must receive an error."
+        )
+        XCTAssertGreaterThan(pending.bytes, 0)
+    }
+
+    func testColdSocketInputRejectsOversizedQueueInsteadOfDroppingExistingInput() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        XCTAssertTrue(panel.surface.sendInput("echo keep-me\n"))
+
+        let oversizedInput = String(repeating: "x", count: 1_100_000)
+        XCTAssertFalse(
+            panel.surface.sendInput(oversizedInput),
+            "Cold socket input that cannot fit in the pending queue must be rejected instead of evicting previously accepted input."
+        )
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertGreaterThan(pending.items, 0)
+        XCTAssertLessThan(pending.bytes, 1_100_000)
+    }
+
+    func testColdSocketInputQueuesBackspaceControlCharacterAsKeyEvent() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        XCTAssertTrue(panel.surface.sendInput("abc\u{08}"))
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertGreaterThan(
+            pending.keyEvents,
+            0,
+            "Backspace control input must be queued as a key event for cold terminals instead of being pasted as literal text."
+        )
+    }
+
+    func testTeardownClosesHeadlessStartupWindow() {
+        let panel = TerminalPanel(
+            workspaceId: UUID(),
+            initialCommand: "echo startup"
+        )
+        XCTAssertTrue(panel.surface.debugHasHeadlessStartupWindowForTesting())
+
+        panel.surface.teardownSurface()
+
+        XCTAssertFalse(
+            panel.surface.debugHasHeadlessStartupWindowForTesting(),
+            "Explicit terminal teardown should close the hidden bootstrap window immediately instead of waiting for deinit."
+        )
+    }
+
+    func testClosedSurfaceRejectsColdSocketInputInsteadOfQueueingIt() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        panel.surface.beginPortalCloseLifecycle(reason: "test.closed")
+
+        XCTAssertFalse(panel.surface.sendInput("echo should-not-queue\n"))
+        XCTAssertEqual(
+            panel.surface.sendInputResult("echo should-not-queue\n"),
+            .surfaceUnavailable
+        )
+        XCTAssertEqual(panel.surface.sendNamedKey("enter"), .surfaceUnavailable)
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertEqual(
+            pending.items,
+            0,
+            "Socket input accepted after terminal lifecycle closure would be stranded because the surface cannot be restarted."
+        )
+        XCTAssertEqual(pending.bytes, 0)
+    }
+
+    func testDaemonSendWorkspaceQueuesColdControlInputInsteadOfReportingDroppedOK() throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        panel.surface.releaseSurfaceForTesting()
+        XCTAssertNil(panel.surface.surface)
+
+        let response = TerminalController.shared.handleSocketLine(
+            "send_workspace \(workspace.id.uuidString) touch /tmp/cmux-daemon-cold-send\\n"
+        )
+        XCTAssertEqual(response, "OK")
+        TerminalMutationBus.shared.drainForTesting()
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertGreaterThan(pending.items, 0)
+        XCTAssertGreaterThan(
+            pending.keyEvents,
+            0,
+            "A daemon send that accepts newline input for a cold terminal must queue the Return event instead of reporting OK for bytes that cannot execute."
+        )
+    }
+}
+
+@MainActor
+final class FeedbackComposerMessageEditorViewTests: XCTestCase {
+    func testLongMessageCreatesScrollableDocumentContent() {
+        let editor = FeedbackComposerMessageEditorView(
+            frame: NSRect(x: 0, y: 0, width: 360, height: 120)
+        )
+        editor.placeholder = "Message"
+        editor.layoutSubtreeIfNeeded()
+
+        editor.textView.string = (0..<80)
+            .map { "feedback line \($0)" }
+            .joined(separator: "\n")
+        editor.refreshTextLayout()
+        editor.layoutSubtreeIfNeeded()
+
+        XCTAssertGreaterThan(
+            editor.textView.frame.height,
+            editor.scrollView.contentSize.height + 40
+        )
+    }
+
+    func testTrailingBlankLineContributesToScrollableDocumentHeight() {
+        let editor = FeedbackComposerMessageEditorView(
+            frame: NSRect(x: 0, y: 0, width: 360, height: 120)
+        )
+        editor.layoutSubtreeIfNeeded()
+
+        let messageWithoutTrailingBlankLine = (0..<20)
+            .map { "feedback line \($0)" }
+            .joined(separator: "\n")
+        editor.textView.string = messageWithoutTrailingBlankLine
+        editor.refreshTextLayout()
+        let heightWithoutTrailingBlankLine = editor.textView.frame.height
+
+        editor.textView.string = messageWithoutTrailingBlankLine + "\n"
+        editor.refreshTextLayout()
+
+        XCTAssertGreaterThan(
+            editor.textView.frame.height,
+            heightWithoutTrailingBlankLine + 5
+        )
     }
 }
 
@@ -1270,10 +1814,102 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
     }
 }
 
+final class PanelAppearanceBackgroundTests: XCTestCase {
+    func testTransparentGhosttyOpacityUsesClearContentBackground() {
+        var config = GhosttyConfig()
+        config.backgroundColor = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.30, alpha: 1.0)
+        config.backgroundOpacity = 0.42
+        config.backgroundBlur = .disabled
+
+        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
+
+        XCTAssertTrue(appearance.usesClearContentBackground)
+        XCTAssertFalse(appearance.drawsContentBackground)
+        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 0.42, accuracy: 0.0001)
+        XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
+    }
+
+    func testOpaqueGhosttyBackgroundKeepsPanelFill() {
+        var config = GhosttyConfig()
+        config.backgroundColor = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.30, alpha: 1.0)
+        config.backgroundOpacity = 1.0
+        config.backgroundBlur = .disabled
+
+        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
+
+        XCTAssertFalse(appearance.usesClearContentBackground)
+        XCTAssertTrue(appearance.drawsContentBackground)
+        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
+    }
+
+    func testLowContrastPanelForegroundFallsBackToReadableColor() {
+        var config = GhosttyConfig()
+        config.backgroundColor = NSColor(hex: "#FFFFFF")!
+        config.backgroundOpacity = 1.0
+        config.foregroundColor = NSColor(hex: "#FFFFFF")!
+
+        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
+
+        XCTAssertEqual(appearance.foregroundColor.hexString(), "#000000")
+    }
+
+    func testReadablePanelForegroundPreservesThemeColor() {
+        var config = GhosttyConfig()
+        config.backgroundColor = NSColor(hex: "#000000")!
+        config.backgroundOpacity = 1.0
+        config.foregroundColor = NSColor(hex: "#FDF6E3")!
+
+        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
+
+        XCTAssertEqual(appearance.foregroundColor.hexString(), "#FDF6E3")
+    }
+
+    func testGhosttyGlassBackgroundUsesClearContentBackground() {
+        var config = GhosttyConfig()
+        config.backgroundOpacity = 1.0
+        config.backgroundBlur = .macosGlassRegular
+
+        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
+
+        XCTAssertTrue(appearance.usesClearContentBackground)
+        XCTAssertFalse(appearance.drawsContentBackground)
+        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
+    }
+
+    func testTransparentWindowSettingUsesClearContentBackground() {
+        var config = GhosttyConfig()
+        config.backgroundOpacity = 1.0
+        config.backgroundBlur = .disabled
+
+        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: true)
+
+        XCTAssertTrue(appearance.usesClearContentBackground)
+        XCTAssertFalse(appearance.drawsContentBackground)
+        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
+    }
+}
+
 
 final class GhosttyResponderResolutionTests: XCTestCase {
     private final class FocusProbeView: NSView {
         override var acceptsFirstResponder: Bool { true }
+    }
+
+    private final class DelegateTrackingTextView: NSTextView {
+        private(set) var delegateReadCount = 0
+
+        override var delegate: NSTextViewDelegate? {
+            get {
+                delegateReadCount += 1
+                return super.delegate
+            }
+            set {
+                super.delegate = newValue
+            }
+        }
     }
 
     func testResolvesGhosttyViewFromDescendantResponder() {
@@ -1292,6 +1928,17 @@ final class GhosttyResponderResolutionTests: XCTestCase {
     func testReturnsNilForUnrelatedResponder() {
         let view = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         XCTAssertNil(cmuxOwningGhosttyView(for: view))
+    }
+
+    func testDoesNotReadTextViewDelegateForGhosttyResponderResolution() {
+        let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+
+        XCTAssertNil(cmuxOwningGhosttyView(for: textView))
+        XCTAssertEqual(
+            textView.delegateReadCount,
+            0,
+            "Ghostty responder resolution must avoid NSTextView.delegate because AppKit exposes it as unsafe-unretained"
+        )
     }
 }
 
@@ -1801,12 +2448,124 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         throw XCTSkip("Debug-only regression test")
 #endif
     }
+
+    func testVisibilityRestoreRefreshesSurfaceWhileTerminalIsInactive() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNotNil(
+            surface.surface,
+            "Expected runtime surface before measuring visibility-restore redraws"
+        )
+
+        hostedView.setActive(false)
+        hostedView.setVisibleInUI(false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        surface.resetDebugForceRefreshCount()
+        hostedView.setVisibleInUI(true)
+
+        let drained = expectation(description: "visible toggle drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 1.0)
+
+        XCTAssertEqual(
+            surface.debugForceRefreshCount(),
+            1,
+            "Restoring panel visibility should force a redraw even when focus recovery is inactive"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testDirectFirstResponderFocusRefreshesCursorStateAfterForeignResponder() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        let otherResponder = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        contentView.addSubview(otherResponder)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+        XCTAssertNotNil(surface.surface, "Expected runtime surface before measuring focus redraws")
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+        XCTAssertTrue(window.makeFirstResponder(otherResponder))
+
+        surface.resetDebugForceRefreshCount()
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+
+        XCTAssertGreaterThan(
+            surface.debugForceRefreshCount(),
+            0,
+            "Clicking back into the terminal should redraw immediately so the cursor reflects focused input"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
 }
 
 
 @MainActor
 final class WindowTerminalHostViewTests: XCTestCase {
     private final class CapturingView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+    }
+
+    private final class FakeTabBarBackgroundNSView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
         }
@@ -1839,6 +2598,156 @@ final class WindowTerminalHostViewTests: XCTestCase {
             message,
             file: file,
             line: line
+        )
+    }
+
+    private struct TabStripPassThroughFixture {
+        let host: WindowTerminalHostView
+        let pointInHost: NSPoint
+        let pointInWindow: NSPoint
+    }
+
+    private func installTabStripPassThroughFixture(in window: NSWindow) -> TabStripPassThroughFixture? {
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return nil
+        }
+
+        let tabStripHeight: CGFloat = 44
+        let tabStrip = FakeTabBarBackgroundNSView(
+            frame: NSRect(
+                x: 0,
+                y: contentView.bounds.maxY - tabStripHeight,
+                width: contentView.bounds.width,
+                height: tabStripHeight
+            )
+        )
+        tabStrip.autoresizingMask = [.width, .minYMargin]
+        contentView.addSubview(tabStrip)
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowTerminalHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        let child = CapturingView(frame: host.bounds)
+        child.autoresizingMask = [.width, .height]
+        host.addSubview(child)
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let titlebarBandHeight = max(28, min(72, window.frame.height - window.contentLayoutRect.height))
+        let pointInContent = NSPoint(
+            x: contentView.bounds.midX,
+            y: contentView.bounds.maxY - titlebarBandHeight - 8
+        )
+        let pointInWindow = contentView.convert(pointInContent, to: nil)
+        let pointInHost = host.convert(pointInWindow, from: nil)
+        return TabStripPassThroughFixture(host: host, pointInHost: pointInHost, pointInWindow: pointInWindow)
+    }
+
+    private func makeMouseDownEvent(at locationInWindow: NSPoint, window: NSWindow) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: locationInWindow,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create leftMouseDown event")
+        }
+        return event
+    }
+
+    func testHostViewPassesThroughUnderlyingTabStripInSecondWindowBelowTitlebarBand() {
+        // The reported regression (#3193) was that the original window kept
+        // working but later-created windows did not. Set up two windows and
+        // assert the pass-through holds in BOTH to lock in per-instance wiring.
+        let firstWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let secondWindow = NSWindow(
+            contentRect: NSRect(x: 32, y: 32, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            secondWindow.orderOut(nil)
+            firstWindow.orderOut(nil)
+        }
+
+        guard let firstFixture = installTabStripPassThroughFixture(in: firstWindow),
+              let secondFixture = installTabStripPassThroughFixture(in: secondWindow) else {
+            return
+        }
+
+        // Terminal hitTest is on the typing-latency hot path and gates the
+        // tab-strip pass-through behind a real pointer event. Provide one
+        // explicitly via the test seam.
+        let firstEvent = makeMouseDownEvent(at: firstFixture.pointInWindow, window: firstWindow)
+        let secondEvent = makeMouseDownEvent(at: secondFixture.pointInWindow, window: secondWindow)
+
+        XCTAssertNil(
+            firstFixture.host.performHitTest(at: firstFixture.pointInHost, currentEvent: firstEvent),
+            "Terminal portal should defer to the minimal tab strip in the original window just below the titlebar interaction band"
+        )
+        XCTAssertNil(
+            secondFixture.host.performHitTest(at: secondFixture.pointInHost, currentEvent: secondEvent),
+            "Terminal portal should defer to the minimal tab strip in later-created windows just below the titlebar interaction band"
+        )
+    }
+
+    func testHostViewKeepsTerminalTopRowClickableWhenTabStripRegionOverlapsContent() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowTerminalHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+
+        let terminalFrame = host.bounds.insetBy(dx: 0, dy: 32)
+        let hostedView = makeHostedTerminalView(frame: terminalFrame)
+        host.addSubview(hostedView)
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let tabStripOverlap: CGFloat = 2
+        let terminalTopInContent = contentView.convert(hostedView.frame, from: host).maxY
+        let tabStrip = FakeTabBarBackgroundNSView(
+            frame: NSRect(
+                x: 0,
+                y: terminalTopInContent - tabStripOverlap,
+                width: contentView.bounds.width,
+                height: 44
+            )
+        )
+        tabStrip.autoresizingMask = [.width, .minYMargin]
+        contentView.addSubview(tabStrip)
+
+        let pointInHostedView = NSPoint(x: hostedView.bounds.midX, y: hostedView.bounds.maxY - 0.5)
+        let pointInWindow = hostedView.convert(pointInHostedView, to: nil)
+        let pointInHost = host.convert(pointInWindow, from: nil)
+        let event = makeMouseDownEvent(at: pointInWindow, window: window)
+
+        assertHitFallsInsideHostedTerminal(
+            host.performHitTest(at: pointInHost, currentEvent: event),
+            hostedView: hostedView,
+            message: "The absolute top row of terminal content should own mouse-down hit-testing even if chrome hit regions overlap it"
         )
     }
 
@@ -2209,7 +3118,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertTrue(state.isHidden)
     }
 
-    func testPreferredScrollerStyleChangeRecalculatesTerminalSurfaceWidth() {
+    func testPreferredScrollerStyleChangeRestoresOverlayScrollbarWidth() {
         let surface = TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -2289,32 +3198,17 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        XCTAssertEqual(scrollView.scrollerStyle, .legacy)
-        assertPendingSurfaceWidth(
-            legacyContentWidth,
-            "Preferred scroller style changes should recalculate the terminal grid width immediately"
-        )
-
-        scrollView.scrollerStyle = .overlay
-        scrollView.layoutSubtreeIfNeeded()
-        let overlayContentWidth = scrollView.contentSize.width
-        XCTAssertGreaterThan(
-            overlayContentWidth,
-            legacyContentWidth,
-            "Overlay scrollbars should restore the full terminal content width"
-        )
-        assertPendingSurfaceWidth(
-            legacyContentWidth,
-            "Changing the scroll view style alone should leave the terminal grid stale until the scroller-style observer runs"
-        )
-
-        NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
+        let restoredContentWidth = scrollView.contentSize.width
         XCTAssertEqual(scrollView.scrollerStyle, .overlay)
+        XCTAssertEqual(
+            restoredContentWidth,
+            initialContentWidth,
+            accuracy: 0.5,
+            "Preferred scroller style changes should restore Ghostty's overlay scrollbar behavior so terminal content is not occluded by a persistent gutter"
+        )
         assertPendingSurfaceWidth(
-            overlayContentWidth,
-            "Preferred scroller style changes should also restore the wider terminal grid when overlay scrollbars return"
+            restoredContentWidth,
+            "Preferred scroller style changes should restore the wider terminal grid when overlay scrollbars return"
         )
     }
 
@@ -3714,86 +4608,238 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 }
 
-
-final class TerminalControllerSocketTextChunkTests: XCTestCase {
-    func testSocketTextChunksReturnsSingleChunkForPlainText() {
+final class TerminalCmdClickPathPunctuationTrimmingTests: XCTestCase {
+    func testTrimsTrailingPeriodAfterMarkdownFile() {
         XCTAssertEqual(
-            TerminalController.socketTextChunks("echo hello"),
-            [.text("echo hello")]
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "~/ClaudeCode/feature-spec-template.md."
+            ),
+            "~/ClaudeCode/feature-spec-template.md"
         )
     }
 
-    func testSocketTextChunksSplitsControlScalars() {
+    func testTrimsTrailingCommaInList() {
         XCTAssertEqual(
-            TerminalController.socketTextChunks("abc\rdef\tghi"),
-            [
-                .text("abc"),
-                .control("\r".unicodeScalars.first!),
-                .text("def"),
-                .control("\t".unicodeScalars.first!),
-                .text("ghi")
-            ]
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/first.txt,"
+            ),
+            "/tmp/fixtures/first.txt"
         )
     }
 
-    func testSocketTextChunksDoesNotEmitEmptyTextChunksAroundConsecutiveControls() {
+    func testTrimsTrailingCloseParenWhenNoBalancedOpenParen() {
         XCTAssertEqual(
-            TerminalController.socketTextChunks("\r\n\t"),
-            [
-                .control("\r".unicodeScalars.first!),
-                .control("\n".unicodeScalars.first!),
-                .control("\t".unicodeScalars.first!)
-            ]
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/notes.txt)"
+            ),
+            "/tmp/fixtures/notes.txt"
+        )
+    }
+
+    func testPreservesBalancedParensInMiddleOfPath() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/report (draft)/notes.txt"
+            ),
+            "/tmp/fixtures/report (draft)/notes.txt"
+        )
+    }
+
+    func testStripsMultipleTrailingPunctuationCharacters() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/report (draft).md).,!?\""
+            ),
+            "/tmp/fixtures/report (draft).md"
+        )
+    }
+
+    func testTrimsTrailingClosingQuote() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/notes.txt\""
+            ),
+            "/tmp/fixtures/notes.txt"
+        )
+    }
+
+    func testResolveQuicklookFallsBackToStrippedPathWhenLiteralPathIsMissing() {
+        let strippedPath = "/tmp/cmux-cmdclick-path.md"
+
+        XCTAssertEqual(
+            cmuxResolveQuicklookPathForTesting(
+                "\(strippedPath).",
+                cwd: "/tmp",
+                existingPaths: [strippedPath]
+            ),
+            strippedPath
+        )
+    }
+
+    func testResolveQuicklookPrefersLiteralPathThatReallyEndsWithDot() {
+        let literalPath = "/tmp/cmux-cmdclick-literal-dot.md."
+        let strippedPath = "/tmp/cmux-cmdclick-literal-dot.md"
+
+        XCTAssertEqual(
+            cmuxResolveQuicklookPathForTesting(
+                literalPath,
+                cwd: "/tmp",
+                existingPaths: [literalPath, strippedPath]
+            ),
+            literalPath
+        )
+    }
+
+    func testResolveQuicklookPrefersLiteralPathThatReallyEndsWithParen() {
+        let literalPath = "/tmp/cmux-cmdclick-literal-paren)"
+        let strippedPath = "/tmp/cmux-cmdclick-literal-paren"
+
+        XCTAssertEqual(
+            cmuxResolveQuicklookPathForTesting(
+                literalPath,
+                cwd: "/tmp",
+                existingPaths: [literalPath, strippedPath]
+            ),
+            literalPath
         )
     }
 }
 
 
-final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
-    func testImmediateStateUpdateAllowedWhenHostNotInWindow() {
-        XCTAssertTrue(
-            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostedViewHasSuperview: true,
-                isBoundToCurrentHost: false
-            )
-        )
-    }
-
-    func testImmediateStateUpdateAllowedWhenBoundToCurrentHost() {
-        XCTAssertTrue(
-            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostedViewHasSuperview: true,
-                isBoundToCurrentHost: true
-            )
-        )
-    }
-
-    func testImmediateStateUpdateSkippedForStaleHostBoundElsewhere() {
-        XCTAssertFalse(
-            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostedViewHasSuperview: true,
-                isBoundToCurrentHost: false
-            )
-        )
-    }
-
-    func testImmediateStateUpdateAllowedWhenUnboundAndNotAttachedAnywhere() {
-        XCTAssertTrue(
-            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostedViewHasSuperview: false,
-                isBoundToCurrentHost: false
-            )
-        )
-    }
-
-    func testInteractiveGeometryResizeUsesImmediatePortalSyncDecision() {
-        XCTAssertTrue(
-            GhosttyTerminalView.shouldSynchronizePortalGeometryImmediately(
-                hostInLiveResize: false,
-                windowInLiveResize: false,
-                interactiveGeometryResizeActive: true
+final class GhosttyModifierFlagsChangedActionTests: XCTestCase {
+    func testLeftShiftPressReturnsPress() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x38,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICELSHIFTKEYMASK)
             ),
-            "Interactive resize should use the immediate portal sync path"
+            GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    func testLeftShiftReleaseReturnsRelease() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x38,
+                modifierFlagsRawValue: 0
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testLeftShiftWithoutLeftSideDeviceMaskReturnsReleaseWhenRightShiftHeld() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x38,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICERSHIFTKEYMASK)
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightShiftRequiresRightSideDeviceMaskForPress() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3C,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICERSHIFTKEYMASK)
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    func testRightShiftWithoutRightSideDeviceMaskReturnsRelease() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3C,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightShiftWithoutRightSideDeviceMaskReturnsReleaseWhenLeftShiftHeld() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3C,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICELSHIFTKEYMASK)
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightControlRequiresRightSideDeviceMaskForPress() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3E,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.control.rawValue | UInt(NX_DEVICERCTLKEYMASK)
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    func testRightControlWithoutRightSideDeviceMaskReturnsRelease() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3E,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.control.rawValue
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightOptionRequiresRightSideDeviceMaskForPress() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3D,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.option.rawValue | UInt(NX_DEVICERALTKEYMASK)
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    func testRightOptionWithoutRightSideDeviceMaskReturnsRelease() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3D,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.option.rawValue
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightCommandRequiresRightSideDeviceMaskForPress() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x36,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.command.rawValue | UInt(NX_DEVICERCMDKEYMASK)
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    func testCapsLockUsesLogicalModifierState() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x39,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.capsLock.rawValue
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x39,
+                modifierFlagsRawValue: 0
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testNonModifierKeyReturnsNil() {
+        XCTAssertNil(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x00,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue
+            )
         )
     }
 }
@@ -3982,7 +5028,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: true,
             acceptLoopAlive: true,
             socketPathMatches: true,
-            socketPathExists: true
+            socketPathExists: true,
+            socketPathOwnedByListener: true
         )
         XCTAssertTrue(health.isHealthy)
         XCTAssertTrue(health.failureSignals.isEmpty)
@@ -3993,12 +5040,25 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: false,
             acceptLoopAlive: false,
             socketPathMatches: false,
-            socketPathExists: false
+            socketPathExists: false,
+            socketPathOwnedByListener: false
         )
         XCTAssertFalse(health.isHealthy)
         XCTAssertEqual(
             health.failureSignals,
             ["not_running", "accept_loop_dead", "socket_path_mismatch", "socket_missing"]
         )
+    }
+
+    func testSocketListenerHealthReportsIdentityMismatchSeparately() {
+        let health = TerminalController.SocketListenerHealth(
+            isRunning: true,
+            acceptLoopAlive: true,
+            socketPathMatches: true,
+            socketPathExists: true,
+            socketPathOwnedByListener: false
+        )
+        XCTAssertFalse(health.isHealthy)
+        XCTAssertEqual(health.failureSignals, ["socket_identity_mismatch"])
     }
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -41,10 +42,19 @@ type rpcResponse struct {
 }
 
 type rpcEvent struct {
-	Event      string `json:"event"`
-	StreamID   string `json:"stream_id,omitempty"`
-	DataBase64 string `json:"data_base64,omitempty"`
-	Error      string `json:"error,omitempty"`
+	Event           string `json:"event"`
+	StreamID        string `json:"stream_id,omitempty"`
+	SessionID       string `json:"session_id,omitempty"`
+	AttachmentID    string `json:"attachment_id,omitempty"`
+	AttachmentToken string `json:"attachment_token,omitempty"`
+	DataBase64      string `json:"data_base64,omitempty"`
+	Message         string `json:"message,omitempty"`
+	Error           string `json:"error,omitempty"`
+}
+
+type rpcFrameWriter interface {
+	writeResponse(rpcResponse) error
+	writeEvent(rpcEvent) error
 }
 
 type streamState struct {
@@ -58,12 +68,15 @@ type stdioFrameWriter struct {
 }
 
 type rpcServer struct {
-	mu            sync.Mutex
-	nextStreamID  uint64
-	nextSessionID uint64
-	streams       map[string]*streamState
-	sessions      map[string]*sessionState
-	frameWriter   *stdioFrameWriter
+	mu             sync.Mutex
+	nextStreamID   uint64
+	nextSessionID  uint64
+	streams        map[string]*streamState
+	sessions       map[string]*sessionState
+	ptyHub         *wsPTYHub
+	ownsPTYHub     bool
+	ptyAttachments map[string]*wsPTYAttachment
+	frameWriter    rpcFrameWriter
 }
 
 type sessionAttachment struct {
@@ -123,12 +136,33 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 		fs.SetOutput(stderr)
 		stdio := fs.Bool("stdio", false, "serve over stdin/stdout")
+		ws := fs.Bool("ws", false, "serve terminal PTY transport over WebSocket")
+		listen := fs.String("listen", "127.0.0.1:7777", "address for --ws")
+		authLeaseFile := fs.String("auth-lease-file", "", "required lease JSON path for --ws")
+		rpcAuthLeaseFile := fs.String("rpc-auth-lease-file", "", "optional daemon RPC lease JSON path for --ws /rpc")
+		shell := fs.String("shell", "", "shell path for --ws PTY sessions")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
-		if !*stdio {
-			_, _ = fmt.Fprintln(stderr, "serve requires --stdio")
+		if *stdio == *ws {
+			_, _ = fmt.Fprintln(stderr, "serve requires exactly one of --stdio or --ws")
 			return 2
+		}
+		if *ws {
+			if strings.TrimSpace(*authLeaseFile) == "" {
+				_, _ = fmt.Fprintln(stderr, "serve --ws requires --auth-lease-file")
+				return 2
+			}
+			if err := runWebSocketPTYServer(context.Background(), wsPTYServerConfig{
+				ListenAddr:       strings.TrimSpace(*listen),
+				PTYAuthLeaseFile: strings.TrimSpace(*authLeaseFile),
+				RPCAuthLeaseFile: strings.TrimSpace(*rpcAuthLeaseFile),
+				Shell:            strings.TrimSpace(*shell),
+			}, stderr); err != nil {
+				_, _ = fmt.Fprintf(stderr, "serve --ws failed: %v\n", err)
+				return 1
+			}
+			return 0
 		}
 		if err := runStdioServer(stdin, stdout); err != nil {
 			_, _ = fmt.Fprintf(stderr, "serve failed: %v\n", err)
@@ -147,6 +181,7 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Usage:")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote version")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --stdio")
+	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote cli <command> [args...]")
 }
 
@@ -159,6 +194,8 @@ func runStdioServer(stdin io.Reader, stdout io.Writer) error {
 		nextSessionID: 1,
 		streams:       map[string]*streamState{},
 		sessions:      map[string]*sessionState{},
+		ptyHub:        newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard),
+		ownsPTYHub:    true,
 		frameWriter:   writer,
 	}
 	defer server.closeAll()
@@ -317,6 +354,8 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"proxy.socks5",
 					"proxy.stream",
 					"proxy.stream.push",
+					"pty.session",
+					"pty.session.token",
 				},
 			},
 		}
@@ -348,6 +387,18 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 		return s.handleSessionDetach(req)
 	case "session.status":
 		return s.handleSessionStatus(req)
+	case "pty.attach":
+		return s.handlePTYAttach(req)
+	case "pty.write":
+		return s.handlePTYWrite(req)
+	case "pty.resize":
+		return s.handlePTYResize(req)
+	case "pty.detach":
+		return s.handlePTYDetach(req)
+	case "pty.close":
+		return s.handlePTYClose(req)
+	case "pty.list":
+		return s.handlePTYList(req)
 	default:
 		return rpcResponse{
 			ID: req.ID,
@@ -677,7 +728,7 @@ func (s *rpcServer) handleSessionClose(req rpcRequest) rpcResponse {
 }
 
 func (s *rpcServer) handleSessionAttach(req rpcRequest) rpcResponse {
-	sessionID, attachmentID, cols, rows, badResp := parseSessionAttachmentParams(req, "session.attach")
+	sessionID, attachmentID, _, cols, rows, badResp := parseSessionAttachmentParams(req, "session.attach")
 	if badResp != nil {
 		return *badResp
 	}
@@ -712,7 +763,7 @@ func (s *rpcServer) handleSessionAttach(req rpcRequest) rpcResponse {
 }
 
 func (s *rpcServer) handleSessionResize(req rpcRequest) rpcResponse {
-	sessionID, attachmentID, cols, rows, badResp := parseSessionAttachmentParams(req, "session.resize")
+	sessionID, attachmentID, _, cols, rows, badResp := parseSessionAttachmentParams(req, "session.resize")
 	if badResp != nil {
 		return *badResp
 	}
@@ -850,33 +901,359 @@ func (s *rpcServer) handleSessionStatus(req rpcRequest) rpcResponse {
 	}
 }
 
-func parseSessionAttachmentParams(req rpcRequest, method string) (sessionID string, attachmentID string, cols int, rows int, badResp *rpcResponse) {
+func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 	sessionID, ok := getStringParam(req.Params, "session_id")
-	if !ok || sessionID == "" {
-		resp := rpcResponse{
+	if !ok || strings.TrimSpace(sessionID) == "" {
+		return rpcResponse{
 			ID: req.ID,
 			OK: false,
 			Error: &rpcError{
 				Code:    "invalid_params",
-				Message: method + " requires session_id",
+				Message: "pty.attach requires session_id",
 			},
 		}
-		return "", "", 0, 0, &resp
 	}
-	attachmentID, ok = getStringParam(req.Params, "attachment_id")
-	if !ok || attachmentID == "" {
-		resp := rpcResponse{
+	attachmentID, _ := getStringParam(req.Params, "attachment_id")
+	attachmentToken, _ := getStringParam(req.Params, "client_attachment_token")
+	attachmentToken = strings.TrimSpace(attachmentToken)
+	if attachmentToken == "" {
+		return missingPTYAttachmentTokenResponse(req, "pty.attach")
+	}
+	cols, ok := getIntParam(req.Params, "cols")
+	if !ok || cols <= 0 {
+		return rpcResponse{
 			ID: req.ID,
 			OK: false,
 			Error: &rpcError{
 				Code:    "invalid_params",
-				Message: method + " requires attachment_id",
+				Message: "pty.attach requires cols > 0",
 			},
 		}
-		return "", "", 0, 0, &resp
+	}
+	rows, ok := getIntParam(req.Params, "rows")
+	if !ok || rows <= 0 {
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "invalid_params",
+				Message: "pty.attach requires rows > 0",
+			},
+		}
+	}
+	command, _ := getStringParam(req.Params, "command")
+	requireExisting, _ := getBoolParam(req.Params, "require_existing")
+
+	hub := s.ptyHub
+	if hub == nil {
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "unavailable",
+				Message: "PTY hub is not available",
+			},
+		}
+	}
+	attachment, attachmentCtx, sessionDone, err := hub.attachRPC(
+		context.Background(),
+		sessionID,
+		attachmentID,
+		cols,
+		rows,
+		command,
+		attachmentToken,
+		requireExisting,
+	)
+	if err != nil {
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    ptyAttachErrorCode(requireExisting),
+				Message: err.Error(),
+			},
+		}
+	}
+	s.trackPTYAttachment(attachment)
+	go s.ptyAttachmentPump(attachmentCtx, attachment, sessionDone)
+
+	return rpcResponse{
+		ID: req.ID,
+		OK: true,
+		Result: map[string]any{
+			"session_id":       strings.TrimSpace(sessionID),
+			"attachment_id":    attachment.id,
+			"attachment_token": attachment.clientToken,
+			"attached":         true,
+		},
+	}
+}
+
+func ptyAttachErrorCode(requireExisting bool) string {
+	if requireExisting {
+		return "pty_session_not_found"
+	}
+	return "pty_start_failed"
+}
+
+func (s *rpcServer) handlePTYWrite(req rpcRequest) rpcResponse {
+	sessionID, attachmentID, attachmentToken, badResp := parsePTYAttachmentIdentity(req, "pty.write")
+	if badResp != nil {
+		return *badResp
+	}
+	if attachmentToken == "" {
+		return missingPTYAttachmentTokenResponse(req, "pty.write")
+	}
+	dataBase64, ok := getStringParam(req.Params, "data_base64")
+	if !ok {
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "invalid_params",
+				Message: "pty.write requires data_base64",
+			},
+		}
+	}
+	payload, err := base64.StdEncoding.DecodeString(dataBase64)
+	if err != nil {
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "invalid_params",
+				Message: "data_base64 must be valid base64",
+			},
+		}
+	}
+	writeStatus := wsPTYInputWriteNotFound
+	if s.ptyHub != nil {
+		writeStatus = s.ptyHub.writeInputByID(sessionID, attachmentID, attachmentToken, payload)
+	}
+	if writeStatus == wsPTYInputWriteQueueFull {
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "pty_input_queue_full",
+				Message: "PTY input queue is full",
+			},
+		}
+	}
+	if writeStatus != wsPTYInputWriteOK {
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "not_found",
+				Message: "PTY attachment not found",
+			},
+		}
+	}
+	return rpcResponse{
+		ID: req.ID,
+		OK: true,
+		Result: map[string]any{
+			"written": len(payload),
+		},
+	}
+}
+
+func (s *rpcServer) handlePTYResize(req rpcRequest) rpcResponse {
+	sessionID, attachmentID, attachmentToken, cols, rows, badResp := parseSessionAttachmentParams(req, "pty.resize")
+	if badResp != nil {
+		return *badResp
+	}
+	if attachmentToken == "" {
+		return missingPTYAttachmentTokenResponse(req, "pty.resize")
+	}
+	if s.ptyHub == nil || !s.ptyHub.resizeByID(sessionID, attachmentID, attachmentToken, cols, rows) {
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "not_found",
+				Message: "PTY attachment not found",
+			},
+		}
+	}
+	return rpcResponse{
+		ID: req.ID,
+		OK: true,
+		Result: map[string]any{
+			"resized": true,
+		},
+	}
+}
+
+func (s *rpcServer) handlePTYDetach(req rpcRequest) rpcResponse {
+	sessionID, attachmentID, attachmentToken, badResp := parsePTYAttachmentIdentity(req, "pty.detach")
+	if badResp != nil {
+		return *badResp
+	}
+	if attachmentToken == "" {
+		return missingPTYAttachmentTokenResponse(req, "pty.detach")
+	}
+	if s.ptyHub == nil || !s.ptyHub.detachByID(sessionID, attachmentID, attachmentToken) {
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "not_found",
+				Message: "PTY attachment not found",
+			},
+		}
+	}
+	return rpcResponse{
+		ID: req.ID,
+		OK: true,
+		Result: map[string]any{
+			"detached": true,
+		},
+	}
+}
+
+func (s *rpcServer) handlePTYClose(req rpcRequest) rpcResponse {
+	sessionID, ok := getStringParam(req.Params, "session_id")
+	if !ok || strings.TrimSpace(sessionID) == "" {
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "invalid_params",
+				Message: "pty.close requires session_id",
+			},
+		}
+	}
+	if s.ptyHub == nil || !s.ptyHub.closeSessionByID(sessionID) {
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "not_found",
+				Message: "PTY session not found",
+			},
+		}
+	}
+	return rpcResponse{
+		ID: req.ID,
+		OK: true,
+		Result: map[string]any{
+			"session_id": strings.TrimSpace(sessionID),
+			"closed":     true,
+		},
+	}
+}
+
+func (s *rpcServer) handlePTYList(req rpcRequest) rpcResponse {
+	if s.ptyHub == nil {
+		return rpcResponse{
+			ID: req.ID,
+			OK: true,
+			Result: map[string]any{
+				"sessions": []map[string]any{},
+			},
+		}
+	}
+	return rpcResponse{
+		ID: req.ID,
+		OK: true,
+		Result: map[string]any{
+			"sessions": s.ptyHub.sessionSnapshots(),
+		},
+	}
+}
+
+func (s *rpcServer) ptyAttachmentPump(ctx context.Context, attachment *wsPTYAttachment, sessionDone <-chan struct{}) {
+	defer s.untrackPTYAttachment(attachment)
+	for {
+		select {
+		case <-ctx.Done():
+			_ = s.frameWriter.writeEvent(rpcPTYExitEvent(attachment))
+			return
+		case <-sessionDone:
+			for {
+				select {
+				case frame := <-attachment.send:
+					if err := s.frameWriter.writeEvent(rpcPTYEventForFrame(attachment, frame)); err != nil {
+						if s.ptyHub != nil {
+							s.ptyHub.dropAttachment(attachment)
+						}
+						return
+					}
+				default:
+					_ = s.frameWriter.writeEvent(rpcPTYExitEvent(attachment))
+					return
+				}
+			}
+		case frame := <-attachment.send:
+			if err := s.frameWriter.writeEvent(rpcPTYEventForFrame(attachment, frame)); err != nil {
+				if s.ptyHub != nil {
+					s.ptyHub.dropAttachment(attachment)
+				}
+				return
+			}
+		}
+	}
+}
+
+func (s *rpcServer) trackPTYAttachment(attachment *wsPTYAttachment) {
+	if attachment == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ptyAttachments == nil {
+		s.ptyAttachments = map[string]*wsPTYAttachment{}
+	}
+	s.ptyAttachments[rpcPTYAttachmentKey(attachment)] = attachment
+}
+
+func (s *rpcServer) untrackPTYAttachment(attachment *wsPTYAttachment) {
+	if attachment == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := rpcPTYAttachmentKey(attachment)
+	if current := s.ptyAttachments[key]; current == attachment {
+		delete(s.ptyAttachments, key)
+	}
+}
+
+func rpcPTYAttachmentKey(attachment *wsPTYAttachment) string {
+	if attachment == nil {
+		return ""
+	}
+	return fmt.Sprintf(
+		"%d:%s:%d:%s:%s",
+		attachment.sessionKey.kind,
+		attachment.sessionKey.sessionID,
+		attachment.sessionKey.anonymousID,
+		attachment.id,
+		attachment.clientToken,
+	)
+}
+
+func missingPTYAttachmentTokenResponse(req rpcRequest, method string) rpcResponse {
+	return rpcResponse{
+		ID: req.ID,
+		OK: false,
+		Error: &rpcError{
+			Code:    "invalid_params",
+			Message: method + " requires client_attachment_token",
+		},
+	}
+}
+
+func parseSessionAttachmentParams(req rpcRequest, method string) (sessionID string, attachmentID string, attachmentToken string, cols int, rows int, badResp *rpcResponse) {
+	sessionID, attachmentID, attachmentToken, identityResp := parsePTYAttachmentIdentity(req, method)
+	if identityResp != nil {
+		return "", "", "", 0, 0, identityResp
 	}
 
-	cols, ok = getIntParam(req.Params, "cols")
+	cols, ok := getIntParam(req.Params, "cols")
 	if !ok || cols <= 0 {
 		resp := rpcResponse{
 			ID: req.ID,
@@ -886,7 +1263,7 @@ func parseSessionAttachmentParams(req rpcRequest, method string) (sessionID stri
 				Message: method + " requires cols > 0",
 			},
 		}
-		return "", "", 0, 0, &resp
+		return "", "", "", 0, 0, &resp
 	}
 	rows, ok = getIntParam(req.Params, "rows")
 	if !ok || rows <= 0 {
@@ -898,10 +1275,39 @@ func parseSessionAttachmentParams(req rpcRequest, method string) (sessionID stri
 				Message: method + " requires rows > 0",
 			},
 		}
-		return "", "", 0, 0, &resp
+		return "", "", "", 0, 0, &resp
 	}
 
-	return sessionID, attachmentID, cols, rows, nil
+	return sessionID, attachmentID, attachmentToken, cols, rows, nil
+}
+
+func parsePTYAttachmentIdentity(req rpcRequest, method string) (sessionID string, attachmentID string, attachmentToken string, badResp *rpcResponse) {
+	sessionID, ok := getStringParam(req.Params, "session_id")
+	if !ok || strings.TrimSpace(sessionID) == "" {
+		resp := rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "invalid_params",
+				Message: method + " requires session_id",
+			},
+		}
+		return "", "", "", &resp
+	}
+	attachmentID, ok = getStringParam(req.Params, "attachment_id")
+	if !ok || strings.TrimSpace(attachmentID) == "" {
+		resp := rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "invalid_params",
+				Message: method + " requires attachment_id",
+			},
+		}
+		return "", "", "", &resp
+	}
+	attachmentToken, _ = getStringParam(req.Params, "client_attachment_token")
+	return strings.TrimSpace(sessionID), strings.TrimSpace(attachmentID), strings.TrimSpace(attachmentToken), nil
 }
 
 func recomputeSessionSize(session *sessionState) {
@@ -985,9 +1391,24 @@ func (s *rpcServer) closeAll() {
 	for id := range s.sessions {
 		delete(s.sessions, id)
 	}
+	ptyAttachments := make([]*wsPTYAttachment, 0, len(s.ptyAttachments))
+	for id, attachment := range s.ptyAttachments {
+		delete(s.ptyAttachments, id)
+		ptyAttachments = append(ptyAttachments, attachment)
+	}
 	s.mu.Unlock()
 	for _, conn := range streams {
 		_ = conn.Close()
+	}
+	for _, attachment := range ptyAttachments {
+		if s.ptyHub != nil {
+			s.ptyHub.dropAttachment(attachment)
+		} else {
+			attachment.closeNow()
+		}
+	}
+	if s.ownsPTYHub && s.ptyHub != nil {
+		s.ptyHub.closeAll()
 	}
 }
 
@@ -1102,4 +1523,16 @@ func getIntParam(params map[string]any, key string) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func getBoolParam(params map[string]any, key string) (bool, bool) {
+	if params == nil {
+		return false, false
+	}
+	raw, ok := params[key]
+	if !ok || raw == nil {
+		return false, false
+	}
+	value, ok := raw.(bool)
+	return value, ok
 }

@@ -102,10 +102,11 @@ enum BrowserImageCopyPasteboardBuilder {
     }
 }
 
-/// WKWebView tends to consume some Command-key equivalents (e.g. Cmd+N/Cmd+W),
+/// WKWebView tends to consume some app command equivalents,
 /// preventing the app menu/SwiftUI Commands from receiving them. Route app/menu
-/// shortcuts first by default, but allow browser content to try the Find command
-/// family before cmux falls back to its own browser find overlay.
+/// shortcuts first by default, but allow browser content to try browser-local
+/// Find-family shortcuts. The configured Find shortcut stays app-owned so cmux can
+/// choose browser find or right-sidebar file search from the current focus owner.
 final class CmuxWebView: WKWebView {
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
@@ -117,6 +118,204 @@ final class CmuxWebView: WKWebView {
 
     private static var lastMiddleClickIntent: MiddleClickIntent?
     private static let middleClickIntentMaxAge: TimeInterval = 0.8
+    private static let pasteAsPlainTextFocusMessageHandlerName = "cmuxPasteAsPlainTextFocus"
+    private static var pasteAsPlainTextFocusHandlerInstalledKey: UInt8 = 0
+    private static let pasteAsPlainTextSharedHelpersScriptSource = """
+    const __cmuxPasteAsPlainTextHelpers = (() => {
+      const existing = window.__cmuxPasteAsPlainTextHelpers;
+      if (existing) return existing;
+
+      const supportedTextInputTypes = new Set([
+        "",
+        "text",
+        "search",
+        "tel",
+        "url",
+        "email",
+        "password",
+        "number",
+        "date",
+        "datetime-local",
+        "month",
+        "time",
+        "week"
+      ]);
+
+      const deepestActiveElement = (root) => {
+        let active = root?.activeElement ?? null;
+        while (active) {
+          const shadowActive = active.shadowRoot?.activeElement ?? null;
+          if (shadowActive && shadowActive !== active) {
+            active = shadowActive;
+            continue;
+          }
+
+          const tagName = typeof active.tagName === "string" ? active.tagName.toUpperCase() : "";
+          if (tagName === "IFRAME") {
+            try {
+              const frameActive = active.contentDocument?.activeElement ?? null;
+              if (frameActive && frameActive !== active) {
+                active = frameActive;
+                continue;
+              }
+            } catch (_) {}
+          }
+
+          break;
+        }
+        return active;
+      };
+
+      const isPlainTextTextControl = (el) => {
+        if (!el || el.disabled || el.readOnly) return false;
+
+        const tagName = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
+        if (tagName === "TEXTAREA") return true;
+        if (tagName !== "INPUT") return false;
+
+        const type = typeof el.type === "string" ? el.type.toLowerCase() : "text";
+        return supportedTextInputTypes.has(type);
+      };
+
+      const isFocusedCrossOriginFrameElement = (el) => {
+        const tagName = typeof el?.tagName === "string" ? el.tagName.toUpperCase() : "";
+        if (tagName !== "IFRAME") return false;
+        try {
+          void el.contentDocument;
+          return false;
+        } catch (_) {
+          return true;
+        }
+      };
+
+      const resolvedCandidateElement = (el) => {
+        if (!el) return deepestActiveElement(document);
+
+        const shadowActive = el.shadowRoot?.activeElement ?? null;
+        if (shadowActive && shadowActive !== el) {
+          return deepestActiveElement(el.shadowRoot) ?? shadowActive;
+        }
+
+        const tagName = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
+        if (tagName === "IFRAME") {
+          try {
+            return deepestActiveElement(el.contentDocument) ?? el;
+          } catch (_) {}
+        }
+
+        return el;
+      };
+
+      const editableTarget = (el) => {
+        const candidate = resolvedCandidateElement(el);
+        if (!candidate) return null;
+        if (isPlainTextTextControl(candidate)) return candidate;
+        if (isFocusedCrossOriginFrameElement(candidate)) return candidate;
+        if (candidate.isContentEditable) return candidate;
+        return candidate.closest?.('[contenteditable]:not([contenteditable="false"])') ?? null;
+      };
+
+      const helpers = {
+        deepestActiveElement,
+        isPlainTextTextControl,
+        isFocusedCrossOriginFrameElement,
+        resolvedCandidateElement,
+        editableTarget,
+        canPasteAsPlainTextInto(el) {
+          return !!editableTarget(el);
+        }
+      };
+      window.__cmuxPasteAsPlainTextHelpers = helpers;
+      return helpers;
+    })();
+    """
+    static let pasteAsPlainTextFocusTrackingBootstrapScriptSource = """
+    (() => {
+      try {
+        if (window.__cmuxPasteAsPlainTextFocusTrackerInstalled) return true;
+        window.__cmuxPasteAsPlainTextFocusTrackerInstalled = true;
+
+        const handler = (() => {
+          try {
+            return window.webkit?.messageHandlers?.\(pasteAsPlainTextFocusMessageHandlerName) ?? null;
+          } catch (_) {
+            return null;
+          }
+        })();
+
+        \(pasteAsPlainTextSharedHelpersScriptSource)
+
+        const publishState = { lastCanPaste: null };
+
+        const publish = (canPaste) => {
+          if (publishState.lastCanPaste === canPaste) return;
+          publishState.lastCanPaste = canPaste;
+          window.__cmuxPasteAsPlainTextTargetAvailable = canPaste;
+          try {
+            handler?.postMessage({ canPaste });
+          } catch (_) {}
+        };
+
+        window.__cmuxCanPasteAsPlainTextIntoCurrentFocus = () => {
+          return __cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(document.activeElement);
+        };
+
+        const publishForElement = (el) => {
+          publish(__cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(el));
+        };
+
+        document.addEventListener("focusin", (ev) => {
+          publishForElement(ev && ev.target ? ev.target : document.activeElement);
+        }, true);
+        document.addEventListener("focusout", () => {
+          requestAnimationFrame(() => publishForElement(document.activeElement));
+        }, true);
+        document.addEventListener("selectionchange", () => {
+          publishForElement(document.activeElement);
+        }, true);
+        document.addEventListener("input", () => {
+          publishForElement(document.activeElement);
+        }, true);
+        document.addEventListener("change", () => {
+          publishForElement(document.activeElement);
+        }, true);
+        document.addEventListener("mousedown", (ev) => {
+          const target = ev && ev.target ? ev.target : null;
+          if (!__cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(target)) {
+            publish(false);
+          }
+        }, true);
+        window.addEventListener("beforeunload", () => {
+          publish(false);
+        }, true);
+
+        publishForElement(document.activeElement);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    })();
+    """
+
+    private final class PasteAsPlainTextFocusMessageHandler: NSObject, WKScriptMessageHandler {
+        func userContentController(
+            _ userContentController: WKUserContentController,
+            didReceive message: WKScriptMessage
+        ) {
+            guard let webView = message.webView as? CmuxWebView else {
+                return
+            }
+            guard let body = message.body as? [String: Any],
+                  let canPaste = body["canPaste"] as? Bool else {
+                return
+            }
+            Task { @MainActor [weak webView] in
+                webView?.updatePasteAsPlainTextTargetAvailable(canPaste)
+            }
+        }
+    }
+
+    private static let sharedPasteAsPlainTextFocusMessageHandler = PasteAsPlainTextFocusMessageHandler()
 
     static func hasRecentMiddleClickIntent(for webView: WKWebView) -> Bool {
         guard let webView = webView as? CmuxWebView else { return false }
@@ -149,21 +348,66 @@ final class CmuxWebView: WKWebView {
     }
 
     private static var contextMenuFallbackKey: UInt8 = 0
-
+    private static let pasteAsPlainTextKeyCode: UInt16 = 9 // V key (hardware position, layout-independent)
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
     /// Called when "Open Link in New Tab" context menu is selected.
     /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
     var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?
     var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
     var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
+    var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?; var contextMenuMoveTabToNewWorkspace: (() -> Bool)?
     /// Guard against background panes stealing first responder (e.g. page autofocus).
     /// BrowserPanelView updates this as pane focus state changes.
     var allowsFirstResponderAcquisition: Bool = true
     private var pointerFocusAllowanceDepth: Int = 0
+    private var pasteAsPlainTextTargetAvailable = false
+    private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
     var allowsFirstResponderAcquisitionEffective: Bool {
         allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
     }
     var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
+
+    override init(frame: NSRect, configuration: WKWebViewConfiguration) {
+        super.init(frame: frame, configuration: configuration)
+        installPasteAsPlainTextFocusTracking()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        installPasteAsPlainTextFocusTracking()
+    }
+
+    private func installPasteAsPlainTextFocusTracking() {
+        let userContentController = configuration.userContentController
+        if objc_getAssociatedObject(
+            userContentController,
+            &Self.pasteAsPlainTextFocusHandlerInstalledKey
+        ) != nil {
+            return
+        }
+
+        userContentController.add(
+            Self.sharedPasteAsPlainTextFocusMessageHandler,
+            name: Self.pasteAsPlainTextFocusMessageHandlerName
+        )
+        objc_setAssociatedObject(
+            userContentController,
+            &Self.pasteAsPlainTextFocusHandlerInstalledKey,
+            NSNumber(value: true),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    private func updatePasteAsPlainTextTargetAvailable(_ available: Bool) {
+        guard pasteAsPlainTextTargetAvailable != available else { return }
+        pasteAsPlainTextTargetAvailable = available
+#if DEBUG
+        cmuxDebugLog(
+            "browser.pasteAsPlainText.target " +
+            "web=\(ObjectIdentifier(self)) available=\(available ? 1 : 0)"
+        )
+#endif
+    }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         PaneFirstClickFocusSettings.isEnabled()
@@ -173,7 +417,7 @@ final class CmuxWebView: WKWebView {
         guard allowsFirstResponderAcquisitionEffective else {
 #if DEBUG
             let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
-            dlog(
+            cmuxDebugLog(
                 "browser.focus.blockedBecome web=\(ObjectIdentifier(self)) " +
                 "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
                 "pointerDepth=\(pointerFocusAllowanceDepth) eventType=\(eventType)"
@@ -183,11 +427,16 @@ final class CmuxWebView: WKWebView {
         }
         let result = super.becomeFirstResponder()
         if result {
-            NotificationCenter.default.post(name: .browserDidBecomeFirstResponderWebView, object: self)
+            let pointerInitiatedKey = BrowserFirstResponderNotificationUserInfoKey.pointerInitiated
+            NotificationCenter.default.post(
+                name: .browserDidBecomeFirstResponderWebView,
+                object: self,
+                userInfo: [pointerInitiatedKey: pointerFocusAllowanceDepth > 0]
+            )
         }
 #if DEBUG
         let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
-        dlog(
+        cmuxDebugLog(
             "browser.focus.become web=\(ObjectIdentifier(self)) result=\(result ? 1 : 0) " +
             "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
             "pointerDepth=\(pointerFocusAllowanceDepth) eventType=\(eventType)"
@@ -201,7 +450,7 @@ final class CmuxWebView: WKWebView {
     func withPointerFocusAllowance<T>(_ body: () -> T) -> T {
         pointerFocusAllowanceDepth += 1
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "browser.focus.pointerAllowance.enter web=\(ObjectIdentifier(self)) " +
             "depth=\(pointerFocusAllowanceDepth)"
         )
@@ -209,13 +458,130 @@ final class CmuxWebView: WKWebView {
         defer {
             pointerFocusAllowanceDepth = max(0, pointerFocusAllowanceDepth - 1)
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.focus.pointerAllowance.exit web=\(ObjectIdentifier(self)) " +
                 "depth=\(pointerFocusAllowanceDepth)"
             )
 #endif
         }
         return body()
+    }
+
+    private static func isPasteAsPlainTextCommandEquivalent(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+        return event.keyCode == pasteAsPlainTextKeyCode && normalizedFlags == [.command, .shift]
+    }
+
+    private func webKitPasteAsPlainTextFallback(_ sender: Any?) {
+        let selector = NSSelectorFromString("pasteAsPlainText:")
+        guard let method = class_getInstanceMethod(WKWebView.self, selector) else {
+            return
+        }
+
+        typealias PasteAsPlainTextFn = @convention(c) (AnyObject, Selector, Any?) -> Void
+        let implementation = method_getImplementation(method)
+        unsafeBitCast(implementation, to: PasteAsPlainTextFn.self)(self, selector, sender)
+    }
+
+    // Key-equivalent handling is synchronous, so this bounded preflight pumps the main run loop.
+    // Keep callers limited to fast, side-effect-free reads from page-owned state.
+    private func evaluateJavaScriptSynchronously(
+        _ script: String,
+        timeout: TimeInterval = 0.25
+    ) -> (completed: Bool, result: Any?, error: Error?) {
+        var completed = false
+        var result: Any?
+        var error: Error?
+
+        evaluateJavaScript(script) { jsResult, jsError in
+            result = jsResult
+            error = jsError
+            completed = true
+        }
+
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while !completed {
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else { break }
+
+            let sliceEnd = Date(timeIntervalSinceNow: min(remaining, 0.01))
+            _ = RunLoop.current.run(mode: .default, before: sliceEnd)
+            if !completed {
+                _ = RunLoop.current.run(mode: .eventTracking, before: sliceEnd)
+            }
+        }
+
+        return (completed, result, error)
+    }
+
+    private func pageCanAcceptPlainTextPaste() -> Bool {
+        let script = """
+        (() => {
+            try {
+                const fn = window.__cmuxCanPasteAsPlainTextIntoCurrentFocus;
+                return typeof fn === 'function' ? !!fn() : false;
+            } catch (_) {
+                return false;
+            }
+        })();
+        """
+
+        let evaluation = evaluateJavaScriptSynchronously(script)
+        let canPaste = evaluation.completed && ((evaluation.result as? Bool) ?? false)
+#if DEBUG
+        let errorDescription = evaluation.completed
+            ? (evaluation.error?.localizedDescription ?? "nil")
+            : "timeout"
+        cmuxDebugLog(
+            "browser.pasteAsPlainText.preflight " +
+            "web=\(ObjectIdentifier(self)) canPaste=\(canPaste ? 1 : 0) " +
+            "error=\(errorDescription)"
+        )
+#endif
+        return canPaste
+    }
+
+    private func shouldSkipRepeatedPasteAsPlainTextPreflight(for event: NSEvent) -> Bool {
+        guard event.timestamp > 0,
+              let lastTimestamp = lastPasteAsPlainTextPerformKeyEventTimestamp else {
+            return false
+        }
+        lastPasteAsPlainTextPerformKeyEventTimestamp = nil
+        return lastTimestamp == event.timestamp
+    }
+
+    @discardableResult
+    private func performPasteAsPlainTextFromPasteboard(_ sender: Any? = nil) -> Bool {
+        guard pasteAsPlainTextTargetAvailable,
+              NSPasteboard.general.string(forType: .string) != nil,
+              pageCanAcceptPlainTextPaste() else {
+            return false
+        }
+
+        webKitPasteAsPlainTextFallback(sender)
+#if DEBUG
+        cmuxDebugLog(
+            "browser.pasteAsPlainText " +
+            "web=\(ObjectIdentifier(self)) routedNative=1"
+        )
+#endif
+        return true
+    }
+
+    @IBAction func pasteAsPlainText(_ sender: Any?) {
+        _ = sender
+        if !performPasteAsPlainTextFromPasteboard(sender) {
+            webKitPasteAsPlainTextFallback(sender)
+        }
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(pasteAsPlainText(_:)) {
+            return pasteAsPlainTextTargetAvailable
+                && NSPasteboard.general.string(forType: .string) != nil
+        }
+        return super.validateUserInterfaceItem(item)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -230,22 +596,47 @@ final class CmuxWebView: WKWebView {
                 extra: "handled=\(handled ? 1 : 0)"
             )
         }
+        func finish(_ result: Bool) -> Bool {
+            handled = result
+            return result
+        }
+#else
+        func finish(_ result: Bool) -> Bool { result }
 #endif
         if event.keyCode == 36 || event.keyCode == 76 {
-            // Always bypass app/menu key-equivalent routing for Return/Enter so WebKit
-            // receives the keyDown path used by form submission handlers.
-            return false
+            return finish(AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true)
         }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         // Menu/app shortcut routing is only needed for Command equivalents
         // (New Tab, Close Tab, tab switching, split commands, etc).
         guard flags.contains(.command) else {
+            return finish(super.performKeyEquivalent(with: event))
+        }
+
+        if Self.isPasteAsPlainTextCommandEquivalent(event) {
+            if event.timestamp > 0 {
+                lastPasteAsPlainTextPerformKeyEventTimestamp = event.timestamp
+            } else {
+                lastPasteAsPlainTextPerformKeyEventTimestamp = nil
+            }
+            let result = performPasteAsPlainTextFromPasteboard() || super.performKeyEquivalent(with: event)
+            if result {
+                lastPasteAsPlainTextPerformKeyEventTimestamp = nil
+            }
+            return finish(result)
+        }
+
+        var replayedBrowserDocumentEditingShortcutIntoWebContent = false
+        if shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(
+            event,
+            responder: window?.firstResponder
+        ) {
+            replayedBrowserDocumentEditingShortcutIntoWebContent = true
             let result = super.performKeyEquivalent(with: event)
-#if DEBUG
-            handled = result
-#endif
-            return result
+            if result {
+                return finish(true)
+            }
         }
 
         var replayedBrowserFindShortcutIntoWebContent = false
@@ -256,51 +647,32 @@ final class CmuxWebView: WKWebView {
         ) {
             replayedBrowserFindShortcutIntoWebContent = true
             let result = super.performKeyEquivalent(with: event)
-#if DEBUG
-            handled = result
-#endif
             if result {
-                return true
+                return finish(true)
             }
         }
 
         if !shouldRouteCommandEquivalentDirectlyToMainMenu(event) {
-            let result = super.performKeyEquivalent(with: event)
-#if DEBUG
-            handled = result
-#endif
-            return result
+            return finish(super.performKeyEquivalent(with: event))
         }
 
-        // Let the app menu handle key equivalents first (New Tab, Close Tab, tab switching, etc).
+        if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalentBeforeMainMenu(event) == true {
+            return finish(true)
+        }
+
         if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
-#if DEBUG
-            handled = true
-#endif
-            return true
-        }
-
-        // Handle app-level shortcuts that are not menu-backed (for example split commands).
-        // Without this, WebKit can consume Cmd-based shortcuts before the app monitor sees them.
-        if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
-#if DEBUG
-            handled = true
-#endif
-            return true
+            return finish(true)
         }
 
         let result: Bool
-        if replayedBrowserFindShortcutIntoWebContent {
-            // A browser-first Find preflight has already exposed this shortcut to WebKit once.
+        if replayedBrowserDocumentEditingShortcutIntoWebContent || replayedBrowserFindShortcutIntoWebContent {
+            // A browser-first preflight has already exposed this shortcut to WebKit once.
             // Avoid a second `super.performKeyEquivalent` replay when menu/app fallback does not claim it.
             result = false
         } else {
             result = super.performKeyEquivalent(with: event)
         }
-#if DEBUG
-        handled = result
-#endif
-        return result
+        return finish(result)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -316,6 +688,22 @@ final class CmuxWebView: WKWebView {
             )
         }
 #endif
+        if Self.isPasteAsPlainTextCommandEquivalent(event) {
+            if shouldSkipRepeatedPasteAsPlainTextPreflight(for: event) {
+#if DEBUG
+                route = "super"
+#endif
+            } else {
+                let didPaste = performPasteAsPlainTextFromPasteboard()
+#if DEBUG
+                route = didPaste ? "pasteAsPlainText" : "super"
+#endif
+                if didPaste {
+                    return
+                }
+            }
+        }
+
         // Some Cmd-based key paths in WebKit don't consistently invoke performKeyEquivalent.
         // Route them through the same app-level shortcut handler as a fallback.
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
@@ -339,7 +727,7 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
         let windowNumber = window?.windowNumber ?? -1
         let firstResponderType = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        dlog(
+        cmuxDebugLog(
             "browser.focus.mouseDown web=\(ObjectIdentifier(self)) " +
             "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
             "pointerDepth=\(pointerFocusAllowanceDepth) win=\(windowNumber) fr=\(firstResponderType)"
@@ -360,7 +748,7 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
         let point = convert(event.locationInWindow, from: nil)
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
-        dlog(
+        cmuxDebugLog(
             "browser.mouse.otherDown web=\(ObjectIdentifier(self)) button=\(event.buttonNumber) " +
             "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
         )
@@ -370,13 +758,13 @@ final class CmuxWebView: WKWebView {
         switch event.buttonNumber {
         case 3:
 #if DEBUG
-            dlog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goBack canGoBack=\(canGoBack ? 1 : 0)")
+            cmuxDebugLog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goBack canGoBack=\(canGoBack ? 1 : 0)")
 #endif
             goBack()
             return
         case 4:
 #if DEBUG
-            dlog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goForward canGoForward=\(canGoForward ? 1 : 0)")
+            cmuxDebugLog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goForward canGoForward=\(canGoForward ? 1 : 0)")
 #endif
             goForward()
             return
@@ -393,7 +781,7 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
         let point = convert(event.locationInWindow, from: nil)
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
-        dlog(
+        cmuxDebugLog(
             "browser.mouse.otherUp web=\(ObjectIdentifier(self)) button=\(event.buttonNumber) " +
             "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
         )
@@ -449,9 +837,114 @@ final class CmuxWebView: WKWebView {
 
     private func debugContextDownload(_ message: @autoclosure () -> String) {
 #if DEBUG
-        dlog(message())
+        cmuxDebugLog(Self.redactedContextDownloadDebugMessage(message()))
 #endif
     }
+
+    #if DEBUG
+    private static let contextDownloadFieldPattern = try! NSRegularExpression(
+        pattern: "(^| )([A-Za-z][A-Za-z0-9_-]*)=",
+        options: []
+    )
+
+    private static func redactedContextDownloadDebugMessage(_ message: String) -> String {
+        let nsMessage = message as NSString
+        let fullRange = NSRange(location: 0, length: nsMessage.length)
+        let matches = contextDownloadFieldPattern.matches(in: message, range: fullRange)
+        guard !matches.isEmpty else { return message }
+
+        var result = ""
+        var cursor = 0
+        var matchIndex = 0
+
+        while matchIndex < matches.count {
+            let match = matches[matchIndex]
+            let fieldStart = match.range.location
+            if cursor < fieldStart {
+                result += nsMessage.substring(
+                    with: NSRange(location: cursor, length: fieldStart - cursor)
+                )
+            }
+
+            let separatorRange = match.range(at: 1)
+            if separatorRange.length > 0 {
+                result += " "
+            }
+
+            let keyRange = match.range(at: 2)
+            let key = nsMessage.substring(with: keyRange)
+            let valueStart = match.range.location + match.range.length
+            let sensitive = shouldRedactContextDownloadField(key)
+            let valueEnd: Int
+
+            if sensitive && key.lowercased() == "payload" {
+                valueEnd = nsMessage.length
+                matchIndex = matches.count
+            } else {
+                valueEnd = matchIndex + 1 < matches.count
+                    ? matches[matchIndex + 1].range.location
+                    : nsMessage.length
+                matchIndex += 1
+            }
+
+            let valueLength = max(0, valueEnd - valueStart)
+            let value = nsMessage.substring(with: NSRange(location: valueStart, length: valueLength))
+
+            if sensitive {
+                result += "\(key)=\(redactedContextDownloadValue(key: key, value: value))"
+            } else {
+                result += nsMessage.substring(
+                    with: NSRange(location: keyRange.location, length: valueEnd - keyRange.location)
+                )
+            }
+
+            cursor = valueEnd
+        }
+
+        if cursor < nsMessage.length {
+            result += nsMessage.substring(
+                with: NSRange(location: cursor, length: nsMessage.length - cursor)
+            )
+        }
+
+        return result
+    }
+
+    private static func shouldRedactContextDownloadField(_ key: String) -> Bool {
+        let normalized = key.lowercased()
+        return normalized == "referer" ||
+            normalized == "path" ||
+            normalized == "payload" ||
+            normalized.hasSuffix("url")
+    }
+
+    private static func redactedContextDownloadValue(key: String, value: String) -> String {
+        guard value != "nil", !value.isEmpty else { return value }
+
+        if shouldTreatContextDownloadFieldAsURL(key),
+           let url = URL(string: value),
+           let scheme = url.scheme?.lowercased(),
+           !scheme.isEmpty {
+            switch scheme {
+            case "http", "https":
+                return "\(scheme)://\(url.host ?? "unknown")"
+            case "data":
+                return "data:<redacted>"
+            case "file":
+                return "file:<redacted>"
+            default:
+                return "\(scheme):<redacted>"
+            }
+        }
+
+        return "<redacted>"
+    }
+
+    private static func shouldTreatContextDownloadFieldAsURL(_ key: String) -> Bool {
+        let normalized = key.lowercased()
+        return normalized == "referer" || normalized.hasSuffix("url")
+    }
+    #endif
 
     private static func selectorName(_ selector: Selector?) -> String {
         guard let selector else { return "nil" }
@@ -1634,8 +2127,9 @@ final class CmuxWebView: WKWebView {
             item.target = self
             menu.insertItem(item, at: min(openLinkInsertionIndex, menu.items.count))
         }
+        appendScreenshotContextMenuItems(to: menu)
+        appendMoveTabToNewWorkspaceContextMenuItem(to: menu)
     }
-
     @objc private func contextMenuOpenLinkInDefaultBrowser(_ sender: Any?) {
         _ = sender
         let point = lastContextMenuPoint

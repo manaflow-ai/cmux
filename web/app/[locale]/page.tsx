@@ -41,8 +41,14 @@ function HomeContent() {
 
         {/* Tagline */}
         <p className="text-lg leading-relaxed mb-3 text-foreground">
-          {t("taglinePrefix")}
-          <TypingTagline />
+          <span className="sr-only">
+            {t("taglinePrefix")}
+            {t("typingCodingAgents")}, {t("typingMultitasking")}
+          </span>
+          <span aria-hidden="true">
+            {t("taglinePrefix")}
+            <TypingTagline />
+          </span>
         </p>
         <p
           className="text-base text-muted"
@@ -105,12 +111,12 @@ function HomeContent() {
                 <span className="text-muted">
                   {t.rich("feature.keyboardShortcutsDesc", {
                     link: (chunks) => (
-                      <a
+                      <Link
                         href="/docs/keyboard-shortcuts"
                         className={linkClass}
                       >
                         {chunks}
-                      </a>
+                      </Link>
                     ),
                   })}
                 </span>
@@ -170,14 +176,14 @@ function HomeContent() {
               <p className="text-muted">
                 {t.rich("faqNotificationsA", {
                   cliLink: (chunks) => (
-                    <a href="/docs/notifications" className={linkClass}>
+                    <Link href="/docs/notifications#cli-usage" className={linkClass}>
                       {chunks}
-                    </a>
+                    </Link>
                   ),
                   hooksLink: (chunks) => (
-                    <a href="/docs/notifications" className={linkClass}>
+                    <Link href="/docs/notifications#integration-examples" className={linkClass}>
                       {chunks}
-                    </a>
+                    </Link>
                   ),
                 })}
               </p>
@@ -192,9 +198,9 @@ function HomeContent() {
                     </code>
                   ),
                   link: (chunks) => (
-                    <a href="/docs/keyboard-shortcuts" className={linkClass}>
+                    <Link href="/docs/keyboard-shortcuts" className={linkClass}>
                       {chunks}
-                    </a>
+                    </Link>
                   ),
                 })}
               </p>

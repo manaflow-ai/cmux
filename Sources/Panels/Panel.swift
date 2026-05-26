@@ -7,6 +7,34 @@ public enum PanelType: String, Codable, Sendable {
     case terminal
     case browser
     case markdown
+    case filePreview = "filepreview"
+    case rightSidebarTool
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        if let type = Self(rawValue: rawValue) {
+            self = type
+            return
+        }
+        if rawValue.lowercased() == Self.filePreview.rawValue {
+            self = .filePreview
+            return
+        }
+        if rawValue.lowercased() == Self.rightSidebarTool.rawValue.lowercased() {
+            self = .rightSidebarTool
+            return
+        }
+        throw DecodingError.dataCorruptedError(
+            in: container,
+            debugDescription: "Unknown panel type: \(rawValue)"
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 public enum TerminalPanelFocusIntent: Equatable {
@@ -20,17 +48,28 @@ public enum BrowserPanelFocusIntent: Equatable {
     case findField
 }
 
+public enum FilePreviewPanelFocusIntent: Hashable {
+    case textEditor
+    case pdfCanvas
+    case pdfThumbnails
+    case pdfOutline
+    case imageCanvas
+    case mediaPlayer
+    case quickLook
+}
+
 public enum PanelFocusIntent: Equatable {
     case panel
     case terminal(TerminalPanelFocusIntent)
     case browser(BrowserPanelFocusIntent)
+    case filePreview(FilePreviewPanelFocusIntent)
 }
 
 public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
     case navigation
     case notificationArrival
     case notificationDismiss
-    case manualUnreadDismiss
+    case unreadIndicatorDismiss
     case debug
 }
 
@@ -87,7 +126,7 @@ enum WorkspaceAttentionCoordinator {
                 glowOpacity: 0.14,
                 glowRadius: 3
             )
-        case .notificationArrival, .notificationDismiss, .manualUnreadDismiss, .debug:
+        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             return WorkspaceAttentionFlashPresentation(
                 accent: .notificationBlue,
                 glowOpacity: 0.6,
@@ -105,7 +144,7 @@ enum WorkspaceAttentionCoordinator {
         switch reason {
         case .navigation:
             isAllowed = !persistentState.hasCompetingIndicator(for: targetPanelID)
-        case .notificationArrival, .notificationDismiss, .manualUnreadDismiss, .debug:
+        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             isAllowed = true
         }
 

@@ -305,12 +305,13 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
     }
 
     func testTitlebarShortcutHintsAlignWithoutShiftingControls() {
-        let baselineApp = launchApp(alwaysShowHints: false)
+        let (baselineApp, baselineDataPath) = launchApp()
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: baselineApp, timeout: 8.0))
+        XCTAssertTrue(waitForBonsplitSetupReady(atPath: baselineDataPath, timeout: 8.0))
 
-        let baselineToggle = baselineApp.buttons["titlebarControl.toggleSidebar"]
-        let baselineNotifications = baselineApp.buttons["titlebarControl.showNotifications"]
-        let baselineNewTab = baselineApp.buttons["titlebarControl.newTab"]
+        let baselineToggle = element(in: baselineApp, identifier: "titlebarControl.toggleSidebar")
+        let baselineNotifications = element(in: baselineApp, identifier: "titlebarControl.showNotifications")
+        let baselineNewTab = element(in: baselineApp, identifier: "titlebarControl.newTab")
 
         XCTAssertTrue(waitForElementVisible(baselineToggle, timeout: 6.0))
         XCTAssertTrue(waitForElementVisible(baselineNotifications, timeout: 6.0))
@@ -322,20 +323,21 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
 
         baselineApp.terminate()
 
-        let hintedApp = launchApp(alwaysShowHints: true)
+        let (hintedApp, hintedDataPath) = launchApp(alwaysShowShortcutHints: true)
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: hintedApp, timeout: 8.0))
+        XCTAssertTrue(waitForBonsplitSetupReady(atPath: hintedDataPath, timeout: 8.0))
 
-        let hintedToggle = hintedApp.buttons["titlebarControl.toggleSidebar"]
-        let hintedNotifications = hintedApp.buttons["titlebarControl.showNotifications"]
-        let hintedNewTab = hintedApp.buttons["titlebarControl.newTab"]
+        let hintedToggle = element(in: hintedApp, identifier: "titlebarControl.toggleSidebar")
+        let hintedNotifications = element(in: hintedApp, identifier: "titlebarControl.showNotifications")
+        let hintedNewTab = element(in: hintedApp, identifier: "titlebarControl.newTab")
 
         XCTAssertTrue(waitForElementVisible(hintedToggle, timeout: 6.0))
         XCTAssertTrue(waitForElementVisible(hintedNotifications, timeout: 6.0))
         XCTAssertTrue(waitForElementVisible(hintedNewTab, timeout: 6.0))
 
-        let sidebarHint = hintedApp.staticTexts["titlebarShortcutHint.toggleSidebar"]
-        let notificationsHint = hintedApp.staticTexts["titlebarShortcutHint.showNotifications"]
-        let newTabHint = hintedApp.staticTexts["titlebarShortcutHint.newTab"]
+        let sidebarHint = element(in: hintedApp, identifier: "titlebarShortcutHint.toggleSidebar")
+        let notificationsHint = element(in: hintedApp, identifier: "titlebarShortcutHint.showNotifications")
+        let newTabHint = element(in: hintedApp, identifier: "titlebarShortcutHint.newTab")
 
         XCTAssertTrue(waitForElementVisible(sidebarHint, timeout: 6.0))
         XCTAssertTrue(waitForElementVisible(notificationsHint, timeout: 6.0))
@@ -367,13 +369,22 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
         }
     }
 
-    private func launchApp(alwaysShowHints: Bool) -> XCUIApplication {
+    private func launchApp(alwaysShowShortcutHints: Bool = false) -> (XCUIApplication, String) {
         let app = XCUIApplication()
+        let dataPath = "/tmp/cmux-ui-test-titlebar-shortcut-hints-\(UUID().uuidString).json"
+        try? FileManager.default.removeItem(atPath: dataPath)
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchArguments += ["-shortcutHintAlwaysShow", alwaysShowHints ? "YES" : "NO"]
-        app.launchArguments += ["-shortcutHintTitlebarXOffset", "4"]
-        app.launchArguments += ["-shortcutHintTitlebarYOffset", "0"]
-        app.launch()
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
+        if alwaysShowShortcutHints {
+            app.launchEnvironment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] = "1"
+        }
+        app.launchArguments += ["-workspacePresentationMode", "standard"]
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
 
         _ = pollUntil(timeout: 2.0) {
             guard app.state != .runningForeground else {
@@ -383,13 +394,31 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
             return app.state == .runningForeground
         }
 
-        return app
+        return (app, dataPath)
+    }
+
+    private func element(in app: XCUIApplication, identifier: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 
     private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
         pollUntil(timeout: timeout) {
             app.windows.count >= count
         }
+    }
+
+    private func waitForBonsplitSetupReady(atPath path: String, timeout: TimeInterval) -> Bool {
+        pollUntil(timeout: timeout) {
+            loadBonsplitSetupData(atPath: path)?["ready"] == "1"
+        }
+    }
+
+    private func loadBonsplitSetupData(atPath path: String) -> [String: String]? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return nil
+        }
+        return object
     }
 
     private func waitForElementVisible(_ element: XCUIElement, timeout: TimeInterval) -> Bool {

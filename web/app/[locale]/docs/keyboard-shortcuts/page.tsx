@@ -5,13 +5,17 @@ import { Link } from "../../../../i18n/navigation";
 import { Callout } from "../../components/callout";
 import { CodeBlock } from "../../components/code-block";
 import { KeyboardShortcuts } from "../../keyboard-shortcuts";
+import { DocsHeading } from "../../components/docs-heading";
 
 const shortcutChordExample = `{
   "shortcuts": {
     "bindings": {
       "newSurface": ["ctrl+b", "c"],
       "showNotifications": ["ctrl+b", "i"],
-      "toggleSidebar": "cmd+b"
+      "toggleSidebar": "cmd+b",
+      "toggleFileExplorer": "cmd+opt+b",
+      "splitRight": "",
+      "commandPalettePrevious": null
     }
   }
 }`;
@@ -31,10 +35,10 @@ export default function KeyboardShortcutsPage() {
 
   return (
     <>
-      <h1>{t("title")}</h1>
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("description")}</p>
 
-      <h2 id="shortcut-chords" className="scroll-mt-24">{t("chordsTitle")}</h2>
+      <DocsHeading level={2} id="shortcut-chords" className="scroll-mt-24">{t("chordsTitle")}</DocsHeading>
       <p>
         {t.rich("chordsIntro", {
           settingsFile: (chunks) => <code>{chunks}</code>,
@@ -42,7 +46,7 @@ export default function KeyboardShortcutsPage() {
         })}
       </p>
       <Callout type="info">{t("chordsCallout")}</Callout>
-      <CodeBlock title="settings.json" lang="json">{shortcutChordExample}</CodeBlock>
+      <CodeBlock title="cmux.json" lang="json">{shortcutChordExample}</CodeBlock>
       <ul>
         <li>{t("chordsRuleSingle")}</li>
         <li>{t("chordsRuleArray")}</li>

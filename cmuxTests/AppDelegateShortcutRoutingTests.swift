@@ -5,11 +5,42 @@ import XCTest
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 private let appDelegateLastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
 private final class FakeWKInspectorContainerView: NSView {}
 private final class FocusableTestView: NSView {
     override var acceptsFirstResponder: Bool { true }
+}
+private final class MenuActionProbe: NSObject {
+    var callCount = 0
+    @objc func perform(_ sender: Any?) {
+        callCount += 1
+    }
+}
+private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
+    var afterMenuMissCallCount = 0
+    var keyDownCallCount = 0
+    var lastKeyDownCharactersIgnoringModifiers: String?
+    var pasteCallCount = 0
+    var pasteAsPlainTextCallCount = 0
+    var performAfterMenuMissResult = true
+
+    override func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
+        afterMenuMissCallCount += 1
+        return performAfterMenuMissResult
+    }
+
+    override func keyDown(with event: NSEvent) {
+        keyDownCallCount += 1
+        lastKeyDownCharactersIgnoringModifiers = event.charactersIgnoringModifiers
+    }
+
+    override func paste(_ sender: Any?) {
+        pasteCallCount += 1
+    }
+
+    override func pasteAsPlainText(_ sender: Any?) {
+        pasteAsPlainTextCallCount += 1
+    }
 }
 
 @MainActor
@@ -41,10 +72,43 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         return event
     }
 
+    private func ghosttyConfigKeyIsBinding(
+        _ config: ghostty_config_t,
+        key: String,
+        modifiers: NSEvent.ModifierFlags,
+        keyCode: UInt32
+    ) -> Bool {
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.keycode = keyCode
+        keyEvent.mods = ghosttyMods(from: modifiers)
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.unshifted_codepoint = key.unicodeScalars.first.map { UInt32($0.value) } ?? 0
+        keyEvent.composing = false
+
+        return key.withCString { ptr in
+            keyEvent.text = ptr
+            return ghostty_config_key_is_binding(config, keyEvent)
+        }
+    }
+
+    private func ghosttyMods(from modifiers: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
+        var rawValue = GHOSTTY_MODS_NONE.rawValue
+        if modifiers.contains(.shift) { rawValue |= GHOSTTY_MODS_SHIFT.rawValue }
+        if modifiers.contains(.control) { rawValue |= GHOSTTY_MODS_CTRL.rawValue }
+        if modifiers.contains(.option) { rawValue |= GHOSTTY_MODS_ALT.rawValue }
+        if modifiers.contains(.command) { rawValue |= GHOSTTY_MODS_SUPER.rawValue }
+        return ghostty_input_mods_e(rawValue: rawValue)
+    }
+
     override func setUp() {
         super.setUp()
         // Prevent a single hanging test from consuming the entire CI timeout budget.
         executionTimeAllowance = 30
+        #if DEBUG
+        KeyboardShortcutRecorderActivity.resetForTesting()
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        #endif
         actionsWithPersistedShortcut = Set(
             KeyboardShortcutSettings.Action.allCases.filter {
                 UserDefaults.standard.object(forKey: $0.defaultsKey) != nil
@@ -55,11 +119,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 (action, KeyboardShortcutSettings.shortcut(for: action))
             }
         )
-        originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "cmux-shortcut-routing")
         KeyboardShortcutSettings.resetAll()
+        #if DEBUG
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        #endif
     }
 
     override func tearDown() {
+        #if DEBUG
+        KeyboardShortcutRecorderActivity.resetForTesting()
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        KeyboardShortcutSettings.shortcutLookupObserver = nil
+        #endif
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
@@ -74,7 +146,49 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 KeyboardShortcutSettings.resetShortcut(for: action)
             }
         }
+        #if DEBUG
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        #endif
         super.tearDown()
+    }
+
+    func testShortcutMonitorIgnoresSystemDefinedEvents() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let event = NSEvent.otherEvent(
+            with: .systemDefined,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            subtype: 7,
+            data1: 1,
+            data2: 1
+        ) else {
+            XCTFail("Failed to construct system-defined event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleShortcutMonitorEvent(event: event))
+#else
+        XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
+#endif
+    }
+
+    func testStopAllRecordingClearsStaleRecorderActivityCount() {
+        defer { KeyboardShortcutRecorderActivity.stopAllRecording() }
+
+        KeyboardShortcutRecorderActivity.beginRecording()
+        KeyboardShortcutRecorderActivity.beginRecording()
+        XCTAssertTrue(KeyboardShortcutRecorderActivity.isAnyRecorderActive)
+
+        KeyboardShortcutRecorderActivity.stopAllRecording()
+
+        XCTAssertFalse(KeyboardShortcutRecorderActivity.isAnyRecorderActive)
     }
 
     func testCmdNUsesEventWindowContextWhenActiveManagerIsStale() {
@@ -216,7 +330,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         try """
         {
           "shortcuts": {
@@ -230,6 +344,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             fallbackPath: nil,
             startWatching: false
         )
+        #if DEBUG
+        appDelegate.debugResetShortcutRoutingStateForTesting()
+        #endif
 
         window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
@@ -265,7 +382,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        XCTAssertEqual(manager.tabs.count, initialCount + 1, "settings.json chord should dispatch the configured shortcut")
+        XCTAssertEqual(manager.tabs.count, initialCount + 1, "cmux.json chord should dispatch the configured shortcut")
     }
 
     func testConfiguredChordPrefixIsClearedWhenAppResignsActive() {
@@ -338,7 +455,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let windowId = appDelegate.createMainWindow()
         defer {
-            SettingsWindowController.shared.close()
             closeWindow(withId: windowId)
         }
 
@@ -707,7 +823,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
 
         appDelegate.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitUntil(timeout: 1.0) {
+            !newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling)
+        }
 
         XCTAssertFalse(
             newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling),
@@ -750,6 +868,140 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(firstManager.tabs.count, firstCount, "Stale pointer must not receive menu-driven workspace creation")
         XCTAssertEqual(secondManager.tabs.count, secondCount + 1, "Workspace creation should target key/main window context")
+    }
+
+    func testToggleSidebarInActiveMainWindowIgnoresStaleTabManagerPointer() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let firstWindowId = appDelegate.createMainWindow()
+        let secondWindowId = appDelegate.createMainWindow()
+
+        defer {
+            closeWindow(withId: firstWindowId)
+            closeWindow(withId: secondWindowId)
+        }
+
+        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
+              let secondWindow = window(withId: secondWindowId),
+              let firstVisibleBefore = appDelegate.sidebarVisibility(windowId: firstWindowId),
+              let secondVisibleBefore = appDelegate.sidebarVisibility(windowId: secondWindowId) else {
+            XCTFail("Expected both window contexts to exist")
+            return
+        }
+
+        secondWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        // Force a stale app-level pointer to another manager. Window-local UI
+        // controls should still target the key/main window, not this stale pointer.
+        appDelegate.tabManager = firstManager
+        XCTAssertTrue(appDelegate.tabManager === firstManager)
+
+        XCTAssertTrue(appDelegate.toggleSidebarInActiveMainWindow())
+
+        XCTAssertEqual(
+            appDelegate.sidebarVisibility(windowId: firstWindowId),
+            firstVisibleBefore,
+            "Stale active-manager pointer must not receive sidebar toggles"
+        )
+        XCTAssertEqual(
+            appDelegate.sidebarVisibility(windowId: secondWindowId),
+            !secondVisibleBefore,
+            "Sidebar toggle should target the key/main window context"
+        )
+    }
+
+    func testWelcomeWindowSidebarShortcutsUseSharedToggleCommands() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleSidebar.label,
+            String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar"),
+            "Welcome should expose the shared left-sidebar toggle command"
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleSidebar.defaultShortcut,
+            StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleRightSidebar.label,
+            String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar"),
+            "Welcome should expose the shared right-sidebar toggle command, not a File Explorer-only action"
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleRightSidebar.defaultShortcut,
+            StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
+        )
+
+        let defaults = UserDefaults.standard
+        let previousRightSidebarVisibility = defaults.object(forKey: "fileExplorer.isVisible")
+        defer {
+            restoreDefaultsValue(previousRightSidebarVisibility, forKey: "fileExplorer.isVisible", defaults: defaults)
+        }
+
+        let windowId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+
+        let tabManager = TabManager()
+        let sidebarState = SidebarState(isVisible: true)
+        let sidebarSelectionState = SidebarSelectionState()
+        let fileExplorerState = FileExplorerState()
+        fileExplorerState.setVisible(false)
+
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: tabManager,
+            sidebarState: sidebarState,
+            sidebarSelectionState: sidebarSelectionState,
+            fileExplorerState: fileExplorerState
+        )
+
+        defer {
+            window.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let leftSidebarEvent = makeKeyDownEvent(
+            key: "b",
+            modifiers: [.command],
+            keyCode: 11,
+            windowNumber: window.windowNumber
+        ), let rightSidebarEvent = makeKeyDownEvent(
+            key: "b",
+            modifiers: [.command, .option],
+            keyCode: 11,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct sidebar shortcut events")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: leftSidebarEvent))
+        XCTAssertFalse(sidebarState.isVisible, "Cmd+B should toggle the Welcome window left sidebar")
+
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: rightSidebarEvent))
+        _ = waitForCondition { fileExplorerState.isVisible }
+        XCTAssertTrue(fileExplorerState.isVisible, "Cmd+Option+B should toggle the Welcome window right sidebar")
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
     }
 
     func testCmdNResolvesEventWindowWhenObjectKeyLookupIsMismatched() {
@@ -852,6 +1104,93 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         createdWindowId = newWindowIds.first
     }
 
+    func testCmdShiftNCreatesWindowFromEventWindowWithoutAddingWorkspace() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let firstWindowId = appDelegate.createMainWindow()
+        let secondWindowId = appDelegate.createMainWindow()
+        var createdWindowId: UUID?
+
+        defer {
+            if let createdWindowId {
+                closeWindow(withId: createdWindowId)
+            }
+            closeWindow(withId: firstWindowId)
+            closeWindow(withId: secondWindowId)
+        }
+
+        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
+              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
+              let firstWindow = window(withId: firstWindowId),
+              let secondWindow = window(withId: secondWindowId),
+              let visibleFrame = (secondWindow.screen ?? NSScreen.main)?.visibleFrame else {
+            XCTFail("Expected both window contexts to exist")
+            return
+        }
+
+        let firstFrame = NSRect(
+            x: visibleFrame.minX + 40,
+            y: visibleFrame.maxY - 460,
+            width: 760,
+            height: 420
+        )
+        let secondFrame = NSRect(
+            x: min(visibleFrame.minX + 180, visibleFrame.maxX - 600),
+            y: max(visibleFrame.minY + 80, visibleFrame.maxY - 560),
+            width: 560,
+            height: 380
+        )
+        firstWindow.setFrame(firstFrame, display: true)
+        secondWindow.setFrame(secondFrame, display: true)
+        firstWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let eventSourceFrame = secondWindow.frame
+        let firstCount = firstManager.tabs.count
+        let secondCount = secondManager.tabs.count
+        let existingWindowIds = mainWindowIds()
+
+        guard let event = makeKeyDownEvent(
+            key: "n",
+            modifiers: [.command, .shift],
+            keyCode: 45,
+            windowNumber: secondWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+N event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let newWindowIds = mainWindowIds().subtracting(existingWindowIds)
+        XCTAssertEqual(newWindowIds.count, 1, "Cmd+Shift+N should create one new main window")
+        createdWindowId = newWindowIds.first
+
+        XCTAssertEqual(firstManager.tabs.count, firstCount, "Cmd+Shift+N must not create a workspace in the key window")
+        XCTAssertEqual(secondManager.tabs.count, secondCount, "Cmd+Shift+N must not create a workspace in the event window")
+
+        guard let createdWindowId,
+              let createdWindow = window(withId: createdWindowId) else {
+            XCTFail("Expected created window")
+            return
+        }
+
+        XCTAssertEqual(createdWindow.frame.width, eventSourceFrame.width, accuracy: 1)
+        XCTAssertEqual(createdWindow.frame.height, eventSourceFrame.height, accuracy: 1)
+        XCTAssertTrue(
+            visibleFrame.contains(createdWindow.frame),
+            "New window should be placed inside the source window display"
+        )
+    }
+
     func testAddWorkspaceInPreferredMainWindowUsesKeyWindowWhenObjectKeyLookupIsMismatched() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -895,15 +1234,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testAddWorkspaceInPreferredMainWindowPrunesOrphanedContextWithoutLiveWindow() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
 
         let orphanWindowId = UUID()
         let orphanManager = TabManager()
         let orphanSidebarState = SidebarState()
         let orphanSidebarSelectionState = SidebarSelectionState()
+        let orphanFileExplorerState = FileExplorerState()
 
         autoreleasepool {
             var orphanWindow: NSWindow? = NSWindow(
@@ -918,7 +1258,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 windowId: orphanWindowId,
                 tabManager: orphanManager,
                 sidebarState: orphanSidebarState,
-                sidebarSelectionState: orphanSidebarSelectionState
+                sidebarSelectionState: orphanSidebarSelectionState,
+                fileExplorerState: orphanFileExplorerState
             )
             orphanWindow = nil
         }
@@ -947,6 +1288,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let orphanManager = TabManager()
         let orphanSidebarState = SidebarState()
         let orphanSidebarSelectionState = SidebarSelectionState()
+        let orphanFileExplorerState = FileExplorerState()
 
         autoreleasepool {
             var orphanWindow: NSWindow? = NSWindow(
@@ -961,7 +1303,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 windowId: orphanWindowId,
                 tabManager: orphanManager,
                 sidebarState: orphanSidebarState,
-                sidebarSelectionState: orphanSidebarSelectionState
+                sidebarSelectionState: orphanSidebarSelectionState,
+                fileExplorerState: orphanFileExplorerState
             )
             orphanWindow = nil
         }
@@ -1066,25 +1409,36 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let firstWindow = makeRegisteredShortcutRoutingWindow(id: firstWindowId)
+        let secondWindow = makeRegisteredShortcutRoutingWindow(id: secondWindowId)
+        let firstManager = TabManager()
+        let secondManager = TabManager()
+        let firstSidebarState = SidebarState(isVisible: true)
+        let secondSidebarState = SidebarState(isVisible: true)
 
+        appDelegate.registerMainWindow(
+            firstWindow,
+            windowId: firstWindowId,
+            tabManager: firstManager,
+            sidebarState: firstSidebarState,
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        appDelegate.registerMainWindow(
+            secondWindow,
+            windowId: secondWindowId,
+            tabManager: secondManager,
+            sidebarState: secondSidebarState,
+            sidebarSelectionState: SidebarSelectionState()
+        )
         defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
+            closeRegisteredShortcutRoutingWindow(firstWindow, id: firstWindowId)
+            closeRegisteredShortcutRoutingWindow(secondWindow, id: secondWindowId)
         }
 
-        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let secondWindow = window(withId: secondWindowId),
-              let firstWorkspace = firstManager.selectedWorkspace,
-              let secondWorkspace = secondManager.selectedWorkspace else {
-            XCTFail("Expected both window contexts to exist")
-            return
-        }
-
-        let firstSurfaceCount = firstWorkspace.panels.count
-        let secondSurfaceCount = secondWorkspace.panels.count
+        let firstVisibleBefore = firstSidebarState.isVisible
+        let secondVisibleBefore = secondSidebarState.isVisible
 
         appDelegate.tabManager = firstManager
         XCTAssertTrue(appDelegate.tabManager === firstManager)
@@ -1099,15 +1453,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        withTemporaryShortcut(
+            action: .toggleSidebar,
+            shortcut: StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+        ) {
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
+        }
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertEqual(firstWorkspace.panels.count, firstSurfaceCount, "Cmd+T must not create a surface in stale active window")
-        XCTAssertEqual(secondWorkspace.panels.count, secondSurfaceCount + 1, "Cmd+T should create a surface in the event window")
+        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: firstWindowId), firstVisibleBefore, "Cmd+T must not route to the stale active window")
+        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: secondWindowId), !secondVisibleBefore, "Cmd+T should route to the event window")
         XCTAssertTrue(appDelegate.tabManager === secondManager, "Shortcut routing should retarget active manager to event window")
     }
 
@@ -1117,29 +1476,39 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let firstWindow = makeRegisteredShortcutRoutingWindow(id: firstWindowId)
+        let secondWindow = makeRegisteredShortcutRoutingWindow(id: secondWindowId)
+        let firstManager = TabManager()
+        let secondManager = TabManager()
+        let firstSidebarState = SidebarState(isVisible: true)
+        let secondSidebarState = SidebarState(isVisible: true)
 
+        appDelegate.registerMainWindow(
+            firstWindow,
+            windowId: firstWindowId,
+            tabManager: firstManager,
+            sidebarState: firstSidebarState,
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        appDelegate.registerMainWindow(
+            secondWindow,
+            windowId: secondWindowId,
+            tabManager: secondManager,
+            sidebarState: secondSidebarState,
+            sidebarSelectionState: SidebarSelectionState()
+        )
         defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
-        }
-
-        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let firstWindow = window(withId: firstWindowId),
-              let secondWindow = window(withId: secondWindowId),
-              let firstWorkspace = firstManager.selectedWorkspace,
-              let secondWorkspace = secondManager.selectedWorkspace else {
-            XCTFail("Expected both window contexts to exist")
-            return
+            closeRegisteredShortcutRoutingWindow(firstWindow, id: firstWindowId)
+            closeRegisteredShortcutRoutingWindow(secondWindow, id: secondWindowId)
         }
 
         firstWindow.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        let firstSurfaceCount = firstWorkspace.panels.count
-        let secondSurfaceCount = secondWorkspace.panels.count
+        let firstVisibleBefore = firstSidebarState.isVisible
+        let secondVisibleBefore = secondSidebarState.isVisible
 
         appDelegate.tabManager = firstManager
         XCTAssertTrue(appDelegate.tabManager === firstManager)
@@ -1154,16 +1523,71 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        withTemporaryShortcut(
+            action: .toggleSidebar,
+            shortcut: StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
+        ) {
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
+        }
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertEqual(firstWorkspace.panels.count, firstSurfaceCount, "Cmd+D must not create a split in the stale key window")
-        XCTAssertEqual(secondWorkspace.panels.count, secondSurfaceCount + 1, "Cmd+D should create a split in the event window")
-        XCTAssertTrue(appDelegate.tabManager === secondManager, "Split shortcut routing should keep the event window active")
+        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: firstWindowId), firstVisibleBefore, "Cmd+D must not route to the stale key window")
+        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: secondWindowId), !secondVisibleBefore, "Cmd+D should route to the event window")
+        XCTAssertTrue(appDelegate.tabManager === secondManager, "Shortcut routing should keep the event window active")
+    }
+
+    func testCmdDPropagatesWhenSplitRightShortcutIsCleared() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected test window, manager, and workspace")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let initialPanelCount = workspace.panels.count
+
+        withTemporaryShortcut(action: .splitRight, shortcut: .unbound) {
+            guard let event = makeKeyDownEvent(
+                key: "d",
+                modifiers: [.command],
+                keyCode: 2,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Cmd+D event")
+                return
+            }
+
+#if DEBUG
+            XCTAssertFalse(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "Cleared Cmd+D split shortcut should not be consumed by cmux"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(
+            workspace.panels.count,
+            initialPanelCount,
+            "Cleared Cmd+D split shortcut should propagate instead of creating a new pane"
+        )
     }
 
     func testPerformSplitShortcutSplitsFocusedTerminalSurfaceWhenSelectedWorkspaceIsStale() {
@@ -1303,12 +1727,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
         guard let targetWindow = window(withId: windowId) else {
             XCTFail("Expected test window")
             return
         }
+        targetWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
+        defer { appDelegate.debugCloseMainWindowConfirmationHandler = nil }
 
         guard let event = makeKeyDownEvent(
             key: "w",
@@ -1326,9 +1754,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitUntil(timeout: 1.0) {
+            self.window(withId: windowId)?.isVisible != true
+        }
 
-        XCTAssertNil(self.window(withId: windowId), "Confirming Cmd+Ctrl+W should close the window")
+        XCTAssertFalse(
+            self.window(withId: windowId)?.isVisible == true,
+            "Confirming Cmd+Ctrl+W should close the window"
+        )
     }
 
     // NOTE: This test is skipped in CI via -skip-testing in ci.yml because closing
@@ -1441,6 +1874,300 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNil(workspace.panels[initialPanelId])
         XCTAssertEqual(workspace.panels.count, 1)
         XCTAssertNotEqual(workspace.focusedPanelId, initialPanelId)
+    }
+
+    func testRemappedCloseTabDoesNotLetCmdWReachGhosttyCloseSurfaceFallback() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let mainWindow = window(withId: windowId) else {
+            XCTFail("Expected test main window")
+            return
+        }
+        mainWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        probeWindow.isReleasedWhenClosed = false
+        probeWindow.identifier = NSUserInterfaceItemIdentifier("cmux.browser-popup")
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let menuProbe = MenuActionProbe()
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+            probeWindow.close()
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
+
+        let staleMenu = NSMenu(title: "Test")
+        let staleCloseItem = NSMenuItem(
+            title: "Close Tab",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "w"
+        )
+        staleCloseItem.keyEquivalentModifierMask = [.command]
+        staleCloseItem.target = menuProbe
+        staleMenu.addItem(staleCloseItem)
+        NSApp.mainMenu = staleMenu
+
+        probeWindow.contentView = contentView
+        contentView.addSubview(probeView)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
+
+        guard let ghosttyConfig = GhosttyApp.shared.config else {
+            XCTFail("Expected loaded Ghostty config")
+            return
+        }
+
+        let remappedCloseTab = StoredShortcut(
+            key: "w",
+            command: true,
+            shift: false,
+            option: true,
+            control: false
+        )
+
+        withTemporaryShortcut(action: .closeTab, shortcut: remappedCloseTab) {
+            guard let staleCmdW = makeKeyDownEvent(
+                key: "w",
+                modifiers: [.command],
+                keyCode: 13,
+                windowNumber: probeWindow.windowNumber
+            ) else {
+                XCTFail("Failed to construct Cmd+W event")
+                return
+            }
+
+            XCTAssertFalse(
+                KeyboardShortcutSettings.shortcut(for: .closeTab).matches(event: staleCmdW),
+                "After Close Tab is remapped, Cmd+W must not match the cmux Close Tab action"
+            )
+            if ghosttyConfigKeyIsBinding(ghosttyConfig, key: "w", modifiers: [.command], keyCode: 13) {
+                XCTFail("After Close Tab is remapped, Ghostty must not retain its super+w close_surface fallback")
+                return
+            }
+
+            XCTAssertTrue(
+                probeWindow.performKeyEquivalent(with: staleCmdW),
+                "Remapped-away Cmd+W should be handled only by forwarding it to the focused terminal"
+            )
+            XCTAssertEqual(
+                menuProbe.callCount,
+                0,
+                "A stale Close Tab menu equivalent must not keep consuming Cmd+W after remap"
+            )
+            XCTAssertEqual(
+                probeView.keyDownCallCount,
+                1,
+                "Remapped-away Cmd+W should reach the terminal as input instead of closing through cmux"
+            )
+            XCTAssertEqual(probeView.lastKeyDownCharactersIgnoringModifiers, "w")
+
+            guard let remappedCmdOptionW = makeKeyDownEvent(
+                key: "w",
+                modifiers: [.command, .option],
+                keyCode: 13,
+                windowNumber: probeWindow.windowNumber
+            ) else {
+                XCTFail("Failed to construct Cmd+Option+W event")
+                return
+            }
+
+            XCTAssertTrue(
+                KeyboardShortcutSettings.shortcut(for: .closeTab).matches(event: remappedCmdOptionW),
+                "The remapped Cmd+Option+W shortcut should match the cmux Close Tab action"
+            )
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleShortcutMonitorEvent(event: remappedCmdOptionW),
+                "The remapped Cmd+Option+W shortcut should trigger the cmux Close Tab action"
+            )
+#else
+            XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
+#endif
+        }
+    }
+
+    func testBrowserPopupPanelCloseShortcutFollowsCloseTabRemap() throws {
+        let defaultCloseTab = KeyboardShortcutSettings.Action.closeTab.defaultShortcut
+        let previousMainMenu = NSApp.mainMenu
+        let menuProbe = MenuActionProbe()
+        let staleMenu = NSMenu(title: "Stale Close Tab")
+        let staleCloseItem = NSMenuItem(
+            title: "Close Tab",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: defaultCloseTab.menuItemKeyEquivalent ?? ""
+        )
+        staleCloseItem.keyEquivalentModifierMask = defaultCloseTab.modifierFlags
+        staleCloseItem.target = menuProbe
+        staleMenu.addItem(staleCloseItem)
+        NSApp.mainMenu = staleMenu
+        defer { NSApp.mainMenu = previousMainMenu }
+
+        let remappedCloseTab = StoredShortcut(
+            key: defaultCloseTab.key,
+            command: defaultCloseTab.command,
+            shift: defaultCloseTab.shift,
+            option: !defaultCloseTab.option,
+            control: defaultCloseTab.control,
+            keyCode: defaultCloseTab.keyCode
+        )
+
+        withTemporaryShortcut(action: .closeTab, shortcut: remappedCloseTab) {
+            let panel = BrowserPopupPanel(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            panel.isReleasedWhenClosed = false
+            panel.identifier = NSUserInterfaceItemIdentifier("cmux.browser-popup")
+            panel.orderFront(nil)
+            defer { panel.orderOut(nil) }
+
+            guard let staleDefaultCloseTab = makeKeyDownEvent(
+                shortcut: defaultCloseTab,
+                windowNumber: panel.windowNumber
+            ) else {
+                XCTFail("Failed to construct default Close Tab event")
+                return
+            }
+
+            XCTAssertTrue(
+                panel.performKeyEquivalent(with: staleDefaultCloseTab),
+                "After Close Tab is remapped, the default Close Tab shortcut should be consumed without closing a browser popup"
+            )
+            XCTAssertTrue(panel.isVisible, "Remapped-away default Close Tab shortcut should leave the browser popup open")
+            XCTAssertEqual(menuProbe.callCount, 0, "Stale Close Tab menu items must not close the parent browser tab")
+
+            guard let remappedCloseTabEvent = makeKeyDownEvent(
+                shortcut: remappedCloseTab,
+                windowNumber: panel.windowNumber
+            ) else {
+                XCTFail("Failed to construct remapped Close Tab event")
+                return
+            }
+
+            XCTAssertTrue(
+                panel.performKeyEquivalent(with: remappedCloseTabEvent),
+                "The configured Close Tab shortcut should close the browser popup"
+            )
+            XCTAssertFalse(panel.isVisible, "Remapped Close Tab shortcut should close the browser popup")
+        }
+    }
+
+    func testBrowserPopupPanelCloseShortcutSupportsChordedCloseTabRemap() throws {
+        guard AppDelegate.shared != nil else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let chordedCloseTab = StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            keyCode: 11,
+            chordKey: "n",
+            chordCommand: false,
+            chordShift: false,
+            chordOption: false,
+            chordControl: false,
+            chordKeyCode: 45
+        )
+
+        withTemporaryShortcut(action: .closeTab, shortcut: chordedCloseTab) {
+            let panel = BrowserPopupPanel(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            panel.isReleasedWhenClosed = false
+            panel.identifier = NSUserInterfaceItemIdentifier("cmux.browser-popup")
+            panel.orderFront(nil)
+            defer { panel.orderOut(nil) }
+
+            guard let prefixEvent = makeKeyDownEvent(
+                key: "b",
+                modifiers: [.control],
+                keyCode: 11,
+                windowNumber: panel.windowNumber
+            ) else {
+                XCTFail("Failed to construct Ctrl+B prefix event")
+                return
+            }
+
+            guard let suffixEvent = makeKeyDownEvent(
+                key: "n",
+                modifiers: [],
+                keyCode: 45,
+                windowNumber: panel.windowNumber
+            ) else {
+                XCTFail("Failed to construct N suffix event")
+                return
+            }
+
+            XCTAssertTrue(
+                panel.performKeyEquivalent(with: prefixEvent),
+                "A chorded Close Tab prefix should be consumed without closing the browser popup"
+            )
+            XCTAssertTrue(panel.isVisible, "Chord prefix alone should leave the browser popup open")
+
+            XCTAssertTrue(
+                panel.performKeyEquivalent(with: suffixEvent),
+                "The chorded Close Tab suffix should close the browser popup"
+            )
+            XCTAssertFalse(panel.isVisible, "Chorded Close Tab shortcut should close the browser popup")
+        }
+    }
+
+    func testBrowserPopupPanelLeavesDefaultCloseTabShortcutAloneWhenCloseTabIsUnbound() throws {
+        let defaultCloseTab = KeyboardShortcutSettings.Action.closeTab.defaultShortcut
+        withTemporaryShortcut(action: .closeTab, shortcut: .unbound) {
+            let panel = BrowserPopupPanel(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            panel.isReleasedWhenClosed = false
+            panel.identifier = NSUserInterfaceItemIdentifier("cmux.browser-popup")
+            panel.orderFront(nil)
+            defer { panel.orderOut(nil) }
+
+            guard let defaultCloseTabEvent = makeKeyDownEvent(
+                shortcut: defaultCloseTab,
+                windowNumber: panel.windowNumber
+            ) else {
+                XCTFail("Failed to construct default Close Tab event")
+                return
+            }
+
+            XCTAssertTrue(
+                panel.performKeyEquivalent(with: defaultCloseTabEvent),
+                "Unbinding Close Tab should consume the default Close Tab shortcut without closing a browser popup"
+            )
+            XCTAssertTrue(panel.isVisible, "Unbound Close Tab should leave the browser popup open")
+        }
     }
 
     func testCmdWClosesAuxiliaryWindowInsteadOfMainTerminalPanel() throws {
@@ -1579,7 +2306,200 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    func testAttachUpdateAccessoryRemovesTitlebarAccessoryWhenMinimalModeEnabled() {
+    func testMinimalModeTitlebarPaddingOnlyCancelsHostingSafeArea() {
+        XCTAssertEqual(
+            ContentView.effectiveTitlebarPadding(
+                isMinimalMode: false,
+                isFullScreen: false,
+                titlebarPadding: 32,
+                hostingSafeAreaTop: 0
+            ),
+            WindowChromeMetrics.appTitlebarHeight,
+            accuracy: 0.5,
+            "Standard mode should align terminal content with cmux's visual titlebar height even when AppKit reports a taller native titlebar zone"
+        )
+
+        XCTAssertEqual(
+            ContentView.effectiveTitlebarPadding(
+                isMinimalMode: true,
+                isFullScreen: true,
+                titlebarPadding: 32,
+                hostingSafeAreaTop: 32
+            ),
+            0,
+            accuracy: 0.5,
+            "Fullscreen minimal mode should not offset for a titlebar"
+        )
+
+        XCTAssertEqual(
+            ContentView.effectiveTitlebarPadding(
+                isMinimalMode: true,
+                isFullScreen: false,
+                titlebarPadding: 32,
+                hostingSafeAreaTop: 0
+            ),
+            0,
+            accuracy: 0.5,
+            "Manually hosted minimal windows already have zero safe area, so the Bonsplit strip must not be pulled offscreen"
+        )
+
+        XCTAssertEqual(
+            ContentView.effectiveTitlebarPadding(
+                isMinimalMode: true,
+                isFullScreen: false,
+                titlebarPadding: 32,
+                hostingSafeAreaTop: 28
+            ),
+            -28,
+            accuracy: 0.5,
+            "SwiftUI WindowGroup windows still need their native titlebar safe area cancelled"
+        )
+    }
+
+    func testNotificationsPopoverVisibilityIsScopedByWindow() {
+        let state = NotificationsPopoverVisibilityState.shared
+        state.resetForTesting()
+        defer { state.resetForTesting() }
+
+        let firstPopover = NSObject()
+        let secondPopover = NSObject()
+
+        state.setShown(true, source: firstPopover, windowNumber: 101)
+        XCTAssertTrue(state.isShown)
+        XCTAssertTrue(state.isShown(in: 101))
+        XCTAssertFalse(state.isShown(in: 202))
+
+        state.setShown(true, source: secondPopover, windowNumber: 202)
+        XCTAssertTrue(state.isShown(in: 101))
+        XCTAssertTrue(state.isShown(in: 202))
+
+        state.setShown(false, source: firstPopover)
+        XCTAssertTrue(state.isShown)
+        XCTAssertFalse(state.isShown(in: 101))
+        XCTAssertTrue(state.isShown(in: 202))
+
+        state.setShown(false, source: secondPopover)
+        XCTAssertFalse(state.isShown)
+        XCTAssertFalse(state.isShown(in: 101))
+        XCTAssertFalse(state.isShown(in: 202))
+    }
+
+    func testWindowChromeTitlebarHeightClampsToSharedRange() {
+        [WindowChromeMetrics.appTitlebarHeight, WindowChromeMetrics.bonsplitTabBarHeight, WindowChromeMetrics.secondaryTitlebarHeight, MinimalModeChromeMetrics.titlebarHeight, RightSidebarChromeMetrics.titlebarHeight, RightSidebarChromeMetrics.secondaryBarHeight].forEach { XCTAssertEqual($0, WindowChromeMetrics.sharedChromeBarHeight) }
+        XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(12), 28)
+        XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(32), 32)
+        XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(96), 72)
+    }
+
+    func testMinimalModeCollapsedSidebarResyncsTrafficLightInsetAfterNewWorkspaceCreation() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer {
+            restoreDefaultsValue(savedMode, forKey: WorkspacePresentationModeSettings.modeKey, defaults: defaults)
+        }
+
+        let snapshot = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
+            sidebar: SessionSidebarSnapshot(isVisible: false, selection: .tabs, width: nil)
+        )
+        let windowId = appDelegate.createMainWindow(sessionWindowSnapshot: snapshot)
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected tab manager for created window")
+            return
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+
+        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: windowId), false)
+
+        guard let sourceWorkspace = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
+            return
+        }
+
+        // Recreate the regression shape: the window chrome state says minimal +
+        // collapsed sidebar, but the selected workspace's live Bonsplit inset is stale.
+        sourceWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset = 0
+
+        guard let newWorkspaceId = appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "test.issue2737") else {
+            XCTFail("Expected workspace creation to route to the test window")
+            return
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+
+        guard let newWorkspace = manager.tabs.first(where: { $0.id == newWorkspaceId }) else {
+            XCTFail("Expected new workspace in test window")
+            return
+        }
+
+        XCTAssertEqual(
+            newWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset,
+            80,
+            accuracy: 0.5,
+            "New minimal-mode workspaces should reserve traffic-light space immediately even when the source workspace inset is stale"
+        )
+    }
+
+    func testMinimalModeCollapsedSidebarSeedsTrafficLightInsetOnNewWindowCreation() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer {
+            restoreDefaultsValue(savedMode, forKey: WorkspacePresentationModeSettings.modeKey, defaults: defaults)
+        }
+
+        // Simulate the new-window flow: createMainWindow with a snapshot that forces
+        // sidebar collapsed. The initial workspace is created inside TabManager.init,
+        // before ContentView.onAppear can run syncTrafficLightInset — so the seed in
+        // createMainWindow is what protects the first render.
+        let snapshot = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
+            sidebar: SessionSidebarSnapshot(isVisible: false, selection: .tabs, width: nil)
+        )
+        let windowId = appDelegate.createMainWindow(sessionWindowSnapshot: snapshot)
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected tab manager for created window")
+            return
+        }
+
+        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: windowId), false)
+
+        guard let initialWorkspace = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace in fresh window")
+            return
+        }
+
+        // No RunLoop spin before reading the inset — the seed must be applied by the
+        // time createMainWindow returns, not lazily after onAppear runs.
+        XCTAssertEqual(
+            initialWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset,
+            80,
+            accuracy: 0.5,
+            "New minimal-mode windows with collapsed sidebar should reserve traffic-light space on the initial workspace before first render"
+        )
+    }
+
+    func testAttachUpdateAccessoryHidesTitlebarAccessoryWhenMinimalModeEnabled() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -1603,22 +2523,29 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let hasTitlebarAccessory: () -> Bool = {
-            window.titlebarAccessoryViewControllers.contains {
+        let titlebarAccessory: () -> NSTitlebarAccessoryViewController? = {
+            window.titlebarAccessoryViewControllers.first {
                 $0.view.identifier?.rawValue == "cmux.titlebarControls"
             }
         }
 
-        XCTAssertTrue(hasTitlebarAccessory(), "Expected visible-titlebar mode to attach the titlebar accessory")
+        guard let initialAccessory = titlebarAccessory() else {
+            XCTFail("Expected visible-titlebar mode to attach the titlebar accessory")
+            return
+        }
+        XCTAssertFalse(initialAccessory.isHidden, "Expected visible-titlebar mode to show the titlebar accessory")
 
         defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
         appDelegate.attachUpdateAccessory(to: window)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertFalse(
-            hasTitlebarAccessory(),
-            "Minimal mode should remove the titlebar accessory instead of keeping a hidden controller attached"
-        )
+        guard let minimalAccessory = titlebarAccessory() else {
+            XCTFail("Minimal mode should keep a hidden titlebar accessory so shortcut-driven popovers still have a controller")
+            return
+        }
+        XCTAssertTrue(minimalAccessory.isHidden, "Minimal mode should hide titlebar accessories")
+        XCTAssertTrue(minimalAccessory.view.isHidden, "Minimal mode should hide the titlebar accessory view")
+        XCTAssertEqual(minimalAccessory.view.alphaValue, 0, accuracy: 0.01)
     }
 
     func testWorkspaceButtonFadeModeDefaultsOffWhenTitlebarVisible() {
@@ -2167,13 +3094,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
+        let window = makeCommandPaletteShortcutTestWindow()
+        defer { window.close() }
 
         appDelegate.setCommandPaletteVisible(true, for: window)
         defer { appDelegate.setCommandPaletteVisible(false, for: window) }
@@ -2216,13 +3138,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
+        let window = makeCommandPaletteShortcutTestWindow()
+        defer { window.close() }
 
         appDelegate.setCommandPaletteVisible(true, for: window)
         defer { appDelegate.setCommandPaletteVisible(false, for: window) }
@@ -2259,7 +3176,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedPaletteWindow?.windowNumber, window.windowNumber)
     }
 
-    func testCmdFFocusedBrowserKeepsWebContentFirstRouting() {
+    func testCmdFFocusedBrowserOpensBrowserFind() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -2278,6 +3195,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertNotNil(manager.focusedBrowserPanel)
         XCTAssertNil(manager.focusedBrowserPanel?.searchState)
+        let initialMode = appDelegate.fileExplorerState?.mode
 
         guard let event = makeKeyDownEvent(
             key: "f",
@@ -2290,15 +3208,238 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertFalse(
+        XCTAssertTrue(
             appDelegate.debugHandleCustomShortcut(event: event),
-            "Cmd+F should fall through so browser web content gets first chance"
+            "Cmd+F should open browser find when browser web content is focused"
         )
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-        XCTAssertNil(manager.focusedBrowserPanel?.searchState)
+        XCTAssertNotNil(manager.focusedBrowserPanel?.searchState)
+        XCTAssertEqual(appDelegate.fileExplorerState?.mode, initialMode)
+    }
+
+    func testOmnibarArrowSelectionUsesResponderResolvedPanelWhenTrackedFocusWasCleared() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id) else {
+            XCTFail("Expected focused browser panel")
+            return
+        }
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 8, y: 8, width: 240, height: 24))
+        field.identifier = browserOmnibarTextFieldIdentifier
+        field.panelId = browserPanelId
+        field.stringValue = "example"
+        contentView.addSubview(field)
+        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
+        defer {
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
+            field.removeFromSuperview()
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        XCTAssertNotNil(field.currentEditor())
+
+        NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: browserPanelId)
+
+        let moveExpectation = expectation(
+            description: "Expected omnibar move-selection notification for responder-resolved panel"
+        )
+        var observedPanelId: UUID?
+        var observedDelta: Int?
+        let moveToken = NotificationCenter.default.addObserver(
+            forName: .browserMoveOmnibarSelection,
+            object: nil,
+            queue: nil
+        ) { notification in
+            observedPanelId = notification.object as? UUID
+            observedDelta = notification.userInfo?["delta"] as? Int
+            moveExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(moveToken) }
+
+        guard let downArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 125,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Down Arrow event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: downArrowEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [moveExpectation], timeout: 1.0)
+        XCTAssertEqual(observedPanelId, browserPanelId)
+        XCTAssertEqual(observedDelta, 1)
+    }
+
+    func testOmnibarArrowSelectionDoesNotInterceptMarkedTextComposition() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id) else {
+            XCTFail("Expected focused browser panel")
+            return
+        }
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 8, y: 8, width: 240, height: 24))
+        field.identifier = browserOmnibarTextFieldIdentifier
+        field.panelId = browserPanelId
+        field.stringValue = "ㄉㄚˋ"
+        contentView.addSubview(field)
+        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
+
+        defer {
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
+            field.removeFromSuperview()
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard let fieldEditor = field.currentEditor() as? NSTextView else {
+            XCTFail("Expected omnibar field editor")
+            return
+        }
+        fieldEditor.setMarkedText(
+            "ㄉㄚˋ",
+            selectedRange: NSRange(location: 3, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        XCTAssertTrue(fieldEditor.hasMarkedText())
+        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: browserPanelId)
+
+        let moveExpectation = expectation(
+            description: "Down Arrow belongs to the input method while omnibar marked text is active"
+        )
+        moveExpectation.isInverted = true
+        let moveToken = NotificationCenter.default.addObserver(
+            forName: .browserMoveOmnibarSelection,
+            object: nil,
+            queue: nil
+        ) { notification in
+            guard notification.object as? UUID == browserPanelId else { return }
+            moveExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(moveToken) }
+
+        guard let downArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 125,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Down Arrow event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: downArrowEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [moveExpectation], timeout: 0.1)
+    }
+
+    func testOmnibarArrowSelectionSurvivesTransientWindowFirstResponder() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected focused browser panel")
+            return
+        }
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 8, y: 8, width: 240, height: 24))
+        field.identifier = browserOmnibarTextFieldIdentifier
+        field.panelId = browserPanelId
+        field.stringValue = "example"
+        contentView.addSubview(field)
+        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
+        defer {
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: browserPanelId)
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
+            field.removeFromSuperview()
+        }
+
+        XCTAssertTrue(appDelegate.requestBrowserAddressBarFocus(panelId: browserPanelId))
+        XCTAssertEqual(appDelegate.focusedBrowserAddressBarPanelId(), browserPanelId)
+        _ = window.makeFirstResponder(nil)
+        XCTAssertTrue(window.firstResponder === window)
+
+        let moveExpectation = expectation(
+            description: "Expected omnibar move-selection notification while first responder is transiently the window"
+        )
+        var observedPanelId: UUID?
+        var observedDelta: Int?
+        let moveToken = NotificationCenter.default.addObserver(
+            forName: .browserMoveOmnibarSelection,
+            object: nil,
+            queue: nil
+        ) { notification in
+            observedPanelId = notification.object as? UUID
+            observedDelta = notification.userInfo?["delta"] as? Int
+            moveExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(moveToken) }
+
+        guard let downArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 125,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Down Arrow event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: downArrowEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [moveExpectation], timeout: 1.0)
+        XCTAssertEqual(observedPanelId, browserPanelId)
+        XCTAssertEqual(observedDelta, 1)
     }
 
     func testCmdPhysicalWWithDvorakCharactersDoesNotTriggerClosePanelShortcut() {
@@ -2337,11 +3478,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        withTemporaryShortcut(action: .openSettings, shortcut: .unbound) {
 #if DEBUG
-        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
+        }
         XCTAssertEqual(workspace.panels.count, panelCountBefore)
     }
 
@@ -2570,38 +3713,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
         withTemporaryShortcut(
             action: .triggerFlash,
             shortcut: StoredShortcut(key: "/", command: true, shift: true, option: false, control: false)
         ) {
-            guard let event = NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
+            let event = makeKeyEvent(
                 modifierFlags: [.command, .shift],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
-                context: nil,
                 characters: "?",
                 charactersIgnoringModifiers: "?",
-                isARepeat: false,
                 keyCode: 44 // kVK_ANSI_Slash
-            ) else {
-                XCTFail("Failed to construct Cmd+Shift+/ event")
-                return
-            }
+            )
 
 #if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .triggerFlash))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
         }
     }
@@ -2693,42 +3819,25 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
         withTemporaryShortcut(action: .nextSurface) {
             // Non-US layouts can report "*" (or other symbols) for kVK_ANSI_RightBracket with Shift.
             // Shortcut matching should still allow Cmd+Shift+] via keyCode fallback.
-            guard let event = NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
+            let event = makeKeyEvent(
                 modifierFlags: [.command, .shift],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
-                context: nil,
                 characters: "*",
                 charactersIgnoringModifiers: "*",
-                isARepeat: false,
                 keyCode: 30 // kVK_ANSI_RightBracket
-            ) else {
-                XCTFail("Failed to construct non-US Cmd+Shift+] event")
-                return
-            }
+            )
 
 #if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .nextSurface))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
         }
     }
 
-    func testCmdPhysicalOWithDvorakCharactersTriggersRenameTabShortcut() {
+    func testConfiguredCmdPhysicalOWithDvorakCharactersTriggersRenameTabShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -2860,7 +3969,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedSwitcherWindow?.windowNumber, window.windowNumber)
     }
 
-    func testCmdShiftRRequestsRenameWorkspaceInCommandPalette() {
+    func testConfiguredCmdShiftRRequestsRenameWorkspaceInCommandPalette() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -2922,7 +4031,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedWorkspaceWindow?.windowNumber, window.windowNumber)
     }
 
-    func testCmdShiftERequestsEditWorkspaceDescriptionInCommandPalette() {
+    func testCmdOptionERequestsEditWorkspaceDescriptionInCommandPalette() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -2953,7 +4062,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(descriptionToken) }
 
-        let renameWorkspaceExpectation = expectation(description: "Rename workspace notification should not fire for Cmd+Shift+E")
+        let renameWorkspaceExpectation = expectation(description: "Rename workspace notification should not fire for Cmd+Option+E")
         renameWorkspaceExpectation.isInverted = true
         let renameWorkspaceToken = NotificationCenter.default.addObserver(
             forName: .commandPaletteRenameWorkspaceRequested,
@@ -2966,11 +4075,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         guard let event = makeKeyDownEvent(
             key: "e",
-            modifiers: [.command, .shift],
+            modifiers: [.command, .option],
             keyCode: 14, // kVK_ANSI_E
             windowNumber: window.windowNumber
         ) else {
-            XCTFail("Failed to construct Cmd+Shift+E event")
+            XCTFail("Failed to construct Cmd+Option+E event")
             return
         }
 
@@ -3005,10 +4114,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             appDelegate.setCommandPaletteVisible(false, for: window)
         }
 
-        let dismissExpectation = expectation(description: "Expected command palette toggle notification for Escape dismiss")
+        let dismissExpectation = expectation(description: "Expected command palette dismiss notification for Escape")
         var observedDismissWindow: NSWindow?
         let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteToggleRequested,
+            forName: .commandPaletteDismissRequested,
             object: nil,
             queue: nil
         ) { notification in
@@ -3070,7 +4179,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         dismissExpectation.isInverted = true
         let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteToggleRequested,
+            forName: .commandPaletteDismissRequested,
             object: nil,
             queue: nil
         ) { notification in
@@ -3121,7 +4230,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let dismissExpectation = expectation(description: "Expected command palette dismiss notification for Escape")
         var observedDismissWindow: NSWindow?
         let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteToggleRequested,
+            forName: .commandPaletteDismissRequested,
             object: nil,
             queue: nil
         ) { notification in
@@ -3175,12 +4284,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected test window")
             return
         }
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        let overlayContainer = NSView(frame: contentView.bounds)
+        let overlayHost = contentView.superview ?? contentView
+        let overlayContainer = NSView(frame: overlayHost.bounds)
         overlayContainer.identifier = commandPaletteOverlayContainerIdentifier
         overlayContainer.alphaValue = 1
         overlayContainer.isHidden = false
-        contentView.addSubview(overlayContainer)
+        overlayHost.addSubview(overlayContainer)
 
         let fieldEditor = CommandPaletteMarkedTextFieldEditor(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
         fieldEditor.isFieldEditor = true
@@ -3208,6 +4320,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             moveExpectation.fulfill()
         }
         defer { NotificationCenter.default.removeObserver(moveToken) }
+
+        window.displayIfNeeded()
+        XCTAssertTrue(
+            window.makeFirstResponder(fieldEditor),
+            "Expected command palette field editor to own first responder"
+        )
 
         guard let downArrowEvent = makeKeyDownEvent(
             key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
@@ -3327,7 +4445,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let dismissExpectation = expectation(description: "Escape should dismiss stale-state command palette after delay")
         var observedDismissWindow: NSWindow?
         let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteToggleRequested,
+            forName: .commandPaletteDismissRequested,
             object: nil,
             queue: nil
         ) { notification in
@@ -3387,7 +4505,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let dismissExpectation = expectation(description: "Escape should dismiss stale-state command palette after extended delay")
         var observedDismissWindow: NSWindow?
         let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteToggleRequested,
+            forName: .commandPaletteDismissRequested,
             object: nil,
             queue: nil
         ) { notification in
@@ -3449,7 +4567,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let dismissExpectation = expectation(description: "No dismiss notification for expired pending-open state")
         dismissExpectation.isInverted = true
         let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteToggleRequested,
+            forName: .commandPaletteDismissRequested,
             object: nil,
             queue: nil
         ) { _ in
@@ -3514,7 +4632,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let dismissExpectation = expectation(description: "Expected command palette dismiss notification for menu-triggered stale visibility")
         var observedDismissWindow: NSWindow?
         let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteToggleRequested,
+            forName: .commandPaletteDismissRequested,
             object: nil,
             queue: nil
         ) { notification in
@@ -3714,7 +4832,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let dismissExpectation = expectation(description: "Escape in another window should not dismiss palette")
         dismissExpectation.isInverted = true
         let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteToggleRequested,
+            forName: .commandPaletteDismissRequested,
             object: nil,
             queue: nil
         ) { _ in
@@ -3965,14 +5083,125 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(activateApplicationCallCount, 1)
     }
 
-    // MARK: - Non-Latin keyboard layout shortcut tests
+    // MARK: - Shortcut settings consultation regression tests
 
-    func testBrowserFirstFindShortcutRoutingRecognizesFindCommandFamily() {
+    func testExampleShortcutRoutingConsultsConfiguredShortcutSettings() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let cases: [(action: KeyboardShortcutSettings.Action, modifiers: NSEvent.ModifierFlags, key: String, keyCode: UInt16)] = [
+            (
+                .toggleRightSidebar,
+                [.command, .option],
+                "b",
+                11
+            ),
+            (
+                .focusRightSidebar,
+                [.command, .shift],
+                "e",
+                14
+            ),
+            (
+                .findInDirectory,
+                [.command, .shift],
+                "f",
+                3
+            ),
+            (
+                .toggleUnread,
+                [.command, .option],
+                "u",
+                32
+            ),
+        ]
+
+        for testCase in cases {
+            var observedActions: [KeyboardShortcutSettings.Action] = []
+            #if DEBUG
+            KeyboardShortcutSettings.shortcutLookupObserver = { action in
+                observedActions.append(action)
+            }
+            #else
+            XCTFail("shortcutLookupObserver is only available in DEBUG")
+            #endif
+
+            guard let event = makeKeyDownEvent(
+                key: testCase.key,
+                modifiers: testCase.modifiers,
+                keyCode: testCase.keyCode,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct \(testCase.action.rawValue) shortcut event")
+                return
+            }
+
+            #if DEBUG
+            _ = appDelegate.debugHandleCustomShortcut(event: event)
+            #else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            #endif
+
+            XCTAssertTrue(
+                observedActions.contains(testCase.action),
+                "\(testCase.action.rawValue) routing must read KeyboardShortcutSettings.shortcut(for:) instead of matching a literal combo"
+            )
+        }
+    }
+
+    func testBrowserFindCommandPreflightConsultsConfiguredFindFamilyShortcuts() {
+        #if DEBUG
+        let cases: [(action: KeyboardShortcutSettings.Action, modifiers: NSEvent.ModifierFlags, key: String, keyCode: UInt16)] = [
+            (.find, [.command], "f", 3),
+            (.findInDirectory, [.command, .shift], "f", 3),
+            (.findNext, [.command], "g", 5),
+            (.findPrevious, [.command, .option], "g", 5),
+            (.hideFind, [.command, .option, .shift], "f", 3),
+            (.useSelectionForFind, [.command], "e", 14),
+        ]
+
+        for testCase in cases {
+            var observedActions: [KeyboardShortcutSettings.Action] = []
+            KeyboardShortcutSettings.shortcutLookupObserver = { action in
+                observedActions.append(action)
+            }
+
+            let event = makeKeyEvent(
+                modifierFlags: testCase.modifiers,
+                characters: testCase.key,
+                charactersIgnoringModifiers: testCase.key,
+                keyCode: testCase.keyCode
+            )
+
+            _ = shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event)
+
+            XCTAssertTrue(
+                observedActions.contains(testCase.action),
+                "Browser find command preflight must read the configured \(testCase.action.rawValue) shortcut instead of matching a literal combo"
+            )
+        }
+        #else
+        XCTFail("shortcutLookupObserver is only available in DEBUG")
+        #endif
+    }
+
+    // MARK: - Browser find shortcut routing tests
+
+    func testBrowserFirstFindShortcutRoutingRecognizesBrowserLocalFindCommandFamily() {
         let cases: [(name: String, modifiers: NSEvent.ModifierFlags, chars: String, keyCode: UInt16)] = [
-            ("cmd-f", [.command], "f", 3),
             ("cmd-g", [.command], "g", 5),
-            ("cmd-shift-g", [.command, .shift], "g", 5),
-            ("cmd-shift-f", [.command, .shift], "f", 3),
+            ("cmd-option-g", [.command, .option], "g", 5),
+            ("cmd-option-shift-f", [.command, .option, .shift], "f", 3),
             ("cmd-e", [.command], "e", 14),
         ]
 
@@ -3990,17 +5219,38 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testBrowserFirstFindShortcutRoutingExcludesAppOwnedFindCommands() {
+        let cases: [(name: String, modifiers: NSEvent.ModifierFlags, chars: String, keyCode: UInt16)] = [
+            ("cmd-f", [.command], "f", 3),
+            ("cmd-shift-f", [.command, .shift], "f", 3),
+        ]
+
+        for testCase in cases {
+            let event = makeKeyEvent(
+                modifierFlags: testCase.modifiers,
+                characters: testCase.chars,
+                charactersIgnoringModifiers: testCase.chars,
+                keyCode: testCase.keyCode
+            )
+
+            XCTAssertFalse(
+                shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event),
+                "\(testCase.name) belongs to cmux find routing, not browser-first routing"
+            )
+        }
+    }
+
     func testBrowserFirstFindShortcutRoutingFallsBackToKeyCodeForNonLatinInput() {
         let event = makeKeyEvent(
             modifierFlags: [.command],
             characters: "",
-            charactersIgnoringModifiers: "а", // Cyrillic a from a non-Latin input source
-            keyCode: 3 // kVK_ANSI_F
+            charactersIgnoringModifiers: "п", // Cyrillic p from a non-Latin input source
+            keyCode: 5 // kVK_ANSI_G
         )
 
         XCTAssertTrue(
             shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event),
-            "Expected browser-first routing to keep Cmd+F eligible under non-Latin input"
+            "Expected browser-first routing to keep Cmd+G eligible under non-Latin input"
         )
     }
 
@@ -4035,9 +5285,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let event = makeKeyEvent(
             modifierFlags: [.command],
-            characters: "f",
-            charactersIgnoringModifiers: "f",
-            keyCode: 3
+            characters: "g",
+            charactersIgnoringModifiers: "g",
+            keyCode: 5
         )
 
         XCTAssertFalse(
@@ -4055,6 +5305,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             ("cmd-w", [.command], "w", 13),
             ("cmd-l", [.command], "l", 37),
             ("cmd-option-f", [.command, .option], "f", 3),
+            ("cmd-shift-g-toggle-react-grab", [.command, .shift], "g", 5),
         ]
 
         for testCase in cases {
@@ -4070,6 +5321,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - Non-Latin keyboard layout shortcut tests
 
     func testCmdTWorksWithRussianKeyboardLayout() {
         guard let appDelegate = AppDelegate.shared else {
@@ -4130,18 +5383,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace else {
-            XCTFail("Expected test window context")
-            return
-        }
-
-        let surfaceCountBefore = workspace.panels.count
-
         // Simulate non-Latin layout where layout translation also fails (returns nil).
         // The ANSI keyCode fallback should still match the physical T key.
         appDelegate.shortcutLayoutCharacterProvider = { _, _ in nil }
@@ -4149,30 +5390,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         }
 
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
+        let event = makeKeyEvent(
             modifierFlags: [.command],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
             characters: "",
             charactersIgnoringModifiers: "е", // Cyrillic е — non-ASCII
-            isARepeat: false,
             keyCode: 17 // kVK_ANSI_T
-        ) else {
-            XCTFail("Failed to construct non-Latin Cmd+T event with failed layout translation")
-            return
-        }
+        )
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event), "Cmd+T should fall back to keyCode with non-Latin layout")
+        XCTAssertTrue(
+            appDelegate.debugMatchesConfiguredShortcut(event: event, action: .newSurface),
+            "Cmd+T should fall back to keyCode with non-Latin layout"
+        )
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertEqual(workspace.panels.count, surfaceCountBefore + 1, "Cmd+T keyCode fallback should create a new surface")
     }
 
     func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() {
@@ -4251,6 +5483,465 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // GhosttyNSView.debugGhosttySurfaceKeyEventObserver seam; the first-
         // responder assertions above act as the Release-build proxy.
         XCTAssertGreaterThan(forwardedKeyDownCount, 0, "Typing repair should forward the keyDown into Ghostty")
+#endif
+    }
+
+    func testWindowPerformKeyEquivalentDefersTerminalPasteMenuMissToGhosttyBindingResolution() {
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+        }
+
+        let emptyMenu = NSMenu(title: "Test")
+        emptyMenu.addItem(withTitle: "Placeholder", action: nil, keyEquivalent: "")
+        NSApp.mainMenu = emptyMenu
+
+        probeWindow.contentView = contentView
+        contentView.addSubview(probeView)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
+
+        guard let event = makeKeyDownEvent(
+            key: "v",
+            modifiers: [.command],
+            keyCode: 9,
+            windowNumber: probeWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+V event")
+            return
+        }
+
+        XCTAssertTrue(
+            probeWindow.performKeyEquivalent(with: event),
+            "Cmd+V menu miss should still route through Ghostty binding resolution"
+        )
+        XCTAssertEqual(probeView.afterMenuMissCallCount, 1, "Ghostty binding resolution should run after the menu miss")
+        XCTAssertEqual(probeView.pasteCallCount, 0, "Window routing must not force paste before Ghostty inspects bindings")
+        XCTAssertEqual(
+            probeView.pasteAsPlainTextCallCount,
+            0,
+            "Window routing must not force plain-text paste before Ghostty inspects bindings"
+        )
+    }
+
+    func testWindowPerformKeyEquivalentForwardsClearedCmdDPastStaleMenuShortcut() {
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let menuProbe = MenuActionProbe()
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+        }
+
+        let staleMenu = NSMenu(title: "Test")
+        let staleSplitItem = NSMenuItem(
+            title: "Split Right",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "d"
+        )
+        staleSplitItem.keyEquivalentModifierMask = [.command]
+        staleSplitItem.target = menuProbe
+        staleMenu.addItem(staleSplitItem)
+        NSApp.mainMenu = staleMenu
+
+        probeWindow.contentView = contentView
+        contentView.addSubview(probeView)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
+
+        guard let event = makeKeyDownEvent(
+            key: "d",
+            modifiers: [.command],
+            keyCode: 2,
+            windowNumber: probeWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+D event")
+            return
+        }
+
+        withTemporaryShortcut(action: .splitRight, shortcut: .unbound) {
+            XCTAssertTrue(
+                probeWindow.performKeyEquivalent(with: event),
+                "Cleared Cmd+D should still be handled by forwarding it to the focused terminal"
+            )
+        }
+
+        XCTAssertEqual(menuProbe.callCount, 0, "A stale menu equivalent must not keep consuming cleared Cmd+D")
+        XCTAssertEqual(probeView.keyDownCallCount, 1, "Cleared Cmd+D should be forwarded into the terminal")
+        XCTAssertEqual(probeView.lastKeyDownCharactersIgnoringModifiers, "d")
+    }
+
+    func testWindowPerformKeyEquivalentSuppressesRemappedCmdDStaleMenuShortcut() {
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let focusableView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let menuProbe = MenuActionProbe()
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+        }
+
+        let staleMenu = NSMenu(title: "Test")
+        let staleSplitItem = NSMenuItem(
+            title: "Split Right",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "d"
+        )
+        staleSplitItem.keyEquivalentModifierMask = [.command]
+        staleSplitItem.target = menuProbe
+        staleMenu.addItem(staleSplitItem)
+        NSApp.mainMenu = staleMenu
+
+        probeWindow.contentView = contentView
+        contentView.addSubview(focusableView)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(probeWindow.makeFirstResponder(focusableView), "Expected probe view to own first responder")
+
+        guard let event = makeKeyDownEvent(
+            key: "d",
+            modifiers: [.command],
+            keyCode: 2,
+            windowNumber: probeWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+D event")
+            return
+        }
+
+        let remappedSplitRight = StoredShortcut(
+            key: "j",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+        withTemporaryShortcut(action: .splitRight, shortcut: remappedSplitRight) {
+            XCTAssertFalse(
+                probeWindow.performKeyEquivalent(with: event),
+                "Remapped Cmd+D should not be consumed by stale cmux menu equivalents"
+            )
+        }
+
+        XCTAssertEqual(menuProbe.callCount, 0, "Cmd+D must not keep splitting after splitRight is remapped")
+    }
+
+    func testCurrentGlobalSearchShortcutIsNotSuppressedAsStaleMenuShortcut() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        guard let event = makeKeyDownEvent(
+            key: "d",
+            modifiers: [.command],
+            keyCode: 2,
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Cmd+D event")
+            return
+        }
+
+        let remappedGlobalSearch = StoredShortcut(
+            key: "d",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+
+        withTemporaryShortcut(action: .globalSearch, shortcut: remappedGlobalSearch) {
+            XCTAssertFalse(
+                appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
+                "Current globalSearch remaps must not be treated as stale menu shortcuts"
+            )
+        }
+    }
+
+    func testCurrentNumberedDigitShortcutIsNotSuppressedAsStaleMenuShortcut() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        guard let event = makeKeyDownEvent(
+            key: "2",
+            modifiers: [.command],
+            keyCode: 19,
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Cmd+2 event")
+            return
+        }
+
+        let remappedWorkspaceNumber = StoredShortcut(
+            key: "1",
+            command: false,
+            shift: false,
+            option: false,
+            control: true
+        )
+        let currentSurfaceNumber = StoredShortcut(
+            key: "1",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+
+        withTemporaryShortcut(action: .selectWorkspaceByNumber, shortcut: remappedWorkspaceNumber) {
+            withTemporaryShortcut(action: .selectSurfaceByNumber, shortcut: currentSurfaceNumber) {
+                XCTAssertFalse(
+                    appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
+                    "A current numbered-digit shortcut must own Cmd+2 before stale menu suppression"
+                )
+            }
+        }
+    }
+
+    func testStaleCloseDefaultShortcutsSuppressMenuFallbackAfterReassignment() {
+        assertStaleCloseDefaultShortcutSuppressesMenuFallback(
+            staleAction: .closeTab,
+            replacementAction: .newTab,
+            replacementShortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: false),
+            remappedStaleShortcut: StoredShortcut(key: "w", command: true, shift: false, option: true, control: false)
+        )
+
+        assertStaleCloseDefaultShortcutSuppressesMenuFallback(
+            staleAction: .closeWorkspace,
+            replacementAction: .newWindow,
+            replacementShortcut: StoredShortcut(key: "w", command: true, shift: true, option: false, control: false),
+            remappedStaleShortcut: StoredShortcut(key: "w", command: true, shift: true, option: true, control: false)
+        )
+
+        assertStaleCloseDefaultShortcutSuppressesMenuFallback(
+            staleAction: .closeWindow,
+            replacementAction: .toggleFullScreen,
+            replacementShortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: true),
+            remappedStaleShortcut: StoredShortcut(key: "w", command: true, shift: false, option: true, control: true)
+        )
+    }
+
+    func testApplicationSendEventRoutesReassignedCmdWBeforeStaleCloseTabMenuEquivalent() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let windowId = appDelegate.createMainWindow()
+        guard let window = appDelegate.windowForMainWindowId(windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let initialSidebarVisible = appDelegate.sidebarVisibility(windowId: windowId) else {
+            closeWindow(withId: windowId)
+            XCTFail("Expected a main window context")
+            return
+        }
+
+        let previousMainMenu = NSApp.mainMenu
+        let menuProbe = MenuActionProbe()
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            closeWindow(withId: windowId)
+        }
+
+        let staleMenu = NSMenu(title: "Test")
+        let staleCloseItem = NSMenuItem(
+            title: "Close Tab",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "w"
+        )
+        staleCloseItem.keyEquivalentModifierMask = [.command]
+        staleCloseItem.target = menuProbe
+        staleMenu.addItem(staleCloseItem)
+        NSApp.mainMenu = staleMenu
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        guard let event = makeKeyDownEvent(
+            key: "w",
+            modifiers: [.command],
+            keyCode: 13,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+W event")
+            return
+        }
+
+        let initialWorkspaceCount = manager.tabs.count
+        let remappedCloseTab = StoredShortcut(key: "w", command: true, shift: false, option: true, control: false)
+        let reassignedSidebarToggle = StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
+
+        withTemporaryShortcut(action: .closeTab, shortcut: remappedCloseTab) {
+            withTemporaryShortcut(action: .toggleSidebar, shortcut: reassignedSidebarToggle) {
+                NSApp.sendEvent(event)
+            }
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertEqual(menuProbe.callCount, 0, "A stale Cmd+W Close Tab menu item must not run after Cmd+W is reassigned")
+        XCTAssertEqual(
+            manager.tabs.count,
+            initialWorkspaceCount,
+            "Plain Cmd+W must not close a tab after Close Tab is remapped away"
+        )
+        XCTAssertEqual(
+            appDelegate.sidebarVisibility(windowId: windowId),
+            !initialSidebarVisible,
+            "The action currently assigned to Cmd+W should run before stale Close Tab menu fallback"
+        )
+    }
+
+    func testApplicationSendEventSuppressesRemappedCmdDStaleMenuShortcut() {
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let focusableView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let menuProbe = MenuActionProbe()
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+        }
+
+        let staleMenu = NSMenu(title: "Test")
+        let staleSplitItem = NSMenuItem(
+            title: "Split Right",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "d"
+        )
+        staleSplitItem.keyEquivalentModifierMask = [.command]
+        staleSplitItem.target = menuProbe
+        staleMenu.addItem(staleSplitItem)
+        NSApp.mainMenu = staleMenu
+
+        probeWindow.contentView = contentView
+        contentView.addSubview(focusableView)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(probeWindow.makeFirstResponder(focusableView), "Expected probe view to own first responder")
+
+        guard let event = makeKeyDownEvent(
+            key: "d",
+            modifiers: [.command],
+            keyCode: 2,
+            windowNumber: probeWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+D event")
+            return
+        }
+
+        let remappedSplitRight = StoredShortcut(
+            key: "j",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+        withTemporaryShortcut(action: .splitRight, shortcut: remappedSplitRight) {
+            NSApp.sendEvent(event)
+        }
+
+        XCTAssertEqual(menuProbe.callCount, 0, "App-level Cmd+D dispatch must not fire a stale split menu item after remap")
+    }
+
+    func testApplicationSendEventRoutesCmdDMenuEquivalentToActiveShortcutRecorder() {
+#if DEBUG
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let recorder = ShortcutRecorderNSButton(frame: NSRect(x: 0, y: 0, width: 160, height: 28))
+        let menuProbe = MenuActionProbe()
+        var recordedShortcut: StoredShortcut?
+
+        defer {
+            KeyboardShortcutRecorderActivity.stopAllRecording()
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+        }
+
+        let menu = NSMenu(title: "Test")
+        let splitItem = NSMenuItem(
+            title: "Split Right",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "d"
+        )
+        splitItem.keyEquivalentModifierMask = [.command]
+        splitItem.target = menuProbe
+        menu.addItem(splitItem)
+        NSApp.mainMenu = menu
+
+        recorder.onShortcutRecorded = { recordedShortcut = $0 }
+        probeWindow.contentView = contentView
+        contentView.addSubview(recorder)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(probeWindow.makeFirstResponder(recorder), "Expected shortcut recorder to own first responder")
+        recorder.performClick(nil)
+        XCTAssertTrue(recorder.debugIsRecording)
+
+        guard let event = makeKeyDownEvent(
+            key: "d",
+            modifiers: [.command],
+            keyCode: 2,
+            windowNumber: probeWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+D event")
+            return
+        }
+
+        withTemporaryShortcut(action: .splitRight) {
+            NSApp.sendEvent(event)
+        }
+
+        XCTAssertEqual(
+            recordedShortcut,
+            StoredShortcut(key: "d", command: true, shift: false, option: false, control: false, keyCode: 2),
+            "Cmd+D must remain recordable while the same menu equivalent is installed"
+        )
+        XCTAssertEqual(menuProbe.callCount, 0, "The menu equivalent must not fire while the recorder is capturing")
+#else
+        XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
 #endif
     }
 
@@ -4335,6 +6026,229 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testTerminalFirstResponderGuardBlocksMoveFocusWhenRightSidebarOwnsKeyboardFocus() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId),
+              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        let strayView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        contentView.addSubview(strayView)
+        defer { strayView.removeFromSuperview() }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+
+        XCTAssertTrue(window.makeFirstResponder(strayView), "Expected a foreign responder before blocking terminal focus")
+        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .feed, in: window)
+
+        XCTAssertFalse(
+            window.makeFirstResponder(terminalView),
+            "Coordinator-owned sidebar focus should block direct terminal first-responder requests"
+        )
+
+        terminalPanel.hostedView.moveFocus()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(window.firstResponder === strayView, "Blocked terminal moveFocus should keep the existing responder intact")
+        XCTAssertFalse(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Blocked terminal moveFocus must not leave the Ghostty surface as first responder"
+        )
+    }
+
+    func testFindShortcutFromFileTreeOpensRightSidebarFind() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        let sidebarResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        contentView.addSubview(sidebarResponder)
+        defer { sidebarResponder.removeFromSuperview() }
+
+        XCTAssertTrue(window.makeFirstResponder(sidebarResponder), "Expected right sidebar responder to take focus")
+        appDelegate.fileExplorerState?.mode = .files
+        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .files, in: window)
+
+        guard let event = makeKeyDownEvent(
+            key: "f",
+            modifiers: [.command],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+F event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertNil(terminalPanel.searchState, "Cmd+F from the file tree should not create terminal search state")
+        XCTAssertEqual(appDelegate.fileExplorerState?.mode, .find)
+    }
+
+    func testFindShortcutFromTerminalOpensTerminalFind() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        waitUntil(timeout: 1.0) {
+            terminalPanel.hostedView.isSurfaceViewFirstResponder()
+        }
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before Cmd+F"
+        )
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: terminalPanel.id, in: window)
+
+        guard let event = makeKeyDownEvent(
+            key: "f",
+            modifiers: [.command],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+F event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        waitUntil(timeout: 1.0) {
+            terminalPanel.searchState != nil
+        }
+        XCTAssertNotNil(terminalPanel.searchState, "Cmd+F from terminal focus should create terminal search state")
+    }
+
+    func testFindShortcutFromOtherRightSidebarModeDoesNotStealFocus() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        let sidebarResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        contentView.addSubview(sidebarResponder)
+        defer { sidebarResponder.removeFromSuperview() }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(window.makeFirstResponder(sidebarResponder), "Expected right sidebar responder to take focus")
+        appDelegate.fileExplorerState?.mode = .feed
+        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .feed, in: window)
+        XCTAssertFalse(
+            appDelegate.allowsTerminalKeyboardFocus(
+                workspaceId: workspace.id,
+                panelId: terminalPanel.id,
+                in: window
+            ),
+            "Right sidebar ownership should block direct terminal focus before Cmd+F"
+        )
+
+        guard let event = makeKeyDownEvent(
+            key: "f",
+            modifiers: [.command],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+F event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertFalse(
+            appDelegate.allowsTerminalKeyboardFocus(
+                workspaceId: workspace.id,
+                panelId: terminalPanel.id,
+                in: window
+            ),
+            "Cmd+F should keep keyboard ownership in the existing right sidebar section"
+        )
+        XCTAssertNil(terminalPanel.searchState, "Cmd+F should not create terminal search state")
+        XCTAssertEqual(appDelegate.fileExplorerState?.mode, .feed)
+        XCTAssertFalse(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Cmd+F from a non-file right sidebar mode should not refocus the terminal responder"
+        )
+    }
+
     func testWindowSendEventRepairsFocusedTerminalSearchTypingAfterResponderDrift() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -4403,6 +6317,38 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(searchField.stringValue, "a", "Typing repair should preserve the first key in the search field")
     }
 
+    private func makeRegisteredShortcutRoutingWindow(id: UUID) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        return window
+    }
+
+    private func closeRegisteredShortcutRoutingWindow(_ window: NSWindow, id: UUID) {
+        AppDelegate.shared?.unregisterMainWindowContextForTesting(windowId: id)
+        window.orderOut(nil)
+        window.close()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    @discardableResult
+    private func waitForCondition(
+        timeout: TimeInterval = 1.0,
+        interval: TimeInterval = 0.01,
+        _ condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: interval))
+        }
+        return condition()
+    }
+
     private func makeKeyDownEvent(
         key: String,
         modifiers: NSEvent.ModifierFlags,
@@ -4417,6 +6363,23 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             keyCode: keyCode,
             windowNumber: windowNumber,
             isARepeat: isARepeat
+        )
+    }
+
+    private func makeKeyDownEvent(
+        shortcut: StoredShortcut,
+        windowNumber: Int
+    ) -> NSEvent? {
+        guard !shortcut.isUnbound,
+              !shortcut.hasChord,
+              let keyCode = shortcut.firstStroke.resolvedKeyCode() else {
+            return nil
+        }
+        return makeKeyDownEvent(
+            key: shortcut.menuItemKeyEquivalent ?? shortcut.key,
+            modifiers: shortcut.modifierFlags,
+            keyCode: keyCode,
+            windowNumber: windowNumber
         )
     }
 
@@ -4455,9 +6418,58 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             } else {
                 KeyboardShortcutSettings.resetShortcut(for: action)
             }
+            #if DEBUG
+            AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+            #endif
         }
         KeyboardShortcutSettings.setShortcut(shortcut ?? action.defaultShortcut, for: action)
+        #if DEBUG
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        #endif
         body()
+    }
+
+    private func makeCommandPaletteShortcutTestWindow() -> NSWindow {
+        let windowId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 160, height: 120),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        return window
+    }
+
+    private func assertStaleCloseDefaultShortcutSuppressesMenuFallback(
+        staleAction: KeyboardShortcutSettings.Action,
+        replacementAction: KeyboardShortcutSettings.Action,
+        replacementShortcut: StoredShortcut,
+        remappedStaleShortcut: StoredShortcut,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared", file: file, line: line)
+            return
+        }
+        guard let event = makeKeyDownEvent(shortcut: replacementShortcut, windowNumber: 0) else {
+            XCTFail("Failed to construct reassigned close-default shortcut event", file: file, line: line)
+            return
+        }
+
+        withTemporaryShortcut(action: staleAction, shortcut: remappedStaleShortcut) {
+            withTemporaryShortcut(action: replacementAction, shortcut: replacementShortcut) {
+                XCTAssertTrue(
+                    appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
+                    "\(staleAction.rawValue) should suppress its stale default menu fallback after that key is reassigned",
+                    file: file,
+                    line: line
+                )
+            }
+        }
     }
 
     private func assertEscapeKeyUpIsConsumedAfterCommandPaletteOpenRequest(
@@ -4572,8 +6584,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     private func closeWindow(withId windowId: UUID) {
         guard let window = window(withId: windowId) else { return }
+        let appDelegate = AppDelegate.shared
+        let originalConfirmationHandler = appDelegate?.debugCloseMainWindowConfirmationHandler
+        appDelegate?.debugCloseMainWindowConfirmationHandler = { _ in true }
+        defer { appDelegate?.debugCloseMainWindowConfirmationHandler = originalConfirmationHandler }
         window.performClose(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
     }
 
     private func restoreDefaultsValue(_ value: Any?, forKey key: String, defaults: UserDefaults) {

@@ -40,6 +40,7 @@ fi
         # interactive command executes.
         builtin export CMUX_ZSH_RESTORE_TERM="$TERM"
         builtin export TERM="xterm-ghostty"
+        builtin typeset -g _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=1
     fi
 } always {
     if [[ -o interactive ]]; then

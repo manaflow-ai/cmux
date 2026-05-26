@@ -4,6 +4,7 @@ import { Resend } from "resend";
 import { z } from "zod";
 
 import { env } from "@/app/env";
+import { recordSpanError, setSpanAttributes, withApiRouteSpan } from "../../../services/telemetry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,129 +47,150 @@ type PreparedAttachment = {
   size: number;
 };
 
+type PrepareAttachmentsResult =
+  | { attachments: PreparedAttachment[] }
+  | { errorResponse: Response };
+
 export async function POST(request: Request) {
-  const feedbackConfig = resolveFeedbackConfig();
-  if (!feedbackConfig) {
-    return jsonError("Feedback endpoint is not configured", 503);
-  }
+  return withApiRouteSpan(
+    request,
+    "/api/feedback",
+    { "cmux.subsystem": "feedback", "cmux.feedback.operation": "send" },
+    async (span): Promise<Response> => {
+      const feedbackConfig = resolveFeedbackConfig();
+      if (!feedbackConfig) {
+        return jsonError("Feedback endpoint is not configured", 503);
+      }
 
-  if (process.env.VERCEL === "1") {
-    const { error, rateLimited } = await checkRateLimit(
-      feedbackConfig.rateLimitId,
-      { request },
-    );
+      if (process.env.VERCEL === "1") {
+        const { error, rateLimited } = await checkRateLimit(
+          feedbackConfig.rateLimitId,
+          { request },
+        );
 
-    if (rateLimited || error === "blocked") {
-      return jsonError("Rate limit exceeded", 429);
-    }
+        setSpanAttributes(span, { "cmux.rate_limited": rateLimited || error === "blocked" });
+        if (rateLimited || error === "blocked") {
+          return jsonError("Rate limit exceeded", 429);
+        }
 
-    if (error === "not-found") {
-      console.error(
-        "feedback.route.rate_limit_not_found",
-        feedbackConfig.rateLimitId,
+        if (error === "not-found") {
+          console.error(
+            "feedback.route.rate_limit_not_found",
+            feedbackConfig.rateLimitId,
+          );
+        } else if (error) {
+          console.error("feedback.route.rate_limit_error", error);
+        }
+      }
+
+      let formData: FormData;
+      try {
+        formData = await request.formData();
+      } catch {
+        return jsonError("Invalid multipart payload", 400);
+      }
+
+      const parsed = feedbackSchema.safeParse({
+        email: getString(formData, "email"),
+        message: getString(formData, "message"),
+        appVersion: getString(formData, "appVersion"),
+        appBuild: getString(formData, "appBuild"),
+        appCommit: getString(formData, "appCommit"),
+        bundleIdentifier: getString(formData, "bundleIdentifier"),
+        osVersion: getString(formData, "osVersion"),
+        locale: getString(formData, "locale"),
+        hardwareModel: getString(formData, "hardwareModel"),
+        chip: getString(formData, "chip"),
+        memoryGB: getString(formData, "memoryGB"),
+        architecture: getString(formData, "architecture"),
+        displayInfo: getString(formData, "displayInfo"),
+      });
+
+      if (!parsed.success) {
+        return jsonError("Invalid feedback payload", 400);
+      }
+      setSpanAttributes(span, {
+        "cmux.feedback.message_length": parsed.data.message.length,
+        "cmux.feedback.app_version_set": parsed.data.appVersion.length > 0,
+      });
+
+      const attachmentsResult = await prepareAttachments(
+        formData.getAll("attachments"),
       );
-    } else if (error) {
-      console.error("feedback.route.rate_limit_error", error);
-    }
-  }
+      if ("errorResponse" in attachmentsResult) {
+        return attachmentsResult.errorResponse;
+      }
 
-  let formData: FormData;
-  try {
-    formData = await request.formData();
-  } catch {
-    return jsonError("Invalid multipart payload", 400);
-  }
+      const {
+        appBuild, appCommit, appVersion, architecture, bundleIdentifier, chip,
+        displayInfo, email, hardwareModel, locale, memoryGB, message, osVersion,
+      } = parsed.data;
+      const subject = buildSubject(email, message, appVersion);
+      const attachments = attachmentsResult.attachments;
+      setSpanAttributes(span, {
+        "cmux.feedback.attachment_count": attachments.length,
+        "cmux.feedback.attachment_bytes": attachments.reduce((sum, attachment) => sum + attachment.size, 0),
+      });
+      const resend = new Resend(feedbackConfig.resendApiKey);
 
-  const parsed = feedbackSchema.safeParse({
-    email: getString(formData, "email"),
-    message: getString(formData, "message"),
-    appVersion: getString(formData, "appVersion"),
-    appBuild: getString(formData, "appBuild"),
-    appCommit: getString(formData, "appCommit"),
-    bundleIdentifier: getString(formData, "bundleIdentifier"),
-    osVersion: getString(formData, "osVersion"),
-    locale: getString(formData, "locale"),
-    hardwareModel: getString(formData, "hardwareModel"),
-    chip: getString(formData, "chip"),
-    memoryGB: getString(formData, "memoryGB"),
-    architecture: getString(formData, "architecture"),
-    displayInfo: getString(formData, "displayInfo"),
-  });
+      const { error } = await resend.emails.send({
+        from: `Manaflow <${feedbackConfig.fromEmail}>`,
+        to: [feedbackRecipient],
+        replyTo: email,
+        subject,
+        text: buildTextBody({
+          email,
+          message,
+          appVersion,
+          appBuild,
+          appCommit,
+          bundleIdentifier,
+          osVersion,
+          locale,
+          hardwareModel,
+          chip,
+          memoryGB,
+          architecture,
+          displayInfo,
+          attachments,
+        }),
+        html: buildHtmlBody({
+          email,
+          message,
+          appVersion,
+          appBuild,
+          appCommit,
+          bundleIdentifier,
+          osVersion,
+          locale,
+          hardwareModel,
+          chip,
+          memoryGB,
+          architecture,
+          displayInfo,
+          attachments,
+        }),
+        attachments: attachments.map((attachment) => ({
+          content: attachment.content,
+          contentType: attachment.contentType,
+          filename: attachment.filename,
+        })),
+      });
 
-  if (!parsed.success) {
-    return jsonError("Invalid feedback payload", 400);
-  }
+      if (error) {
+        recordSpanError(span, error);
+        console.error("feedback.route.resend_failed", error);
+        return jsonError("Failed to send feedback", 502);
+      }
 
-  const attachmentsResult = await prepareAttachments(
-    formData.getAll("attachments"),
-  );
-  if ("errorResponse" in attachmentsResult) {
-    return attachmentsResult.errorResponse;
-  }
-
-  const {
-    appBuild, appCommit, appVersion, architecture, bundleIdentifier, chip,
-    displayInfo, email, hardwareModel, locale, memoryGB, message, osVersion,
-  } = parsed.data;
-  const subject = buildSubject(email, message, appVersion);
-  const attachments = attachmentsResult.attachments;
-  const resend = new Resend(feedbackConfig.resendApiKey);
-
-  const { error } = await resend.emails.send({
-    from: `Manaflow <${feedbackConfig.fromEmail}>`,
-    to: [feedbackRecipient],
-    replyTo: email,
-    subject,
-    text: buildTextBody({
-      email,
-      message,
-      appVersion,
-      appBuild,
-      appCommit,
-      bundleIdentifier,
-      osVersion,
-      locale,
-      hardwareModel,
-      chip,
-      memoryGB,
-      architecture,
-      displayInfo,
-      attachments,
-    }),
-    html: buildHtmlBody({
-      email,
-      message,
-      appVersion,
-      appBuild,
-      appCommit,
-      bundleIdentifier,
-      osVersion,
-      locale,
-      hardwareModel,
-      chip,
-      memoryGB,
-      architecture,
-      displayInfo,
-      attachments,
-    }),
-    attachments: attachments.map((attachment) => ({
-      content: attachment.content,
-      contentType: attachment.contentType,
-      filename: attachment.filename,
-    })),
-  });
-
-  if (error) {
-    console.error("feedback.route.resend_failed", error);
-    return jsonError("Failed to send feedback", 502);
-  }
-
-  return NextResponse.json(
-    { ok: true },
-    {
-      headers: {
-        "Cache-Control": "no-store",
-      },
+      return NextResponse.json(
+        { ok: true },
+        {
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
+      );
     },
   );
 }
@@ -194,7 +216,7 @@ function getString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-async function prepareAttachments(values: FormDataEntryValue[]) {
+async function prepareAttachments(values: FormDataEntryValue[]): Promise<PrepareAttachmentsResult> {
   const files = values.filter(
     (value): value is File => value instanceof File && value.name.length > 0,
   );

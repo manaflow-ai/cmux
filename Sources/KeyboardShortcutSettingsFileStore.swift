@@ -7,13 +7,12 @@ final class KeyboardShortcutSettingsObserver: ObservableObject {
 
     @Published private(set) var revision: UInt64 = 0
 
-    private var cancellable: AnyCancellable?
+    private var settingsCancellable: AnyCancellable?
+    private var recorderCancellable: AnyCancellable?
 
     private init(notificationCenter: NotificationCenter = .default) {
-        cancellable = notificationCenter.publisher(for: KeyboardShortcutSettings.didChangeNotification)
-            .sink { [weak self] _ in
-                self?.revision &+= 1
-            }
+        settingsCancellable = notificationCenter.publisher(for: KeyboardShortcutSettings.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.revision &+= 1 }
+        recorderCancellable = notificationCenter.publisher(for: KeyboardShortcutRecorderActivity.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.revision &+= 1 }
     }
 }
 
@@ -21,19 +20,24 @@ final class CmuxSettingsFileStore {
     static let shared = CmuxSettingsFileStore()
 
     static let currentSchemaVersion = 1
-    static let schemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json"
-
+    static let schemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
+    private static let legacySchemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json"
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
-    fileprivate static let trustedDirectoriesBackupIdentifier = "customCommands.trustedDirectories"
+    private static let importedManagedDefaultsDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
     fileprivate static let socketPasswordBackupIdentifier = "automation.socketPassword"
 
     static var defaultPrimaryPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return (home as NSString).appendingPathComponent(".config/cmux/settings.json")
+        return (home as NSString).appendingPathComponent(".config/cmux/cmux.json")
     }
 
     static var defaultFallbackPath: String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return (home as NSString).appendingPathComponent(".config/cmux/settings.json")
+    }
+
+    static var defaultApplicationSupportFallbackPath: String? {
         guard let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -47,37 +51,44 @@ final class CmuxSettingsFileStore {
     }
 
     private let primaryPath: String
-    private let fallbackPath: String?
+    private let fallbackPaths: [String]
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
     private let stateLock = NSLock()
 
     private var primaryWatcher: ShortcutSettingsFileWatcher?
-    private var fallbackWatcher: ShortcutSettingsFileWatcher?
+    private var fallbackWatchers: [ShortcutSettingsFileWatcher] = []
     private var defaultsCancellable: AnyCancellable?
-    private var trustObserver: NSObjectProtocol?
     private var socketPasswordObserver: NSObjectProtocol?
 
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
+    private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
     private var activeManagedCustomSettings = ManagedCustomSettings()
     private var isApplyingManagedSettings = false
+    private var deferredManagedDefaultSideEffects = ManagedDefaultBatchSideEffects()
     private(set) var activeSourcePath: String?
 
     init(
         primaryPath: String = CmuxSettingsFileStore.defaultPrimaryPath,
         fallbackPath: String? = CmuxSettingsFileStore.defaultFallbackPath,
+        additionalFallbackPaths: [String] = [CmuxSettingsFileStore.defaultApplicationSupportFallbackPath].compactMap { $0 },
         fileManager: FileManager = .default,
         notificationCenter: NotificationCenter = .default,
         startWatching: Bool = true
     ) {
         self.primaryPath = primaryPath
-        self.fallbackPath = fallbackPath
+        self.fallbackPaths = ([fallbackPath].compactMap { $0 } + additionalFallbackPaths)
+            .filter { $0 != primaryPath }
         self.fileManager = fileManager
         self.notificationCenter = notificationCenter
+        importedManagedDefaults = Self.loadImportedManagedDefaults()
 
         bootstrapPrimaryTemplateIfNeeded()
-        reload()
+        // The app init path loads cmux.json before applying language/appearance
+        // itself. Running live default side effects here can initialize UI/runtime
+        // singletons while this store singleton is still in its dispatch_once.
+        reload(applyLiveDefaultSideEffects: false)
         guard startWatching else { return }
 
         primaryWatcher = ShortcutSettingsFileWatcher(path: primaryPath, fileManager: fileManager) { [weak self] in
@@ -85,60 +96,66 @@ final class CmuxSettingsFileStore {
                 self?.reload()
             }
         }
-        if let fallbackPath {
-            fallbackWatcher = ShortcutSettingsFileWatcher(path: fallbackPath, fileManager: fileManager) { [weak self] in
+        fallbackWatchers = fallbackPaths.map { fallbackPath in
+            ShortcutSettingsFileWatcher(path: fallbackPath, fileManager: fileManager) { [weak self] in
                 DispatchQueue.main.async {
                     self?.reload()
                 }
             }
         }
 
-        defaultsCancellable = notificationCenter.publisher(for: UserDefaults.didChangeNotification)
-            .sink { [weak self] _ in
-                self?.reapplyManagedSettingsIfNeeded()
-            }
-        trustObserver = notificationCenter.addObserver(
-            forName: CmuxDirectoryTrust.didChangeNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            self?.reapplyManagedSettingsIfNeeded()
-        }
-        socketPasswordObserver = notificationCenter.addObserver(
-            forName: SocketControlPasswordStore.didChangeNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
+        defaultsCancellable = notificationCenter.publisher(for: UserDefaults.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.reapplyManagedSettingsIfNeeded() }
+        socketPasswordObserver = notificationCenter.addObserver(forName: SocketControlPasswordStore.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.reapplyManagedSettingsIfNeeded()
         }
     }
 
     deinit {
         primaryWatcher?.stop()
-        fallbackWatcher?.stop()
+        fallbackWatchers.forEach { $0.stop() }
         defaultsCancellable?.cancel()
-        if let trustObserver {
-            notificationCenter.removeObserver(trustObserver)
-        }
         if let socketPasswordObserver {
             notificationCenter.removeObserver(socketPasswordObserver)
         }
     }
 
     func reload() {
-        let previousShortcuts = synchronized { shortcutsByAction }
-        let previousActiveSourcePath = synchronized { activeSourcePath }
+        reload(applyLiveDefaultSideEffects: true)
+    }
+
+    func applyDeferredManagedDefaultSideEffects() {
+        applyManagedDefaultBatchSideEffects(drainDeferredManagedDefaultSideEffects())
+    }
+
+    private func reload(applyLiveDefaultSideEffects: Bool) {
+        let previousState = synchronized {
+            (
+                shortcuts: shortcutsByAction,
+                importedManagedDefaults: importedManagedDefaults,
+                sourcePath: activeSourcePath
+            )
+        }
         let resolved = resolveSettings()
-        applyManagedSettings(snapshot: resolved)
+        applyManagedSettings(
+            snapshot: resolved,
+            importedManagedDefaults: previousState.importedManagedDefaults,
+            changedManagedDefaultKeys: newOrChangedManagedDefaultKeys(
+                previous: previousState.importedManagedDefaults,
+                next: resolved.managedUserDefaults
+            ),
+            applyLiveDefaultSideEffects: applyLiveDefaultSideEffects
+        )
         synchronized {
             shortcutsByAction = resolved.shortcuts
             activeManagedUserDefaults = resolved.managedUserDefaults
+            importedManagedDefaults = resolved.managedUserDefaults
             activeManagedCustomSettings = resolved.managedCustomSettings
             activeSourcePath = resolved.path
         }
+        saveImportedManagedDefaults(resolved.managedUserDefaults)
 
-        if previousShortcuts != resolved.shortcuts || previousActiveSourcePath != resolved.path {
-            KeyboardShortcutSettings.notifySettingsFileDidChange()
+        if previousState.shortcuts != resolved.shortcuts || previousState.sourcePath != resolved.path {
+            KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
         }
     }
 
@@ -151,30 +168,16 @@ final class CmuxSettingsFileStore {
     }
 
     func settingsFileURLForEditing() -> URL {
-        if let activeSourcePath = synchronized({ activeSourcePath }) {
-            return URL(fileURLWithPath: activeSourcePath)
-        }
-
         bootstrapPrimaryTemplateIfNeeded()
-        reload()
-
-        if let activeSourcePath = synchronized({ activeSourcePath }) {
-            return URL(fileURLWithPath: activeSourcePath)
-        }
-
         return URL(fileURLWithPath: primaryPath)
     }
 
     func settingsFileDisplayPath() -> String {
-        let path = synchronized { activeSourcePath } ?? primaryPath
-        return (path as NSString).abbreviatingWithTildeInPath
+        (primaryPath as NSString).abbreviatingWithTildeInPath
     }
 
     private func bootstrapPrimaryTemplateIfNeeded() {
         guard !fileManager.fileExists(atPath: primaryPath) else { return }
-        if let fallbackPath, fileManager.fileExists(atPath: fallbackPath) {
-            return
-        }
 
         let fileURL = URL(fileURLWithPath: primaryPath)
         let directoryURL = fileURL.deletingLastPathComponent()
@@ -185,29 +188,55 @@ final class CmuxSettingsFileStore {
                 withIntermediateDirectories: true,
                 attributes: [.posixPermissions: 0o755]
             )
-            let template = Self.defaultTemplate()
-            try template.write(to: fileURL, atomically: true, encoding: .utf8)
+            let contents = legacySettingsDataForBootstrap() ?? Data(Self.defaultTemplate().utf8)
+            try contents.write(to: fileURL, options: [.atomic])
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         } catch {
             NSLog("[CmuxSettingsFileStore] failed to bootstrap %@: %@", primaryPath, String(describing: error))
         }
     }
 
+    private func legacySettingsDataForBootstrap() -> Data? {
+        for fallbackPath in fallbackPaths {
+            guard let data = fileManager.contents(atPath: fallbackPath), !data.isEmpty else {
+                continue
+            }
+            guard case .parsed = loadSettings(at: fallbackPath) else {
+                continue
+            }
+            guard let source = String(data: data, encoding: .utf8) else {
+                return data
+            }
+            let updated = source.replacingOccurrences(of: Self.legacySchemaURLString, with: Self.schemaURLString)
+            return Data(updated.utf8)
+        }
+        return nil
+    }
+
     private func reapplyManagedSettingsIfNeeded() {
-        let snapshot: ResolvedSettingsSnapshot? = synchronized {
+        let managedState: (snapshot: ResolvedSettingsSnapshot, importedManagedDefaults: [String: ManagedSettingsValue])? = synchronized {
             guard !isApplyingManagedSettings else { return nil }
             if activeManagedUserDefaults.isEmpty && activeManagedCustomSettings.isEmpty {
                 return nil
             }
-            return ResolvedSettingsSnapshot(
-                path: activeSourcePath,
-                shortcuts: shortcutsByAction,
-                managedUserDefaults: activeManagedUserDefaults,
-                managedCustomSettings: activeManagedCustomSettings
+            return (
+                ResolvedSettingsSnapshot(
+                    path: activeSourcePath,
+                    shortcuts: shortcutsByAction,
+                    managedUserDefaults: activeManagedUserDefaults,
+                    managedCustomSettings: activeManagedCustomSettings
+                ),
+                importedManagedDefaults
             )
         }
-        guard let snapshot else { return }
-        applyManagedSettings(snapshot: snapshot, updateBackups: false)
+        guard let managedState else { return }
+        applyManagedSettings(
+            snapshot: managedState.snapshot,
+            importedManagedDefaults: managedState.importedManagedDefaults,
+            changedManagedDefaultKeys: [],
+            updateBackups: false,
+            applyLiveDefaultSideEffects: true
+        )
     }
 
     private func synchronized<T>(_ body: () -> T) -> T {
@@ -216,9 +245,20 @@ final class CmuxSettingsFileStore {
         return body()
     }
 
+    // Only keys present in the next snapshot can force-apply; removed keys restore backups instead.
+    private func newOrChangedManagedDefaultKeys(
+        previous: [String: ManagedSettingsValue],
+        next: [String: ManagedSettingsValue]
+    ) -> Set<String> {
+        Set(next.compactMap { key, value in
+            previous[key] == value ? nil : key
+        })
+    }
+
     private func resolveSettings() -> ResolvedSettingsSnapshot {
         switch loadSettings(at: primaryPath) {
-        case .parsed(let snapshot):
+        case .parsed(var snapshot):
+            mergeFallbackSettings(into: &snapshot)
             return snapshot
         case .invalid:
             return ResolvedSettingsSnapshot(path: primaryPath)
@@ -226,17 +266,17 @@ final class CmuxSettingsFileStore {
             break
         }
 
-        guard let fallbackPath else {
-            return ResolvedSettingsSnapshot(path: nil)
-        }
+        var fallbackSnapshot = ResolvedSettingsSnapshot(path: nil)
+        mergeFallbackSettings(into: &fallbackSnapshot)
+        return fallbackSnapshot
+    }
 
-        switch loadSettings(at: fallbackPath) {
-        case .parsed(let snapshot):
-            return snapshot
-        case .invalid:
-            return ResolvedSettingsSnapshot(path: fallbackPath)
-        case .missing:
-            return ResolvedSettingsSnapshot(path: nil)
+    private func mergeFallbackSettings(into snapshot: inout ResolvedSettingsSnapshot) {
+        for fallbackPath in fallbackPaths {
+            guard case .parsed(let fallbackSnapshot) = loadSettings(at: fallbackPath) else {
+                continue
+            }
+            snapshot.fillMissingSettings(from: fallbackSnapshot)
         }
     }
 
@@ -282,6 +322,9 @@ final class CmuxSettingsFileStore {
         if let appSection = root["app"] as? [String: Any] {
             parseAppSection(appSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let terminalSection = root["terminal"] as? [String: Any] {
+            parseTerminalSection(terminalSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let notificationsSection = root["notifications"] as? [String: Any] {
             parseNotificationsSection(notificationsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -296,9 +339,6 @@ final class CmuxSettingsFileStore {
         }
         if let automationSection = root["automation"] as? [String: Any] {
             parseAutomationSection(automationSection, sourcePath: sourcePath, snapshot: &snapshot)
-        }
-        if let customCommandsSection = root["customCommands"] as? [String: Any] {
-            parseCustomCommandsSection(customCommandsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
         if let browserSection = root["browser"] as? [String: Any] {
             parseBrowserSection(browserSection, sourcePath: sourcePath, snapshot: &snapshot)
@@ -338,12 +378,20 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[AppIconSettings.modeKey] = .string(mode.rawValue)
         }
+        if let value = jsonBool(section["menuBarOnly"]) {
+            snapshot.managedUserDefaults[MenuBarOnlySettings.menuBarOnlyKey] = .bool(value)
+        }
         if let raw = jsonString(section["newWorkspacePlacement"]) {
             guard let placement = NewWorkspacePlacement(rawValue: raw) else {
                 logInvalid("app.newWorkspacePlacement", sourcePath: sourcePath)
                 return
             }
             snapshot.managedUserDefaults[WorkspacePlacementSettings.placementKey] = .string(placement.rawValue)
+        }
+        if let value = jsonBool(section["workspaceInheritWorkingDirectory"]) {
+            snapshot.managedUserDefaults[WorkspaceWorkingDirectoryInheritanceSettings.key] = .bool(value)
+        } else if section.keys.contains("workspaceInheritWorkingDirectory") {
+            logInvalid("app.workspaceInheritWorkingDirectory", sourcePath: sourcePath)
         }
         if let value = jsonBool(section["minimalMode"]) {
             let mode = value ? WorkspacePresentationModeSettings.Mode.minimal : .standard
@@ -358,14 +406,26 @@ final class CmuxSettingsFileStore {
         if let value = jsonString(section["preferredEditor"]) {
             snapshot.managedUserDefaults[PreferredEditorSettings.key] = .string(value)
         }
+        if let value = jsonBool(section["openSupportedFilesInCmux"]) {
+            snapshot.managedUserDefaults[CmdClickSupportedFileRouteSettings.key] = .bool(value)
+        }
+        if let value = jsonBool(section["openMarkdownInCmuxViewer"]) {
+            snapshot.managedUserDefaults[CmdClickMarkdownRouteSettings.key] = .bool(value)
+        }
         if let value = jsonBool(section["reorderOnNotification"]) {
             snapshot.managedUserDefaults[WorkspaceAutoReorderSettings.key] = .bool(value)
+        }
+        if let value = jsonBool(section["iMessageMode"]) {
+            snapshot.managedUserDefaults[IMessageModeSettings.key] = .bool(value)
         }
         if let value = jsonBool(section["sendAnonymousTelemetry"]) {
             snapshot.managedUserDefaults[TelemetrySettings.sendAnonymousTelemetryKey] = .bool(value)
         }
         if let value = jsonBool(section["warnBeforeQuit"]) {
             snapshot.managedUserDefaults[QuitWarningSettings.warnBeforeQuitKey] = .bool(value)
+        }
+        if let value = jsonBool(section["warnBeforeClosingTab"]) {
+            snapshot.managedUserDefaults[CloseTabWarningSettings.warnBeforeClosingTabKey] = .bool(value)
         }
         if let value = jsonBool(section["renameSelectsExistingName"]) {
             snapshot.managedUserDefaults[CommandPaletteRenameSelectionSettings.selectAllOnFocusKey] = .bool(value)
@@ -408,6 +468,24 @@ final class CmuxSettingsFileStore {
         }
     }
 
+    private func parseTerminalSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonBool(section["showScrollBar"]) {
+            snapshot.managedUserDefaults[TerminalScrollBarSettings.showScrollBarKey] = .bool(value)
+        } else if section.keys.contains("showScrollBar") {
+            logInvalid("terminal.showScrollBar", sourcePath: sourcePath)
+        }
+
+        if let value = jsonBool(section["autoResumeAgentSessions"]) {
+            snapshot.managedUserDefaults[AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey] = .bool(value)
+        } else if section.keys.contains("autoResumeAgentSessions") {
+            logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
+        }
+    }
+
     private func parseSidebarSection(
         _ section: [String: Any],
         sourcePath: String,
@@ -415,6 +493,9 @@ final class CmuxSettingsFileStore {
     ) {
         if let value = jsonBool(section["hideAllDetails"]) {
             snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.hideAllDetailsKey] = .bool(value)
+        }
+        if let value = jsonBool(section["showWorkspaceDescription"]) {
+            snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey] = .bool(value)
         }
         if let raw = jsonString(section["branchLayout"]) {
             switch raw {
@@ -429,12 +510,10 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["showNotificationMessage"]) {
             snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.showNotificationMessageKey] = .bool(value)
         }
-        if let value = jsonBool(section["showBranchDirectory"]) {
-            snapshot.managedUserDefaults["sidebarShowBranchDirectory"] = .bool(value)
-        }
-        if let value = jsonBool(section["showPullRequests"]) {
-            snapshot.managedUserDefaults["sidebarShowPullRequest"] = .bool(value)
-        }
+        if let value = jsonBool(section["showBranchDirectory"]) { snapshot.managedUserDefaults["sidebarShowBranchDirectory"] = .bool(value) }
+        if let value = jsonBool(section["showPullRequests"]) { snapshot.managedUserDefaults["sidebarShowPullRequest"] = .bool(value) }
+        if let value = jsonBool(section["watchGitStatus"]) { snapshot.managedUserDefaults[SidebarWorkspaceDetailDefaults.watchGitStatusKey] = .bool(value) }
+        if let value = jsonBool(section["makePullRequestsClickable"]) { snapshot.managedUserDefaults[SidebarPullRequestClickabilitySettings.key] = .bool(value) }
         if let value = jsonBool(section["openPullRequestLinksInCmuxBrowser"]) {
             snapshot.managedUserDefaults[BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey] = .bool(value)
         }
@@ -564,7 +643,7 @@ final class CmuxSettingsFileStore {
         snapshot: inout ResolvedSettingsSnapshot
     ) {
         if let value = jsonBool(section["matchTerminalBackground"]) {
-            snapshot.managedUserDefaults["sidebarMatchTerminalBackground"] = .bool(value)
+            snapshot.managedUserDefaults[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] = .bool(value)
         }
         if let raw = jsonString(section["tintColor"]) {
             guard let normalized = WorkspaceTabColorSettings.normalizedHex(raw) else {
@@ -630,34 +709,31 @@ final class CmuxSettingsFileStore {
         if let raw = jsonString(section["claudeBinaryPath"]) {
             snapshot.managedUserDefaults[ClaudeCodeIntegrationSettings.customClaudePathKey] = .string(raw)
         }
+        if let raw = jsonString(section["ripgrepBinaryPath"]) {
+            snapshot.managedUserDefaults[RipgrepIntegrationSettings.customRipgrepPathKey] = .string(raw)
+        }
+        if let value = jsonBool(section["suppressSubagentNotifications"]) {
+            snapshot.managedUserDefaults[AgentSubagentNotificationSettings.suppressNotificationsKey] = .bool(value)
+        }
+        if let value = jsonBool(section["cursorIntegration"]) {
+            snapshot.managedUserDefaults[CursorIntegrationSettings.hooksEnabledKey] = .bool(value)
+        }
+        if let value = jsonBool(section["geminiIntegration"]) {
+            snapshot.managedUserDefaults[GeminiIntegrationSettings.hooksEnabledKey] = .bool(value)
+        }
         if let value = jsonInt(section["portBase"]) {
             guard value > 0 else {
                 logInvalid("automation.portBase", sourcePath: sourcePath)
                 return
             }
-            snapshot.managedUserDefaults["cmuxPortBase"] = .int(value)
+            snapshot.managedUserDefaults[AutomationSettings.portBaseKey] = .int(value)
         }
         if let value = jsonInt(section["portRange"]) {
             guard value > 0 else {
                 logInvalid("automation.portRange", sourcePath: sourcePath)
                 return
             }
-            snapshot.managedUserDefaults["cmuxPortRange"] = .int(value)
-        }
-    }
-
-    private func parseCustomCommandsSection(
-        _ section: [String: Any],
-        sourcePath: String,
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        if let values = jsonStringArray(section["trustedDirectories"]) {
-            let normalized = values
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            snapshot.managedCustomSettings.trustedDirectories = normalized
-        } else if section.keys.contains("trustedDirectories") {
-            logInvalid("customCommands.trustedDirectories", sourcePath: sourcePath)
+            snapshot.managedUserDefaults[AutomationSettings.portRangeKey] = .int(value)
         }
     }
 
@@ -682,6 +758,16 @@ final class CmuxSettingsFileStore {
                 return
             }
             snapshot.managedUserDefaults[BrowserThemeSettings.modeKey] = .string(mode.rawValue)
+        }
+        if let value = jsonBool(section["discardHiddenWebViews"]) {
+            snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.enabledKey] = .bool(value)
+        }
+        if let value = jsonDouble(section["hiddenWebViewDiscardDelaySeconds"]) {
+            guard let delay = BrowserHiddenWebViewDiscardPolicy.resolvedHiddenDelay(value) else {
+                logInvalid("browser.hiddenWebViewDiscardDelaySeconds", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey] = .double(delay)
         }
         if let value = jsonBool(section["openTerminalLinksInCmuxBrowser"]) {
             snapshot.managedUserDefaults[BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey] = .bool(value)
@@ -735,10 +821,6 @@ final class CmuxSettingsFileStore {
             return
         }
 
-        if let value = jsonBool(section["showModifierHoldHints"]) {
-            snapshot.managedUserDefaults[ShortcutHintDebugSettings.showHintsOnCommandHoldKey] = .bool(value)
-        }
-
         var bindings = section["bindings"] as? [String: Any] ?? [:]
         for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" {
             bindings[key] = rawValue
@@ -765,116 +847,19 @@ final class CmuxSettingsFileStore {
         _ rawValue: Any,
         action: KeyboardShortcutSettings.Action
     ) -> StoredShortcut? {
-        let shortcut: StoredShortcut?
-        if let stroke = jsonString(rawValue) {
-            shortcut = parseStoredShortcut(strokes: [stroke])
-        } else if let strokes = jsonStringArray(rawValue) {
-            shortcut = parseStoredShortcut(strokes: strokes)
-        } else {
-            shortcut = nil
-        }
+        let shortcut: StoredShortcut? = {
+            if rawValue is NSNull { return .unbound }
+            if let stroke = jsonString(rawValue) { return StoredShortcut.parseConfig(stroke) }
+            if let strokes = jsonStringArray(rawValue) {
+                return strokes.isEmpty ? .unbound : StoredShortcut.parseConfig(strokes: strokes)
+            }
+            return nil
+        }()
 
         guard let shortcut else { return nil }
-        if let normalized = action.normalizedRecordedShortcut(shortcut) {
-            return normalized
-        }
-        return action.usesNumberedDigitMatching ? nil : shortcut
-    }
-
-    private func parseStoredShortcut(strokes: [String]) -> StoredShortcut? {
-        guard !strokes.isEmpty, strokes.count <= 2 else { return nil }
-        let parsedStrokes = strokes.compactMap(parseStroke(_:))
-        guard parsedStrokes.count == strokes.count, let firstStroke = parsedStrokes.first else {
-            return nil
-        }
-        guard !firstStroke.modifierFlags.isEmpty else { return nil }
-        let secondStroke = parsedStrokes.count == 2 ? parsedStrokes[1] : nil
-        return StoredShortcut(first: firstStroke, second: secondStroke)
-    }
-
-    private func parseStroke(_ rawValue: String) -> ShortcutStroke? {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let parts = trimmed.split(separator: "+", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        guard !parts.isEmpty, let lastPart = parts.last, !lastPart.isEmpty else {
-            return nil
-        }
-
-        var command = false
-        var shift = false
-        var option = false
-        var control = false
-
-        for modifier in parts.dropLast() {
-            switch modifier.lowercased() {
-            case "cmd", "command", "⌘":
-                command = true
-            case "shift", "⇧":
-                shift = true
-            case "opt", "option", "alt", "⌥":
-                option = true
-            case "ctrl", "control", "ctl", "⌃":
-                control = true
-            default:
-                return nil
-            }
-        }
-
-        guard let key = parseKeyToken(lastPart) else { return nil }
-        return ShortcutStroke(
-            key: key,
-            command: command,
-            shift: shift,
-            option: option,
-            control: control
-        )
-    }
-
-    private func parseKeyToken(_ rawValue: String) -> String? {
-        let lowered = rawValue.lowercased()
-        switch lowered {
-        case "left", "arrowleft", "leftarrow", "←":
-            return "←"
-        case "right", "arrowright", "rightarrow", "→":
-            return "→"
-        case "up", "arrowup", "uparrow", "↑":
-            return "↑"
-        case "down", "arrowdown", "downarrow", "↓":
-            return "↓"
-        case "tab":
-            return "\t"
-        case "return", "enter", "↩":
-            return "\r"
-        case "space":
-            return " "
-        case "comma":
-            return ","
-        case "period", "dot":
-            return "."
-        case "slash":
-            return "/"
-        case "backslash":
-            return "\\"
-        case "semicolon":
-            return ";"
-        case "quote", "apostrophe":
-            return "'"
-        case "backtick", "grave":
-            return "`"
-        case "minus", "hyphen":
-            return "-"
-        case "plus", "equals":
-            return "="
-        case "leftbracket", "openbracket":
-            return "["
-        case "rightbracket", "closebracket":
-            return "]"
-        default:
-            guard lowered.count == 1 else { return nil }
-            return lowered
-        }
+        // Settings-file parsing runs while the shared store may still be initializing.
+        // Avoid the UI recorder's conflict lookup here because it reads the shared store.
+        return action.normalizedSettingsFileShortcut(shortcut)
     }
 
     private func parseNullableHex(
@@ -895,13 +880,16 @@ final class CmuxSettingsFileStore {
 
     private func applyManagedSettings(
         snapshot: ResolvedSettingsSnapshot,
-        updateBackups: Bool = true
+        importedManagedDefaults: [String: ManagedSettingsValue],
+        changedManagedDefaultKeys: Set<String>,
+        updateBackups: Bool = true,
+        applyLiveDefaultSideEffects: Bool
     ) {
         var backups = loadBackups()
+        var sideEffects = ManagedDefaultBatchSideEffects()
         let currentManagedIdentifiers = Set(backups.keys)
         let nextManagedIdentifiers = Set(snapshot.managedUserDefaults.keys)
             .union(snapshot.managedCustomSettings.managedIdentifiers)
-
         synchronized {
             isApplyingManagedSettings = true
         }
@@ -915,10 +903,6 @@ final class CmuxSettingsFileStore {
             for (defaultsKey, value) in snapshot.managedUserDefaults where backups[defaultsKey] == nil {
                 backups[defaultsKey] = backupValueForUserDefaultsKey(defaultsKey, managedValue: value)
             }
-            if snapshot.managedCustomSettings.trustedDirectories != nil,
-               backups[Self.trustedDirectoriesBackupIdentifier] == nil {
-                backups[Self.trustedDirectoriesBackupIdentifier] = .stringArray(CmuxDirectoryTrust.shared.allTrustedPaths)
-            }
             if snapshot.managedCustomSettings.socketPassword != nil,
                backups[Self.socketPasswordBackupIdentifier] == nil {
                 backups[Self.socketPasswordBackupIdentifier] = currentSocketPasswordBackupValue()
@@ -927,26 +911,54 @@ final class CmuxSettingsFileStore {
 
         for identifier in currentManagedIdentifiers.subtracting(nextManagedIdentifiers) {
             guard let backup = backups[identifier] else { continue }
-            restoreBackup(backup, for: identifier)
+            sideEffects.merge(
+                restoreBackup(
+                    backup,
+                    for: identifier
+                )
+            )
             backups.removeValue(forKey: identifier)
         }
 
         for (defaultsKey, value) in snapshot.managedUserDefaults {
-            applyManagedUserDefaultsValue(value, for: defaultsKey)
+            sideEffects.merge(
+                applyManagedUserDefaultsValue(
+                    value,
+                    for: defaultsKey,
+                    importedDefault: importedManagedDefaults[defaultsKey],
+                    forceApply: changedManagedDefaultKeys.contains(defaultsKey)
+                )
+            )
         }
         applyManagedCustomSettings(snapshot.managedCustomSettings)
-
         if updateBackups {
             saveBackups(backups)
+        }
+        if applyLiveDefaultSideEffects {
+            var sideEffectsToApply = drainDeferredManagedDefaultSideEffects()
+            sideEffectsToApply.merge(sideEffects)
+            applyManagedDefaultBatchSideEffects(sideEffectsToApply)
+        } else {
+            deferManagedDefaultSideEffects(sideEffects)
+        }
+    }
+
+    private func deferManagedDefaultSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
+        guard !sideEffects.isEmpty else { return }
+        synchronized {
+            deferredManagedDefaultSideEffects.merge(sideEffects)
+        }
+    }
+
+    private func drainDeferredManagedDefaultSideEffects() -> ManagedDefaultBatchSideEffects {
+        synchronized {
+            let deferred = deferredManagedDefaultSideEffects
+            deferredManagedDefaultSideEffects = ManagedDefaultBatchSideEffects()
+            return deferred
         }
     }
 
     private func applyManagedCustomSettings(_ settings: ManagedCustomSettings) {
-        if let trustedDirectories = settings.trustedDirectories,
-           CmuxDirectoryTrust.shared.allTrustedPaths != trustedDirectories {
-            CmuxDirectoryTrust.shared.replaceAll(with: trustedDirectories)
-        }
-
         if let socketPassword = settings.socketPassword {
             switch socketPassword {
             case .set(let value):
@@ -963,14 +975,11 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func restoreBackup(_ backup: BackupValue, for identifier: String) {
+    private func restoreBackup(
+        _ backup: BackupValue,
+        for identifier: String
+    ) -> ManagedDefaultBatchSideEffects {
         switch identifier {
-        case Self.trustedDirectoriesBackupIdentifier:
-            if case .stringArray(let values) = backup {
-                CmuxDirectoryTrust.shared.replaceAll(with: values)
-            } else {
-                CmuxDirectoryTrust.shared.replaceAll(with: [])
-            }
         case Self.socketPasswordBackupIdentifier:
             switch backup {
             case .string(let value):
@@ -980,8 +989,12 @@ final class CmuxSettingsFileStore {
             default:
                 break
             }
+            return ManagedDefaultBatchSideEffects()
         default:
-            restoreUserDefaultsBackup(backup, for: identifier)
+            return restoreUserDefaultsBackup(
+                backup,
+                for: identifier
+            )
         }
     }
 
@@ -1024,71 +1037,10 @@ final class CmuxSettingsFileStore {
         return .string(current)
     }
 
-    private func applyManagedUserDefaultsValue(_ value: ManagedSettingsValue, for defaultsKey: String) {
-        let defaults = UserDefaults.standard
-        if defaultsKey == WorkspaceTabColorSettings.paletteKey,
-           case .stringDictionary(let next) = value {
-            let current = WorkspaceTabColorSettings.resolvedPaletteMap(defaults: defaults)
-            if current != next {
-                WorkspaceTabColorSettings.persistPaletteMap(next, defaults: defaults)
-            }
-            return
-        }
-
-        switch value {
-        case .bool(let next):
-            let current = defaults.object(forKey: defaultsKey) as? Bool
-            if current != next {
-                defaults.set(next, forKey: defaultsKey)
-            }
-        case .int(let next):
-            let current = defaults.object(forKey: defaultsKey) as? Int
-            if current != next {
-                defaults.set(next, forKey: defaultsKey)
-            }
-        case .double(let next):
-            let current = defaults.object(forKey: defaultsKey) as? Double
-            if current != next {
-                defaults.set(next, forKey: defaultsKey)
-            }
-        case .string(let next):
-            let current = defaults.string(forKey: defaultsKey)
-            if current != next {
-                defaults.set(next, forKey: defaultsKey)
-            }
-        case .nullableString(let next):
-            let current = defaults.string(forKey: defaultsKey)
-            if current != next {
-                if let next {
-                    defaults.set(next, forKey: defaultsKey)
-                } else {
-                    defaults.removeObject(forKey: defaultsKey)
-                }
-            }
-        case .stringArray(let next):
-            let current = defaults.array(forKey: defaultsKey) as? [String]
-            if current != next {
-                defaults.set(next, forKey: defaultsKey)
-            }
-        case .stringDictionary(let next):
-            let current = defaults.dictionary(forKey: defaultsKey) as? [String: String]
-            if current != next {
-                defaults.set(next, forKey: defaultsKey)
-            }
-        }
-
-        switch defaultsKey {
-        case LanguageSettings.languageKey:
-            let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
-            LanguageSettings.apply(language)
-        case AppIconSettings.modeKey:
-            AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
-        default:
-            break
-        }
-    }
-
-    private func restoreUserDefaultsBackup(_ backup: BackupValue, for defaultsKey: String) {
+    private func restoreUserDefaultsBackup(
+        _ backup: BackupValue,
+        for defaultsKey: String
+    ) -> ManagedDefaultBatchSideEffects {
         let defaults = UserDefaults.standard
         if defaultsKey == WorkspaceTabColorSettings.paletteKey {
             switch backup {
@@ -1099,35 +1051,283 @@ final class CmuxSettingsFileStore {
             default:
                 break
             }
-            return
+            return ManagedDefaultBatchSideEffects()
         }
 
+        var didMutateStoredValue = false
         switch backup {
         case .absent:
-            defaults.removeObject(forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) != nil {
+                defaults.removeObject(forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
         case .bool(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) as? Bool != value {
+                defaults.set(value, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
         case .int(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) as? Int != value {
+                defaults.set(value, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
         case .double(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.object(forKey: defaultsKey) as? Double != value {
+                defaults.set(value, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
         case .string(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.string(forKey: defaultsKey) != value {
+                defaults.set(value, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
         case .stringArray(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.array(forKey: defaultsKey) as? [String] != value {
+                defaults.set(value, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
         case .stringDictionary(let value):
-            defaults.set(value, forKey: defaultsKey)
+            if defaults.dictionary(forKey: defaultsKey) as? [String: String] != value {
+                defaults.set(value, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
         }
 
-        switch defaultsKey {
-        case LanguageSettings.languageKey:
-            let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
-            LanguageSettings.apply(language)
-        case AppIconSettings.modeKey:
-            AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
-        default:
-            break
+        if didMutateStoredValue {
+            return managedDefaultSideEffects(for: defaultsKey)
         }
+        return ManagedDefaultBatchSideEffects()
+    }
+
+    private func applyManagedUserDefaultsValue(
+        _ value: ManagedSettingsValue,
+        for defaultsKey: String,
+        importedDefault: ManagedSettingsValue?,
+        forceApply: Bool
+    ) -> ManagedDefaultBatchSideEffects {
+        let defaults = UserDefaults.standard
+        guard shouldApplyManagedUserDefaultsValue(
+            value,
+            for: defaultsKey,
+            importedDefault: importedDefault,
+            forceApply: forceApply,
+            defaults: defaults
+        ) else {
+            return ManagedDefaultBatchSideEffects()
+        }
+
+        if defaultsKey == WorkspaceTabColorSettings.paletteKey,
+           case .stringDictionary(let next) = value {
+            let current = WorkspaceTabColorSettings.resolvedPaletteMap(defaults: defaults)
+            if current != next {
+                WorkspaceTabColorSettings.persistPaletteMap(next, defaults: defaults)
+            }
+            return ManagedDefaultBatchSideEffects()
+        }
+
+        var didMutateStoredValue = false
+        switch value {
+        case .bool(let next):
+            let current = defaults.object(forKey: defaultsKey) as? Bool
+            if current != next {
+                defaults.set(next, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
+        case .int(let next):
+            let current = defaults.object(forKey: defaultsKey) as? Int
+            if current != next {
+                defaults.set(next, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
+        case .double(let next):
+            let current = defaults.object(forKey: defaultsKey) as? Double
+            if current != next {
+                defaults.set(next, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
+        case .string(let next):
+            let current = defaults.string(forKey: defaultsKey)
+            if current != next {
+                defaults.set(next, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
+        case .nullableString(let next):
+            let current = defaults.string(forKey: defaultsKey)
+            if current != next {
+                if let next {
+                    defaults.set(next, forKey: defaultsKey)
+                } else {
+                    defaults.removeObject(forKey: defaultsKey)
+                }
+                didMutateStoredValue = true
+            }
+        case .stringArray(let next):
+            let current = defaults.array(forKey: defaultsKey) as? [String]
+            if current != next {
+                defaults.set(next, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
+        case .stringDictionary(let next):
+            let current = defaults.dictionary(forKey: defaultsKey) as? [String: String]
+            if current != next {
+                defaults.set(next, forKey: defaultsKey)
+                didMutateStoredValue = true
+            }
+        }
+
+        if didMutateStoredValue {
+            return managedDefaultSideEffects(for: defaultsKey)
+        }
+        return ManagedDefaultBatchSideEffects()
+    }
+
+    private func shouldApplyManagedUserDefaultsValue(
+        _ value: ManagedSettingsValue,
+        for defaultsKey: String,
+        importedDefault: ManagedSettingsValue?,
+        forceApply: Bool,
+        defaults: UserDefaults
+    ) -> Bool {
+        guard !forceApply else { return true }
+        guard let importedDefault else { return true }
+        // Precedence: user explicit choice (UserDefaults) > cmux.json imported default > built-in default.
+        guard let current = currentManagedUserDefaultsValue(
+            for: defaultsKey,
+            matching: value,
+            defaults: defaults
+        ) else {
+            return shouldApplyManagedUserDefaultsValueWhenCurrentIsMissing(
+                value,
+                importedDefault: importedDefault
+            )
+        }
+        return current == importedDefault
+    }
+
+    private func shouldApplyManagedUserDefaultsValueWhenCurrentIsMissing(
+        _ value: ManagedSettingsValue,
+        importedDefault: ManagedSettingsValue
+    ) -> Bool {
+        switch (value, importedDefault) {
+        case (.nullableString, .nullableString(nil)):
+            return true
+        case (.nullableString, _):
+            return false
+        default:
+            return true
+        }
+    }
+
+    private func currentManagedUserDefaultsValue(
+        for defaultsKey: String,
+        matching value: ManagedSettingsValue,
+        defaults: UserDefaults
+    ) -> ManagedSettingsValue? {
+        switch value {
+        case .bool:
+            guard let current = defaults.object(forKey: defaultsKey) as? Bool else { return nil }
+            return .bool(current)
+        case .int:
+            guard let current = defaults.object(forKey: defaultsKey) as? Int else { return nil }
+            return .int(current)
+        case .double:
+            guard let current = defaults.object(forKey: defaultsKey) as? Double else { return nil }
+            return .double(current)
+        case .string:
+            guard let current = defaults.string(forKey: defaultsKey) else { return nil }
+            return .string(current)
+        case .nullableString:
+            guard let current = defaults.object(forKey: defaultsKey) as? String else { return nil }
+            return .nullableString(current)
+        case .stringArray:
+            guard let current = defaults.array(forKey: defaultsKey) as? [String] else { return nil }
+            return .stringArray(current)
+        case .stringDictionary:
+            if defaultsKey == WorkspaceTabColorSettings.paletteKey {
+                return .stringDictionary(WorkspaceTabColorSettings.resolvedPaletteMap(defaults: defaults))
+            }
+            guard let current = defaults.dictionary(forKey: defaultsKey) as? [String: String] else {
+                return nil
+            }
+            return .stringDictionary(current)
+        }
+    }
+
+    private func managedDefaultSideEffects(for defaultsKey: String) -> ManagedDefaultBatchSideEffects {
+        guard defaultsKey != AppearanceSettings.appearanceModeKey else {
+            // The app lifecycle-owned UserDefaults observer applies live
+            // appearance changes after launch. The settings file store only
+            // imports the default so it cannot reenter Ghostty while this
+            // singleton initializes.
+            return ManagedDefaultBatchSideEffects()
+        }
+        var sideEffects = ManagedDefaultBatchSideEffects()
+        sideEffects.append(defaultsKey: defaultsKey)
+        return sideEffects
+    }
+
+    private func applyManagedDefaultBatchSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
+        guard !sideEffects.isEmpty else { return }
+        let notificationCenter = notificationCenter
+        let changes = sideEffects.changes
+        let apply = {
+            var agentSessionAutoResumeDidChange = false
+            for change in changes {
+                if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
+                    TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
+                if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {
+                    agentSessionAutoResumeDidChange = true
+                }
+
+                if change.defaultsKey == LanguageSettings.languageKey {
+                    let rawValue = UserDefaults.standard.string(forKey: change.defaultsKey) ?? ""
+                    LanguageSettings.apply(AppLanguage(rawValue: rawValue) ?? .system)
+                } else if change.defaultsKey == AppIconSettings.modeKey {
+                    AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
+                }
+            }
+
+            if agentSessionAutoResumeDidChange {
+                AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+        }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async { apply() }
+        }
+    }
+
+    private static func loadImportedManagedDefaults() -> [String: ManagedSettingsValue] {
+        let defaults = UserDefaults.standard
+        var imported: [String: ManagedSettingsValue]
+        if let data = defaults.data(forKey: importedManagedDefaultsDefaultsKey),
+           let decoded = try? JSONDecoder().decode([String: ManagedSettingsValue].self, from: data) {
+            imported = decoded
+        } else {
+            imported = [:]
+        }
+
+        if imported[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] == nil,
+           let legacyValue = defaults.object(
+               forKey: SidebarMatchTerminalBackgroundSettings.legacyAppliedSettingsFileDefaultKey
+           ) as? Bool {
+            imported[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] = .bool(legacyValue)
+        }
+        return imported
+    }
+
+    private func saveImportedManagedDefaults(_ imported: [String: ManagedSettingsValue]) {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: SidebarMatchTerminalBackgroundSettings.legacyAppliedSettingsFileDefaultKey)
+        guard !imported.isEmpty else {
+            defaults.removeObject(forKey: Self.importedManagedDefaultsDefaultsKey)
+            return
+        }
+        guard let data = try? JSONEncoder().encode(imported) else { return }
+        defaults.set(data, forKey: Self.importedManagedDefaultsDefaultsKey)
     }
 
     private func loadBackups() -> [String: BackupValue] {
@@ -1188,199 +1388,6 @@ final class CmuxSettingsFileStore {
         return strings
     }
 
-    static func defaultTemplate() -> String {
-        var lines: [String] = [
-            "{",
-            "  \"$schema\": \"\(schemaURLString)\",",
-            "  \"schemaVersion\": \(currentSchemaVersion),",
-            "",
-            "  // This file uses JSON with comments (JSONC).",
-            "  // Uncomment and edit any setting to make it file-managed.",
-            "  // Remove a setting to fall back to the value saved in Settings.",
-            "  // cmux creates this template on launch when both settings file locations are missing.",
-            "  // ~/.config/cmux/settings.json takes precedence over the Application Support fallback.",
-            "",
-        ]
-
-        let sections = defaultTemplateSections()
-        for (index, section) in sections.enumerated() {
-            lines.append(contentsOf: commentedTemplateLines(for: section))
-            if index < sections.count - 1 {
-                lines.append("")
-            }
-        }
-
-        lines.append("}")
-        return lines.joined(separator: "\n") + "\n"
-    }
-
-    private static func commentedTemplateLines(for section: [String: Any]) -> [String] {
-        let json = prettyJSONString(section)
-        let sectionLines = json
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
-        guard sectionLines.count >= 2 else { return [] }
-
-        return sectionLines
-            .dropFirst()
-            .dropLast()
-            .enumerated()
-            .map { index, line in
-                if index == sectionLines.count - 3 {
-                    return "  // \(line),"
-                }
-                return "  // \(line)"
-            }
-    }
-
-    private static func defaultTemplateSections() -> [[String: Any]] {
-        let shortcutsBindings = Dictionary(
-            uniqueKeysWithValues: KeyboardShortcutSettings.Action.allCases.map { action in
-                (action.rawValue, shortcutTemplateValue(action.defaultShortcut, usesNumberedDigits: action.usesNumberedDigitMatching))
-            }
-        )
-
-        return [
-            [
-                "app": [
-                    "language": LanguageSettings.defaultLanguage.rawValue,
-                    "appearance": AppearanceSettings.defaultMode.rawValue,
-                    "appIcon": AppIconSettings.defaultMode.rawValue,
-                    "newWorkspacePlacement": WorkspacePlacementSettings.defaultPlacement.rawValue,
-                    "minimalMode": false,
-                    "keepWorkspaceOpenWhenClosingLastSurface": !LastSurfaceCloseShortcutSettings.defaultValue,
-                    "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
-                    "preferredEditor": "",
-                    "reorderOnNotification": WorkspaceAutoReorderSettings.defaultValue,
-                    "sendAnonymousTelemetry": TelemetrySettings.defaultSendAnonymousTelemetry,
-                    "warnBeforeQuit": QuitWarningSettings.defaultWarnBeforeQuit,
-                    "renameSelectsExistingName": CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,
-                    "commandPaletteSearchesAllSurfaces": CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces,
-                ],
-            ],
-            [
-                "notifications": [
-                    "dockBadge": NotificationBadgeSettings.defaultDockBadgeEnabled,
-                    "showInMenuBar": MenuBarExtraSettings.defaultShowInMenuBar,
-                    "unreadPaneRing": NotificationPaneRingSettings.defaultEnabled,
-                    "paneFlash": NotificationPaneFlashSettings.defaultEnabled,
-                    "sound": NotificationSoundSettings.defaultValue,
-                    "customSoundFilePath": NotificationSoundSettings.defaultCustomFilePath,
-                    "command": NotificationSoundSettings.defaultCustomCommand,
-                ],
-            ],
-            [
-                "sidebar": [
-                    "hideAllDetails": SidebarWorkspaceDetailSettings.defaultHideAllDetails,
-                    "branchLayout": SidebarBranchLayoutSettings.defaultVerticalLayout ? "vertical" : "inline",
-                    "showNotificationMessage": SidebarWorkspaceDetailSettings.defaultShowNotificationMessage,
-                    "showBranchDirectory": true,
-                    "showPullRequests": true,
-                    "openPullRequestLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser,
-                    "openPortLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser,
-                    "showSSH": true,
-                    "showPorts": true,
-                    "showLog": true,
-                    "showProgress": true,
-                    "showCustomMetadata": true,
-                ],
-            ],
-            [
-                "workspaceColors": [
-                    "indicatorStyle": SidebarActiveTabIndicatorSettings.defaultStyle.rawValue,
-                    "selectionColor": NSNull(),
-                    "notificationBadgeColor": NSNull(),
-                    "colors": Dictionary(
-                        uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
-                    ),
-                ],
-            ],
-            [
-                "sidebarAppearance": [
-                    "matchTerminalBackground": false,
-                    "tintColor": SidebarTintDefaults.hex,
-                    "lightModeTintColor": NSNull(),
-                    "darkModeTintColor": NSNull(),
-                    "tintOpacity": SidebarTintDefaults.opacity,
-                ],
-            ],
-            [
-                "automation": [
-                    "socketControlMode": SocketControlSettings.defaultMode.rawValue,
-                    "socketPassword": "",
-                    "claudeCodeIntegration": ClaudeCodeIntegrationSettings.defaultHooksEnabled,
-                    "claudeBinaryPath": "",
-                    "portBase": 9100,
-                    "portRange": 10,
-                ],
-            ],
-            [
-                "customCommands": [
-                    "trustedDirectories": [String](),
-                ],
-            ],
-            [
-                "browser": [
-                    "defaultSearchEngine": BrowserSearchSettings.defaultSearchEngine.rawValue,
-                    "showSearchSuggestions": BrowserSearchSettings.defaultSearchSuggestionsEnabled,
-                    "theme": BrowserThemeSettings.defaultMode.rawValue,
-                    "openTerminalLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser,
-                    "interceptTerminalOpenCommandInCmuxBrowser": BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser,
-                    "hostsToOpenInEmbeddedBrowser": [String](),
-                    "urlsToAlwaysOpenExternally": [String](),
-                    "insecureHttpHostsAllowedInEmbeddedBrowser": BrowserInsecureHTTPSettings.defaultAllowlistPatterns,
-                    "showImportHintOnBlankTabs": BrowserImportHintSettings.defaultShowOnBlankTabs,
-                    "reactGrabVersion": ReactGrabSettings.defaultVersion,
-                ],
-            ],
-            [
-                "shortcuts": [
-                    "showModifierHoldHints": ShortcutHintDebugSettings.defaultShowHintsOnCommandHold,
-                    "bindings": shortcutsBindings,
-                ],
-            ],
-        ]
-    }
-
-    private static func shortcutTemplateValue(
-        _ shortcut: StoredShortcut,
-        usesNumberedDigits: Bool
-    ) -> Any {
-        let defaultShortcut = usesNumberedDigits ? (shortcut.secondStroke ?? shortcut.firstStroke) : nil
-        let rendered = renderShortcutStroke(shortcut.firstStroke, preserveDigit: !usesNumberedDigits)
-        if let secondStroke = shortcut.secondStroke {
-            return [rendered, renderShortcutStroke(secondStroke, preserveDigit: true)]
-        }
-        if let defaultShortcut {
-            return renderShortcutStroke(defaultShortcut, preserveDigit: true)
-        }
-        return rendered
-    }
-
-    private static func renderShortcutStroke(_ stroke: ShortcutStroke, preserveDigit: Bool) -> String {
-        var parts: [String] = []
-        if stroke.command { parts.append("cmd") }
-        if stroke.shift { parts.append("shift") }
-        if stroke.option { parts.append("opt") }
-        if stroke.control { parts.append("ctrl") }
-        parts.append(renderShortcutKey(stroke.key, preserveDigit: preserveDigit))
-        return parts.joined(separator: "+")
-    }
-
-    private static func renderShortcutKey(_ key: String, preserveDigit: Bool) -> String {
-        if preserveDigit {
-            return key
-        }
-        return key
-    }
-
-    private static func prettyJSONString(_ value: Any) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]),
-              let string = String(data: data, encoding: .utf8) else {
-            return "{}"
-        }
-        return string
-    }
 }
 
 typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
@@ -1390,6 +1397,44 @@ private struct ResolvedSettingsSnapshot {
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     var managedUserDefaults: [String: ManagedSettingsValue] = [:]
     var managedCustomSettings = ManagedCustomSettings()
+
+    mutating func fillMissingSettings(from fallback: ResolvedSettingsSnapshot) {
+        if path == nil && (!fallback.shortcuts.isEmpty ||
+            !fallback.managedUserDefaults.isEmpty ||
+            !fallback.managedCustomSettings.isEmpty) {
+            path = fallback.path
+        }
+        for (action, shortcut) in fallback.shortcuts where shortcuts[action] == nil {
+            shortcuts[action] = shortcut
+        }
+        for (key, value) in fallback.managedUserDefaults where managedUserDefaults[key] == nil {
+            managedUserDefaults[key] = value
+        }
+        managedCustomSettings.fillMissingSettings(from: fallback.managedCustomSettings)
+    }
+}
+
+private struct ManagedDefaultSideEffect {
+    let defaultsKey: String
+}
+
+private struct ManagedDefaultBatchSideEffects {
+    var changes: [ManagedDefaultSideEffect] = []
+
+    var isEmpty: Bool {
+        changes.isEmpty
+    }
+
+    mutating func merge(_ other: ManagedDefaultBatchSideEffects) {
+        for change in other.changes {
+            append(defaultsKey: change.defaultsKey)
+        }
+    }
+
+    mutating func append(defaultsKey: String) {
+        changes.removeAll { $0.defaultsKey == defaultsKey }
+        changes.append(ManagedDefaultSideEffect(defaultsKey: defaultsKey))
+    }
 }
 
 private enum ManagedStringOverride: Equatable {
@@ -1398,26 +1443,28 @@ private enum ManagedStringOverride: Equatable {
 }
 
 private struct ManagedCustomSettings: Equatable {
-    var trustedDirectories: [String]?
     var socketPassword: ManagedStringOverride?
 
     var isEmpty: Bool {
-        trustedDirectories == nil && socketPassword == nil
+        socketPassword == nil
     }
 
     var managedIdentifiers: Set<String> {
         var identifiers: Set<String> = []
-        if trustedDirectories != nil {
-            identifiers.insert(CmuxSettingsFileStore.trustedDirectoriesBackupIdentifier)
-        }
         if socketPassword != nil {
             identifiers.insert(CmuxSettingsFileStore.socketPasswordBackupIdentifier)
         }
         return identifiers
     }
+
+    mutating func fillMissingSettings(from fallback: ManagedCustomSettings) {
+        if socketPassword == nil {
+            socketPassword = fallback.socketPassword
+        }
+    }
 }
 
-private enum ManagedSettingsValue: Equatable {
+private enum ManagedSettingsValue: Codable, Equatable {
     case bool(Bool)
     case int(Int)
     case double(Double)
@@ -1500,132 +1547,6 @@ private enum BackupValue: Codable, Equatable {
             try container.encode(Kind.stringDictionary, forKey: .kind)
             try container.encode(value, forKey: .stringDictionaryValue)
         }
-    }
-}
-
-private enum JSONCParser {
-    static func preprocess(data: Data) throws -> Data {
-        guard let source = String(data: data, encoding: .utf8) else {
-            throw JSONCError.invalidUTF8
-        }
-        let withoutBOM = source.hasPrefix("\u{feff}") ? String(source.dropFirst()) : source
-        let stripped = stripComments(from: withoutBOM)
-        let normalized = stripTrailingCommas(from: stripped)
-        return Data(normalized.utf8)
-    }
-
-    private static func stripComments(from source: String) -> String {
-        var result = ""
-        var index = source.startIndex
-        var inString = false
-        var isEscaped = false
-
-        while index < source.endIndex {
-            let character = source[index]
-
-            if inString {
-                result.append(character)
-                if isEscaped {
-                    isEscaped = false
-                } else if character == "\\" {
-                    isEscaped = true
-                } else if character == "\"" {
-                    inString = false
-                }
-                index = source.index(after: index)
-                continue
-            }
-
-            if character == "\"" {
-                inString = true
-                result.append(character)
-                index = source.index(after: index)
-                continue
-            }
-
-            if character == "/" {
-                let nextIndex = source.index(after: index)
-                if nextIndex < source.endIndex {
-                    let next = source[nextIndex]
-                    if next == "/" {
-                        index = source.index(after: nextIndex)
-                        while index < source.endIndex && source[index] != "\n" {
-                            index = source.index(after: index)
-                        }
-                        continue
-                    }
-                    if next == "*" {
-                        index = source.index(after: nextIndex)
-                        while index < source.endIndex {
-                            let current = source[index]
-                            let followingIndex = source.index(after: index)
-                            if current == "*" && followingIndex < source.endIndex && source[followingIndex] == "/" {
-                                index = source.index(after: followingIndex)
-                                break
-                            }
-                            index = followingIndex
-                        }
-                        continue
-                    }
-                }
-            }
-
-            result.append(character)
-            index = source.index(after: index)
-        }
-
-        return result
-    }
-
-    private static func stripTrailingCommas(from source: String) -> String {
-        var result = ""
-        var index = source.startIndex
-        var inString = false
-        var isEscaped = false
-
-        while index < source.endIndex {
-            let character = source[index]
-
-            if inString {
-                result.append(character)
-                if isEscaped {
-                    isEscaped = false
-                } else if character == "\\" {
-                    isEscaped = true
-                } else if character == "\"" {
-                    inString = false
-                }
-                index = source.index(after: index)
-                continue
-            }
-
-            if character == "\"" {
-                inString = true
-                result.append(character)
-                index = source.index(after: index)
-                continue
-            }
-
-            if character == "," {
-                var lookahead = source.index(after: index)
-                while lookahead < source.endIndex && source[lookahead].isWhitespace {
-                    lookahead = source.index(after: lookahead)
-                }
-                if lookahead < source.endIndex && (source[lookahead] == "}" || source[lookahead] == "]") {
-                    index = source.index(after: index)
-                    continue
-                }
-            }
-
-            result.append(character)
-            index = source.index(after: index)
-        }
-
-        return result
-    }
-
-    private enum JSONCError: Error {
-        case invalidUTF8
     }
 }
 
