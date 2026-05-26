@@ -19,6 +19,9 @@ struct GhosttyConfig {
     var surfaceTabBarFontSize: CGFloat = 11
     var theme: String?
     var workingDirectory: String?
+    var windowInheritWorkingDirectory = true
+    var tabInheritWorkingDirectory = true
+    var splitInheritWorkingDirectory = true
     // Ghostty measures scrollback-limit in bytes, not lines.
     var scrollbackLimit: Int = 10_000_000
     var unfocusedSplitOpacity: Double = 0.7
@@ -406,6 +409,18 @@ struct GhosttyConfig {
                     }
                 case "working-directory":
                     workingDirectory = value
+                case "window-inherit-working-directory":
+                    if let parsed = Self.parseBool(value) {
+                        windowInheritWorkingDirectory = parsed
+                    }
+                case "tab-inherit-working-directory":
+                    if let parsed = Self.parseBool(value) {
+                        tabInheritWorkingDirectory = parsed
+                    }
+                case "split-inherit-working-directory":
+                    if let parsed = Self.parseBool(value) {
+                        splitInheritWorkingDirectory = parsed
+                    }
                 case "scrollback-limit":
                     if let limit = Self.parseIntegerLiteral(value) {
                         scrollbackLimit = limit
@@ -653,6 +668,17 @@ struct GhosttyConfig {
             return nil
         }
         return parsed
+    }
+
+    private static func parseBool(_ value: String) -> Bool? {
+        switch value.lowercased() {
+        case "true", "1", "yes", "on":
+            return true
+        case "false", "0", "no", "off":
+            return false
+        default:
+            return nil
+        }
     }
 
     private static func parseBackgroundBlur(_ value: String) -> GhosttyBackgroundBlur? {

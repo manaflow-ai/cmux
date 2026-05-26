@@ -233,6 +233,22 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(loaded.fontSize, CGFloat(15), accuracy: 0.0001)
     }
 
+    func testParseWorkingDirectoryInheritanceFlags() {
+        var config = GhosttyConfig()
+
+        config.parse(
+            """
+            window-inherit-working-directory = false
+            tab-inherit-working-directory = false
+            split-inherit-working-directory = false
+            """
+        )
+
+        XCTAssertFalse(config.windowInheritWorkingDirectory)
+        XCTAssertFalse(config.tabInheritWorkingDirectory)
+        XCTAssertFalse(config.splitInheritWorkingDirectory)
+    }
+
     func testColorParseFlagsOnlyTrackValuesResolvedBySwiftParser() {
         var namedColorConfig = GhosttyConfig()
         namedColorConfig.parse("background = black\nforeground = #ddeeff\n")

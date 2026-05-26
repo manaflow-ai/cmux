@@ -2464,7 +2464,12 @@ final class WorkspaceWorkingDirectoryInheritanceSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertTrue(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled(defaults: defaults))
+        XCTAssertTrue(
+            WorkspaceWorkingDirectoryInheritanceSettings.isEnabled(
+                defaults: defaults,
+                ghosttyConfig: GhosttyConfig()
+            )
+        )
     }
 
     func testReadsStoredBooleanValue() {
@@ -2476,10 +2481,39 @@ final class WorkspaceWorkingDirectoryInheritanceSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(false, forKey: WorkspaceWorkingDirectoryInheritanceSettings.key)
-        XCTAssertFalse(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled(defaults: defaults))
+        XCTAssertFalse(
+            WorkspaceWorkingDirectoryInheritanceSettings.isEnabled(
+                defaults: defaults,
+                ghosttyConfig: GhosttyConfig()
+            )
+        )
 
         defaults.set(true, forKey: WorkspaceWorkingDirectoryInheritanceSettings.key)
-        XCTAssertTrue(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled(defaults: defaults))
+        XCTAssertTrue(
+            WorkspaceWorkingDirectoryInheritanceSettings.isEnabled(
+                defaults: defaults,
+                ghosttyConfig: GhosttyConfig()
+            )
+        )
+    }
+
+    func testUnsetValueUsesGhosttyWindowInheritanceSetting() {
+        let suiteName = "WorkspaceWorkingDirectoryInheritanceSettingsTests.Ghostty.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var ghosttyConfig = GhosttyConfig()
+        ghosttyConfig.parse("window-inherit-working-directory = false")
+
+        XCTAssertFalse(
+            WorkspaceWorkingDirectoryInheritanceSettings.isEnabled(
+                defaults: defaults,
+                ghosttyConfig: ghosttyConfig
+            )
+        )
     }
 }
 
@@ -2504,17 +2538,22 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testNewWorkspaceInheritsSourceWorkingDirectoryByDefault() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
-            let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
-            let manager = TabManager(
-                initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
-            )
+        let ghosttyHome = try makeTemporaryGhosttyConfigHome("")
+        defer { try? FileManager.default.removeItem(at: ghosttyHome) }
 
-            let inserted = manager.addWorkspace(autoWelcomeIfNeeded: false)
+        try withTemporaryGhosttyHome(ghosttyHome) {
+            try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
+                let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+                let manager = TabManager(
+                    initialWorkingDirectory: sourceCwd,
+                    autoWelcomeIfNeeded: false
+                )
 
-            XCTAssertEqual(inserted.focusedTerminalPanel?.requestedWorkingDirectory, sourceCwd)
-            XCTAssertEqual(inserted.currentDirectory, sourceCwd)
+                let inserted = manager.addWorkspace(autoWelcomeIfNeeded: false)
+
+                XCTAssertEqual(inserted.focusedTerminalPanel?.requestedWorkingDirectory, sourceCwd)
+                XCTAssertEqual(inserted.currentDirectory, sourceCwd)
+            }
         }
     }
 
@@ -2559,20 +2598,25 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testExplicitNoInheritanceLeavesNewWorkspaceCwdUnsetWhenGlobalInheritanceEnabled() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
-            let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
-            let manager = TabManager(
-                initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
-            )
+        let ghosttyHome = try makeTemporaryGhosttyConfigHome("")
+        defer { try? FileManager.default.removeItem(at: ghosttyHome) }
 
-            let inserted = manager.addWorkspace(
-                inheritWorkingDirectory: false,
-                autoWelcomeIfNeeded: false
-            )
+        try withTemporaryGhosttyHome(ghosttyHome) {
+            try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
+                let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+                let manager = TabManager(
+                    initialWorkingDirectory: sourceCwd,
+                    autoWelcomeIfNeeded: false
+                )
 
-            XCTAssertNil(inserted.focusedTerminalPanel?.requestedWorkingDirectory)
-            XCTAssertNotEqual(inserted.currentDirectory, sourceCwd)
+                let inserted = manager.addWorkspace(
+                    inheritWorkingDirectory: false,
+                    autoWelcomeIfNeeded: false
+                )
+
+                XCTAssertNil(inserted.focusedTerminalPanel?.requestedWorkingDirectory)
+                XCTAssertNotEqual(inserted.currentDirectory, sourceCwd)
+            }
         }
     }
 
@@ -2596,22 +2640,27 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testDetachedWorkspaceInheritsSourceWorkingDirectoryByDefaultWhenTransferHasNoDirectory() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
-            let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
-            let manager = TabManager(
-                initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
-            )
-            let source = try XCTUnwrap(manager.selectedWorkspace)
-            let detached = makeDetachedWorkspaceTestTransfer(sourceWorkspaceId: source.id)
+        let ghosttyHome = try makeTemporaryGhosttyConfigHome("")
+        defer { try? FileManager.default.removeItem(at: ghosttyHome) }
 
-            let inserted = try XCTUnwrap(manager.addWorkspace(
-                fromDetachedSurface: detached,
-                select: false
-            ))
+        try withTemporaryGhosttyHome(ghosttyHome) {
+            try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
+                let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+                let manager = TabManager(
+                    initialWorkingDirectory: sourceCwd,
+                    autoWelcomeIfNeeded: false
+                )
+                let source = try XCTUnwrap(manager.selectedWorkspace)
+                let detached = makeDetachedWorkspaceTestTransfer(sourceWorkspaceId: source.id)
 
-            XCTAssertEqual(inserted.currentDirectory, sourceCwd)
-            XCTAssertEqual(inserted.surfaceTabBarDirectory, sourceCwd)
+                let inserted = try XCTUnwrap(manager.addWorkspace(
+                    fromDetachedSurface: detached,
+                    select: false
+                ))
+
+                XCTAssertEqual(inserted.currentDirectory, sourceCwd)
+                XCTAssertEqual(inserted.surfaceTabBarDirectory, sourceCwd)
+            }
         }
     }
 
