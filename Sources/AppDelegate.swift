@@ -927,6 +927,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case stable
         case volatile
     }
+    private enum MainWindowDisplayGeometryChangeSource: String {
+        case applicationDidChangeScreenParameters = "app.didChangeScreenParameters"
+        case workspaceDidWake = "workspace.didWake"
+        case workspaceScreensDidWake = "workspace.screensDidWake"
+        case workspaceSessionDidBecomeActive = "workspace.sessionDidBecomeActive"
+
+        var endsVolatilePhase: Bool {
+            switch self {
+            case .workspaceDidWake, .workspaceScreensDidWake, .workspaceSessionDidBecomeActive:
+                return true
+            case .applicationDidChangeScreenParameters:
+                return false
+            }
+        }
+    }
     private var lastKnownDisplayIDs: Set<UInt32> = []
     private var savedDisplayWindowFrames: [UInt32: [SavedDisplayWindowFrame]] = [:]
     private var isApplyingCachedMainWindowGeometry = false
@@ -3515,7 +3530,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.handleMainWindowDisplayGeometryChange(source: "workspace.screensDidWake")
+                self?.handleMainWindowDisplayGeometryChange(source: .workspaceScreensDidWake)
             }
         }
         lifecycleSnapshotObservers.append(screensDidWakeObserver)
@@ -3527,7 +3542,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.handleMainWindowDisplayGeometryChange(source: "workspace.didWake")
+                self.handleMainWindowDisplayGeometryChange(source: .workspaceDidWake)
                 self.restartSocketListenerIfEnabled(source: "workspace.didWake")
             }
         }
@@ -3539,7 +3554,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.handleMainWindowDisplayGeometryChange(source: "workspace.sessionDidBecomeActive")
+                self?.handleMainWindowDisplayGeometryChange(source: .workspaceSessionDidBecomeActive)
             }
         }
         lifecycleSnapshotObservers.append(sessionBecomeActiveObserver)
@@ -3554,7 +3569,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.handleMainWindowDisplayGeometryChange(source: "app.didChangeScreenParameters")
+                self?.handleMainWindowDisplayGeometryChange(source: .applicationDidChangeScreenParameters)
             }
         }
         lifecycleSnapshotObservers.append(screenChangeObserver)
@@ -3564,9 +3579,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            Task { @MainActor [weak self] in
-                self?.updateSavedDisplayWindowFrameFromUserWindowChange(notification.object as? NSWindow)
-            }
+            self?.updateSavedDisplayWindowFrameFromUserWindowChange(notification.object as? NSWindow)
         }
         lifecycleSnapshotObservers.append(windowMoveObserver)
 
@@ -3575,9 +3588,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            Task { @MainActor [weak self] in
-                self?.updateSavedDisplayWindowFrameFromUserWindowChange(notification.object as? NSWindow)
-            }
+            self?.updateSavedDisplayWindowFrameFromUserWindowChange(notification.object as? NSWindow)
         }
         lifecycleSnapshotObservers.append(windowResizeObserver)
     }
@@ -3622,11 +3633,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         invalidateDisconnectedDisplayFramesForUpdatedWindows: Bool = false
     ) {
         let connectedDisplayIDs = currentConnectedDisplayIDs()
+        let displays = currentDisplayGeometries().available
         for context in mainWindowContexts.values {
             guard !excludedWindowIDs.contains(context.windowId) else { continue }
             guard let window = context.window ?? windowForMainWindowId(context.windowId),
                   let displayID = window.screen?.cmuxDisplayID,
                   let display = displaySnapshot(for: window) else {
+                continue
+            }
+            if isMainWindowDisplayGeometryVolatile,
+               let entry = savedDisplayWindowFrame(forWindowId: context.windowId, liveWindow: window),
+               shouldKeepCachedFrameDuringDisplayTransition(entry, liveWindow: window, displays: displays) {
                 continue
             }
 
@@ -3654,7 +3671,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func handleMainWindowDisplayGeometryChange(source: String) {
+    private func handleMainWindowDisplayGeometryChange(source: MainWindowDisplayGeometryChangeSource) {
         let currentIDs = currentConnectedDisplayIDs()
         let appearedIDs = currentIDs.subtracting(lastKnownDisplayIDs)
         lastKnownDisplayIDs = currentIDs
@@ -3693,7 +3710,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 #if DEBUG
             cmuxDebugLog(
-                "window.geometry.restore source=\(source) window=\(entry.windowId.uuidString.prefix(8)) " +
+                "window.geometry.restore source=\(source.rawValue) window=\(entry.windowId.uuidString.prefix(8)) " +
                     "display=\(displayID) frame={\(debugNSRectDescription(window.frame))}"
             )
 #endif
@@ -3726,18 +3743,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         updateSavedDisplayWindowFrames(excluding: restoredWindowIDs)
-        if Self.shouldEndMainWindowDisplayGeometryTransition(after: source) {
+        if source.endsVolatilePhase || !hasVolatileMainWindowGeometry(displays: displays.available) {
             mainWindowDisplayGeometryPhase = .stable
         }
         if !restoredWindowIDs.isEmpty {
             _ = saveSessionSnapshot(includeScrollback: false)
         }
-    }
-
-    private nonisolated static func shouldEndMainWindowDisplayGeometryTransition(after source: String) -> Bool {
-        source == "workspace.didWake"
-            || source == "workspace.screensDidWake"
-            || source == "workspace.sessionDidBecomeActive"
     }
 
     private func savedDisplayWindowFrame(
@@ -3756,6 +3767,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         return nil
+    }
+
+    private func hasVolatileMainWindowGeometry(displays: [SessionDisplayGeometry]) -> Bool {
+        guard isMainWindowDisplayGeometryVolatile else { return false }
+        for context in mainWindowContexts.values {
+            guard let window = context.window ?? windowForMainWindowId(context.windowId),
+                  let entry = savedDisplayWindowFrame(forWindowId: context.windowId, liveWindow: window),
+                  shouldKeepCachedFrameDuringDisplayTransition(entry, liveWindow: window, displays: displays) else {
+                continue
+            }
+            return true
+        }
+        return false
     }
 
     private func shouldRestoreCachedFrameForCurrentDisplay(
