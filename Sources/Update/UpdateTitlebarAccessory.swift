@@ -2491,11 +2491,21 @@ private final class ResizeGripperNSView: NSView {
     private var pressStartWidth: CGFloat = 0
     private var pressStartHeight: CGFloat = 0
 
+    private static let diagonalResizeCursor: NSCursor = {
+        // AppKit ships a NW–SE diagonal resize cursor for window corners but doesn't expose
+        // it publicly. It has lived under this selector for years and is widely used by Mac
+        // apps that need a diagonal resize affordance.
+        let selector = NSSelectorFromString("_windowResizeNorthWestSouthEastCursor")
+        if let method = NSCursor.responds(to: selector) ? NSCursor.perform(selector) : nil,
+           let cursor = method.takeUnretainedValue() as? NSCursor {
+            return cursor
+        }
+        return NSCursor.crosshair
+    }()
+
     override func resetCursorRects() {
         super.resetCursorRects()
-        // No public diagonal resize cursor; resizeLeftRight is the closest standard NSCursor
-        // and matches AppKit's edge-resize feel.
-        addCursorRect(bounds, cursor: NSCursor.resizeLeftRight)
+        addCursorRect(bounds, cursor: Self.diagonalResizeCursor)
     }
 
     override func mouseDown(with event: NSEvent) {
