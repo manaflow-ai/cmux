@@ -886,6 +886,25 @@ enum WorkspaceHandoffCompletionPolicy {
             return true
         }
     }
+
+    static func shouldCompleteFromAlreadyVisibleSelectedWorkspace(
+        selectedWorkspaceId: UUID?,
+        visibleWorkspaceIds: Set<UUID>,
+        hasRetiringWorkspace: Bool,
+        selectedWorkspaceReady: Bool
+    ) -> Bool {
+        guard let selectedWorkspaceId,
+              visibleWorkspaceIds.contains(selectedWorkspaceId) else {
+            return false
+        }
+        return shouldComplete(
+            signal: .selectedWorkspaceVisible,
+            selectedWorkspaceId: selectedWorkspaceId,
+            signalWorkspaceId: selectedWorkspaceId,
+            hasRetiringWorkspace: hasRetiringWorkspace,
+            selectedWorkspaceReady: selectedWorkspaceReady
+        )
+    }
 }
 
 /// Installs a FileDropOverlayView on the window's theme frame for Finder file drag support.
@@ -1095,6 +1114,7 @@ struct ContentView: View {
     @State private var sidebarDragStartWidth: CGFloat?
     @State private var selectedTabIds: Set<UUID> = []
     @State private var mountedWorkspaceIds: [UUID] = []
+    @State private var visibleWorkspaceIds: Set<UUID> = []
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
@@ -2104,7 +2124,7 @@ struct ContentView: View {
                         isFullScreen: isFullScreen,
                         workspacePortalPriority: portalPriority,
                         onWorkspaceVisibilityCommitted: { workspaceId in
-                            completeWorkspaceHandoffForVisibleWorkspace(workspaceId)
+                            recordWorkspaceVisibilityCommitted(workspaceId)
                         },
                         onThemeRefreshRequest: { reason, eventId, source, payloadHex in
                             scheduleTitlebarThemeRefreshFromWorkspace(
@@ -2963,6 +2983,7 @@ struct ContentView: View {
             if let previousSelectedWorkspaceId, !existingIds.contains(previousSelectedWorkspaceId) {
                 self.previousSelectedWorkspaceId = tabManager.selectedTabId
             }
+            visibleWorkspaceIds.formIntersection(existingIds)
             tabManager.pruneBackgroundWorkspaceLoads(existingIds: existingIds)
             reconcileMountedWorkspaceIds(tabs: tabs)
             selectedTabIds = selectedTabIds.filter { existingIds.contains($0) }
@@ -3376,6 +3397,7 @@ struct ContentView: View {
         )
         let removedIds = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
         let mountedIdSet = Set(mountedWorkspaceIds)
+        visibleWorkspaceIds.formIntersection(mountedIdSet)
         for workspace in currentTabs {
             workspace.setPortalRenderingEnabled(
                 mountedIdSet.contains(workspace.id),
@@ -3667,7 +3689,8 @@ struct ContentView: View {
         }
 #endif
 
-        if canCompleteWorkspaceHandoffImmediately(for: newSelectedId) {
+        let selectedWorkspaceReady = canCompleteWorkspaceHandoffImmediately(for: newSelectedId)
+        if selectedWorkspaceReady {
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -3678,6 +3701,15 @@ struct ContentView: View {
                 cmuxDebugLog("ws.handoff.awaitVisible id=none selected=\(debugShortWorkspaceId(newSelectedId))")
             }
 #endif
+        }
+        if WorkspaceHandoffCompletionPolicy.shouldCompleteFromAlreadyVisibleSelectedWorkspace(
+            selectedWorkspaceId: newSelectedId,
+            visibleWorkspaceIds: visibleWorkspaceIds,
+            hasRetiringWorkspace: retiringWorkspaceId != nil,
+            selectedWorkspaceReady: selectedWorkspaceReady
+        ) {
+            completeWorkspaceHandoff(reason: "visible")
+            return
         }
 
         workspaceHandoffFallbackTask = Task { [generation] in
@@ -3701,6 +3733,11 @@ struct ContentView: View {
             workspaceId: focusedTabId
         ) else { return }
         completeWorkspaceHandoff(reason: reason)
+    }
+
+    private func recordWorkspaceVisibilityCommitted(_ workspaceId: UUID) {
+        visibleWorkspaceIds.insert(workspaceId)
+        completeWorkspaceHandoffForVisibleWorkspace(workspaceId)
     }
 
     private func completeWorkspaceHandoffForVisibleWorkspace(_ workspaceId: UUID) {
