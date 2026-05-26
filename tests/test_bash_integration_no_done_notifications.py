@@ -86,6 +86,7 @@ def _run_interactive_bash(socket_path: Path) -> str:
             }
         )
         os.execv(bash, [bash, "--noprofile", "--norc", "-i"])
+        os._exit(1)
 
     transcript = _read_until_prompt(fd)
     commands = [
