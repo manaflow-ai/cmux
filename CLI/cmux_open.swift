@@ -3572,7 +3572,6 @@ extension CMUXCLI {
               grid-template-areas: "viewer files";
               overflow: hidden;
               overscroll-behavior: contain;
-              contain: strict;
               background: inherit;
             }
             body[data-files-hidden="true"] #content {
@@ -3590,7 +3589,6 @@ extension CMUXCLI {
               overflow: hidden;
               border-left: 1px solid var(--cmux-diff-border);
               background: color-mix(in lab, var(--cmux-diff-bg) 99%, var(--cmux-diff-fg));
-              contain: strict;
               transform: translateX(0);
               opacity: 1;
               transition: transform 120ms ease, opacity 120ms ease, visibility 0s linear 0s;
@@ -3768,11 +3766,9 @@ extension CMUXCLI {
               min-width: 0;
               position: relative;
               overflow-y: auto;
-              overflow-x: clip;
+              overflow-x: auto;
               overscroll-behavior: contain;
-              contain: strict;
               overflow-anchor: none;
-              will-change: scroll-position;
               border-bottom: 1px solid var(--cmux-diff-border);
               background: inherit;
             }
@@ -3797,8 +3793,6 @@ extension CMUXCLI {
               --diffs-font-size: var(--cmux-diff-font-size);
               --diffs-line-height: var(--cmux-diff-line-height);
               --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
-              overflow: clip;
-              contain: layout paint style;
               box-shadow: 0 -1px 0 var(--cmux-diff-border), 0 1px 0 var(--cmux-diff-border);
             }
             #status {
@@ -3966,8 +3960,10 @@ extension CMUXCLI {
                 throw new Error(label("noFileDiffs"));
               }
 
-              preloadDiffHighlighter(payload.appearance, codeViewItems.length > 0 ? codeViewItems : diffItems, getFiletypeFromFileName, preloadHighlighter)
-                .catch((error) => console.warn("cmux diff highlighter preload failed", error));
+              if (!workerPool) {
+                preloadDiffHighlighter(payload.appearance, codeViewItems.length > 0 ? codeViewItems : diffItems, getFiletypeFromFileName, preloadHighlighter)
+                  .catch((error) => console.warn("cmux diff highlighter preload failed", error));
+              }
             }
 
             async function createCodeViewWorkerPool() {
@@ -4055,6 +4051,7 @@ extension CMUXCLI {
                 maxBatchSize: 0,
                 treeRefreshCount: 0,
               };
+              let deferNavigationUpdates = false;
               let lastYieldAt = performance.now();
               let lastFlushAt = performance.now();
               let firstRender = true;
@@ -4141,13 +4138,18 @@ extension CMUXCLI {
                     renderedInitialCodeBatch = true;
                   }
                 }
-                appendJumpOptions(batch);
+                if (!deferNavigationUpdates) {
+                  appendJumpOptions(batch);
+                }
                 updateDiffStatsFromModel(diffModel);
-                scheduleNavigationRefresh(treesModule, false);
+                if (!deferNavigationUpdates) {
+                  scheduleNavigationRefresh(treesModule, false);
+                }
                 streamMetrics.flushCount += 1;
                 streamMetrics.maxBatchSize = Math.max(streamMetrics.maxBatchSize, batch.length);
                 streamMetrics.fileCount = diffItems.length;
                 streamMetrics.renderableFileCount = codeViewItems.length;
+                recordStreamMetrics(streamMetrics);
                 lastFlushAt = performance.now();
                 if (firstRender) {
                   firstRender = false;
@@ -4199,6 +4201,7 @@ extension CMUXCLI {
                 refreshFileExplorer(diffItems, treesModule);
                 setupJumpSelector(diffItems);
                 updateToolbarState();
+                recordStreamMetrics(streamMetrics);
               }
 
               const response = await fetch(payload.patchURL, { cache: "no-store" });
@@ -4212,11 +4215,17 @@ extension CMUXCLI {
                 batchConfig.initialMaxWait = 250;
                 batchConfig.incrementalMaxWait = 60;
                 const text = await response.text();
-                await appendParsedPatchText(text, parsePatchFiles, enqueueFileDiff);
-                await maybeFlushPendingItems(true);
+                deferNavigationUpdates = true;
+                try {
+                  await appendParsedPatchText(text, parsePatchFiles, enqueueFileDiff);
+                  await maybeFlushPendingItems(true);
+                } finally {
+                  deferNavigationUpdates = false;
+                }
                 finalizeCodeViewLayout();
                 scheduleNavigationRefresh(treesModule, true);
                 streamMetrics.completedAt = performance.now();
+                recordStreamMetrics(streamMetrics);
                 return;
               }
 
@@ -4306,6 +4315,18 @@ extension CMUXCLI {
               finalizeCodeViewLayout();
               scheduleNavigationRefresh(treesModule, true);
               streamMetrics.completedAt = performance.now();
+              recordStreamMetrics(streamMetrics);
+            }
+
+            function recordStreamMetrics(metrics) {
+              document.body.dataset.streamFileCount = String(metrics.fileCount ?? diffItems.length);
+              document.body.dataset.streamRenderableFileCount = String(metrics.renderableFileCount ?? codeViewItems.length);
+              document.body.dataset.streamFlushCount = String(metrics.flushCount ?? 0);
+              document.body.dataset.streamMaxBatchSize = String(metrics.maxBatchSize ?? 0);
+              document.body.dataset.streamTreeRefreshCount = String(metrics.treeRefreshCount ?? 0);
+              if (Number.isFinite(metrics.completedAt) && metrics.completedAt > 0) {
+                document.body.dataset.streamElapsedMs = String(Math.round(metrics.completedAt - metrics.startedAt));
+              }
             }
 
             async function appendParsedPatchText(patchText, parsePatchFiles, enqueueFileDiff) {
