@@ -426,6 +426,24 @@ enum UpdateInstallGate {
         var workspaceCount: Int
         var terminalCount: Int
         var runningCommandCount: Int
+        var terminalPanelIds: Set<UUID>
+        var runningCommandPanelIds: Set<UUID>
+
+        init(
+            windowCount: Int,
+            workspaceCount: Int,
+            terminalCount: Int,
+            runningCommandCount: Int,
+            terminalPanelIds: Set<UUID> = [],
+            runningCommandPanelIds: Set<UUID> = []
+        ) {
+            self.windowCount = windowCount
+            self.workspaceCount = workspaceCount
+            self.terminalCount = terminalCount
+            self.runningCommandCount = runningCommandCount
+            self.terminalPanelIds = terminalPanelIds
+            self.runningCommandPanelIds = runningCommandPanelIds
+        }
 
         static let empty = TerminalSessionSummary(
             windowCount: 0,
@@ -443,6 +461,33 @@ enum UpdateInstallGate {
             workspaceCount += other.workspaceCount
             terminalCount += other.terminalCount
             runningCommandCount += other.runningCommandCount
+            terminalPanelIds.formUnion(other.terminalPanelIds)
+            runningCommandPanelIds.formUnion(other.runningCommandPanelIds)
+        }
+
+        func isCovered(by confirmed: TerminalSessionSummary) -> Bool {
+            guard hasTerminalSessions else { return true }
+            guard confirmed.hasTerminalSessions else { return false }
+            guard terminalIdentityIsCovered(by: confirmed) else { return false }
+            guard runningCommandIdentityIsCovered(by: confirmed) else { return false }
+            return terminalCount <= confirmed.terminalCount
+                && runningCommandCount <= confirmed.runningCommandCount
+                && workspaceCount <= confirmed.workspaceCount
+                && windowCount <= confirmed.windowCount
+        }
+
+        private func terminalIdentityIsCovered(by confirmed: TerminalSessionSummary) -> Bool {
+            if terminalPanelIds.isEmpty, confirmed.terminalPanelIds.isEmpty {
+                return true
+            }
+            return terminalPanelIds.isSubset(of: confirmed.terminalPanelIds)
+        }
+
+        private func runningCommandIdentityIsCovered(by confirmed: TerminalSessionSummary) -> Bool {
+            if runningCommandPanelIds.isEmpty, confirmed.runningCommandPanelIds.isEmpty {
+                return true
+            }
+            return runningCommandPanelIds.isSubset(of: confirmed.runningCommandPanelIds)
         }
     }
 
@@ -456,6 +501,19 @@ enum UpdateInstallGate {
         userAlreadyConfirmed: Bool
     ) -> Decision {
         guard !userAlreadyConfirmed, summary.hasTerminalSessions else {
+            return .installNow
+        }
+        return .requireConfirmation(summary)
+    }
+
+    nonisolated static func decision(
+        terminalSessions summary: TerminalSessionSummary,
+        confirmedTerminalSessions confirmed: TerminalSessionSummary?
+    ) -> Decision {
+        guard summary.hasTerminalSessions else {
+            return .installNow
+        }
+        if let confirmed, summary.isCovered(by: confirmed) {
             return .installNow
         }
         return .requireConfirmation(summary)

@@ -1,4 +1,4 @@
-import Sparkle
+@preconcurrency import Sparkle
 import Cocoa
 
 enum UpdateFeedResolver {

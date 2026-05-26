@@ -11,7 +11,7 @@ class UpdateDriver: NSObject, SPUUserDriver, @unchecked Sendable {
     private var pendingCheckTransition: DispatchWorkItem?
     private var checkTimeoutWorkItem: DispatchWorkItem?
     private var lastFeedURLString: String?
-    private var didConfirmTerminalTerminationForInstall = false
+    private var confirmedTerminalTerminationSummaryForInstall: UpdateInstallGate.TerminalSessionSummary?
 
     init(
         viewModel: UpdateViewModel,
@@ -61,7 +61,7 @@ class UpdateDriver: NSObject, SPUUserDriver, @unchecked Sendable {
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         UpdateLogStore.shared.append("show update found: \(appcastItem.displayVersionString)")
-        didConfirmTerminalTerminationForInstall = false
+        confirmedTerminalTerminationSummaryForInstall = nil
         setStateAfterMinimumCheckDelay(.updateAvailable(.init(
             appcastItem: appcastItem,
             reply: installGateReply(reply)
@@ -175,7 +175,7 @@ class UpdateDriver: NSObject, SPUUserDriver, @unchecked Sendable {
 
     func dismissUpdateInstallation() {
         UpdateLogStore.shared.append("dismiss update installation")
-        didConfirmTerminalTerminationForInstall = false
+        confirmedTerminalTerminationSummaryForInstall = nil
         if case .error = viewModel.state {
             UpdateLogStore.shared.append("dismiss update installation ignored (error visible)")
             return
@@ -208,7 +208,7 @@ class UpdateDriver: NSObject, SPUUserDriver, @unchecked Sendable {
         reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void
     ) {
         guard choice == .install else {
-            didConfirmTerminalTerminationForInstall = false
+            confirmedTerminalTerminationSummaryForInstall = nil
             reply(choice)
             return
         }
@@ -239,22 +239,31 @@ class UpdateDriver: NSObject, SPUUserDriver, @unchecked Sendable {
     }
 
     func confirmUpdateInstallAfterTerminalWarningForImmediateInstall() -> Bool {
-        confirmUpdateInstallAfterTerminalWarning()
+        guard !Thread.isMainThread else {
+            return confirmUpdateInstallAfterTerminalWarning()
+        }
+        var result = false
+        DispatchQueue.main.sync {
+            result = self.confirmUpdateInstallAfterTerminalWarning()
+        }
+        return result
     }
 
     private func confirmUpdateInstallAfterTerminalWarning() -> Bool {
+        assert(Thread.isMainThread)
         let summary = terminalSessionSummaryProvider()
         switch UpdateInstallGate.decision(
             terminalSessions: summary,
-            userAlreadyConfirmed: didConfirmTerminalTerminationForInstall
+            confirmedTerminalSessions: confirmedTerminalTerminationSummaryForInstall
         ) {
         case .installNow:
             return true
         case .requireConfirmation(let warningSummary):
             guard terminalTerminationConfirmation(warningSummary) else {
+                confirmedTerminalTerminationSummaryForInstall = nil
                 return false
             }
-            didConfirmTerminalTerminationForInstall = true
+            confirmedTerminalTerminationSummaryForInstall = warningSummary
             return true
         }
     }
@@ -283,23 +292,63 @@ class UpdateDriver: NSObject, SPUUserDriver, @unchecked Sendable {
     private static func terminalTerminationWarningMessage(
         summary: UpdateInstallGate.TerminalSessionSummary
     ) -> String {
+        let terminalSessions = localizedCount(
+            summary.terminalCount,
+            oneKey: "update.terminalWarning.terminalSessions.one",
+            oneDefaultValue: "%lld terminal session",
+            otherKey: "update.terminalWarning.terminalSessions.other",
+            otherDefaultValue: "%lld terminal sessions"
+        )
+        let workspaces = localizedCount(
+            summary.workspaceCount,
+            oneKey: "update.terminalWarning.workspaces.one",
+            oneDefaultValue: "%lld workspace",
+            otherKey: "update.terminalWarning.workspaces.other",
+            otherDefaultValue: "%lld workspaces"
+        )
         let base = String(
             format: String(
                 localized: "update.terminalWarning.message",
-                defaultValue: "cmux will relaunch and terminate %lld terminal sessions across %lld workspaces. Running shells, SSH connections, and agents in those terminals will stop."
+                defaultValue: "cmux will relaunch and terminate %@ across %@. Running shells, SSH connections, and agents in those terminals will stop."
             ),
-            Int64(summary.terminalCount),
-            Int64(summary.workspaceCount)
+            terminalSessions,
+            workspaces
         )
         guard summary.runningCommandCount > 0 else { return base }
-        let running = String(
-            format: String(
-                localized: "update.terminalWarning.runningCommands",
+        let runningFormat = if summary.runningCommandCount == 1 {
+            String(
+                localized: "update.terminalWarning.runningCommands.one",
+                defaultValue: "%lld terminal session appears to have a running command."
+            )
+        } else {
+            String(
+                localized: "update.terminalWarning.runningCommands.other",
                 defaultValue: "%lld terminal sessions appear to have running commands."
-            ),
+            )
+        }
+        let running = String(
+            format: runningFormat,
             Int64(summary.runningCommandCount)
         )
         return base + "\n\n" + running
+    }
+
+    private static func localizedCount(
+        _ count: Int,
+        oneKey: StaticString,
+        oneDefaultValue: String.LocalizationValue,
+        otherKey: StaticString,
+        otherDefaultValue: String.LocalizationValue
+    ) -> String {
+        let format = if count == 1 {
+            String(localized: oneKey, defaultValue: oneDefaultValue)
+        } else {
+            String(localized: otherKey, defaultValue: otherDefaultValue)
+        }
+        return String(
+            format: format,
+            Int64(count)
+        )
     }
 
     private func beginChecking(cancel: @escaping () -> Void) {

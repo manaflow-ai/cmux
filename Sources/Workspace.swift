@@ -11241,15 +11241,20 @@ final class Workspace: Identifiable, ObservableObject {
     func terminalSessionSummaryForUpdateInstall() -> UpdateInstallGate.TerminalSessionSummary {
         var terminalCount = 0
         var runningCommandCount = 0
+        var terminalPanelIds = Set<UUID>()
+        var runningCommandPanelIds = Set<UUID>()
 
         for (panelId, panel) in panels {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
             terminalCount += 1
-            if panelNeedsConfirmClose(
+            terminalPanelIds.insert(panelId)
+            let hasRunningCommand = panelNeedsConfirmClose(
                 panelId: panelId,
                 fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
-            ) {
+            )
+            if hasRunningCommand {
                 runningCommandCount += 1
+                runningCommandPanelIds.insert(panelId)
             }
         }
 
@@ -11257,7 +11262,9 @@ final class Workspace: Identifiable, ObservableObject {
             windowCount: 0,
             workspaceCount: terminalCount > 0 ? 1 : 0,
             terminalCount: terminalCount,
-            runningCommandCount: runningCommandCount
+            runningCommandCount: runningCommandCount,
+            terminalPanelIds: terminalPanelIds,
+            runningCommandPanelIds: runningCommandPanelIds
         )
     }
 

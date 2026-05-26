@@ -2014,6 +2014,33 @@ final class UpdateInstallGatePolicyTests: XCTestCase {
         )
     }
 
+    func testRequiresConfirmationWhenCurrentTerminalSessionsExceedConfirmedSummary() {
+        let firstPanelId = UUID()
+        let secondPanelId = UUID()
+        let confirmed = UpdateInstallGate.TerminalSessionSummary(
+            windowCount: 1,
+            workspaceCount: 1,
+            terminalCount: 1,
+            runningCommandCount: 0,
+            terminalPanelIds: [firstPanelId]
+        )
+        let current = UpdateInstallGate.TerminalSessionSummary(
+            windowCount: 1,
+            workspaceCount: 1,
+            terminalCount: 2,
+            runningCommandCount: 0,
+            terminalPanelIds: [firstPanelId, secondPanelId]
+        )
+
+        XCTAssertEqual(
+            UpdateInstallGate.decision(
+                terminalSessions: current,
+                confirmedTerminalSessions: confirmed
+            ),
+            .requireConfirmation(current)
+        )
+    }
+
     func testUpdateDriverBlocksInstallWhenTerminalWarningIsDeclined() {
         let summary = UpdateInstallGate.TerminalSessionSummary(
             windowCount: 1,
@@ -2037,11 +2064,14 @@ final class UpdateInstallGatePolicyTests: XCTestCase {
     }
 
     func testUpdateDriverDoesNotPromptAgainAfterTerminalWarningConfirmed() {
+        let terminalPanelId = UUID()
         let summary = UpdateInstallGate.TerminalSessionSummary(
             windowCount: 1,
             workspaceCount: 1,
             terminalCount: 1,
-            runningCommandCount: 1
+            runningCommandCount: 1,
+            terminalPanelIds: [terminalPanelId],
+            runningCommandPanelIds: [terminalPanelId]
         )
         var promptCount = 0
         let driver = UpdateDriver(
@@ -2057,6 +2087,76 @@ final class UpdateInstallGatePolicyTests: XCTestCase {
         XCTAssertTrue(driver.confirmUpdateInstallAfterTerminalWarningForImmediateInstall())
         XCTAssertTrue(driver.confirmUpdateInstallAfterTerminalWarningForImmediateInstall())
         XCTAssertEqual(promptCount, 1)
+    }
+
+    func testUpdateDriverPromptsAgainWhenNewTerminalAppearsAfterConfirmation() {
+        let firstPanelId = UUID()
+        let secondPanelId = UUID()
+        var summary = UpdateInstallGate.TerminalSessionSummary(
+            windowCount: 1,
+            workspaceCount: 1,
+            terminalCount: 1,
+            runningCommandCount: 0,
+            terminalPanelIds: [firstPanelId]
+        )
+        var promptCount = 0
+        let driver = UpdateDriver(
+            viewModel: UpdateViewModel(),
+            hostBundle: .main,
+            terminalSessionSummaryProvider: { summary },
+            terminalTerminationConfirmation: { _ in
+                promptCount += 1
+                return true
+            }
+        )
+
+        XCTAssertTrue(driver.confirmUpdateInstallAfterTerminalWarningForImmediateInstall())
+
+        summary = UpdateInstallGate.TerminalSessionSummary(
+            windowCount: 1,
+            workspaceCount: 1,
+            terminalCount: 2,
+            runningCommandCount: 0,
+            terminalPanelIds: [firstPanelId, secondPanelId]
+        )
+
+        XCTAssertTrue(driver.confirmUpdateInstallAfterTerminalWarningForImmediateInstall())
+        XCTAssertEqual(promptCount, 2)
+    }
+
+    func testUpdateDriverPromptsAgainWhenCommandStartsAfterConfirmation() {
+        let terminalPanelId = UUID()
+        var summary = UpdateInstallGate.TerminalSessionSummary(
+            windowCount: 1,
+            workspaceCount: 1,
+            terminalCount: 1,
+            runningCommandCount: 0,
+            terminalPanelIds: [terminalPanelId]
+        )
+        var promptCount = 0
+        let driver = UpdateDriver(
+            viewModel: UpdateViewModel(),
+            hostBundle: .main,
+            terminalSessionSummaryProvider: { summary },
+            terminalTerminationConfirmation: { _ in
+                promptCount += 1
+                return true
+            }
+        )
+
+        XCTAssertTrue(driver.confirmUpdateInstallAfterTerminalWarningForImmediateInstall())
+
+        summary = UpdateInstallGate.TerminalSessionSummary(
+            windowCount: 1,
+            workspaceCount: 1,
+            terminalCount: 1,
+            runningCommandCount: 1,
+            terminalPanelIds: [terminalPanelId],
+            runningCommandPanelIds: [terminalPanelId]
+        )
+
+        XCTAssertTrue(driver.confirmUpdateInstallAfterTerminalWarningForImmediateInstall())
+        XCTAssertEqual(promptCount, 2)
     }
 }
 
