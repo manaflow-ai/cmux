@@ -217,6 +217,7 @@ struct cmuxApp: App {
     var body: some Scene {
         WindowGroup {
             MainWindowBootstrapView()
+                .withUIScaleEnvironment()
                 .cmuxAppearanceColorScheme(appearanceMode)
                 .onAppear {
                     SettingsWindowPresenter.configure(
@@ -1908,7 +1909,7 @@ private struct DebugWindowControlsView: View {
                             Text("Preview")
                             Spacer()
                             Image(systemName: selectedDevToolsIconOption.rawValue)
-                                .font(.system(size: 12, weight: .medium))
+                                .scaledFont(size: 12, weight: .medium)
                                 .foregroundStyle(selectedDevToolsColorOption.color)
                         }
 
@@ -5222,6 +5223,7 @@ struct SettingsView: View {
     @AppStorage(AppIconSettings.modeKey) private var appIconMode = AppIconSettings.defaultMode.rawValue
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+    @AppStorage(UIScaleSettings.key) private var uiScaleFactor = UIScaleSettings.defaultValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
@@ -6255,6 +6257,16 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.app.uiScaleFactor", defaultValue: "UI Scale Factor"),
+                            subtitle: String(localized: "settings.app.uiScaleFactor.subtitle", defaultValue: "Scale fonts and UI elements. Does not affect terminal text.")
+                        ) {
+                            UIScaleFactorControl(value: $uiScaleFactor)
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsPickerRow(
                             configurationReview: .json("app.newWorkspacePlacement"),
                             String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"),
@@ -6525,7 +6537,7 @@ struct SettingsView: View {
                         ) {
                             HStack(spacing: 6) {
                                 Text(notificationPermissionStatusText)
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .scaledFont(size: 11, weight: .semibold)
                                     .foregroundStyle(notificationPermissionStatusColor)
                                     .frame(width: 98, alignment: .trailing)
 
@@ -6561,7 +6573,7 @@ struct SettingsView: View {
                                         previewNotificationSound()
                                     } label: {
                                         Image(systemName: "play.fill")
-                                            .font(.system(size: 9))
+                                            .scaledFont(size: 9)
                                     }
                                     .buttonStyle(.bordered)
                                     .controlSize(.small)
@@ -6571,7 +6583,7 @@ struct SettingsView: View {
                                 if notificationSound == NotificationSoundSettings.customFileValue {
                                     HStack(spacing: 6) {
                                         Text(notificationSoundCustomFileDisplayName)
-                                            .font(.system(size: 11))
+                                            .scaledFont(size: 11)
                                             .foregroundStyle(.secondary)
                                             .lineLimit(1)
                                             .truncationMode(.middle)
@@ -6599,7 +6611,7 @@ struct SettingsView: View {
                                     }
                                     if let notificationCustomSoundStatusMessage {
                                         Text(notificationCustomSoundStatusMessage)
-                                            .font(.system(size: 11))
+                                            .scaledFont(size: 11)
                                             .foregroundStyle(notificationCustomSoundStatusIsError ? Color.red : Color.secondary)
                                             .lineLimit(2)
                                             .multilineTextAlignment(.trailing)
@@ -7459,14 +7471,14 @@ struct SettingsView: View {
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text(String(localized: "settings.browser.httpAllowlist", defaultValue: "HTTP Hosts Allowed in Embedded Browser"))
-                                .font(.system(size: 13, weight: .semibold))
+                                .scaledFont(size: 13, weight: .semibold)
 
                             Text(String(localized: "settings.browser.httpAllowlist.description", defaultValue: "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
                             TextEditor(text: $draftState.browserInsecureHTTPAllowlistDraft)
-                                .font(.system(size: 12, weight: .regular, design: .monospaced))
+                                .scaledFont(size: 12, weight: .regular, design: .monospaced)
                                 .frame(minHeight: 86)
                                 .padding(6)
                                 .background(
@@ -8048,6 +8060,7 @@ struct SettingsView: View {
         ).rawValue
         appIconMode = AppIconSettings.defaultMode.rawValue
         AppIconSettings.applyIcon(.automatic)
+        uiScaleFactor = UIScaleSettings.defaultValue
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         customClaudePath = ""
@@ -8280,7 +8293,7 @@ struct SettingsSectionHeader: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 13, weight: .semibold))
+            .scaledFont(size: 13, weight: .semibold)
             .foregroundColor(.secondary)
             .padding(.leading, 2)
             .padding(.bottom, -2)
@@ -8418,7 +8431,7 @@ struct SettingsCardRow<Trailing: View>: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 3) {
                 Text(title)
-                    .font(.system(size: 13, weight: .medium))
+                    .scaledFont(size: 13, weight: .medium)
                 if let subtitle {
                     Text(subtitle)
                         .font(.caption)
@@ -8504,6 +8517,65 @@ extension SettingsPickerRow where ExtraTrailing == EmptyView {
         self.init(configurationReview: configurationReview, title, subtitle: subtitle, controlWidth: controlWidth, selection: selection, accessibilityId: accessibilityId, content: content) {
             EmptyView()
         }
+    }
+}
+
+private struct UIScaleFactorControl: View {
+    @Binding var value: Double
+    @State private var textValue: String = ""
+    @FocusState private var isTextFieldFocused: Bool
+
+    private let step = UIScaleSettings.stepIncrement
+    private let range = UIScaleSettings.minimumValue...UIScaleSettings.maximumValue
+
+    var body: some View {
+        HStack(spacing: 4) {
+            TextField("", text: $textValue)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 52)
+                .multilineTextAlignment(.center)
+                .focused($isTextFieldFocused)
+                .onSubmit { commitText() }
+                .onChange(of: isTextFieldFocused) { focused in
+                    if !focused { commitText() }
+                }
+                .onKeyPress(.upArrow) { stepValue(by: step); return .handled }
+                .onKeyPress(.downArrow) { stepValue(by: -step); return .handled }
+
+            Stepper("", value: $value, in: range, step: step)
+                .labelsHidden()
+
+            if value != UIScaleSettings.defaultValue {
+                Button {
+                    value = UIScaleSettings.defaultValue
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: "settings.app.uiScaleFactor.reset", defaultValue: "Reset to default"))
+            }
+        }
+        .onAppear { textValue = formatValue(value) }
+        .onChange(of: value) { newValue in
+            textValue = formatValue(newValue)
+        }
+    }
+
+    private func stepValue(by delta: Double) {
+        value = UIScaleSettings.clampedValue(value + delta)
+    }
+
+    private func commitText() {
+        if let parsed = Double(textValue.replacingOccurrences(of: "×", with: "").trimmingCharacters(in: .whitespaces)) {
+            value = UIScaleSettings.clampedValue(parsed)
+        }
+        textValue = formatValue(value)
+    }
+
+    private func formatValue(_ v: Double) -> String {
+        return String(format: "%.2f×", v)
     }
 }
 
@@ -8595,7 +8667,7 @@ private struct ThemeWindowThumbnail: View {
                 VStack(spacing: 0) {
                     HStack {
                         Image(systemName: "applelogo")
-                            .font(.system(size: max(height * 0.08, 6)))
+                            .scaledFont(size: max(height * 0.08, 6))
                             .foregroundColor(isDark ? .white : .black)
                             .opacity(0.8)
                         Spacer()
@@ -8678,7 +8750,7 @@ private struct ThemePickerRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Text(String(localized: "settings.app.theme", defaultValue: "Theme"))
-                .font(.system(size: 13, weight: .medium))
+                .scaledFont(size: 13, weight: .medium)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 8) {
@@ -8721,7 +8793,7 @@ private struct ThemePickerRow: View {
                             .frame(width: thumbWidth, height: thumbHeight)
 
                             Text(mode.displayName)
-                                .font(.system(size: 10))
+                                .scaledFont(size: 10)
                                 .fontWeight(isSelected ? .semibold : .regular)
                                 .foregroundColor(isSelected ? .primary : .secondary)
                         }
@@ -8776,7 +8848,7 @@ private struct AppIconPickerRow: View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(String(localized: "settings.app.appIcon", defaultValue: "App Icon"))
-                    .font(.system(size: 13, weight: .medium))
+                    .scaledFont(size: 13, weight: .medium)
                 Text(String(localized: "settings.app.appIcon.subtitle", defaultValue: "Dock and app switcher"))
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -8817,7 +8889,7 @@ private struct AppIconPickerRow: View {
                             }
 
                             Text(mode.displayName)
-                                .font(.system(size: 10))
+                                .scaledFont(size: 10)
                                 .foregroundColor(isSelected ? .primary : .secondary)
                         }
                         .padding(.vertical, 8)
@@ -9064,6 +9136,7 @@ private struct SettingsRootView: View {
             .navigationSplitViewColumnWidth(210)
         } detail: {
             SettingsView(draftState: draftState)
+                .withUIScaleEnvironment()
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: SettingsWindowPresenter.minimumSize.width, minHeight: SettingsWindowPresenter.minimumSize.height)

@@ -7520,6 +7520,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
         let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
+            .withUIScaleEnvironment()
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(sidebarState)

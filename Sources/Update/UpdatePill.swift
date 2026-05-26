@@ -7,7 +7,7 @@ struct UpdatePill: View {
     @ObservedObject var model: UpdateViewModel
     @State private var showPopover = false
 
-    private let textFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+    private var textFont: NSFont { NSFont.systemFont(ofSize: UIScaleSettings.scaled(11), weight: .medium) }
 
     var body: some View {
         if model.showsPill {

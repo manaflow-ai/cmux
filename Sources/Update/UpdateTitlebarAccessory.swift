@@ -711,6 +711,7 @@ struct TitlebarControlsView: View {
     let visibilityMode: TitlebarControlsVisibilityMode
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(UIScaleSettings.key) private var uiScaleFactor = UIScaleSettings.defaultValue
     @State private var shortcutRefreshTick = 0
     @State private var appearanceRefreshTick = 0
     @State private var isHoveringControls = false
@@ -757,6 +758,7 @@ struct TitlebarControlsView: View {
         )
         let foregroundColor = Color(nsColor: titlebarControlForegroundNSColor(opacity: 1.0))
         controlsGroup(config: config, foregroundColor: foregroundColor)
+            .environment(\.uiScale, CGFloat(UIScaleSettings.clampedValue(uiScaleFactor)))
             .padding(.top, -1)
             .padding(.bottom, 1)
             .padding(.leading, 4)
@@ -862,7 +864,7 @@ struct TitlebarControlsView: View {
 
                     if notificationStore.unreadCount > 0 {
                         Text("\(min(notificationStore.unreadCount, 99))")
-                            .font(.system(size: titlebarNotificationBadgeFontSize(for: config), weight: .semibold))
+                            .scaledFont(size: titlebarNotificationBadgeFontSize(for: config), weight: .semibold)
                             .foregroundColor(.white)
                             .frame(width: config.badgeSize, height: config.badgeSize)
                             .background(
@@ -1018,7 +1020,7 @@ struct TitlebarControlsView: View {
     }
 
     private func titlebarHintWidth(for shortcut: StoredShortcut, config: TitlebarControlsStyleConfig) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: max(8, config.iconSize - 4), weight: .semibold)
+        let font = NSFont.systemFont(ofSize: UIScaleSettings.scaled(max(8, config.iconSize - 4)), weight: .semibold)
         let textWidth = (shortcut.displayString as NSString).size(withAttributes: [.font: font]).width
         return ceil(textWidth) + 12
     }
@@ -1073,7 +1075,7 @@ struct TitlebarControlsView: View {
         titlebarIconChrome(config: config, iconGeometryKeyPrefix: iconGeometryKeyPrefix) {
             Image(systemName: systemName)
                 .symbolRenderingMode(.monochrome)
-                .font(.system(size: config.iconSize, weight: TitlebarControlIconStyle.weight))
+                .scaledFont(size: config.iconSize, weight: TitlebarControlIconStyle.weight)
         }
     }
 
@@ -2164,7 +2166,7 @@ private struct NotificationsPopoverView: View {
             if !notificationStore.notificationMenuSnapshot.hasNotifications {
                 VStack(spacing: 8) {
                     Image(systemName: "bell.slash")
-                        .font(.system(size: 28))
+                        .scaledFont(size: 28)
                         .foregroundColor(.secondary)
                     Text(String(localized: "notifications.empty.title", defaultValue: "No notifications yet"))
                         .font(.headline)
