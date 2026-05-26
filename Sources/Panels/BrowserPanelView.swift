@@ -814,10 +814,10 @@ struct BrowserPanelView: View {
         if addressBarFocused,
            !panel.shouldSuppressWebViewFocus(),
            addressWasEmpty,
-           !isWebViewBlank() {
+           !isBrowserContentBlankForOmnibar() {
             setAddressBarFocused(false, reason: "panel.currentURL.loaded")
         }
-        if isWebViewBlank() {
+        if panel.isShowingNewTabPage {
             refreshEmptyStateImportBrowsers()
         }
         panel.resetReactGrabState(
@@ -2036,7 +2036,7 @@ struct BrowserPanelView: View {
     }
 
     private var shouldShowEmptyStateImportOverlay: Bool {
-        !panel.shouldRenderWebView && isWebViewBlank()
+        panel.isShowingNewTabPage
     }
 
     private func presentImportDialogFromHint() {
@@ -2072,10 +2072,9 @@ struct BrowserPanelView: View {
         isBrowserImportHintPopoverPresented = false
     }
 
-    /// Treat a WebView with no URL (or about:blank) as "blank" for UX purposes.
-    private func isWebViewBlank() -> Bool {
-        guard let url = panel.webView.url else { return true }
-        return url.absoluteString == "about:blank"
+    /// Treat content as blank only if neither WebKit nor the panel model has a nonblank URL.
+    private func isBrowserContentBlankForOmnibar() -> Bool {
+        panel.preferredURLStringForOmnibar() == nil
     }
 
     private func autoFocusOmnibarIfBlank() {
@@ -2117,7 +2116,7 @@ struct BrowserPanelView: View {
 #endif
             return
         }
-        guard isWebViewBlank() else {
+        guard isBrowserContentBlankForOmnibar() else {
 #if DEBUG
             logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=webview_not_blank")
 #endif
