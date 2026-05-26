@@ -23597,16 +23597,43 @@ function statusWords(value, depth = 0) {
   return [];
 }
 
+function statusWordsForKeys(value, keys, depth = 0) {
+  if (depth > 2 || value == null) return [];
+  if (typeof value !== "object") return statusWords(value, depth);
+  if (Array.isArray(value)) return value.flatMap((item) => statusWordsForKeys(item, keys, depth + 1));
+  return keys.flatMap((key) => statusWordsForKeys(value[key], keys, depth + 1));
+}
+
 function descriptorForOpenCodeStatus(rawStatus) {
+  const primary = statusWordsForKeys(rawStatus, ["type", "status", "state", "phase"]).join(" ").toLowerCase();
   const lower = statusWords(rawStatus).join(" ").toLowerCase();
   if (!lower) return null;
   if (/(retry|rate.?limit|throttl|backoff)/.test(lower)) return STATUS_DESCRIPTORS.retrying;
+  if (/(error|fail|failure|exception|crash|panic)/.test(primary)) return STATUS_DESCRIPTORS.error;
+  if (/(idle|ready|done|complete|completed|stopped)/.test(primary)) return STATUS_DESCRIPTORS.idle;
+  if (/(run|running|busy|active|work|working|stream|streaming|process|processing|execute|executing)/.test(primary)) {
+    return STATUS_DESCRIPTORS.running;
+  }
   if (/(error|fail|failure|exception|crash|panic)/.test(lower)) return STATUS_DESCRIPTORS.error;
   if (/(idle|ready|done|complete|completed|stopped)/.test(lower)) return STATUS_DESCRIPTORS.idle;
   if (/(run|running|busy|active|work|working|stream|streaming|process|processing|execute|executing)/.test(lower)) {
     return STATUS_DESCRIPTORS.running;
   }
   return null;
+}
+
+const RECENT_STOP_HOOKS = new Map();
+
+function sendStopHookOnce(ctx, event) {
+  const sessionId = sessionIdFor(event) || "default";
+  const now = Date.now();
+  const previous = RECENT_STOP_HOOKS.get(sessionId) || 0;
+  if (now - previous < 2000) return;
+  RECENT_STOP_HOOKS.set(sessionId, now);
+  for (const [key, timestamp] of RECENT_STOP_HOOKS) {
+    if (now - timestamp > 60000) RECENT_STOP_HOOKS.delete(key);
+  }
+  sendHook("stop", ctx, event);
 }
 
 function setStatus(descriptor) {
@@ -23691,14 +23718,14 @@ const CMUXSessionRestore = async (ctx) => {
           const descriptor = descriptorForOpenCodeStatus(props.status || props.info?.status || props);
           setStatus(descriptor);
           if (descriptor === STATUS_DESCRIPTORS.idle) {
-            sendHook("stop", ctx, event);
+            sendStopHookOnce(ctx, event);
           } else if (descriptor === STATUS_DESCRIPTORS.error) {
             notifyOpenCode("Error", promptBody(props, "OpenCode reported an error"));
           }
           break;
         case "session.idle":
           setStatus(STATUS_DESCRIPTORS.idle);
-          sendHook("stop", ctx, event);
+          sendStopHookOnce(ctx, event);
           break;
         case "permission.asked":
           setStatus(STATUS_DESCRIPTORS.needsInput);
