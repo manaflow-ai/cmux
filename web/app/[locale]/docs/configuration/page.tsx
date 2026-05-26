@@ -66,7 +66,14 @@ const settingsFileExample = `{
 
   // "terminal": {
   //   "showScrollBar": false,
-  //   "autoResumeAgentSessions": true
+  //   "copyOnSelect": true,
+  //   "autoResumeAgentSessions": true,
+  //   "agentHibernation": {
+  //     "enabled": false,
+  //     "idleSeconds": 3600,
+  //     "maxLiveTerminals": 12
+  //   },
+  //   "textBoxMaxLines": 10
   // },
 
   // "browser": {
