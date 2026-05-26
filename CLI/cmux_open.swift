@@ -245,6 +245,8 @@ extension CMUXCLI {
     private struct DiffViewerAssets {
         var diffsModuleURL: String
         var treesModuleURL: String
+        var workerPoolModuleURL: String
+        var workerModuleURL: String
         var files: [URL]
     }
 
@@ -3260,6 +3262,8 @@ extension CMUXCLI {
         let payloadLiteral = try jsonScriptLiteral(payload)
         let diffsModuleLiteral = try jsonStringLiteral(assets.diffsModuleURL)
         let treesModuleLiteral = try jsonStringLiteral(assets.treesModuleURL)
+        let workerPoolModuleLiteral = try jsonStringLiteral(assets.workerPoolModuleURL)
+        let workerModuleLiteral = try jsonStringLiteral(assets.workerModuleURL)
         let escapedTitle = htmlEscaped(title)
         let diffTargetLabel = htmlEscaped(labels["diffTarget"])
         let repoPathLabel = htmlEscaped(labels["repoPath"])
@@ -3853,6 +3857,8 @@ extension CMUXCLI {
           <script type="module">
             const DIFFS_MODULE_URL = \(diffsModuleLiteral);
             const TREES_MODULE_URL = \(treesModuleLiteral);
+            const WORKER_POOL_MODULE_URL = \(workerPoolModuleLiteral);
+            const DIFF_WORKER_URL = \(workerModuleLiteral);
             const payload = \(payloadLiteral);
             const labels = payload.labels ?? {};
             const viewerElement = document.getElementById("viewer");
@@ -3890,6 +3896,7 @@ extension CMUXCLI {
               fileSearchOpen: false,
             };
             let codeView;
+            let workerPool;
             let fileTree;
             let diffItems = [];
             let codeViewItems = [];
@@ -3935,13 +3942,19 @@ extension CMUXCLI {
               registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.light);
               registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.dark);
               status.textContent = label("parsingDiff");
-              codeView = new CodeView(codeViewOptions());
+              setWorkerPoolStatus("loading");
+              workerPool = await createCodeViewWorkerPool();
+              codeView = new CodeView(codeViewOptions(), workerPool ?? undefined);
               codeView.setup(viewerElement);
               codeView.render(true);
               codeView.subscribeToScroll(scheduleActiveFileFromScroll);
               setupJumpSelector(diffItems);
               updateToolbarState();
-              window.__cmuxDiffViewer = { codeView, items: diffItems, state: appState };
+              window.__cmuxDiffViewer = { codeView, items: diffItems, state: appState, workerPool };
+              observeWorkerPool(workerPool);
+              const workerInitialization = workerPool?.initialize?.();
+              workerInitialization?.catch?.((error) => console.warn("cmux diff worker pool initialization failed", error));
+              window.addEventListener("pagehide", () => workerPool?.terminate?.(), { once: true });
 
               await streamPatchIntoCodeView({
                 parsePatchFiles,
@@ -3955,6 +3968,75 @@ extension CMUXCLI {
 
               preloadDiffHighlighter(payload.appearance, codeViewItems.length > 0 ? codeViewItems : diffItems, getFiletypeFromFileName, preloadHighlighter)
                 .catch((error) => console.warn("cmux diff highlighter preload failed", error));
+            }
+
+            async function createCodeViewWorkerPool() {
+              if (typeof Worker === "undefined") {
+                return null;
+              }
+              try {
+                const workerPoolModule = await import(WORKER_POOL_MODULE_URL);
+                registerGhosttyTheme(workerPoolModule.registerCustomTheme, payload.appearance.themes.light);
+                registerGhosttyTheme(workerPoolModule.registerCustomTheme, payload.appearance.themes.dark);
+                const workerURL = new URL(DIFF_WORKER_URL, window.location.href).href;
+                return workerPoolModule.createDiffWorkerPool({
+                  workerURL,
+                  highlighterOptions: workerHighlighterOptions(),
+                }) ?? null;
+              } catch (error) {
+                console.warn("cmux diff worker pool unavailable; falling back to main-thread highlighting", error);
+                return null;
+              }
+            }
+
+            function observeWorkerPool(pool) {
+              if (!pool) {
+                setWorkerPoolStatus("fallback");
+                return;
+              }
+              setWorkerPoolStatus("enabled");
+              recordWorkerPoolStats(pool.getStats?.());
+              const unsubscribe = pool.subscribeToStatChanges?.((stats) => {
+                recordWorkerPoolStats(stats);
+              });
+              if (typeof unsubscribe === "function") {
+                window.addEventListener("pagehide", unsubscribe, { once: true });
+              }
+            }
+
+            function setWorkerPoolStatus(status) {
+              document.body.dataset.workerPool = status;
+            }
+
+            function recordWorkerPoolStats(stats) {
+              if (!stats || typeof stats !== "object") {
+                return;
+              }
+              if (typeof stats.managerState === "string") {
+                document.body.dataset.workerPoolState = stats.managerState;
+              }
+              if (Number.isFinite(stats.totalWorkers)) {
+                document.body.dataset.workerPoolWorkers = String(stats.totalWorkers);
+              }
+              if (typeof stats.workersFailed === "boolean") {
+                document.body.dataset.workerPoolFailed = String(stats.workersFailed);
+              }
+            }
+
+            function workerHighlighterOptions() {
+              return {
+                theme: payload.appearance.theme,
+                langs: defaultWorkerLanguages(),
+                preferredHighlighter: "shiki-wasm",
+                lineDiffType: appState.wordDiffs ? "word" : "none",
+                maxLineDiffLength: 1000,
+                tokenizeMaxLineLength: 1000,
+                useTokenTransformer: false,
+              };
+            }
+
+            function defaultWorkerLanguages() {
+              return ["cpp", "css", "go", "python", "rust", "sh", "swift", "tsx", "typescript", "zig"];
             }
 
             async function streamPatchIntoCodeView({ parsePatchFiles, processFile, treesModule }) {
@@ -4381,8 +4463,19 @@ extension CMUXCLI {
               if (!codeView) {
                 return;
               }
-              codeView.setOptions(codeViewOptions());
+              const options = codeViewOptions();
+              codeView.setOptions(options);
+              syncWorkerRenderOptions();
               codeView.render(true);
+            }
+
+            function syncWorkerRenderOptions() {
+              if (!workerPool?.setRenderOptions) {
+                return;
+              }
+              workerPool.setRenderOptions(workerHighlighterOptions())
+                .then(() => codeView?.render(true))
+                .catch((error) => console.warn("cmux diff worker render options update failed", error));
             }
 
             function setLayout(layout) {
@@ -5205,7 +5298,10 @@ extension CMUXCLI {
         try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
 
         let assetPaths = try diffViewerBundledAssetRelativePaths(in: sourceDirectory)
-        guard assetPaths.contains("diffs.mjs"), assetPaths.contains("trees.mjs") else {
+        guard assetPaths.contains("diffs.mjs"),
+              assetPaths.contains("trees.mjs"),
+              assetPaths.contains("worker-pool/worker-pool.mjs"),
+              assetPaths.contains("worker-pool/worker-portable.mjs") else {
             throw CLIError(message: "Bundled diff viewer entry assets not found")
         }
         for assetPath in assetPaths {
@@ -5215,6 +5311,8 @@ extension CMUXCLI {
         return DiffViewerAssets(
             diffsModuleURL: "./assets/\(assetDirectoryName)/diffs.mjs",
             treesModuleURL: "./assets/\(assetDirectoryName)/trees.mjs",
+            workerPoolModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-pool.mjs",
+            workerModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-portable.mjs",
             files: assetPaths.map { targetDirectory.appendingPathComponent($0, isDirectory: false) }
         )
     }

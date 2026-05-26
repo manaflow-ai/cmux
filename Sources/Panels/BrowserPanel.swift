@@ -2308,7 +2308,7 @@ nonisolated enum BrowserWebViewLifecycleState: String {
 final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "cmux-diff-viewer"
     static let shared = CmuxDiffViewerURLSchemeHandler()
-    static let maxRegisteredFiles = 512
+    static let maxRegisteredFiles = 1024
 
     struct RegisteredFile {
         let requestPath: String
