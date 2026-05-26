@@ -761,6 +761,74 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(feedEvents.first?["_ppid"] as? Int, 525252)
     }
 
+    func testLowercaseGenericFeedToolsStayTelemetryOutsideKiro() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("generic-lowercase-feed-tool")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-generic-lowercase-feed-tool-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "33333333-3333-3333-3333-333333333333"
+        let surfaceId = "44444444-4444-4444-4444-444444444444"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            XCTAssertEqual(method, "feed.push")
+            return self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "gemini", "--event", "PreToolUse"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_GEMINI_PID": "626262",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"hook_event_name":"PreToolUse","session_id":"gemini-session-123","cwd":"\#(root.path)","tool_name":"write","tool_input":{"path":"\#(root.appendingPathComponent("README.md").path)"}}"#,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+
+        let feedPushes = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "feed.push",
+                  let params = payload["params"] as? [String: Any] else {
+                return nil
+            }
+            return params
+        }
+        XCTAssertEqual(feedPushes.count, 1, "Expected one generic Feed event, saw \(state.commands)")
+        let event = try XCTUnwrap(feedPushes.first?["event"] as? [String: Any])
+        let waitTimeout = try XCTUnwrap(feedPushes.first?["wait_timeout_seconds"] as? NSNumber)
+        XCTAssertEqual(event["hook_event_name"] as? String, "PreToolUse")
+        XCTAssertEqual(event["_source"] as? String, "gemini")
+        XCTAssertEqual(event["tool_name"] as? String, "write")
+        XCTAssertEqual(event["_ppid"] as? Int, 626262)
+        XCTAssertEqual(waitTimeout.doubleValue, 0)
+    }
+
     func testAntigravityFeedHookMissingSessionIdUsesStableFallback() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("antigravity-feed-stable-session")

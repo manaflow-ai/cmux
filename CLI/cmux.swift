@@ -28816,7 +28816,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if source == "hermes-agent" {
             switch event {
             case "pre_tool_call":
-                if Self.isSideEffectingTool(toolName) {
+                if Self.isSideEffectingTool(toolName, source: source) {
                     return ("PermissionRequest", true)
                 }
                 return ("PreToolUse", false)
@@ -28853,7 +28853,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 // from the Feed sidebar. Read-only tools stay as
                 // non-actionable telemetry so we don't flood the
                 // Actionable view with every file read.
-                if Self.isSideEffectingTool(toolName) {
+                if Self.isSideEffectingTool(toolName, source: source) {
                     return ("PermissionRequest", true)
                 }
                 return ("PreToolUse", false)
@@ -28906,22 +28906,41 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         "generate_image",
     ]
 
-    private static func isSideEffectingTool(_ toolName: String) -> Bool {
+    private static let kiroSideEffectingToolAliases: Set<String> = [
+        "bash",
+        "write",
+        "edit",
+        "multiedit",
+        "notebookedit",
+        "apply_patch",
+        "shell",
+        "execute_bash",
+        "fs_write",
+        "use_aws",
+        "aws",
+        "terminal",
+        "run_command",
+        "write_to_file",
+        "replace_file_content",
+        "multi_replace_file_content",
+        "manage_task",
+        "schedule",
+        "ask_permission",
+        "invoke_subagent",
+        "define_subagent",
+        "manage_subagents",
+        "generate_image",
+    ]
+
+    private static func isSideEffectingTool(_ toolName: String, source: String) -> Bool {
         guard !toolName.isEmpty else { return false }
         if sideEffectingTools.contains(toolName) {
             return true
         }
-        switch toolName.lowercased() {
-        case "bash", "write", "edit", "multiedit", "notebookedit",
-             "apply_patch", "shell", "execute_bash", "fs_write", "use_aws", "aws",
-             "terminal", "run_command", "write_to_file", "replace_file_content",
-             "multi_replace_file_content", "manage_task", "schedule",
-             "ask_permission", "invoke_subagent", "define_subagent", "manage_subagents",
-             "generate_image":
-            return true
-        default:
-            return false
+        if source == "kiro" {
+            return kiroSideEffectingToolAliases.contains(toolName.lowercased())
         }
+        return false
     }
 
     private static func shouldSuppressKiroFeedEvent(
@@ -28946,7 +28965,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return false
         default:
             if hookEventName == "PreToolUse" || hookEventName == "PostToolUse" {
-                return !isSideEffectingTool(toolName)
+                return !isSideEffectingTool(toolName, source: source)
             }
             return false
         }
