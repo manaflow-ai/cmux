@@ -12103,7 +12103,7 @@ final class Workspace: Identifiable, ObservableObject {
         reconnectRemoteConnection()
     }
 
-    func disconnectRemoteConnection(clearConfiguration: Bool = false) {
+    func disconnectRemoteConnection(clearConfiguration: Bool = false, disconnectedDetail: String? = nil) {
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let shouldCleanupControlMaster =
             clearConfiguration
@@ -12131,7 +12131,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteHeartbeatCount = 0
         remoteLastHeartbeatAt = nil
         remoteConnectionState = .disconnected
-        remoteConnectionDetail = nil
+        remoteConnectionDetail = disconnectedDetail
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
         statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
         statusEntries.removeValue(forKey: Self.remotePortConflictStatusKey)
@@ -12397,13 +12397,13 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func disconnectRemoteConnectionAfterTerminalExit() {
-        disconnectRemoteConnection(clearConfiguration: false)
-        remoteConnectionState = .disconnected
-        remoteConnectionDetail = String(
-            localized: "remote.status.terminalDisconnected",
-            defaultValue: "Remote terminal session disconnected"
+        disconnectRemoteConnection(
+            clearConfiguration: false,
+            disconnectedDetail: String(
+                localized: "remote.status.terminalDisconnected",
+                defaultValue: "Remote terminal session disconnected"
+            )
         )
-        applyBrowserRemoteWorkspaceStatusToPanels()
     }
 
     func rememberPendingRemoteDisconnectReplacement(configuration: WorkspaceRemoteConfiguration) {
