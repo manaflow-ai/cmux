@@ -372,7 +372,32 @@ extension CMUXCLI {
     }
 
     private static func backgroundHookShellCommand(_ command: String) -> String {
-        "cmux_hook_input=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-hook.XXXXXX\" 2>/dev/null || true)\"; if [ -n \"$cmux_hook_input\" ]; then cat > \"$cmux_hook_input\"; ( { \(command); } < \"$cmux_hook_input\" >/dev/null 2>&1; rm -f \"$cmux_hook_input\" ) & else ( { \(command); } >/dev/null 2>&1 < /dev/null ) & fi; echo '{}'"
+        let pythonDetachedSpawn = """
+import os, subprocess, sys
+cmd = os.environ.get("CMUX_HOOK_COMMAND", "")
+input_path = os.environ.get("CMUX_HOOK_INPUT", os.devnull)
+pid = os.fork()
+if pid:
+    sys.exit(0)
+os.setsid()
+status = 1
+try:
+    stdin_path = input_path if input_path else os.devnull
+    with open(stdin_path, "rb") as stdin_file, open(os.devnull, "wb") as devnull:
+        status = subprocess.call(["/bin/sh", "-c", cmd], stdin=stdin_file, stdout=devnull, stderr=devnull)
+finally:
+    if input_path and input_path != os.devnull:
+        try:
+            os.unlink(input_path)
+        except OSError:
+            pass
+os._exit(status if isinstance(status, int) else 0)
+"""
+        let quotedCommand = shellSingleQuote(command)
+        let quotedPython = shellSingleQuote(pythonDetachedSpawn)
+        let fallbackWithInput = "( { \(command); } < \"$cmux_hook_input\" >/dev/null 2>&1; rm -f \"$cmux_hook_input\" ) & disown \"$!\" 2>/dev/null || true"
+        let fallbackWithoutInput = "( { \(command); } >/dev/null 2>&1 < /dev/null ) & disown \"$!\" 2>/dev/null || true"
+        return "cmux_hook_spawn() { if command -v python3 >/dev/null 2>&1; then CMUX_HOOK_COMMAND=\(quotedCommand) CMUX_HOOK_INPUT=\"${1:-/dev/null}\" python3 -c \(quotedPython) >/dev/null 2>&1 & else if [ -n \"${1:-}\" ] && [ \"${1:-}\" != \"/dev/null\" ]; then \(fallbackWithInput); else \(fallbackWithoutInput); fi; fi; }; cmux_hook_input=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-hook.XXXXXX\" 2>/dev/null || true)\"; if [ -n \"$cmux_hook_input\" ]; then cat > \"$cmux_hook_input\"; cmux_hook_spawn \"$cmux_hook_input\"; else cmux_hook_spawn /dev/null; fi; echo '{}'"
     }
 
     private static func pinnedHookInvocation(

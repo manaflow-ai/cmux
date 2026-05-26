@@ -28862,7 +28862,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         default:
             guard let def = Self.agentDef(named: first) else {
-                if first == "feed" || first == "claude" {
+                if first == "feed" {
                     return false
                 }
                 throw CLIError(message: "Unknown hooks target: \(first)")

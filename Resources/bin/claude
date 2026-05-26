@@ -258,14 +258,58 @@ cmux_bin="${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}"
 cmux_hook_input="$(mktemp "${TMPDIR:-/tmp}/cmux-hook.XXXXXX" 2>/dev/null || true)"
 if [[ -n "$cmux_hook_input" ]]; then
     cat >"$cmux_hook_input"
-    (
-        "$cmux_bin" hooks "$@" <"$cmux_hook_input" >/dev/null 2>&1
-        rm -f "$cmux_hook_input"
-    ) &
+    if command -v python3 >/dev/null 2>&1; then
+        CMUX_HOOK_CMUX_BIN="$cmux_bin" CMUX_HOOK_INPUT="$cmux_hook_input" python3 - "$@" <<'PY' >/dev/null 2>&1 &
+import os
+import subprocess
+import sys
+
+cmux_bin = os.environ.get("CMUX_HOOK_CMUX_BIN", "cmux")
+input_path = os.environ.get("CMUX_HOOK_INPUT", os.devnull)
+pid = os.fork()
+if pid:
+    sys.exit(0)
+os.setsid()
+status = 1
+try:
+    with open(input_path, "rb") as stdin_file, open(os.devnull, "wb") as devnull:
+        status = subprocess.call([cmux_bin, "hooks", *sys.argv[1:]], stdin=stdin_file, stdout=devnull, stderr=devnull)
+finally:
+    try:
+        os.unlink(input_path)
+    except OSError:
+        pass
+os._exit(status)
+PY
+    else
+        (
+            "$cmux_bin" hooks "$@" <"$cmux_hook_input" >/dev/null 2>&1
+            rm -f "$cmux_hook_input"
+        ) &
+        disown "$!" 2>/dev/null || true
+    fi
 else
-    (
-        "$cmux_bin" hooks "$@" </dev/null >/dev/null 2>&1
-    ) &
+    if command -v python3 >/dev/null 2>&1; then
+        CMUX_HOOK_CMUX_BIN="$cmux_bin" CMUX_HOOK_INPUT=/dev/null python3 - "$@" <<'PY' >/dev/null 2>&1 &
+import os
+import subprocess
+import sys
+
+cmux_bin = os.environ.get("CMUX_HOOK_CMUX_BIN", "cmux")
+pid = os.fork()
+if pid:
+    sys.exit(0)
+os.setsid()
+with open(os.devnull, "rb") as stdin_file, open(os.devnull, "wb") as devnull:
+    status = subprocess.call([cmux_bin, "hooks", *sys.argv[1:]], stdin=stdin_file, stdout=devnull, stderr=devnull)
+os._exit(status)
+PY
+    else
+        (
+            "$cmux_bin" hooks "$@" </dev/null >/dev/null 2>&1
+        ) &
+        disown "$!" 2>/dev/null || true
+    fi
 fi
 
 printf '{}\n'
@@ -276,7 +320,7 @@ EOF
         return 1
     }
     if [[ -f "$dispatcher_path" ]] && cmp -s "$temp_path" "$dispatcher_path"; then
-        rm -f "$temp_path" || return 1
+        rm -f "$temp_path" 2>/dev/null || true
     else
         mv -f "$temp_path" "$dispatcher_path" || {
             rm -f "$temp_path"
@@ -513,11 +557,13 @@ fi
 # - PreToolUse: rejects unsupported durable cron requests synchronously, then
 #   clears "Needs input" and captures AskUserQuestion text for notifications
 #   (async status only)
-# - PermissionRequest: cmux hooks feed. The wrapper dispatcher returns
-#   immediately and lets cmux finish Feed work in the background.
+# - PermissionRequest: cmux hooks feed. SYNC with a 125s timeout.
+#   This is Claude Code's native blocking decision hook. It covers
+#   permissions, ExitPlanMode, and AskUserQuestion without using
+#   PreToolUse denial as a side channel.
 # - SubagentStop: feed telemetry only. It must not run the visible Stop
 #   hook because a subagent finishing should not notify like the parent.
-HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"[ -n \"${CMUX_CLAUDE_HOOK_DISPATCHER:-}\" ] && \"$CMUX_CLAUDE_HOOK_DISPATCHER\" claude session-start || echo '\''{}'\''","timeout":1}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"[ -n \"${CMUX_CLAUDE_HOOK_DISPATCHER:-}\" ] && \"$CMUX_CLAUDE_HOOK_DISPATCHER\" claude stop || echo '\''{}'\''","timeout":1}]},{"matcher":"","hooks":[{"type":"command","command":"[ -n \"${CMUX_CLAUDE_HOOK_DISPATCHER:-}\" ] && \"$CMUX_CLAUDE_HOOK_DISPATCHER\" feed --source claude || echo '\''{}'\''","timeout":1,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"[ -n \"${CMUX_CLAUDE_HOOK_DISPATCHER:-}\" ] && \"$CMUX_CLAUDE_HOOK_DISPATCHER\" feed --source claude || echo '\''{}'\''","timeout":1,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"[ -n \"${CMUX_CLAUDE_HOOK_DISPATCHER:-}\" ] && \"$CMUX_CLAUDE_HOOK_DISPATCHER\" claude session-end || echo '\''{}'\''","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"[ -n \"${CMUX_CLAUDE_HOOK_DISPATCHER:-}\" ] && \"$CMUX_CLAUDE_HOOK_DISPATCHER\" claude notification || echo '\''{}'\''","timeout":1}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"[ -n \"${CMUX_CLAUDE_HOOK_DISPATCHER:-}\" ] && \"$CMUX_CLAUDE_HOOK_DISPATCHER\" claude prompt-submit || echo '\''{}'\''","timeout":1}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"[ -n \"${CMUX_CLAUDE_HOOK_DISPATCHER:-}\" ] && \"$CMUX_CLAUDE_HOOK_DISPATCHER\" claude pre-tool-use || echo '\''{}'\''","timeout":1,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"[ -n \"${CMUX_CLAUDE_HOOK_DISPATCHER:-}\" ] && \"$CMUX_CLAUDE_HOOK_DISPATCHER\" feed --source claude || echo '\''{}'\''","timeout":1}]}]}}'
+HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"[ -n \"${CMUX_CLAUDE_HOOK_DISPATCHER:-}\" ] && \"$CMUX_CLAUDE_HOOK_DISPATCHER\" claude session-start || echo '\''{}'\''","timeout":1}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"[ -n \"${CMUX_CLAUDE_HOOK_DISPATCHER:-}\" ] && \"$CMUX_CLAUDE_HOOK_DISPATCHER\" claude stop || echo '\''{}'\''","timeout":1}]},{"matcher":"","hooks":[{"type":"command","command":"[ -n \"${CMUX_CLAUDE_HOOK_DISPATCHER:-}\" ] && \"$CMUX_CLAUDE_HOOK_DISPATCHER\" feed --source claude || echo '\''{}'\''","timeout":1,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"[ -n \"${CMUX_CLAUDE_HOOK_DISPATCHER:-}\" ] && \"$CMUX_CLAUDE_HOOK_DISPATCHER\" feed --source claude || echo '\''{}'\''","timeout":1,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"[ -n \"${CMUX_CLAUDE_HOOK_DISPATCHER:-}\" ] && \"$CMUX_CLAUDE_HOOK_DISPATCHER\" claude session-end || echo '\''{}'\''","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"[ -n \"${CMUX_CLAUDE_HOOK_DISPATCHER:-}\" ] && \"$CMUX_CLAUDE_HOOK_DISPATCHER\" claude notification || echo '\''{}'\''","timeout":1}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"[ -n \"${CMUX_CLAUDE_HOOK_DISPATCHER:-}\" ] && \"$CMUX_CLAUDE_HOOK_DISPATCHER\" claude prompt-submit || echo '\''{}'\''","timeout":1}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"[ -n \"${CMUX_CLAUDE_HOOK_DISPATCHER:-}\" ] && \"$CMUX_CLAUDE_HOOK_DISPATCHER\" claude pre-tool-use || echo '\''{}'\''","timeout":1,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
     exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"

@@ -43,7 +43,7 @@ Anything else the agent does, including tool uses, assistant messages, session s
                          └───────────────┘   └──────────────────┘
 ```
 
-Agents pipe their hook events into `cmux hooks feed --source <agent>`. Installed hook shims snapshot stdin, start the cmux socket call in the background, and return `{}` to the agent immediately. The bridge forwards the event to the cmux socket as a `feed.push` V2 frame. The `FeedCoordinator` records it on the `@MainActor` `WorkstreamStore`, displays it in the sidebar, and posts a native notification if the window isn't focused.
+Agents pipe their hook events into `cmux hooks feed --source <agent>`. Most installed hook shims snapshot stdin, start the cmux socket call in the background, and return `{}` to the agent immediately. Claude `PermissionRequest` remains synchronous so Feed Allow/Deny decisions still reach Claude before the tool runs. The bridge forwards the event to the cmux socket as a `feed.push` V2 frame. The `FeedCoordinator` records it on the `@MainActor` `WorkstreamStore`, displays it in the sidebar, and posts a native notification if the window isn't focused.
 
 When you click Allow / Deny / Submit (either in Feed or in the notification's inline action buttons), `feed.permission.reply` / `feed.question.reply` / `feed.exit_plan.reply` delivers the decision back through `FeedCoordinator`. Integrations with an async reply channel can still apply the decision in the background. Other agents fall through to their native prompt without waiting on cmux.
 
@@ -129,9 +129,9 @@ Codex's `request_user_input` and `update_plan` currently surface through its app
 
 ## Timeout behavior
 
-Feed is advisory, not blocking. Installed cmux hooks return immediately with `{}` and keep socket work in a background process, so an unavailable or slow app does not hold up the agent.
+Feed is advisory for most agents, not blocking. Installed cmux hooks usually return immediately with `{}` and keep socket work in a background process, so an unavailable or slow app does not hold up the agent. Claude `PermissionRequest` stays blocking because Claude has no separate async approval reply channel.
 
-Per-event timeouts inside agent hook configs are small watchdogs for the shell handoff, usually 1 to 5 seconds. User decisions happen through Feed or the agent's native fallback prompt after the hook has already resolved.
+Per-event timeouts inside agent hook configs are small watchdogs for the shell handoff, usually 1 to 5 seconds. Claude `PermissionRequest` is the exception: it keeps the longer blocking timeout because that hook is Claude's decision channel. Other user decisions happen through Feed or the agent's native fallback prompt after the hook has already resolved.
 
 ## Storage
 
