@@ -200,14 +200,17 @@ func beginWindowDragHandleEventDispatch(
     window: NSWindow,
     event: NSEvent
 ) -> WindowDragHandleEventDispatchToken {
+    dispatchPrecondition(condition: .onQueue(.main))
     WindowDragHandleEventDispatchState.begin(window: window, event: event)
 }
 
 func endWindowDragHandleEventDispatch(_ token: WindowDragHandleEventDispatchToken) {
+    dispatchPrecondition(condition: .onQueue(.main))
     WindowDragHandleEventDispatchState.end(token)
 }
 
 func windowDragHandleViewHitTestingAllowsCurrentEvent(_ event: NSEvent?) -> Bool {
+    dispatchPrecondition(condition: .onQueue(.main))
     guard let event, event.type == .leftMouseDown else {
         return false
     }
