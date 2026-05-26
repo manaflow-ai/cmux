@@ -85,6 +85,11 @@ extension CmuxSettingsFileStore {
                     "copyOnSelect": TerminalCopyOnSelectSettings.defaultCopyOnSelect,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
                     "sessionBackend": TerminalSessionBackendSettings.defaultBackend.rawValue,
+                    "agentHibernation": [
+                        "enabled": AgentHibernationSettings.defaultEnabled,
+                        "idleSeconds": Int(AgentHibernationSettings.defaultIdleSeconds),
+                        "maxLiveTerminals": AgentHibernationSettings.defaultMaxLiveTerminals,
+                    ],
                     "textBoxMaxLines": TerminalTextBoxInputSettings.defaultMaxLines,
                     "resumeCommands": [],
                 ],

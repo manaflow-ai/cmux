@@ -23,7 +23,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                     "Expected command palette contribution for \(mode.rawValue)"
                 )
 
-                XCTAssertEqual(contribution.title(context), mode.shortcutAction.label)
+                XCTAssertEqual(contribution.title(context), mode.shortcutAction?.label ?? mode.label)
                 XCTAssertEqual(
                     contribution.subtitle(context),
                     String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")
@@ -35,9 +35,10 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 XCTAssertTrue(contribution.enablement(context))
             }
 
-            XCTAssertEqual(contributions.count, 4)
+            XCTAssertEqual(contributions.count, 5)
             XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
+            XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.history)])
         }
     }
 
@@ -55,6 +56,14 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 )
             }
         }
+    }
+
+    func testCommandPaletteIncludesHistoryPaneCommand() throws {
+        let descriptors = ContentView.commandPaletteRightSidebarToolPaneCommandDescriptors()
+        let historyDescriptor = try XCTUnwrap(descriptors.first { $0.mode == .history })
+
+        XCTAssertEqual(historyDescriptor.commandId, "palette.openHistoryPane")
+        XCTAssertEqual(historyDescriptor.title, String(localized: "command.openHistoryPane.title", defaultValue: "Open History as Pane"))
     }
 
     func testCommandPaletteUnreadActionsUseConfigurableShortcutActions() {
