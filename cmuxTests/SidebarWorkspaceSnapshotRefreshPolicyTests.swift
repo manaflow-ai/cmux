@@ -208,6 +208,45 @@ final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
     }
 }
 
+final class SidebarWorkspaceScrollLayoutTests: XCTestCase {
+    func testEmptyAreaFillsOnlyRemainingViewportSpaceWhenRowsFit() {
+        let contentMinHeight = SidebarWorkspaceScrollLayout.contentMinHeight(
+            viewportHeight: 720,
+            insets: SidebarWorkspaceScrollInsets(top: 28, bottom: 48)
+        )
+        let rowsHeight: CGFloat = 96
+        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
+            contentMinHeight: contentMinHeight,
+            rowsHeight: rowsHeight
+        )
+
+        XCTAssertEqual(emptyAreaHeight, contentMinHeight - rowsHeight, accuracy: 0.001)
+        XCTAssertFalse(
+            SidebarWorkspaceScrollLayout.contentOverflows(
+                contentHeight: rowsHeight + emptyAreaHeight,
+                viewportHeight: contentMinHeight
+            )
+        )
+    }
+
+    func testEmptyAreaCollapsesWhenRowsAlreadyOverflowViewport() {
+        let contentMinHeight: CGFloat = 300
+        let rowsHeight: CGFloat = 420
+        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
+            contentMinHeight: contentMinHeight,
+            rowsHeight: rowsHeight
+        )
+
+        XCTAssertEqual(emptyAreaHeight, 0, accuracy: 0.001)
+        XCTAssertTrue(
+            SidebarWorkspaceScrollLayout.contentOverflows(
+                contentHeight: rowsHeight + emptyAreaHeight,
+                viewportHeight: contentMinHeight
+            )
+        )
+    }
+}
+
 final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
     func testHoverRevealIsIndependentFromStaleContextMenuVisibility() {
         var state = SidebarWorkspaceRowInteractionState()

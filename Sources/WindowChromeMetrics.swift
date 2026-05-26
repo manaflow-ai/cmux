@@ -60,4 +60,19 @@ enum SidebarWorkspaceScrollLayout {
     ) -> CGFloat {
         max(0, viewportHeight - insets.total)
     }
+
+    nonisolated static func emptyAreaHeight(
+        contentMinHeight: CGFloat,
+        rowsHeight: CGFloat
+    ) -> CGFloat {
+        contentMinHeight
+    }
+
+    nonisolated static func contentOverflows(
+        contentHeight: CGFloat,
+        viewportHeight: CGFloat,
+        tolerance: CGFloat = 1
+    ) -> Bool {
+        contentHeight > viewportHeight + tolerance
+    }
 }
