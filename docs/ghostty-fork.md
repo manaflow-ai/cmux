@@ -239,7 +239,8 @@ tend to conflict together during rebases.
   - Leaves terminal rendering ownership unchanged while cmux observes topology and pane text.
 
 The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` through branch `issue-560-tmux-control-bridge`.
+`manaflow-ai/ghostty` through https://github.com/manaflow-ai/ghostty/pull/65
+and branch `issue-560-tmux-control-bridge`.
 Published `xcframework-e61ebe7972e38a8065062aaf6bfffaf9cb57d3b4-crashsubdir-cmux-crash-v1`
 and pinned its archive checksum in `scripts/ghosttykit-checksums.txt`. The
 release and checksum pin must be regenerated whenever this commit changes, even
