@@ -2162,14 +2162,30 @@ private struct NotificationsPopoverView: View {
         }
     }
 
+    // Cap against the current screen so the popover (and especially the bottom-right resize
+    // handle) stays reachable on small displays even if saved defaults came from a larger one.
+    private static let screenMargin: CGFloat = 80
+
+    private var screenMaxWidth: CGFloat {
+        let screenWidth = NSScreen.main?.visibleFrame.width ?? NotificationsPopoverMetrics.maxWidth
+        return max(NotificationsPopoverMetrics.minWidth, screenWidth - Self.screenMargin)
+    }
+
+    private var screenMaxHeight: CGFloat {
+        let screenHeight = NSScreen.main?.visibleFrame.height ?? NotificationsPopoverMetrics.maxHeight
+        return max(NotificationsPopoverMetrics.minHeight, screenHeight - Self.screenMargin)
+    }
+
     private var clampedWidth: CGFloat {
         let raw = liveWidth ?? CGFloat(savedWidth)
-        return min(NotificationsPopoverMetrics.maxWidth, max(NotificationsPopoverMetrics.minWidth, raw))
+        let upper = min(NotificationsPopoverMetrics.maxWidth, screenMaxWidth)
+        return min(upper, max(NotificationsPopoverMetrics.minWidth, raw))
     }
 
     private var clampedHeight: CGFloat {
         let raw = liveHeight ?? CGFloat(savedHeight)
-        return min(NotificationsPopoverMetrics.maxHeight, max(NotificationsPopoverMetrics.minHeight, raw))
+        let upper = min(NotificationsPopoverMetrics.maxHeight, screenMaxHeight)
+        return min(upper, max(NotificationsPopoverMetrics.minHeight, raw))
     }
 
     // Invisible bottom-right corner resize region. NSPopover has no native resize chrome and
@@ -2185,8 +2201,10 @@ private struct NotificationsPopoverView: View {
                 (clampedWidth, clampedHeight)
             },
             onDrag: { startW, startH, dx, dy in
-                let newW = min(NotificationsPopoverMetrics.maxWidth, max(NotificationsPopoverMetrics.minWidth, startW + dx))
-                let newH = min(NotificationsPopoverMetrics.maxHeight, max(NotificationsPopoverMetrics.minHeight, startH + dy))
+                let upperW = min(NotificationsPopoverMetrics.maxWidth, screenMaxWidth)
+                let upperH = min(NotificationsPopoverMetrics.maxHeight, screenMaxHeight)
+                let newW = min(upperW, max(NotificationsPopoverMetrics.minWidth, startW + dx))
+                let newH = min(upperH, max(NotificationsPopoverMetrics.minHeight, startH + dy))
                 liveWidth = newW
                 liveHeight = newH
             },
@@ -2408,6 +2426,11 @@ private struct NotificationPopoverRow: View {
                 .padding(.trailing, 10)
                 .opacity(isHovering ? 1 : 0)
                 .allowsHitTesting(isHovering)
+                // Dismissal is exposed through the row's accessibility action and context
+                // menu, so hide this hover-only affordance from keyboard focus/VoiceOver
+                // when not visible — otherwise Full Keyboard Access can tab to an invisible
+                // button.
+                .accessibilityHidden(!isHovering)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         // Hover detection runs through an AppKit NSTrackingArea (HoverTrackingRepresentable)
