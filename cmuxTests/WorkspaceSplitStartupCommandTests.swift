@@ -287,4 +287,58 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertNil(panelSnapshot.terminal?.tmuxStartCommand)
         XCTAssertNil(Workspace.restorableTmuxStartCommand(genericCommand))
     }
+
+    func testTmuxControlStateTracksTopologyTextAndExit() throws {
+        var state = TmuxControlState()
+
+        state.apply(.enter)
+        XCTAssertTrue(state.active)
+        XCTAssertEqual(state.lastEvent, "enter")
+
+        let topology = """
+        {
+          "session_id": 7,
+          "tmux_version": "3.4",
+          "pane_ids": [2, 1],
+          "windows": [
+            {
+              "id": 3,
+              "width": 120,
+              "height": 40,
+              "layout": {
+                "width": 120,
+                "height": 40,
+                "x": 0,
+                "y": 0,
+                "horizontal": [
+                  {"width": 60, "height": 40, "x": 0, "y": 0, "pane": 1},
+                  {"width": 60, "height": 40, "x": 60, "y": 0, "pane": 2}
+                ]
+              }
+            }
+          ]
+        }
+        """
+
+        state.apply(.windowsChanged(Data(topology.utf8)))
+        XCTAssertTrue(state.active)
+        XCTAssertEqual(state.sessionId, 7)
+        XCTAssertEqual(state.tmuxVersion, "3.4")
+        XCTAssertEqual(state.paneIds, [1, 2])
+        XCTAssertEqual(state.windows.first?.paneIds, [1, 2])
+
+        state.apply(.paneOutput(
+            paneId: 2,
+            data: Data("/tmp/cmux-known-path\n".utf8)
+        ))
+        XCTAssertEqual(state.lastEvent, "pane_output")
+        XCTAssertEqual(state.lastPaneOutputId, 2)
+        XCTAssertTrue(state.paneTextById[2]?.contains("/tmp/cmux-known-path") == true)
+
+        state.apply(.exit)
+        XCTAssertFalse(state.active)
+        XCTAssertEqual(state.lastEvent, "exit")
+        XCTAssertTrue(state.paneIds.isEmpty)
+        XCTAssertTrue(state.paneTextById.isEmpty)
+    }
 }

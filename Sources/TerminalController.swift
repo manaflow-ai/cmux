@@ -7971,6 +7971,7 @@ class TerminalController {
                     item["requested_working_directory"] = v2OrNull(v2NonEmptyString(terminalPanel.requestedWorkingDirectory))
                     item["initial_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugInitialCommand()))
                     item["tmux_start_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugTmuxStartCommand()))
+                    item["tmux_control_active"] = terminalPanel.tmuxControlState.active
                     item["resume_binding"] = v2SurfaceResumeBindingPayload(ws.surfaceResumeBinding(panelId: panel.id))
                 }
                 return item
@@ -8823,8 +8824,10 @@ class TerminalController {
             let panels = orderedPanels(in: ws)
             let items: [[String: Any]] = panels.enumerated().map { index, panel in
                 var inWindow: Any = NSNull()
+                var tmuxControl: Any = NSNull()
                 if let tp = panel as? TerminalPanel {
                     inWindow = tp.surface.isViewInWindow
+                    tmuxControl = ws.tmuxControlReport(forPanelId: tp.id) ?? NSNull()
                 } else if let bp = panel as? BrowserPanel {
                     inWindow = bp.webView.window != nil
                 }
@@ -8833,7 +8836,8 @@ class TerminalController {
                     "id": panel.id.uuidString,
                     "ref": v2Ref(kind: .surface, uuid: panel.id),
                     "type": panel.panelType.rawValue,
-                    "in_window": inWindow
+                    "in_window": inWindow,
+                    "tmux_control": tmuxControl
                 ]
             }
             let windowId = v2ResolveWindowId(tabManager: tabManager)

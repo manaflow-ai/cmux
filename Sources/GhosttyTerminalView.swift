@@ -21,6 +21,158 @@ private func ghostty_surface_clear_selection_compat(_ surface: ghostty_surface_t
 @_silgen_name("ghostty_surface_select_cursor_cell")
 private func ghostty_surface_select_cursor_cell_compat(_ surface: ghostty_surface_t) -> Bool
 
+enum TmuxControlEvent: Equatable, Sendable {
+    case enter
+    case exit
+    case windowsChanged(Data)
+    case paneOutput(paneId: UInt32, data: Data)
+}
+
+struct TmuxControlLayoutNode: Codable, Equatable, Sendable {
+    let width: Int
+    let height: Int
+    let x: Int
+    let y: Int
+    let pane: UInt32?
+    let horizontal: [TmuxControlLayoutNode]?
+    let vertical: [TmuxControlLayoutNode]?
+
+    var paneIds: [UInt32] {
+        if let pane { return [pane] }
+        return (horizontal ?? []).flatMap(\.paneIds) + (vertical ?? []).flatMap(\.paneIds)
+    }
+
+    var debugPayload: [String: Any] {
+        var payload: [String: Any] = [
+            "width": width,
+            "height": height,
+            "x": x,
+            "y": y
+        ]
+        if let pane {
+            payload["pane"] = pane
+        }
+        if let horizontal {
+            payload["horizontal"] = horizontal.map(\.debugPayload)
+        }
+        if let vertical {
+            payload["vertical"] = vertical.map(\.debugPayload)
+        }
+        return payload
+    }
+}
+
+struct TmuxControlWindow: Codable, Equatable, Sendable {
+    let id: Int
+    let width: Int
+    let height: Int
+    let layout: TmuxControlLayoutNode
+
+    var paneIds: [UInt32] {
+        layout.paneIds
+    }
+
+    var debugPayload: [String: Any] {
+        [
+            "id": id,
+            "width": width,
+            "height": height,
+            "pane_ids": paneIds,
+            "layout": layout.debugPayload
+        ]
+    }
+}
+
+struct TmuxControlTopology: Codable, Equatable, Sendable {
+    let sessionId: Int
+    let tmuxVersion: String
+    let paneIds: [UInt32]
+    let windows: [TmuxControlWindow]
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case tmuxVersion = "tmux_version"
+        case paneIds = "pane_ids"
+        case windows
+    }
+}
+
+struct TmuxControlState: Equatable, Sendable {
+    private static let paneTextLimit = 65_536
+
+    var active = false
+    var lastEvent = "inactive"
+    var sessionId: Int?
+    var tmuxVersion: String?
+    var paneIds: [UInt32] = []
+    var windows: [TmuxControlWindow] = []
+    var paneTextById: [UInt32: String] = [:]
+    var lastPaneOutputId: UInt32?
+    var topologyParseError: String?
+
+    mutating func apply(_ event: TmuxControlEvent) {
+        switch event {
+        case .enter:
+            self = TmuxControlState(
+                active: true,
+                lastEvent: "enter"
+            )
+        case .exit:
+            self = TmuxControlState(lastEvent: "exit")
+        case .windowsChanged(let data):
+            active = true
+            lastEvent = "windows_changed"
+            do {
+                let topology = try JSONDecoder().decode(TmuxControlTopology.self, from: data)
+                sessionId = topology.sessionId
+                tmuxVersion = topology.tmuxVersion
+                windows = topology.windows
+                let layoutPaneIds = topology.windows.flatMap(\.paneIds)
+                let ids = topology.paneIds.isEmpty ? layoutPaneIds : topology.paneIds
+                paneIds = Array(Set(ids)).sorted()
+                paneTextById = paneTextById.filter { paneIds.contains($0.key) }
+                topologyParseError = nil
+            } catch {
+                topologyParseError = String(describing: error)
+            }
+        case .paneOutput(let paneId, let data):
+            active = true
+            lastEvent = "pane_output"
+            lastPaneOutputId = paneId
+            if !paneIds.contains(paneId) {
+                paneIds.append(paneId)
+                paneIds.sort()
+            }
+            let chunk = String(decoding: data, as: UTF8.self)
+            let combined = (paneTextById[paneId] ?? "") + chunk
+            if combined.count > Self.paneTextLimit {
+                paneTextById[paneId] = String(combined.suffix(Self.paneTextLimit))
+            } else {
+                paneTextById[paneId] = combined
+            }
+        }
+    }
+
+    var debugPayload: [String: Any] {
+        [
+            "active": active,
+            "last_event": lastEvent,
+            "session_id": sessionId.map { $0 as Any } ?? NSNull(),
+            "tmux_version": tmuxVersion ?? NSNull(),
+            "pane_ids": paneIds,
+            "windows": windows.map(\.debugPayload),
+            "panes": paneIds.map { paneId in
+                [
+                    "id": paneId,
+                    "text": paneTextById[paneId] ?? ""
+                ]
+            },
+            "last_pane_output_id": lastPaneOutputId.map { $0 as Any } ?? NSNull(),
+            "topology_parse_error": topologyParseError ?? NSNull()
+        ]
+    }
+}
+
 enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable {
     case realUserConfig
     case freshInstall
@@ -4408,6 +4560,33 @@ class GhosttyApp {
                 self.ringBell()
             }
             return true
+        case GHOSTTY_ACTION_TMUX_CONTROL:
+            guard let terminalSurface = surfaceView.terminalSurface else { return true }
+            let tmuxAction = action.action.tmux_control
+            let data: Data
+            if tmuxAction.data_len > 0, let dataPointer = tmuxAction.data {
+                data = Data(bytes: UnsafeRawPointer(dataPointer), count: Int(tmuxAction.data_len))
+            } else {
+                data = Data()
+            }
+            let event: TmuxControlEvent?
+            switch tmuxAction.event {
+            case GHOSTTY_TMUX_ENTER:
+                event = .enter
+            case GHOSTTY_TMUX_EXIT:
+                event = .exit
+            case GHOSTTY_TMUX_WINDOWS_CHANGED:
+                event = .windowsChanged(data)
+            case GHOSTTY_TMUX_PANE_OUTPUT:
+                event = .paneOutput(paneId: tmuxAction.id, data: data)
+            default:
+                event = nil
+            }
+            guard let event else { return true }
+            return performOnMain {
+                terminalSurface.applyTmuxControlEvent(event)
+                return true
+            }
         case GHOSTTY_ACTION_GOTO_SPLIT:
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id,
@@ -5270,6 +5449,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var portalLifecycleState: PortalLifecycleState = .live
     private var portalLifecycleGeneration: UInt64 = 1
     private var activePortalHostLease: PortalHostLease?
+    @Published var tmuxControlState = TmuxControlState()
     @Published var searchState: SearchState? = nil {
 	        didSet {
 	            if let searchState {

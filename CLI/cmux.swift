@@ -3875,7 +3875,18 @@ struct CMUXCLI {
                         } else {
                             inWindowStr = ""
                         }
-                        print("\(handle)  type=\(sType)\(inWindowStr)")
+                        let tmuxControl = surface["tmux_control"] as? [String: Any]
+                        let tmuxControlStr: String
+                        if let tmuxControl,
+                           (tmuxControl["active"] as? Bool) == true {
+                            let paneIds = (tmuxControl["pane_ids"] as? [Any] ?? [])
+                                .map { String(describing: $0) }
+                                .joined(separator: ",")
+                            tmuxControlStr = paneIds.isEmpty ? " tmux=active" : " tmux=active panes=[\(paneIds)]"
+                        } else {
+                            tmuxControlStr = ""
+                        }
+                        print("\(handle)  type=\(sType)\(inWindowStr)\(tmuxControlStr)")
                     }
                 }
             }

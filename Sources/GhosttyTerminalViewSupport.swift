@@ -31,6 +31,25 @@ func shouldAllowEnsureFocusWindowActivation(
 }
 
 extension TerminalSurface {
+    @MainActor
+    func applyTmuxControlEvent(_ event: TmuxControlEvent) {
+        var next = tmuxControlState
+        next.apply(event)
+        guard next != tmuxControlState else { return }
+        tmuxControlState = next
+#if DEBUG
+        cmuxDebugLog(
+            "tmux.control surface=\(id.uuidString.prefix(5)) active=\(next.active) " +
+            "event=\(next.lastEvent) panes=\(next.paneIds)"
+        )
+#endif
+    }
+
+    @MainActor
+    func tmuxControlReportPayload() -> [String: Any] {
+        tmuxControlState.debugPayload
+    }
+
     func debugInitialCommand() -> String? {
         initialCommand
     }
