@@ -1,12 +1,24 @@
 import Foundation
 
+/// Signals that can release a pending workspace handoff.
 enum WorkspaceHandoffCompletionSignal {
+    /// The selected workspace has committed its visible SwiftUI/AppKit state.
     case selectedWorkspaceVisible
+    /// Focus has moved to the selected workspace before visibility committed.
     case selectedWorkspaceFocus
+    /// The handoff guard timer expired, so teardown should no longer wait.
     case timeout
 }
 
+/// Decides when a workspace handoff can finish and the retiring workspace can
+/// tear down its portal-backed views. A handoff starts when selection moves to a
+/// new workspace while the previous workspace is still mounted as the retiring
+/// workspace; `selectedWorkspaceReady` means the newly selected workspace has
+/// enough rendered surface state for a visible transition.
 enum WorkspaceHandoffCompletionPolicy {
+    /// Returns whether an incoming completion signal should finish the active
+    /// handoff. Visibility requires the selected workspace to be ready, focus is
+    /// accepted for the selected workspace, and timeout is the bounded fallback.
     static func shouldComplete(
         signal: WorkspaceHandoffCompletionSignal,
         selectedWorkspaceId: UUID?,
@@ -26,6 +38,9 @@ enum WorkspaceHandoffCompletionPolicy {
         }
     }
 
+    /// Returns whether handoff can complete immediately because the selected
+    /// workspace is already in the visible-workspace set. This is a shortcut over
+    /// `shouldComplete(...)` for state observed before a fresh signal arrives.
     static func shouldCompleteFromAlreadyVisibleSelectedWorkspace(
         selectedWorkspaceId: UUID?,
         visibleWorkspaceIds: Set<UUID>,
