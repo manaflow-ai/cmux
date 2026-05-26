@@ -5495,7 +5495,12 @@ class TabManager: ObservableObject {
 
         let workspace = tabs.remove(at: plan.fromIndex)
         tabs.insert(workspace, at: plan.toIndex)
-        postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
+        let normalizedMovedWorkspaceIds = normalizeWorkspaceGroupBlocks(postNotification: false)
+        var movedWorkspaceIds = [tabId]
+        for movedWorkspaceId in normalizedMovedWorkspaceIds where !movedWorkspaceIds.contains(movedWorkspaceId) {
+            movedWorkspaceIds.append(movedWorkspaceId)
+        }
+        postWorkspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
         return true
     }
 
@@ -5681,9 +5686,9 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    private func normalizeWorkspaceGroupBlocks() -> Bool {
+    private func normalizeWorkspaceGroupBlocks(postNotification: Bool = true) -> [UUID] {
         let originalIds = tabs.map(\.id)
-        guard originalIds.count > 1, !workspaceGroups.isEmpty else { return false }
+        guard originalIds.count > 1, !workspaceGroups.isEmpty else { return [] }
 
         let existingIds = Set(originalIds)
         let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
@@ -5714,7 +5719,7 @@ class TabManager: ObservableObject {
             )
 
         guard normalizedIds.count == originalIds.count, normalizedIds != originalIds else {
-            return false
+            return []
         }
 
         let workspacesById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
@@ -5723,8 +5728,10 @@ class TabManager: ObservableObject {
         let movedWorkspaceIds = zip(originalIds, normalizedIds).compactMap { originalId, normalizedId in
             originalId == normalizedId ? nil : normalizedId
         }
-        postWorkspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
-        return true
+        if postNotification {
+            postWorkspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
+        }
+        return movedWorkspaceIds
     }
 
     private func normalizedWorkspaceGroupBlockIds(

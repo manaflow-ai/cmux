@@ -217,6 +217,32 @@ final class TabManagerWorkspaceGroupTests: XCTestCase {
         XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id, fourth.id])
     }
 
+    func testWorkspaceReorderPreservesWorkspaceGroupBlocks() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let first = try XCTUnwrap(manager.selectedWorkspace)
+        let second = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let third = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let fourth = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+
+        let group = manager.createWorkspaceGroup(
+            title: "Grouped",
+            workspaceIds: [first.id, second.id, third.id]
+        )
+
+        XCTAssertEqual(manager.workspaceGroups[0].id, group.id)
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id, fourth.id])
+
+        XCTAssertTrue(manager.reorderWorkspace(tabId: second.id, after: fourth.id))
+
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id, fourth.id])
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id, second.id, third.id])
+
+        XCTAssertTrue(manager.reorderWorkspace(tabId: fourth.id, before: third.id))
+
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id, fourth.id])
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id, second.id, third.id])
+    }
+
     func testPreserveDropAssignmentDoesNotUngroupWorkspace() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let first = try XCTUnwrap(manager.selectedWorkspace)
