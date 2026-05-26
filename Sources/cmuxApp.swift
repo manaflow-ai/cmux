@@ -110,12 +110,7 @@ struct cmuxApp: App {
         if getenv(guardKey) != nil { return }
 
         let argv = CommandLine.arguments
-        guard argv.count > 1 else { return }
-
-        // Forward only if the first arg is a positional, non-flag, non-URL token.
-        let first = argv[1]
-        if first.isEmpty || first.hasPrefix("-") { return }
-        if first.contains("://") { return }
+        guard shouldForwardToBundledCLI(arguments: argv) else { return }
 
         guard let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
@@ -142,8 +137,27 @@ struct cmuxApp: App {
         // execv only returns on error. Free the dups so leak detectors stay
         // quiet on the fall-through path, then continue into the GUI.
         for ptr in cArgs where ptr != nil { free(ptr) }
+        #if DEBUG
         let err = String(cString: strerror(errno))
         NSLog("cmux: failed to exec bundled CLI at %@: %@", cliURL.path, err)
+        #endif
+    }
+
+    static func shouldForwardToBundledCLI(arguments argv: [String]) -> Bool {
+        guard argv.count > 1 else { return false }
+
+        // Forward only if the first arg is a positional, non-flag, non-URL token.
+        let first = argv[1]
+        if first.isEmpty || first.hasPrefix("-") { return false }
+        if first.contains("://") { return false }
+
+        // App launch paths can surface product-name fragments as argv tokens
+        // before SwiftUI initialization. Those are GUI launches, not CLI
+        // subcommands.
+        let guiLaunchSentinels: Set<String> = ["DEV", "STAGING", "NIGHTLY"]
+        if guiLaunchSentinels.contains(first) { return false }
+
+        return true
     }
 
     private static func configureGhosttyEnvironment() {
