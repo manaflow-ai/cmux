@@ -10952,9 +10952,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     private func withIsolatedAppDelegate(_ body: (AppDelegate, Set<UUID>) -> Void) {
         let previousAppDelegate = AppDelegate.shared
+        let existingWindowIds = mainWindowIds()
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
-        let existingWindowIds = mainWindowIds()
 
         defer {
             for windowId in mainWindowIds().subtracting(existingWindowIds) {

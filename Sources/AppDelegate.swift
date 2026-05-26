@@ -6580,6 +6580,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 chosenContext: nil
             )
 #endif
+            NSSound.beep()
             return false
         }
 
@@ -6607,6 +6608,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 chosenContext: nil
             )
 #endif
+            NSSound.beep()
             return false
         }
         return true
