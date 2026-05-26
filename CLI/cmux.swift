@@ -4841,7 +4841,8 @@ struct CMUXCLI {
             if jsonOutput {
                 print(jsonString(response))
             } else {
-                print("OK saved \(response["name"] as? String ?? name)")
+                let savedName = response["name"] as? String ?? name
+                print("OK saved \(savedName)")
             }
 
         case "restore":
@@ -4856,7 +4857,8 @@ struct CMUXCLI {
             if jsonOutput {
                 print(jsonString(response))
             } else {
-                print("OK restored \(response["name"] as? String ?? name)")
+                let restoredName = response["name"] as? String ?? name
+                print("OK restored \(restoredName)")
             }
 
         case "list":
@@ -4888,7 +4890,8 @@ struct CMUXCLI {
             if jsonOutput {
                 print(jsonString(response))
             } else {
-                print("OK deleted \(response["name"] as? String ?? name)")
+                let deletedName = response["name"] as? String ?? name
+                print("OK deleted \(deletedName)")
             }
 
         default:
