@@ -5834,6 +5834,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private struct FocusedTerminalShortcutContext {
         let tabManager: TabManager
+        let workspace: Workspace
         let workspaceId: UUID
         let panelId: UUID
     }
@@ -5861,12 +5862,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? NSApp.mainWindow?.firstResponder
         guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
               let workspaceId = ghosttyView.tabId,
-              let panelId = ghosttyView.terminalSurface?.id,
+              let surfaceId = ghosttyView.terminalSurface?.id,
               let manager = resolveShortcutTabManager(for: workspaceId, preferredWindow: targetWindow) else {
+            return nil
+        }
+        guard let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else {
+            return nil
+        }
+        let panelId = workspace.panels[surfaceId] != nil
+            ? surfaceId
+            : workspace.panelIdFromSurfaceId(TabID(uuid: surfaceId))
+        guard let panelId else {
             return nil
         }
         return FocusedTerminalShortcutContext(
             tabManager: manager,
+            workspace: workspace,
             workspaceId: workspaceId,
             panelId: panelId
         )
@@ -11113,6 +11124,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let target = focusedNotificationTarget(preferredWindow: preferredWindow) else {
             return false
         }
+
+        if let panelId = target.panelId {
+            guard let workspace = target.workspace,
+                  workspace.panels[panelId] != nil else {
+                return false
+            }
+            if notificationStore.hasWorkspaceScopedUnread(forTabId: target.tabId) {
+                notificationStore.markWorkspaceScopedUnreadRead(forTabId: target.tabId)
+                return true
+            }
+            let hasPanelUnread = workspace.manualUnreadPanelIds.contains(panelId) ||
+                workspace.restoredUnreadPanelIds.contains(panelId) ||
+                notificationStore.hasUnreadNotification(forTabId: target.tabId, surfaceId: panelId)
+            if hasPanelUnread {
+                workspace.markPanelRead(panelId)
+            } else {
+                workspace.markPanelUnread(panelId)
+            }
+            return true
+        }
+
         if notificationStore.workspaceIsUnread(forTabId: target.tabId) {
             notificationStore.markRead(forTabId: target.tabId)
             return true
@@ -11138,7 +11170,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private struct FocusedNotificationTarget {
         let tabId: UUID
-        let surfaceId: UUID?
+        let workspace: Workspace?
+        let panelId: UUID?
     }
 
     private enum FocusedNotificationMarkResult {
@@ -11160,7 +11193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> FocusedNotificationMarkResult? {
         if let notificationId = notificationStore.markLatestNotificationAsOldestUnread(
             forTabId: target.tabId,
-            surfaceId: target.surfaceId
+            surfaceId: target.panelId
         ) {
             return .deferredNotification(notificationId)
         }
@@ -11169,23 +11202,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func focusedNotificationTarget(preferredWindow: NSWindow?) -> FocusedNotificationTarget? {
         if let terminalContext = focusedTerminalShortcutContext(preferredWindow: preferredWindow) {
-            return FocusedNotificationTarget(tabId: terminalContext.workspaceId, surfaceId: terminalContext.panelId)
+            return FocusedNotificationTarget(
+                tabId: terminalContext.workspaceId,
+                workspace: terminalContext.workspace,
+                panelId: terminalContext.panelId
+            )
         }
 
         let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         if let context = contextForMainWindow(targetWindow),
            let selectedTabId = context.tabManager.selectedTabId ?? context.tabManager.tabs.first?.id {
+            let workspace = context.tabManager.tabs.first(where: { $0.id == selectedTabId })
             return FocusedNotificationTarget(
                 tabId: selectedTabId,
-                surfaceId: context.tabManager.focusedSurfaceId(for: selectedTabId)
+                workspace: workspace,
+                panelId: workspace?.focusedPanelId
             )
         }
 
         if let activeManager = tabManager,
            let selectedTabId = activeManager.selectedTabId ?? activeManager.tabs.first?.id {
+            let workspace = activeManager.tabs.first(where: { $0.id == selectedTabId })
             return FocusedNotificationTarget(
                 tabId: selectedTabId,
-                surfaceId: activeManager.focusedSurfaceId(for: selectedTabId)
+                workspace: workspace,
+                panelId: workspace?.focusedPanelId
             )
         }
 
