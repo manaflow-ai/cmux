@@ -2333,13 +2333,19 @@ private struct NotificationsPopoverView: View {
                                     notificationStore.markUnread(id: notification.id)
                                 } else {
                                     notificationStore.markRead(id: notification.id)
-                                    // A user-initiated "Mark as Read" should mirror the full
-                                    // dismissal intent: clear the pane's focused-read indicator
-                                    // for this surface so the pane badge disappears too.
-                                    notificationStore.clearFocusedReadIndicator(
-                                        forTabId: notification.tabId,
-                                        surfaceId: notification.surfaceId
-                                    )
+                                    // A user-initiated "Mark as Read" on a pane-scoped
+                                    // notification should also clear the pane's focused-read
+                                    // indicator so the pane badge disappears. For
+                                    // workspace-level notifications (surfaceId == nil), do not
+                                    // call clearFocusedReadIndicator — it treats nil as
+                                    // "clear any pane indicator on this tab" and would wipe
+                                    // an unrelated pane badge.
+                                    if let surfaceId = notification.surfaceId {
+                                        notificationStore.clearFocusedReadIndicator(
+                                            forTabId: notification.tabId,
+                                            surfaceId: surfaceId
+                                        )
+                                    }
                                 }
                             }
                         )
