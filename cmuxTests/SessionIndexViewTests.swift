@@ -225,6 +225,24 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
+    func testTmuxCommandRunnerCapturesProcessOutput() async {
+        let output = await SessionIndexStore.runTmuxCommandForTesting(
+            executablePath: "/bin/echo",
+            arguments: ["hello"]
+        )
+
+        XCTAssertEqual(output, "hello\n")
+    }
+
+    func testTmuxCommandRunnerReturnsNilForNonzeroExit() async {
+        let output = await SessionIndexStore.runTmuxCommandForTesting(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "exit 2"]
+        )
+
+        XCTAssertNil(output)
+    }
+
     func testCurrentDirectorySetterDoesNotPublishEqualValue() {
         let store = SessionIndexStore()
         var emittedValues: [String?] = []

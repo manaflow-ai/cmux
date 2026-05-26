@@ -56,6 +56,102 @@ final class SessionIndexRipgrepCancellation: @unchecked Sendable {
     }
 }
 
+final class SessionIndexTmuxCommandState: @unchecked Sendable {
+    private let lock = NSLock()
+    private let process: Process
+    private let stdoutHandle: FileHandle
+    private var output = Data()
+    private var continuation: CheckedContinuation<String?, Never>?
+    private var completed = false
+
+    init(process: Process, stdoutHandle: FileHandle) {
+        self.process = process
+        self.stdoutHandle = stdoutHandle
+    }
+
+    func start(continuation: CheckedContinuation<String?, Never>) {
+        lock.lock()
+        guard !completed else {
+            lock.unlock()
+            continuation.resume(returning: nil)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+
+        stdoutHandle.readabilityHandler = { [weak self] handle in
+            self?.readAvailableData(from: handle)
+        }
+        process.terminationHandler = { [weak self] process in
+            self?.finish(terminationStatus: process.terminationStatus)
+        }
+
+        do {
+            try process.run()
+        } catch {
+            finish(result: nil)
+        }
+    }
+
+    func cancel() {
+        if process.isRunning {
+            process.terminate()
+        } else {
+            finish(result: nil)
+        }
+    }
+
+    private func readAvailableData(from handle: FileHandle) {
+        let data = handle.availableData
+        guard !data.isEmpty else { return }
+        lock.lock()
+        output.append(data)
+        lock.unlock()
+    }
+
+    private func finish(terminationStatus: Int32) {
+        stdoutHandle.readabilityHandler = nil
+        let trailing = stdoutHandle.availableData
+        let data: Data
+        let continuation: CheckedContinuation<String?, Never>?
+        lock.lock()
+        guard !completed else {
+            lock.unlock()
+            return
+        }
+        if !trailing.isEmpty {
+            output.append(trailing)
+        }
+        data = output
+        completed = true
+        continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+
+        process.terminationHandler = nil
+        continuation?.resume(
+            returning: terminationStatus == 0 ? String(data: data, encoding: .utf8) : nil
+        )
+    }
+
+    private func finish(result: String?) {
+        let continuation: CheckedContinuation<String?, Never>?
+        lock.lock()
+        guard !completed else {
+            lock.unlock()
+            return
+        }
+        completed = true
+        continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+
+        stdoutHandle.readabilityHandler = nil
+        process.terminationHandler = nil
+        continuation?.resume(returning: result)
+    }
+}
+
 // MARK: - Parsed metadata cache
 
 /// Process-wide cache for parsed Claude session metadata, keyed by file URL with
@@ -1361,18 +1457,8 @@ final class SessionIndexStore: ObservableObject {
         offset: Int,
         limit: Int
     ) async -> [SessionEntry] {
-        await Task.detached(priority: .utility) {
-            loadTmuxEntriesSynchronously(needle: needle, offset: offset, limit: limit)
-        }.value
-    }
-
-    nonisolated private static func loadTmuxEntriesSynchronously(
-        needle: String,
-        offset: Int,
-        limit: Int
-    ) -> [SessionEntry] {
         guard let executablePath = resolvedTmuxExecutablePath(),
-              let sessionsOutput = runTmuxCommand(
+              let sessionsOutput = await runTmuxCommand(
                 executablePath: executablePath,
                 arguments: [
                     "list-sessions",
@@ -1382,7 +1468,7 @@ final class SessionIndexStore: ObservableObject {
               ) else {
             return []
         }
-        let windowsOutput = runTmuxCommand(
+        let windowsOutput = await runTmuxCommand(
             executablePath: executablePath,
             arguments: [
                 "list-windows",
@@ -1430,7 +1516,7 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func runTmuxCommand(
         executablePath: String,
         arguments: [String]
-    ) -> String? {
+    ) async -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
@@ -1440,15 +1526,27 @@ final class SessionIndexStore: ObservableObject {
             process.standardError = nullDevice
         }
 
-        do {
-            try process.run()
-        } catch {
-            return nil
+        let commandState = SessionIndexTmuxCommandState(
+            process: process,
+            stdoutHandle: stdout.fileHandleForReading
+        )
+        return await withTaskCancellationHandler {
+            guard !Task.isCancelled else {
+                return nil
+            }
+            return await withCheckedContinuation { continuation in
+                commandState.start(continuation: continuation)
+            }
+        } onCancel: {
+            commandState.cancel()
         }
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
-        return String(data: data, encoding: .utf8)
+    }
+
+    nonisolated static func runTmuxCommandForTesting(
+        executablePath: String,
+        arguments: [String]
+    ) async -> String? {
+        await runTmuxCommand(executablePath: executablePath, arguments: arguments)
     }
 
     nonisolated static func tmuxEntriesForTesting(
