@@ -243,6 +243,37 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testDeleteNamedSessionRemovesCorruptedSnapshotFile() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-named-session-corrupt-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleIdentifier = "dev.cmux.tests.named.corrupt"
+        let fileURL = try XCTUnwrap(
+            SessionPersistenceStore.namedSessionFileURL(
+                name: "broken-project",
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: tempDir
+            )
+        )
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("not-json".utf8).write(to: fileURL)
+
+        let deleted = try SessionPersistenceStore.deleteNamedSession(
+            name: "broken-project",
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: tempDir
+        )
+
+        XCTAssertEqual(deleted.name, "broken-project")
+        XCTAssertEqual(deleted.windowCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
     func testLoadReopenSessionSnapshotRequiresPreviousSnapshotFile() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)

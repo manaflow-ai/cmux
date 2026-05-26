@@ -2,6 +2,18 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "cli.session.commandSummary": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "session <save|restore|list|delete> [name]" } }, "ja": { "stringUnit": { "state": "translated", "value": "session <save|restore|list|delete> [name]" } } } },
+    "cli.session.delete.usage": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux session delete <name>" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux session delete <name>" } } } },
+    "cli.session.deleted": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "OK deleted %@" } }, "ja": { "stringUnit": { "state": "translated", "value": "OK 削除しました %@" } } } },
+    "cli.session.error.unsupportedSubcommand": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Unsupported session subcommand: %@" } }, "ja": { "stringUnit": { "state": "translated", "value": "未対応の session サブコマンド: %@" } } } },
+    "cli.session.help": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux session <save|restore|list|delete> [name]\n\nSave and restore named workspace sessions.\n\nSubcommands:\n  save <name>      Save the current windows and workspaces as a named session\n  restore <name>   Restore a named session\n  list             List saved named sessions\n  delete <name>    Delete a named session\n\nSession names may use letters, numbers, dashes, underscores, and periods.\nNames must start with a letter or number.\n\nExamples:\n  cmux session save my-project\n  cmux session restore my-project\n  cmux session list\n  cmux session delete my-project" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux session <save|restore|list|delete> [name]\n\n名前付きワークスペースセッションを保存、復元します。\n\nSubcommands:\n  save <name>      現在のウィンドウとワークスペースを名前付きセッションとして保存\n  restore <name>   名前付きセッションを復元\n  list             保存済みの名前付きセッションを一覧表示\n  delete <name>    名前付きセッションを削除\n\nセッション名には英数字、ハイフン、アンダースコア、ピリオドを使用できます。\n名前は英数字で始める必要があります。\n\nExamples:\n  cmux session save my-project\n  cmux session restore my-project\n  cmux session list\n  cmux session delete my-project" } } } },
+    "cli.session.list.empty": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "No named sessions" } }, "ja": { "stringUnit": { "state": "translated", "value": "名前付きセッションはありません" } } } },
+    "cli.session.list.row": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "%@  windows=%d  workspaces=%d" } }, "ja": { "stringUnit": { "state": "translated", "value": "%@  windows=%d  workspaces=%d" } } } },
+    "cli.session.list.usage": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux session list" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux session list" } } } },
+    "cli.session.restore.usage": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux session restore <name>" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux session restore <name>" } } } },
+    "cli.session.restored": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "OK restored %@" } }, "ja": { "stringUnit": { "state": "translated", "value": "OK 復元しました %@" } } } },
+    "cli.session.save.usage": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux session save <name>" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux session save <name>" } } } },
+    "cli.session.saved": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "OK saved %@" } }, "ja": { "stringUnit": { "state": "translated", "value": "OK 保存しました %@" } } } },
     "cli.hooks.error.configDirectoryIsFile": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "cmux could not create the hooks directory: a file exists at %@; remove or rename the conflicting file and re-run `cmux hooks setup`" } }, "ja": { "stringUnit": { "state": "translated", "value": "cmux は hooks ディレクトリを作成できませんでした: %@ にファイルがあります。競合するファイルを削除または名前変更してから `cmux hooks setup` を再実行してください" } } } },
     "cli.hooks.antigravity.aborted": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"translated","value":"Aborted."}},"bs":{"stringUnit":{"state":"translated","value":"Aborted."}},"da":{"stringUnit":{"state":"translated","value":"Aborted."}},"de":{"stringUnit":{"state":"translated","value":"Aborted."}},"en":{"stringUnit":{"state":"translated","value":"Aborted."}},"es":{"stringUnit":{"state":"translated","value":"Aborted."}},"fr":{"stringUnit":{"state":"translated","value":"Aborted."}},"it":{"stringUnit":{"state":"translated","value":"Aborted."}},"ja":{"stringUnit":{"state":"translated","value":"中止しました。"}},"ko":{"stringUnit":{"state":"translated","value":"Aborted."}},"nb":{"stringUnit":{"state":"translated","value":"Aborted."}},"pl":{"stringUnit":{"state":"translated","value":"Aborted."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Aborted."}},"ru":{"stringUnit":{"state":"translated","value":"Aborted."}},"th":{"stringUnit":{"state":"translated","value":"Aborted."}},"tr":{"stringUnit":{"state":"translated","value":"Aborted."}},"uk":{"stringUnit":{"state":"translated","value":"Aborted."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Aborted."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Aborted."}}} },
     "cli.hooks.antigravity.alreadyUpToDate": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}},"bs":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}},"da":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}},"de":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}},"en":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}},"es":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}},"fr":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}},"it":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}},"ja":{"stringUnit":{"state":"translated","value":"%@ hooks はすでに %@ で最新です"}},"ko":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}},"nb":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}},"pl":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}},"pt-BR":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}},"ru":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}},"th":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}},"tr":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}},"uk":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"%@ hooks already up to date at %@"}}} },
@@ -113033,6 +113045,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "名前付きセッションを保存できませんでした"
+          }
+        }
+      }
+    },
+    "terminal.namedSession.restoreFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not restore named session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前付きセッションを復元できませんでした"
           }
         }
       }

@@ -2978,7 +2978,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func restoreNamedSession(_ name: String, shouldActivate: Bool = true) throws -> NamedSessionSummary {
+    func restoreNamedSession(_ name: String, shouldActivate: Bool = false) throws -> NamedSessionSummary {
         let snapshot = try SessionPersistenceStore.loadNamedSession(name: name)
         let normalizedName = try SessionPersistenceStore.normalizedNamedSessionName(name)
         let restored = restoreSessionSnapshot(
@@ -2987,7 +2987,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             isManualReopen: true
         )
         guard restored else {
-            throw NamedSessionPersistenceError.notFound
+            throw NamedSessionPersistenceError.restoreFailed
         }
         return NamedSessionSummary(
             name: normalizedName,

@@ -10639,9 +10639,19 @@ class TerminalController {
     }
 
     private func v2SessionListNamed() -> V2CallResult {
-        var summaries: [NamedSessionSummary] = []
+        var summaries: [NamedSessionSummary]?
         v2MainSync {
-            summaries = AppDelegate.shared?.namedSessionSummaries() ?? []
+            summaries = AppDelegate.shared?.namedSessionSummaries()
+        }
+        guard let summaries else {
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized: "terminal.namedSession.unavailable",
+                    defaultValue: "Named session operation failed"
+                ),
+                data: nil
+            )
         }
         return .ok([
             "sessions": summaries.map { v2NamedSessionSummaryPayload($0) }
@@ -10683,10 +10693,10 @@ class TerminalController {
             return error
         }
 
-        var result: Result<NamedSessionSummary, Error> = .failure(NamedSessionPersistenceError.notFound)
+        var result: Result<NamedSessionSummary, Error> = .failure(NamedSessionPersistenceError.restoreFailed)
         v2MainSync {
             guard let appDelegate = AppDelegate.shared else {
-                result = .failure(NamedSessionPersistenceError.notFound)
+                result = .failure(NamedSessionPersistenceError.restoreFailed)
                 return
             }
             do {
@@ -10702,7 +10712,7 @@ class TerminalController {
             payload["restored"] = true
             return .ok(payload)
         case .failure(let error):
-            return v2NamedSessionError(error, fallbackCode: "not_found")
+            return v2NamedSessionError(error, fallbackCode: "unavailable")
         }
     }
 
@@ -10778,6 +10788,15 @@ class TerminalController {
                 message: String(
                     localized: "terminal.namedSession.deleteFailed",
                     defaultValue: "Could not delete named session"
+                ),
+                data: nil
+            )
+        case .restoreFailed:
+            return .err(
+                code: "restore_failed",
+                message: String(
+                    localized: "terminal.namedSession.restoreFailed",
+                    defaultValue: "Could not restore named session"
                 ),
                 data: nil
             )

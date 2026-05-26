@@ -1562,6 +1562,7 @@ enum NamedSessionPersistenceError: Error, Equatable, Sendable {
     case notFound
     case saveFailed
     case deleteFailed
+    case restoreFailed
 }
 
 struct NamedSessionSummary: Equatable, Sendable {
@@ -1695,14 +1696,21 @@ enum SessionPersistenceStore {
             name: name,
             bundleIdentifier: bundleIdentifier,
             appSupportDirectory: appSupportDirectory
-        ),
-              let snapshot = load(fileURL: fileURL) else {
+        ) else {
+            throw NamedSessionPersistenceError.deleteFailed
+        }
+
+        let snapshot = load(fileURL: fileURL)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
             throw NamedSessionPersistenceError.notFound
         }
         do {
             try FileManager.default.removeItem(at: fileURL)
         } catch {
             throw NamedSessionPersistenceError.deleteFailed
+        }
+        guard let snapshot else {
+            return NamedSessionSummary(name: name, createdAt: 0, windowCount: 0, workspaceCount: 0)
         }
         return summary(name: name, snapshot: snapshot)
     }
