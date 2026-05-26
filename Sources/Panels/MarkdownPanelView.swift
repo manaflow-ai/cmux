@@ -32,15 +32,6 @@ struct MarkdownPanelView: View {
     private enum CopyConfirmation: Equatable {
         case markdown
         case html
-
-        var label: String {
-            switch self {
-            case .markdown:
-                return String(localized: "markdown.copyConfirm.markdown", defaultValue: "Copied as Markdown")
-            case .html:
-                return String(localized: "markdown.copyConfirm.html", defaultValue: "Copied as HTML")
-            }
-        }
     }
 
     var body: some View {
@@ -133,7 +124,8 @@ struct MarkdownPanelView: View {
             }
             markdownModeButton
             MarkdownPanelToolbar(
-                confirmation: copyConfirmation?.label,
+                markdownCopied: copyConfirmation == .markdown,
+                htmlCopied: copyConfirmation == .html,
                 onCopyMarkdown: { copyAsMarkdown() },
                 onCopyHTML: { copyAsHTML() }
             )
@@ -267,39 +259,42 @@ struct MarkdownPanelView: View {
 // MARK: - Toolbar
 
 private struct MarkdownPanelToolbar: View {
-    let confirmation: String?
+    let markdownCopied: Bool
+    let htmlCopied: Bool
     let onCopyMarkdown: () -> Void
     let onCopyHTML: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            if let confirmation {
-                Text(confirmation)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .transition(.opacity)
-            }
-
             toolbarButton(
                 title: String(localized: "markdown.toolbar.copyMarkdown", defaultValue: "Copy as Markdown"),
-                systemImage: "doc.on.doc",
+                systemImage: markdownCopied ? "checkmark" : "doc.on.doc",
+                isCopied: markdownCopied,
                 action: onCopyMarkdown
             )
             toolbarButton(
                 title: String(localized: "markdown.toolbar.copyHTML", defaultValue: "Copy as HTML"),
-                systemImage: "chevron.left.forwardslash.chevron.right",
+                systemImage: htmlCopied ? "checkmark" : "chevron.left.forwardslash.chevron.right",
+                isCopied: htmlCopied,
                 action: onCopyHTML
             )
         }
-        .animation(.easeOut(duration: 0.15), value: confirmation)
+        .animation(.easeOut(duration: 0.15), value: markdownCopied)
+        .animation(.easeOut(duration: 0.15), value: htmlCopied)
     }
 
-    private func toolbarButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-        PanelHeaderIconButton(
-            systemName: systemImage,
-            label: title,
-            action: action
-        )
+    private func toolbarButton(
+        title: String,
+        systemImage: String,
+        isCopied: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            PanelHeaderIconGlyph(systemName: systemImage)
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(isCopied ? .green : .secondary)
+        .help(title)
+        .accessibilityLabel(title)
     }
 }
