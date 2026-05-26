@@ -196,4 +196,30 @@ final class WorkspacePageLifecycleTests: XCTestCase {
             "Returning to the second page should reuse its parked live panel instead of rebuilding a new one"
         )
     }
+
+    func testRuntimePageRestoreReplacesPreviousPagePaneSkeleton() throws {
+        let workspace = Workspace()
+        let firstPageId = workspace.activePageId
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertNotNil(workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal))
+        let firstPagePanelIds = Set(workspace.panels.keys)
+        let firstPagePaneCount = workspace.bonsplitController.allPaneIds.count
+        XCTAssertEqual(firstPagePaneCount, 2)
+
+        let secondPage = workspace.newPage(select: true)
+        let secondPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertNotNil(workspace.newTerminalSplit(from: secondPanelId, orientation: .vertical))
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+
+        workspace.selectPage(firstPageId)
+
+        XCTAssertEqual(workspace.activePageId, firstPageId)
+        XCTAssertEqual(Set(workspace.panels.keys), firstPagePanelIds)
+        XCTAssertEqual(
+            workspace.bonsplitController.allPaneIds.count,
+            firstPagePaneCount,
+            "Runtime page restore should replace the leaving page's empty pane skeleton"
+        )
+        XCTAssertNotEqual(workspace.activePageId, secondPage.id)
+    }
 }

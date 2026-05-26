@@ -10817,6 +10817,9 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
 
+        withClosedPanelHistorySuppressed {
+            collapseBonsplitToSinglePaneForSessionRestore()
+        }
         let leafEntries = restoreSessionLayout(runtimeState.layout)
         for entry in leafEntries {
             let placeholderPanelIds = bonsplitController
