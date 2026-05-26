@@ -980,7 +980,7 @@
       "supportedNote": "Claude Code ถูกจัดการโดย cmux Claude wrapper เมื่อเปิด Claude integration ใน Settings Antigravity ยังรับ agy เป็น setup alias ด้วย และ Rovo Dev รับ rovo",
       "manualTitle": "กู้คืนด้วยตนเอง",
       "manualDesc": "cmux กู้คืน snapshot ล่าสุดที่บันทึกไว้ในการเปิดปกติ คุณยังสามารถใช้ snapshot ก่อนหน้าซ้ำด้วยตนเองได้:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "ปิด automatic agent resume",
       "disableDesc": "หากต้องการกู้คืน pane โดยไม่เปิดคำสั่ง agent resume ที่บันทึกไว้ ให้ปิด Settings > Terminal > Resume Agent Sessions on Reopen หรือกำหนด:",
       "disableNote": "สิ่งนี้ปิดเฉพาะคำสั่ง agent resume เท่านั้น cmux ยัง restore layout, working directory, scrollback และ browser history",
@@ -1001,6 +1001,7 @@
   },
   "testimonials": {
     "mitchellh": "อีกวันอีกโปรเจกต์ที่ใช้ libghostty คราวนี้เป็นเทอร์มินัล macOS ที่มีแท็บแนวตั้ง, การจัดระเบียบ/แจ้งเตือนที่ดีขึ้น, เบราว์เซอร์ในตัวที่เขียนสคริปต์ได้ โดยเฉพาะสำหรับคนที่ใช้ workflow แบบ agent บนเทอร์มินัลเยอะๆ",
+    "steipete": "มาช้าไปหน่อย แต่ cmux ยอดเยี่ยมมาก การแบ่งตอนนี้: แอป Codex บน Mac สำหรับงานความรู้ การเรียนรู้ และการอ่าน; cmux + Codex CLI สำหรับเขียนโค้ด",
     "schrockn": "นี่คือผลิตภัณฑ์ที่ผมตามหาพอดีเลย หลังจากใช้สองชั่วโมงเมื่อเช้านี้ ผมหลงรักมันแล้ว",
     "egrefen": "ผมใช้มันทั้งสุดสัปดาห์แล้ว มันเยี่ยมมาก",
     "max4c": "นี่เป็นเครื่องมือที่ชอบที่สุดในช่วงสองสัปดาห์ที่ผ่านมา",
