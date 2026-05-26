@@ -23529,6 +23529,54 @@ function runCmux(args, options = {}) {
   return spawnSync(cmuxExecutable(), cmuxArguments(args), options);
 }
 
+function openCodeProcessPid() {
+  const raw = process.env.CMUX_OPENCODE_PID;
+  if (raw && /^\d+$/.test(raw)) return raw;
+  return String(process.pid);
+}
+
+function notifyOpenCode(subtitle, body) {
+  if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
+  if (!process.env.CMUX_SURFACE_ID) return;
+
+  const args = [
+    "notify",
+    "--title",
+    "OpenCode",
+    "--subtitle",
+    subtitle,
+    "--body",
+    body,
+  ];
+  if (process.env.CMUX_WORKSPACE_ID) {
+    args.push("--workspace", process.env.CMUX_WORKSPACE_ID);
+  }
+  if (process.env.CMUX_SURFACE_ID) {
+    args.push("--surface", process.env.CMUX_SURFACE_ID);
+  }
+  try {
+    runCmux(args, {
+      encoding: "utf8",
+      env: hookEnvironment(process.cwd()),
+      stdio: ["ignore", "ignore", "ignore"],
+      timeout: 2000,
+    });
+  } catch (_) {}
+}
+
+function promptBody(props, fallback) {
+  return firstString(
+    props.message,
+    props.prompt,
+    props.question,
+    props.reason,
+    props.title,
+    props.error && props.error.message,
+    typeof props.error === "string" ? props.error : null,
+    fallback
+  ) || fallback;
+}
+
 const STATUS_DESCRIPTORS = {
   running: { value: "Running", icon: "bolt.fill", color: "#4C8DFF" },
   retrying: { value: "Retrying", icon: "arrow.triangle.2.circlepath", color: "#FF9500", priority: "100" },
@@ -23575,7 +23623,7 @@ function setStatus(descriptor) {
     "--color",
     descriptor.color,
     "--pid",
-    String(process.pid),
+    openCodeProcessPid(),
   ];
   if (descriptor.priority) {
     args.push("--priority", descriptor.priority);
@@ -23645,10 +23693,7 @@ const CMUXSessionRestore = async (ctx) => {
           if (descriptor === STATUS_DESCRIPTORS.idle) {
             sendHook("stop", ctx, event);
           } else if (descriptor === STATUS_DESCRIPTORS.error) {
-            sendHook("notification", ctx, event, {
-              message: firstString(props.message, props.error && props.error.message, props.reason) || "OpenCode reported an error",
-              status: "error",
-            });
+            notifyOpenCode("Error", promptBody(props, "OpenCode reported an error"));
           }
           break;
         case "session.idle":
@@ -23656,15 +23701,16 @@ const CMUXSessionRestore = async (ctx) => {
           sendHook("stop", ctx, event);
           break;
         case "permission.asked":
+          setStatus(STATUS_DESCRIPTORS.needsInput);
+          notifyOpenCode("Permission", promptBody(props, "OpenCode needs permission"));
+          break;
         case "question.asked":
           setStatus(STATUS_DESCRIPTORS.needsInput);
+          notifyOpenCode("Question", promptBody(props, "OpenCode needs input"));
           break;
         case "session.error":
           setStatus(STATUS_DESCRIPTORS.error);
-          sendHook("notification", ctx, event, {
-            message: firstString(props.message, props.error && props.error.message, props.reason) || "OpenCode reported an error",
-            status: "error",
-          });
+          notifyOpenCode("Error", promptBody(props, "OpenCode reported an error"));
           break;
         case "session.deleted":
           sendHook("session-end", ctx, event);
