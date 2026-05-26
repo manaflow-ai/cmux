@@ -3391,6 +3391,50 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 #endif
     }
 
+    func testHostedTerminalWrapWidthHintInvalidatesWhenSurfaceBoundsChange() throws {
+#if DEBUG
+        let (window, surface, hostedView) = makeHostedTerminalWindow()
+        defer {
+            GhosttySurfaceScrollView.debugSetPreferredScrollerStyleForTesting(nil)
+            window.orderOut(nil)
+            withExtendedLifetime(surface) {}
+        }
+
+        GhosttySurfaceScrollView.debugSetPreferredScrollerStyleForTesting(.legacy)
+        hostedView.debugSetVerticalScrollerPresentationForTesting(hidden: false, alpha: 1)
+        _ = hostedView.reconcileGeometryNow()
+        hostedView.debugSetVerticalScrollerPresentationForTesting(hidden: false, alpha: 1)
+        XCTAssertTrue(hostedView.reconcileGeometryNow(), "Expected terminal geometry reconciliation")
+
+        var sizing = hostedView.debugSurfaceSizingState()
+        let hostedContentSize = try XCTUnwrap(sizing.hostedContentSurfaceSize)
+        XCTAssertEqual(
+            hostedContentSize.width,
+            sizing.surfaceViewBounds.width,
+            accuracy: 0.5,
+            "A host-owned wrap-width hint should start valid only while it matches the hosted surface bounds"
+        )
+
+        hostedView.debugSetSurfaceViewSizeForTesting(sizing.scrollViewBounds)
+        hostedView.debugForceSurfaceLayoutPassForTesting()
+
+        sizing = hostedView.debugSurfaceSizingState()
+        XCTAssertNil(
+            sizing.hostedContentSurfaceSize,
+            "A stale host-owned wrap-width hint must be cleared once live surface bounds diverge"
+        )
+        let pending = try XCTUnwrap(sizing.pendingSurfaceSize)
+        XCTAssertEqual(
+            pending.width,
+            sizing.scrollViewBounds.width,
+            accuracy: 0.5,
+            "After invalidation, standalone surface layout should fall back to the live surface bounds"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testPreferredScrollerStyleChangeRestoresOverlayScrollbarWidth() {
         let surface = TerminalSurface(
             tabId: UUID(),

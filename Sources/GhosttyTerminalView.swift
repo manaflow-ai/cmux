@@ -7707,6 +7707,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let isAlreadyAttached = surface.isAttached(to: self)
         if !isSameSurface {
             appliedColorScheme = nil
+            clearHostedContentSurfaceSize()
         }
         terminalSurface = surface
         tabId = surface.tabId
@@ -7721,6 +7722,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         applySurfaceBackground()
         applySurfaceColorScheme(force: !isSameSurface || !isAlreadyAttached)
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        clearHostedContentSurfaceSize()
     }
 
     override func viewDidMoveToWindow() {
@@ -7741,6 +7747,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             "pending=\(String(format: "%.1fx%.1f", Double(pendingSurfaceSize?.width ?? 0), Double(pendingSurfaceSize?.height ?? 0)))"
         )
 #endif
+        if window == nil {
+            clearHostedContentSurfaceSize()
+        }
         guard let window else { return }
 
         // Reconcile the already-started runtime with the real window backing context.
@@ -7832,13 +7841,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return size
         }
 
-        if let hostedContentSurfaceSize,
-           hostedContentSurfaceSize.width > 0,
-           hostedContentSurfaceSize.height > 0 {
+        let currentBounds = bounds.size
+        if let hostedContentSurfaceSize = validatedHostedContentSurfaceSize(currentBounds: currentBounds) {
             return hostedContentSurfaceSize
         }
 
-        let currentBounds = bounds.size
         if currentBounds.width > 0, currentBounds.height > 0 {
             return currentBounds
         }
@@ -7850,6 +7857,31 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return currentBounds
+    }
+
+    private func validatedHostedContentSurfaceSize(currentBounds: CGSize) -> CGSize? {
+        guard let hostedContentSurfaceSize,
+              hostedContentSurfaceSize.width > 0,
+              hostedContentSurfaceSize.height > 0 else { return nil }
+
+        guard superview != nil else {
+            clearHostedContentSurfaceSize()
+            return nil
+        }
+
+        if currentBounds.width > 0,
+           currentBounds.height > 0,
+           (!nearlyEqual(currentBounds.width, hostedContentSurfaceSize.width, epsilon: 0.5) ||
+            !nearlyEqual(currentBounds.height, hostedContentSurfaceSize.height, epsilon: 0.5)) {
+            clearHostedContentSurfaceSize()
+            return nil
+        }
+
+        return hostedContentSurfaceSize
+    }
+
+    private func clearHostedContentSurfaceSize() {
+        hostedContentSurfaceSize = nil
     }
 
     private static func hasTabDragPasteboardTypes() -> Bool {
@@ -8017,6 +8049,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate func pushTargetSurfaceSize(_ size: CGSize) -> Bool {
         if size.width > 0, size.height > 0 {
             hostedContentSurfaceSize = size
+        } else {
+            clearHostedContentSurfaceSize()
         }
         return updateSurfaceSize(size: size)
     }
@@ -8024,6 +8058,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
     fileprivate func debugPendingSurfaceSize() -> CGSize? {
         pendingSurfaceSize
+    }
+
+    fileprivate func debugHostedContentSurfaceSize() -> CGSize? {
+        hostedContentSurfaceSize
     }
 #endif
 
@@ -11767,12 +11805,13 @@ final class GhosttySurfaceScrollView: NSView {
     private func verticalScrollerInsetWidth() -> CGFloat {
         let style = Self.preferredScrollerStyleForTerminalGeometry()
         let presentation = verticalScrollerPresentation()
+        let controlSize = scrollView.verticalScroller?.controlSize ?? .regular
         return Self.verticalScrollerInsetWidth(
             hasVerticalScroller: scrollView.hasVerticalScroller,
             scrollerIsHidden: presentation.hidden,
             scrollerAlphaValue: presentation.alpha,
             preferredScrollerStyle: style,
-            scrollerWidth: NSScroller.scrollerWidth(for: .regular, scrollerStyle: style)
+            scrollerWidth: NSScroller.scrollerWidth(for: controlSize, scrollerStyle: style)
         )
     }
 
@@ -12861,18 +12900,27 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.layout()
     }
 
+    func debugSetSurfaceViewSizeForTesting(_ size: CGSize) {
+        surfaceView.setFrameSize(size)
+    }
+
     func debugSurfaceSizingState() -> (
         scrollViewBounds: CGSize,
+        surfaceViewBounds: CGSize,
         scrollerWidth: CGFloat,
         hasVerticalScroller: Bool,
-        pendingSurfaceSize: CGSize?
+        pendingSurfaceSize: CGSize?,
+        hostedContentSurfaceSize: CGSize?
     ) {
         let style = Self.preferredScrollerStyleForTerminalGeometry()
+        let controlSize = scrollView.verticalScroller?.controlSize ?? .regular
         return (
             scrollView.bounds.size,
-            NSScroller.scrollerWidth(for: .regular, scrollerStyle: style),
+            surfaceView.bounds.size,
+            NSScroller.scrollerWidth(for: controlSize, scrollerStyle: style),
             scrollView.hasVerticalScroller,
-            surfaceView.debugPendingSurfaceSize()
+            surfaceView.debugPendingSurfaceSize(),
+            surfaceView.debugHostedContentSurfaceSize()
         )
     }
 
