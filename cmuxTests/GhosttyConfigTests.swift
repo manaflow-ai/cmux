@@ -5022,6 +5022,59 @@ final class ShellIntegrationHandoffTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("Done"), result.stderr)
     }
 
+    func testBashRelayFireAndForgetReportsDoNotEmitJobStatus() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-relay-background-reports-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cmuxStubPath = binDir.appendingPathComponent("cmux", isDirectory: false)
+        try writeExecutableScript(
+            at: cmuxStubPath,
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            : > "\(logPath.path)"
+            _CMUX_PORTS_LAST_RUN=0
+            _cmux_ports_kick command
+            for _cmux_i in $(seq 1 50); do
+              [ -s "\(logPath.path)" ] && break
+              sleep 0.02
+            done
+            cat "\(logPath.path)"
+            :
+            """,
+            extraEnvironment: [
+                "CMUX_BUNDLED_CLI_PATH": cmuxStubPath.path,
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertTrue(
+            result.stdout.contains(#"rpc surface.ports_kick {"workspace_id":"11111111-1111-1111-1111-111111111111","reason":"command","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
+            result.stdout
+        )
+        XCTAssertNil(
+            result.stderr.range(of: #"(?m)^\[[0-9]+\][^\n]*$"#, options: .regularExpression),
+            result.stderr
+        )
+        XCTAssertFalse(result.stderr.contains("Done"), result.stderr)
+    }
+
     func testZshNoGitWatchSkipsHeadTrackingAndPRClear() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
