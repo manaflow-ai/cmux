@@ -51,6 +51,27 @@ set_archs "$APP_PATH/Contents/Resources/bin/cmux" "arm64 x86_64"
 set_archs "$APP_PATH/Contents/Resources/bin/ghostty" "arm64 x86_64"
 "$VERIFY_SCRIPT" "$APP_PATH" --label "fixture app" >/dev/null
 
+if "$VERIFY_SCRIPT" "$APP_PATH" --label >"$TMP_DIR/missing-label.out" 2>"$TMP_DIR/missing-label.err"; then
+  echo "FAIL: verifier accepted --label without a value" >&2
+  exit 1
+fi
+if ! grep -Fq "Missing value for --label" "$TMP_DIR/missing-label.err"; then
+  echo "FAIL: verifier did not explain the missing label value" >&2
+  cat "$TMP_DIR/missing-label.err" >&2
+  exit 1
+fi
+
+set_archs "$APP_PATH/Contents/Resources/bin/ghostty" "x86_64"
+if "$VERIFY_SCRIPT" "$APP_PATH" --label "fixture app" >"$TMP_DIR/missing-arm.out" 2>"$TMP_DIR/missing-arm.err"; then
+  echo "FAIL: verifier accepted a helper missing the arm64 slice" >&2
+  exit 1
+fi
+if ! grep -Fq "missing arm64 slice" "$TMP_DIR/missing-arm.err"; then
+  echo "FAIL: verifier did not explain the missing arm64 slice" >&2
+  cat "$TMP_DIR/missing-arm.err" >&2
+  exit 1
+fi
+
 set_archs "$APP_PATH/Contents/Resources/bin/ghostty" "arm64"
 if "$VERIFY_SCRIPT" "$APP_PATH" --label "fixture app" >"$TMP_DIR/missing-slice.out" 2>"$TMP_DIR/missing-slice.err"; then
   echo "FAIL: verifier accepted a helper missing the x86_64 slice" >&2

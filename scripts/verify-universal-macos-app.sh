@@ -15,7 +15,11 @@ LABEL="macOS app"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --label)
-      LABEL="${2:-}"
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        echo "Missing value for --label" >&2
+        exit 1
+      fi
+      LABEL="$2"
       shift 2
       ;;
     -h|--help)
