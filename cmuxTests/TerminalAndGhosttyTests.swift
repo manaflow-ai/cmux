@@ -3097,6 +3097,32 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
+    private func makeHostedTerminalWindow(
+        size: NSSize = NSSize(width: 360, height: 240)
+    ) -> (window: NSWindow, surface: TerminalSurface, hostedView: GhosttySurfaceScrollView) {
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = NSRect(origin: .zero, size: size)
+        hostedView.autoresizingMask = [.width, .height]
+        window.contentView?.addSubview(hostedView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        return (window, surface, hostedView)
+    }
+
     private func findEditableTextField(in view: NSView) -> NSTextField? {
         if let field = view as? NSTextField, field.isEditable {
             return field
@@ -3293,6 +3319,76 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         hostedView.setInactiveOverlay(color: .black, opacity: 0.35, visible: false)
         state = hostedView.debugInactiveOverlayState()
         XCTAssertTrue(state.isHidden)
+    }
+
+    func testPersistentVerticalScrollerInsetsTerminalWrapWidthAcrossSurfaceLayout() throws {
+#if DEBUG
+        let (window, surface, hostedView) = makeHostedTerminalWindow()
+        defer {
+            GhosttySurfaceScrollView.debugSetPreferredScrollerStyleForTesting(nil)
+            window.orderOut(nil)
+            withExtendedLifetime(surface) {}
+        }
+
+        GhosttySurfaceScrollView.debugSetPreferredScrollerStyleForTesting(.legacy)
+        hostedView.debugSetVerticalScrollerPresentationForTesting(hidden: false, alpha: 1)
+        _ = hostedView.reconcileGeometryNow()
+        hostedView.debugSetVerticalScrollerPresentationForTesting(hidden: false, alpha: 1)
+        XCTAssertTrue(hostedView.reconcileGeometryNow(), "Expected terminal geometry reconciliation")
+
+        var sizing = hostedView.debugSurfaceSizingState()
+        XCTAssertTrue(sizing.hasVerticalScroller, "Expected a vertical scroller in the repro setup")
+        XCTAssertGreaterThan(sizing.scrollerWidth, 0, "Expected a measurable legacy scroller width")
+        let expectedWidth = max(0, sizing.scrollViewBounds.width - sizing.scrollerWidth)
+        let pendingBeforeSurfaceLayout = try XCTUnwrap(sizing.pendingSurfaceSize)
+        XCTAssertEqual(
+            pendingBeforeSurfaceLayout.width,
+            expectedWidth,
+            accuracy: 0.5,
+            "Persistent vertical scrollers should reserve a right-edge gutter in the terminal wrap width"
+        )
+
+        hostedView.debugForceSurfaceLayoutPassForTesting()
+
+        sizing = hostedView.debugSurfaceSizingState()
+        let pendingAfterSurfaceLayout = try XCTUnwrap(sizing.pendingSurfaceSize)
+        XCTAssertEqual(
+            pendingAfterSurfaceLayout.width,
+            expectedWidth,
+            accuracy: 0.5,
+            "Standalone surface layout must not overwrite the host-owned terminal wrap width with full bounds"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testHiddenPersistentScrollerDoesNotReserveTerminalWrapGutter() throws {
+#if DEBUG
+        let (window, surface, hostedView) = makeHostedTerminalWindow()
+        defer {
+            GhosttySurfaceScrollView.debugSetPreferredScrollerStyleForTesting(nil)
+            window.orderOut(nil)
+            withExtendedLifetime(surface) {}
+        }
+
+        GhosttySurfaceScrollView.debugSetPreferredScrollerStyleForTesting(.legacy)
+        hostedView.debugSetVerticalScrollerPresentationForTesting(hidden: true, alpha: 1)
+        _ = hostedView.reconcileGeometryNow()
+        hostedView.debugSetVerticalScrollerPresentationForTesting(hidden: true, alpha: 1)
+        XCTAssertTrue(hostedView.reconcileGeometryNow(), "Expected terminal geometry reconciliation")
+
+        let sizing = hostedView.debugSurfaceSizingState()
+        let pending = try XCTUnwrap(sizing.pendingSurfaceSize)
+        XCTAssertEqual(
+            pending.width,
+            sizing.scrollViewBounds.width,
+            accuracy: 0.5,
+            "Hidden vertical scrollers should not shrink the terminal wrap width"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
     }
 
     func testPreferredScrollerStyleChangeRestoresOverlayScrollbarWidth() {

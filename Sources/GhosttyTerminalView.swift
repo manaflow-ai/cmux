@@ -11031,6 +11031,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var dragLayoutLogSequence: UInt64 = 0
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
+    private static var debugPreferredScrollerStyleOverride: NSScroller.Style?
     private static var flashCounts: [UUID: Int] = [:]
     private static var drawCounts: [UUID: Int] = [:]
     private static var lastDrawTimes: [UUID: CFTimeInterval] = [:]
@@ -11163,6 +11164,15 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.debugSimulateCommandClick(at: debugPointInSurface(point))
     }
 #endif
+
+    private static func preferredScrollerStyleForTerminalGeometry() -> NSScroller.Style {
+        #if DEBUG
+        if let debugPreferredScrollerStyleOverride {
+            return debugPreferredScrollerStyleOverride
+        }
+        #endif
+        return NSScroller.preferredScrollerStyle
+    }
 
     func portalBindingGuardState() -> (surfaceId: UUID?, generation: UInt64?, state: String) {
         guard let terminalSurface = surfaceView.terminalSurface else {
@@ -12689,6 +12699,37 @@ final class GhosttySurfaceScrollView: NSView {
 
     func debugPendingSurfaceSize() -> CGSize? {
         surfaceView.debugPendingSurfaceSize()
+    }
+
+    static func debugSetPreferredScrollerStyleForTesting(_ style: NSScroller.Style?) {
+        debugPreferredScrollerStyleOverride = style
+    }
+
+    func debugSetVerticalScrollerPresentationForTesting(hidden: Bool, alpha: CGFloat) {
+        scrollView.hasVerticalScroller = true
+        if let verticalScroller = scrollView.verticalScroller {
+            verticalScroller.isHidden = hidden
+            verticalScroller.alphaValue = alpha
+        }
+    }
+
+    func debugForceSurfaceLayoutPassForTesting() {
+        surfaceView.layout()
+    }
+
+    func debugSurfaceSizingState() -> (
+        scrollViewBounds: CGSize,
+        scrollerWidth: CGFloat,
+        hasVerticalScroller: Bool,
+        pendingSurfaceSize: CGSize?
+    ) {
+        let style = Self.preferredScrollerStyleForTerminalGeometry()
+        return (
+            scrollView.bounds.size,
+            NSScroller.scrollerWidth(for: .regular, scrollerStyle: style),
+            scrollView.hasVerticalScroller,
+            surfaceView.debugPendingSurfaceSize()
+        )
     }
 
     func debugRegisteredDropTypes() -> [String] {
