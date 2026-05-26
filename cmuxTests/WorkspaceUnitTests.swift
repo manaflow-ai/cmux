@@ -2006,6 +2006,67 @@ final class StoredShortcutMatchingTests: XCTestCase {
         )
     }
 
+    func testCommandShortcutUsesPrintableEventLetterBeforePhysicalPunctuationFallback() {
+        let jumpToUnread = StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
+        let nextSurface = StoredShortcut(key: "]", command: true, shift: true, option: false, control: false)
+
+        XCTAssertTrue(
+            jumpToUnread.matches(
+                keyCode: 30,
+                modifierFlags: [.command, .shift],
+                eventCharacter: "u",
+                layoutCharacterProvider: { _, _ in "]" }
+            )
+        )
+        XCTAssertFalse(
+            nextSurface.matches(
+                keyCode: 30,
+                modifierFlags: [.command, .shift],
+                eventCharacter: "u",
+                layoutCharacterProvider: { _, _ in "]" }
+            )
+        )
+    }
+
+    func testCommandControlLetterCanUseLayoutFallbackForControlCharacter() {
+        let markUnreadAndJump = StoredShortcut(key: "u", command: true, shift: false, option: false, control: true)
+
+        XCTAssertTrue(
+            markUnreadAndJump.matches(
+                keyCode: 32,
+                modifierFlags: [.command, .control],
+                eventCharacter: "\u{15}",
+                layoutCharacterProvider: { keyCode, _ in keyCode == 32 ? "u" : nil }
+            )
+        )
+    }
+
+    func testCommandControlLetterCanUseLayoutFallbackForPrintableEventCharacter() {
+        let markUnreadAndJump = StoredShortcut(key: "u", command: true, shift: false, option: false, control: true)
+
+        XCTAssertTrue(
+            markUnreadAndJump.matches(
+                keyCode: 32,
+                modifierFlags: [.command, .control],
+                eventCharacter: "g",
+                layoutCharacterProvider: { keyCode, _ in keyCode == 32 ? "u" : nil }
+            )
+        )
+    }
+
+    func testCommandControlPunctuationDoesNotStealPrintableLetterShortcut() {
+        let nextWorkspace = StoredShortcut(key: "]", command: true, shift: false, option: false, control: true)
+
+        XCTAssertFalse(
+            nextWorkspace.matches(
+                keyCode: 30,
+                modifierFlags: [.command, .control],
+                eventCharacter: "u",
+                layoutCharacterProvider: { _, _ in "]" }
+            )
+        )
+    }
+
     func testMatchingTreatsKeypadEnterAsReturn() {
         let shortcut = StoredShortcut(key: "\r", command: true, shift: false, option: false, control: false)
 

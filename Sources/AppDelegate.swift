@@ -11117,7 +11117,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func jumpToLatestUnread(excludingNotificationId excludedNotificationId: UUID? = nil) -> TerminalNotification? {
+    func jumpToLatestUnread(
+        excludingNotificationId excludedNotificationId: UUID? = nil,
+        excludingWorkspaceId excludedWorkspaceId: UUID? = nil
+    ) -> TerminalNotification? {
         guard let notificationStore else { return nil }
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
@@ -11131,26 +11134,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // the window-context registry can lag behind model initialization, so fall back to whatever
         // tab manager currently owns the tab.
         for notification in notificationStore.notifications
-            where Self.shouldOpenFromJumpToLatestUnread(notification, excludingNotificationId: excludedNotificationId) {
+            where Self.shouldOpenFromJumpToLatestUnread(
+                notification,
+                excludingNotificationId: excludedNotificationId,
+                excludingWorkspaceId: excludedWorkspaceId
+            ) {
             if openTerminalNotification(notification) {
                 return notificationStore.notifications.first(where: { $0.id == notification.id }) ?? notification
             }
         }
-        _ = openLatestWorkspaceUnread()
+        _ = openLatestWorkspaceUnread(excludingWorkspaceId: excludedWorkspaceId)
         return nil
     }
 
     static func shouldOpenFromJumpToLatestUnread(
         _ notification: TerminalNotification,
-        excludingNotificationId excludedNotificationId: UUID? = nil
+        excludingNotificationId excludedNotificationId: UUID? = nil,
+        excludingWorkspaceId excludedWorkspaceId: UUID? = nil
     ) -> Bool {
         guard !notification.isRead, notification.id != excludedNotificationId else { return false }
+        if let excludedWorkspaceId,
+           notification.tabId == excludedWorkspaceId {
+            return false
+        }
         return notification.clickAction == nil
     }
 
-    private func openLatestWorkspaceUnread() -> Bool {
+    private func openLatestWorkspaceUnread(excludingWorkspaceId excludedWorkspaceId: UUID? = nil) -> Bool {
         guard let notificationStore else { return false }
-        let unreadWorkspaceIds = notificationStore.workspaceUnreadIndicatorIds
+        var unreadWorkspaceIds = notificationStore.workspaceUnreadIndicatorIds
+        if let excludedWorkspaceId {
+            unreadWorkspaceIds.remove(excludedWorkspaceId)
+        }
         guard !unreadWorkspaceIds.isEmpty else { return false }
 
         var seenWindowIds = Set<UUID>()
@@ -11188,7 +11203,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func clearWorkspaceUnreadAfterJump(workspace: Workspace, panelId: UUID?) {
+        if let panelId,
+           shouldTriggerManualUnreadJumpFlash(workspace: workspace, panelId: panelId) {
+            workspace.triggerUnreadIndicatorDismissFlash(panelId: panelId)
+        }
         workspace.clearUnreadAfterJump(panelId: panelId)
+    }
+
+    private func shouldTriggerManualUnreadJumpFlash(workspace: Workspace, panelId: UUID) -> Bool {
+        workspace.manualUnreadPanelIds.contains(panelId) ||
+            workspace.hasRestoredUnreadIndicator(panelId: panelId) ||
+            (notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false) ||
+            (notificationStore?.hasRestoredUnreadIndicator(forTabId: workspace.id) ?? false)
     }
 
     @discardableResult
@@ -11198,6 +11224,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let notificationStore,
               let target = focusedNotificationTarget(preferredWindow: preferredWindow) else {
             return false
+        }
+        if let panelTarget = focusedPanelNotificationTarget(target) {
+            let panelId = panelTarget.panelId
+            let workspace = panelTarget.workspace
+            let focusedPanelHasRestoredUnread = workspace.hasRestoredUnreadIndicator(panelId: panelId)
+            let hasWorkspaceOnlyRestoredUnread =
+                notificationStore.hasRestoredUnreadIndicator(forTabId: target.tabId) &&
+                !focusedPanelHasRestoredUnread &&
+                !workspace.hasWorkspaceContributingRestoredUnreadIndicator
+            if notificationStore.hasVisibleNotificationIndicator(forTabId: target.tabId, surfaceId: nil) ||
+                hasWorkspaceOnlyRestoredUnread {
+                notificationStore.markRead(forTabId: target.tabId)
+                return true
+            }
+            let hasWorkspaceManualUnreadOnPanel =
+                notificationStore.hasManualUnread(forTabId: target.tabId) &&
+                workspace.representativePanelIdForWorkspaceManualUnread() == panelId
+            let isPanelUnread =
+                workspace.manualUnreadPanelIds.contains(panelId) ||
+                focusedPanelHasRestoredUnread ||
+                notificationStore.hasVisibleNotificationIndicator(forTabId: target.tabId, surfaceId: panelId) ||
+                hasWorkspaceManualUnreadOnPanel
+            if isPanelUnread {
+                workspace.markPanelRead(panelId)
+                if hasWorkspaceManualUnreadOnPanel {
+                    _ = notificationStore.clearManualUnread(forTabId: target.tabId)
+                }
+                return true
+            }
+            workspace.markPanelUnread(panelId)
+            return true
         }
         if notificationStore.workspaceIsUnread(forTabId: target.tabId) {
             notificationStore.markRead(forTabId: target.tabId)
@@ -11217,8 +11274,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         switch result {
         case .deferredNotification(let notificationId):
             return jumpToLatestUnread(excludingNotificationId: notificationId)
-        case .markedWorkspaceWithoutNotification:
-            return jumpToLatestUnread()
+        case .markedWorkspaceWithoutNotification(let tabId):
+            return jumpToLatestUnread(excludingWorkspaceId: tabId)
         }
     }
 
@@ -11227,9 +11284,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let surfaceId: UUID?
     }
 
+    private struct FocusedPanelNotificationTarget {
+        let workspace: Workspace
+        let panelId: UUID
+    }
+
     private enum FocusedNotificationMarkResult {
         case deferredNotification(UUID)
-        case markedWorkspaceWithoutNotification
+        case markedWorkspaceWithoutNotification(UUID)
+    }
+
+    private func focusedPanelNotificationTarget(_ target: FocusedNotificationTarget) -> FocusedPanelNotificationTarget? {
+        guard let surfaceId = target.surfaceId,
+              let workspace = workspaceForMainActor(tabId: target.tabId) else {
+            return nil
+        }
+        let panelId: UUID?
+        if workspace.panels[surfaceId] != nil {
+            panelId = surfaceId
+        } else {
+            panelId = workspace.panelIdFromSurfaceId(TabID(uuid: surfaceId))
+        }
+        guard let panelId,
+              workspace.panels[panelId] != nil else {
+            return nil
+        }
+        return FocusedPanelNotificationTarget(workspace: workspace, panelId: panelId)
     }
 
     private func markFocusedNotificationAsOldestUnread(preferredWindow: NSWindow?) -> FocusedNotificationMarkResult? {
@@ -11250,7 +11330,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) {
             return .deferredNotification(notificationId)
         }
-        return .markedWorkspaceWithoutNotification
+        if let panelTarget = focusedPanelNotificationTarget(target) {
+            let workspace = panelTarget.workspace
+            let panelId = panelTarget.panelId
+            let panelAlreadyUnread =
+                workspace.manualUnreadPanelIds.contains(panelId) ||
+                workspace.hasRestoredUnreadIndicator(panelId: panelId) ||
+                notificationStore.hasVisibleNotificationIndicator(forTabId: target.tabId, surfaceId: panelId)
+            let hasWorkspaceOnlyRestoredUnread =
+                notificationStore.hasRestoredUnreadIndicator(forTabId: target.tabId) &&
+                !workspace.hasWorkspaceContributingRestoredUnreadIndicator
+            if !panelAlreadyUnread &&
+                !notificationStore.hasManualUnread(forTabId: target.tabId) &&
+                !hasWorkspaceOnlyRestoredUnread {
+                workspace.markPanelUnread(panelId)
+            }
+        } else if !notificationStore.workspaceIsUnread(forTabId: target.tabId) {
+            notificationStore.markUnread(forTabId: target.tabId)
+        }
+        return .markedWorkspaceWithoutNotification(target.tabId)
     }
 
     private func focusedNotificationTarget(preferredWindow: NSWindow?) -> FocusedNotificationTarget? {
