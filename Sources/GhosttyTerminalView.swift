@@ -14086,8 +14086,6 @@ final class GhosttySurfaceScrollView: NSView {
         }()
         if allowExplicitScrollbarSync {
             scrollbackViewportIntent = scrollbar.isAtBottom ? .followOutput : .reviewingScrollback
-        } else if explicitExpectation == nil, !scrollbar.isAtBottom {
-            scrollbackViewportIntent = .reviewingScrollback
         }
         surfaceView.scrollbar = scrollbar
         let isVisible = shouldShowTerminalScrollBar()

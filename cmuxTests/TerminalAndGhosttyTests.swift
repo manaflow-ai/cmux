@@ -3154,6 +3154,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     }
 
     private func makeManualScrollbackFixture(
+        scrollAwayFromBottom: Bool = true,
         file: StaticString = #filePath,
         line: UInt = #line
     ) -> ManualScrollbackFixture? {
@@ -3197,6 +3198,15 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01, file: file, line: line)
 
+        guard scrollAwayFromBottom else {
+            return ManualScrollbackFixture(
+                window: window,
+                surfaceView: surfaceView,
+                hostedView: hostedView,
+                scrollView: scrollView
+            )
+        }
+
         surfaceView.nextScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
         guard let cgEvent = CGEvent(
             scrollWheelEvent2Source: nil,
@@ -3221,6 +3231,37 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             surfaceView: surfaceView,
             hostedView: hostedView,
             scrollView: scrollView
+        )
+    }
+
+    func testPassiveNonBottomPacketKeepsFollowModeForLaterBottomPacket() {
+        guard let fixture = makeManualScrollbackFixture(scrollAwayFromBottom: false) else { return }
+        defer { fixture.window.orderOut(nil) }
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: fixture.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 40, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(
+            fixture.scrollView.contentView.bounds.origin.y,
+            500,
+            accuracy: 0.01,
+            "While following output, passive non-bottom packets may move the viewport but must not enter review mode"
+        )
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: fixture.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(
+            fixture.scrollView.contentView.bounds.origin.y,
+            0,
+            accuracy: 0.01,
+            "A later bottom packet should still be honored when no user scroll moved the viewport into review mode"
         )
     }
 
