@@ -23,14 +23,14 @@ final class TerminalSurfaceResizePolicyTests: XCTestCase {
                 currentCellHeightPx: 20,
                 targetWidthPx: 805,
                 targetHeightPx: 485,
-                forcePixelOnlyResize: false,
+                coalescePixelOnlyResize: true,
                 hasAppliedPixelSize: true
             ),
-            "Pixel-only resize churn inside the same terminal grid should not be forwarded to Ghostty as a PTY resize"
+            "Pixel-only live-resize churn inside the same terminal grid should not be forwarded to Ghostty as a PTY resize"
         )
     }
 
-    func testResizeAppliesWhenGridChangesOrSettles() {
+    func testResizeAppliesWhenGridChangesOutsideLiveResizeOrFirstApply() {
         XCTAssertTrue(
             TerminalSurface.shouldApplySurfacePixelSizeChangeForTesting(
                 currentColumns: 80,
@@ -39,7 +39,7 @@ final class TerminalSurfaceResizePolicyTests: XCTestCase {
                 currentCellHeightPx: 20,
                 targetWidthPx: 810,
                 targetHeightPx: 485,
-                forcePixelOnlyResize: false,
+                coalescePixelOnlyResize: true,
                 hasAppliedPixelSize: true
             ),
             "A resize that changes the terminal grid must still be forwarded"
@@ -53,10 +53,24 @@ final class TerminalSurfaceResizePolicyTests: XCTestCase {
                 currentCellHeightPx: 20,
                 targetWidthPx: 805,
                 targetHeightPx: 485,
-                forcePixelOnlyResize: true,
+                coalescePixelOnlyResize: false,
                 hasAppliedPixelSize: true
             ),
-            "The final settled geometry should be forwarded even when only the backing pixel size changed"
+            "Non-live layout changes should keep Ghostty's renderer pixel size fresh even when the terminal grid is unchanged"
+        )
+
+        XCTAssertTrue(
+            TerminalSurface.shouldApplySurfacePixelSizeChangeForTesting(
+                currentColumns: 80,
+                currentRows: 24,
+                currentCellWidthPx: 10,
+                currentCellHeightPx: 20,
+                targetWidthPx: 805,
+                targetHeightPx: 485,
+                coalescePixelOnlyResize: true,
+                hasAppliedPixelSize: false
+            ),
+            "The first observed pixel size must be applied even during live resize"
         )
     }
 }

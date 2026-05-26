@@ -5928,14 +5928,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         currentCellHeightPx: UInt32,
         targetWidthPx: UInt32,
         targetHeightPx: UInt32,
-        forcePixelOnlyResize: Bool,
+        coalescePixelOnlyResize: Bool,
         hasAppliedPixelSize: Bool
     ) -> Bool {
         // Ghostty uses one surface-size API for both renderer pixels and PTY geometry.
-        // Coalesce pixel-only AppKit churn so TUI apps do not repaint on SIGWINCH
-        // unless the visible terminal grid actually changed or geometry has settled.
+        // Only coalesce pixel-only AppKit churn while an explicit live-resize owner
+        // is active; ordinary layout changes still need to keep renderer pixels fresh.
         guard hasAppliedPixelSize else { return true }
-        guard !forcePixelOnlyResize else { return true }
+        guard coalescePixelOnlyResize else { return true }
         guard currentColumns > 0,
               currentRows > 0,
               currentCellWidthPx > 0,
@@ -5955,7 +5955,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         currentCellHeightPx: UInt32,
         targetWidthPx: UInt32,
         targetHeightPx: UInt32,
-        forcePixelOnlyResize: Bool,
+        coalescePixelOnlyResize: Bool,
         hasAppliedPixelSize: Bool
     ) -> Bool {
         shouldApplySurfacePixelSizeChange(
@@ -5965,7 +5965,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             currentCellHeightPx: currentCellHeightPx,
             targetWidthPx: targetWidthPx,
             targetHeightPx: targetHeightPx,
-            forcePixelOnlyResize: forcePixelOnlyResize,
+            coalescePixelOnlyResize: coalescePixelOnlyResize,
             hasAppliedPixelSize: hasAppliedPixelSize
         )
     }
@@ -6447,9 +6447,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         yScale: CGFloat,
         layerScale: CGFloat,
         backingSize: CGSize? = nil,
-        forcePixelOnlyResize: Bool = false
+        coalescePixelOnlyResize: Bool = false
     ) -> Bool {
-        guard let surface = surface else { return false }
+        guard let runtimeSurface = surface else { return false }
         _ = layerScale
 
         let resolvedBackingWidth = backingSize?.width ?? (width * xScale)
@@ -6475,13 +6475,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         #endif
 
         if scaleChanged {
-            ghostty_surface_set_content_scale(surface, xScale, yScale)
+            ghostty_surface_set_content_scale(runtimeSurface, xScale, yScale)
             lastXScale = xScale
             lastYScale = yScale
         }
 
         if sizeChanged {
-            let currentSize = ghostty_surface_size(surface)
+            let currentSize = ghostty_surface_size(runtimeSurface)
             let shouldApplySizeChange = Self.shouldApplySurfacePixelSizeChange(
                 currentColumns: UInt32(currentSize.columns),
                 currentRows: UInt32(currentSize.rows),
@@ -6489,7 +6489,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 currentCellHeightPx: currentSize.cell_height_px,
                 targetWidthPx: wpx,
                 targetHeightPx: hpx,
-                forcePixelOnlyResize: forcePixelOnlyResize || scaleChanged,
+                coalescePixelOnlyResize: coalescePixelOnlyResize && !scaleChanged,
                 hasAppliedPixelSize: lastPixelWidth > 0 && lastPixelHeight > 0
             )
             guard shouldApplySizeChange else {
@@ -6503,7 +6503,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
                 return scaleChanged
             }
-            ghostty_surface_set_size(surface, wpx, hpx)
+            ghostty_surface_set_size(runtimeSurface, wpx, hpx)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
         }
@@ -7877,10 +7877,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func activeSurfaceResizeDeferralReason() -> String? {
-        if inLiveResize || window?.inLiveResize == true {
+        if isWindowLiveResizeActive {
             return nil
         }
         return Self.shouldDeferSurfaceResizeForActiveDrag() ? "tabDrag" : nil
+    }
+
+    private var isWindowLiveResizeActive: Bool {
+        inLiveResize || window?.inLiveResize == true
     }
 
     private func scheduleDeferredSurfaceSizeRetryIfNeeded() {
@@ -8009,7 +8013,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             yScale: yScale,
             layerScale: layerScale,
             backingSize: backingSize,
-            forcePixelOnlyResize: forcePixelOnlyResize
+            coalescePixelOnlyResize: isWindowLiveResizeActive && !forcePixelOnlyResize
         )
         return didChange || surfaceSizeChanged
     }
