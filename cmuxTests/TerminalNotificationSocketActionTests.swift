@@ -423,7 +423,10 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         )
     }
 
-    private func sendV2RequestAsync(
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
+    private nonisolated func sendV2RequestAsync(
         method: String,
         params: [String: Any] = [:],
         to socketPath: String
