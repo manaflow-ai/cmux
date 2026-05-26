@@ -93044,115 +93044,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contains %lld split panes"
+            "value": "Split pane count: %lld"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 個の分割ペインを含みます"
+            "value": "分割ペイン数: %lld"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "包含 %lld 个拆分窗格"
+            "value": "拆分窗格数: %lld"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "包含 %lld 個分割窗格"
+            "value": "分割窗格數: %lld"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld개의 분할 창 포함"
+            "value": "분할 창 수: %lld"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enthält %lld geteilte Bereiche"
+            "value": "Anzahl geteilter Bereiche: %lld"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contiene %lld paneles divididos"
+            "value": "Número de paneles divididos: %lld"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contient %lld volets fractionnés"
+            "value": "Nombre de volets fractionnés : %lld"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contiene %lld riquadri divisi"
+            "value": "Numero di riquadri divisi: %lld"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indeholder %lld opdelte ruder"
+            "value": "Antal opdelte ruder: %lld"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zawiera %lld podzielonych paneli"
+            "value": "Liczba podzielonych paneli: %lld"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Содержит %lld разделенных панелей"
+            "value": "Количество разделенных панелей: %lld"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sadrži %lld podijeljenih panela"
+            "value": "Broj podijeljenih panela: %lld"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحتوي على %lld أجزاء مقسمة"
+            "value": "عدد الأجزاء المقسمة: %lld"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inneholder %lld delte ruter"
+            "value": "Antall delte ruter: %lld"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contém %lld painéis divididos"
+            "value": "Número de painéis divididos: %lld"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "มีบานหน้าต่างที่แบ่ง %lld บาน"
+            "value": "จำนวนบานหน้าต่างที่แบ่ง: %lld"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld bölünmüş bölme içerir"
+            "value": "Bölünmüş bölme sayısı: %lld"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Містить %lld розділених панелей"
+            "value": "Кількість розділених панелей: %lld"
           }
         }
       }

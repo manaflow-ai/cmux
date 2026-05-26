@@ -14995,7 +14995,7 @@ private struct TabItemView: View, Equatable {
         String.localizedStringWithFormat(
             String(
                 localized: "sidebar.workspace.splitPaneCount.tooltip",
-                defaultValue: "Contains %lld split panes"
+                defaultValue: "Split pane count: %lld"
             ),
             Int64(workspaceSnapshot.splitPaneCount)
         )
