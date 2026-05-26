@@ -7694,12 +7694,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sendWelcomeCommandWhenReady(to: workspace)
     }
 
-    func sendWelcomeCommandWhenReady(to workspace: Workspace, markShownOnSend: Bool = false) {
-        sendTextWhenReady("cmux welcome\n", to: workspace) {
-            if markShownOnSend {
-                UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
-            }
-        }
+    /// Type the welcome banner into `workspace`'s focused panel as soon as the
+    /// shell reports a real interactive prompt. Used by the explicit
+    /// "open welcome workspace" entrypoint (menu item); the first-launch
+    /// auto-welcome path lives in `TabManager.addWorkspace` and is the one
+    /// that gates on `WelcomeSettings.shownKey`. See #1900 for why we wait
+    /// for `.promptIdle` instead of typing on a fixed timer.
+    func sendWelcomeCommandWhenReady(to workspace: Workspace) {
+        workspace.sendTextOnNextPromptIdle("cmux welcome\n")
     }
 
     @objc func applyUpdateIfAvailable(_ sender: Any?) {

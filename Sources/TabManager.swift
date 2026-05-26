@@ -2679,73 +2679,17 @@ class TabManager: ObservableObject {
             ])
 #endif
             if autoWelcomeIfNeeded && select && !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) {
-                if let appDelegate = AppDelegate.shared {
-                    appDelegate.sendWelcomeCommandWhenReady(to: newWorkspace, markShownOnSend: true)
-                } else {
-                    sendWelcomeWhenReady(to: newWorkspace)
-                }
+                // Flip the shown flag synchronously, not inside a beforeSend that only
+                // runs when shell integration reports a real prompt. Otherwise, for
+                // users without cmux shell integration installed, the welcome would
+                // be queued on every workspace creation forever — observer-piles-up
+                // behavior CodeRabbit flagged on the prior revision. The welcome
+                // banner is one-shot onboarding; one attempt per fresh install is
+                // the correct semantic.
+                UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
+                newWorkspace.sendTextOnNextPromptIdle("cmux welcome\n")
             }
             return newWorkspace
-        }
-    }
-
-    @MainActor
-    private func sendWelcomeWhenReady(to workspace: Workspace) {
-        if let terminalPanel = workspace.focusedTerminalPanel,
-           terminalPanel.surface.surface != nil {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
-                terminalPanel.sendText("cmux welcome\n")
-            }
-            return
-        }
-
-        var resolved = false
-        var readyObserver: NSObjectProtocol?
-        var panelsCancellable: AnyCancellable?
-
-        func finishIfReady() {
-            guard !resolved,
-                  let terminalPanel = workspace.focusedTerminalPanel,
-                  terminalPanel.surface.surface != nil else { return }
-            resolved = true
-            if let readyObserver {
-                NotificationCenter.default.removeObserver(readyObserver)
-            }
-            panelsCancellable?.cancel()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
-                terminalPanel.sendText("cmux welcome\n")
-            }
-        }
-
-        panelsCancellable = workspace.$panels
-            .map { _ in () }
-            .sink { _ in
-                Task { @MainActor in
-                    finishIfReady()
-                }
-            }
-        readyObserver = NotificationCenter.default.addObserver(
-            forName: .terminalSurfaceDidBecomeReady,
-            object: nil,
-            queue: .main
-        ) { note in
-            guard let workspaceId = note.userInfo?["workspaceId"] as? UUID,
-                  workspaceId == workspace.id else { return }
-            Task { @MainActor in
-                finishIfReady()
-            }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            Task { @MainActor in
-                if let readyObserver, !resolved {
-                    NotificationCenter.default.removeObserver(readyObserver)
-                }
-                if !resolved {
-                    panelsCancellable?.cancel()
-                }
-            }
         }
     }
 

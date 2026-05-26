@@ -9423,6 +9423,11 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
+    /// NotificationCenter tokens for in-flight `sendTextOnNextPromptIdle` waits.
+    /// Removed when the matching `.promptIdle` fires; the deinit sweeps any
+    /// that are still outstanding so workspaces without shell integration
+    /// don't leak their observer block forever.
+    private var pendingPromptIdleObservers: [NSObjectProtocol] = []
 
     private func sidebarObservationSignal<Value: Equatable>(
         _ publisher: Published<Value>.Publisher
@@ -10021,6 +10026,9 @@ final class Workspace: Identifiable, ObservableObject {
                     NotificationCenter.default.removeObserver(observer)
                 }
             }
+        }
+        for token in pendingPromptIdleObservers {
+            NotificationCenter.default.removeObserver(token)
         }
         activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
@@ -10972,6 +10980,11 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    /// Record a new shell-integration-reported activity state for `panelId`.
+    /// Dedups against the previous state (a redundant `promptIdle` report,
+    /// for example, is a no-op) and posts `.panelShellActivityStateDidChange`
+    /// only on real transitions so observers like
+    /// `sendTextOnNextPromptIdle` see exactly one event per state change.
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard panels[panelId] != nil else { return }
         let previousState = panelShellActivityStates[panelId] ?? .unknown
@@ -10984,6 +10997,15 @@ final class Workspace: Identifiable, ObservableObject {
                 shellState: state
             )
         }
+        NotificationCenter.default.post(
+            name: .panelShellActivityStateDidChange,
+            object: nil,
+            userInfo: [
+                PanelShellActivityNotificationKey.workspaceId: id,
+                PanelShellActivityNotificationKey.panelId: panelId,
+                PanelShellActivityNotificationKey.state: state
+            ]
+        )
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +
@@ -11129,6 +11151,85 @@ final class Workspace: Identifiable, ObservableObject {
             didResume = resumeAgentHibernation(panelId: panelId, focus: false) || didResume
         }
         return didResume
+    }
+
+    /// Type `text` into the focused terminal panel once the shell-integration state
+    /// machine reports the panel is sitting at an interactive prompt
+    /// (`PanelShellActivityState.promptIdle`). Used by the welcome banner path
+    /// (#1900) to avoid racing shell init: oh-my-zsh's auto-update prompt would
+    /// otherwise consume the first character of a blindly-timed send.
+    ///
+    /// There is intentionally no time-based fallback. If shell integration is not
+    /// installed the panel never transitions to `.promptIdle` and this call
+    /// becomes a no-op — the welcome banner is skipped rather than risk landing
+    /// the typed bytes in whatever prompt happens to be reading stdin during
+    /// shell sourcing. Users without integration get a clean prompt instead of
+    /// `mux welcome` / `command not found: mux`. Encourage `cmux hooks setup` to
+    /// re-enable the banner.
+    @MainActor
+    func sendTextOnNextPromptIdle(_ text: String, beforeSend: (() -> Void)? = nil) {
+        // Fast path: shell has already reported a prompt by the time we're called
+        // (e.g. snapshot restore that already saw `.promptIdle`).
+        if performPromptIdleSend(text: text, beforeSend: beforeSend) { return }
+
+        // Otherwise, observe state transitions until the first `.promptIdle`,
+        // then send. We capture `self` weakly so a workspace that closes (or
+        // never sees shell integration fire) does not stay alive just because
+        // NotificationCenter is holding our block. The strong reference cycle
+        // would otherwise be:
+        //   NotificationCenter → block → captured Workspace.
+        // The matching deinit cleanup below tears the block out of
+        // NotificationCenter so we don't leak the block itself either.
+        let workspaceId = id
+        var token: NSObjectProtocol?
+        token = NotificationCenter.default.addObserver(
+            forName: .panelShellActivityStateDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] note in
+            guard let self else {
+                if let token { NotificationCenter.default.removeObserver(token) }
+                return
+            }
+            guard let noteWorkspaceId = note.userInfo?[PanelShellActivityNotificationKey.workspaceId] as? UUID,
+                  noteWorkspaceId == workspaceId,
+                  let state = note.userInfo?[PanelShellActivityNotificationKey.state] as? PanelShellActivityState,
+                  state == .promptIdle
+            else { return }
+            // Posters of panelShellActivityStateDidChange are MainActor-isolated
+            // (Workspace.updatePanelShellActivityState is @MainActor) and
+            // `queue: nil` delivers synchronously on the posting thread, so we
+            // can assume MainActor here without an async hop.
+            MainActor.assumeIsolated {
+                guard self.performPromptIdleSend(text: text, beforeSend: beforeSend) else { return }
+                if let token {
+                    self.pendingPromptIdleObservers.removeAll { $0 === token }
+                    NotificationCenter.default.removeObserver(token)
+                }
+            }
+        }
+        if let token {
+            pendingPromptIdleObservers.append(token)
+        }
+    }
+
+    /// Shared "if the focused panel is at promptIdle, fire beforeSend and type
+    /// the text now" routine used by both the synchronous fast path and the
+    /// notification-driven slow path of `sendTextOnNextPromptIdle`. Returns
+    /// `true` when the send happened so the caller can tear down its
+    /// observer; `false` means the panel still isn't at a prompt and the
+    /// caller should keep waiting.
+    @MainActor
+    private func performPromptIdleSend(text: String, beforeSend: (() -> Void)?) -> Bool {
+        guard let panel = focusedTerminalPanel,
+              panelShellActivityStates[panel.id] == .promptIdle
+        else { return false }
+        // Once the shell has reported it is at an interactive prompt, the PTY
+        // is by construction alive and reading stdin — no separate
+        // surface-readiness wait is needed.
+        beforeSend?()
+        panel.sendText(text)
+        return true
     }
 
     private func restoredAgentResumeStateForAcceptedSnapshot(panelId: UUID) -> RestoredAgentResumeState {

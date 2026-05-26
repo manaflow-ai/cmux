@@ -12,6 +12,24 @@ extension Notification.Name {
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
+    /// Posted by `Workspace.updatePanelShellActivityState` whenever the
+    /// shell-integration-reported activity state for a panel changes (and
+    /// only on real transitions — duplicates are suppressed). `userInfo`
+    /// carries `workspaceId`, `panelId`, and the new `state`. Consumed by
+    /// `Workspace.sendTextOnNextPromptIdle` to gate welcome-banner typing
+    /// on the shell being at an actual interactive prompt.
+    static let panelShellActivityStateDidChange = Notification.Name("cmux.panelShellActivityStateDidChange")
+}
+
+/// `userInfo` keys carried on `.panelShellActivityStateDidChange`. Defined as
+/// constants so observers and posters can't drift on raw-string typos.
+enum PanelShellActivityNotificationKey {
+    /// `UUID` of the `Workspace` whose panel changed state.
+    static let workspaceId = "workspaceId"
+    /// `UUID` of the panel whose shell-integration state transitioned.
+    static let panelId = "panelId"
+    /// The new `Workspace.PanelShellActivityState` value.
+    static let state = "state"
 }
 
 nonisolated private struct SocketLineProcessingResult: Sendable {
