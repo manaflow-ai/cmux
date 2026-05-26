@@ -2597,6 +2597,13 @@ class GhosttyApp {
         userAppearanceConfigSummary(configPaths: configPaths).shouldApplyDefaultAppearance
     }
 
+    static func conditionalThemeOverrideConfigContents(
+        preferredColorScheme _: GhosttyConfig.ColorSchemePreference,
+        configPaths _: [String] = loadedGhosttyConfigScanPaths()
+    ) -> String? {
+        nil
+    }
+
     /// Resolve auto-injected CJK families through the regular-weight descriptor
     /// path first so locale-sensitive families such as Hiragino Sans don't fall
     /// back to ultra-light faces like W0 when Ghostty later matches by name.
