@@ -514,11 +514,13 @@ jobs:
 
           READY_PATH="/tmp/cmux-ci-lag-display-ready"
           DISPLAY_ID_PATH="/tmp/cmux-ci-lag-display-id"
+          HELPER_LOG_PATH="/tmp/cmux-ci-lag-display-helper.log"
           for attempt in 1 2 3; do
-            rm -f "$READY_PATH" "$DISPLAY_ID_PATH"
+            rm -f "$READY_PATH" "$DISPLAY_ID_PATH" "$HELPER_LOG_PATH"
             /tmp/create-virtual-display \
               --ready-path "$READY_PATH" \
-              --display-id-path "$DISPLAY_ID_PATH" &
+              --display-id-path "$DISPLAY_ID_PATH" \
+              > "$HELPER_LOG_PATH" 2>&1 &
             VDISPLAY_PID=$!
 
             for _ in {1..40}; do
@@ -539,6 +541,7 @@ jobs:
           done
 
           echo "ERROR: Failed to create virtual display after 3 attempts" >&2
+          cat "$HELPER_LOG_PATH" >&2 2>/dev/null || true
           exit 1
 
       - name: Run workspace churn typing-lag regression
