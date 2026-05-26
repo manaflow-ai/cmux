@@ -980,7 +980,7 @@
       "supportedNote": "Claude Code ត្រូវបានគ្រប់គ្រងដោយ cmux Claude wrapper នៅពេលបើក Claude integration ក្នុង Settings។ Antigravity ក៏ទទួល agy ជា setup alias ហើយ Rovo Dev ទទួល rovo។",
       "manualTitle": "ស្ដារដោយដៃ",
       "manualDesc": "cmux ស្ដារ snapshot ចុងក្រោយដែលបានរក្សាទុក ពេលបើកធម្មតា។ អ្នកក៏អាច apply snapshot មុនដោយដៃបាន៖",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "បិទ automatic agent resume",
       "disableDesc": "ដើម្បីស្ដារ pane ដោយមិនបើក command resume របស់ agent ដែលបានរក្សាទុក សូមបិទ Settings > Terminal > Resume Agent Sessions on Reopen ឬកំណត់៖",
       "disableNote": "វាបិទតែ command resume របស់ agent ប៉ុណ្ណោះ។ cmux នៅតែស្ដារ layout, working directory, scrollback និង browser history។",
