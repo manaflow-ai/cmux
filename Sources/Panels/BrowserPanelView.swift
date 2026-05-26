@@ -408,7 +408,7 @@ struct BrowserPanelView: View {
     @ObservedObject private var browserProfileStore = BrowserProfileStore.shared
     let paneId: PaneID
     let isFocused: Bool
-    let isSelectedInPane: Bool
+    let isPanelInPane: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
@@ -622,7 +622,7 @@ struct BrowserPanelView: View {
     }
 
     private var isCurrentPaneOwner: Bool {
-        isSelectedInPane
+        isPanelInPane
     }
 
     private var currentEventIsCommandPointerActivation: Bool {
