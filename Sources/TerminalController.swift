@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CMUXSocketPathDomain
 import CMUXWorkstream
 import Foundation
 import Bonsplit
@@ -84,17 +85,47 @@ class TerminalController {
         let isRunning: Bool
         let acceptLoopAlive: Bool
         let socketPathMatches: Bool
-        let socketPathExists: Bool
-        let socketPathOwnedByListener: Bool
+        let socketPathOwnershipStatus: SocketPathOwnershipStatus
+
+        var socketPathExists: Bool {
+            socketPathOwnershipStatus.socketPathExists
+        }
+
+        var socketPathOwnedByThisProcess: Bool {
+            socketPathOwnershipStatus.socketPathOwnedByThisProcess
+        }
+
+        var socketPathStatus: String {
+            socketPathOwnershipStatus.debugLabel
+        }
 
         var failureSignals: [String] {
             var signals: [String] = []
             if !isRunning { signals.append("not_running") }
             if !acceptLoopAlive { signals.append("accept_loop_dead") }
             if !socketPathMatches { signals.append("socket_path_mismatch") }
-            if !socketPathExists { signals.append("socket_missing") }
-            if socketPathMatches && socketPathExists && !socketPathOwnedByListener {
-                signals.append("socket_identity_mismatch")
+            if !socketPathExists {
+                switch socketPathOwnershipStatus {
+                case .notSocket:
+                    signals.append("socket_not_socket")
+                case .missing:
+                    signals.append("socket_missing")
+                case .ownedByThisProcess, .socketFileChanged, .connectFailed, .ownerUnknown, .ownedByOtherProcess:
+                    signals.append("socket_owner_mismatch")
+                }
+            } else if !socketPathOwnedByThisProcess {
+                switch socketPathOwnershipStatus {
+                case .ownerUnknown:
+                    signals.append("socket_owner_unknown")
+                case .connectFailed:
+                    signals.append("socket_connect_failed")
+                case .socketFileChanged:
+                    signals.append("socket_file_changed")
+                case .ownedByOtherProcess:
+                    signals.append("socket_owner_mismatch")
+                case .ownedByThisProcess, .missing, .notSocket:
+                    break
+                }
             }
             return signals
         }
@@ -119,15 +150,18 @@ class TerminalController {
     private nonisolated(unsafe) var listenerStartInProgress = false
     private nonisolated(unsafe) var socketPathLockFD: Int32 = -1
     private nonisolated let listenerStateLock = NSLock()
-    private nonisolated let socketListenerQueue = DispatchQueue(label: "com.cmux.socket.listener")
+    nonisolated let socketListenerQueue = DispatchQueue(label: "com.cmux.socket.listener")
     private nonisolated(unsafe) var listenerReadSource: DispatchSourceRead?
     private nonisolated(unsafe) var listenerReadSourceSuspended = false
-    private nonisolated(unsafe) var socketPathMonitorSource: DispatchSourceFileSystemObject?
+    private nonisolated(unsafe) var socketPathWatchSource: DispatchSourceFileSystemObject?
+    private nonisolated(unsafe) var pendingSocketFileRecoveryGeneration: UInt64?
+    private nonisolated(unsafe) var socketFileRecoveryTask: Task<Void, Never>?
+    private nonisolated(unsafe) var socketFileRecoveryTaskGeneration: UInt64?
     private nonisolated(unsafe) var acceptSourceConsecutiveFailures = 0
     private var clientHandlers: [Int32: Thread] = [:]
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
-    private var tabManager: TabManager?
+    private(set) var tabManager: TabManager?
     private nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
     private nonisolated let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
@@ -143,6 +177,9 @@ class TerminalController {
     private nonisolated static let socketPathLockReusableMarker = "cmux-socket-lock-v1\n"
     private nonisolated static let socketClientReadTimeout: TimeInterval = 30
     private nonisolated static let socketClientWriteTimeout: TimeInterval = 5
+    // Binding runs on the main actor; classify only immediately-ready sockets there.
+    private nonisolated static let socketBindOwnershipProbeTimeout: TimeInterval = 0
+    private nonisolated static let socketFileHealthProbeTimeout: TimeInterval = 0
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
     private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
@@ -152,12 +189,6 @@ class TerminalController {
     private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
     private nonisolated static let socketCommandSlowThresholdMs: Double = 500
 #endif
-    private nonisolated static let unixSocketPathMaxLength: Int = {
-        var addr = sockaddr_un()
-        // Reserve one byte for the null terminator.
-        return MemoryLayout.size(ofValue: addr.sun_path) - 1
-    }()
-
     private static var terminalProcessExitedMessage: String {
         String(
             localized: "socket.terminal.processExited",
@@ -191,7 +222,7 @@ class TerminalController {
         "ERROR: \(terminalSurfaceUnavailableMessage)"
     }
 
-    private struct ListenerStateSnapshot {
+    nonisolated struct ListenerStateSnapshot: Sendable {
         let socketPath: String
         let boundSocketPathIdentity: SocketPathIdentity?
         let serverSocket: Int32
@@ -202,6 +233,11 @@ class TerminalController {
         let reservedStartupSocketPath: String?
         let listenerStartInProgress: Bool
         let socketPathLockHeld: Bool
+        let hasSocketPathWatchSource: Bool
+    }
+
+    nonisolated struct SocketFileRecoveryRetryToken: Sendable {
+        let generation: UInt64
     }
 
     enum AcceptFailureRecoveryAction: Equatable {
@@ -230,15 +266,7 @@ class TerminalController {
         }
     }
 
-    struct SocketPathIdentity: Equatable, Sendable {
-        let device: UInt64
-        let inode: UInt64
-
-        init(device: UInt64, inode: UInt64) {
-            self.device = device
-            self.inode = inode
-        }
-    }
+    typealias SocketPathIdentity = CMUXSocketPathDomain.SocketPathIdentity
 
     private enum SocketBindAttemptResult {
         case success(path: String, identity: SocketPathIdentity)
@@ -376,7 +404,7 @@ class TerminalController {
         return body()
     }
 
-    private nonisolated func listenerStateSnapshot() -> ListenerStateSnapshot {
+    nonisolated func listenerStateSnapshot() -> ListenerStateSnapshot {
         withListenerState {
             ListenerStateSnapshot(
                 socketPath: socketPath,
@@ -388,7 +416,8 @@ class TerminalController {
                 pendingRearmGeneration: pendingAcceptLoopRearmGeneration,
                 reservedStartupSocketPath: reservedStartupSocketPath,
                 listenerStartInProgress: listenerStartInProgress,
-                socketPathLockHeld: socketPathLockFD >= 0
+                socketPathLockHeld: socketPathLockFD >= 0,
+                hasSocketPathWatchSource: socketPathWatchSource != nil
             )
         }
     }
@@ -400,7 +429,7 @@ class TerminalController {
             pendingAcceptLoopRearmGeneration == nil &&
             socketPathLockFD < 0 &&
             listenerReadSource == nil &&
-            socketPathMonitorSource == nil &&
+            socketPathWatchSource == nil &&
             serverSocket < 0
     }
 
@@ -461,6 +490,7 @@ class TerminalController {
             || snapshot.listenerStartInProgress
             || snapshot.pendingRearmGeneration != nil
             || snapshot.socketPathLockHeld
+            || snapshot.hasSocketPathWatchSource
             || snapshot.serverSocket >= 0 {
             return snapshot.socketPath
         }
@@ -468,6 +498,171 @@ class TerminalController {
             return reservedStartupSocketPath
         }
         return preferredPath
+    }
+
+    nonisolated func installSocketFileHealthWatchSource(
+        _ source: DispatchSourceFileSystemObject,
+        snapshot: ListenerStateSnapshot
+    ) -> (shouldStart: Bool, previousSource: DispatchSourceFileSystemObject?) {
+        withListenerState {
+            guard isRunning,
+                  serverSocket == snapshot.serverSocket,
+                  socketPath == snapshot.socketPath else {
+                return (false, nil)
+            }
+            let previousSource = socketPathWatchSource
+            socketPathWatchSource = source
+            return (true, previousSource)
+        }
+    }
+
+    nonisolated func installSocketFileRecoveryRetryWatchSource(
+        _ source: DispatchSourceFileSystemObject,
+        socketPath retrySocketPath: String,
+        accessMode retryAccessMode: SocketControlMode
+    ) -> (shouldStart: Bool, previousSource: DispatchSourceFileSystemObject?) {
+        withListenerState {
+            guard !isRunning,
+                  !listenerStartInProgress else {
+                return (false, nil)
+            }
+            let previousSource = socketPathWatchSource
+            socketPath = retrySocketPath
+            accessMode = retryAccessMode
+            socketPathWatchSource = source
+            return (true, previousSource)
+        }
+    }
+
+    nonisolated func beginSocketFileRecoveryRetry(
+        from watchSource: DispatchSourceFileSystemObject
+    ) -> SocketFileRecoveryRetryToken? {
+        withListenerState {
+            guard let currentWatchSource = socketPathWatchSource,
+                  currentWatchSource === watchSource,
+                  !isRunning,
+                  !listenerStartInProgress else {
+                return nil
+            }
+            listenerStartInProgress = true
+            return SocketFileRecoveryRetryToken(generation: nextAcceptLoopGeneration)
+        }
+    }
+
+    nonisolated func socketFileRecoveryRetryIsCurrent(_ token: SocketFileRecoveryRetryToken) -> Bool {
+        withListenerState {
+            !isRunning &&
+                listenerStartInProgress &&
+                nextAcceptLoopGeneration == token.generation
+        }
+    }
+
+    nonisolated func clearSocketListenerStartInProgress() {
+        withListenerState {
+            listenerStartInProgress = false
+        }
+    }
+
+    nonisolated func scheduleSocketFileRecoveryIfCurrent(_ snapshot: ListenerStateSnapshot) -> Bool {
+        withListenerState {
+            guard isRunning,
+                  serverSocket == snapshot.serverSocket,
+                  activeAcceptLoopGeneration == snapshot.activeGeneration,
+                  pendingSocketFileRecoveryGeneration == nil else {
+                return false
+            }
+            pendingSocketFileRecoveryGeneration = snapshot.activeGeneration
+            return true
+        }
+    }
+
+    nonisolated func clearPendingSocketFileRecovery(generation: UInt64) {
+        let taskToCancel = withListenerState {
+            guard pendingSocketFileRecoveryGeneration == generation else {
+                return nil as Task<Void, Never>?
+            }
+            pendingSocketFileRecoveryGeneration = nil
+            guard socketFileRecoveryTaskGeneration == generation else {
+                return nil
+            }
+            let task = socketFileRecoveryTask
+            socketFileRecoveryTask = nil
+            socketFileRecoveryTaskGeneration = nil
+            return task
+        }
+        taskToCancel?.cancel()
+    }
+
+    nonisolated func clearPendingSocketFileRecoveryIfCurrentPathIsHealthy(expectedPath: String) {
+        let currentPathAndIdentity = withListenerState { () -> (path: String, identity: SocketPathIdentity)? in
+            guard isRunning,
+                  socketPath == expectedPath,
+                  let identity = boundSocketPathIdentity else {
+                return nil
+            }
+            return (socketPath, identity)
+        }
+        guard let currentPathAndIdentity,
+              case .ownedByThisProcess = SocketPathProbe.observedStatus(
+                  path: currentPathAndIdentity.path,
+                  expectedIdentity: currentPathAndIdentity.identity
+              ) else {
+            return
+        }
+
+        let taskToCancel = withListenerState {
+            guard isRunning,
+                  socketPath == currentPathAndIdentity.path,
+                  boundSocketPathIdentity == currentPathAndIdentity.identity else {
+                return nil as Task<Void, Never>?
+            }
+            pendingSocketFileRecoveryGeneration = nil
+            let task = socketFileRecoveryTask
+            socketFileRecoveryTask = nil
+            socketFileRecoveryTaskGeneration = nil
+            return task
+        }
+        taskToCancel?.cancel()
+    }
+
+    nonisolated func replaceSocketFileRecoveryTask(
+        _ task: Task<Void, Never>,
+        generation: UInt64
+    ) -> (installed: Bool, previousTask: Task<Void, Never>?) {
+        withListenerState {
+            guard isRunning,
+                  activeAcceptLoopGeneration == generation,
+                  pendingSocketFileRecoveryGeneration == generation else {
+                return (false, nil)
+            }
+            let previousTask = socketFileRecoveryTask
+            socketFileRecoveryTask = task
+            socketFileRecoveryTaskGeneration = generation
+            return (true, previousTask)
+        }
+    }
+
+    nonisolated func clearSocketFileRecoveryTask(generation: UInt64) {
+        withListenerState {
+            guard socketFileRecoveryTaskGeneration == generation else {
+                return
+            }
+            socketFileRecoveryTask = nil
+            socketFileRecoveryTaskGeneration = nil
+        }
+    }
+
+    nonisolated func takeSocketFileRecoveryRestart(generation: UInt64) -> (path: String, mode: SocketControlMode)? {
+        withListenerState {
+            guard pendingSocketFileRecoveryGeneration == generation else {
+                return nil
+            }
+            pendingSocketFileRecoveryGeneration = nil
+            guard activeAcceptLoopGeneration == generation else {
+                return nil
+            }
+            return (socketPath, accessMode)
+        }
     }
 
     private nonisolated func shouldContinueAcceptLoop(generation: UInt64) -> Bool {
@@ -867,7 +1062,7 @@ class TerminalController {
         return info.kp_eproc.e_ppid
     }
 
-    private nonisolated func socketListenerEventData(
+    nonisolated func socketListenerEventData(
         stage: String,
         errnoCode: Int32? = nil,
         extra: [String: Any] = [:]
@@ -891,7 +1086,7 @@ class TerminalController {
         return data
     }
 
-    private nonisolated func reportSocketListenerFailure(
+    nonisolated func reportSocketListenerFailure(
         message: String,
         stage: String,
         errnoCode: Int32? = nil,
@@ -1030,7 +1225,7 @@ class TerminalController {
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
 
-        let maxLength = unixSocketPathMaxLength + 1
+        let maxLength = SocketPathProbe.unixSocketPathMaxLength + 1
         var didFit = false
         path.withCString { source in
             let sourceLength = strlen(source)
@@ -1138,7 +1333,7 @@ class TerminalController {
         }
         return (
             SocketPathIdentity(
-                device: UInt64(st.st_dev),
+                device: UInt64(bitPattern: Int64(st.st_dev)),
                 inode: UInt64(st.st_ino)
             ),
             nil
@@ -1162,6 +1357,14 @@ class TerminalController {
         _ = fd
         return nil
 #endif
+    }
+
+    nonisolated func socketPathOwnershipStatus(path: String) -> SocketPathOwnershipStatus {
+        SocketPathProbe.ownershipStatus(
+            path: path,
+            expectedOwnerPID: myPid,
+            timeout: Self.socketFileHealthProbeTimeout
+        )
     }
 
     private nonisolated static func configureAcceptedClientSocket(_ fd: Int32) -> (stage: String, errnoCode: Int32)? {
@@ -1331,18 +1534,46 @@ class TerminalController {
         path: String,
         canReplaceRefusedSocket: Bool
     ) -> SocketBindAttemptResult {
-        if let errnoCode = ensureSocketParentDirectoryExists(path: path) {
+        if let errnoCode = SocketPathProbe.ensureParentDirectoryExists(path: path) {
             return .failure(path: path, stage: "create_directory", errnoCode: errnoCode)
         }
-        if let preparationFailure = prepareSocketPathForBind(
-            path,
-            canReplaceRefusedSocket: canReplaceRefusedSocket
-        ) {
-            return .failure(
-                path: path,
-                stage: preparationFailure.stage,
-                errnoCode: preparationFailure.errnoCode
+
+        let existingPathIdentity = SocketPathProbe.fileIdentity(path: path)
+        let existingPathStatus = SocketPathProbe.ownershipStatus(
+            path: path,
+            expectedOwnerPID: getpid(),
+            timeout: socketBindOwnershipProbeTimeout
+        )
+        switch existingPathStatus {
+        case .ownedByThisProcess:
+            if unlink(path) != 0, errno != ENOENT {
+                return .failure(path: path, stage: "unlink", errnoCode: errno)
+            }
+        case .missing(let errnoCode) where errnoCode == ENOENT || errnoCode == ENOTDIR:
+            break
+        case .missing(let errnoCode):
+            return .failure(path: path, stage: "existing_socket_probe_failed", errnoCode: errnoCode)
+        case .connectFailed(let errnoCode)
+            where canReplaceRefusedSocket && SocketPathProbe.isDefinitiveStaleSocketErrno(errnoCode):
+            let unlinkResult = SocketPathProbe.unlinkIfStaleSocketIdentityStable(
+                path,
+                expectedIdentity: existingPathIdentity,
+                expectedOwnerPID: getpid(),
+                timeout: socketBindOwnershipProbeTimeout
             )
+            if unlinkResult != 0 {
+                return .failure(path: path, stage: "existing_socket_connect_failed", errnoCode: errnoCode)
+            }
+        case .connectFailed(let errnoCode):
+            return .failure(path: path, stage: "existing_socket_connect_failed", errnoCode: errnoCode)
+        case .notSocket:
+            return .failure(path: path, stage: "existing_path_not_socket", errnoCode: EEXIST)
+        case .socketFileChanged:
+            return .failure(path: path, stage: "existing_socket_file_changed", errnoCode: EBUSY)
+        case .ownerUnknown:
+            return .failure(path: path, stage: "existing_socket_owner_unknown", errnoCode: EBUSY)
+        case .ownedByOtherProcess:
+            return .failure(path: path, stage: "existing_socket_owned_by_other_process", errnoCode: EADDRINUSE)
         }
 
         guard let bindResult = bindUnixSocket(socket, path: path) else {
@@ -1351,14 +1582,13 @@ class TerminalController {
         guard bindResult >= 0 else {
             return .failure(path: path, stage: "bind", errnoCode: errno)
         }
-        let identityResult = socketPathIdentityResult(at: path)
-        if let identity = identityResult.identity {
+        if let identity = SocketPathProbe.identity(path: path) {
             return .success(path: path, identity: identity)
         }
         return .failure(
             path: path,
             stage: "stat_bound_path",
-            errnoCode: identityResult.errnoCode ?? EIO
+            errnoCode: SocketPathProbe.observedStatus(path: path, expectedIdentity: nil).errnoCode ?? EIO
         )
     }
 
@@ -1528,17 +1758,24 @@ class TerminalController {
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
         case "bind" where errnoCode == EACCES || errnoCode == EPERM || errnoCode == EADDRINUSE:
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
+        case "existing_socket_owned_by_other_process":
+            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
+        case "existing_socket_connect_failed":
+            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
+        case "existing_socket_probe_failed" where errnoCode == EACCES || errnoCode == EPERM:
+            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
         default:
             return nil
         }
     }
 
+    @discardableResult
     func start(
         tabManager: TabManager,
         socketPath: String,
         accessMode: SocketControlMode,
         preserveAcceptFailureStreak: Bool = false
-    ) {
+    ) -> Bool {
         self.tabManager = tabManager
         self.accessMode = accessMode
 
@@ -1548,21 +1785,26 @@ class TerminalController {
                 socketPath: self.socketPath,
                 reservedStartupSocketPath: reservedStartupSocketPath,
                 socketPathLockHeld: socketPathLockFD >= 0,
+                hasSocketPathWatchSource: socketPathWatchSource != nil,
                 hasRetainedInactiveListenerState: !isRunning && (
                     pendingAcceptLoopRearmGeneration != nil ||
                         socketPathLockFD >= 0 ||
                         acceptLoopAlive ||
                         serverSocket >= 0 ||
                         listenerReadSource != nil ||
-                        socketPathMonitorSource != nil
+                        socketPathWatchSource != nil
                 )
             )
         }
+        let shouldRestoreRecoveryRetryWatcherOnFailure = !existing.isRunning && existing.hasSocketPathWatchSource
+        let recoveryRetryWatcherPathToRestore = shouldRestoreRecoveryRetryWatcherOnFailure ? socketPath : nil
 
         if existing.isRunning && SocketControlSettings.pathsMatch(existing.socketPath, socketPath) {
             self.accessMode = accessMode
             applySocketPermissions()
-            return
+            clearPendingSocketFileRecoveryIfCurrentPathIsHealthy(expectedPath: socketPath)
+            startSocketFileHealthWatcher()
+            return true
         }
 
         let canConsumeReservedStartupLock = !existing.isRunning
@@ -1610,6 +1852,12 @@ class TerminalController {
                     }
                     listenerStartInProgress = false
                 }
+                if shouldRestoreRecoveryRetryWatcherOnFailure {
+                    startSocketFileRecoveryRetryWatcher(
+                        socketPath: recoveryRetryWatcherPathToRestore ?? activeSocketPath,
+                        accessMode: accessMode
+                    )
+                }
             }
         }
 
@@ -1623,7 +1871,7 @@ class TerminalController {
                 stage: "create_socket",
                 errnoCode: errnoCode
             )
-            return
+            return false
         }
 
         func acquireActiveSocketPathLock() -> SocketBindAttemptResult? {
@@ -1695,10 +1943,10 @@ class TerminalController {
                 extra: [
                     "path": failedPath,
                     "pathLength": failedPath.utf8.count,
-                    "maxPathLength": Self.unixSocketPathMaxLength
+                    "maxPathLength": SocketPathProbe.unixSocketPathMaxLength
                 ]
             )
-            return
+            return false
         case .failure(let failedPath, let failedStage, let failedErrnoCode):
             print("TerminalController: Failed to bind socket")
             close(newServerSocket)
@@ -1708,7 +1956,7 @@ class TerminalController {
                 errnoCode: failedErrnoCode,
                 extra: ["path": failedPath]
             )
-            return
+            return false
         }
 
         applySocketPermissions()
@@ -1721,7 +1969,7 @@ class TerminalController {
                 stage: "configure_nonblocking",
                 errnoCode: errnoCode
             )
-            return
+            return false
         }
 
         // Listen
@@ -1734,7 +1982,7 @@ class TerminalController {
                 stage: "listen",
                 errnoCode: errnoCode
             )
-            return
+            return false
         }
 
         Self.markSocketPathLockReusable(activeSocketPathLockFD)
@@ -1810,137 +2058,30 @@ class TerminalController {
             return pidsByWorkspace
         }
 
-        startSocketPathMonitor(path: activeSocketPath, generation: generation)
         startAcceptSource(listenerSocket: listenerSocket, generation: generation)
+        startSocketFileHealthWatcher()
+        return true
     }
 
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
         let snapshot = listenerStateSnapshot()
         let pathMatches = snapshot.socketPath == expectedSocketPath
-        let currentIdentity = Self.socketPathIdentity(at: expectedSocketPath)
-        let pathExists = currentIdentity != nil
-        let pathOwnedByListener = currentIdentity.map { current in
-            pathMatches && (snapshot.boundSocketPathIdentity.map { current == $0 } ?? false)
-        } ?? false
+        let pathStatus: SocketPathOwnershipStatus
+        if pathMatches {
+            pathStatus = SocketPathProbe.observedStatus(
+                path: expectedSocketPath,
+                expectedIdentity: snapshot.boundSocketPathIdentity
+            )
+        } else {
+            pathStatus = socketPathOwnershipStatus(path: expectedSocketPath)
+        }
 
         return SocketListenerHealth(
             isRunning: snapshot.isRunning,
             acceptLoopAlive: snapshot.acceptLoopAlive,
             socketPathMatches: pathMatches,
-            socketPathExists: pathExists,
-            socketPathOwnedByListener: pathOwnedByListener
+            socketPathOwnershipStatus: pathStatus
         )
-    }
-
-    nonisolated static func socketPathExists(
-        _ path: String,
-        matching boundIdentity: SocketPathIdentity?
-    ) -> Bool {
-        guard let currentIdentity = socketPathIdentity(at: path),
-              let boundIdentity else {
-            return false
-        }
-        return currentIdentity == boundIdentity
-    }
-
-    private nonisolated func startSocketPathMonitor(path: String, generation: UInt64) {
-        let directoryPath = URL(fileURLWithPath: path).deletingLastPathComponent().path
-        let fd = open(directoryPath, O_EVTONLY)
-        guard fd >= 0 else {
-            sentryBreadcrumb(
-                "socket.listener.path_monitor.failed",
-                category: "socket",
-                data: socketListenerEventData(
-                    stage: "path_monitor_open",
-                    errnoCode: errno,
-                    extra: [
-                        "generation": generation,
-                        "directory": directoryPath
-                    ]
-                )
-            )
-            return
-        }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename],
-            queue: socketListenerQueue
-        )
-        source.setEventHandler { [weak self] in
-            self?.handleSocketPathDirectoryEvent(path: path, generation: generation)
-        }
-        source.setCancelHandler {
-            close(fd)
-        }
-
-        let previousSource = withListenerState { () -> DispatchSourceFileSystemObject? in
-            guard isRunning,
-                  activeAcceptLoopGeneration == generation,
-                  socketPath == path else {
-                return source
-            }
-            let previous = socketPathMonitorSource
-            socketPathMonitorSource = source
-            return previous
-        }
-
-        if previousSource === source {
-            source.cancel()
-            source.resume()
-            return
-        }
-
-        previousSource?.cancel()
-        source.resume()
-    }
-
-    private nonisolated func handleSocketPathDirectoryEvent(path: String, generation: UInt64) {
-        let pathState = withListenerState { () -> (shouldCheck: Bool, boundIdentity: SocketPathIdentity?) in
-            guard isRunning,
-                  activeAcceptLoopGeneration == generation,
-                  socketPath == path else {
-                return (false, nil)
-            }
-            return (true, boundSocketPathIdentity)
-        }
-        guard pathState.shouldCheck else { return }
-        guard !Self.socketPathExists(path, matching: pathState.boundIdentity) else { return }
-
-        reportSocketListenerFailure(
-            message: "socket.listener.path.missing",
-            stage: "path_monitor",
-            extra: ["generation": generation]
-        )
-
-        Task { @MainActor [weak self] in
-            self?.restartSocketListenerIfPathMissing(path: path, generation: generation)
-        }
-    }
-
-    private func restartSocketListenerIfPathMissing(path: String, generation: UInt64) {
-        guard let tabManager else { return }
-        let restartMode = accessMode
-        let shouldRestart = withListenerState {
-            isRunning &&
-                activeAcceptLoopGeneration == generation &&
-                socketPath == path &&
-                !Self.socketPathExists(path, matching: boundSocketPathIdentity)
-        }
-        guard shouldRestart else { return }
-
-        sentryBreadcrumb(
-            "socket.listener.restart",
-            category: "socket",
-            data: [
-                "mode": restartMode.rawValue,
-                "path": path,
-                "source": "path_monitor",
-                "generation": generation
-            ]
-        )
-        stop()
-        start(tabManager: tabManager, socketPath: path, accessMode: restartMode)
     }
 
     nonisolated static func probeSocketCommand(
@@ -2028,16 +2169,18 @@ class TerminalController {
         let (
             sourceToCancel,
             sourceWasSuspended,
-            monitorToCancel,
+            socketPathWatchSourceToCancel,
+            socketFileRecoveryTaskToCancel,
             socketToShutdown,
             socketToClose,
             socketPathToUnlink,
-            boundSocketPathIdentityToUnlink,
+            socketPathIdentityToUnlink,
             socketPathLockFDToClose
         ) = withListenerState {
             isRunning = false
             acceptLoopAlive = false
             pendingAcceptLoopRearmGeneration = nil
+            pendingSocketFileRecoveryGeneration = nil
             reservedStartupSocketPath = nil
             reservedStartupSocketPathCanReplaceRefusedSocket = false
             listenerStartInProgress = false
@@ -2047,22 +2190,26 @@ class TerminalController {
             let sourceWasSuspended = listenerReadSourceSuspended
             listenerReadSource = nil
             listenerReadSourceSuspended = false
-            let monitorToCancel = socketPathMonitorSource
-            socketPathMonitorSource = nil
+            let socketPathWatchSourceToCancel = socketPathWatchSource
+            socketPathWatchSource = nil
+            let socketFileRecoveryTaskToCancel = socketFileRecoveryTask
+            socketFileRecoveryTask = nil
+            socketFileRecoveryTaskGeneration = nil
             let socketToClose = serverSocket
             serverSocket = -1
-            let identity = boundSocketPathIdentity
+            let socketPathIdentityToUnlink = boundSocketPathIdentity
             boundSocketPathIdentity = nil
             let lockFD = socketPathLockFD
             socketPathLockFD = -1
             return (
                 sourceToCancel,
                 sourceWasSuspended,
-                monitorToCancel,
+                socketPathWatchSourceToCancel,
+                socketFileRecoveryTaskToCancel,
                 socketToClose,
                 sourceToCancel == nil ? socketToClose : Int32(-1),
                 socketPath,
-                identity,
+                socketPathIdentityToUnlink,
                 lockFD
             )
         }
@@ -2072,17 +2219,16 @@ class TerminalController {
         if sourceWasSuspended {
             sourceToCancel?.resume()
         }
+        socketPathWatchSourceToCancel?.cancel()
+        socketFileRecoveryTaskToCancel?.cancel()
         sourceToCancel?.cancel()
-        monitorToCancel?.cancel()
         if socketToClose >= 0 {
             close(socketToClose)
         }
-        if Self.shouldUnlinkSocketPathAfterListenerStop(
-            currentIdentity: Self.socketPathIdentity(at: socketPathToUnlink),
-            boundIdentity: boundSocketPathIdentityToUnlink
-        ) {
-            unlink(socketPathToUnlink)
-        }
+        SocketPathProbe.unlinkIfIdentityMatches(
+            socketPathToUnlink,
+            expectedIdentity: socketPathIdentityToUnlink
+        )
         Self.releaseSocketPathLock(socketPathLockFDToClose)
     }
 
@@ -2096,7 +2242,11 @@ class TerminalController {
             )
         }
         if shouldUnlink {
-            unlink(path)
+            SocketPathProbe.unlinkIfNoLiveOtherOwner(
+                path,
+                expectedOwnerPID: myPid,
+                timeout: Self.socketFileHealthProbeTimeout
+            )
         }
     }
 
@@ -2680,12 +2830,31 @@ class TerminalController {
             )
 
             self.stop()
-            self.start(
+            let didStart = self.start(
                 tabManager: tabManager,
                 socketPath: restartPath,
                 accessMode: restartMode,
                 preserveAcceptFailureStreak: true
             )
+            if !didStart {
+                let failedPath = self.listenerStateSnapshot().socketPath
+                self.reportSocketListenerFailure(
+                    message: "socket.listener.rearm.restart_failed",
+                    stage: "accept_rearm",
+                    errnoCode: errnoCode,
+                    extra: [
+                        "path": failedPath,
+                        "requestedPath": restartPath,
+                        "mode": restartMode.rawValue,
+                        "generation": generation,
+                        "consecutiveFailures": consecutiveFailures
+                    ]
+                )
+                self.startSocketFileRecoveryRetryWatcher(
+                    socketPath: restartPath,
+                    accessMode: restartMode
+                )
+            }
         }
     }
 

@@ -5,7 +5,7 @@ import Foundation
 import Security
 #endif
 
-enum SocketControlMode: String, CaseIterable, Identifiable {
+enum SocketControlMode: String, CaseIterable, Identifiable, Sendable {
     case off
     case cmuxOnly
     case automation

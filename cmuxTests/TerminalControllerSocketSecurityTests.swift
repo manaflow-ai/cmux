@@ -49,6 +49,227 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(try socketMode(at: restrictedPath), 0o600)
     }
 
+    func testSocketListenerRecreatesSocketFileAfterExternalRemoval() throws {
+        let socketPath = makeSocketPath("missing-file")
+        let tabManager = TabManager()
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+        XCTAssertEqual(try sendCommands(["ping"], to: socketPath), ["PONG"])
+
+        XCTAssertEqual(Darwin.unlink(socketPath), 0)
+
+        let recovered = XCTNSPredicateExpectation(
+            predicate: NSPredicate { [weak self] _, _ in
+                guard FileManager.default.fileExists(atPath: socketPath) else { return false }
+                return (try? self?.sendCommands(["ping"], to: socketPath)) == ["PONG"]
+            },
+            object: NSObject()
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [recovered], timeout: 5.0),
+            .completed,
+            "Listener should recreate and serve \(socketPath) after the socket file is removed"
+        )
+        XCTAssertEqual(try socketMode(at: socketPath), 0o666)
+    }
+
+    func testSocketListenerRecreatesSocketFileAfterNonSocketReplacement() throws {
+        let socketPath = makeSocketPath("not-socket")
+        let replacementURL = URL(fileURLWithPath: socketPath)
+        let tabManager = TabManager()
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+        XCTAssertEqual(try sendCommands(["ping"], to: socketPath), ["PONG"])
+
+        XCTAssertEqual(Darwin.unlink(socketPath), 0)
+        do {
+            try "not-a-socket".write(to: replacementURL, atomically: true, encoding: .utf8)
+        } catch {
+            try? FileManager.default.removeItem(at: replacementURL)
+            try "not-a-socket".write(to: replacementURL, atomically: true, encoding: .utf8)
+        }
+
+        let recovered = XCTNSPredicateExpectation(
+            predicate: NSPredicate { [weak self] _, _ in
+                return (try? self?.sendCommands(["ping"], to: socketPath)) == ["PONG"]
+            },
+            object: NSObject()
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [recovered], timeout: 5.0),
+            .completed,
+            "Listener should replace a non-socket file and serve \(socketPath)"
+        )
+        XCTAssertEqual(try socketMode(at: socketPath), 0o666)
+    }
+
+    func testRecoveryRetryWatcherRestartsAfterFailedRecoveryStart() throws {
+        let socketPath = makeSocketPath("retry-fail")
+        let tabManager = TabManager()
+
+        XCTAssertTrue(TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        ))
+        try waitForSocket(at: socketPath)
+        XCTAssertEqual(try sendCommands(["ping"], to: socketPath), ["PONG"])
+
+        let recoverySnapshot = TerminalController.shared.listenerStateSnapshot()
+        let generation = recoverySnapshot.activeGeneration
+        XCTAssertNotEqual(generation, 0)
+
+        XCTAssertEqual(Darwin.unlink(socketPath), 0)
+        let helper = try launchForeignSocketBinder(at: socketPath)
+        var shouldTerminateHelper = true
+        defer {
+            if shouldTerminateHelper {
+                terminate(helper)
+            }
+            unlink(socketPath)
+        }
+
+        XCTAssertTrue(TerminalController.shared.scheduleSocketFileRecoveryIfCurrent(recoverySnapshot))
+        TerminalController.shared.recoverSocketListenerAfterSocketFileLoss(
+            generation: generation,
+            recoveryPath: socketPath,
+            shouldUnlinkNonSocketReplacement: false,
+            nonSocketReplacementIdentity: nil
+        )
+        XCTAssertFalse(
+            TerminalController.shared.listenerStateSnapshot().isRunning,
+            "Listener should stop after recovery start loses the path to a foreign socket"
+        )
+
+        terminate(helper)
+        shouldTerminateHelper = false
+        XCTAssertEqual(Darwin.unlink(socketPath), 0)
+
+        let recovered = XCTNSPredicateExpectation(
+            predicate: NSPredicate { [weak self] _, _ in
+                return (try? self?.sendCommands(["ping"], to: socketPath)) == ["PONG"]
+            },
+            object: NSObject()
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [recovered], timeout: 5.0),
+            .completed,
+            "Listener should retry and serve \(socketPath) after the foreign socket is released"
+        )
+        XCTAssertEqual(try socketMode(at: socketPath), 0o666)
+    }
+
+    func testStopCancelsRecoveryRetryWatcherWithoutRestartingListener() throws {
+        let socketPath = makeSocketPath("retry-stop")
+        let tabManager = TabManager()
+
+        XCTAssertTrue(TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        ))
+        try waitForSocket(at: socketPath)
+        XCTAssertEqual(try sendCommands(["ping"], to: socketPath), ["PONG"])
+
+        let recoverySnapshot = TerminalController.shared.listenerStateSnapshot()
+        let generation = recoverySnapshot.activeGeneration
+        XCTAssertNotEqual(generation, 0)
+
+        XCTAssertEqual(Darwin.unlink(socketPath), 0)
+        let helper = try launchForeignSocketBinder(at: socketPath)
+        var shouldTerminateHelper = true
+        defer {
+            if shouldTerminateHelper {
+                terminate(helper)
+            }
+            unlink(socketPath)
+        }
+
+        XCTAssertTrue(TerminalController.shared.scheduleSocketFileRecoveryIfCurrent(recoverySnapshot))
+        TerminalController.shared.recoverSocketListenerAfterSocketFileLoss(
+            generation: generation,
+            recoveryPath: socketPath,
+            shouldUnlinkNonSocketReplacement: false,
+            nonSocketReplacementIdentity: nil
+        )
+        XCTAssertFalse(
+            TerminalController.shared.listenerStateSnapshot().isRunning,
+            "Listener should stop after recovery start loses the path to a foreign socket"
+        )
+
+        TerminalController.shared.stop()
+        terminate(helper)
+        shouldTerminateHelper = false
+        XCTAssertEqual(Darwin.unlink(socketPath), 0)
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+
+        XCTAssertFalse(
+            TerminalController.shared.listenerStateSnapshot().isRunning,
+            "An inactive recovery retry watcher should not restart the listener after explicit stop()"
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: socketPath))
+    }
+
+    func testStopDoesNotProbeReplacementSocketAtListenerPath() throws {
+        let socketPath = makeSocketPath("stop-replacement")
+        let tabManager = TabManager()
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+        XCTAssertEqual(try sendCommands(["ping"], to: socketPath), ["PONG"])
+
+        XCTAssertEqual(Darwin.unlink(socketPath), 0)
+        let replacementFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(replacementFD)
+            unlink(socketPath)
+        }
+
+        TerminalController.shared.stop()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: socketPath))
+        assertNoPendingClient(on: replacementFD)
+    }
+
+    func testSocketFileHealthCheckDoesNotProbeReplacementSocket() throws {
+        let socketPath = makeSocketPath("health-replacement")
+        let tabManager = TabManager()
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+        XCTAssertEqual(try sendCommands(["ping"], to: socketPath), ["PONG"])
+
+        XCTAssertEqual(Darwin.unlink(socketPath), 0)
+        let replacementFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(replacementFD)
+            unlink(socketPath)
+        }
+
+        TerminalController.shared.performSocketFileHealthCheck()
+
+        assertNoPendingClient(on: replacementFD)
+    }
+
     func testPasswordModeRejectsUnauthenticatedCommands() throws {
         let socketPath = makeSocketPath("password-mode")
         let tabManager = TabManager()
@@ -1158,7 +1379,178 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         return UInt16(fileInfo.st_mode & 0o777)
     }
 
-    private func sendCommands(_ commands: [String], to socketPath: String) throws -> [String] {
+    private func bindUnixSocket(at path: String) throws -> Int32 {
+        unlink(path)
+
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw posixError("socket(AF_UNIX)")
+        }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+
+        let bytes = Array(path.utf8)
+        let maxPathLen = MemoryLayout.size(ofValue: addr.sun_path)
+        guard bytes.count < maxPathLen else {
+            Darwin.close(fd)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENAMETOOLONG))
+        }
+
+        withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
+            let cPath = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
+            cPath.initialize(repeating: 0, count: maxPathLen)
+            for (index, byte) in bytes.enumerated() {
+                cPath[index] = CChar(bitPattern: byte)
+            }
+        }
+
+        let addrLen = socklen_t(MemoryLayout<sa_family_t>.size + bytes.count + 1)
+        let bindResult = withUnsafePointer(to: &addr) { ptr -> Int32 in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.bind(fd, sockaddrPtr, addrLen)
+            }
+        }
+        guard bindResult == 0 else {
+            let error = posixError("bind(\(path))")
+            Darwin.close(fd)
+            throw error
+        }
+
+        guard Darwin.listen(fd, 1) == 0 else {
+            let error = posixError("listen(\(path))")
+            Darwin.close(fd)
+            throw error
+        }
+
+        return fd
+    }
+
+    private func launchForeignSocketBinder(at path: String) throws -> Process {
+        let pythonPath = "/usr/bin/python3"
+        guard FileManager.default.isExecutableFile(atPath: pythonPath) else {
+            throw XCTSkip("python3 is unavailable for the foreign socket owner helper")
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: pythonPath)
+        process.arguments = [
+            "-c",
+            """
+            import os, socket, sys, time
+            path = sys.argv[1]
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.bind(path)
+            sock.listen(8)
+            while True:
+                time.sleep(60)
+            """,
+            path
+        ]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        try process.run()
+
+        let deadline = Date.now.addingTimeInterval(2.0)
+        while Date.now < deadline {
+            if foreignSocketAcceptsConnections(at: path) {
+                return process
+            }
+            if !process.isRunning {
+                throw NSError(
+                    domain: "TerminalControllerSocketSecurityTests",
+                    code: Int(process.terminationStatus),
+                    userInfo: [NSLocalizedDescriptionKey: "Foreign socket owner helper exited before binding"]
+                )
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+
+        terminate(process)
+        throw NSError(
+            domain: "TerminalControllerSocketSecurityTests",
+            code: Int(ETIMEDOUT),
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for foreign socket owner helper"]
+        )
+    }
+
+    private func foreignSocketAcceptsConnections(at path: String) -> Bool {
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { Darwin.close(fd) }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+
+        let bytes = Array(path.utf8)
+        let maxPathLen = MemoryLayout.size(ofValue: addr.sun_path)
+        guard bytes.count < maxPathLen else { return false }
+
+        withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
+            let cPath = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
+            cPath.initialize(repeating: 0, count: maxPathLen)
+            for (index, byte) in bytes.enumerated() {
+                cPath[index] = CChar(bitPattern: byte)
+            }
+        }
+
+        let addrLen = socklen_t(MemoryLayout<sa_family_t>.size + bytes.count + 1)
+        let connectResult = withUnsafePointer(to: &addr) { ptr -> Int32 in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.connect(fd, sockaddrPtr, addrLen)
+            }
+        }
+        return connectResult == 0
+    }
+
+    private func terminate(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+        process.waitUntilExit()
+    }
+
+    private func assertNoPendingClient(
+        on listenerFD: Int32,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let existingFlags = fcntl(listenerFD, F_GETFL)
+        XCTAssertNotEqual(existingFlags, -1, file: file, line: line)
+        guard existingFlags >= 0 else { return }
+
+        XCTAssertEqual(fcntl(listenerFD, F_SETFL, existingFlags | O_NONBLOCK), 0, file: file, line: line)
+        defer { _ = fcntl(listenerFD, F_SETFL, existingFlags) }
+
+        let deadline = Date().addingTimeInterval(0.2)
+        var lastErrno: Int32 = 0
+        while Date() < deadline {
+            var clientAddr = sockaddr_un()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                }
+            }
+            if clientFD >= 0 {
+                Darwin.close(clientFD)
+                XCTFail("Stopping the listener should not connect to a replacement socket", file: file, line: line)
+                return
+            }
+            lastErrno = errno
+            guard lastErrno == EAGAIN || lastErrno == EWOULDBLOCK else {
+                XCTFail("Unexpected accept errno \(lastErrno)", file: file, line: line)
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertTrue(lastErrno == EAGAIN || lastErrno == EWOULDBLOCK, file: file, line: line)
+    }
+
+    private nonisolated func sendCommands(_ commands: [String], to socketPath: String) throws -> [String] {
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
             throw posixError("socket(AF_UNIX)")

@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Darwin
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -5106,11 +5107,57 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
     }
 
+    func testStableSocketConnectFailureFallsBackToUserScopedSocket() {
+        XCTAssertEqual(
+            TerminalController.fallbackSocketPathAfterBindFailure(
+                requestedPath: SocketControlSettings.stableDefaultSocketPath,
+                stage: "existing_socket_connect_failed",
+                errnoCode: ETIMEDOUT,
+                currentUserID: 501
+            ),
+            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+        )
+    }
+
+    func testStableSocketProbePermissionFailureFallsBackToUserScopedSocket() {
+        XCTAssertEqual(
+            TerminalController.fallbackSocketPathAfterBindFailure(
+                requestedPath: SocketControlSettings.stableDefaultSocketPath,
+                stage: "existing_socket_probe_failed",
+                errnoCode: EACCES,
+                currentUserID: 501
+            ),
+            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+        )
+    }
+
     func testNonStableSocketBindFailureDoesNotFallback() {
         XCTAssertNil(
             TerminalController.fallbackSocketPathAfterBindFailure(
                 requestedPath: "/tmp/cmux-debug.sock",
                 stage: "bind",
+                errnoCode: EACCES,
+                currentUserID: 501
+            )
+        )
+    }
+
+    func testNonStableSocketConnectFailureDoesNotFallback() {
+        XCTAssertNil(
+            TerminalController.fallbackSocketPathAfterBindFailure(
+                requestedPath: "/tmp/cmux-debug.sock",
+                stage: "existing_socket_connect_failed",
+                errnoCode: ETIMEDOUT,
+                currentUserID: 501
+            )
+        )
+    }
+
+    func testNonStableSocketProbePermissionFailureDoesNotFallback() {
+        XCTAssertNil(
+            TerminalController.fallbackSocketPathAfterBindFailure(
+                requestedPath: "/tmp/cmux-debug.sock",
+                stage: "existing_socket_probe_failed",
                 errnoCode: EACCES,
                 currentUserID: 501
             )
@@ -5557,18 +5604,138 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         return handled
     }
 
+    private func assertNoPendingClient(
+        on listenerFD: Int32,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let existingFlags = fcntl(listenerFD, F_GETFL)
+        XCTAssertNotEqual(existingFlags, -1, file: file, line: line)
+        guard existingFlags >= 0 else { return }
+
+        XCTAssertEqual(fcntl(listenerFD, F_SETFL, existingFlags | O_NONBLOCK), 0, file: file, line: line)
+        defer { _ = fcntl(listenerFD, F_SETFL, existingFlags) }
+
+        var clientAddr = sockaddr_un()
+        var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+        let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+            }
+        }
+        if clientFD >= 0 {
+            Darwin.close(clientFD)
+            XCTFail("Socket health observation should not connect to the observed listener", file: file, line: line)
+            return
+        }
+
+        XCTAssertTrue(errno == EAGAIN || errno == EWOULDBLOCK, file: file, line: line)
+    }
+
     @MainActor
-    func testSocketListenerHealthRecognizesSocketPath() throws {
+    func testSocketListenerHealthRecognizesForeignSocketPath() throws {
         let path = makeTempSocketPath()
-        let fd = try bindUnixSocket(at: path)
+        let helper = try launchForeignSocketBinder(at: path)
         defer {
-            Darwin.close(fd)
+            terminate(helper)
             unlink(path)
         }
 
         let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
         XCTAssertTrue(health.socketPathExists)
+        XCTAssertFalse(health.socketPathOwnedByThisProcess)
+        XCTAssertTrue(
+            ["owned_by_other_process", "owner_unknown"].contains(health.socketPathStatus),
+            "Unexpected socket path status: \(health.socketPathStatus)"
+        )
         XCTAssertFalse(health.isHealthy)
+    }
+
+    private func launchForeignSocketBinder(at path: String) throws -> Process {
+        let pythonPath = "/usr/bin/python3"
+        guard FileManager.default.isExecutableFile(atPath: pythonPath) else {
+            throw XCTSkip("python3 is unavailable for the foreign socket owner helper")
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: pythonPath)
+        process.arguments = [
+            "-c",
+            """
+            import os, socket, sys, time
+            path = sys.argv[1]
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.bind(path)
+            sock.listen(8)
+            while True:
+                time.sleep(60)
+            """,
+            path
+        ]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        try process.run()
+
+        let deadline = Date.now.addingTimeInterval(2.0)
+        while Date.now < deadline {
+            if foreignSocketAcceptsConnections(at: path) {
+                return process
+            }
+            if !process.isRunning {
+                throw NSError(
+                    domain: "TerminalControllerSocketListenerHealthTests",
+                    code: Int(process.terminationStatus),
+                    userInfo: [NSLocalizedDescriptionKey: "Foreign socket owner helper exited before binding"]
+                )
+            }
+            RunLoop.current.run(until: Date.now.addingTimeInterval(0.01))
+        }
+
+        terminate(process)
+        throw NSError(
+            domain: "TerminalControllerSocketListenerHealthTests",
+            code: Int(ETIMEDOUT),
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for foreign socket owner helper"]
+        )
+    }
+
+    private func foreignSocketAcceptsConnections(at path: String) -> Bool {
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { Darwin.close(fd) }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+
+        let bytes = Array(path.utf8)
+        let maxPathLen = MemoryLayout.size(ofValue: addr.sun_path)
+        guard bytes.count < maxPathLen else { return false }
+
+        withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
+            let cPath = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
+            cPath.initialize(repeating: 0, count: maxPathLen)
+            for (index, byte) in bytes.enumerated() {
+                cPath[index] = CChar(bitPattern: byte)
+            }
+        }
+
+        let addrLen = socklen_t(MemoryLayout<sa_family_t>.size + bytes.count + 1)
+        let connectResult = withUnsafePointer(to: &addr) { ptr -> Int32 in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.connect(fd, sockaddrPtr, addrLen)
+            }
+        }
+        return connectResult == 0
+    }
+
+    private func terminate(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+        process.waitUntilExit()
     }
 
     @MainActor
@@ -5637,8 +5804,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: true,
             acceptLoopAlive: true,
             socketPathMatches: true,
-            socketPathExists: true,
-            socketPathOwnedByListener: true
+            socketPathOwnershipStatus: .ownedByThisProcess
         )
         XCTAssertTrue(health.isHealthy)
         XCTAssertTrue(health.failureSignals.isEmpty)
@@ -5649,8 +5815,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: false,
             acceptLoopAlive: false,
             socketPathMatches: false,
-            socketPathExists: false,
-            socketPathOwnedByListener: false
+            socketPathOwnershipStatus: .missing(errnoCode: ENOENT)
         )
         XCTAssertFalse(health.isHealthy)
         XCTAssertEqual(
@@ -5659,15 +5824,32 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
     }
 
-    func testSocketListenerHealthReportsIdentityMismatchSeparately() {
+    func testSocketListenerHealthFailureSignalsDistinguishOwnershipStates() {
+        let unknownOwner = TerminalController.SocketListenerHealth(
+            isRunning: true,
+            acceptLoopAlive: true,
+            socketPathMatches: true,
+            socketPathOwnershipStatus: .ownerUnknown(errnoCode: ENOTCONN)
+        )
+        XCTAssertEqual(unknownOwner.failureSignals, ["socket_owner_unknown"])
+
+        let wrongType = TerminalController.SocketListenerHealth(
+            isRunning: true,
+            acceptLoopAlive: true,
+            socketPathMatches: true,
+            socketPathOwnershipStatus: .notSocket(mode: mode_t(S_IFREG))
+        )
+        XCTAssertEqual(wrongType.failureSignals, ["socket_not_socket"])
+    }
+
+    func testSocketListenerHealthReportsSocketFileChangedSeparately() {
         let health = TerminalController.SocketListenerHealth(
             isRunning: true,
             acceptLoopAlive: true,
             socketPathMatches: true,
-            socketPathExists: true,
-            socketPathOwnedByListener: false
+            socketPathOwnershipStatus: .socketFileChanged
         )
         XCTAssertFalse(health.isHealthy)
-        XCTAssertEqual(health.failureSignals, ["socket_identity_mismatch"])
+        XCTAssertEqual(health.failureSignals, ["socket_file_changed"])
     }
 }
