@@ -10,6 +10,7 @@ import os
 import re
 import select
 import shutil
+import signal
 import socket
 import stat
 import subprocess
@@ -122,6 +123,26 @@ def _drain_pty(fd: int, output: bytearray, *, quiet_after: float = 0.2) -> None:
         deadline = time.time() + quiet_after
 
 
+def _terminate_child(pid: int, *, grace: float = 0.5) -> None:
+    with suppress(ProcessLookupError):
+        os.kill(pid, signal.SIGTERM)
+
+    deadline = time.time() + grace
+    while time.time() < deadline:
+        try:
+            waited_pid, _ = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            return
+        if waited_pid == pid:
+            return
+        time.sleep(0.05)
+
+    with suppress(ProcessLookupError):
+        os.kill(pid, signal.SIGKILL)
+    with suppress(ChildProcessError):
+        os.waitpid(pid, 0)
+
+
 def _run_interactive_bash(bash_path: str, tmp: Path) -> tuple[int, str]:
     socket_path = tmp / "cmux.sock"
     bin_dir = tmp / "bin"
@@ -184,10 +205,8 @@ def _run_interactive_bash(bash_path: str, tmp: Path) -> tuple[int, str]:
                 _drain_pty(fd, output)
                 break
         else:
-            with suppress(ProcessLookupError):
-                os.kill(pid, 15)
-            with suppress(ChildProcessError):
-                os.waitpid(pid, 0)
+            _terminate_child(pid)
+            _drain_pty(fd, output, quiet_after=0.05)
             return 124, output.decode(errors="replace")
 
     return exit_status, output.decode(errors="replace")

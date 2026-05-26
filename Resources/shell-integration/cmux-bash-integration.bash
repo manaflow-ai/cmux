@@ -1212,6 +1212,14 @@ _cmux_bash_preexec_hook() {
     _cmux_preexec_command "$@"
 }
 
+_cmux_bash_preexec_inline_ps0() {
+    _CMUX_BASH_PS0_INLINE_ACTIVE=1
+    {
+        _cmux_bash_preexec_hook "$BASH_COMMAND"
+        _CMUX_BASH_PS0_INLINE_ACTIVE=0
+    } || _CMUX_BASH_PS0_INLINE_ACTIVE=0
+}
+
 _cmux_prompt_command() {
     local last_status=$?
     _cmux_tmux_sync_cmux_environment
@@ -1393,7 +1401,7 @@ _cmux_install_prompt_command() {
 
     if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
         if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) )); then
-            builtin readonly _CMUX_BASH_PS0='${ _CMUX_BASH_PS0_INLINE_ACTIVE=1; _cmux_bash_preexec_hook "$BASH_COMMAND"; _CMUX_BASH_PS0_INLINE_ACTIVE=0; }'
+            builtin readonly _CMUX_BASH_PS0='${ _cmux_bash_preexec_inline_ps0; }'
         else
             builtin readonly _CMUX_BASH_PS0='$(_cmux_bash_preexec_hook "$BASH_COMMAND" >/dev/null)'
         fi
