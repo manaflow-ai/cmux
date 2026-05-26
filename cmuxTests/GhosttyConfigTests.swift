@@ -4973,6 +4973,55 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertFalse(result.stdout.contains("report_pr_action"), result.stdout)
     }
 
+    func testBashFireAndForgetSocketReportsDoNotEmitJobStatus() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-background-reports-\(UUID().uuidString)")
+        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let socketFD = try bindUnixSocket(at: socketPath.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketPath.path)
+            try? fileManager.removeItem(at: root)
+        }
+
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            _cmux_send() { :; }
+            _CMUX_TTY_NAME=ttys999
+            _CMUX_TTY_REPORTED=0
+            _cmux_report_tty_once
+            _CMUX_SHELL_ACTIVITY_LAST=""
+            _cmux_report_shell_activity_state running
+            _cmux_ports_kick command
+            _CMUX_LAST_PR_ACTION="checkout"
+            _CMUX_LAST_PR_TARGET="feature"
+            _cmux_emit_pr_command_hint
+            _CMUX_TTY_REPORTED=1
+            _CMUX_SHELL_ACTIVITY_LAST=running
+            _CMUX_PWD_LAST_PWD="/not-the-current-directory"
+            _CMUX_PORTS_LAST_RUN=$(_cmux_now)
+            _cmux_prompt_command
+            :
+            """,
+            extraEnvironment: [
+                "CMUX_NO_GIT_WATCH": "1",
+                "CMUX_SOCKET_PATH": socketPath.path,
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertNil(
+            result.stderr.range(of: #"(?m)^\[[0-9]+\][^\n]*$"#, options: .regularExpression),
+            result.stderr
+        )
+        XCTAssertFalse(result.stderr.contains("Done"), result.stderr)
+    }
+
     func testZshNoGitWatchSkipsHeadTrackingAndPRClear() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
