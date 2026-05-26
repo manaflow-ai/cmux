@@ -713,6 +713,32 @@ struct BrowserPanelView: View {
         )
     }
 
+    private func handleWebViewVisibleInUIChange(_ visibleInUI: Bool) {
+        let effectiveVisibility = visibleInUI && isCurrentPaneOwner
+        if effectiveVisibility {
+            replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded()
+        }
+        panel.noteWebViewVisibility(
+            effectiveVisibility,
+            reason: effectiveVisibility ? "view.visible" : "view.hidden"
+        )
+        if visibleInUI {
+            panel.cancelPendingDeveloperToolsVisibilityLossCheck()
+            return
+        }
+        if panel.shouldUseLocalInlineDeveloperToolsHosting() {
+            // Workspace switches keep the attached inspector alive off-screen.
+            // Treating that hide as a manual X-close can clear the restore intent
+            // before the original local-inline host becomes visible again.
+            panel.cancelPendingDeveloperToolsVisibilityLossCheck()
+            return
+        }
+        // Pane/workspace churn can briefly mark the browser hidden before the
+        // final host settles. Only treat a stable hide as a signal to consume
+        // an attached-inspector X-close.
+        panel.scheduleDeveloperToolsVisibilityLossCheck()
+    }
+
     var body: some View {
         // Layering contract: browser find UI is mounted in the portal-hosted AppKit
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
@@ -899,39 +925,7 @@ struct BrowserPanelView: View {
             }
         }
         .onChange(of: isVisibleInUI) { visibleInUI in
-            let effectiveVisibility = visibleInUI && isCurrentPaneOwner
-            if effectiveVisibility {
-                replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded()
-            }
-            panel.noteWebViewVisibility(
-                effectiveVisibility,
-                reason: effectiveVisibility ? "view.visible" : "view.hidden"
-            )
-            if visibleInUI {
-                panel.cancelPendingDeveloperToolsVisibilityLossCheck()
-                return
-            }
-            if panel.shouldUseLocalInlineDeveloperToolsHosting() {
-                // Workspace switches keep the attached inspector alive off-screen.
-                // Treating that hide as a manual X-close can clear the restore intent
-                // before the original local-inline host becomes visible again.
-                panel.cancelPendingDeveloperToolsVisibilityLossCheck()
-                return
-            }
-            // Pane/workspace churn can briefly mark the browser hidden before the
-            // final host settles. Only treat a stable hide as a signal to consume
-            // an attached-inspector X-close.
-            panel.scheduleDeveloperToolsVisibilityLossCheck()
-        }
-        .onChange(of: isCurrentPaneOwner) { currentPaneOwner in
-            let effectiveVisibility = isVisibleInUI && currentPaneOwner
-            if effectiveVisibility {
-                replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded()
-            }
-            panel.noteWebViewVisibility(
-                effectiveVisibility,
-                reason: effectiveVisibility ? "view.paneOwnerVisible" : "view.paneOwnerHidden"
-            )
+            handleWebViewVisibleInUIChange(visibleInUI)
         }
         .onChange(of: isFocused) { focused in
 #if DEBUG
