@@ -1152,6 +1152,7 @@ class TabManager: ObservableObject {
     private nonisolated static let workspacePullRequestPollJitterFraction = 0.10
     private nonisolated static let workspacePullRequestProbeTimeout: TimeInterval = 5.0
     private nonisolated static let mergedPullRequestBadgeStaleAfter: TimeInterval = 14 * 24 * 60 * 60
+    private nonisolated static let closedPullRequestBadgeStaleAfter: TimeInterval = 24 * 60 * 60
     @Published var selectedTabId: UUID? {
         willSet {
 #if DEBUG
@@ -4657,6 +4658,7 @@ class TabManager: ObservableObject {
             return false
         }
         return !isStaleMergedPullRequest(pullRequest, now: now)
+            && !isStaleClosedPullRequest(pullRequest, now: now)
     }
 
     private nonisolated static func isStaleMergedPullRequest(
@@ -4668,6 +4670,17 @@ class TabManager: ObservableObject {
             return false
         }
         return now.timeIntervalSince(mergedAt) > mergedPullRequestBadgeStaleAfter
+    }
+
+    private nonisolated static func isStaleClosedPullRequest(
+        _ pullRequest: GitHubPullRequestProbeItem,
+        now: Date
+    ) -> Bool {
+        guard pullRequestStatus(from: pullRequest.state) == .closed,
+              let updatedAt = githubTimestampDate(from: pullRequest.updatedAt) else {
+            return false
+        }
+        return now.timeIntervalSince(updatedAt) > closedPullRequestBadgeStaleAfter
     }
 
     private nonisolated static func githubTimestampDate(from rawTimestamp: String?) -> Date? {
