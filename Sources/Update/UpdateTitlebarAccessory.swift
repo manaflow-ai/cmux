@@ -2334,9 +2334,9 @@ private struct NotificationPopoverRow: View {
             dismissBackground
             rowContent
                 .background(
-                    isHovering
-                        ? Color.primary.opacity(0.05)
-                        : Color.clear
+                    Color.primary
+                        .opacity(isHovering ? 0.11 : 0)
+                        .animation(.easeOut(duration: 0.12), value: isHovering)
                 )
                 .offset(x: dragOffset)
                 .gesture(
@@ -2363,10 +2363,23 @@ private struct NotificationPopoverRow: View {
                 )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Hover detection lives on a dedicated transparent background layer so it doesn't
+        // share an AppKit mouse-tracking pipeline node with `.onTapGesture` (which arbitrates
+        // against `.onHover` and causes flaky enter/exit events, especially right after the
+        // popover opens and when crossing between rows in a LazyVStack).
+        .background(
+            Color.clear
+                .contentShape(Rectangle())
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active:
+                        if !isHovering { isHovering = true }
+                    case .ended:
+                        if isHovering { isHovering = false }
+                    }
+                }
+        )
         .contentShape(Rectangle())
-        .onHover { hovering in
-            isHovering = hovering
-        }
         .onTapGesture {
             onOpen()
         }
@@ -2400,7 +2413,7 @@ private struct NotificationPopoverRow: View {
     }
 
     private var rowContent: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(spacing: 0) {
             Rectangle()
                 .fill(notification.isRead ? Color.clear : cmuxAccentColor())
                 .frame(width: 2.5)
@@ -2417,6 +2430,7 @@ private struct NotificationPopoverRow: View {
                         .font(.system(size: 10.5))
                         .foregroundColor(.secondary)
                         .opacity(isHovering ? 0 : 1)
+                        .padding(.trailing, 34)
                 }
 
                 if !notification.body.isEmpty {
@@ -2434,34 +2448,38 @@ private struct NotificationPopoverRow: View {
                         .lineLimit(1)
                 }
             }
+            .padding(.leading, 10)
             .padding(.vertical, 8)
 
-            if isHovering {
-                Button(action: {
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        dragOffset = -600
-                    }
-                    onClear()
-                }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(.secondary)
-                        .frame(width: 18, height: 18)
-                        .background(
-                            Circle()
-                                .fill(Color.primary.opacity(0.08))
-                        )
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 8)
-                .padding(.trailing, 10)
-                .transition(.opacity)
-            } else {
-                Spacer().frame(width: 10)
-            }
+            Spacer(minLength: 0)
         }
         .frame(minHeight: Self.rowHeight)
         .padding(.leading, 4)
+        .overlay(alignment: .trailing) {
+            clearButton
+                .padding(.trailing, 10)
+                .opacity(isHovering ? 1 : 0)
+                .allowsHitTesting(isHovering)
+        }
+    }
+
+    private var clearButton: some View {
+        Button(action: {
+            withAnimation(.easeOut(duration: 0.18)) {
+                dragOffset = -600
+            }
+            onClear()
+        }) {
+            ZStack {
+                Circle()
+                    .fill(Color.primary.opacity(0.1))
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(.primary.opacity(0.7))
+            }
+            .frame(width: 20, height: 20)
+        }
+        .buttonStyle(.plain)
     }
 }
 
