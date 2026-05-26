@@ -1468,6 +1468,22 @@ func terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: NSEvent.Modi
     return normalized.contains(.command)
 }
 
+func terminalKeyboardSelectionMoveForCommandEquivalent(
+    keyCode: UInt16,
+    modifierFlags: NSEvent.ModifierFlags
+) -> TerminalKeyboardCopyModeSelectionMove? {
+    let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
+    guard normalized == [.command, .shift] else { return nil }
+
+    switch keyCode {
+    case 123: return .beginningOfLine // Left
+    case 124: return .endOfLine       // Right
+    case 126: return .home            // Up
+    case 125: return .end             // Down
+    default: return nil
+    }
+}
+
 func terminalKeyboardCopyModeAction(
     keyCode: UInt16,
     charactersIgnoringModifiers: String?,
@@ -8669,6 +8685,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return true
         }
 
+        if !shouldRetryMainMenu,
+           handleTerminalSelectionCommandEquivalent(event) {
+            return true
+        }
+
         let equivalent: String
         switch event.charactersIgnoringModifiers {
         case "\r":
@@ -8710,6 +8731,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             lastPerformKeyEvent = event.timestamp; return false
         }
 
+        if handleTerminalSelectionCommandEquivalent(event) {
+            return true
+        }
+
         let finalEvent = NSEvent.keyEvent(
             with: .keyDown,
             location: event.locationInWindow,
@@ -8729,6 +8754,26 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return false
+    }
+
+    @discardableResult
+    private func handleTerminalSelectionCommandEquivalent(_ event: NSEvent) -> Bool {
+        guard let move = terminalKeyboardSelectionMoveForCommandEquivalent(
+            keyCode: event.keyCode,
+            modifierFlags: event.modifierFlags
+        ) else {
+            return false
+        }
+
+        keyboardCopyModeInputState.reset()
+        if !keyboardCopyModeActive {
+            setKeyboardCopyModeActive(true)
+        }
+        keyboardCopyModeVisualActive = true
+        performBindingAction("adjust_selection:\(move.rawValue)", repeatCount: 1)
+        keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
+        invalidateTextInputCoordinates(selectionChanged: true)
+        return true
     }
 
     override func keyDown(with event: NSEvent) {
