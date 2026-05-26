@@ -15,6 +15,7 @@ extension Workspace {
         "gemini",
         "grok",
         "hermes-agent",
+        "kiro",
         "opencode",
         "pi",
         "qoder",

@@ -63240,6 +63240,213 @@
         }
       }
     },
+    "settings.automation.kiro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiro CLI Integration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiro CLI連携"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiro CLI 연동"
+          }
+        }
+      }
+    },
+    "settings.automation.kiro.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks must be installed with `cmux hooks kiro install`. They no-op outside cmux terminals."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックは`cmux hooks kiro install`でインストールする必要があります。cmuxターミナル外では動作しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`cmux hooks kiro install`로 훅을 설치해야 합니다. cmux 터미널 외부에서는 작동하지 않습니다."
+          }
+        }
+      }
+    },
+    "settings.automation.kiro.notificationLevel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiro Notification Level"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiro通知レベル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiro 알림 수준"
+          }
+        }
+      }
+    },
+    "settings.automation.kiro.notificationLevel.minimal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最小"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최소"
+          }
+        }
+      }
+    },
+    "settings.automation.kiro.notificationLevel.standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표준"
+          }
+        }
+      }
+    },
+    "settings.automation.kiro.notificationLevel.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controls how many Kiro tool events appear in Feed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feedに表示するKiroツールイベントの量を制御します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed에 표시되는 Kiro 도구 이벤트 수를 제어합니다."
+          }
+        }
+      }
+    },
+    "settings.automation.kiro.notificationLevel.verbose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbose"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자세히"
+          }
+        }
+      }
+    },
+    "settings.automation.kiro.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiro runs without cmux integration."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiroはcmux連携なしで動作します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiro가 cmux 연동 없이 실행됩니다."
+          }
+        }
+      }
+    },
+    "settings.automation.kiro.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar shows Kiro session status, notifications, and Feed tool events."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーにKiroセッションのステータス、通知、Feedツールイベントが表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에 Kiro 세션 상태, 알림, Feed 도구 이벤트가 표시됩니다."
+          }
+        }
+      }
+    },
     "settings.automation.openAccess.dialog.cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -81857,6 +82064,52 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "automation.geminiIntegration gemini cli google agent hooks notifications автоматизація api керування сокет агент хуки порти середовище сповіщення непрочитане повідомлення значок кільце спалах звук робочий стіл пошук пропозиції автодоповнення постачальник пошукова система"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.automation.kiro": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.kiroIntegration kiro cli amazon q agent hooks notifications"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.kiroIntegration kiro cli amazon q agent hooks notifications kiro cli amazon q エージェント フック 通知 連携"
+                }
+            },
+            "ko": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.kiroIntegration kiro cli amazon q agent hooks notifications 자동화 kiro cli amazon q 에이전트 훅 알림 연동"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.automation.kiro-notification-level": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.kiroNotificationLevel kiro cli notification verbosity minimal standard verbose tool events"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.kiroNotificationLevel kiro cli notification verbosity minimal standard verbose tool events kiro 通知 レベル 詳細 最小 標準 ツール イベント"
+                }
+            },
+            "ko": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.kiroNotificationLevel kiro cli notification verbosity minimal standard verbose tool events kiro 알림 수준 자세히 최소 표준 도구 이벤트"
                 }
             }
         }

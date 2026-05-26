@@ -347,6 +347,55 @@ extension AgentLaunchSanitizer {
         ]
     )
 
+    static let kiroPolicy = Policy(
+        valueOptions: [
+            "--agent",
+            "--delete-session",
+            "--format",
+            "-f",
+            "--resume-id",
+            "--trust-tools",
+            "--wrap"
+        ],
+        nonRestorableCommands: [
+            "agent",
+            "diagnostic",
+            "doctor",
+            "inline",
+            "integrations",
+            "issue",
+            "login",
+            "logout",
+            "mcp",
+            "settings",
+            "theme",
+            "translate",
+            "update",
+            "version",
+            "whoami"
+        ],
+        droppedOptions: [
+            "--delete-session",
+            "--format",
+            "-f",
+            "--resume",
+            "-r",
+            "--resume-id"
+        ],
+        droppedOptionPrefixes: [
+            "--delete-session=",
+            "--format=",
+            "-f=",
+            "--resume-id="
+        ],
+        rejectOptions: [
+            "--list-models",
+            "--list-sessions",
+            "--no-interactive",
+            "--resume-picker"
+        ]
+    )
+
     static let rovoDevPolicy = Policy(
         valueOptions: [
             "--config",

@@ -4887,6 +4887,47 @@ enum GeminiIntegrationSettings {
     }
 }
 
+enum KiroIntegrationSettings {
+    enum NotificationLevel: String, CaseIterable, Identifiable {
+        case minimal
+        case standard
+        case verbose
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .minimal:
+                return String(localized: "settings.automation.kiro.notificationLevel.minimal", defaultValue: "Minimal")
+            case .standard:
+                return String(localized: "settings.automation.kiro.notificationLevel.standard", defaultValue: "Standard")
+            case .verbose:
+                return String(localized: "settings.automation.kiro.notificationLevel.verbose", defaultValue: "Verbose")
+            }
+        }
+    }
+
+    static let hooksEnabledKey = "kiroHooksEnabled"
+    static let defaultHooksEnabled = true
+    static let notificationLevelKey = "kiroNotificationLevel"
+    static let defaultNotificationLevel = NotificationLevel.standard
+
+    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: hooksEnabledKey) == nil {
+            return defaultHooksEnabled
+        }
+        return defaults.bool(forKey: hooksEnabledKey)
+    }
+
+    static func notificationLevel(defaults: UserDefaults = .standard) -> NotificationLevel {
+        guard let raw = defaults.string(forKey: notificationLevelKey),
+              let level = NotificationLevel(rawValue: raw) else {
+            return defaultNotificationLevel
+        }
+        return level
+    }
+}
+
 enum WelcomeSettings {
     static let shownKey = "cmuxWelcomeShown"
 }
@@ -5202,6 +5243,10 @@ struct SettingsView: View {
     private var cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
     @AppStorage(GeminiIntegrationSettings.hooksEnabledKey)
     private var geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
+    @AppStorage(KiroIntegrationSettings.hooksEnabledKey)
+    private var kiroHooksEnabled = KiroIntegrationSettings.defaultHooksEnabled
+    @AppStorage(KiroIntegrationSettings.notificationLevelKey)
+    private var kiroNotificationLevel = KiroIntegrationSettings.defaultNotificationLevel.rawValue
     @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
     private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
     @AppStorage(PreferredEditorSettings.key) private var preferredEditorCommand = ""
@@ -7082,6 +7127,41 @@ struct SettingsView: View {
                     }
 
                     SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .json("automation.kiroIntegration"),
+                            String(localized: "settings.automation.kiro", defaultValue: "Kiro CLI Integration"),
+                            subtitle: kiroHooksEnabled
+                                ? String(localized: "settings.automation.kiro.subtitleOn", defaultValue: "Sidebar shows Kiro session status, notifications, and Feed tool events.")
+                                : String(localized: "settings.automation.kiro.subtitleOff", defaultValue: "Kiro runs without cmux integration.")
+                        ) {
+                            Toggle("", isOn: $kiroHooksEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsKiroHooksToggle")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("automation.kiroNotificationLevel"),
+                            String(localized: "settings.automation.kiro.notificationLevel", defaultValue: "Kiro Notification Level"),
+                            subtitle: String(localized: "settings.automation.kiro.notificationLevel.subtitle", defaultValue: "Controls how many Kiro tool events appear in Feed.")
+                        ) {
+                            Picker("", selection: $kiroNotificationLevel) {
+                                ForEach(KiroIntegrationSettings.NotificationLevel.allCases) { level in
+                                    Text(level.title).tag(level.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: 150)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote(String(localized: "settings.automation.kiro.note", defaultValue: "Hooks must be installed with `cmux hooks kiro install`. They no-op outside cmux terminals."))
+                    }
+
+                    SettingsCard {
                         SettingsCardRow(configurationReview: .json("automation.portBase"), String(localized: "settings.automation.portBase", defaultValue: "Port Base"), subtitle: String(localized: "settings.automation.portBase.subtitle", defaultValue: "Starting port for CMUX_PORT env var."), controlWidth: pickerColumnWidth) {
                             TextField("", value: $cmuxPortBase, format: .number)
                                 .textFieldStyle(.roundedBorder)
@@ -7867,6 +7947,8 @@ struct SettingsView: View {
         suppressSubagentNotifications = AgentSubagentNotificationSettings.defaultSuppressNotifications
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
         geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
+        kiroHooksEnabled = KiroIntegrationSettings.defaultHooksEnabled
+        kiroNotificationLevel = KiroIntegrationSettings.defaultNotificationLevel.rawValue
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         preferredEditorCommand = ""
         CmdClickSupportedFileRouteSettings.setEnabled(CmdClickSupportedFileRouteSettings.defaultValue)

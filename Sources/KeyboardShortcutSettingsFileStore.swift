@@ -749,6 +749,16 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["geminiIntegration"]) {
             snapshot.managedUserDefaults[GeminiIntegrationSettings.hooksEnabledKey] = .bool(value)
         }
+        if let value = jsonBool(section["kiroIntegration"]) {
+            snapshot.managedUserDefaults[KiroIntegrationSettings.hooksEnabledKey] = .bool(value)
+        }
+        if let raw = jsonString(section["kiroNotificationLevel"]) {
+            guard KiroIntegrationSettings.NotificationLevel(rawValue: raw) != nil else {
+                logInvalid("automation.kiroNotificationLevel", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[KiroIntegrationSettings.notificationLevelKey] = .string(raw)
+        }
         if let value = jsonInt(section["portBase"]) {
             guard value > 0 else {
                 logInvalid("automation.portBase", sourcePath: sourcePath)

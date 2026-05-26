@@ -775,6 +775,21 @@
           "default": true,
           "description": "Enable cmux integration hooks for Gemini."
         },
+        "kiroIntegration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable cmux integration hooks for Kiro CLI."
+        },
+        "kiroNotificationLevel": {
+          "type": "string",
+          "enum": [
+            "minimal",
+            "standard",
+            "verbose"
+          ],
+          "default": "standard",
+          "description": "Controls how many Kiro tool events appear in Feed."
+        },
         "portBase": {
           "type": "integer",
           "minimum": 1,

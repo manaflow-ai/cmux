@@ -72,6 +72,35 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 expectedEnvironment: ["GEMINI_CLI_HOME": "/tmp/gemini home"]
             ),
             GenericHookPersistenceScenario(
+                agent: "kiro",
+                subcommand: "session-start",
+                sessionId: "kiro-session-123",
+                executable: "/Users/example/.cargo/bin/kiro-cli",
+                launchArguments: [
+                    "/Users/example/.cargo/bin/kiro-cli",
+                    "chat",
+                    "--agent",
+                    "cmux",
+                    "--resume-id",
+                    "old-session",
+                    "--trust-tools",
+                    "fs_read,fs_write",
+                    "initial prompt should not persist"
+                ],
+                extraEnvironment: [
+                    "KIRO_HOME": "/tmp/kiro home",
+                    "AWS_ACCESS_KEY_ID": "secret"
+                ],
+                expectedArguments: [
+                    "/Users/example/.cargo/bin/kiro-cli",
+                    "--agent",
+                    "cmux",
+                    "--trust-tools",
+                    "fs_read,fs_write"
+                ],
+                expectedEnvironment: ["KIRO_HOME": "/tmp/kiro home"]
+            ),
+            GenericHookPersistenceScenario(
                 agent: "antigravity",
                 subcommand: "session-start",
                 sessionId: "antigravity-conversation-123",
@@ -607,6 +636,127 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(cmuxGroup["turn-completion"])
         XCTAssertNotNil(cmuxGroup["Notification"])
         XCTAssertNotNil(cmuxGroup["PostToolUse"])
+    }
+
+    func testKiroHookInstallUsesAgentConfigShapeAndPreservesDenyExit() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-kiro-hook-install-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "kiro", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "KIRO_HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let hookURL = root
+            .appendingPathComponent("agents", isDirectory: true)
+            .appendingPathComponent("cmux.json", isDirectory: false)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        XCTAssertEqual(json["name"] as? String, "cmux")
+        XCTAssertNil(json["version"], "Kiro agent configs should not receive Cursor's hooks version field")
+
+        let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
+        let preToolUse = try XCTUnwrap(hooks["preToolUse"] as? [[String: Any]])
+        XCTAssertTrue(
+            preToolUse.contains {
+                ($0["command"] as? String)?.contains("hooks feed --source kiro --event preToolUse") == true
+                    && ($0["timeout_ms"] as? Int) == 120_000
+                    && (($0["command"] as? String)?.contains("|| echo '{}'") == false)
+            },
+            "Expected Kiro preToolUse feed hook to preserve cmux's exit status for deny decisions, saw \(preToolUse)"
+        )
+        XCTAssertNotNil(hooks["agentSpawn"])
+        XCTAssertNotNil(hooks["userPromptSubmit"])
+        XCTAssertNotNil(hooks["postToolUse"])
+        XCTAssertNotNil(hooks["stop"])
+    }
+
+    func testKiroFeedDenyUsesPreToolUseExitCodeTwo() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("kiro-feed-deny")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-kiro-feed-deny-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "33333333-3333-3333-3333-333333333333"
+        let surfaceId = "44444444-4444-4444-4444-444444444444"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            XCTAssertEqual(method, "feed.push")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "status": "resolved",
+                    "decision": [
+                        "kind": "permission",
+                        "mode": "deny",
+                    ],
+                ]
+            )
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "kiro", "--event", "preToolUse"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_KIRO_PID": "525252",
+                "CMUX_KIRO_NOTIFICATION_LEVEL": "standard",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"hook_event_name":"preToolUse","session_id":"kiro-session-123","cwd":"\#(root.path)","tool_name":"fs_write","tool_input":{"operations":[{"mode":"Line","path":"\#(root.appendingPathComponent("README.md").path)"}]}}"#,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 2, result.stderr)
+        XCTAssertTrue(result.stderr.contains("User denied permission via cmux Feed."), result.stderr)
+
+        let feedEvents = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "feed.push",
+                  let params = payload["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any] else {
+                return nil
+            }
+            return event
+        }
+        XCTAssertEqual(feedEvents.count, 1, "Expected one Kiro Feed event, saw \(state.commands)")
+        XCTAssertEqual(feedEvents.first?["hook_event_name"] as? String, "PermissionRequest")
+        XCTAssertEqual(feedEvents.first?["_source"] as? String, "kiro")
+        XCTAssertEqual(feedEvents.first?["_ppid"] as? Int, 525252)
     }
 
     func testAntigravityFeedHookMissingSessionIdUsesStableFallback() throws {

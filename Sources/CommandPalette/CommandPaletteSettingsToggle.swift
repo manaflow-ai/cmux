@@ -684,6 +684,17 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: GeminiIntegrationSettings.hooksEnabledKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "kiroIntegration",
+                settingsKey: "automation.kiroIntegration",
+                title: {
+                    String(localized: "settings.automation.kiro", defaultValue: "Kiro CLI Integration")
+                },
+                sectionTitle: automation,
+                keywords: ["automation.kiroIntegration", "kiro", "cli", "hooks", "agent", "integration"],
+                defaultValue: KiroIntegrationSettings.defaultHooksEnabled,
+                defaultsKey: KiroIntegrationSettings.hooksEnabledKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "browserSearchSuggestions",
                 settingsKey: "browser.showSearchSuggestions",
                 title: {
