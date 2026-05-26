@@ -2128,6 +2128,10 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 for: renderedItems,
                 renderModes: renderModes
             )
+            let surfaceTextureSources = canvasSurfaceTextureSources(
+                for: renderedItems,
+                renderModes: renderModes
+            )
             let metalScene = CanvasScene(
                 viewport: controller.canvasViewport,
                 viewportSize: proxy.size,
@@ -2172,6 +2176,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                     scene: metalScene,
                     backgroundColor: appearance.backgroundColor,
                     style: canvasShellStyle,
+                    surfaceTextures: surfaceTextureSources,
                     preferredFramesPerSecond: 120
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
@@ -2363,6 +2368,26 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 renderMode: canvasSurfaceRenderMode(for: renderModes[item.id] ?? .previewTexture)
             )
         }
+    }
+
+    private func canvasSurfaceTextureSources(
+        for items: [CanvasItem],
+        renderModes: [LayoutItemID: CanvasRenderMode]
+    ) -> [CanvasSurfaceTextureSource] {
+        items.compactMap { item in
+            guard renderModes[item.id] == .previewTexture,
+                  let selected = selectedTab(for: item),
+                  let terminalPanel = workspace.panel(for: selected.id) as? TerminalPanel,
+                  let surface = terminalPanel.hostedView.currentCanvasIOSurface() else {
+                return nil
+            }
+            return CanvasSurfaceTextureSource(id: item.id, surface: surface, contentMode: .fit)
+        }
+    }
+
+    private func hasCanvasSurfaceTexture(for selected: SurfaceTab) -> Bool {
+        guard let terminalPanel = workspace.panel(for: selected.id) as? TerminalPanel else { return false }
+        return terminalPanel.hostedView.currentCanvasIOSurface() != nil
     }
 
     private func canvasSurfaceRenderMode(for renderMode: CanvasRenderMode) -> CanvasSurfaceRenderMode {
@@ -2845,17 +2870,9 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
     private func canvasPreviewPaneContent(item: CanvasItem, selected: SurfaceTab, paneID: PaneID) -> some View {
         ZStack(alignment: .topLeading) {
-            if let terminalPanel = workspace.panel(for: selected.id) as? TerminalPanel,
-               let surface = terminalPanel.hostedView.currentCanvasIOSurface() {
-                CanvasIOSurfacePreview(
-                    surface: surface,
-                    backgroundColor: terminalPanel.hostedView.canvasPreviewBackgroundColor(),
-                    contentMode: .fit,
-                    preferredFramesPerSecond: 120
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-                .allowsHitTesting(false)
+            if hasCanvasSurfaceTexture(for: selected) {
+                Color.clear
+                    .allowsHitTesting(false)
             } else if let image = canvasPreviewImages[selected.id] {
                 Image(nsImage: image)
                     .resizable()

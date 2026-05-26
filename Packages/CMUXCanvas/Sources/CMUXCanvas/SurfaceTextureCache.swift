@@ -7,6 +7,11 @@ public enum CanvasSurfaceTextureKind: String, Codable, Sendable, Equatable {
     case snapshot
 }
 
+public enum CanvasTextureContentMode: String, Codable, Sendable, Equatable {
+    case fit
+    case fill
+}
+
 public struct CanvasSurfaceTextureKey: Hashable, Codable, Sendable, CustomStringConvertible {
     public var surfaceID: LayoutItemID
     public var kind: CanvasSurfaceTextureKind
