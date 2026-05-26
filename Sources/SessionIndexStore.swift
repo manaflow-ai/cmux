@@ -67,6 +67,7 @@ final class SessionIndexTmuxCommandState: @unchecked Sendable {
     private var output = Data()
     private var continuation: CheckedContinuation<String?, Never>?
     private var completed = false
+    private var cancelled = false
 
     init(process: Process, stdoutHandle: FileHandle) {
         self.process = process
@@ -76,6 +77,12 @@ final class SessionIndexTmuxCommandState: @unchecked Sendable {
     func start(continuation: CheckedContinuation<String?, Never>) {
         lock.lock()
         guard !completed else {
+            lock.unlock()
+            continuation.resume(returning: nil)
+            return
+        }
+        guard !cancelled else {
+            completed = true
             lock.unlock()
             continuation.resume(returning: nil)
             return
@@ -90,14 +97,26 @@ final class SessionIndexTmuxCommandState: @unchecked Sendable {
             self?.finish(terminationStatus: process.terminationStatus)
         }
 
+        lock.lock()
+        guard !completed && !cancelled else {
+            lock.unlock()
+            finish(result: nil)
+            return
+        }
         do {
             try process.run()
+            lock.unlock()
         } catch {
+            lock.unlock()
             finish(result: nil)
         }
     }
 
     func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+
         if process.isRunning {
             process.terminate()
         } else {
