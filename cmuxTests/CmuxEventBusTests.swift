@@ -172,7 +172,7 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(payload["is_main_window"] as? Bool, true)
     }
 
-    func testWorkspaceReorderSocketEventPayloadUsesRefsAndIndexes() throws {
+    func testWorkspaceReorderSocketMapperDoesNotDuplicateLifecycleEvent() throws {
         CmuxEventBus.shared.resetForTesting()
         let snapshot = CmuxEventBus.shared.subscribe(
             afterSequence: nil,
@@ -213,21 +213,7 @@ final class CmuxEventBusTests: XCTestCase {
 
         CmuxSocketEventMapper.publish(command: command, response: response)
 
-        let event = try XCTUnwrap(snapshot.subscription.next(timeout: 0.2))
-        XCTAssertEqual(event["name"] as? String, "workspace.reordered")
-        XCTAssertEqual(event["category"] as? String, "workspace")
-        XCTAssertEqual(event["source"] as? String, "socket.v2")
-        XCTAssertEqual(event["workspace_id"] as? String, workspaceId.uuidString)
-        XCTAssertEqual(event["window_id"] as? String, windowId.uuidString)
-
-        let payload = try XCTUnwrap(event["payload"] as? [String: Any])
-        XCTAssertEqual(Set(payload.keys), Set(["type", "window", "workspace", "from_index", "to_index", "ts"]))
-        XCTAssertEqual(payload["type"] as? String, "workspace.reordered")
-        XCTAssertEqual(payload["window"] as? String, "window:1")
-        XCTAssertEqual(payload["workspace"] as? String, "workspace:11")
-        XCTAssertEqual(payload["from_index"] as? Int, 12)
-        XCTAssertEqual(payload["to_index"] as? Int, 1)
-        XCTAssertNotNil(payload["ts"] as? String)
+        XCTAssertNil(snapshot.subscription.next(timeout: 0.2))
     }
 
     func testNotificationReplacementPublishesRemovedThenCreatedWithReplacedIds() throws {

@@ -15,8 +15,11 @@ struct PanelContentView: View {
     let isSplit: Bool
     let appearance: PanelAppearance
     let hasUnreadNotification: Bool
+    let terminalAgentContext: String
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
+    let onResumeAgentHibernation: () -> Void
+    let onAutoResumeAgentHibernation: () -> Void
     let onTriggerFlash: () -> Void
 
     var body: some View {
@@ -40,7 +43,10 @@ struct PanelContentView: View {
                     isSplit: isSplit,
                     appearance: appearance,
                     hasUnreadNotification: hasUnreadNotification,
+                    terminalAgentContext: terminalAgentContext,
                     onFocus: onFocus,
+                    onResumeAgentHibernation: onResumeAgentHibernation,
+                    onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
                     onTriggerFlash: onTriggerFlash
                 )
             }
