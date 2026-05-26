@@ -2041,6 +2041,19 @@ final class StoredShortcutMatchingTests: XCTestCase {
         )
     }
 
+    func testCommandControlLetterCanUseLayoutFallbackForPrintableEventCharacter() {
+        let markUnreadAndJump = StoredShortcut(key: "u", command: true, shift: false, option: false, control: true)
+
+        XCTAssertTrue(
+            markUnreadAndJump.matches(
+                keyCode: 32,
+                modifierFlags: [.command, .control],
+                eventCharacter: "g",
+                layoutCharacterProvider: { keyCode, _ in keyCode == 32 ? "u" : nil }
+            )
+        )
+    }
+
     func testCommandControlPunctuationDoesNotStealPrintableLetterShortcut() {
         let nextWorkspace = StoredShortcut(key: "]", command: true, shift: false, option: false, control: true)
 

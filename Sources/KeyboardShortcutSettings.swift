@@ -1544,6 +1544,7 @@ struct ShortcutStroke: Equatable, Hashable {
         let eventCharacterIsLetterOrNumber = eventCharacter?.count == 1 &&
             (eventCharacter?.first?.isLetter == true || eventCharacter?.first?.isNumber == true)
         let commandPrintableCharacterShouldBlockFallback = flags.contains(.command) &&
+            !flags.contains(.control) &&
             hasEventChars &&
             eventCharsArePrintableASCII &&
             (shortcutKeyIsLetter || eventCharacterIsLetterOrNumber)
