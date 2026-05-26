@@ -88252,23 +88252,6 @@
         }
       }
     },
-    "shortcut.key.pageUp": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Page Up"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ページアップ"
-          }
-        }
-      }
-    },
     "shortcut.key.pageDown": {
       "extractionState": "manual",
       "localizations": {
@@ -88282,6 +88265,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ページダウン"
+          }
+        }
+      }
+    },
+    "shortcut.key.pageUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Page Up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページアップ"
           }
         }
       }
