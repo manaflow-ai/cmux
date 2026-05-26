@@ -86,6 +86,11 @@ extension CmuxSettingsFileStore {
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
                     "showTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultShowOnNewTerminals,
                     "focusTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultFocusOnNewTerminals,
+                    "agentHibernation": [
+                        "enabled": AgentHibernationSettings.defaultEnabled,
+                        "idleSeconds": Int(AgentHibernationSettings.defaultIdleSeconds),
+                        "maxLiveTerminals": AgentHibernationSettings.defaultMaxLiveTerminals,
+                    ],
                     "textBoxMaxLines": TerminalTextBoxInputSettings.defaultMaxLines,
                     "resumeCommands": [],
                 ],

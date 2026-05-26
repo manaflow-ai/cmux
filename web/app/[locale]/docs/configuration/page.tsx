@@ -70,6 +70,11 @@ const settingsFileExample = `{
   //   "autoResumeAgentSessions": true,
   //   "showTextBoxOnNewTerminals": false,
   //   "focusTextBoxOnNewTerminals": false,
+  //   "agentHibernation": {
+  //     "enabled": false,
+  //     "idleSeconds": 3600,
+  //     "maxLiveTerminals": 12
+  //   },
   //   "textBoxMaxLines": 10
   // },
 
