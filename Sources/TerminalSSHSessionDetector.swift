@@ -955,6 +955,7 @@ enum TerminalSSHSessionDetector {
         var useIPv6 = false
         var forwardAgent = false
         var compressionEnabled = false
+        var isInteractiveSessionCandidate = true
         var sshOptions: [String] = []
 
         func consumeValue(_ value: String, for option: Character) -> Bool {
@@ -980,6 +981,9 @@ enum TerminalSSHSessionDetector {
                 return true
             case "l":
                 loginName = trimmedValue
+                return true
+            case "O", "W":
+                isInteractiveSessionCandidate = false
                 return true
             case "o":
                 return RemoteShellSessionParsing.consumeSSHOption(
@@ -1046,6 +1050,8 @@ enum TerminalSSHSessionDetector {
                     forwardAgent = true
                 case "C":
                     compressionEnabled = true
+                case "G", "V":
+                    isInteractiveSessionCandidate = false
                 default:
                     break
                 }
@@ -1053,6 +1059,7 @@ enum TerminalSSHSessionDetector {
             index += 1
         }
 
+        guard isInteractiveSessionCandidate else { return nil }
         guard let destination else { return nil }
         let finalDestination = RemoteShellSessionParsing.resolveDestination(destination, loginName: loginName)
         guard !finalDestination.isEmpty else { return nil }

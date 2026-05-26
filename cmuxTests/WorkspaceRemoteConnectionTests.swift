@@ -2082,6 +2082,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    func testIgnoresNonSessionSSHForegroundCommands() {
+        XCTAssertNil(TerminalSSHSessionDetector.detectRemoteSession(commandLine: "ssh -V"))
+        XCTAssertNil(TerminalSSHSessionDetector.detectRemoteSession(commandLine: "ssh -G example.com"))
+        XCTAssertNil(TerminalSSHSessionDetector.detectRemoteSession(commandLine: "ssh -O check example.com"))
+        XCTAssertNil(TerminalSSHSessionDetector.detectRemoteSession(commandLine: "ssh -W db.internal:5432 bastion.example.com"))
+    }
+
     func testIgnoresBackgroundSSHForegroundCommand() {
         XCTAssertNil(
             TerminalSSHSessionDetector.detectRemoteSession(
