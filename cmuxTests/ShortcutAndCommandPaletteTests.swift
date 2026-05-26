@@ -1888,6 +1888,52 @@ final class UpdateSettingsTests: XCTestCase {
     }
 }
 
+final class UpdateInstallGatePolicyTests: XCTestCase {
+    func testRequiresConfirmationWhenTerminalSessionsWouldBeTerminated() {
+        let summary = UpdateInstallGate.TerminalSessionSummary(
+            windowCount: 1,
+            workspaceCount: 3,
+            terminalCount: 5,
+            runningCommandCount: 2
+        )
+
+        XCTAssertEqual(
+            UpdateInstallGate.decision(
+                terminalSessions: summary,
+                userAlreadyConfirmed: false
+            ),
+            .requireConfirmation(summary)
+        )
+    }
+
+    func testAllowsInstallWithoutTerminalSessions() {
+        XCTAssertEqual(
+            UpdateInstallGate.decision(
+                terminalSessions: .empty,
+                userAlreadyConfirmed: false
+            ),
+            .installNow
+        )
+    }
+
+    func testAllowsInstallAfterUserConfirmsTerminalTermination() {
+        let summary = UpdateInstallGate.TerminalSessionSummary(
+            windowCount: 1,
+            workspaceCount: 1,
+            terminalCount: 1,
+            runningCommandCount: 1
+        )
+
+        XCTAssertEqual(
+            UpdateInstallGate.decision(
+                terminalSessions: summary,
+                userAlreadyConfirmed: true
+            ),
+            .installNow
+        )
+    }
+}
+
 final class UpdateViewModelPresentationTests: XCTestCase {
     func testDetectedBackgroundUpdateShowsPillWhileIdle() {
         let viewModel = UpdateViewModel()

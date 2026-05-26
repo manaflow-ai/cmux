@@ -420,6 +420,34 @@ class UpdateViewModel: ObservableObject {
     }
 }
 
+enum UpdateInstallGate {
+    struct TerminalSessionSummary: Equatable {
+        var windowCount: Int
+        var workspaceCount: Int
+        var terminalCount: Int
+        var runningCommandCount: Int
+
+        static let empty = TerminalSessionSummary(
+            windowCount: 0,
+            workspaceCount: 0,
+            terminalCount: 0,
+            runningCommandCount: 0
+        )
+    }
+
+    enum Decision: Equatable {
+        case installNow
+        case requireConfirmation(TerminalSessionSummary)
+    }
+
+    nonisolated static func decision(
+        terminalSessions summary: TerminalSessionSummary,
+        userAlreadyConfirmed: Bool
+    ) -> Decision {
+        .installNow
+    }
+}
+
 enum UpdateState: Equatable {
     case idle
     case permissionRequest(PermissionRequest)
