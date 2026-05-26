@@ -307,10 +307,6 @@ struct WindowAppearanceSnapshot {
         unifySurfaceBackdrops ? chromeColorScheme : sidebarSettings.colorScheme
     }
 
-    func sidebarContrastOverlayColor(for _: WindowBackdropRole) -> NSColor? {
-        nil
-    }
-
     func shouldDrawSidebarSeparator(for role: WindowBackdropRole) -> Bool {
         switch role {
         case .leftSidebar, .rightSidebar:

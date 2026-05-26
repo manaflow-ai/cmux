@@ -158,9 +158,6 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
 
             assertClearBackdrop(snapshot.policy(for: .leftSidebar))
             assertClearBackdrop(snapshot.policy(for: .rightSidebar))
-            XCTAssertNil(snapshot.sidebarContrastOverlayColor(for: .leftSidebar), backgroundHex)
-            XCTAssertNil(snapshot.sidebarContrastOverlayColor(for: .rightSidebar), backgroundHex)
-            XCTAssertNil(snapshot.sidebarContrastOverlayColor(for: .titlebar), backgroundHex)
         }
     }
 
@@ -174,8 +171,6 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.compositedTerminalBackgroundColor.alphaComponent, 1, accuracy: 0.0001)
         assertClearBackdrop(snapshot.policy(for: .leftSidebar))
         assertClearBackdrop(snapshot.policy(for: .rightSidebar))
-        XCTAssertNil(snapshot.sidebarContrastOverlayColor(for: .leftSidebar))
-        XCTAssertNil(snapshot.sidebarContrastOverlayColor(for: .rightSidebar))
     }
 
     func testSeparateSidebarBackdropsKeepCustomTintBehavior() {
@@ -191,7 +186,6 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             return
         }
         XCTAssertEqual(sidebarPolicy.tintColor.hexString(includeAlpha: true), "#FF000066")
-        XCTAssertNil(snapshot.sidebarContrastOverlayColor(for: .leftSidebar))
     }
 
     func testUnifiedSidebarBackdropsDoNotDrawSeparateSidebarSeparators() {
