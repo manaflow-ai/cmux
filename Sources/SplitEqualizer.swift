@@ -77,12 +77,12 @@ enum SplitEqualizer {
         case .pane:
             return 1
         case .split(let splitNode):
+            guard splitNode.orientation == orientation else {
+                return 1
+            }
             let firstSpanCount = spanCount(in: splitNode.first, along: orientation)
             let secondSpanCount = spanCount(in: splitNode.second, along: orientation)
-            if splitNode.orientation == orientation {
-                return firstSpanCount + secondSpanCount
-            }
-            return max(firstSpanCount, secondSpanCount)
+            return firstSpanCount + secondSpanCount
         }
     }
 }
