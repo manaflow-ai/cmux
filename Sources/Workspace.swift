@@ -1189,6 +1189,7 @@ extension Workspace {
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredRemotePTYAttachCommand == nil ? restoredStartupInput : nil,
                 terminalSessionIdentity: restoredSessionIdentity,
+                allowDefaultTerminalSessionBackend: false,
                 startupEnvironment: replayEnvironment,
                 remotePTYSessionID: restoredRemotePTYSessionID
             ) else {
@@ -12711,6 +12712,7 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxStartCommand: String? = nil,
         startupEnvironment: [String: String] = [:],
         terminalSessionIdentity: TerminalSessionIdentity? = nil,
+        allowDefaultTerminalSessionBackend: Bool = true,
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil
     ) -> TerminalPanel? {
@@ -12794,6 +12796,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
             terminalSessionIdentity: terminalSessionIdentity,
+            allowDefaultTerminalSessionBackend: allowDefaultTerminalSessionBackend,
             additionalEnvironment: startupEnvironment
         )
         configureTerminalPanel(newPanel)
@@ -12904,6 +12907,7 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
         terminalSessionIdentity: TerminalSessionIdentity? = nil,
+        allowDefaultTerminalSessionBackend: Bool = true,
         startupEnvironment: [String: String] = [:],
         remotePTYSessionID: String? = nil
     ) -> TerminalPanel? {
@@ -12936,6 +12940,7 @@ final class Workspace: Identifiable, ObservableObject {
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
             terminalSessionIdentity: terminalSessionIdentity,
+            allowDefaultTerminalSessionBackend: allowDefaultTerminalSessionBackend,
             additionalEnvironment: startupEnvironment
         )
         configureTerminalPanel(newPanel)

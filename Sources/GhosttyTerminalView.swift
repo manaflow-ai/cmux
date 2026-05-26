@@ -5360,6 +5360,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
         terminalSessionIdentity: TerminalSessionIdentity? = nil,
+        allowDefaultTerminalSessionBackend: Bool = true,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace
@@ -5390,7 +5391,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.terminalSessionIdentity = TerminalSessionBackendSettings.resolvedIdentity(
             explicit: terminalSessionIdentity,
             defaultName: TerminalSessionBackendSettings.defaultSessionName(workspaceId: tabId, surfaceId: id),
-            hasExplicitStartup: hasExplicitStartup
+            hasExplicitStartup: hasExplicitStartup,
+            allowDefaultBackend: allowDefaultTerminalSessionBackend
         )
         self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(base: [:], overrides: initialEnvironmentOverrides)
         self.additionalEnvironment = Self.mergedNormalizedEnvironment(base: [:], overrides: additionalEnvironment)

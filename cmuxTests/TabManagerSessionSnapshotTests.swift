@@ -1657,6 +1657,66 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
     }
 
+    func testLegacyTerminalSnapshotRestoresNativelyWhenZellijDefaultEnabled() throws {
+        TerminalSessionBackendSettings.setBackend(.zellij)
+        defer { _ = TerminalSessionBackendSettings.reset() }
+
+        let panelId = UUID()
+        let workspaceSnapshot = SessionWorkspaceSnapshot(
+            processTitle: "Legacy Workspace",
+            customTitle: "Legacy Workspace",
+            customDescription: nil,
+            customColor: nil,
+            isPinned: false,
+            terminalScrollBarHidden: nil,
+            currentDirectory: "/tmp/current",
+            focusedPanelId: panelId,
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: [panelId],
+                selectedPanelId: panelId
+            )),
+            panels: [
+                SessionPanelSnapshot(
+                    id: panelId,
+                    type: .terminal,
+                    title: "Terminal",
+                    customTitle: nil,
+                    directory: "/tmp/panel",
+                    isPinned: false,
+                    isManuallyUnread: false,
+                    listeningPorts: [],
+                    ttyName: nil,
+                    terminal: SessionTerminalPanelSnapshot(
+                        workingDirectory: "/tmp/legacy-cwd",
+                        scrollback: "legacy scrollback"
+                    ),
+                    browser: nil,
+                    markdown: nil,
+                    filePreview: nil,
+                    rightSidebarTool: nil
+                ),
+            ],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil,
+            remote: nil
+        )
+        let manager = TabManager()
+
+        manager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [workspaceSnapshot]
+        ))
+
+        let restoredWorkspace = try XCTUnwrap(manager.tabs.first)
+        let restoredPanel = try XCTUnwrap(restoredWorkspace.focusedTerminalPanel)
+        XCTAssertEqual(restoredPanel.requestedWorkingDirectory, "/tmp/legacy-cwd")
+        XCTAssertNil(restoredPanel.surface.debugTerminalSessionIdentityForTesting())
+        XCTAssertNil(restoredPanel.surface.debugInitialCommand())
+        XCTAssertFalse(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+    }
+
     func testClosedHistorySkipsNonRestorableRemoteWorkspaces() {
         let manager = TabManager()
         let localWorkspace = manager.tabs[0]

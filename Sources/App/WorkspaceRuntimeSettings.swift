@@ -234,12 +234,15 @@ enum TerminalSessionBackendSettings {
         explicit identity: TerminalSessionIdentity?,
         defaultName: String,
         hasExplicitStartup: Bool,
+        allowDefaultBackend: Bool = true,
         defaults: UserDefaults = .standard,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> TerminalSessionIdentity? {
         if let identity {
             return normalizedIdentity(identity)
         }
+
+        guard allowDefaultBackend else { return nil }
 
         if let zellijEnvironment = environment["ZELLIJ"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !zellijEnvironment.isEmpty {
