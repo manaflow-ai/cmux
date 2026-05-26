@@ -24,7 +24,7 @@ prevents Cmd-hover from highlighting normal sentence text after a file path.
 It also supports Ctrl-N and Ctrl-P in the cmux theme picker, and emits structured
 tmux control-mode enter, exit, topology, and pane output actions to embedded runtimes.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-ed123a8c0937c70996372a917c68f5713b1a3cc1-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -233,12 +233,11 @@ tend to conflict together during rebases.
 
 The current cmux pin is the head listed above. It is reachable from
 `manaflow-ai/ghostty` through branch `issue-560-tmux-control-bridge`.
-The prior `176bd550f` prebuilt archive remains pinned in
-`scripts/ghosttykit-checksums.txt`; local and CI builds for this PR fall back to
-building GhosttyKit from source until a new `ed123a8c0` archive is published.
-The release and checksum pin must be regenerated whenever this commit changes,
-even for comment-only amends, because the release tag is keyed by the Ghostty
-commit SHA.
+Published `xcframework-ed123a8c0937c70996372a917c68f5713b1a3cc1-crashsubdir-cmux-crash-v1`
+and pinned its archive checksum in `scripts/ghosttykit-checksums.txt`. The
+release and checksum pin must be regenerated whenever this commit changes, even
+for comment-only amends, because the release tag is keyed by the Ghostty commit
+SHA.
 
 ## Upstreamed fork changes
 
