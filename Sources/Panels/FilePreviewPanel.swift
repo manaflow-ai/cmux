@@ -926,7 +926,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var displayIcon: String?
     @Published private(set) var isFileUnavailable = false
     @Published private(set) var textContent = ""
-    @Published private(set) var textContentUTF8ByteCount = 0
+    @Published private(set) var textContentUTF8ByteCount: Int?
     @Published private(set) var isDirty = false
     @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0

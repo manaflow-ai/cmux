@@ -92,10 +92,16 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
     private(set) var isApplyingExternalUpdate = false
 
     weak var panel: FilePreviewPanel? {
-        didSet { registerFocusIfReady() }
+        didSet {
+            guard oldValue !== panel else { return }
+            registerFocusIfReady()
+        }
     }
     private weak var textController: TextViewController? {
-        didSet { registerFocusIfReady() }
+        didSet {
+            guard oldValue !== textController else { return }
+            registerFocusIfReady()
+        }
     }
 
     override init() {

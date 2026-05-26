@@ -47,40 +47,49 @@ enum SyntaxLanguageDetector {
     // to avoid TreeSitter latency spikes on large logs, generated code, etc.
     private static let maxHighlightBytes = 500_000
 
-    // Cache by absolute path and file metadata so repeated previews avoid
-    // CodeEdit language detection while still respecting size/content changes.
+    // Cache by absolute path and, when no in-memory buffer size is available,
+    // file metadata. Once the panel has loaded text, the current buffer byte
+    // count is the size authority, so the hot typing path avoids filesystem stat.
     private static let cacheLock = NSLock()
     nonisolated(unsafe) private static var cache: [String: CacheEntry] = [:]
 
     static func language(for url: URL, currentContentUTF8ByteCount: Int? = nil) -> CodeLanguage? {
         guard isHighlightCandidate(url) else { return nil }
-        if let currentContentUTF8ByteCount,
-           currentContentUTF8ByteCount > maxHighlightBytes {
-            return nil
-        }
 
         let key = url.standardizedFileURL.path
+        if let currentContentUTF8ByteCount {
+            guard currentContentUTF8ByteCount <= maxHighlightBytes else {
+                removeCache(key: key)
+                return nil
+            }
+            return cachedLanguage(for: key, metadata: nil) ?? detectAndCacheLanguage(for: url, key: key, metadata: nil)
+        }
+
         let metadata = metadata(for: url)
-        if currentContentUTF8ByteCount == nil,
-           let fileSize = metadata.fileSize,
+        if let fileSize = metadata.fileSize,
            fileSize > maxHighlightBytes {
             removeCache(key: key)
             return nil
         }
 
-        cacheLock.lock()
-        if let cached = cache[key], cached.metadata == metadata {
-            cacheLock.unlock()
-            return cached.language
-        }
-        cacheLock.unlock()
+        return cachedLanguage(for: key, metadata: metadata) ?? detectAndCacheLanguage(for: url, key: key, metadata: metadata)
+    }
 
+    private static func cachedLanguage(for key: String, metadata: FileMetadata?) -> CodeLanguage?? {
+        cacheLock.lock()
+        let cached = cache[key]
+        cacheLock.unlock()
+        guard cached?.metadata == metadata else { return nil }
+        return cached?.language
+    }
+
+    private static func detectAndCacheLanguage(for url: URL, key: String, metadata: FileMetadata?) -> CodeLanguage? {
         let resolved = CodeLanguage.detectLanguageFrom(url: url)
         updateCache(key: key, metadata: metadata, language: resolved)
         return resolved
     }
 
-    private static func updateCache(key: String, metadata: FileMetadata, language: CodeLanguage?) {
+    private static func updateCache(key: String, metadata: FileMetadata?, language: CodeLanguage?) {
         cacheLock.lock()
         cache[key] = CacheEntry(metadata: metadata, language: language)
         cacheLock.unlock()
@@ -112,7 +121,7 @@ enum SyntaxLanguageDetector {
     }
 
     private struct CacheEntry {
-        let metadata: FileMetadata
+        let metadata: FileMetadata?
         let language: CodeLanguage?
     }
 }

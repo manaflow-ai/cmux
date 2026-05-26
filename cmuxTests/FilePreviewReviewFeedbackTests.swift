@@ -151,7 +151,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
 
         panel.updateTextContent(String(repeating: "a", count: 501_000))
 
-        XCTAssertEqual(panel.textContentUTF8ByteCount, 501_000)
+        XCTAssertEqual(panel.textContentUTF8ByteCount, .some(501_000))
         XCTAssertNil(SyntaxLanguageDetector.language(
             for: url,
             currentContentUTF8ByteCount: panel.textContentUTF8ByteCount
