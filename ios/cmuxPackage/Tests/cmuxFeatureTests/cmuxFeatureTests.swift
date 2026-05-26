@@ -280,6 +280,20 @@ import UIKit
     #expect(store.connectionState == .disconnected)
 }
 
+@MainActor
+@Test func rootAuthGateKeepsShellSignedInWhileStackAuthRestores() {
+    let store = CMUXMobileShellStore.preview()
+    store.signIn()
+
+    MobileRootAuthGate.syncShellAuthentication(
+        stackAuthenticated: false,
+        isRestoringSession: true,
+        store: store
+    )
+
+    #expect(store.isSignedIn)
+}
+
 @Test func rootAuthGateClearsOnlyStaleTemporaryAttachAuthentication() {
     #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
         pairingResult: .failed,

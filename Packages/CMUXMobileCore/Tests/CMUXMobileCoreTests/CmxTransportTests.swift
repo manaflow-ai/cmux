@@ -125,6 +125,25 @@ import Testing
     }
 }
 
+@Test func attachTicketInitializerRejectsExpiredTicket() throws {
+    let route = try CmxAttachRoute(
+        id: "tailscale",
+        kind: .tailscale,
+        endpoint: .hostPort(host: "100.64.1.2", port: 49831)
+    )
+
+    #expect(throws: CmxAttachTicketError.expired) {
+        _ = try CmxAttachTicket(
+            workspaceID: "workspace-1",
+            terminalID: nil,
+            macDeviceID: "mac-1",
+            macDisplayName: nil,
+            routes: [route],
+            expiresAt: Date(timeIntervalSince1970: 1_000)
+        )
+    }
+}
+
 @Test func attachRouteDecodesIrohAddressHintsFromExperimentRouteJSON() throws {
     let data = Data("""
     {

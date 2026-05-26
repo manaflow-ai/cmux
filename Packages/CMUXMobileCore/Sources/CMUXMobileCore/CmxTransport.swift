@@ -213,7 +213,7 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         self.routes = routes
         self.expiresAt = expiresAt
         self.authToken = authToken
-        try validate(now: .distantPast)
+        try validate(now: Date())
     }
 
     public func validate(now: Date = Date()) throws {

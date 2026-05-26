@@ -25,6 +25,9 @@ public enum MobileSyncPairingPayloadError: Error, Equatable, Sendable {
 
 public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
     public static let currentVersion = 1
+    private static let validationDateUserInfoKey = CodingUserInfoKey(
+        rawValue: "dev.cmux.mobileSyncPairingPayload.validationDate"
+    )!
 
     public let version: Int
     public let macDeviceID: String
@@ -70,7 +73,8 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         port = try container.decode(Int.self, forKey: .port)
         expiresAt = try container.decode(Date.self, forKey: .expiresAt)
         transport = try container.decode(MobileSyncTransportKind.self, forKey: .transport)
-        try validate(now: .distantPast)
+        let now = decoder.userInfo[Self.validationDateUserInfoKey] as? Date ?? Date()
+        try validate(now: now)
     }
 
     public func validate(now: Date = Date()) throws {
@@ -109,8 +113,8 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
+        decoder.userInfo[validationDateUserInfoKey] = now
         let payload = try decoder.decode(MobileSyncPairingPayload.self, from: data)
-        try payload.validate(now: now)
         return payload
     }
 

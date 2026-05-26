@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CryptoKit
 import Foundation
 @preconcurrency import Network
 import OSLog
@@ -195,7 +196,7 @@ final class MobileHostService {
             }
             nextListener.newConnectionHandler = { connection in
                 MobileHostRequestActivity.beginConnection()
-                Self.acceptConnectionOffMain(connection)
+                Self.acceptConnectionOffMain(connection, generation: generation)
             }
             listener = nextListener
             listenerUsesEphemeralFallback = !usePreferredPort
@@ -274,47 +275,62 @@ final class MobileHostService {
         ])
     }
 
-    nonisolated private static func acceptConnectionOffMain(_ connection: NWConnection) {
-        let id = UUID()
-        let session = MobileHostConnection(
-            id: id,
-            connection: connection,
-            authorizeRequest: { request in
-                if !Self.requiresAuthorization(method: request.method) {
-                    return nil
-                }
-                return await MobileHostService.shared.authorizationError(for: request)
-            },
-            onAuthorizedRequest: { request in
-                guard let clientID = Self.clientID(from: request.params) else {
-                    return
-                }
-                await MobileHostService.shared.recordClientID(clientID, for: id)
-            },
-            handleRequest: { request in
-                if request.method == "mobile.host.status" {
-                    return MobileHostPublicStatusCache.result()
-                }
-                return await TerminalController.shared.mobileHostHandleRPC(request)
-            },
-            onClose: { id in
-                MobileHostConnectionRegistry.shared.remove(id: id)
-                await MobileHostService.shared.removeConnection(id: id)
-            }
-        )
-        guard MobileHostConnectionRegistry.shared.insert(
-            session,
-            id: id,
-            limit: Self.maximumActiveConnectionCount
-        ) else {
-            mobileHostLog.error("mobile host rejected connection because active connection limit was reached")
-            connection.cancel()
-            MobileHostRequestActivity.endConnection()
-            return
-        }
+    nonisolated private static func acceptConnectionOffMain(
+        _ connection: NWConnection,
+        generation: UUID
+    ) {
         Task.detached(priority: .userInitiated) {
+            let canAccept = await MobileHostService.shared.canAcceptConnection(generation: generation)
+            guard canAccept else {
+                mobileHostLog.info("mobile host rejected stale listener connection")
+                connection.cancel()
+                MobileHostRequestActivity.endConnection()
+                return
+            }
+
+            let id = UUID()
+            let session = MobileHostConnection(
+                id: id,
+                connection: connection,
+                authorizeRequest: { request in
+                    if !Self.requiresAuthorization(method: request.method) {
+                        return nil
+                    }
+                    return await MobileHostService.shared.authorizationError(for: request)
+                },
+                onAuthorizedRequest: { request in
+                    guard let clientID = Self.clientID(from: request.params) else {
+                        return
+                    }
+                    await MobileHostService.shared.recordClientID(clientID, for: id)
+                },
+                handleRequest: { request in
+                    if request.method == "mobile.host.status" {
+                        return MobileHostPublicStatusCache.result()
+                    }
+                    return await TerminalController.shared.mobileHostHandleRPC(request)
+                },
+                onClose: { id in
+                    MobileHostConnectionRegistry.shared.remove(id: id)
+                    await MobileHostService.shared.removeConnection(id: id)
+                }
+            )
+            guard MobileHostConnectionRegistry.shared.insert(
+                session,
+                id: id,
+                limit: Self.maximumActiveConnectionCount
+            ) else {
+                mobileHostLog.error("mobile host rejected connection because active connection limit was reached")
+                connection.cancel()
+                MobileHostRequestActivity.endConnection()
+                return
+            }
             await session.start()
         }
+    }
+
+    private func canAcceptConnection(generation: UUID) -> Bool {
+        listener != nil && generation == listenerGeneration
     }
 
     func createAttachTicket(
@@ -768,7 +784,7 @@ private actor MobileHostStackAuthVerifier {
             throw MobileHostAuthorizationError.missingStackTokens
         }
 
-        let cacheKey = accessToken
+        let cacheKey = Self.cacheKey(for: accessToken)
         let now = Date()
         let remoteUserID: String
         cache = cache.filter { $0.value.expiresAt > now }
@@ -799,6 +815,11 @@ private actor MobileHostStackAuthVerifier {
             localUserID: localUserID,
             remoteUserID: remoteUserID
         )
+    }
+
+    private static func cacheKey(for accessToken: String) -> String {
+        let digest = SHA256.hash(data: Data(accessToken.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     private static func withVerificationTimeout<T: Sendable>(
@@ -880,7 +901,7 @@ actor MobileHostConnection {
     private let onClose: @Sendable (UUID) async -> Void
     private var receiveBuffer = Data()
     private var firstFrameTimeoutTask: Task<Void, Never>?
-    private var idleTimeoutTimer: DispatchSourceTimer?
+    private var idleTimeoutTask: Task<Void, Never>?
     private var didDecodeFirstFrame = false
     private var isClosed = false
 
@@ -922,8 +943,8 @@ actor MobileHostConnection {
         isClosed = true
         firstFrameTimeoutTask?.cancel()
         firstFrameTimeoutTask = nil
-        idleTimeoutTimer?.cancel()
-        idleTimeoutTimer = nil
+        idleTimeoutTask?.cancel()
+        idleTimeoutTask = nil
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
         connection.stateUpdateHandler = nil
         connection.cancel()
@@ -961,8 +982,8 @@ actor MobileHostConnection {
         }
 
         if let data, !data.isEmpty {
-            idleTimeoutTimer?.cancel()
-            idleTimeoutTimer = nil
+            idleTimeoutTask?.cancel()
+            idleTimeoutTask = nil
             guard receiveBuffer.count + data.count <= Self.maximumReceiveBufferByteCount else {
                 _ = await sendResponse(
                     MobileHostRPCEnvelope.error(
@@ -1037,16 +1058,14 @@ actor MobileHostConnection {
         guard idleTimeoutNanoseconds > 0, didDecodeFirstFrame, !isClosed else {
             return
         }
-        idleTimeoutTimer?.cancel()
-        let timeoutNanoseconds = min(idleTimeoutNanoseconds, UInt64(Int.max))
-        let timer = DispatchSource.makeTimerSource(queue: callbackQueue)
-        timer.schedule(deadline: .now() + .nanoseconds(Int(timeoutNanoseconds)))
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            Task { await self.closeIfIdleAfterFrame() }
+        idleTimeoutTask?.cancel()
+        let timeoutNanoseconds = idleTimeoutNanoseconds
+        idleTimeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                await self?.closeIfIdleAfterFrame()
+            } catch {}
         }
-        idleTimeoutTimer = timer
-        timer.resume()
     }
 
     private func closeIfIdleAfterFrame() {
@@ -1082,7 +1101,12 @@ actor MobileHostConnection {
     }
 
     private static func isInteractiveMobileRequest(_ method: String) -> Bool {
-        true
+        switch method {
+        case "mobile.host.status", "mobile.terminal.snapshot", "terminal.snapshot":
+            return false
+        default:
+            return true
+        }
     }
 
     private func sendResponse(_ response: Data) async -> Bool {

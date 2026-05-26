@@ -93,6 +93,25 @@ import Testing
     }
 }
 
+@Test func pairingPayloadDirectDecodeRejectsExpiredPayloads() throws {
+    let json = """
+    {
+      "version": 1,
+      "mac_device_id": "mac-1",
+      "host": "100.64.1.2",
+      "port": 49831,
+      "expires_at": "2001-01-01T00:00:00Z",
+      "transport": "tailscale"
+    }
+    """
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    #expect(throws: MobileSyncPairingPayloadError.expired) {
+        _ = try decoder.decode(MobileSyncPairingPayload.self, from: Data(json.utf8))
+    }
+}
+
 @Test func pairingPayloadInitializerRejectsExpiredPayloads() {
     do {
         _ = try MobileSyncPairingPayload(

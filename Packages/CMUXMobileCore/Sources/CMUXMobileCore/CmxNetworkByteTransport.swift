@@ -398,9 +398,6 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     private func handleSend(operationID: UUID, errorDescription: String?) {
         _ = consumeCancelledOperation(operationID)
         guard let pending = sendContinuation, pending.id == operationID else {
-            if let errorDescription {
-                failTransport(.sendFailed(errorDescription))
-            }
             return
         }
         sendContinuation = nil
@@ -424,6 +421,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         cancelledOperationIDs.removeAll()
         receiveBuffer.removeAll()
         receiveInFlightOperationID = nil
+        connection.stateUpdateHandler = nil
         connection.cancel()
         resumeConnectContinuations(throwing: error)
         resumeReceiveContinuation(throwing: error)
@@ -484,8 +482,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     private func scheduleConnectTimeout() {
         cancelConnectTimeout()
         let timer = DispatchSource.makeTimerSource(queue: callbackQueue)
-        let timeout = min(connectTimeoutNanoseconds, UInt64(Int.max))
-        timer.schedule(deadline: .now() + .nanoseconds(Int(timeout)))
+        timer.schedule(deadline: .now() + dispatchTimeoutInterval(for: connectTimeoutNanoseconds))
         timer.setEventHandler { [weak self] in
             guard let self else {
                 return
@@ -561,6 +558,13 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     }
 }
 
+private func dispatchTimeoutInterval(for nanoseconds: UInt64) -> DispatchTimeInterval {
+    let wholeMilliseconds = nanoseconds / 1_000_000
+    let roundedMilliseconds = wholeMilliseconds + (nanoseconds % 1_000_000 == 0 ? 0 : 1)
+    let milliseconds = max(1, roundedMilliseconds)
+    return .milliseconds(Int(min(milliseconds, UInt64(Int.max))))
+}
+
 private enum CmxNetworkConnectionEvent: Sendable {
     case ready
     case waiting(String)
@@ -587,5 +591,16 @@ private enum CmxNetworkConnectionEvent: Sendable {
 }
 
 private func cmxNetworkErrorDescription(_ error: NWError) -> String {
-    String(describing: error)
+    switch error {
+    case .dns:
+        return "DNS lookup failed."
+    case .posix:
+        return "Network connection failed."
+    case .tls:
+        return "Secure connection failed."
+    case .wifiAware:
+        return "Network connection failed."
+    @unknown default:
+        return "Network connection failed."
+    }
 }

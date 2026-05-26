@@ -115,6 +115,9 @@ struct CMUXMobileRootView: View {
                 await store.connectPairingURL(rawURL)
             }
         }
+        .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
+            syncShellAuthentication(isAuthenticated, isRestoringSession: isRestoringSession)
+        }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
                 isShowingAddDeviceSheet = false
@@ -137,9 +140,13 @@ struct CMUXMobileRootView: View {
         )
     }
 
-    private func syncShellAuthentication(_ isAuthenticated: Bool) {
+    private func syncShellAuthentication(
+        _ isAuthenticated: Bool,
+        isRestoringSession: Bool? = nil
+    ) {
         MobileRootAuthGate.syncShellAuthentication(
             stackAuthenticated: isAuthenticated,
+            isRestoringSession: isRestoringSession ?? authManager.isRestoringSession,
             store: store
         )
     }
@@ -234,11 +241,12 @@ enum MobileRootAuthGate {
     @MainActor
     static func syncShellAuthentication(
         stackAuthenticated: Bool,
+        isRestoringSession: Bool = false,
         store: CMUXMobileShellStore
     ) {
         if stackAuthenticated {
             store.signIn()
-        } else {
+        } else if !isRestoringSession {
             store.signOut()
         }
     }
@@ -3682,22 +3690,47 @@ private struct KeyboardOverlapReporter: UIViewRepresentable {
             if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
                 keyboardFrame = frame
             }
-            updateOverlap()
+            let userInfo = notification.userInfo
+            let duration = (userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0
+            let curveRaw = (userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? -1
+            updateOverlap(animationDuration: duration, curveRaw: curveRaw)
         }
 
-        func updateOverlap() {
+        func updateOverlap(animationDuration: Double = 0, curveRaw: Int = -1) {
+            let nextOverlap = computeOverlap()
+            if animationDuration > 0 {
+                withAnimation(Self.animation(duration: animationDuration, curveRaw: curveRaw)) {
+                    overlap.wrappedValue = nextOverlap
+                }
+            } else {
+                overlap.wrappedValue = nextOverlap
+            }
+        }
+
+        private func computeOverlap() -> CGFloat {
             guard let view,
                   let window = view.window,
                   keyboardFrame != .zero else {
-                overlap.wrappedValue = 0
-                return
+                return 0
             }
             let localKeyboardFrame = window.convert(keyboardFrame, from: nil)
             let rawOverlap = max(0, window.bounds.maxY - localKeyboardFrame.minY)
             let visibleShortSide = min(window.bounds.width, window.bounds.height)
             let maximumUsableOverlap = visibleShortSide * 0.46
-            let nextOverlap = min(rawOverlap, maximumUsableOverlap)
-            overlap.wrappedValue = nextOverlap
+            return min(rawOverlap, maximumUsableOverlap)
+        }
+
+        private static func animation(duration: Double, curveRaw: Int) -> Animation {
+            switch curveRaw {
+            case 0: return .easeInOut(duration: duration)
+            case 1: return .easeIn(duration: duration)
+            case 2: return .easeOut(duration: duration)
+            case 3: return .linear(duration: duration)
+            default:
+                // UIKit's private keyboard curve (raw 7) lands closest to a
+                // cubic ease with these control points.
+                return .timingCurve(0.17, 0.17, 0.0, 1.0, duration: duration)
+            }
         }
     }
 }
