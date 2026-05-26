@@ -66,8 +66,15 @@ enum SidebarWorkspaceScrollLayout {
         rowsHeight: CGFloat?,
         rowsLayoutCompleteness: SidebarWorkspaceRowsLayoutCompleteness = .complete
     ) -> CGFloat {
-        guard let rowsHeight, rowsLayoutCompleteness == .complete else { return 0 }
-        return max(0, contentMinHeight - max(0, rowsHeight))
+        switch rowsLayoutCompleteness {
+        case .empty:
+            return max(0, contentMinHeight - max(0, rowsHeight ?? 0))
+        case .unmeasured, .partial:
+            return 0
+        case .complete:
+            guard let rowsHeight, rowsHeight > 0 else { return 0 }
+            return max(0, contentMinHeight - rowsHeight)
+        }
     }
 
     nonisolated static func contentOverflows(
@@ -84,8 +91,9 @@ enum SidebarWorkspaceScrollLayout {
         rowsLayoutCompleteness: SidebarWorkspaceRowsLayoutCompleteness = .complete,
         tolerance: CGFloat = 1
     ) -> Bool {
-        guard let rowsHeight else { return false }
         switch rowsLayoutCompleteness {
+        case .empty:
+            return false
         case .unmeasured:
             return false
         case .partial:
@@ -93,6 +101,7 @@ enum SidebarWorkspaceScrollLayout {
         case .complete:
             break
         }
+        guard let rowsHeight, rowsHeight > 0 else { return true }
         return contentOverflows(
             contentHeight: rowsHeight,
             viewportHeight: contentMinHeight,
@@ -104,13 +113,14 @@ enum SidebarWorkspaceScrollLayout {
         laidOutRowIds: Set<ID>,
         workspaceIds: [ID]
     ) -> SidebarWorkspaceRowsLayoutCompleteness {
-        guard !workspaceIds.isEmpty else { return .complete }
+        guard !workspaceIds.isEmpty else { return .empty }
         guard !laidOutRowIds.isEmpty else { return .unmeasured }
         return laidOutRowIds.isSuperset(of: workspaceIds) ? .complete : .partial
     }
 }
 
 enum SidebarWorkspaceRowsLayoutCompleteness: Equatable {
+    case empty
     case unmeasured
     case partial
     case complete

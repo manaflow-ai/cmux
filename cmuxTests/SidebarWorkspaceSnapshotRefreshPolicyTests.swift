@@ -213,7 +213,8 @@ final class SidebarWorkspaceScrollLayoutTests: XCTestCase {
         let contentMinHeight: CGFloat = 480
         let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
             contentMinHeight: contentMinHeight,
-            rowsHeight: nil
+            rowsHeight: nil,
+            rowsLayoutCompleteness: .unmeasured
         )
 
         XCTAssertEqual(emptyAreaHeight, 0, accuracy: 0.001)
@@ -261,6 +262,13 @@ final class SidebarWorkspaceScrollLayoutTests: XCTestCase {
         XCTAssertEqual(
             SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
                 laidOutRowIds: Set<String>(),
+                workspaceIds: []
+            ),
+            .empty
+        )
+        XCTAssertEqual(
+            SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
+                laidOutRowIds: Set<String>(),
                 workspaceIds: ["a"]
             ),
             .unmeasured
@@ -278,6 +286,48 @@ final class SidebarWorkspaceScrollLayoutTests: XCTestCase {
                 workspaceIds: ["a", "b"]
             ),
             .complete
+        )
+    }
+
+    func testZeroHeightCompleteRowsCollapseEmptyAreaAndShowScroller() {
+        let contentMinHeight: CGFloat = 480
+
+        XCTAssertEqual(
+            SidebarWorkspaceScrollLayout.emptyAreaHeight(
+                contentMinHeight: contentMinHeight,
+                rowsHeight: 0,
+                rowsLayoutCompleteness: .complete
+            ),
+            0,
+            accuracy: 0.001
+        )
+        XCTAssertTrue(
+            SidebarWorkspaceScrollLayout.rowsOverflow(
+                rowsHeight: 0,
+                contentMinHeight: contentMinHeight,
+                rowsLayoutCompleteness: .complete
+            )
+        )
+    }
+
+    func testEmptyWorkspaceRowsCanFillAvailableSidebarSpace() {
+        let contentMinHeight: CGFloat = 480
+
+        XCTAssertEqual(
+            SidebarWorkspaceScrollLayout.emptyAreaHeight(
+                contentMinHeight: contentMinHeight,
+                rowsHeight: 0,
+                rowsLayoutCompleteness: .empty
+            ),
+            contentMinHeight,
+            accuracy: 0.001
+        )
+        XCTAssertFalse(
+            SidebarWorkspaceScrollLayout.rowsOverflow(
+                rowsHeight: 0,
+                contentMinHeight: contentMinHeight,
+                rowsLayoutCompleteness: .empty
+            )
         )
     }
 
