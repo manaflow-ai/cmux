@@ -104,6 +104,30 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertNil(SyntaxLanguageDetector.language(for: url))
     }
 
+    func testSyntaxLanguageDetectorUsesCurrentPanelTextSizeForUnsavedContent() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("swift")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try "let value = 1\n".write(to: url, atomically: true, encoding: .utf8)
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+        XCTAssertNotNil(SyntaxLanguageDetector.language(
+            for: url,
+            currentContentUTF8ByteCount: panel.textContentUTF8ByteCount
+        ))
+
+        panel.updateTextContent(String(repeating: "a", count: 501_000))
+
+        XCTAssertEqual(panel.textContentUTF8ByteCount, 501_000)
+        XCTAssertNil(SyntaxLanguageDetector.language(
+            for: url,
+            currentContentUTF8ByteCount: panel.textContentUTF8ByteCount
+        ))
+    }
+
     func testExtensionlessUTF16TextWithBOMResolvesAsTextAfterSniffing() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

@@ -26,8 +26,6 @@ struct HighlightedFilePreviewRouter: View {
     let themeForegroundColor: NSColor
     let drawsBackground: Bool
 
-    @State private var language: CodeLanguage?
-
     init(
         panel: FilePreviewPanel,
         isVisibleInUI: Bool,
@@ -40,11 +38,13 @@ struct HighlightedFilePreviewRouter: View {
         self.themeBackgroundColor = themeBackgroundColor
         self.themeForegroundColor = themeForegroundColor
         self.drawsBackground = drawsBackground
-        self._language = State(initialValue: SyntaxLanguageDetector.language(for: panel.fileURL))
     }
 
     var body: some View {
-        if let language {
+        if let language = SyntaxLanguageDetector.language(
+            for: panel.fileURL,
+            currentContentUTF8ByteCount: panel.textContentUTF8ByteCount
+        ) {
             HighlightedFilePreviewEditor(
                 panel: panel,
                 isVisibleInUI: isVisibleInUI,

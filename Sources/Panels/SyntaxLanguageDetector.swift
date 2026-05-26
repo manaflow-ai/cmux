@@ -52,8 +52,12 @@ enum SyntaxLanguageDetector {
     private static let cacheLock = NSLock()
     nonisolated(unsafe) private static var cache: [String: CacheEntry] = [:]
 
-    static func language(for url: URL) -> CodeLanguage? {
+    static func language(for url: URL, currentContentUTF8ByteCount: Int? = nil) -> CodeLanguage? {
         guard isHighlightCandidate(url) else { return nil }
+        if let currentContentUTF8ByteCount,
+           currentContentUTF8ByteCount > maxHighlightBytes {
+            return nil
+        }
 
         let key = url.standardizedFileURL.path
         let metadata = metadata(for: url)
