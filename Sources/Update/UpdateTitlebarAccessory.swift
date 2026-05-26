@@ -2266,7 +2266,6 @@ private struct NotificationsPopoverView: View {
                         }
                     }
                 }
-                .padding(.vertical, 2)
             }
         }
     }
@@ -2442,7 +2441,7 @@ private struct NotificationPopoverRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(notification.title)
-                        .font(.system(size: 12.5, weight: notification.isRead ? .regular : .semibold))
+                        .font(.system(size: 12.5, weight: .semibold))
                         .foregroundColor(.primary)
                         .lineLimit(1)
                     Spacer(minLength: 0)
