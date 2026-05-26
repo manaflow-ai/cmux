@@ -1069,9 +1069,11 @@ extension Workspace {
         // from the Bonsplit layout tree.
         let unplacedSnapshots = panelSnapshots.filter { oldToNewPanelIds[$0.id] == nil }
         guard !unplacedSnapshots.isEmpty else { return }
-        let snapshotPanelIds = Set(panelSnapshots.map(\.id))
+        let placedOldPanelIds = Set(oldToNewPanelIds.keys)
+        // Prefer a pane where the layout did not successfully place any panel, so
+        // recovered panels do not crowd an already-restored tab stack.
         let fallbackPaneId = leafEntries.first { entry in
-            !entry.snapshot.panelIds.contains { snapshotPanelIds.contains($0) }
+            !entry.snapshot.panelIds.contains { placedOldPanelIds.contains($0) }
         }?.paneId ?? leafEntries.first?.paneId ?? bonsplitController.allPaneIds.first
         guard let fallbackPaneId else { return }
 
