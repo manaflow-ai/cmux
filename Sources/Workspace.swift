@@ -10936,18 +10936,22 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func clearSidebarPullRequestMetadata() {
+        if !panelPullRequests.isEmpty {
+            panelPullRequests.removeAll()
+        }
+        if pullRequest != nil {
+            pullRequest = nil
+        }
+    }
+
     func clearSidebarGitMetadata() {
         if !panelGitBranches.isEmpty {
             panelGitBranches.removeAll()
         }
-        if !panelPullRequests.isEmpty {
-            panelPullRequests.removeAll()
-        }
+        clearSidebarPullRequestMetadata()
         if gitBranch != nil {
             gitBranch = nil
-        }
-        if pullRequest != nil {
-            pullRequest = nil
         }
     }
 

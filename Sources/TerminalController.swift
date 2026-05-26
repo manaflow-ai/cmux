@@ -19687,7 +19687,7 @@ class TerminalController {
             options: parsed.options,
             missingPanelUsage: "report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--branch=<name>] [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
-            guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+            guard SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard) else {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }
@@ -19924,7 +19924,7 @@ class TerminalController {
             options: parsed.options,
             missingPanelUsage: "report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
-            guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+            guard SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard) else {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }
