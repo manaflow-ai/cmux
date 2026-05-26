@@ -651,7 +651,7 @@ func TestCLINotifyOutsideTmuxOmitsPreferTTY(t *testing.T) {
 	t.Setenv("TTY", "/dev/null")
 	t.Setenv("SSH_TTY", "/dev/zero")
 
-	code := runCLI([]string{"--socket", sockPath, "--json", "notify", "--title", "Local"})
+	code := runCLI([]string{"--socket", sockPath, "--json", "notify"})
 	if code != 0 {
 		t.Fatalf("notify should return 0, got %d", code)
 	}
@@ -661,6 +661,9 @@ func TestCLINotifyOutsideTmuxOmitsPreferTTY(t *testing.T) {
 		params, _ := req["params"].(map[string]any)
 		if _, ok := params["prefer_tty"]; ok {
 			t.Fatalf("expected prefer_tty to be omitted outside tmux, got %v", params["prefer_tty"])
+		}
+		if _, ok := params["title"]; ok {
+			t.Fatalf("expected unset title to be omitted, got %v", params["title"])
 		}
 		if _, ok := params["subtitle"]; ok {
 			t.Fatalf("expected unset subtitle to be omitted, got %v", params["subtitle"])
