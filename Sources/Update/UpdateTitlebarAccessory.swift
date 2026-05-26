@@ -2141,8 +2141,6 @@ private struct NotificationsPopoverView: View {
     @AppStorage("cmux.notifications.popover.height")
     private var savedHeight: Double = Double(NotificationsPopoverMetrics.defaultHeight)
 
-    @State private var dragStartSize: CGSize = .zero
-
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -2150,6 +2148,8 @@ private struct NotificationsPopoverView: View {
             content
         }
         .frame(width: clampedWidth, height: clampedHeight)
+        .animation(nil, value: clampedWidth)
+        .animation(nil, value: clampedHeight)
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .bottomTrailing) {
             resizeHandle
@@ -2164,30 +2164,22 @@ private struct NotificationsPopoverView: View {
         min(NotificationsPopoverMetrics.maxHeight, max(NotificationsPopoverMetrics.minHeight, CGFloat(savedHeight)))
     }
 
-    // Invisible bottom-right corner drag region. NSPopover has no native resize chrome, so
-    // this mimics how AppKit windows resize: hit zone in the corner, cursor changes on hover.
+    // Invisible bottom-right corner resize region. NSPopover has no native resize chrome and
+    // there's no first-class SwiftUI resize API for it. SwiftUI's `DragGesture` reports
+    // translations in a local coordinate space that is literally being resized under the
+    // cursor as the user drags, which produces dimension oscillation. We use an AppKit
+    // representable that tracks `NSEvent.mouseLocation` in stable global screen coordinates.
     private var resizeHandle: some View {
-        Color.clear
-            .frame(width: 16, height: 16)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        if dragStartSize == .zero {
-                            dragStartSize = CGSize(width: clampedWidth, height: clampedHeight)
-                        }
-                        let newW = dragStartSize.width + value.translation.width
-                        let newH = dragStartSize.height + value.translation.height
-                        savedWidth = Double(min(NotificationsPopoverMetrics.maxWidth, max(NotificationsPopoverMetrics.minWidth, newW)))
-                        savedHeight = Double(min(NotificationsPopoverMetrics.maxHeight, max(NotificationsPopoverMetrics.minHeight, newH)))
-                    }
-                    .onEnded { _ in
-                        dragStartSize = .zero
-                    }
-            )
-            .background(
-                ResizeCursorRepresentable()
-            )
+        ResizeGripperRepresentable(
+            onBegin: { (CGFloat(savedWidth), CGFloat(savedHeight)) },
+            onDrag: { startW, startH, dx, dy in
+                let newW = startW + dx
+                let newH = startH + dy
+                savedWidth = Double(min(NotificationsPopoverMetrics.maxWidth, max(NotificationsPopoverMetrics.minWidth, newW)))
+                savedHeight = Double(min(NotificationsPopoverMetrics.maxHeight, max(NotificationsPopoverMetrics.minHeight, newH)))
+            }
+        )
+        .frame(width: 16, height: 16)
     }
 
     private var header: some View {
@@ -2477,22 +2469,56 @@ private struct NotificationPopoverRow: View {
     }
 }
 
-private struct ResizeCursorRepresentable: NSViewRepresentable {
-    func makeNSView(context: Context) -> ResizeCursorNSView {
-        ResizeCursorNSView()
+private struct ResizeGripperRepresentable: NSViewRepresentable {
+    let onBegin: () -> (CGFloat, CGFloat)
+    let onDrag: (CGFloat, CGFloat, CGFloat, CGFloat) -> Void
+
+    func makeNSView(context: Context) -> ResizeGripperNSView {
+        ResizeGripperNSView()
     }
-    func updateNSView(_ nsView: ResizeCursorNSView, context: Context) {}
+
+    func updateNSView(_ nsView: ResizeGripperNSView, context: Context) {
+        nsView.onBegin = onBegin
+        nsView.onDrag = onDrag
+    }
 }
 
-private final class ResizeCursorNSView: NSView {
+private final class ResizeGripperNSView: NSView {
+    var onBegin: () -> (CGFloat, CGFloat) = { (0, 0) }
+    var onDrag: (CGFloat, CGFloat, CGFloat, CGFloat) -> Void = { _, _, _, _ in }
+
+    private var pressLocation: NSPoint?
+    private var pressStartWidth: CGFloat = 0
+    private var pressStartHeight: CGFloat = 0
+
     override func resetCursorRects() {
         super.resetCursorRects()
-        // macOS lacks a built-in diagonal resize cursor as a public API; resizeLeftRight is
-        // the closest standard cursor and matches what AppKit uses on the bottom edge.
+        // No public diagonal resize cursor; resizeLeftRight is the closest standard NSCursor
+        // and matches AppKit's edge-resize feel.
         addCursorRect(bounds, cursor: NSCursor.resizeLeftRight)
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func mouseDown(with event: NSEvent) {
+        // NSEvent.mouseLocation is screen-coordinate and stable while the popover resizes.
+        pressLocation = NSEvent.mouseLocation
+        let (w, h) = onBegin()
+        pressStartWidth = w
+        pressStartHeight = h
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let start = pressLocation else { return }
+        let current = NSEvent.mouseLocation
+        let dx = current.x - start.x
+        // Screen-y grows upward; popover should grow as the pointer moves down (toward
+        // smaller screen-y), so invert.
+        let dy = start.y - current.y
+        onDrag(pressStartWidth, pressStartHeight, dx, dy)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        pressLocation = nil
+    }
 }
 
 private struct HoverTrackingRepresentable: NSViewRepresentable {
