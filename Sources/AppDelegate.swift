@@ -7658,7 +7658,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         controller.shouldClose = { [weak self, weak window] in
             if isQuickTerminal,
                self?.isTerminatingApp == false,
-               let quickTerminalWindow = window as? CmuxMainWindow {
+               let quickTerminalWindow = window {
                 self?.quickTerminalController.hideFromCloseShortcut(quickTerminalWindow)
                 return false
             }
