@@ -56,23 +56,27 @@ final class SessionIndexViewTests: XCTestCase {
     }
 
     func testLargeTextSelectionPolicyCountsCJKCharactersNotUTF8Bytes() {
-        let text = String(repeating: "日本語", count: 34)
-
+        let text = String(repeating: "日", count: 40)
         XCTAssertEqual(
             LargeTextSelectionPolicy.mode(
                 for: text,
                 charactersPerWrappedLine: 100,
                 maximumLineFragments: 1
             ),
-            .copyOnly
+            .liveSelection
         )
+    }
+
+    func testLargeTextSelectionPolicyAccountsForWideCJKWrappedLines() {
+        let text = String(repeating: "日", count: 120)
+
         XCTAssertEqual(
             LargeTextSelectionPolicy.mode(
                 for: text,
-                charactersPerWrappedLine: 120,
-                maximumLineFragments: 1
+                charactersPerWrappedLine: 100,
+                maximumLineFragments: 2
             ),
-            .liveSelection
+            .copyOnly
         )
     }
 
