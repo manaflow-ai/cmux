@@ -56,6 +56,10 @@ final class SessionIndexRipgrepCancellation: @unchecked Sendable {
     }
 }
 
+/// Bridges `Process` callback APIs into an async tmux discovery command.
+/// `terminationHandler`, `readabilityHandler`, and `onCancel` are synchronous
+/// callbacks that cannot hop through an actor before deciding whether to resume
+/// the continuation, so this keeps the small shared state behind `lock`.
 final class SessionIndexTmuxCommandState: @unchecked Sendable {
     private let lock = NSLock()
     private let process: Process
