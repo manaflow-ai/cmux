@@ -13673,7 +13673,7 @@ private struct TabItemView: View, Equatable {
         if let configuredSelectionForegroundNSColor {
             return configuredSelectionForegroundNSColor.withAlphaComponent(max(0, min(opacity, 1)))
         }
-        sidebarSelectedWorkspaceForegroundNSColor(
+        return sidebarSelectedWorkspaceForegroundNSColor(
             on: selectedWorkspaceBackgroundNSColor,
             opacity: opacity
         )
