@@ -319,8 +319,13 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(params["diff_viewer_token"] as? String, viewerURL.host)
         let viewerFileURL = try diffViewerHTMLFileURL(from: params)
         defer { try? FileManager.default.removeItem(at: viewerFileURL) }
+        let patchSidecarURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
+        defer { try? FileManager.default.removeItem(at: patchSidecarURL) }
 
         let html = try String(contentsOf: viewerFileURL, encoding: .utf8)
+        let patchText = try String(contentsOf: patchSidecarURL, encoding: .utf8)
+        let viewerPayload = try diffViewerPayload(from: html)
+        let files = try XCTUnwrap(params["diff_viewer_files"] as? [[String: Any]])
         XCTAssertTrue(html.contains("Review diff"), html)
         XCTAssertTrue(html.contains("id=\"files-sidebar\""), html)
         XCTAssertTrue(html.contains("right: 0;"), html)
@@ -347,8 +352,16 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("Unit Dark"), html)
         XCTAssertTrue(html.contains("#101820"), html)
         XCTAssertTrue(html.contains("#f8f8f2"), html)
-        XCTAssertTrue(html.contains("hello.txt"), html)
-        XCTAssertTrue(html.contains("<\\/script> marker"), html)
+        XCTAssertEqual(viewerPayload["patchURL"] as? String, "./\(patchSidecarURL.lastPathComponent)")
+        XCTAssertNil(viewerPayload["patch"])
+        XCTAssertTrue(files.contains { file in
+            file["request_path"] as? String == "/\(patchSidecarURL.lastPathComponent)" &&
+                file["mime_type"] as? String == "text/x-diff"
+        })
+        XCTAssertFalse(html.contains("hello.txt"), html)
+        XCTAssertFalse(html.contains("<\\/script> marker"), html)
+        XCTAssertTrue(patchText.contains("hello.txt"), patchText)
+        XCTAssertTrue(patchText.contains("literal </script> marker"), patchText)
         XCTAssertTrue(html.contains("\"layout\":\"unified\""), html)
         XCTAssertFalse(html.contains("git apply <<'PATCH'"), html)
 

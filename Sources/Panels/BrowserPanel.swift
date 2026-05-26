@@ -2322,6 +2322,8 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
     private let lock = NSLock()
     private var sessions: [String: Session] = [:]
+    private var activeStreamTasks: Set<ObjectIdentifier> = []
+    private let streamQueue = DispatchQueue(label: "com.manaflow.cmux.diff-viewer-stream", qos: .userInitiated)
     private let maxSessionAge: TimeInterval = 24 * 60 * 60
     private let trustedRootURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
         .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
@@ -2405,6 +2407,11 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             return
         }
 
+        if file.mimeType == "text/x-diff" {
+            startStreamingFile(file, requestURL: requestURL, urlSchemeTask: urlSchemeTask)
+            return
+        }
+
         do {
             let data = try Data(contentsOf: file.fileURL)
             let response = HTTPURLResponse(
@@ -2426,7 +2433,12 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
     }
 
-    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
+    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+        let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
+        lock.lock()
+        activeStreamTasks.remove(taskID)
+        lock.unlock()
+    }
 
     static func registeredFile(from object: [String: Any]) -> RegisteredFile? {
         guard let requestPath = object["request_path"] as? String,
@@ -2469,7 +2481,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     private static func isAllowedMimeType(_ mimeType: String) -> Bool {
-        mimeType == "text/html" || mimeType == "text/javascript"
+        mimeType == "text/html" || mimeType == "text/javascript" || mimeType == "text/x-diff"
     }
 
     private static func pathExtensionMatchesMimeType(path: String, mimeType: String) -> Bool {
@@ -2479,7 +2491,74 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         if mimeType == "text/javascript" {
             return path.hasSuffix(".mjs")
         }
+        if mimeType == "text/x-diff" {
+            return path.hasSuffix(".patch")
+        }
         return false
+    }
+
+    private func startStreamingFile(
+        _ file: RegisteredFile,
+        requestURL: URL,
+        urlSchemeTask: WKURLSchemeTask
+    ) {
+        let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
+        lock.lock()
+        activeStreamTasks.insert(taskID)
+        lock.unlock()
+
+        streamQueue.async { [weak self] in
+            guard let self else { return }
+            do {
+                let response = HTTPURLResponse(
+                    url: requestURL,
+                    statusCode: 200,
+                    httpVersion: "HTTP/1.1",
+                    headerFields: self.responseHeaders(for: file)
+                ) ?? URLResponse(
+                    url: requestURL,
+                    mimeType: file.mimeType,
+                    expectedContentLength: -1,
+                    textEncodingName: "utf-8"
+                )
+
+                guard self.isStreamTaskActive(taskID) else { return }
+                urlSchemeTask.didReceive(response)
+
+                let handle = try FileHandle(forReadingFrom: file.fileURL)
+                defer {
+                    try? handle.close()
+                }
+
+                while self.isStreamTaskActive(taskID) {
+                    let data = try handle.read(upToCount: 64 * 1024) ?? Data()
+                    if data.isEmpty {
+                        break
+                    }
+                    urlSchemeTask.didReceive(data)
+                }
+
+                guard self.finishStreamTask(taskID) else { return }
+                urlSchemeTask.didFinish()
+            } catch {
+                guard self.finishStreamTask(taskID) else { return }
+                urlSchemeTask.didFailWithError(error)
+            }
+        }
+    }
+
+    private func isStreamTaskActive(_ taskID: ObjectIdentifier) -> Bool {
+        lock.lock()
+        let active = activeStreamTasks.contains(taskID)
+        lock.unlock()
+        return active
+    }
+
+    private func finishStreamTask(_ taskID: ObjectIdentifier) -> Bool {
+        lock.lock()
+        let active = activeStreamTasks.remove(taskID) != nil
+        lock.unlock()
+        return active
     }
 
     private func isTrustedDiffViewerFileURL(_ url: URL) -> Bool {

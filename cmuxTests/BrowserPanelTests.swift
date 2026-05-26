@@ -314,19 +314,24 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         </body>
         </html>
         """.write(to: indexURL, atomically: true, encoding: .utf8)
+        let patchURL = trustedRootURL.appendingPathComponent("index.patch", isDirectory: false)
+        try "diff --git a/a b/a\n".write(to: patchURL, atomically: true, encoding: .utf8)
 
         try CmuxDiffViewerURLSchemeHandler.shared.register(
             token: token,
             files: [
                 .init(requestPath: "/index.html", fileURL: indexURL, mimeType: "text/html"),
                 .init(requestPath: "/assets/mod.mjs", fileURL: assetURL, mimeType: "text/javascript"),
+                .init(requestPath: "/index.patch", fileURL: patchURL, mimeType: "text/x-diff"),
             ]
         )
 
         let allowedURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html"))
+        let allowedPatchURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.patch"))
         let blockedURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/not-allowed.html"))
         let queryURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html?copy=1"))
         XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedURL))
+        XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedPatchURL))
         XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: blockedURL))
         XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: queryURL))
 
@@ -383,6 +388,23 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
             token: token,
             files: [
                 .init(requestPath: "/link.html", fileURL: linkURL, mimeType: "text/html"),
+            ]
+        ))
+    }
+
+    func testDiffViewerSchemeRejectsMismatchedPatchMimeType() throws {
+        let token = UUID().uuidString.lowercased()
+        let trustedRootURL = trustedDiffViewerTestRoot()
+        let patchURL = trustedRootURL.appendingPathComponent("diff.patch", isDirectory: false)
+        try FileManager.default.createDirectory(at: trustedRootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: trustedRootURL) }
+
+        try "diff --git a/a b/a\n".write(to: patchURL, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try CmuxDiffViewerURLSchemeHandler.shared.register(
+            token: token,
+            files: [
+                .init(requestPath: "/diff.patch", fileURL: patchURL, mimeType: "text/html"),
             ]
         ))
     }

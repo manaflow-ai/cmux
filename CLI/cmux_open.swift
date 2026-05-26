@@ -3078,6 +3078,7 @@ extension CMUXCLI {
         </body>
         </html>
         """
+        try writeDiffViewerPatchSidecar("", for: url)
         try html.write(to: url, atomically: true, encoding: .utf8)
     }
 
@@ -3106,11 +3107,27 @@ extension CMUXCLI {
 
         for pageURL in pageURLs {
             try append(pageURL, mimeType: "text/html")
+            let patchURL = diffViewerPatchFileURL(for: pageURL)
+            if FileManager.default.fileExists(atPath: patchURL.path) {
+                try append(patchURL, mimeType: "text/x-diff")
+            }
         }
         for assetURL in assets.files {
             try append(assetURL, mimeType: "text/javascript")
         }
         return files
+    }
+
+    private func diffViewerPatchFileURL(for viewerURL: URL) -> URL {
+        viewerURL.deletingPathExtension().appendingPathExtension("patch")
+    }
+
+    private func diffViewerPatchURLString(for viewerURL: URL) -> String {
+        "./\(viewerURL.deletingPathExtension().lastPathComponent).patch"
+    }
+
+    private func writeDiffViewerPatchSidecar(_ patch: String, for viewerURL: URL) throws {
+        try patch.write(to: diffViewerPatchFileURL(for: viewerURL), atomically: true, encoding: .utf8)
     }
 
     private func writeDiffViewerHTML(
@@ -3162,9 +3179,10 @@ extension CMUXCLI {
         repoRoot: String? = nil,
         branchBaseRef: String? = nil
     ) throws {
+        try writeDiffViewerPatchSidecar(patch, for: viewerURL)
         let labels = DiffViewerLabels.localized()
         var payload: [String: Any] = [
-            "patch": patch,
+            "patchURL": diffViewerPatchURLString(for: viewerURL),
             "title": title,
             "sourceLabel": sourceLabel,
             "layout": layout,
@@ -3223,6 +3241,7 @@ extension CMUXCLI {
               --cmux-diff-selection-bg-light: #abd8ff;
               --cmux-diff-selection-bg-dark: #3f638b;
               --cmux-diff-ui-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+              --cmux-diff-ui-font-size: 12px;
               --cmux-diff-code-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
               --cmux-diff-font-size: 10px;
               --cmux-diff-line-height: 20px;
@@ -3260,7 +3279,7 @@ extension CMUXCLI {
               flex-direction: column;
               overflow: hidden;
               font-family: var(--cmux-diff-ui-font-family);
-              font-size: 13px;
+              font-size: var(--cmux-diff-ui-font-size);
               line-height: var(--cmux-diff-line-height);
             }
             #app {
@@ -3276,12 +3295,12 @@ extension CMUXCLI {
               flex: 0 0 auto;
               display: flex;
               align-items: center;
-              gap: 8px;
-              min-height: 38px;
-              padding: 5px 10px;
+              gap: 7px;
+              min-height: 34px;
+              padding: 4px 8px;
               border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 14%, transparent);
-              background: color-mix(in lab, var(--cmux-diff-bg) 97%, var(--cmux-diff-fg));
-              color: color-mix(in lab, var(--cmux-diff-fg) 82%, var(--cmux-diff-bg));
+              background: color-mix(in lab, var(--cmux-diff-bg) 98%, var(--cmux-diff-fg));
+              color: color-mix(in lab, var(--cmux-diff-fg) 76%, var(--cmux-diff-bg));
               z-index: 50;
             }
             .toolbar-left,
@@ -3289,11 +3308,11 @@ extension CMUXCLI {
             .toolbar-actions {
               display: flex;
               align-items: center;
-              gap: 8px;
+              gap: 6px;
               min-width: 0;
             }
             .toolbar-left {
-              flex: 0 1 34%;
+              flex: 0 1 36%;
             }
             .toolbar-middle {
               flex: 1 1 auto;
@@ -3307,18 +3326,25 @@ extension CMUXCLI {
             #base-select,
             #jump-select {
               appearance: none;
-              height: 28px;
+              height: 25px;
               min-width: 118px;
-              max-width: min(36vw, 360px);
-              padding: 0 26px 0 10px;
-              border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 18%, transparent);
-              border-radius: 6px;
+              max-width: min(30vw, 320px);
+              padding: 0 24px 0 9px;
+              border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 15%, transparent);
+              border-radius: 5px;
               background:
-                linear-gradient(45deg, transparent 50%, currentColor 50%) right 12px center / 5px 5px no-repeat,
-                linear-gradient(135deg, currentColor 50%, transparent 50%) right 7px center / 5px 5px no-repeat,
-                color-mix(in lab, var(--cmux-diff-bg) 94%, var(--cmux-diff-fg));
+                linear-gradient(45deg, transparent 50%, currentColor 50%) right 11px center / 4px 4px no-repeat,
+                linear-gradient(135deg, currentColor 50%, transparent 50%) right 7px center / 4px 4px no-repeat,
+                color-mix(in lab, var(--cmux-diff-bg) 97%, var(--cmux-diff-fg));
               color: inherit;
               font: inherit;
+            }
+            #source-select:hover,
+            #repo-select:hover,
+            #base-select:hover,
+            #jump-select:hover {
+              border-color: color-mix(in lab, var(--cmux-diff-fg) 24%, transparent);
+              background-color: color-mix(in lab, var(--cmux-diff-fg) 5%, transparent);
             }
             #source-select[hidden],
             #repo-select[hidden],
@@ -3327,7 +3353,7 @@ extension CMUXCLI {
               display: none;
             }
             #jump-select {
-              min-width: min(280px, 36vw);
+              min-width: min(250px, 30vw);
             }
             #repo-select {
               min-width: 132px;
@@ -3352,35 +3378,37 @@ extension CMUXCLI {
               overflow: hidden;
               text-overflow: ellipsis;
               white-space: nowrap;
-              color: color-mix(in lab, var(--cmux-diff-fg) 58%, var(--cmux-diff-bg));
+              color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
             }
             .toolbar-icon {
-              width: 30px;
-              height: 28px;
+              width: 27px;
+              height: 25px;
               display: inline-flex;
               align-items: center;
               justify-content: center;
               border: 1px solid transparent;
-              border-radius: 6px;
+              border-radius: 5px;
               background: transparent;
-              color: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
+              color: color-mix(in lab, var(--cmux-diff-fg) 60%, var(--cmux-diff-bg));
               padding: 0;
               cursor: pointer;
             }
             .toolbar-icon:hover,
-            .toolbar-icon[aria-pressed="true"],
             .toolbar-icon[aria-expanded="true"] {
-              border-color: color-mix(in lab, var(--cmux-diff-fg) 17%, transparent);
+              border-color: color-mix(in lab, var(--cmux-diff-fg) 14%, transparent);
               background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
               color: var(--cmux-diff-fg);
+            }
+            .toolbar-icon[aria-pressed="true"] {
+              color: color-mix(in lab, var(--cmux-diff-fg) 78%, var(--cmux-diff-bg));
             }
             .toolbar-icon[hidden] {
               display: none;
             }
             .toolbar-icon svg,
             .menu-item svg {
-              width: 17px;
-              height: 17px;
+              width: 16px;
+              height: 16px;
               display: block;
               fill: none;
               stroke: currentColor;
@@ -3398,8 +3426,8 @@ extension CMUXCLI {
               min-width: 246px;
               padding: 8px;
               border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
-              border-radius: 10px;
-              background: color-mix(in lab, var(--cmux-diff-bg) 91%, var(--cmux-diff-fg));
+              border-radius: 8px;
+              background: color-mix(in lab, var(--cmux-diff-bg) 94%, var(--cmux-diff-fg));
               box-shadow: 0 16px 34px color-mix(in lab, #000 28%, transparent);
               z-index: 100;
             }
@@ -3413,18 +3441,18 @@ extension CMUXCLI {
             }
             .menu-item {
               width: 100%;
-              min-height: 34px;
+              min-height: 31px;
               display: grid;
               grid-template-columns: 22px minmax(0, 1fr) 18px;
               align-items: center;
               gap: 10px;
               border: 0;
-              border-radius: 7px;
+              border-radius: 6px;
               background: transparent;
               color: color-mix(in lab, var(--cmux-diff-fg) 86%, var(--cmux-diff-bg));
               font: inherit;
               text-align: left;
-              padding: 0 8px;
+              padding: 0 7px;
             }
             .menu-item:hover:not(:disabled) {
               background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
@@ -3508,12 +3536,12 @@ extension CMUXCLI {
               display: flex;
               align-items: center;
               justify-content: space-between;
-              min-height: 32px;
+              min-height: 30px;
               gap: 8px;
-              padding: 0 8px 0 10px;
+              padding: 0 7px 0 10px;
               border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
               background: var(--cmux-diff-sidebar-bg);
-              color: color-mix(in lab, var(--cmux-diff-fg) 56%, var(--cmux-diff-bg));
+              color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
             }
             #files-title {
               display: inline-flex;
@@ -3522,16 +3550,16 @@ extension CMUXCLI {
               min-width: 0;
             }
             #file-search-toggle {
-              width: 26px;
-              height: 26px;
+              width: 24px;
+              height: 24px;
               flex: 0 0 auto;
               display: inline-flex;
               align-items: center;
               justify-content: center;
               border: 0;
-              border-radius: 6px;
+              border-radius: 5px;
               background: transparent;
-              color: color-mix(in lab, var(--cmux-diff-fg) 58%, var(--cmux-diff-bg));
+              color: color-mix(in lab, var(--cmux-diff-fg) 54%, var(--cmux-diff-bg));
               padding: 0;
             }
             #file-search-toggle:hover,
@@ -3563,7 +3591,7 @@ extension CMUXCLI {
               --trees-border-color-override: var(--cmux-diff-border);
               --trees-focus-ring-color-override: color-mix(in lab, var(--cmux-diff-accent) 72%, transparent);
               --trees-font-family-override: var(--cmux-diff-ui-font-family);
-              --trees-font-size-override: 13px;
+              --trees-font-size-override: var(--cmux-diff-ui-font-size);
               --trees-font-weight-semibold-override: 500;
               --trees-density-override: 0.82;
               --trees-item-padding-x-override: 7px;
@@ -3580,7 +3608,7 @@ extension CMUXCLI {
             }
             #files-footer {
               flex: 0 0 auto;
-              padding: 8px 10px 9px;
+              padding: 7px 10px 8px;
               border-top: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
               background: color-mix(in lab, var(--cmux-diff-bg) 97%, var(--cmux-diff-fg));
             }
@@ -3598,18 +3626,18 @@ extension CMUXCLI {
             }
             .file-entry {
               width: 100%;
-              min-height: 34px;
+              min-height: 30px;
               display: grid;
               grid-template-columns: 18px minmax(0, 1fr) auto;
               align-items: center;
               gap: 8px;
               border: 0;
-              border-radius: 7px;
+              border-radius: 6px;
               background: transparent;
               color: inherit;
               font: inherit;
               text-align: left;
-              padding: 4px 7px;
+              padding: 3px 7px;
             }
             .file-entry:hover,
             .file-entry[aria-current="true"] {
@@ -3777,6 +3805,8 @@ extension CMUXCLI {
             let codeView;
             let fileTree;
             let diffItems = [];
+            let fileTreeStatsByPath = new Map();
+            let patchTextPromise = { value: null };
             let activeFileId = "";
             let activeTreePath = "";
             let activeFileScrollFrame = { value: 0 };
@@ -3804,6 +3834,7 @@ extension CMUXCLI {
                 getFiletypeFromFileName,
                 parsePatchFiles,
                 preloadHighlighter,
+                processFile,
                 registerCustomTheme,
               } = await import(DIFFS_MODULE_URL);
               const treesModule = await import(TREES_MODULE_URL)
@@ -3815,34 +3846,190 @@ extension CMUXCLI {
               registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.light);
               registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.dark);
               status.textContent = label("parsingDiff");
-              const patches = parsePatchFiles(payload.patch, "cmux-diff");
-              diffItems = patches.flatMap((patch, patchIndex) =>
-                patch.files.map((fileDiff, fileIndex) => ({
-                  id: `patch-${patchIndex}-file-${fileIndex}`,
-                  type: "diff",
-                  fileDiff,
-                  version: 1,
-                }))
-              );
+              codeView = new CodeView(codeViewOptions());
+              codeView.setup(viewerElement);
+              codeView.render(true);
+              codeView.subscribeToScroll(scheduleActiveFileFromScroll);
+              setupJumpSelector(diffItems);
+              updateToolbarState();
+              window.__cmuxDiffViewer = { codeView, items: diffItems, state: appState };
+
+              await streamPatchIntoCodeView({
+                parsePatchFiles,
+                processFile,
+                treesModule,
+              });
 
               if (diffItems.length === 0) {
                 throw new Error(label("noFileDiffs"));
               }
 
-              status.textContent = label("renderingDiff");
-              setupFileExplorer(diffItems, treesModule);
-              setupJumpSelector(diffItems);
-              updateToolbarState();
               preloadDiffHighlighter(payload.appearance, diffItems, getFiletypeFromFileName, preloadHighlighter)
                 .catch((error) => console.warn("cmux diff highlighter preload failed", error));
-              codeView = new CodeView(codeViewOptions());
-              codeView.setup(viewerElement);
-              codeView.setItems(diffItems);
-              codeView.render(true);
-              status.remove();
-              codeView.subscribeToScroll(scheduleActiveFileFromScroll);
-              updateActiveFile(diffItems[0]?.id ?? "");
-              window.__cmuxDiffViewer = { codeView, items: diffItems, state: appState };
+            }
+
+            async function streamPatchIntoCodeView({ parsePatchFiles, processFile, treesModule }) {
+              const pendingItems = [];
+              const flushState = { frame: 0 };
+              let nextFileIndex = 0;
+              let firstRender = true;
+
+              function makeItem(fileDiff) {
+                const item = {
+                  id: `patch-0-file-${nextFileIndex}`,
+                  type: "diff",
+                  fileDiff,
+                  version: 1,
+                };
+                nextFileIndex += 1;
+                return item;
+              }
+
+              function enqueueFileDiff(fileDiff) {
+                if (!fileDiff) {
+                  return;
+                }
+                pendingItems.push(makeItem(fileDiff));
+                if (pendingItems.length >= 32) {
+                  flushPendingItems();
+                } else {
+                  schedulePendingItemFlush();
+                }
+              }
+
+              function schedulePendingItemFlush() {
+                if (flushState.frame !== 0) {
+                  return;
+                }
+                flushState.frame = window.requestAnimationFrame(() => {
+                  flushState.frame = 0;
+                  flushPendingItems();
+                });
+              }
+
+              function flushPendingItems() {
+                if (pendingItems.length === 0) {
+                  return;
+                }
+                const batch = pendingItems.splice(0, pendingItems.length);
+                const hadItems = diffItems.length > 0;
+                diffItems.push(...batch);
+                codeView.addItems(batch);
+                refreshFileExplorer(diffItems, treesModule);
+                setupJumpSelector(diffItems);
+                updateToolbarState();
+                if (firstRender) {
+                  firstRender = false;
+                  status.remove();
+                }
+                if (!hadItems) {
+                  updateActiveFile(diffItems[0]?.id ?? "");
+                }
+                window.__cmuxDiffViewer.items = diffItems;
+              }
+
+              const response = await fetch(payload.patchURL, { cache: "no-store" });
+              if (!response.ok) {
+                throw new Error(`${label("loadingDiff")} (${response.status})`);
+              }
+
+              if (!response.body?.getReader) {
+                const text = await response.text();
+                appendParsedPatchText(text, parsePatchFiles, enqueueFileDiff);
+                flushPendingItems();
+                return;
+              }
+
+              const decoder = new TextDecoder();
+              const reader = response.body.getReader();
+              const gitMarker = "diff --git ";
+              const gitMarkerWithNewline = "\\n" + gitMarker;
+              let buffer = "";
+              let fallbackPrefix = "";
+              let sawGitBoundary = false;
+
+              function firstGitBoundaryIndex(text) {
+                if (text.startsWith(gitMarker)) {
+                  return 0;
+                }
+                const index = text.indexOf(gitMarkerWithNewline);
+                return index === -1 ? -1 : index + 1;
+              }
+
+              function nextGitBoundaryIndex(text) {
+                const index = text.indexOf(gitMarkerWithNewline, 1);
+                return index === -1 ? -1 : index + 1;
+              }
+
+              function appendCompleteFileText(fileText) {
+                if (fileText.trim() === "") {
+                  return;
+                }
+                enqueueFileDiff(processFile(fileText, `cmux-diff-file-${nextFileIndex}`));
+              }
+
+              function drainBuffer(force) {
+                if (!sawGitBoundary) {
+                  const firstBoundary = firstGitBoundaryIndex(buffer);
+                  if (firstBoundary === -1) {
+                    return;
+                  }
+                  fallbackPrefix += buffer.slice(0, firstBoundary);
+                  buffer = buffer.slice(firstBoundary);
+                  sawGitBoundary = true;
+                }
+
+                while (true) {
+                  const nextBoundary = nextGitBoundaryIndex(buffer);
+                  if (nextBoundary === -1) {
+                    break;
+                  }
+                  appendCompleteFileText(buffer.slice(0, nextBoundary));
+                  buffer = buffer.slice(nextBoundary);
+                }
+
+                if (force && buffer.trim() !== "") {
+                  appendCompleteFileText(buffer);
+                  buffer = "";
+                }
+              }
+
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                  buffer += decoder.decode();
+                  break;
+                }
+                buffer += decoder.decode(value, { stream: true });
+                drainBuffer(false);
+              }
+
+              drainBuffer(true);
+              if (!sawGitBoundary) {
+                appendParsedPatchText(fallbackPrefix + buffer, parsePatchFiles, enqueueFileDiff);
+              }
+              flushPendingItems();
+            }
+
+            function appendParsedPatchText(patchText, parsePatchFiles, enqueueFileDiff) {
+              const patches = parsePatchFiles(patchText, "cmux-diff");
+              for (const patch of patches) {
+                for (const fileDiff of patch.files ?? []) {
+                  enqueueFileDiff(fileDiff);
+                }
+              }
+            }
+
+            async function loadPatchText() {
+              if (patchTextPromise.value == null) {
+                patchTextPromise.value = fetch(payload.patchURL, { cache: "no-store" }).then(async (response) => {
+                  if (!response.ok) {
+                    throw new Error(`${label("loadingDiff")} (${response.status})`);
+                  }
+                  return response.text();
+                });
+              }
+              return patchTextPromise.value;
             }
 
             function applyViewerAppearance(appearance) {
@@ -4103,7 +4290,8 @@ extension CMUXCLI {
 
             async function copyGitApplyCommand() {
               const newline = String.fromCharCode(10);
-              const patch = payload.patch.endsWith(newline) ? payload.patch : `${payload.patch}${newline}`;
+              const patchText = await loadPatchText();
+              const patch = patchText.endsWith(newline) ? patchText : `${patchText}${newline}`;
               const delimiter = safeGitApplyDelimiter(patch);
               const command = `git apply <<'${delimiter}'${newline}${patch}${delimiter}`;
               if (navigator.clipboard?.writeText) {
@@ -4206,9 +4394,7 @@ extension CMUXCLI {
                 fileTree = null;
               }
               appState.fileSearchOpen = false;
-              activeTreePath = "";
-              itemIdByTreePath = new Map();
-              treePathByItemId = new Map();
+              resetTreePathMaps();
               fileList.textContent = "";
               filesCount.textContent = `${items.length}`;
               updateDiffStats(items);
@@ -4225,13 +4411,29 @@ extension CMUXCLI {
               updateToolbarState();
             }
 
+            function refreshFileExplorer(items, treesModule) {
+              filesCount.textContent = `${items.length}`;
+              updateDiffStats(items);
+              if (fileTree && fileList.dataset.treeMode === "pierre" && treesModule?.preparePresortedFileTreeInput) {
+                refreshPierreFileTree(items, treesModule);
+                return;
+              }
+              if (fileTree || fileList.childElementCount === 0) {
+                setupFileExplorer(items, treesModule);
+                return;
+              }
+              resetTreePathMaps();
+              fileList.textContent = "";
+              setupFlatFileExplorer(items);
+            }
+
             function setupPierreFileTree(items, treesModule) {
               const { FileTree, preparePresortedFileTreeInput } = treesModule;
               const treeEntries = buildTreeEntries(items);
               const sortedTreeEntries = [...treeEntries].sort(compareTreeEntryPaths);
               const paths = sortedTreeEntries.map((entry) => entry.path);
               const initialSelectedPath = treeEntries[0]?.path;
-              const statsByPath = new Map(treeEntries.map((entry) => [entry.path, entry.stats]));
+              replaceFileTreeStats(treeEntries);
               fileList.dataset.treeMode = "pierre";
               fileTree = new FileTree({
                 flattenEmptyDirectories: true,
@@ -4251,7 +4453,7 @@ extension CMUXCLI {
                   if (context.item.kind !== "file") {
                     return null;
                   }
-                  const stats = statsByPath.get(context.item.path);
+                  const stats = fileTreeStatsByPath.get(context.item.path);
                   if (stats == null || (stats.added === 0 && stats.deleted === 0)) {
                     return null;
                   }
@@ -4274,6 +4476,24 @@ extension CMUXCLI {
                 },
               });
               fileTree.render({ containerWrapper: fileList });
+            }
+
+            function refreshPierreFileTree(items, treesModule) {
+              const treeEntries = buildTreeEntries(items);
+              const sortedTreeEntries = [...treeEntries].sort(compareTreeEntryPaths);
+              const paths = sortedTreeEntries.map((entry) => entry.path);
+              replaceFileTreeStats(treeEntries);
+              fileTree.resetPaths(paths, {
+                preparedInput: treesModule.preparePresortedFileTreeInput(paths),
+              });
+              fileTree.setGitStatus(sortedTreeEntries.map((entry) => ({ path: entry.path, status: entry.status })));
+            }
+
+            function replaceFileTreeStats(treeEntries) {
+              fileTreeStatsByPath.clear();
+              for (const entry of treeEntries) {
+                fileTreeStatsByPath.set(entry.path, entry.stats);
+              }
             }
 
             function compareTreeEntryPaths(left, right) {
@@ -4310,7 +4530,14 @@ extension CMUXCLI {
               }
             }
 
+            function resetTreePathMaps() {
+              activeTreePath = "";
+              itemIdByTreePath.clear();
+              treePathByItemId.clear();
+            }
+
             function buildTreeEntries(items) {
+              resetTreePathMaps();
               const pathCounts = new Map();
               const pathOrdinals = new Map();
               for (const item of items) {
@@ -4396,11 +4623,11 @@ extension CMUXCLI {
                 jumpSelect.append(option);
               }
               jumpSelect.hidden = items.length === 0;
-              jumpSelect.addEventListener("change", () => {
+              jumpSelect.onchange = () => {
                 if (jumpSelect.value) {
                   scrollToItem(jumpSelect.value);
                 }
-              });
+              };
             }
 
             function scrollToItem(itemId) {
