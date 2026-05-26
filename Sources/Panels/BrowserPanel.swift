@@ -3169,6 +3169,29 @@ final class BrowserPanel: Panel, ObservableObject {
         return true
     }
 
+    @discardableResult
+    func synchronizeWebViewVisibilityForPaneOwnership(
+        isVisibleInUI: Bool,
+        isCurrentPaneOwner: Bool,
+        visibleReason: String,
+        hiddenReason: String,
+        now: Date = Date()
+    ) -> Bool {
+        let effectiveVisibility = isVisibleInUI && isCurrentPaneOwner
+        let didReplace = effectiveVisibility
+            ? replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded(
+                reason: visibleReason,
+                now: now
+            )
+            : false
+        noteWebViewVisibility(
+            effectiveVisibility,
+            reason: effectiveVisibility ? visibleReason : hiddenReason,
+            now: now
+        )
+        return didReplace
+    }
+
     func shouldReplaceStaleHiddenWebViewBeforeVisibleAttachment(now: Date = Date()) -> Bool {
         guard shouldRenderWebView,
               !isClosingWebViewLifecycle,

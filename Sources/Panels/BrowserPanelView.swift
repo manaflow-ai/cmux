@@ -408,6 +408,7 @@ struct BrowserPanelView: View {
     @ObservedObject private var browserProfileStore = BrowserProfileStore.shared
     let paneId: PaneID
     let isFocused: Bool
+    let isSelectedInPane: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
@@ -621,10 +622,7 @@ struct BrowserPanelView: View {
     }
 
     private var isCurrentPaneOwner: Bool {
-        guard let currentPaneId = owningWorkspace?.paneId(forPanelId: panel.id) else {
-            return false
-        }
-        return currentPaneId.id == paneId.id
+        isSelectedInPane
     }
 
     private var currentEventIsCommandPointerActivation: Bool {
@@ -706,23 +704,19 @@ struct BrowserPanelView: View {
         }
     }
 
-    private func replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded() {
-        guard isVisibleInUI, isCurrentPaneOwner else { return }
-        panel.replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded(
-            reason: "view.visiblePreAttach"
-        )
-    }
-
-    private func handleWebViewVisibleInUIChange(_ visibleInUI: Bool) {
+    private func synchronizeWebViewVisibilityForPaneOwnership(
+        visibleInUI: Bool,
+        visibleReason: String,
+        hiddenReason: String
+    ) {
         let effectiveVisibility = visibleInUI && isCurrentPaneOwner
-        if effectiveVisibility {
-            replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded()
-        }
-        panel.noteWebViewVisibility(
-            effectiveVisibility,
-            reason: effectiveVisibility ? "view.visible" : "view.hidden"
+        panel.synchronizeWebViewVisibilityForPaneOwnership(
+            isVisibleInUI: visibleInUI,
+            isCurrentPaneOwner: isCurrentPaneOwner,
+            visibleReason: visibleReason,
+            hiddenReason: hiddenReason
         )
-        if visibleInUI {
+        if effectiveVisibility {
             panel.cancelPendingDeveloperToolsVisibilityLossCheck()
             return
         }
@@ -737,6 +731,23 @@ struct BrowserPanelView: View {
         // final host settles. Only treat a stable hide as a signal to consume
         // an attached-inspector X-close.
         panel.scheduleDeveloperToolsVisibilityLossCheck()
+    }
+
+    private func handleWebViewVisibleInUIChange(_ visibleInUI: Bool) {
+        synchronizeWebViewVisibilityForPaneOwnership(
+            visibleInUI: visibleInUI,
+            visibleReason: "view.visible",
+            hiddenReason: "view.hidden"
+        )
+    }
+
+    private func handlePaneOwnershipChange(_ isOwner: Bool) {
+        guard isVisibleInUI else { return }
+        synchronizeWebViewVisibilityForPaneOwnership(
+            visibleInUI: isVisibleInUI,
+            visibleReason: "view.paneOwner",
+            hiddenReason: "view.lostPaneOwner"
+        )
     }
 
     var body: some View {
@@ -855,10 +866,11 @@ struct BrowserPanelView: View {
             if browserProfilePopoverVerticalPaddingRaw != resolvedProfilePopoverVerticalPadding {
                 browserProfilePopoverVerticalPaddingRaw = resolvedProfilePopoverVerticalPadding
             }
-            replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded()
-            panel.noteWebViewVisibility(
-                isVisibleInUI && isCurrentPaneOwner,
-                reason: "view.onAppear"
+            panel.synchronizeWebViewVisibilityForPaneOwnership(
+                isVisibleInUI: isVisibleInUI,
+                isCurrentPaneOwner: isCurrentPaneOwner,
+                visibleReason: "view.onAppear",
+                hiddenReason: "view.onAppear.hidden"
             )
             panel.refreshAppearanceDrivenColors()
             panel.setBrowserThemeMode(browserThemeMode)
@@ -926,6 +938,9 @@ struct BrowserPanelView: View {
         }
         .onChange(of: isVisibleInUI) { visibleInUI in
             handleWebViewVisibleInUIChange(visibleInUI)
+        }
+        .onChange(of: isCurrentPaneOwner) { isOwner in
+            handlePaneOwnershipChange(isOwner)
         }
         .onChange(of: isFocused) { focused in
 #if DEBUG

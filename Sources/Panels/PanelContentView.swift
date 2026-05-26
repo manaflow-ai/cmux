@@ -52,6 +52,7 @@ struct PanelContentView: View {
                     panel: browserPanel,
                     paneId: paneId,
                     isFocused: isFocused,
+                    isSelectedInPane: isSelectedInPane,
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
                     onRequestPanelFocus: onRequestPanelFocus
