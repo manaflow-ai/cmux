@@ -147,12 +147,7 @@ private struct CodeReviewSummaryView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(
-                String.localizedStringWithFormat(
-                    String(localized: "codeReview.summary.files", defaultValue: "%lld files"),
-                    snapshot.files.count
-                )
-            )
+            Text(fileCountText)
             .font(.system(size: 12, weight: .semibold))
 
             Spacer(minLength: 0)
@@ -171,6 +166,20 @@ private struct CodeReviewSummaryView: View {
         .padding(.vertical, 8)
         .background(Color(nsColor: .textBackgroundColor).opacity(0.65))
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+
+    private var fileCountText: String {
+        if snapshot.files.count == 1 {
+            return String.localizedStringWithFormat(
+                String(localized: "codeReview.summary.file", defaultValue: "%lld file"),
+                snapshot.files.count
+            )
+        }
+
+        return String.localizedStringWithFormat(
+            String(localized: "codeReview.summary.files", defaultValue: "%lld files"),
+            snapshot.files.count
+        )
     }
 }
 

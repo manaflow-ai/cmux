@@ -1001,7 +1001,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 "switchRightSidebarToSessions": "ctrl+6",
                 "switchRightSidebarToFeed": "ctrl+7",
                 "switchRightSidebarToDock": "ctrl+8",
-                "switchRightSidebarToHistory": "ctrl+9"
+                "switchRightSidebarToHistory": "ctrl+0"
               }
             }
             """,
@@ -1044,7 +1044,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
         XCTAssertEqual(
             store.override(for: .switchRightSidebarToHistory),
-            StoredShortcut(key: "9", command: false, shift: false, option: false, control: true)
+            StoredShortcut(key: "0", command: false, shift: false, option: false, control: true)
         )
     }
 
