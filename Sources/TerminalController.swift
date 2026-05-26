@@ -592,14 +592,26 @@ class TerminalController {
     }
 
     nonisolated func clearPendingSocketFileRecoveryIfCurrentPathIsHealthy(expectedPath: String) {
-        let taskToCancel = withListenerState {
+        let currentPathAndIdentity = withListenerState { () -> (path: String, identity: SocketPathIdentity)? in
             guard isRunning,
                   socketPath == expectedPath,
-                  let identity = boundSocketPathIdentity,
-                  case .ownedByThisProcess = SocketPathProbe.observedStatus(
-                      path: socketPath,
-                      expectedIdentity: identity
-                  ) else {
+                  let identity = boundSocketPathIdentity else {
+                return nil
+            }
+            return (socketPath, identity)
+        }
+        guard let currentPathAndIdentity,
+              case .ownedByThisProcess = SocketPathProbe.observedStatus(
+                  path: currentPathAndIdentity.path,
+                  expectedIdentity: currentPathAndIdentity.identity
+              ) else {
+            return
+        }
+
+        let taskToCancel = withListenerState {
+            guard isRunning,
+                  socketPath == currentPathAndIdentity.path,
+                  boundSocketPathIdentity == currentPathAndIdentity.identity else {
                 return nil as Task<Void, Never>?
             }
             pendingSocketFileRecoveryGeneration = nil
