@@ -518,7 +518,6 @@ final class FocusFlashPatternTests: XCTestCase {
         XCTAssertEqual(FocusFlashPattern.duration, 0.9, accuracy: 0.0001)
         XCTAssertEqual(FocusFlashPattern.curves, [.easeOut, .easeIn, .easeOut, .easeIn])
         XCTAssertEqual(FocusFlashPattern.ringInset, Double(PanelOverlayRingMetrics.inset), accuracy: 0.0001)
-        XCTAssertEqual(FocusFlashPattern.ringCornerRadius, Double(PanelOverlayRingMetrics.cornerRadius), accuracy: 0.0001)
     }
 
     func testFocusFlashPatternSegmentsCoverFullDoublePulseTimeline() {
