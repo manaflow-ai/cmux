@@ -2619,7 +2619,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         )
         let plan = NativeSurfaceOverlayManager(
             configuration: CanvasNativeOverlayConfiguration(
-                minimumNativeScale: CGFloat(CanvasViewportZoom.minimumScale),
                 activeSurfaceID: activeItemID
             )
         ).plan(scene: scene)

@@ -106,7 +106,6 @@ public final class CanvasIOSurfacePreviewHostView: NSView {
         metalView.layer?.backgroundColor = backgroundColor.cgColor
         metalView.preferredFramesPerSecond = max(1, preferredFramesPerSecond)
         metalView.clearColor = renderer.clearColor
-        metalView.setNeedsDisplay(metalView.bounds)
     }
 }
 
@@ -121,8 +120,14 @@ private final class CanvasIOSurfacePreviewRenderer: NSObject, MTKViewDelegate {
     private var cachedSurfaceID: IOSurfaceID = 0
     private var cachedWidth = 0
     private var cachedHeight = 0
-    private var backgroundColor: NSColor
-    private var contentMode: CanvasIOSurfacePreview.ContentMode
+    private let stateLock = NSLock()
+    private var state: State
+
+    private struct State {
+        var surface: IOSurfaceRef?
+        var backgroundColor: NSColor
+        var contentMode: CanvasIOSurfacePreview.ContentMode
+    }
 
     init(
         device: MTLDevice?,
@@ -133,20 +138,12 @@ private final class CanvasIOSurfacePreviewRenderer: NSObject, MTKViewDelegate {
         self.device = device
         self.commandQueue = device?.makeCommandQueue()
         self.pipelineState = Self.makePipelineState(device: device)
-        self.surface = surface
-        self.backgroundColor = backgroundColor
-        self.contentMode = contentMode
+        self.state = State(surface: surface, backgroundColor: backgroundColor, contentMode: contentMode)
         super.init()
     }
 
     var clearColor: MTLClearColor {
-        let color = backgroundColor.usingColorSpace(.deviceRGB) ?? backgroundColor
-        return MTLClearColor(
-            red: Double(color.redComponent),
-            green: Double(color.greenComponent),
-            blue: Double(color.blueComponent),
-            alpha: 1
-        )
+        Self.clearColor(for: stateLock.withLock { state.backgroundColor })
     }
 
     func update(
@@ -154,18 +151,22 @@ private final class CanvasIOSurfacePreviewRenderer: NSObject, MTKViewDelegate {
         backgroundColor: NSColor,
         contentMode: CanvasIOSurfacePreview.ContentMode
     ) {
-        self.surface = surface
-        self.backgroundColor = backgroundColor
-        self.contentMode = contentMode
+        stateLock.withLock {
+            self.state = State(surface: surface, backgroundColor: backgroundColor, contentMode: contentMode)
+        }
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     func draw(in view: MTKView) {
+        let state = stateLock.withLock { self.state }
         guard let drawable = view.currentDrawable,
               let descriptor = view.currentRenderPassDescriptor,
-              let commandBuffer = commandQueue?.makeCommandBuffer(),
-              let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else {
+              let commandBuffer = commandQueue?.makeCommandBuffer() else {
+            return
+        }
+        descriptor.colorAttachments[0].clearColor = Self.clearColor(for: state.backgroundColor)
+        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else {
             return
         }
 
@@ -175,14 +176,15 @@ private final class CanvasIOSurfacePreviewRenderer: NSObject, MTKViewDelegate {
             commandBuffer.commit()
         }
 
-        guard let texture = textureForCurrentSurface(),
+        guard let texture = texture(for: state.surface),
               let pipelineState else {
             return
         }
 
         let viewport = targetViewport(
             drawableSize: view.drawableSize,
-            textureSize: CGSize(width: texture.width, height: texture.height)
+            textureSize: CGSize(width: texture.width, height: texture.height),
+            contentMode: state.contentMode
         )
         encoder.setViewport(viewport)
         encoder.setRenderPipelineState(pipelineState)
@@ -190,7 +192,17 @@ private final class CanvasIOSurfacePreviewRenderer: NSObject, MTKViewDelegate {
         encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
     }
 
-    private func textureForCurrentSurface() -> MTLTexture? {
+    private static func clearColor(for backgroundColor: NSColor) -> MTLClearColor {
+        let color = backgroundColor.usingColorSpace(.deviceRGB) ?? backgroundColor
+        return MTLClearColor(
+            red: Double(color.redComponent),
+            green: Double(color.greenComponent),
+            blue: Double(color.blueComponent),
+            alpha: 1
+        )
+    }
+
+    private func texture(for surface: IOSurfaceRef?) -> MTLTexture? {
         guard let device,
               let surface else {
             cachedTexture = nil
@@ -234,7 +246,11 @@ private final class CanvasIOSurfacePreviewRenderer: NSObject, MTKViewDelegate {
         return texture
     }
 
-    private func targetViewport(drawableSize: CGSize, textureSize: CGSize) -> MTLViewport {
+    private func targetViewport(
+        drawableSize: CGSize,
+        textureSize: CGSize,
+        contentMode: CanvasIOSurfacePreview.ContentMode
+    ) -> MTLViewport {
         let drawableWidth = max(1, drawableSize.width)
         let drawableHeight = max(1, drawableSize.height)
         let textureWidth = max(1, textureSize.width)

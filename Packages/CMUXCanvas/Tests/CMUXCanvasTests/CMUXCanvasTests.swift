@@ -231,7 +231,11 @@ final class CMUXCanvasTests: XCTestCase {
         XCTAssertEqual(surfacesByID[activeID]?.frame, CGRect(x: 20, y: 30, width: 400, height: 300))
         XCTAssertEqual(surfacesByID[activeID]?.headerFrame, CGRect(x: 20, y: 30, width: 400, height: 20))
         XCTAssertTrue(plan.primitives.contains { primitive in
-            if case .stroke(_, _, let color) = primitive, color == style.focusedBorder { return true }
+            if case .fill(let rect) = primitive, rect.color == style.cardFill { return true }
+            return false
+        })
+        XCTAssertFalse(plan.primitives.contains { primitive in
+            if case .stroke = primitive { return true }
             return false
         })
         XCTAssertTrue(plan.primitives.contains { primitive in

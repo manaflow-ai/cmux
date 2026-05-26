@@ -1350,6 +1350,34 @@ final class CMUXLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testMoveTabRestoresSourceWhenClosePaneIsVetoed() throws {
+        let controller = WorkspaceLayoutController()
+        let movingTab = try XCTUnwrap(controller.createTab(title: "Move"))
+        let sourcePaneId = try XCTUnwrap(controller.focusedPaneId)
+        for tab in controller.tabs(inPane: sourcePaneId) where tab.id != movingTab {
+            XCTAssertTrue(controller.closeTab(tab.id))
+        }
+        let targetTab = SurfaceTab(title: "Target")
+        let targetPaneId = try XCTUnwrap(
+            controller.splitPane(
+                sourcePaneId,
+                orientation: .horizontal,
+                withTab: targetTab,
+                insertFirst: false
+            )
+        )
+        let delegate = PaneLifecycleDelegateSpy()
+        delegate.shouldClosePaneResult = false
+        controller.delegate = delegate
+
+        XCTAssertFalse(controller.moveTab(movingTab, toPane: targetPaneId))
+        XCTAssertEqual(delegate.shouldClosePaneIds, [sourcePaneId])
+        XCTAssertEqual(controller.tabs(inPane: sourcePaneId).map(\.id), [movingTab])
+        XCTAssertEqual(controller.tabs(inPane: targetPaneId).map(\.id), [targetTab.id])
+        XCTAssertEqual(controller.allPaneIds.count, 2)
+    }
+
+    @MainActor
     func testTogglePaneZoomTracksState() {
         let controller = WorkspaceLayoutController()
         guard let originalPane = controller.focusedPaneId else {

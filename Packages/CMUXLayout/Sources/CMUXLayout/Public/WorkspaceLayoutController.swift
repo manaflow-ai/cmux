@@ -396,7 +396,25 @@ public final class WorkspaceLayoutController {
 
         guard configuration.allowCrossPaneTabMove else { return false }
 
-        internalController.moveTab(tabItem, from: sourcePaneId, to: targetPane.id, atIndex: index)
+        sourcePane.removeTab(tabItem.id)
+        if let index {
+            targetPane.insertTab(tabItem, at: index)
+        } else {
+            targetPane.addTab(tabItem)
+        }
+
+        if sourcePane.tabs.isEmpty && internalController.rootNode.allPaneIds.count > 1 {
+            if !closePane(PaneID(id: sourcePane.id.id)) {
+                targetPane.removeTab(tabItem.id)
+                sourcePane.insertTab(tabItem, at: min(sourceIndex, sourcePane.tabs.count))
+                sourcePane.selectTab(tabItem.id)
+                internalController.focusPane(sourcePane.id)
+                notifyGeometryChange()
+                return false
+            }
+        }
+
+        internalController.focusPane(targetPane.id)
         syncCanvasDocumentWithCurrentLayout()
         delegate?.splitTabBar(self, didMoveTab: movedTab, fromPane: sourcePaneId, toPane: targetPane.id)
         notifyGeometryChange()

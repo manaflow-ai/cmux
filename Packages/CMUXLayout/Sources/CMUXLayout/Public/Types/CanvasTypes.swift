@@ -46,7 +46,7 @@ public enum CanvasLayoutPolicy: String, Codable, Sendable, Equatable {
 }
 
 public struct CanvasViewport: Codable, Sendable, Equatable {
-    public static let minimumScale: Double = 0.05
+    public static let minimumScale: Double = 0.16
 
     public var visibleRect: PixelRect
     public var scale: Double
@@ -92,7 +92,7 @@ public struct CanvasViewport: Codable, Sendable, Equatable {
 }
 
 public enum CanvasViewportZoom {
-    public static let minimumScale: Double = 0.16
+    public static let minimumScale: Double = CanvasViewport.minimumScale
     public static let maximumScale: Double = 1.0
 
     public static func presentationScale(for viewport: CanvasViewport) -> Double {

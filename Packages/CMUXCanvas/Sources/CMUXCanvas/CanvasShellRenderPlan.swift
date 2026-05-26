@@ -149,12 +149,6 @@ public struct CanvasShellRenderPlan: Codable, Sendable, Equatable {
                 .insetBy(dx: -style.shadowExpansion, dy: -style.shadowExpansion)
             primitives.append(.fill(CanvasShellRect(rect: shadowFrame, color: style.shadow)))
             primitives.append(.fill(CanvasShellRect(rect: surface.frame, color: style.cardFill)))
-            primitives.append(.fill(CanvasShellRect(rect: surface.headerFrame, color: style.headerFill)))
-            primitives.append(.stroke(
-                rect: surface.frame,
-                width: surface.isFocused ? style.focusedBorderWidth : style.borderWidth,
-                color: surface.isFocused ? style.focusedBorder : style.border
-            ))
         }
 
         primitives.append(contentsOf: Self.alignmentGuidePrimitives(scene: scene, style: style))
