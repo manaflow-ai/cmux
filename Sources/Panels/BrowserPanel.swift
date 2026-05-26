@@ -619,6 +619,153 @@ enum BrowserLinkOpenSettings {
     }
 }
 
+enum BrowserSidebarLinkReuseMatcher {
+    private struct GitHubPullRequestIdentity: Hashable {
+        let host: String
+        let owner: String
+        let repository: String
+        let number: Int
+    }
+
+    private struct JiraIssueIdentity: Hashable {
+        let host: String
+        let issueKey: String
+    }
+
+    private struct NormalizedURLKey: Hashable {
+        let scheme: String
+        let host: String
+        let port: Int?
+        let path: String
+        let query: String?
+    }
+
+    static func matches(openURL: URL, targetURL: URL) -> Bool {
+        if let openPR = githubPullRequestIdentity(for: openURL),
+           let targetPR = githubPullRequestIdentity(for: targetURL) {
+            return openPR == targetPR
+        }
+
+        if let openJira = jiraIssueIdentity(for: openURL),
+           let targetJira = jiraIssueIdentity(for: targetURL) {
+            return openJira == targetJira
+        }
+
+        guard let openKey = normalizedURLKey(for: openURL),
+              let targetKey = normalizedURLKey(for: targetURL) else {
+            return false
+        }
+        return openKey == targetKey
+    }
+
+    private static func githubPullRequestIdentity(for url: URL) -> GitHubPullRequestIdentity? {
+        guard let host = normalizedHost(for: url) else { return nil }
+        let components = normalizedPathComponents(for: url)
+        guard components.count >= 4,
+              components[2].caseInsensitiveCompare("pull") == .orderedSame,
+              let number = Int(components[3]) else {
+            return nil
+        }
+        return GitHubPullRequestIdentity(
+            host: host,
+            owner: components[0].lowercased(),
+            repository: components[1].lowercased(),
+            number: number
+        )
+    }
+
+    private static func jiraIssueIdentity(for url: URL) -> JiraIssueIdentity? {
+        guard let host = normalizedHost(for: url) else { return nil }
+        guard let issueKey = normalizedPathComponents(for: url)
+            .reversed()
+            .compactMap({ jiraIssueKey(from: $0) })
+            .first else {
+            return nil
+        }
+        return JiraIssueIdentity(host: host, issueKey: issueKey)
+    }
+
+    private static func jiraIssueKey(from pathComponent: String) -> String? {
+        let candidate = pathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let dash = candidate.firstIndex(of: "-") else { return nil }
+        let project = candidate[..<dash]
+        let number = candidate[candidate.index(after: dash)...]
+        guard !project.isEmpty,
+              !number.isEmpty,
+              project.allSatisfy({ $0.isLetter || $0.isNumber }),
+              project.first?.isLetter == true,
+              number.allSatisfy({ $0.isNumber }) else {
+            return nil
+        }
+        return candidate.uppercased()
+    }
+
+    private static func normalizedURLKey(for url: URL) -> NormalizedURLKey? {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let rawScheme = components.scheme,
+              let host = normalizedHost(for: url) else {
+            return nil
+        }
+
+        let scheme = rawScheme.lowercased()
+        guard scheme == "http" || scheme == "https" else { return nil }
+
+        let port: Int?
+        if (scheme == "http" && components.port == 80) ||
+            (scheme == "https" && components.port == 443) {
+            port = nil
+        } else {
+            port = components.port
+        }
+
+        var path = components.percentEncodedPath
+        if path.isEmpty { path = "/" }
+        while path.count > 1, path.hasSuffix("/") {
+            path.removeLast()
+        }
+
+        components.fragment = nil
+        let query: String?
+        if let rawQuery = components.percentEncodedQuery, !rawQuery.isEmpty {
+            query = rawQuery
+        } else {
+            query = nil
+        }
+
+        return NormalizedURLKey(
+            scheme: scheme,
+            host: host,
+            port: port,
+            path: path,
+            query: query
+        )
+    }
+
+    private static func normalizedHost(for url: URL) -> String? {
+        guard var host = url.host(percentEncoded: false)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+              !host.isEmpty else {
+            return nil
+        }
+        while host.hasSuffix(".") {
+            host.removeLast()
+        }
+        if host.hasPrefix("www.") {
+            host.removeFirst(4)
+        }
+        return host.isEmpty ? nil : host
+    }
+
+    private static func normalizedPathComponents(for url: URL) -> [String] {
+        url.pathComponents.compactMap { component in
+            guard component != "/" else { return nil }
+            let decoded = component.removingPercentEncoding ?? component
+            let trimmed = decoded.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+}
 enum BrowserAvailabilitySettings {
     static let disabledKey = "browserDisabledOverride"
     static let didChangeNotification = Notification.Name("cmux.browserAvailabilityDidChange")
@@ -642,7 +789,6 @@ enum BrowserAvailabilitySettings {
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 }
-
 enum BrowserInsecureHTTPSettings {
     static let allowlistKey = "browserInsecureHTTPAllowlist"
     static let defaultAllowlistPatterns = [

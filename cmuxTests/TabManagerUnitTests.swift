@@ -3036,6 +3036,80 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
             "Expected browser surface to be appended at end in the reused top-right pane"
         )
     }
+
+    func testOpenOrFocusBrowserReusesExistingGitHubPullRequestSurface() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId,
+              let existingURL = URL(string: "https://github.com/manaflow-ai/cmux/pull/4529/files"),
+              let targetURL = URL(string: "https://github.com/manaflow-ai/cmux/pull/4529?tab=conversation") else {
+            XCTFail("Expected test setup to be valid")
+            return
+        }
+
+        guard let existingBrowserPanelId = manager.openBrowser(
+            inWorkspace: workspace.id,
+            url: existingURL,
+            preferSplitRight: true,
+            insertAtEnd: true
+        ) else {
+            XCTFail("Expected browser panel to be created")
+            return
+        }
+        let panelCountAfterFirstOpen = workspace.panels.count
+        let paneCountAfterFirstOpen = workspace.bonsplitController.allPaneIds.count
+
+        workspace.focusPanel(terminalPanelId)
+        XCTAssertEqual(workspace.focusedPanelId, terminalPanelId, "Expected test to move focus away from the browser")
+
+        let reusedPanelId = manager.openOrFocusBrowser(
+            inWorkspace: workspace.id,
+            url: targetURL,
+            preferSplitRight: true,
+            insertAtEnd: true
+        )
+
+        XCTAssertEqual(reusedPanelId, existingBrowserPanelId)
+        XCTAssertEqual(workspace.panels.count, panelCountAfterFirstOpen)
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, paneCountAfterFirstOpen)
+        XCTAssertEqual(workspace.focusedPanelId, existingBrowserPanelId)
+    }
+
+    func testOpenOrFocusBrowserReusesExistingJiraIssueSurface() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId,
+              let existingURL = URL(string: "https://jira.example.com/browse/CMUX-42?focusedCommentId=10001"),
+              let targetURL = URL(string: "https://jira.example.com/browse/cmux-42") else {
+            XCTFail("Expected test setup to be valid")
+            return
+        }
+
+        guard let existingBrowserPanelId = manager.openBrowser(
+            inWorkspace: workspace.id,
+            url: existingURL,
+            preferSplitRight: true,
+            insertAtEnd: true
+        ) else {
+            XCTFail("Expected browser panel to be created")
+            return
+        }
+        let panelCountAfterFirstOpen = workspace.panels.count
+
+        workspace.focusPanel(terminalPanelId)
+        XCTAssertEqual(workspace.focusedPanelId, terminalPanelId, "Expected test to move focus away from the browser")
+
+        let reusedPanelId = manager.openOrFocusBrowser(
+            inWorkspace: workspace.id,
+            url: targetURL,
+            preferSplitRight: true,
+            insertAtEnd: true
+        )
+
+        XCTAssertEqual(reusedPanelId, existingBrowserPanelId)
+        XCTAssertEqual(workspace.panels.count, panelCountAfterFirstOpen)
+        XCTAssertEqual(workspace.focusedPanelId, existingBrowserPanelId)
+    }
 }
 
 

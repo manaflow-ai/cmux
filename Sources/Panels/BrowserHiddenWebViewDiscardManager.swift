@@ -249,7 +249,7 @@ final class BrowserHiddenWebViewDiscardManager {
         discardedAt = now
         lastDiscardReason = reason
         updateRestoredSessionRenderIntent(true)
-        Self.retentionCoordinator.retainIfEligible(self, reason: reason)
+        Self.retentionCoordinator.retainIfEligible(self, reason: reason, defaults: policyDefaults)
     }
 
     @discardableResult
@@ -373,9 +373,13 @@ private final class BrowserHiddenWebViewRetentionCoordinator {
         return entriesByManagerId[ObjectIdentifier(manager)] != nil
     }
 
-    func retainIfEligible(_ manager: BrowserHiddenWebViewDiscardManager, reason: String) {
+    func retainIfEligible(
+        _ manager: BrowserHiddenWebViewDiscardManager,
+        reason: String,
+        defaults: UserDefaults
+    ) {
         pruneInvalidEntries()
-        guard BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: .standard),
+        guard BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: defaults),
               manager.isDiscardedForMemory,
               let delegate = manager.delegate,
               manager.blockers(for: delegate.hiddenWebViewDiscardSnapshot)
@@ -399,17 +403,17 @@ private final class BrowserHiddenWebViewRetentionCoordinator {
                 lastReason: reason
             )
         }
-        enforceLimit(reason: reason)
+        enforceLimit(reason: reason, defaults: defaults)
     }
 
     func remove(_ manager: BrowserHiddenWebViewDiscardManager) {
         entriesByManagerId.removeValue(forKey: ObjectIdentifier(manager))
     }
 
-    func enforceLimit(reason: String) {
+    func enforceLimit(reason: String, defaults: UserDefaults) {
         pruneInvalidEntries()
         let limit = BrowserHiddenWebViewDiscardPolicy.hiddenWebViewRetentionLimit
-        guard BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: .standard), limit >= 0 else {
+        guard BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: defaults), limit >= 0 else {
             entriesByManagerId.removeAll()
             return
         }
@@ -419,7 +423,10 @@ private final class BrowserHiddenWebViewRetentionCoordinator {
                 : $0.entry.hiddenAt < $1.entry.hiddenAt
         }
         let now = Date()
-        for item in entries.filter({ now.timeIntervalSince($0.entry.hiddenAt) >= BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: .standard) }).prefix(max(0, entries.count - limit)) {
+        for item in entries.filter({
+            now.timeIntervalSince($0.entry.hiddenAt)
+                >= BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults)
+        }).prefix(max(0, entries.count - limit)) {
             guard let manager = item.entry.manager, let delegate = manager.delegate else {
                 entriesByManagerId.removeValue(forKey: item.id)
                 continue

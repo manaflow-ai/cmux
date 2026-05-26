@@ -4895,6 +4895,36 @@ class TabManager: ObservableObject {
         return browserPanel.id
     }
 
+    /// Open a browser for a sidebar link, reusing an existing browser surface in the workspace
+    /// when it already represents the same PR/Jira/exact URL.
+    @discardableResult
+    func openOrFocusBrowser(
+        inWorkspace tabId: UUID,
+        url: URL,
+        preferSplitRight: Bool = false,
+        preferredProfileID: UUID? = nil,
+        insertAtEnd: Bool = false
+    ) -> UUID? {
+        guard BrowserAvailabilitySettings.isEnabled() else { return nil }
+        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
+        if selectedTabId != tabId {
+            selectWorkspaceId(tabId, notificationDismissalContext: .explicitWorkspaceResume)
+        }
+
+        if let existingBrowserPanel = workspace.focusBrowserPanel(matchingSidebarLinkURL: url) {
+            rememberFocusedSurface(tabId: tabId, surfaceId: existingBrowserPanel.id)
+            return existingBrowserPanel.id
+        }
+
+        return openBrowser(
+            inWorkspace: tabId,
+            url: url,
+            preferSplitRight: preferSplitRight,
+            preferredProfileID: preferredProfileID,
+            insertAtEnd: insertAtEnd
+        )
+    }
+
     /// Open a browser in the currently focused pane (as a new surface)
     @discardableResult
     func openBrowser(

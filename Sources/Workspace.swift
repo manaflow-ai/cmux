@@ -4428,6 +4428,54 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         panels[panelId] as? BrowserPanel
     }
 
+    @discardableResult
+    func focusBrowserPanel(matchingSidebarLinkURL url: URL) -> BrowserPanel? {
+        let focusedFirst = [focusedPanelId].compactMap { $0 }
+        let orderedPanelIds = uniquePanelIds(
+            focusedFirst
+                + sidebarOrderedPanelIds()
+                + panels.keys.sorted { $0.uuidString < $1.uuidString }
+        )
+
+        for panelId in orderedPanelIds {
+            guard let browserPanel = panels[panelId] as? BrowserPanel else { continue }
+            let candidateURLs = browserPanelCandidateURLs(browserPanel)
+            guard candidateURLs.contains(where: { candidateURL in
+                BrowserSidebarLinkReuseMatcher.matches(openURL: candidateURL, targetURL: url)
+            }) else {
+                continue
+            }
+            focusPanel(panelId, focusIntent: .browser(.webView))
+            return browserPanel
+        }
+
+        return nil
+    }
+
+    private func uniquePanelIds(_ panelIds: [UUID]) -> [UUID] {
+        var seen: Set<UUID> = []
+        var result: [UUID] = []
+        for panelId in panelIds where seen.insert(panelId).inserted {
+            result.append(panelId)
+        }
+        return result
+    }
+
+    private func browserPanelCandidateURLs(_ browserPanel: BrowserPanel) -> [URL] {
+        let candidates = [
+            browserPanel.preferredURLStringForOmnibar().flatMap(URL.init(string:)),
+            browserPanel.currentURL,
+        ].compactMap { $0 }
+
+        var seen: Set<String> = []
+        var result: [URL] = []
+        for url in candidates {
+            guard seen.insert(url.absoluteString).inserted else { continue }
+            result.append(url)
+        }
+        return result
+    }
+
     func markdownPanel(for panelId: UUID) -> MarkdownPanel? {
         panels[panelId] as? MarkdownPanel
     }
