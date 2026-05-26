@@ -79,7 +79,7 @@ extension Workspace {
         }
 
         for candidate in candidates {
-            _ = requestCloseTab(candidate.tabId, force: needsConfirmation)
+            _ = requestCloseTabRecordingHistory(candidate.tabId, force: needsConfirmation)
         }
     }
 }
