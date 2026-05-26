@@ -48,15 +48,15 @@ enum RightSidebarChromeMetrics {
 enum SidebarWorkspaceListMetrics {
     static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
     static let rowVerticalPadding: CGFloat = 8
-    static let topScrimHeight: CGFloat = firstRowTopOffset + 20
-    static let bottomScrimHeight: CGFloat = topScrimHeight
+    static let topScrimHeight: CGFloat = firstRowTopOffset
+    static let bottomScrimHeight: CGFloat = firstRowTopOffset + 20
 
     static var scrollTopInset: CGFloat {
         max(0, firstRowTopOffset - rowVerticalPadding)
     }
 }
 
-struct SidebarWorkspaceScrollInsets: Equatable {
+nonisolated struct SidebarWorkspaceScrollInsets: Sendable, Equatable {
     static let workspaceList = SidebarWorkspaceScrollInsets(
         top: SidebarWorkspaceListMetrics.scrollTopInset,
         bottom: SidebarWorkspaceListMetrics.bottomScrimHeight
