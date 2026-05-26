@@ -1211,7 +1211,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         {
           "shortcuts": {
             "switchRightSidebarToFiles": "ctrl+8",
-            "switchRightSidebarToCodeReview": "ctrl+6"
+            "switchRightSidebarToCodeReview": "ctrl+7"
           }
         }
         """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
@@ -1234,7 +1234,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
             .sessions
         )
         XCTAssertEqual(
-            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "6", modifiers: [.control], keyCode: 22)),
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "7", modifiers: [.control], keyCode: 26)),
             .codeReview
         )
         XCTAssertEqual(
