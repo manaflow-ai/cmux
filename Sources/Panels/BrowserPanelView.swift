@@ -706,6 +706,13 @@ struct BrowserPanelView: View {
         }
     }
 
+    private func replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded() {
+        guard isVisibleInUI, isCurrentPaneOwner else { return }
+        panel.replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded(
+            reason: "view.visiblePreAttach"
+        )
+    }
+
     var body: some View {
         // Layering contract: browser find UI is mounted in the portal-hosted AppKit
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
@@ -822,6 +829,7 @@ struct BrowserPanelView: View {
             if browserProfilePopoverVerticalPaddingRaw != resolvedProfilePopoverVerticalPadding {
                 browserProfilePopoverVerticalPaddingRaw = resolvedProfilePopoverVerticalPadding
             }
+            replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded()
             panel.noteWebViewVisibility(
                 isVisibleInUI && isCurrentPaneOwner,
                 reason: "view.onAppear"
@@ -892,6 +900,9 @@ struct BrowserPanelView: View {
         }
         .onChange(of: isVisibleInUI) { visibleInUI in
             let effectiveVisibility = visibleInUI && isCurrentPaneOwner
+            if effectiveVisibility {
+                replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded()
+            }
             panel.noteWebViewVisibility(
                 effectiveVisibility,
                 reason: effectiveVisibility ? "view.visible" : "view.hidden"
@@ -911,6 +922,16 @@ struct BrowserPanelView: View {
             // final host settles. Only treat a stable hide as a signal to consume
             // an attached-inspector X-close.
             panel.scheduleDeveloperToolsVisibilityLossCheck()
+        }
+        .onChange(of: isCurrentPaneOwner) { currentPaneOwner in
+            let effectiveVisibility = isVisibleInUI && currentPaneOwner
+            if effectiveVisibility {
+                replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded()
+            }
+            panel.noteWebViewVisibility(
+                effectiveVisibility,
+                reason: effectiveVisibility ? "view.paneOwnerVisible" : "view.paneOwnerHidden"
+            )
         }
         .onChange(of: isFocused) { focused in
 #if DEBUG
@@ -1477,13 +1498,22 @@ struct BrowserPanelView: View {
         let useLocalInlineDeveloperToolsHosting =
             panel.shouldUseLocalInlineDeveloperToolsHosting() &&
             isCurrentPaneOwner
+        let shouldPrepareStaleHiddenWebView =
+            isVisibleInUI &&
+            isCurrentPaneOwner &&
+            !useLocalInlineDeveloperToolsHosting &&
+            panel.shouldReplaceStaleHiddenWebViewBeforeVisibleAttachment()
 
         return Group {
             if panel.shouldRenderWebView {
                 WebViewRepresentable(
                     panel: panel,
                     paneId: paneId,
-                    shouldAttachWebView: isVisibleInUI && isCurrentPaneOwner && !useLocalInlineDeveloperToolsHosting,
+                    // Keep updateNSView render-only; lifecycle callbacks replace the stale view first.
+                    shouldAttachWebView: isVisibleInUI &&
+                        isCurrentPaneOwner &&
+                        !useLocalInlineDeveloperToolsHosting &&
+                        !shouldPrepareStaleHiddenWebView,
                     useLocalInlineHosting: useLocalInlineDeveloperToolsHosting,
                     shouldFocusWebView: isFocused && !addressBarFocused,
                     isPanelFocused: isFocused,
@@ -7130,12 +7160,6 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let isCurrentPaneOwner = currentPaneDropContext()?.paneId.id == paneId.id
-        if shouldAttachWebView && isCurrentPaneOwner {
-            panel.replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded(
-                reason: "portal.visiblePreAttach"
-            )
-        }
-
         let webView = panel.webView
         let coordinator = context.coordinator
         if let previousWebView = coordinator.webView, previousWebView !== webView {

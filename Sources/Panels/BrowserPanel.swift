@@ -3155,6 +3155,21 @@ final class BrowserPanel: Panel, ObservableObject {
         reason: String,
         now: Date = Date()
     ) -> Bool {
+        guard shouldReplaceStaleHiddenWebViewBeforeVisibleAttachment(now: now) else { return false }
+
+        guard replaceWebViewPreservingState(
+            from: webView,
+            websiteDataStore: websiteDataStore,
+            reason: reason
+        ) else { return false }
+        webViewLastHiddenAt = now
+        webViewLastVisibilityChangeAt = now
+        webViewLastVisibilityChangeReason = reason
+        refreshWebViewLifecycleState()
+        return true
+    }
+
+    func shouldReplaceStaleHiddenWebViewBeforeVisibleAttachment(now: Date = Date()) -> Bool {
         guard shouldRenderWebView,
               !isClosingWebViewLifecycle,
               !hiddenWebViewDiscardManager.isDiscardedForMemory,
@@ -3166,16 +3181,6 @@ final class BrowserPanel: Panel, ObservableObject {
             return false
         }
         guard staleHiddenWebViewVisibleAttachmentBlockers().isEmpty else { return false }
-
-        guard replaceWebViewPreservingState(
-            from: webView,
-            websiteDataStore: websiteDataStore,
-            reason: reason
-        ) else { return false }
-        webViewLastHiddenAt = now
-        webViewLastVisibilityChangeAt = now
-        webViewLastVisibilityChangeReason = reason
-        refreshWebViewLifecycleState()
         return true
     }
 
