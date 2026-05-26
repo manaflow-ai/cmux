@@ -5463,6 +5463,30 @@ final class WorkspaceRemotePTYBridgeServer {
     }
 }
 
+final class WorkspacePortalRenderingGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var enabled: Bool
+
+    init(enabled: Bool = true) {
+        self.enabled = enabled
+    }
+
+    var isEnabled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return enabled
+    }
+
+    @discardableResult
+    func setEnabled(_ nextValue: Bool) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard enabled != nextValue else { return false }
+        enabled = nextValue
+        return true
+    }
+}
+
 final class WorkspaceRemoteSessionController {
 #if DEBUG
     // XCTest seam: tests assign this before starting a controller and clear it
@@ -5556,6 +5580,7 @@ final class WorkspaceRemoteSessionController {
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.\(UUID().uuidString)", qos: .utility)
     private let queueKey = DispatchSpecificKey<Void>()
     private weak var workspace: Workspace?
+    private let portalRenderingGate: WorkspacePortalRenderingGate
     private let configuration: WorkspaceRemoteConfiguration
     private let controllerID: UUID
 
@@ -5620,7 +5645,6 @@ final class WorkspaceRemoteSessionController {
     private var remotePortPollTimer: DispatchSourceTimer?
     private var remotePortPollTimerState: RemotePortPollTimerState?
     private var remotePortPollMode: RemotePortPollingMode?
-    private var workspaceSchedulersSuspended = false
     private var polledRemotePorts: [Int] = []
     private var remotePortPollBaselinePorts: Set<Int>?
     private var keepPolledRemotePortsUntilTTYScan = false
@@ -5643,12 +5667,12 @@ final class WorkspaceRemoteSessionController {
         workspace: Workspace,
         configuration: WorkspaceRemoteConfiguration,
         controllerID: UUID,
-        workspaceSchedulersEnabled: Bool = true
+        portalRenderingGate: WorkspacePortalRenderingGate = WorkspacePortalRenderingGate()
     ) {
         self.workspace = workspace
+        self.portalRenderingGate = portalRenderingGate
         self.configuration = configuration
         self.controllerID = controllerID
-        self.workspaceSchedulersSuspended = !workspaceSchedulersEnabled
         queue.setSpecific(key: queueKey, value: ())
     }
 
@@ -5671,9 +5695,9 @@ final class WorkspaceRemoteSessionController {
         }
     }
 
-    func setWorkspaceSchedulersEnabled(_ enabled: Bool) {
+    func syncWorkspaceSchedulerMountState() {
         queue.async { [weak self] in
-            self?.setWorkspaceSchedulersEnabledLocked(enabled)
+            self?.syncWorkspaceSchedulerMountStateLocked()
         }
     }
 
@@ -5960,17 +5984,17 @@ final class WorkspaceRemoteSessionController {
         }
     }
 
-    private func setWorkspaceSchedulersEnabledLocked(_ enabled: Bool) {
-        if enabled {
-            guard workspaceSchedulersSuspended else { return }
-            workspaceSchedulersSuspended = false
+    private func workspaceSchedulersEnabledLocked() -> Bool {
+        portalRenderingGate.isEnabled
+    }
+
+    private func syncWorkspaceSchedulerMountStateLocked() {
+        if workspaceSchedulersEnabledLocked() {
             updateRemotePortPollingStateLocked()
             if remotePortScanPendingReason != nil && remotePortScanCoalesceWorkItem == nil {
                 scheduleRemotePortScanCoalesceLocked()
             }
         } else {
-            guard !workspaceSchedulersSuspended else { return }
-            workspaceSchedulersSuspended = true
             suspendRemotePortPollingForWorkspaceUnmountLocked()
             suspendRemotePortScanBurstForWorkspaceUnmountLocked()
         }
@@ -6068,7 +6092,7 @@ final class WorkspaceRemoteSessionController {
 
 #if DEBUG
     struct DebugWorkspaceSchedulerState: Equatable {
-        let workspaceSchedulersSuspended: Bool
+        let workspaceSchedulersEnabled: Bool
         let remotePortPollTimerExists: Bool
         let remotePortPollTimerSuspendedForWorkspaceUnmount: Bool
     }
@@ -6083,7 +6107,7 @@ final class WorkspaceRemoteSessionController {
     func debugWorkspaceSchedulerStateForTesting(timeout: TimeInterval = 2.0) throws -> DebugWorkspaceSchedulerState {
         try runOnControllerQueue(timeout: timeout) {
             DebugWorkspaceSchedulerState(
-                workspaceSchedulersSuspended: self.workspaceSchedulersSuspended,
+                workspaceSchedulersEnabled: self.workspaceSchedulersEnabledLocked(),
                 remotePortPollTimerExists: self.remotePortPollTimer != nil,
                 remotePortPollTimerSuspendedForWorkspaceUnmount:
                     self.remotePortPollTimerState == .suspendedForWorkspaceUnmount
@@ -8276,7 +8300,7 @@ final class WorkspaceRemoteSessionController {
         guard !isStopping else { return }
         guard daemonReady else { return }
         guard remotePortScanTTYNames[panelId] != nil else { return }
-        if workspaceSchedulersSuspended {
+        if !workspaceSchedulersEnabledLocked() {
             remotePortScanPendingReason = remotePortScanPendingReason?.merged(with: reason) ?? reason
             return
         }
@@ -8288,7 +8312,7 @@ final class WorkspaceRemoteSessionController {
     }
 
     private func scheduleRemotePortScanCoalesceLocked() {
-        guard !workspaceSchedulersSuspended else { return }
+        guard workspaceSchedulersEnabledLocked() else { return }
         guard !remotePortScanBurstActive else { return }
         guard remotePortScanCoalesceWorkItem == nil else { return }
 
@@ -8314,7 +8338,7 @@ final class WorkspaceRemoteSessionController {
         burstStart: DispatchTime? = nil
     ) {
         guard remotePortScanGeneration == generation else { return }
-        guard !workspaceSchedulersSuspended else {
+        guard workspaceSchedulersEnabledLocked() else {
             remotePortScanBurstActive = false
             remotePortScanActiveReason = nil
             if !remotePortScanTTYNames.isEmpty {
@@ -8394,7 +8418,7 @@ final class WorkspaceRemoteSessionController {
     }
 
     private func startRemotePortPollingLocked(mode: RemotePortPollingMode) {
-        guard !workspaceSchedulersSuspended else { return }
+        guard workspaceSchedulersEnabledLocked() else { return }
         if remotePortPollTimer != nil, remotePortPollMode == mode {
             if resumeRemotePortPollingForWorkspaceRemountLocked() {
                 pollRemotePortsLocked()
@@ -8439,7 +8463,7 @@ final class WorkspaceRemoteSessionController {
             remotePortPollBaselinePorts = nil
             return
         }
-        guard !workspaceSchedulersSuspended else {
+        guard workspaceSchedulersEnabledLocked() else {
             if remotePortPollTimer != nil, remotePortPollMode != pollingMode {
                 stopRemotePortPollingLocked()
             }
@@ -8478,7 +8502,7 @@ final class WorkspaceRemoteSessionController {
     private func pollRemotePortsLocked() {
         guard !isStopping else { return }
         guard daemonReady else { return }
-        guard !workspaceSchedulersSuspended else { return }
+        guard workspaceSchedulersEnabledLocked() else { return }
         if !remotePortScanTTYNames.isEmpty {
             guard shouldUseTTYFallbackRemotePortPollingLocked() else {
                 stopRemotePortPollingLocked()
@@ -10309,10 +10333,14 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpAttemptVersion: Int = 0
     private var layoutFollowUpStalledAttemptCount = 0
     private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
-    private var portalRenderingEnabled = true {
-        didSet {
-            guard oldValue != portalRenderingEnabled else { return }
-            remoteSessionController?.setWorkspaceSchedulersEnabled(portalRenderingEnabled)
+    private let portalRenderingGate = WorkspacePortalRenderingGate(enabled: true)
+    private var portalRenderingEnabled: Bool {
+        get {
+            portalRenderingGate.isEnabled
+        }
+        set {
+            guard portalRenderingGate.setEnabled(newValue) else { return }
+            remoteSessionController?.syncWorkspaceSchedulerMountState()
         }
     }
     private var agentHibernationAutoResumePresentationVisible = true
@@ -12080,7 +12108,7 @@ final class Workspace: Identifiable, ObservableObject {
             workspace: self,
             configuration: configuration,
             controllerID: controllerID,
-            workspaceSchedulersEnabled: portalRenderingEnabled
+            portalRenderingGate: portalRenderingGate
         )
         activeRemoteSessionControllerID = controllerID
         remoteSessionController = controller
