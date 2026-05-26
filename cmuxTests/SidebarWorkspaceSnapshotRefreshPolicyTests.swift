@@ -225,6 +225,16 @@ final class SidebarWorkspaceScrollLayoutTests: XCTestCase {
         )
     }
 
+    func testRowsMeasurementIgnoresStaleWorkspaceIds() {
+        let measurement = SidebarWorkspaceRowsMeasurement(
+            workspaceIds: ["a", "b"],
+            rowsHeight: 240
+        )
+
+        XCTAssertNil(measurement.rowsHeight(for: ["b", "c"]))
+        XCTAssertEqual(measurement.rowsHeight(for: ["a", "b"]), 240, accuracy: 0.001)
+    }
+
     func testEmptyAreaFillsOnlyRemainingViewportSpaceWhenRowsFit() {
         let contentMinHeight = SidebarWorkspaceScrollLayout.contentMinHeight(
             viewportHeight: 720,

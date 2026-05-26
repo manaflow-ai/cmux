@@ -9675,7 +9675,7 @@ struct VerticalTabsSidebar: View {
     @State private var frozenShortcutHintsValue: Bool = false
     @State private var terminalScrollBarVisibilityGeneration: UInt64 = 0
     @State private var laidOutWorkspaceRowIds: Set<UUID> = []
-    @State private var workspaceRowsHeight: CGFloat?
+    @State private var workspaceRowsMeasurement: SidebarWorkspaceRowsMeasurement<UUID>?
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
@@ -9966,12 +9966,15 @@ struct VerticalTabsSidebar: View {
                 viewportHeight: geometryProxy.size.height,
                 insets: scrollInsets
             )
+            let measuredWorkspaceRowsHeight = workspaceRowsMeasurement?.rowsHeight(
+                for: renderContext.workspaceIds
+            )
             let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
                 contentMinHeight: contentMinHeight,
-                rowsHeight: workspaceRowsHeight
+                rowsHeight: measuredWorkspaceRowsHeight
             )
             let workspaceContentOverflows = SidebarWorkspaceScrollLayout.rowsOverflow(
-                rowsHeight: workspaceRowsHeight,
+                rowsHeight: measuredWorkspaceRowsHeight,
                 contentMinHeight: contentMinHeight
             )
 
@@ -10063,6 +10066,7 @@ struct VerticalTabsSidebar: View {
                     requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: renderContext.workspaceIds)
                 }
                 .onChange(of: renderContext.workspaceIds) { oldWorkspaceIds, newWorkspaceIds in
+                    workspaceRowsMeasurement = nil
                     guard shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
                         from: oldWorkspaceIds,
                         to: newWorkspaceIds
@@ -10079,12 +10083,20 @@ struct VerticalTabsSidebar: View {
                     laidOutWorkspaceRowIds = rowIds
                     flushPendingSelectedWorkspaceScroll(scrollProxy, laidOutWorkspaceRowIds: rowIds)
                 }
-                .onPreferenceChange(SidebarWorkspaceRowsHeightPreferenceKey.self) { rowsHeight in
-                    let nextRowsHeight = max(0, rowsHeight)
-                    if let workspaceRowsHeight, abs(workspaceRowsHeight - nextRowsHeight) <= 0.5 {
+                .onPreferenceChange(SidebarWorkspaceRowsHeightPreferenceKey.self) { measurement in
+                    guard let measurement else {
+                        workspaceRowsMeasurement = nil
                         return
                     }
-                    workspaceRowsHeight = nextRowsHeight
+                    let nextMeasurement = SidebarWorkspaceRowsMeasurement(
+                        workspaceIds: measurement.workspaceIds,
+                        rowsHeight: max(0, measurement.rowsHeight)
+                    )
+                    if let workspaceRowsMeasurement,
+                       workspaceRowsMeasurement.isEquivalent(to: nextMeasurement) {
+                        return
+                    }
+                    workspaceRowsMeasurement = nextMeasurement
                 }
             }
         }
@@ -10934,7 +10946,10 @@ struct VerticalTabsSidebar: View {
             GeometryReader { proxy in
                 Color.clear.preference(
                     key: SidebarWorkspaceRowsHeightPreferenceKey.self,
-                    value: proxy.size.height
+                    value: SidebarWorkspaceRowsMeasurement(
+                        workspaceIds: renderContext.workspaceIds,
+                        rowsHeight: proxy.size.height
+                    )
                 )
             }
         }
@@ -11157,10 +11172,18 @@ private struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
 }
 
 private struct SidebarWorkspaceRowsHeightPreferenceKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
+    static let defaultValue: SidebarWorkspaceRowsMeasurement<UUID>? = nil
 
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
+    static func reduce(
+        value: inout SidebarWorkspaceRowsMeasurement<UUID>?,
+        nextValue: () -> SidebarWorkspaceRowsMeasurement<UUID>?
+    ) {
+        guard let next = nextValue() else { return }
+        guard let current = value else {
+            value = next
+            return
+        }
+        value = current.rowsHeight >= next.rowsHeight ? current : next
     }
 }
 

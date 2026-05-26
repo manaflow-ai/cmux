@@ -58,7 +58,7 @@ enum SidebarWorkspaceScrollLayout {
         viewportHeight: CGFloat,
         insets: SidebarWorkspaceScrollInsets
     ) -> CGFloat {
-        max(0, viewportHeight - insets.total)
+        return max(0, viewportHeight - insets.total)
     }
 
     nonisolated static func emptyAreaHeight(
@@ -66,7 +66,7 @@ enum SidebarWorkspaceScrollLayout {
         rowsHeight: CGFloat?
     ) -> CGFloat {
         guard let rowsHeight else { return 0 }
-        max(0, contentMinHeight - max(0, rowsHeight))
+        return max(0, contentMinHeight - max(0, rowsHeight))
     }
 
     nonisolated static func contentOverflows(
@@ -88,5 +88,22 @@ enum SidebarWorkspaceScrollLayout {
             viewportHeight: contentMinHeight,
             tolerance: tolerance
         )
+    }
+}
+
+struct SidebarWorkspaceRowsMeasurement<ID: Equatable>: Equatable {
+    let workspaceIds: [ID]
+    let rowsHeight: CGFloat
+
+    nonisolated func rowsHeight(for currentWorkspaceIds: [ID]) -> CGFloat? {
+        guard workspaceIds == currentWorkspaceIds else { return nil }
+        return max(0, rowsHeight)
+    }
+
+    nonisolated func isEquivalent(
+        to other: SidebarWorkspaceRowsMeasurement<ID>,
+        tolerance: CGFloat = 0.5
+    ) -> Bool {
+        workspaceIds == other.workspaceIds && abs(rowsHeight - other.rowsHeight) <= tolerance
     }
 }
