@@ -48,6 +48,52 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceRestorePreservesPanelSnapshotsMissingFromLayout() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-orphan-panel-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let articleURL = root.appendingPathComponent("article.md")
+        let threadsURL = root.appendingPathComponent("threads.md")
+        try "# article\n".write(to: articleURL, atomically: true, encoding: .utf8)
+        try "# threads\n".write(to: threadsURL, atomically: true, encoding: .utf8)
+
+        let articlePanelId = UUID(uuidString: "69379D9C-741D-402A-92B0-D01E6EB25CE9")!
+        let threadsPanelId = UUID(uuidString: "5A445B4A-1453-4500-8EFF-ADFCA0430C00")!
+        let snapshot = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "主編",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: root.path,
+            focusedPanelId: threadsPanelId,
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: [articlePanelId],
+                selectedPanelId: articlePanelId
+            )),
+            panels: [
+                markdownPanelSnapshot(id: articlePanelId, filePath: articleURL.path, title: "文章規劃"),
+                markdownPanelSnapshot(id: threadsPanelId, filePath: threadsURL.path, title: "Threads"),
+            ],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let roundTrip = restored.sessionSnapshot(includeScrollback: false)
+        let restoredTitles = Set(roundTrip.panels.compactMap(\.customTitle))
+        XCTAssertTrue(restoredTitles.contains("文章規劃"))
+        XCTAssertTrue(restoredTitles.contains("Threads"))
+        let focusedPanelId = try XCTUnwrap(roundTrip.focusedPanelId)
+        XCTAssertEqual(restored.panelTitle(panelId: focusedPanelId), "Threads")
+    }
+
+    @MainActor
     func testSessionSnapshotSkipsTransientRemoteListeningPorts() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -1640,6 +1686,25 @@ final class SessionPersistenceTests: XCTestCase {
             version: version,
             createdAt: Date().timeIntervalSince1970,
             windows: [window]
+        )
+    }
+
+    private func markdownPanelSnapshot(id: UUID, filePath: String, title: String) -> SessionPanelSnapshot {
+        SessionPanelSnapshot(
+            id: id,
+            type: .markdown,
+            title: title,
+            customTitle: title,
+            directory: nil,
+            isPinned: false,
+            isManuallyUnread: false,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: nil,
+            browser: nil,
+            markdown: SessionMarkdownPanelSnapshot(filePath: filePath),
+            filePreview: nil,
+            rightSidebarTool: nil
         )
     }
 
