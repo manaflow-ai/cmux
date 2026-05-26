@@ -15,6 +15,8 @@ extension RightSidebarMode {
             return .feed
         case "dock":
             return .dock
+        case "history":
+            return .history
         default:
             return nil
         }
@@ -38,6 +40,8 @@ extension RightSidebarMode {
             return true
         case .dock:
             return dockEnabled
+        case .history:
+            return true
         }
     }
 }

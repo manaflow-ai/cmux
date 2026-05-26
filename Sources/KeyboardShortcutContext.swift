@@ -54,7 +54,8 @@ extension KeyboardShortcutSettings.Action {
              .switchRightSidebarToCodeReview,
              .switchRightSidebarToSessions,
              .switchRightSidebarToFeed,
-             .switchRightSidebarToDock:
+             .switchRightSidebarToDock,
+             .switchRightSidebarToHistory:
             return .rightSidebarFocus
         case .renameTab, .renameWorkspace:
             return .nonBrowserPanel
