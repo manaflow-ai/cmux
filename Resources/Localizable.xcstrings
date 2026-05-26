@@ -24627,40 +24627,8 @@
         }
       }
     },
-    "command.nextPane.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pane Navigation"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ペインナビゲーション"
-          }
-        }
-      }
-    },
-    "command.nextPane.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Next Pane"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "次のペイン"
-          }
-        }
-      }
-    },
+    "command.nextPane.subtitle": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"التنقل بين اللوحات"}},"bs":{"stringUnit":{"state":"translated","value":"Navigacija panelima"}},"da":{"stringUnit":{"state":"translated","value":"Panelnavigation"}},"de":{"stringUnit":{"state":"translated","value":"Bereichsnavigation"}},"en":{"stringUnit":{"state":"translated","value":"Pane Navigation"}},"es":{"stringUnit":{"state":"translated","value":"Navegación de paneles"}},"fr":{"stringUnit":{"state":"translated","value":"Navigation entre panneaux"}},"it":{"stringUnit":{"state":"translated","value":"Navigazione pannelli"}},"ja":{"stringUnit":{"state":"translated","value":"ペインナビゲーション"}},"km":{"stringUnit":{"state":"translated","value":"ការរុករកផ្ទាំង"}},"ko":{"stringUnit":{"state":"translated","value":"패널 탐색"}},"nb":{"stringUnit":{"state":"translated","value":"Panelnavigering"}},"pl":{"stringUnit":{"state":"translated","value":"Nawigacja po panelach"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Navegação de Painéis"}},"ru":{"stringUnit":{"state":"translated","value":"Навигация по панелям"}},"th":{"stringUnit":{"state":"translated","value":"การนำทางบานหน้าต่าง"}},"tr":{"stringUnit":{"state":"translated","value":"Bölme Gezinmesi"}},"uk":{"stringUnit":{"state":"translated","value":"Навігація панелями"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"面板导航"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"面板導覽"}}}},
+    "command.nextPane.title": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"اللوحة التالية"}},"bs":{"stringUnit":{"state":"translated","value":"Sljedeći panel"}},"da":{"stringUnit":{"state":"translated","value":"Næste panel"}},"de":{"stringUnit":{"state":"translated","value":"Nächster Bereich"}},"en":{"stringUnit":{"state":"translated","value":"Next Pane"}},"es":{"stringUnit":{"state":"translated","value":"Siguiente panel"}},"fr":{"stringUnit":{"state":"translated","value":"Panneau suivant"}},"it":{"stringUnit":{"state":"translated","value":"Pannello successivo"}},"ja":{"stringUnit":{"state":"translated","value":"次のペイン"}},"km":{"stringUnit":{"state":"translated","value":"ផ្ទាំងបន្ទាប់"}},"ko":{"stringUnit":{"state":"translated","value":"다음 패널"}},"nb":{"stringUnit":{"state":"translated","value":"Neste panel"}},"pl":{"stringUnit":{"state":"translated","value":"Następny panel"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Próximo Painel"}},"ru":{"stringUnit":{"state":"translated","value":"Следующая панель"}},"th":{"stringUnit":{"state":"translated","value":"บานหน้าต่างถัดไป"}},"tr":{"stringUnit":{"state":"translated","value":"Sonraki Bölme"}},"uk":{"stringUnit":{"state":"translated","value":"Наступна панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"下一个面板"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"下一個面板"}}}},
     "command.nextTabInPane.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -26050,40 +26018,8 @@
         }
       }
     },
-    "command.previousPane.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pane Navigation"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ペインナビゲーション"
-          }
-        }
-      }
-    },
-    "command.previousPane.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Previous Pane"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前のペイン"
-          }
-        }
-      }
-    },
+    "command.previousPane.subtitle": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"التنقل بين اللوحات"}},"bs":{"stringUnit":{"state":"translated","value":"Navigacija panelima"}},"da":{"stringUnit":{"state":"translated","value":"Panelnavigation"}},"de":{"stringUnit":{"state":"translated","value":"Bereichsnavigation"}},"en":{"stringUnit":{"state":"translated","value":"Pane Navigation"}},"es":{"stringUnit":{"state":"translated","value":"Navegación de paneles"}},"fr":{"stringUnit":{"state":"translated","value":"Navigation entre panneaux"}},"it":{"stringUnit":{"state":"translated","value":"Navigazione pannelli"}},"ja":{"stringUnit":{"state":"translated","value":"ペインナビゲーション"}},"km":{"stringUnit":{"state":"translated","value":"ការរុករកផ្ទាំង"}},"ko":{"stringUnit":{"state":"translated","value":"패널 탐색"}},"nb":{"stringUnit":{"state":"translated","value":"Panelnavigering"}},"pl":{"stringUnit":{"state":"translated","value":"Nawigacja po panelach"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Navegação de Painéis"}},"ru":{"stringUnit":{"state":"translated","value":"Навигация по панелям"}},"th":{"stringUnit":{"state":"translated","value":"การนำทางบานหน้าต่าง"}},"tr":{"stringUnit":{"state":"translated","value":"Bölme Gezinmesi"}},"uk":{"stringUnit":{"state":"translated","value":"Навігація панелями"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"面板导航"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"面板導覽"}}}},
+    "command.previousPane.title": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"اللوحة السابقة"}},"bs":{"stringUnit":{"state":"translated","value":"Prethodni panel"}},"da":{"stringUnit":{"state":"translated","value":"Forrige panel"}},"de":{"stringUnit":{"state":"translated","value":"Vorheriger Bereich"}},"en":{"stringUnit":{"state":"translated","value":"Previous Pane"}},"es":{"stringUnit":{"state":"translated","value":"Panel anterior"}},"fr":{"stringUnit":{"state":"translated","value":"Panneau précédent"}},"it":{"stringUnit":{"state":"translated","value":"Pannello precedente"}},"ja":{"stringUnit":{"state":"translated","value":"前のペイン"}},"km":{"stringUnit":{"state":"translated","value":"ផ្ទាំងមុន"}},"ko":{"stringUnit":{"state":"translated","value":"이전 패널"}},"nb":{"stringUnit":{"state":"translated","value":"Forrige panel"}},"pl":{"stringUnit":{"state":"translated","value":"Poprzedni panel"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Painel Anterior"}},"ru":{"stringUnit":{"state":"translated","value":"Предыдущая панель"}},"th":{"stringUnit":{"state":"translated","value":"บานหน้าต่างก่อนหน้า"}},"tr":{"stringUnit":{"state":"translated","value":"Önceki Bölme"}},"uk":{"stringUnit":{"state":"translated","value":"Попередня панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"上一个面板"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"上一個面板"}}}},
     "command.previousTabInPane.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -49397,23 +49333,7 @@
         }
       }
     },
-    "menu.view.nextPane": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Next Pane"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "次のペイン"
-          }
-        }
-      }
-    },
+    "menu.view.nextPane": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"اللوحة التالية"}},"bs":{"stringUnit":{"state":"translated","value":"Sljedeći panel"}},"da":{"stringUnit":{"state":"translated","value":"Næste panel"}},"de":{"stringUnit":{"state":"translated","value":"Nächster Bereich"}},"en":{"stringUnit":{"state":"translated","value":"Next Pane"}},"es":{"stringUnit":{"state":"translated","value":"Siguiente panel"}},"fr":{"stringUnit":{"state":"translated","value":"Panneau suivant"}},"it":{"stringUnit":{"state":"translated","value":"Pannello successivo"}},"ja":{"stringUnit":{"state":"translated","value":"次のペイン"}},"km":{"stringUnit":{"state":"translated","value":"ផ្ទាំងបន្ទាប់"}},"ko":{"stringUnit":{"state":"translated","value":"다음 패널"}},"nb":{"stringUnit":{"state":"translated","value":"Neste panel"}},"pl":{"stringUnit":{"state":"translated","value":"Następny panel"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Próximo Painel"}},"ru":{"stringUnit":{"state":"translated","value":"Следующая панель"}},"th":{"stringUnit":{"state":"translated","value":"บานหน้าต่างถัดไป"}},"tr":{"stringUnit":{"state":"translated","value":"Sonraki Bölme"}},"uk":{"stringUnit":{"state":"translated","value":"Наступна панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"下一个面板"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"下一個面板"}}}},
     "menu.view.nextSurface": {
       "extractionState": "manual",
       "localizations": {
@@ -49652,23 +49572,7 @@
         }
       }
     },
-    "menu.view.previousPane": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Previous Pane"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前のペイン"
-          }
-        }
-      }
-    },
+    "menu.view.previousPane": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"اللوحة السابقة"}},"bs":{"stringUnit":{"state":"translated","value":"Prethodni panel"}},"da":{"stringUnit":{"state":"translated","value":"Forrige panel"}},"de":{"stringUnit":{"state":"translated","value":"Vorheriger Bereich"}},"en":{"stringUnit":{"state":"translated","value":"Previous Pane"}},"es":{"stringUnit":{"state":"translated","value":"Panel anterior"}},"fr":{"stringUnit":{"state":"translated","value":"Panneau précédent"}},"it":{"stringUnit":{"state":"translated","value":"Pannello precedente"}},"ja":{"stringUnit":{"state":"translated","value":"前のペイン"}},"km":{"stringUnit":{"state":"translated","value":"ផ្ទាំងមុន"}},"ko":{"stringUnit":{"state":"translated","value":"이전 패널"}},"nb":{"stringUnit":{"state":"translated","value":"Forrige panel"}},"pl":{"stringUnit":{"state":"translated","value":"Poprzedni panel"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Painel Anterior"}},"ru":{"stringUnit":{"state":"translated","value":"Предыдущая панель"}},"th":{"stringUnit":{"state":"translated","value":"บานหน้าต่างก่อนหน้า"}},"tr":{"stringUnit":{"state":"translated","value":"Önceki Bölme"}},"uk":{"stringUnit":{"state":"translated","value":"Попередня панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"上一个面板"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"上一個面板"}}}},
     "menu.view.previousSurface": {
       "extractionState": "manual",
       "localizations": {
@@ -87770,23 +87674,7 @@
         }
       }
     },
-    "shortcut.nextPane.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Next Pane"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "次のペイン"
-          }
-        }
-      }
-    },
+    "shortcut.nextPane.label": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"اللوحة التالية"}},"bs":{"stringUnit":{"state":"translated","value":"Sljedeći panel"}},"da":{"stringUnit":{"state":"translated","value":"Næste panel"}},"de":{"stringUnit":{"state":"translated","value":"Nächster Bereich"}},"en":{"stringUnit":{"state":"translated","value":"Next Pane"}},"es":{"stringUnit":{"state":"translated","value":"Siguiente panel"}},"fr":{"stringUnit":{"state":"translated","value":"Panneau suivant"}},"it":{"stringUnit":{"state":"translated","value":"Pannello successivo"}},"ja":{"stringUnit":{"state":"translated","value":"次のペイン"}},"km":{"stringUnit":{"state":"translated","value":"ផ្ទាំងបន្ទាប់"}},"ko":{"stringUnit":{"state":"translated","value":"다음 패널"}},"nb":{"stringUnit":{"state":"translated","value":"Neste panel"}},"pl":{"stringUnit":{"state":"translated","value":"Następny panel"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Próximo Painel"}},"ru":{"stringUnit":{"state":"translated","value":"Следующая панель"}},"th":{"stringUnit":{"state":"translated","value":"บานหน้าต่างถัดไป"}},"tr":{"stringUnit":{"state":"translated","value":"Sonraki Bölme"}},"uk":{"stringUnit":{"state":"translated","value":"Наступна панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"下一个面板"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"下一個面板"}}}},
     "shortcut.nextSurface.label": {
       "extractionState": "manual",
       "localizations": {
@@ -88802,23 +88690,7 @@
         }
       }
     },
-    "shortcut.previousPane.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Previous Pane"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前のペイン"
-          }
-        }
-      }
-    },
+    "shortcut.previousPane.label": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"اللوحة السابقة"}},"bs":{"stringUnit":{"state":"translated","value":"Prethodni panel"}},"da":{"stringUnit":{"state":"translated","value":"Forrige panel"}},"de":{"stringUnit":{"state":"translated","value":"Vorheriger Bereich"}},"en":{"stringUnit":{"state":"translated","value":"Previous Pane"}},"es":{"stringUnit":{"state":"translated","value":"Panel anterior"}},"fr":{"stringUnit":{"state":"translated","value":"Panneau précédent"}},"it":{"stringUnit":{"state":"translated","value":"Pannello precedente"}},"ja":{"stringUnit":{"state":"translated","value":"前のペイン"}},"km":{"stringUnit":{"state":"translated","value":"ផ្ទាំងមុន"}},"ko":{"stringUnit":{"state":"translated","value":"이전 패널"}},"nb":{"stringUnit":{"state":"translated","value":"Forrige panel"}},"pl":{"stringUnit":{"state":"translated","value":"Poprzedni panel"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Painel Anterior"}},"ru":{"stringUnit":{"state":"translated","value":"Предыдущая панель"}},"th":{"stringUnit":{"state":"translated","value":"บานหน้าต่างก่อนหน้า"}},"tr":{"stringUnit":{"state":"translated","value":"Önceki Bölme"}},"uk":{"stringUnit":{"state":"translated","value":"Попередня панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"上一个面板"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"上一個面板"}}}},
     "shortcut.previousSurface.label": {
       "extractionState": "manual",
       "localizations": {
