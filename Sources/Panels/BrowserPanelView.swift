@@ -1476,49 +1476,9 @@ struct BrowserPanelView: View {
 
         return Group {
             if panel.shouldRenderWebView {
-                WebViewRepresentable(
-                    panel: panel,
-                    paneId: paneId,
-                    shouldAttachWebView: isVisibleInUI && isCurrentPaneOwner && !useLocalInlineDeveloperToolsHosting,
-                    useLocalInlineHosting: useLocalInlineDeveloperToolsHosting,
-                    shouldFocusWebView: isFocused && !addressBarFocused,
-                    isPanelFocused: isFocused,
-                    portalZPriority: portalPriority,
-                    paneDropZone: paneDropZone,
-                    searchOverlay: panel.searchState.map { searchState in
-                        BrowserPortalSearchOverlayConfiguration(
-                            panelId: panel.id,
-                            searchState: searchState,
-                            focusRequestGeneration: panel.searchFocusRequestGeneration,
-                            canApplyFocusRequest: { generation in
-                                canApplyBrowserFindFieldFocusRequest(generation)
-                            },
-                            onNext: { panel.findNext() },
-                            onPrevious: { panel.findPrevious() },
-                            onClose: { panel.hideFind() },
-                            onFieldDidFocus: { panel.noteFindFieldFocused() }
-                        )
-                    },
-                    omnibarSuggestions: portalOmnibarSuggestions,
-                    paneTopChromeHeight: addressBarHeight
+                browserEngineSurface(
+                    useLocalInlineDeveloperToolsHosting: useLocalInlineDeveloperToolsHosting
                 )
-                .accessibilityIdentifier("BrowserWebViewSurface")
-                // Keep the host stable for normal pane churn, but force a remount when
-                // BrowserPanel replaces its underlying WKWebView after process termination
-                // or when the browser moves to a different Bonsplit pane host.
-                .id("\(panel.webViewInstanceID.uuidString)-\(paneId.id.uuidString)")
-                .contentShape(Rectangle())
-                .accessibilityIdentifier(browserContentAccessibilityIdentifier)
-                .simultaneousGesture(TapGesture().onEnded {
-                    // Chrome-like behavior: clicking web content while editing the
-                    // omnibar should commit blur and revert transient edits.
-                    if addressBarFocused {
-#if DEBUG
-                        logBrowserFocusState(event: "webContent.tapBlur")
-#endif
-                        setAddressBarFocused(false, reason: "webContent.tapBlur")
-                    }
-                })
             } else {
                 Color(nsColor: browserChromeBackgroundColor)
                     .contentShape(Rectangle())
@@ -1546,6 +1506,68 @@ struct BrowserPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .layoutPriority(1)
         .zIndex(0)
+    }
+
+    @ViewBuilder
+    private func browserEngineSurface(useLocalInlineDeveloperToolsHosting: Bool) -> some View {
+        let shouldFocusSurface = isFocused && !addressBarFocused
+        let tapBlur = {
+            if addressBarFocused {
+#if DEBUG
+                logBrowserFocusState(event: "webContent.tapBlur")
+#endif
+                setAddressBarFocused(false, reason: "webContent.tapBlur")
+            }
+        }
+
+        if panel.usesOwlChromiumBrowserEngine {
+            BrowserEngineNativeViewRepresentable(
+                panel: panel,
+                shouldAttachNativeView: isVisibleInUI && isCurrentPaneOwner,
+                shouldFocusWebView: shouldFocusSurface,
+                fallbackColor: browserChromeBackgroundColor
+            )
+            .accessibilityIdentifier("BrowserChromiumSurface")
+            .id("\(panel.browserEngineInstanceID.uuidString)-\(paneId.id.uuidString)")
+            .contentShape(Rectangle())
+            .accessibilityIdentifier(browserContentAccessibilityIdentifier)
+            .simultaneousGesture(TapGesture().onEnded(tapBlur))
+        } else {
+            WebViewRepresentable(
+                panel: panel,
+                paneId: paneId,
+                shouldAttachWebView: isVisibleInUI && isCurrentPaneOwner && !useLocalInlineDeveloperToolsHosting,
+                useLocalInlineHosting: useLocalInlineDeveloperToolsHosting,
+                shouldFocusWebView: shouldFocusSurface,
+                isPanelFocused: isFocused,
+                portalZPriority: portalPriority,
+                paneDropZone: paneDropZone,
+                searchOverlay: panel.searchState.map { searchState in
+                    BrowserPortalSearchOverlayConfiguration(
+                        panelId: panel.id,
+                        searchState: searchState,
+                        focusRequestGeneration: panel.searchFocusRequestGeneration,
+                        canApplyFocusRequest: { generation in
+                            canApplyBrowserFindFieldFocusRequest(generation)
+                        },
+                        onNext: { panel.findNext() },
+                        onPrevious: { panel.findPrevious() },
+                        onClose: { panel.hideFind() },
+                        onFieldDidFocus: { panel.noteFindFieldFocused() }
+                    )
+                },
+                omnibarSuggestions: portalOmnibarSuggestions,
+                paneTopChromeHeight: addressBarHeight
+            )
+            .accessibilityIdentifier("BrowserWebViewSurface")
+            // Keep the host stable for normal pane churn, but force a remount when
+            // BrowserPanel replaces its underlying WKWebView after process termination
+            // or when the browser moves to a different Bonsplit pane host.
+            .id("\(panel.webViewInstanceID.uuidString)-\(paneId.id.uuidString)")
+            .contentShape(Rectangle())
+            .accessibilityIdentifier(browserContentAccessibilityIdentifier)
+            .simultaneousGesture(TapGesture().onEnded(tapBlur))
+        }
     }
 
     private func triggerFocusFlashAnimation() {
@@ -4829,6 +4851,98 @@ struct OmnibarSuggestionsView: View {
         .accessibilityRespondsToUserInteraction(true)
         .accessibilityIdentifier("BrowserOmnibarSuggestions")
         .accessibilityLabel(String(localized: "browser.addressBarSuggestions", defaultValue: "Address bar suggestions"))
+    }
+}
+
+/// NSViewRepresentable wrapper for engine-owned native browser surfaces.
+struct BrowserEngineNativeViewRepresentable: NSViewRepresentable {
+    let panel: BrowserPanel
+    let shouldAttachNativeView: Bool
+    let shouldFocusWebView: Bool
+    let fallbackColor: NSColor
+
+    final class HostContainerView: NSView {
+        private weak var hostedView: NSView?
+
+        init(frame frameRect: NSRect, fallbackColor: NSColor) {
+            super.init(frame: frameRect)
+            wantsLayer = true
+            layer?.backgroundColor = fallbackColor.cgColor
+            autoresizesSubviews = true
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            nil
+        }
+
+        override var isFlipped: Bool { true }
+
+        func updateFallbackColor(_ color: NSColor) {
+            layer?.backgroundColor = color.cgColor
+        }
+
+        func attach(_ view: NSView) {
+            if hostedView !== view {
+                hostedView?.removeFromSuperview()
+                view.removeFromSuperview()
+                view.frame = bounds
+                view.autoresizingMask = [.width, .height]
+                addSubview(view)
+                hostedView = view
+            }
+            layoutHostedView()
+        }
+
+        func detachHostedView() {
+            hostedView?.removeFromSuperview()
+            hostedView = nil
+        }
+
+        override func layout() {
+            super.layout()
+            layoutHostedView()
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            layoutHostedView()
+        }
+
+        override func viewDidChangeBackingProperties() {
+            super.viewDidChangeBackingProperties()
+            layoutHostedView()
+        }
+
+        private func layoutHostedView() {
+            hostedView?.frame = bounds
+        }
+    }
+
+    func makeNSView(context: Context) -> HostContainerView {
+        HostContainerView(frame: .zero, fallbackColor: fallbackColor)
+    }
+
+    func updateNSView(_ nsView: HostContainerView, context: Context) {
+        nsView.updateFallbackColor(fallbackColor)
+        if shouldAttachNativeView {
+            nsView.attach(panel.browserEngineNativeView)
+        } else {
+            nsView.detachHostedView()
+        }
+
+        if shouldAttachNativeView {
+            let scale = nsView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+            panel.updateBrowserEngineSurfaceGeometry(size: nsView.bounds.size, scale: scale)
+        }
+
+        if shouldAttachNativeView, shouldFocusWebView {
+            _ = panel.requestExplicitWebViewFocus()
+        }
+    }
+
+    static func dismantleNSView(_ nsView: HostContainerView, coordinator: ()) {
+        nsView.detachHostedView()
     }
 }
 

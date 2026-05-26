@@ -4691,6 +4691,7 @@ class TerminalController {
                 let url = browserPanel.currentURL?.absoluteString ?? ""
                 let webViewLifecycle = browserPanel.webViewLifecycleTopPayload()
                 item["url"] = url
+                item["browser_engine"] = browserPanel.browserEngineDescriptor.socketPayload
                 item["browser_web_content_pid"] = v2OrNull(webContentPID)
                 item["browser_webview_lifecycle_state"] = browserPanel.webViewLifecycleState.rawValue
                 item["webviews"] = [
@@ -4704,6 +4705,7 @@ class TerminalController {
                         "title": browserPanel.displayTitle,
                         "url": url,
                         "pid": v2OrNull(webContentPID),
+                        "engine": browserPanel.browserEngineDescriptor.socketPayload,
                         "lifecycle": webViewLifecycle
                     ] as [String: Any]
                 ]
@@ -4868,8 +4870,10 @@ class TerminalController {
 
             if panel.panelType == .browser, let browserPanel = panel as? BrowserPanel {
                 item["url"] = browserPanel.currentURL?.absoluteString ?? ""
+                item["browser_engine"] = browserPanel.browserEngineDescriptor.socketPayload
             } else {
                 item["url"] = NSNull()
+                item["browser_engine"] = NSNull()
             }
             if let paneUUID {
                 surfacesByPane[paneUUID, default: []].append(item)
@@ -11437,6 +11441,60 @@ class TerminalController {
         }
     }
 
+    private func v2RunBrowserJavaScript(
+        _ browserPanel: BrowserPanel,
+        surfaceId: UUID,
+        script: String,
+        timeout: TimeInterval = 5.0,
+        useEval: Bool = true
+    ) -> V2JavaScriptResult {
+        guard browserPanel.usesOwlChromiumBrowserEngine else {
+            return v2RunBrowserJavaScript(
+                browserPanel.webView,
+                surfaceId: surfaceId,
+                script: script,
+                timeout: timeout,
+                useEval: useEval
+            )
+        }
+
+        guard v2BrowserCurrentFrameSelector(surfaceId: surfaceId) == nil else {
+            return .failure(
+                BrowserEngineUnsupportedCapabilityError(
+                    engineKind: browserPanel.browserEngineDescriptor.kind,
+                    capability: .frameScopedJavaScript
+                ).localizedDescription
+            )
+        }
+
+        let scriptToEvaluate: String
+        if useEval {
+            scriptToEvaluate = "eval(\(v2JSONLiteral(script)))"
+        } else {
+            scriptToEvaluate = script
+        }
+
+        if Thread.isMainThread {
+            do {
+                return .success(try browserPanel.evaluateJavaScriptSynchronouslyForSocket(scriptToEvaluate))
+            } catch {
+                return .failure(error.localizedDescription)
+            }
+        }
+
+        let outcome: V2JavaScriptResult? = v2AwaitCallback(timeout: timeout) { finish in
+            DispatchQueue.main.async {
+                do {
+                    finish(.success(try browserPanel.evaluateJavaScriptSynchronouslyForSocket(scriptToEvaluate)))
+                } catch {
+                    finish(.failure(error.localizedDescription))
+                }
+            }
+        }
+
+        return outcome ?? .failure("Timed out waiting for JavaScript result")
+    }
+
     private func v2BrowserRecordUnsupportedRequest(surfaceId: UUID, request: [String: Any]) {
         var logs = v2BrowserUnsupportedNetworkRequestsBySurface[surfaceId] ?? []
         logs.append(request)
@@ -11493,10 +11551,10 @@ class TerminalController {
           return true;
         })()
         """
-        _ = v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: injector)
+        _ = v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: injector)
 
         for script in scripts {
-            _ = v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script)
+            _ = v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script)
         }
         for css in styles {
             let cssLiteral = v2JSONLiteral(css)
@@ -11511,11 +11569,11 @@ class TerminalController {
               return true;
             })()
             """
-            _ = v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: styleScript)
+            _ = v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: styleScript)
         }
     }
 
-    private func v2PNGData(from image: NSImage) -> Data? {
+    private nonisolated static func v2PNGData(from image: NSImage) -> Data? {
         guard let tiff = image.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff) else { return nil }
         return rep.representation(using: .png, properties: [:])
@@ -11859,7 +11917,7 @@ class TerminalController {
         })()
         """
 
-        switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, timeout: 4.0) {
+        switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script, timeout: 4.0) {
         case .failure(let message):
             return [
                 "selector": selector,
@@ -11978,7 +12036,7 @@ class TerminalController {
             let selectorCondition = "document.querySelector(\(v2JSONLiteral(selector))) !== null"
 
             for attempt in 1...retryAttempts {
-                switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, useEval: false) {
+                switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script, useEval: false) {
                 case .failure(let message):
                     return .err(code: "js_error", message: message, data: ["action": actionName, "selector": selector])
                 case .success(let value):
@@ -12048,7 +12106,7 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing script", data: nil)
         }
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, timeout: 10.0) {
+            switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script, timeout: 10.0) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -12250,7 +12308,7 @@ class TerminalController {
             })()
             """
 
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, timeout: 10.0, useEval: false) {
+            switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script, timeout: 10.0, useEval: false) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -12591,7 +12649,7 @@ class TerminalController {
               return { ok: true };
             })()
             """
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script) {
+            switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success:
@@ -12622,7 +12680,7 @@ class TerminalController {
               return { ok: true };
             })()
             """
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script) {
+            switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success:
@@ -12653,7 +12711,7 @@ class TerminalController {
               return { ok: true };
             })()
             """
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script) {
+            switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success:
@@ -12738,7 +12796,7 @@ class TerminalController {
                 script = "window.scrollBy({ left: \(dx), top: \(dy), behavior: 'instant' }); ({ ok: true })"
             }
 
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script) {
+            switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -12787,7 +12845,7 @@ class TerminalController {
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
             let snapshotResult: Data?? = v2AwaitCallback(timeout: 5.0) { finish in
                 browserPanel.takeSnapshot { image in
-                    finish(image.flatMap { self.v2PNGData(from: $0) })
+                    finish(image.flatMap { Self.v2PNGData(from: $0) })
                 }
             }
 
@@ -12901,7 +12959,7 @@ class TerminalController {
             }
             let selectorLiteral = v2JSONLiteral(selector)
             let script = "document.querySelectorAll(\(selectorLiteral)).length"
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script) {
+            switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -13086,21 +13144,23 @@ class TerminalController {
             // Prevent omnibar auto-focus from immediately stealing first responder back.
             browserPanel.suppressOmnibarAutofocus(for: 1.0)
 
-            let webView = browserPanel.webView
-            guard let window = webView.window else {
-                result = .err(code: "invalid_state", message: "WebView is not in a window", data: nil)
+            let nativeView = browserPanel.browserEngineNativeView
+            guard let window = nativeView.window else {
+                result = .err(code: "invalid_state", message: "Browser surface is not in a window", data: nil)
                 return
             }
-            guard !webView.isHiddenOrHasHiddenAncestor else {
-                result = .err(code: "invalid_state", message: "WebView is hidden", data: nil)
+            guard !nativeView.isHiddenOrHasHiddenAncestor else {
+                result = .err(code: "invalid_state", message: "Browser surface is hidden", data: nil)
                 return
             }
 
-            window.makeFirstResponder(webView)
-            if let fr = window.firstResponder as? NSView, fr.isDescendant(of: webView) {
-                result = .ok(["focused": true])
+            if browserPanel.requestExplicitWebViewFocus(), browserPanel.isBrowserEngineSurfaceFocused(in: window) {
+                result = .ok([
+                    "focused": true,
+                    "browser_engine": browserPanel.browserEngineDescriptor.socketPayload
+                ])
             } else {
-                result = .err(code: "internal_error", message: "Focus did not move into web view", data: nil)
+                result = .err(code: "internal_error", message: "Focus did not move into browser surface", data: nil)
             }
         }
         return result
@@ -13118,13 +13178,7 @@ class TerminalController {
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let browserPanel = ws.browserPanel(for: surfaceId) else { return }
-            let webView = browserPanel.webView
-            guard let window = webView.window,
-                  let fr = window.firstResponder as? NSView else {
-                focused = false
-                return
-            }
-            focused = fr.isDescendant(of: webView)
+            focused = browserPanel.isBrowserEngineSurfaceFocused(in: browserPanel.browserEngineNativeView.window)
         }
         return .ok(["focused": focused])
     }
@@ -13178,7 +13232,7 @@ class TerminalController {
             })()
             """
 
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script) {
+            switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: ["action": actionName])
             case .success(let value):
@@ -13468,7 +13522,7 @@ class TerminalController {
               return { ok: true, selector: \(selectorLiteral), text: String(el.textContent || '').trim() };
             })()
             """
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script) {
+            switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -13511,7 +13565,7 @@ class TerminalController {
               return { ok: true, selector: finalSelector, text: String(el.textContent || '').trim() };
             })()
             """
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script) {
+            switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -13563,7 +13617,7 @@ class TerminalController {
               return { ok: true, selector: finalSelector, index: idx, text: String(el.textContent || '').trim() };
             })()
             """
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script) {
+            switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -13614,7 +13668,7 @@ class TerminalController {
               return { ok: true };
             })()
             """
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script) {
+            switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -14309,7 +14363,7 @@ class TerminalController {
               return { ok: true, value: st.getItem(String(key)) };
             })()
             """
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script) {
+            switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -14355,7 +14409,7 @@ class TerminalController {
               return { ok: true };
             })()
             """
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script) {
+            switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -14389,7 +14443,7 @@ class TerminalController {
               return { ok: true };
             })()
             """
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script) {
+            switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -14711,7 +14765,7 @@ class TerminalController {
             """
 
             let storageValue: Any
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: storageScript, timeout: 10.0) {
+            switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: storageScript, timeout: 10.0) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -14802,7 +14856,7 @@ class TerminalController {
                   return true;
                 })()
                 """
-                _ = v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, timeout: 10.0)
+                _ = v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script, timeout: 10.0)
             }
 
             return .ok([
@@ -14821,13 +14875,25 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing script", data: nil)
         }
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+            guard browserPanel.browserEngineDescriptor.capabilities.supports(.initScripts) else {
+                let error = BrowserEngineUnsupportedCapabilityError(
+                    engineKind: browserPanel.browserEngineDescriptor.kind,
+                    capability: .initScripts
+                )
+                return .err(
+                    code: "unsupported_capability",
+                    message: error.localizedDescription,
+                    data: ["capability": BrowserEngineCapability.initScripts.rawValue]
+                )
+            }
+
             var scripts = v2BrowserInitScriptsBySurface[surfaceId] ?? []
             scripts.append(script)
             v2BrowserInitScriptsBySurface[surfaceId] = scripts
 
             let userScript = WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: false)
             browserPanel.webView.configuration.userContentController.addUserScript(userScript)
-            _ = v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, timeout: 10.0)
+            _ = v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script, timeout: 10.0)
 
             return .ok([
                 "workspace_id": ws.id.uuidString,
@@ -14844,7 +14910,7 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing script", data: nil)
         }
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, timeout: 10.0) {
+            switch v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: script, timeout: 10.0) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -14880,7 +14946,7 @@ class TerminalController {
 
             let userScript = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
             browserPanel.webView.configuration.userContentController.addUserScript(userScript)
-            _ = v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: source, timeout: 10.0)
+            _ = v2RunBrowserJavaScript(browserPanel, surfaceId: surfaceId, script: source, timeout: 10.0)
 
             return .ok([
                 "workspace_id": ws.id.uuidString,
@@ -18502,30 +18568,20 @@ class TerminalController {
             // Prevent omnibar auto-focus from immediately stealing first responder back.
             browserPanel.suppressOmnibarAutofocus(for: 1.5)
 
-            let webView = browserPanel.webView
-            guard let window = webView.window else {
-                result = "ERROR: WebView is not in a window"
+            let nativeView = browserPanel.browserEngineNativeView
+            guard let window = nativeView.window else {
+                result = "ERROR: Browser surface is not in a window"
                 return
             }
-            guard !webView.isHiddenOrHasHiddenAncestor else {
-                result = "ERROR: WebView is hidden"
+            guard !nativeView.isHiddenOrHasHiddenAncestor else {
+                result = "ERROR: Browser surface is hidden"
                 return
             }
 
-            window.makeFirstResponder(webView)
-            if Self.responderChainContains(window.firstResponder, target: webView) {
-                // Some focus churn paths (workspace handoff / omnibar blur) can race this call.
-                // Reassert on the next runloop if another responder steals focus immediately.
-                DispatchQueue.main.async { [weak window, weak webView] in
-                    guard let window, let webView else { return }
-                    guard webView.window === window else { return }
-                    if !Self.responderChainContains(window.firstResponder, target: webView) {
-                        window.makeFirstResponder(webView)
-                    }
-                }
+            if browserPanel.requestExplicitWebViewFocus(), browserPanel.isBrowserEngineSurfaceFocused(in: window) {
                 result = "OK"
             } else {
-                result = "ERROR: Focus did not move into web view"
+                result = "ERROR: Focus did not move into browser surface"
             }
         }
         return result
@@ -18546,12 +18602,7 @@ class TerminalController {
                 return
             }
 
-            let webView = browserPanel.webView
-            guard let window = webView.window else {
-                result = "false"
-                return
-            }
-            result = Self.responderChainContains(window.firstResponder, target: webView) ? "true" : "false"
+            result = browserPanel.isBrowserEngineSurfaceFocused(in: browserPanel.browserEngineNativeView.window) ? "true" : "false"
         }
         return result
     }

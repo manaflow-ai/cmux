@@ -1,0 +1,354 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "address.accessibilityLabel" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Address" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "アドレス" } }
+      }
+    },
+    "address.placeholder" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Search or enter address" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "検索語句またはアドレスを入力" } }
+      }
+    },
+    "omnibar.suggestion.navigate" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Go to address" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "アドレスへ移動" } }
+      }
+    },
+    "omnibar.suggestion.search" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Search Google" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Google で検索" } }
+      }
+    },
+    "omnibar.suggestion.switchToTab" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Switch to tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "タブに切り替え" } }
+      }
+    },
+    "app.name" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "minimal-browser" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "minimal-browser" } }
+      }
+    },
+    "command.back" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Back" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "戻る" } }
+      }
+    },
+    "command.closeTab" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Close Tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "タブを閉じる" } }
+      }
+    },
+    "command.focusAddress" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Focus Address Bar" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "アドレスバーにフォーカス" } }
+      }
+    },
+    "command.moveTabDown" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Move Tab Down" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "タブを下へ移動" } }
+      }
+    },
+    "command.moveTabUp" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Move Tab Up" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "タブを上へ移動" } }
+      }
+    },
+    "command.nextTab" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Next Tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "次のタブ" } }
+      }
+    },
+    "command.pinTab" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pin Tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "タブを固定" } }
+      }
+    },
+    "command.previousTab" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Previous Tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "前のタブ" } }
+      }
+    },
+    "command.selectLastTab" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Select Last Tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最後のタブを選択" } }
+      }
+    },
+    "command.selectTabNumber" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Select Tab %d" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "タブ %d を選択" } }
+      }
+    },
+    "command.forward" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Forward" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "進む" } }
+      }
+    },
+    "command.navigate" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Navigate" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "移動" } }
+      }
+    },
+    "command.newTab" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New Tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新規タブ" } }
+      }
+    },
+    "command.reload" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reload" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "再読み込み" } }
+      }
+    },
+    "command.stop" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Stop" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "停止" } }
+      }
+    },
+    "command.unpinTab" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unpin Tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "タブの固定を解除" } }
+      }
+    },
+    "command.devtools.bottom" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open DevTools Bottom" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "DevTools を下に開く" } }
+      }
+    },
+    "command.devtools.close" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Close DevTools" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "DevTools を閉じる" } }
+      }
+    },
+    "command.devtools.left" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open DevTools Left" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "DevTools を左に開く" } }
+      }
+    },
+    "command.devtools.right" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open DevTools Right" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "DevTools を右に開く" } }
+      }
+    },
+    "command.devtools.window" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open DevTools Window" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "DevTools を別ウィンドウで開く" } }
+      }
+    },
+    "devtools.close" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Close DevTools" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "DevTools を閉じる" } }
+      }
+    },
+    "devtools.window.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "minimal-browser DevTools" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "minimal-browser DevTools" } }
+      }
+    },
+    "menu.developer" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Developer" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "開発" } }
+      }
+    },
+    "menu.navigation" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Navigation" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ナビゲーション" } }
+      }
+    },
+    "menu.tabs" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tabs" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "タブ" } }
+      }
+    },
+    "nativePrompt.auth.message" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter credentials for this site." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このサイトの認証情報を入力してください。" } }
+      }
+    },
+    "nativePrompt.auth.primary" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign In" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サインイン" } }
+      }
+    },
+    "nativePrompt.auth.secondary" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cancel" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル" } }
+      }
+    },
+    "nativePrompt.auth.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Authentication Required" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "認証が必要です" } }
+      }
+    },
+    "nativePrompt.password.placeholder" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Password" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "パスワード" } }
+      }
+    },
+    "nativePrompt.permission.message" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This site is requesting permission." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このサイトが権限を要求しています。" } }
+      }
+    },
+    "nativePrompt.permission.primary" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Allow" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "許可" } }
+      }
+    },
+    "nativePrompt.permission.secondary" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Deny" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "拒否" } }
+      }
+    },
+    "nativePrompt.permission.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Permission Request" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "権限リクエスト" } }
+      }
+    },
+    "nativePrompt.username.placeholder" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Username" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ユーザー名" } }
+      }
+    },
+    "page.empty.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New Tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新規タブ" } }
+      }
+    },
+    "page.error.commandFailed" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Browser command failed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ブラウザコマンドに失敗しました" } }
+      }
+    },
+    "page.error.runtimeFailed" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Browser engine failed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ブラウザエンジンに失敗しました" } }
+      }
+    },
+    "page.error.runtimeUnavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Browser engine unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ブラウザエンジンを利用できません" } }
+      }
+    },
+    "page.engine.label" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Engine" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エンジン" } }
+      }
+    },
+    "page.engine.value" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "OWL Chromium surface" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "OWL Chromium サーフェス" } }
+      }
+    },
+    "page.status.label" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Status" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "状態" } }
+      }
+    },
+    "page.status.disconnected" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Browser engine disconnected" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ブラウザエンジンの接続が切れました" } }
+      }
+    },
+    "page.status.loading" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "読み込み中" } }
+      }
+    },
+    "page.status.ready" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ready" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "準備完了" } }
+      }
+    },
+    "page.surface.label" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Surface" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーフェス" } }
+      }
+    },
+    "page.surface.value" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Native host boundary" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ネイティブホスト境界" } }
+      }
+    },
+    "sidebar.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tabs" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "タブ" } }
+      }
+    },
+    "sidebar.pinned" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pinned" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "固定済み" } }
+      }
+    },
+    "sidebar.tabs" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tabs" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "タブ" } }
+      }
+    },
+    "tab.new.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New Tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新規タブ" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}
