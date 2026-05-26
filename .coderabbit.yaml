@@ -15,7 +15,7 @@ reviews:
   path_instructions:
     - path: "**/*.swift"
       instructions: |
-        Apply the cmux custom Swift lint rules in `.github/review-bot-rules/` during review. Treat those files as the source of truth. Focus on production Swift changes and ignore test-only scaffolding unless it makes production behavior worse.
+        Apply the cmux custom Swift lint rules in `.github/review-bot-rules/` during review. Treat those files as the source of truth. Focus on production Swift changes and ignore test-only scaffolding unless it makes production behavior worse or a scoped custom rule explicitly targets tests.
     - path: "**/Package.swift"
       instructions: |
         Apply the cmux custom Swift lint rules in `.github/review-bot-rules/`, especially the concurrency modernization, actor isolation, blocking runtime, file/package boundary, and architectural rethink rules.
@@ -43,9 +43,88 @@ reviews:
     - path: "CHANGELOG.md"
       instructions: |
         Apply `.github/review-bot-rules/full-internationalization.md` during review. Verify changelog copy rendered on the docs site has matching localized message coverage for every locale listed in `web/i18n/routing.ts`.
+    - path: "CLI/CMUXCLI+AgentHookDefinitions.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Agent hook commands should stay on the shared `AgentHookDef` and hook command generator path; require behavior coverage before adding or changing pinned dispatch.
+    - path: "CLI/CMUXCLI+AmpExtension.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Amp hook installation, command wiring, and extension dispatch changes.
+    - path: "CLI/CMUXCLI+HermesAgentHooks.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Hermes hook installation, command wiring, and config writer changes.
+    - path: "CLI/cmux.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for hook setup, uninstall, Feed bridge, and agent lifecycle command changes.
+    - path: "Resources/bin/claude"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Claude wrapper hook injection, Feed routing, and hook timeout changes.
+    - path: "Resources/bin/grok"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Grok wrapper hook installation, socket routing, and launch metadata changes.
+    - path: "Resources/opencode-plugin.js"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for the OpenCode Feed bridge. Preserve socket routing, `feed.push` event mapping, and the longer blocking permission timeout.
+    - path: "Sources/Feed/FeedCoordinator.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Feed bridge runtime behavior. Preserve `feed.push` blocking reply semantics, timeout handling, and source/event routing.
+    - path: "Sources/TerminalController.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for `feed.push` socket-handler hunks only. Preserve `wait_timeout_seconds` validation, the 120s upper bound, event decoding, and direct plugin bridge compatibility.
+    - path: "Packages/CMUXWorkstream/Sources/CMUXWorkstream/WorkstreamEvent.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Feed wire-frame changes. Preserve `_source`, `hook_event_name`, request id, and `tool_input` compatibility for CLI hooks and direct plugin bridges.
+    - path: "Packages/CMUXWorkstream/Sources/CMUXWorkstream/WorkstreamSource.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Feed source tag changes. Preserve agent source names emitted by cmux hooks and direct plugin bridges.
+    - path: "Packages/CMUXAgentLaunch/**"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for hook config writers and agent launch environment policy.
+    - path: "cmuxTests/**/*Hook*.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for hook-related tests. Tests for special hook dispatch should prove the agent cannot use the shared env-interpolating path.
+    - path: "cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Claude notification hook integration regressions. Preserve hook command routing, socket behavior, and notification payload handling.
+    - path: "cmuxTests/FeedCoordinatorTests.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Feed bridge tests. Preserve source/event routing through `cmux hooks feed --source <agent> --event <event>` and the longer Feed timeout behavior.
+    - path: "cmuxTests/WorkspaceRemoteConnectionTests.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for hook and Feed regression hunks in this mixed test file. Do not apply the hook rule to unrelated remote connection coverage in the same file.
+    - path: "tests/test_*hook*.py"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Python hook tests should preserve shared dispatch, socket routing, disable-env behavior, and Feed bridge timeout/source-event expectations.
+    - path: "tests/test_*feed*.py"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Python Feed hook tests should preserve source/event routing through `cmux hooks feed --source <agent> --event <event>` and the longer Feed timeout behavior.
+    - path: "tests/test_*extension_install.py"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for agent extension hook installer tests. Installer tests should not bless duplicated dispatch, hardcoded socket paths, or bypasses around shared hook generation.
+    - path: "tests/test_*plugin_install.py"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for agent plugin hook installer tests. Installer tests should not bless duplicated dispatch, hardcoded socket paths, or bypasses around shared hook generation.
+    - path: "docs/agent-hooks.md"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Hook docs should describe shared setup commands and avoid hardcoded app bundle or socket paths.
+    - path: "docs/feed.md"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review. Hook docs should describe shared setup commands and avoid hardcoded app bundle or socket paths. For Feed bridge event docs, verify the longer Feed timeout and source/event routing through `cmux hooks feed --source <agent> --event <event>` are preserved for CLI-backed hooks, and direct plugin bridge contracts such as OpenCode `feed.push` are preserved where applicable.
+    - path: "docs/events.md"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for Feed and agent hook event documentation.
+    - path: "docs/cli-contract.md"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for `cmux hooks` CLI contract documentation.
+    - path: "docs/notifications.md"
+      instructions: |
+        Apply `.github/review-bot-rules/agent-hook-standardization.md` during review for notification hook documentation.
 
   pre_merge_checks:
     custom_checks:
+      - name: "cmux agent hook standardization"
+        mode: error
+        instructions: |
+          For agent hook install, uninstall, command generation, Feed bridge, hook config writer, hook docs, and hook tests, fail when the diff violates `.github/review-bot-rules/agent-hook-standardization.md`: new hook integrations must use shared `AgentHookDef` metadata and shared command generation, pinned dispatch needs agent-specific behavior coverage, and hook code/docs/tests must not hardcode app bundle paths, socket paths, or release channel names outside the shared pinned hook path. Pinned dispatch must preserve owned-hook markers, install-time CLI/socket pinning, fallback to `command -v cmux`, disable-env handling, longer Feed timeouts, CLI source/event routing, direct plugin bridge contracts such as OpenCode `feed.push`, and legacy cmux-owned hook pruning. In mixed files, apply this check only to hook and Feed bridge hunks. Pass for agent-native config writers that still call shared command helpers, direct plugin Feed bridges that own their event bus, and existing complexity not worsened by the PR.
       - name: "cmux Swift actor isolation"
         mode: error
         instructions: |
