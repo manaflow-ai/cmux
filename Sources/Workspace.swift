@@ -10836,8 +10836,14 @@ final class Workspace: Identifiable, ObservableObject {
         panelId: UUID,
         index: RestorableAgentSessionIndex
     ) -> SessionRestorableAgentSnapshot? {
-        let snapshot = restoredAgentSnapshotsByPanelId[panelId] ?? index.snapshot(workspaceId: id, panelId: panelId)
-        guard snapshot?.resumeCommand != nil else { return nil }
+        guard let snapshot = restoredAgentSnapshotsByPanelId[panelId] ?? index.snapshot(workspaceId: id, panelId: panelId),
+              snapshot.resumeCommand != nil else {
+            return nil
+        }
+        let fingerprint = TabManager.restorableAgentSnapshotFingerprint(snapshot)
+        guard invalidatedRestoredAgentFingerprintsByPanelId[panelId] != fingerprint else {
+            return nil
+        }
         return snapshot
     }
 

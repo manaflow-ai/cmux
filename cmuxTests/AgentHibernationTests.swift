@@ -694,6 +694,35 @@ final class AgentHibernationTests: XCTestCase {
     }
 
     @MainActor
+    func testInvalidatedIndexedAgentSnapshotIsNotEligibleForHibernation() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hibernation-invalidated-index-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-invalidated-index",
+            workingDirectory: "/tmp/cmux-agent-hibernation",
+            launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
+        )
+        let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: home.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [key: (snapshot: snapshot, updatedAt: 100, processIDs: [42])]
+        )
+
+        workspace.invalidatedRestoredAgentFingerprintsByPanelId[panelId] =
+            TabManager.restorableAgentSnapshotFingerprint(snapshot)
+
+        XCTAssertNil(workspace.restorableAgentForHibernation(panelId: panelId, index: index))
+    }
+
+    @MainActor
     func testFocusingHibernatedTerminalAutomaticallyPreparesResume() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
