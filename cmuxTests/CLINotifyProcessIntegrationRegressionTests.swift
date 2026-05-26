@@ -5813,6 +5813,122 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testSetColorCommandSendsWorkspaceSetColorRPC() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("set-color")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            XCTAssertEqual(method, "workspace.set_color")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+            XCTAssertEqual(params["color"] as? String, "#e11d48")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "window_id": windowId,
+                    "workspace_id": workspaceId,
+                    "color": "#E11D48",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["set-color", "--workspace", workspaceId, "#e11d48"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(result.stdout, "OK workspace=\(workspaceId) window=\(windowId) color=#E11D48\n")
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.set_color"]
+        )
+    }
+
+    func testClearColorCommandSendsWorkspaceClearColorRPC() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("clear-color")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            XCTAssertEqual(method, "workspace.clear_color")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+            XCTAssertNil(params["color"])
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "window_id": windowId,
+                    "workspace_id": workspaceId,
+                    "color": NSNull(),
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["clear-color", "--workspace", workspaceId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(result.stdout, "OK workspace=\(workspaceId) window=\(windowId) color=none\n")
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.clear_color"]
+        )
+    }
+
     func testClearNotificationsWindowFlagFailsWhenWindowHasNoCurrentWorkspace() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("clear-window-empty")
