@@ -10050,9 +10050,8 @@ extension TabManager {
         restorableAgentIndex: RestorableAgentSessionIndex = .empty,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionTabManagerSnapshot {
-        let restorableTabs = Array(tabs
-            .filter(\.isRestorableInSessionSnapshot)
-            .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow))
+        let allRestorableTabs = tabs.filter(\.isRestorableInSessionSnapshot)
+        let restorableTabs = Array(allRestorableTabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow))
         let workspaceSnapshots = restorableTabs
             .map {
                 $0.sessionSnapshot(
@@ -10064,7 +10063,10 @@ extension TabManager {
         let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
             restorableTabs.firstIndex(where: { $0.id == selectedTabId })
         }
-        let workspaceGroupSnapshots = sessionWorkspaceGroupSnapshots(restorableTabs: restorableTabs)
+        let workspaceGroupSnapshots = sessionWorkspaceGroupSnapshots(
+            restorableTabs: restorableTabs,
+            preservesEmptyGroups: allRestorableTabs.count <= SessionPersistencePolicy.maxWorkspacesPerWindow
+        )
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
             workspaces: workspaceSnapshots,
@@ -10073,17 +10075,20 @@ extension TabManager {
     }
 
     private func sessionWorkspaceGroupSnapshots(
-        restorableTabs: [Workspace]
+        restorableTabs: [Workspace],
+        preservesEmptyGroups: Bool
     ) -> [SessionWorkspaceGroupSnapshot] {
         let workspaceIndexById = Dictionary(uniqueKeysWithValues: restorableTabs.enumerated().map { index, workspace in
             (workspace.id, index)
         })
-        return workspaceGroups.map { group in
+        return workspaceGroups.compactMap { group in
+            let workspaceIndexes = group.workspaceIds.compactMap { workspaceIndexById[$0] }
+            guard preservesEmptyGroups || !workspaceIndexes.isEmpty else { return nil }
             SessionWorkspaceGroupSnapshot(
                 id: group.id,
                 title: group.title,
                 isCollapsed: group.isCollapsed,
-                workspaceIndexes: group.workspaceIds.compactMap { workspaceIndexById[$0] },
+                workspaceIndexes: workspaceIndexes,
                 workspaceIds: nil
             )
         }
@@ -10202,12 +10207,13 @@ extension TabManager {
         // Single atomic assignment of @Published properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.
         let existingIds = Set(newTabs.map(\.id))
-        workspaceGroups = restoredWorkspaceGroups(
+        let newWorkspaceGroups = restoredWorkspaceGroups(
             from: snapshot.workspaceGroups,
             existingTabs: newTabs
         )
         tabs = newTabs
         selectedTabId = newSelectedId
+        workspaceGroups = newWorkspaceGroups
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)
         sidebarSelectedWorkspaceIds.formIntersection(existingIds)
         for workspace in previousTabs {
