@@ -9672,7 +9672,7 @@ enum SidebarWorkspaceSelectionReducer {
             let rangeIds = Set(workspaceIds[lower...upper])
             return Result(
                 selectedIds: isCommand ? selectedIds.union(rangeIds) : rangeIds,
-                anchorIndex: index
+                anchorIndex: anchorIndex
             )
         }
 
