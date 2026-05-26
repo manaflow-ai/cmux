@@ -8,6 +8,80 @@ import XCTest
 #endif
 
 final class SidebarWorkspaceDropPlannerTests: XCTestCase {
+    func testGroupingPlanSeparatesBookmarksAndPreservesFolderInsertionOrder() {
+        let pinned = UUID()
+        let firstAlpha = UUID()
+        let beta = UUID()
+        let secondAlpha = UUID()
+
+        let plan = SidebarWorkspaceGroupingPlanner.plan(
+            for: [
+                SidebarWorkspaceGroupingInput(id: pinned, initialDirectory: "/pinned", isPinned: true),
+                SidebarWorkspaceGroupingInput(id: firstAlpha, initialDirectory: "/alpha", isPinned: false),
+                SidebarWorkspaceGroupingInput(id: beta, initialDirectory: "/beta", isPinned: false),
+                SidebarWorkspaceGroupingInput(id: secondAlpha, initialDirectory: "/alpha", isPinned: false),
+            ],
+            fallbackDirectory: "/home"
+        )
+
+        XCTAssertEqual(plan.bookmarkIds, [pinned])
+        XCTAssertEqual(
+            plan.folderGroups,
+            [
+                SidebarWorkspaceFolderGroup(directory: "/alpha", workspaceIds: [firstAlpha, secondAlpha]),
+                SidebarWorkspaceFolderGroup(directory: "/beta", workspaceIds: [beta]),
+            ]
+        )
+        XCTAssertEqual(plan.visibleWorkspaceIds, [pinned, firstAlpha, secondAlpha, beta])
+    }
+
+    func testGroupingPlanUsesFallbackForEmptyDirectories() {
+        let workspace = UUID()
+
+        let plan = SidebarWorkspaceGroupingPlanner.plan(
+            for: [
+                SidebarWorkspaceGroupingInput(id: workspace, initialDirectory: "  ", isPinned: false),
+            ],
+            fallbackDirectory: "/fallback"
+        )
+
+        XCTAssertEqual(
+            plan.folderGroups,
+            [SidebarWorkspaceFolderGroup(directory: "/fallback", workspaceIds: [workspace])]
+        )
+    }
+
+    func testRenderedWorkspaceIdsExcludeCollapsedFolderRowsWhenHeadersAreVisible() {
+        let pinned = UUID()
+        let firstAlpha = UUID()
+        let secondAlpha = UUID()
+        let beta = UUID()
+        let alphaGroup = SidebarWorkspaceFolderGroup(directory: "/alpha", workspaceIds: [firstAlpha, secondAlpha])
+        let betaGroup = SidebarWorkspaceFolderGroup(directory: "/beta", workspaceIds: [beta])
+
+        let renderedIds = SidebarWorkspaceListRenderPolicy.renderedWorkspaceIds(
+            bookmarkIds: [pinned],
+            folderGroups: [alphaGroup, betaGroup],
+            collapsedGroupIds: [alphaGroup.id]
+        )
+
+        XCTAssertEqual(renderedIds, [pinned, beta])
+    }
+
+    func testRenderedWorkspaceIdsKeepSingleFolderVisibleEvenIfCollapsedStateIsStale() {
+        let firstAlpha = UUID()
+        let secondAlpha = UUID()
+        let alphaGroup = SidebarWorkspaceFolderGroup(directory: "/alpha", workspaceIds: [firstAlpha, secondAlpha])
+
+        let renderedIds = SidebarWorkspaceListRenderPolicy.renderedWorkspaceIds(
+            bookmarkIds: [],
+            folderGroups: [alphaGroup],
+            collapsedGroupIds: [alphaGroup.id]
+        )
+
+        XCTAssertEqual(renderedIds, [firstAlpha, secondAlpha])
+    }
+
     func testWorkspaceDropCenterTargetsExistingWorkspace() {
         let first = UUID()
         let second = UUID()

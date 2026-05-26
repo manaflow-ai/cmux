@@ -5506,6 +5506,82 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
+    func setWorkspaceInitialDirectory(tabId: UUID, directory: String) -> Bool {
+        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return false }
+        let normalized = normalizedInitialDirectory(directory)
+        guard workspace.initialDirectory != normalized else { return true }
+        objectWillChange.send()
+        workspace.initialDirectory = normalized
+        return true
+    }
+
+    @discardableResult
+    func moveWorkspaceToInitialDirectoryGroupEnd(
+        tabId: UUID,
+        directory: String
+    ) -> Bool {
+        moveWorkspace(
+            tabId: tabId,
+            initialDirectory: directory,
+            pinned: false,
+            placement: .endOfDirectoryGroup
+        )
+    }
+
+    @discardableResult
+    func moveWorkspaceToBookmarksEnd(tabId: UUID) -> Bool {
+        moveWorkspace(
+            tabId: tabId,
+            initialDirectory: nil,
+            pinned: true,
+            placement: .endOfBookmarks
+        )
+    }
+
+    @discardableResult
+    func moveWorkspaceInSidebarVisualOrder(
+        tabId: UUID,
+        toVisibleIndex targetIndex: Int,
+        initialDirectory directory: String?
+    ) -> Bool {
+        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return false }
+
+        let nextInitialDirectory = directory.map { normalizedInitialDirectory($0) }
+        let directoryChanged = nextInitialDirectory.map { workspace.initialDirectory != $0 } ?? false
+        let currentVisibleIds = sidebarVisibleWorkspaceIds()
+        guard let currentVisibleIndex = currentVisibleIds.firstIndex(of: tabId),
+              currentVisibleIds.count == tabs.count else {
+            return false
+        }
+
+        var nextVisibleIds = currentVisibleIds
+        nextVisibleIds.remove(at: currentVisibleIndex)
+        let pinnedCount = tabs.filter(\.isPinned).count
+        let clampedTargetIndex: Int
+        if workspace.isPinned {
+            clampedTargetIndex = min(max(0, targetIndex), max(0, pinnedCount - 1))
+        } else {
+            clampedTargetIndex = max(pinnedCount, min(targetIndex, tabs.count - 1))
+        }
+        let insertionIndex = max(0, min(clampedTargetIndex, nextVisibleIds.count))
+        nextVisibleIds.insert(tabId, at: insertionIndex)
+
+        let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        let reorderedTabs = nextVisibleIds.compactMap { workspaceById[$0] }
+        guard reorderedTabs.count == tabs.count else { return false }
+
+        guard tabs.map(\.id) != nextVisibleIds || directoryChanged else {
+            return true
+        }
+
+        if let nextInitialDirectory, directoryChanged {
+            workspace.initialDirectory = nextInitialDirectory
+        }
+        tabs = reorderedTabs
+        return true
+    }
+
+    @discardableResult
     func reorderWorkspace(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> Bool {
         guard let plan = workspaceReorderPlan(tabId: tabId, before: beforeId, after: afterId) else { return false }
         return reorderWorkspace(tabId: tabId, toIndex: plan.toIndex)
@@ -5657,6 +5733,79 @@ class TabManager: ObservableObject {
             return min(clamped, max(0, pinnedCount - 1))
         }
         return max(clamped, pinnedCount)
+    }
+
+    private enum WorkspaceMovePlacement {
+        case endOfDirectoryGroup
+        case endOfBookmarks
+    }
+
+    @discardableResult
+    private func moveWorkspace(
+        tabId: UUID,
+        initialDirectory directory: String?,
+        pinned: Bool,
+        placement: WorkspaceMovePlacement
+    ) -> Bool {
+        guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
+        let workspace = tabs[currentIndex]
+        let nextInitialDirectory = directory.map { normalizedInitialDirectory($0) }
+        let directoryChanged = nextInitialDirectory.map { workspace.initialDirectory != $0 } ?? false
+        let pinnedChanged = workspace.isPinned != pinned
+
+        var remainingTabs = tabs
+        remainingTabs.remove(at: currentIndex)
+
+        let insertionIndex: Int
+        switch placement {
+        case .endOfDirectoryGroup:
+            let pinnedCount = remainingTabs.filter(\.isPinned).count
+            if let nextInitialDirectory,
+               let lastGroupIndex = remainingTabs.lastIndex(where: {
+                   !$0.isPinned && $0.initialDirectory == nextInitialDirectory
+               }) {
+                insertionIndex = lastGroupIndex + 1
+            } else if nextInitialDirectory == workspace.initialDirectory {
+                insertionIndex = max(min(currentIndex, remainingTabs.count), pinnedCount)
+            } else {
+                insertionIndex = pinnedCount
+            }
+        case .endOfBookmarks:
+            let pinnedCount = remainingTabs.filter(\.isPinned).count
+            insertionIndex = pinnedCount
+        }
+
+        remainingTabs.insert(workspace, at: max(0, min(insertionIndex, remainingTabs.count)))
+        guard tabs.map(\.id) != remainingTabs.map(\.id) || directoryChanged || pinnedChanged else {
+            return true
+        }
+
+        if let nextInitialDirectory, directoryChanged {
+            workspace.initialDirectory = nextInitialDirectory
+        }
+        if pinnedChanged {
+            workspace.isPinned = pinned
+        }
+        tabs = remainingTabs
+        return true
+    }
+
+    private func normalizedInitialDirectory(_ directory: String) -> String {
+        let normalized = normalizeDirectory(directory)
+        let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : trimmed
+    }
+
+    private func sidebarVisibleWorkspaceIds() -> [UUID] {
+        SidebarWorkspaceGroupingPlanner.plan(
+            for: tabs.map {
+                SidebarWorkspaceGroupingInput(
+                    id: $0.id,
+                    initialDirectory: $0.initialDirectory,
+                    isPinned: $0.isPinned
+                )
+            }
+        ).visibleWorkspaceIds
     }
 
     // MARK: - Surface Directory Updates (Backwards Compatibility)
@@ -9604,6 +9753,7 @@ extension TabManager {
         for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
             hasher.combine(workspace.id)
             hasher.combine(workspace.focusedPanelId)
+            hasher.combine(workspace.initialDirectory)
             hasher.combine(workspace.currentDirectory)
             hasher.combine(workspace.customTitle ?? "")
             hasher.combine(workspace.customDescription ?? "")

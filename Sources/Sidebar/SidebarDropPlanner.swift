@@ -11,6 +11,69 @@ struct SidebarDropIndicator: Equatable {
     let edge: SidebarDropEdge
 }
 
+struct SidebarWorkspaceGroupingInput: Equatable {
+    let id: UUID
+    let initialDirectory: String
+    let isPinned: Bool
+}
+
+struct SidebarWorkspaceFolderGroup: Equatable, Identifiable {
+    let directory: String
+    let workspaceIds: [UUID]
+
+    var id: String { directory }
+}
+
+struct SidebarWorkspaceGroupingPlan: Equatable {
+    let bookmarkIds: [UUID]
+    let folderGroups: [SidebarWorkspaceFolderGroup]
+
+    var visibleWorkspaceIds: [UUID] {
+        bookmarkIds + folderGroups.flatMap(\.workspaceIds)
+    }
+}
+
+enum SidebarWorkspaceGroupingPlanner {
+    static func plan(
+        for inputs: [SidebarWorkspaceGroupingInput],
+        fallbackDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path
+    ) -> SidebarWorkspaceGroupingPlan {
+        var bookmarkIds: [UUID] = []
+        var groupOrder: [String] = []
+        var groupedWorkspaceIds: [String: [UUID]] = [:]
+
+        for input in inputs {
+            if input.isPinned {
+                bookmarkIds.append(input.id)
+                continue
+            }
+
+            let directory = normalizedDirectory(input.initialDirectory, fallbackDirectory: fallbackDirectory)
+            if groupedWorkspaceIds[directory] == nil {
+                groupOrder.append(directory)
+                groupedWorkspaceIds[directory] = []
+            }
+            groupedWorkspaceIds[directory]?.append(input.id)
+        }
+
+        let folderGroups = groupOrder.map { directory in
+            SidebarWorkspaceFolderGroup(
+                directory: directory,
+                workspaceIds: groupedWorkspaceIds[directory] ?? []
+            )
+        }
+        return SidebarWorkspaceGroupingPlan(bookmarkIds: bookmarkIds, folderGroups: folderGroups)
+    }
+
+    static func normalizedDirectory(
+        _ directory: String,
+        fallbackDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path
+    ) -> String {
+        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? fallbackDirectory : trimmed
+    }
+}
+
 enum SidebarDropPlanner {
     static func indicator(
         draggedTabId: UUID?,

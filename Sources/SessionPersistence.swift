@@ -1564,6 +1564,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var notifications: [SessionNotificationSnapshot]? = nil
     var terminalScrollBarHidden: Bool?
     var currentDirectory: String
+    var initialDirectory: String? = nil
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
     var panels: [SessionPanelSnapshot]

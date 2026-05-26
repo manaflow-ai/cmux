@@ -239,6 +239,7 @@ extension Workspace {
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
             terminalScrollBarHidden: terminalScrollBarHidden ? true : nil,
             currentDirectory: currentDirectory,
+            initialDirectory: initialDirectory,
             focusedPanelId: focusedPanelId,
             layout: layout,
             panels: panelSnapshots,
@@ -283,6 +284,13 @@ extension Workspace {
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
             currentDirectory = normalizedCurrentDirectory
+        }
+        let normalizedInitialDirectory = snapshot.initialDirectory?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let normalizedInitialDirectory, !normalizedInitialDirectory.isEmpty {
+            initialDirectory = normalizedInitialDirectory
+        } else {
+            initialDirectory = currentDirectory
         }
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
@@ -9201,6 +9209,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var isPinned: Bool = false
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
     @Published private(set) var terminalScrollBarHidden: Bool = false
+    @Published var initialDirectory: String
     @Published var currentDirectory: String {
         didSet {
             let oldDirectory = oldValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -9451,6 +9460,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = {
         let publishers: [AnyPublisher<Void, Never>] = [
+            sidebarObservationSignal($initialDirectory),
             sidebarObservationSignal($currentDirectory),
             sidebarObservationSignal($extensionSidebarProjectRootPath),
             $panels
@@ -9880,6 +9890,7 @@ final class Workspace: Identifiable, ObservableObject {
         let initialDirectory = hasWorkingDirectory
             ? trimmedWorkingDirectory
             : FileManager.default.homeDirectoryForCurrentUser.path
+        self.initialDirectory = initialDirectory
         self.currentDirectory = hasWorkingDirectory
             ? trimmedWorkingDirectory
             : FileManager.default.homeDirectoryForCurrentUser.path
