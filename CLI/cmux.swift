@@ -16426,6 +16426,7 @@ struct CMUXCLI {
         private var attachableThreadIds = Set<String>()
         private let readinessLock = NSLock()
         private let stateLock = NSLock()
+        private let subagentOpenLock = NSLock()
         private let socketLock = NSLock()
         private var lastAgentSurfaceId: String?
         private var reportedSpawnFailureFingerprints = Set<String>()
@@ -16932,6 +16933,15 @@ struct CMUXCLI {
                 return
             }
 
+            // Serialize target selection and pane creation, but never wait or send socket I/O while holding stateLock.
+            stateLock.unlock()
+            subagentOpenLock.lock()
+            stateLock.lock()
+            defer { subagentOpenLock.unlock() }
+
+            guard !openedThreadIds.contains(thread.id) else { return }
+            guard !openingThreadIds.contains(thread.id) else { return }
+            guard CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else { return }
             let targetSurfaceId = lastAgentSurfaceId ?? rootSurfaceId
             let direction = lastAgentSurfaceId == nil ? "right" : "down"
             openingThreadIds.insert(thread.id)
