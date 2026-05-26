@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import Carbon.HIToolbox
+import SwiftUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9704,6 +9705,85 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertFalse(remountedTextView.hasPendingAttachmentUploadPlaceholder())
         XCTAssertEqual(remountedTextView.submissionText(), "hello world")
+    }
+
+    func testTextBoxRepresentableDismantleDoesNotWriteSwiftUIBindings() {
+        var text = "old"
+        var attachments: [TextBoxAttachment] = []
+        var height: CGFloat = 24
+        var hasPendingAttachmentUpload = true
+        var textWriteCount = 0
+        var attachmentWriteCount = 0
+        var heightWriteCount = 0
+        var pendingWriteCount = 0
+        var dismantledText: String?
+
+        let inputView = TextBoxInputView(
+            text: Binding(
+                get: { text },
+                set: { newValue in
+                    textWriteCount += 1
+                    text = newValue
+                }
+            ),
+            attachments: Binding(
+                get: { attachments },
+                set: { newValue in
+                    attachmentWriteCount += 1
+                    attachments = newValue
+                }
+            ),
+            textViewHeight: Binding(
+                get: { height },
+                set: { newValue in
+                    heightWriteCount += 1
+                    height = newValue
+                }
+            ),
+            hasPendingAttachmentUpload: Binding(
+                get: { hasPendingAttachmentUpload },
+                set: { newValue in
+                    pendingWriteCount += 1
+                    hasPendingAttachmentUpload = newValue
+                }
+            ),
+            font: NSFont.systemFont(ofSize: 14),
+            backgroundColor: .textBackgroundColor,
+            foregroundColor: .labelColor,
+            terminalTitle: "codex",
+            completionRootDirectory: nil,
+            onSubmit: {},
+            onEscape: {},
+            onFocusTextBox: {},
+            onToggleFocus: {},
+            onForwardText: { _, _ in },
+            onForwardKey: { _ in },
+            onForwardControl: { _ in },
+            onPaste: { _, _ in false },
+            onInsertFileURLs: { _, _ in false },
+            onChooseFiles: {},
+            onContentChanged: {},
+            onTextViewCreated: { _ in },
+            onTextViewMovedToWindow: { _ in },
+            onTextViewDismantled: { textView in
+                dismantledText = textView.plainText()
+            }
+        )
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "preserve this"
+        let scrollView = NSScrollView(frame: textView.frame)
+        scrollView.documentView = textView
+
+        TextBoxInputView.dismantleNSView(
+            scrollView,
+            coordinator: TextBoxInputView.Coordinator(parent: inputView)
+        )
+
+        XCTAssertEqual(dismantledText, "preserve this")
+        XCTAssertEqual(textWriteCount, 0)
+        XCTAssertEqual(attachmentWriteCount, 0)
+        XCTAssertEqual(heightWriteCount, 0)
+        XCTAssertEqual(pendingWriteCount, 0)
     }
 
     func testTextBoxPendingAttachmentUploadPreservesOriginalInsertionPoint() throws {
