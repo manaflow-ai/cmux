@@ -426,7 +426,15 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(result.html.contains("\"externalURL\":\"\(originalURL)\""), result.html)
         XCTAssertTrue(result.html.contains("\"sourceLabel\":\"\(originalURL)\""), result.html)
         XCTAssertTrue(result.html.contains("id=\"external-link\""), result.html)
-        XCTAssertTrue(result.html.contains("src/main.zig"), result.html)
+        let files = try XCTUnwrap(result.params["diff_viewer_files"] as? [[String: Any]])
+        let patchFile = try XCTUnwrap(files.first { file in
+            file["mime_type"] as? String == "text/x-diff"
+        })
+        let patchFilePath = try XCTUnwrap(patchFile["file_path"] as? String)
+        defer { try? FileManager.default.removeItem(atPath: patchFilePath) }
+        let patchText = try String(contentsOfFile: patchFilePath, encoding: .utf8)
+        XCTAssertFalse(result.html.contains("src/main.zig"), result.html)
+        XCTAssertTrue(patchText.contains("src/main.zig"), patchText)
     }
 
     func testDiffCommandUsesBundledAppLocalizationsForViewerLabels() throws {
