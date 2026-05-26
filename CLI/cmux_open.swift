@@ -3564,27 +3564,41 @@ extension CMUXCLI {
               flex: 1 1 auto;
               min-height: 0;
               min-width: 0;
-              display: block;
+              display: grid;
+              grid-template-columns: minmax(0, 1fr) var(--cmux-diff-files-width);
+              grid-template-rows: minmax(0, 1fr);
+              grid-template-areas: "viewer files";
               overflow: hidden;
+              overscroll-behavior: contain;
+              contain: strict;
               background: inherit;
             }
+            body[data-files-hidden="true"] #content {
+              grid-template-columns: minmax(0, 1fr) 0;
+            }
             #files-sidebar {
-              position: absolute;
-              top: 0;
-              bottom: 0;
-              right: 0;
-              width: var(--cmux-diff-files-width);
+              grid-area: files;
+              position: relative;
+              width: 100%;
+              height: 100%;
               min-height: 0;
-              min-width: 190px;
+              min-width: 0;
               display: flex;
               flex-direction: column;
               overflow: hidden;
               border-left: 1px solid var(--cmux-diff-border);
               background: color-mix(in lab, var(--cmux-diff-bg) 99%, var(--cmux-diff-fg));
               contain: strict;
+              transform: translateX(0);
+              opacity: 1;
+              transition: transform 120ms ease, opacity 120ms ease, visibility 0s linear 0s;
             }
             body[data-files-hidden="true"] #files-sidebar {
-              display: none;
+              transform: translateX(100%);
+              opacity: 0;
+              pointer-events: none;
+              visibility: hidden;
+              transition: transform 120ms ease, opacity 120ms ease, visibility 0s linear 120ms;
             }
             #files-header {
               position: sticky;
@@ -3745,9 +3759,9 @@ extension CMUXCLI {
               --diffs-font-size: var(--cmux-diff-font-size);
               --diffs-line-height: var(--cmux-diff-line-height);
               --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
-              width: calc(100% - var(--cmux-diff-files-width));
+              grid-area: viewer;
+              width: 100%;
               height: 100%;
-              margin-right: var(--cmux-diff-files-width);
               min-height: 0;
               min-width: 0;
               position: relative;
@@ -3760,17 +3774,19 @@ extension CMUXCLI {
               border-bottom: 1px solid var(--cmux-diff-border);
               background: inherit;
             }
-            body[data-files-hidden="true"] #viewer {
-              width: 100%;
-              margin-right: 0;
-            }
             @media (max-width: 520px) {
+              #content,
+              body[data-files-hidden="true"] #content {
+                grid-template-columns: minmax(0, 1fr);
+                grid-template-areas: "viewer";
+              }
               #files-sidebar {
                 display: none;
               }
-              #viewer {
-                width: 100%;
-                margin-right: 0;
+            }
+            @media (prefers-reduced-motion: reduce) {
+              #files-sidebar {
+                transition: none;
               }
             }
             #viewer diffs-container {
@@ -3854,6 +3870,7 @@ extension CMUXCLI {
             const layoutToggle = document.getElementById("layout-toggle");
             const optionsButton = document.getElementById("options-button");
             const optionsMenu = document.getElementById("options-menu");
+            const filesSidebar = document.getElementById("files-sidebar");
             const fileList = document.getElementById("file-list");
             const filesCount = document.getElementById("files-count");
             const fileSearchToggle = document.getElementById("file-search-toggle");
@@ -3877,6 +3894,8 @@ extension CMUXCLI {
             let codeView;
             let fileTree;
             let diffItems = [];
+            let codeViewItems = [];
+            let codeViewItemIds = new Set();
             let fileTreeStatsByPath = new Map();
             let patchTextPromise = { value: null };
             let activeFileId = "";
@@ -3936,48 +3955,90 @@ extension CMUXCLI {
                 throw new Error(label("noFileDiffs"));
               }
 
-              preloadDiffHighlighter(payload.appearance, diffItems, getFiletypeFromFileName, preloadHighlighter)
+              preloadDiffHighlighter(payload.appearance, codeViewItems.length > 0 ? codeViewItems : diffItems, getFiletypeFromFileName, preloadHighlighter)
                 .catch((error) => console.warn("cmux diff highlighter preload failed", error));
             }
 
             async function streamPatchIntoCodeView({ parsePatchFiles, processFile, treesModule }) {
               const pendingItems = [];
-              const flushState = { frame: 0 };
-              const navigationRefreshState = { timeout: 0, treesModule: null };
-              let nextFileIndex = 0;
+              const diffModel = createStreamingDiffModel();
+              const navigationRefreshState = {
+                dirtyCount: 0,
+                lastRefreshAt: 0,
+                timeout: 0,
+                treesModule: null,
+              };
+              const streamMetrics = {
+                startedAt: performance.now(),
+                completedAt: 0,
+                flushCount: 0,
+                maxBatchSize: 0,
+                treeRefreshCount: 0,
+              };
+              let lastYieldAt = performance.now();
+              let lastFlushAt = performance.now();
               let firstRender = true;
+              let renderedInitialCodeBatch = false;
+              const batchConfig = {
+                initialBatchSize: 100,
+                incrementalBatchSize: 25,
+                initialMaxWait: 500,
+                incrementalMaxWait: 100,
+              };
 
               function makeItem(fileDiff) {
+                const path = fileName(fileDiff);
+                const treePath = uniqueDiffTreePath(diffModel, path);
+                const stats = fileStats(fileDiff);
+                const hasDiffHunks = (fileDiff.hunks?.length ?? 0) > 0;
                 const item = {
-                  id: `patch-0-file-${nextFileIndex}`,
+                  id: treePath,
                   type: "diff",
                   fileDiff,
+                  gitStatus: gitStatus(fileDiff),
+                  renderable: hasDiffHunks,
+                  stats,
+                  treePath,
                   version: 1,
                 };
-                nextFileIndex += 1;
+                diffModel.fileIndex += 1;
+                diffModel.itemIdByTreePath.set(treePath, item.id);
+                diffModel.treePathByItemId.set(item.id, treePath);
+                diffModel.diffStats.addedLines += stats.added;
+                diffModel.diffStats.deletedLines += stats.deleted;
+                diffModel.diffStats.fileCount += 1;
+                diffModel.diffStats.totalLinesOfCode += fileDiff.unifiedLineCount ?? fileDiff.splitLineCount ?? 0;
                 return item;
               }
 
-              function enqueueFileDiff(fileDiff) {
+              async function enqueueFileDiff(fileDiff) {
                 if (!fileDiff) {
                   return;
                 }
                 pendingItems.push(makeItem(fileDiff));
-                if (pendingItems.length >= 128) {
-                  flushPendingItems();
-                } else {
-                  schedulePendingItemFlush();
-                }
+                await maybeFlushPendingItems(false);
               }
 
-              function schedulePendingItemFlush() {
-                if (flushState.frame !== 0) {
+              async function maybeFlushPendingItems(force) {
+                if (pendingItems.length === 0) {
                   return;
                 }
-                flushState.frame = window.requestAnimationFrame(() => {
-                  flushState.frame = 0;
+                const now = performance.now();
+                const batchSize = firstRender ? batchConfig.initialBatchSize : batchConfig.incrementalBatchSize;
+                const maxWait = firstRender ? batchConfig.initialMaxWait : batchConfig.incrementalMaxWait;
+                const shouldFlush = force ||
+                  pendingItems.length >= batchSize ||
+                  now - lastFlushAt >= maxWait;
+                if (shouldFlush) {
                   flushPendingItems();
-                });
+                  await yieldToNextFrame();
+                  lastYieldAt = performance.now();
+                  return;
+                }
+                if (now - lastYieldAt >= 8) {
+                  await yieldToNextFrame();
+                  lastYieldAt = performance.now();
+                }
               }
 
               function flushPendingItems() {
@@ -3985,29 +4046,66 @@ extension CMUXCLI {
                   return;
                 }
                 const batch = pendingItems.splice(0, pendingItems.length);
-                const hadItems = diffItems.length > 0;
+                const codeBatch = batch.filter((item) => item.renderable !== false);
+                const hadCodeItems = codeViewItems.length > 0;
                 diffItems.push(...batch);
-                codeView.addItems(batch);
-                scheduleNavigationRefresh(treesModule);
+                if (codeBatch.length > 0) {
+                  codeViewItems.push(...codeBatch);
+                  for (const item of codeBatch) {
+                    codeViewItemIds.add(item.id);
+                  }
+                  codeView.addItems(codeBatch);
+                  codeView.syncContainerHeight?.();
+                  if (!renderedInitialCodeBatch) {
+                    codeView.render(true);
+                    renderedInitialCodeBatch = true;
+                  }
+                }
+                appendJumpOptions(batch);
+                updateDiffStatsFromModel(diffModel);
+                scheduleNavigationRefresh(treesModule, false);
+                streamMetrics.flushCount += 1;
+                streamMetrics.maxBatchSize = Math.max(streamMetrics.maxBatchSize, batch.length);
+                streamMetrics.fileCount = diffItems.length;
+                streamMetrics.renderableFileCount = codeViewItems.length;
+                lastFlushAt = performance.now();
                 if (firstRender) {
                   firstRender = false;
                   status.remove();
                 }
-                if (!hadItems) {
-                  updateActiveFile(diffItems[0]?.id ?? "");
+                if (!hadCodeItems) {
+                  updateActiveFile(codeViewItems[0]?.id ?? diffItems[0]?.id ?? "");
                 }
                 window.__cmuxDiffViewer.items = diffItems;
+                window.__cmuxDiffViewer.codeViewItems = codeViewItems;
+                window.__cmuxDiffViewer.streamMetrics = streamMetrics;
               }
 
-              function scheduleNavigationRefresh(treesModule) {
+              function finalizeCodeViewLayout() {
+                codeView.syncContainerHeight?.();
+                codeView.render(true);
+              }
+
+              function scheduleNavigationRefresh(treesModule, force) {
                 navigationRefreshState.treesModule = treesModule;
+                navigationRefreshState.dirtyCount += 1;
+                if (force || navigationRefreshState.lastRefreshAt === 0) {
+                  refreshNavigation(navigationRefreshState.treesModule);
+                  return;
+                }
+                const elapsed = performance.now() - navigationRefreshState.lastRefreshAt;
+                if (navigationRefreshState.dirtyCount >= 1000 || elapsed >= 1000) {
+                  refreshNavigation(navigationRefreshState.treesModule);
+                  return;
+                }
                 if (navigationRefreshState.timeout !== 0) {
                   return;
                 }
+                const delay = Math.max(0, 1000 - elapsed);
                 navigationRefreshState.timeout = window.setTimeout(() => {
                   navigationRefreshState.timeout = 0;
                   refreshNavigation(navigationRefreshState.treesModule);
-                }, 120);
+                }, delay);
               }
 
               function refreshNavigation(treesModule) {
@@ -4015,6 +4113,9 @@ extension CMUXCLI {
                   window.clearTimeout(navigationRefreshState.timeout);
                   navigationRefreshState.timeout = 0;
                 }
+                navigationRefreshState.dirtyCount = 0;
+                navigationRefreshState.lastRefreshAt = performance.now();
+                streamMetrics.treeRefreshCount += 1;
                 refreshFileExplorer(diffItems, treesModule);
                 setupJumpSelector(diffItems);
                 updateToolbarState();
@@ -4025,11 +4126,27 @@ extension CMUXCLI {
                 throw new Error(`${label("loadingDiff")} (${response.status})`);
               }
 
+              if (shouldUseBulkPatchParser(payload.patchURL)) {
+                batchConfig.initialBatchSize = 256;
+                batchConfig.incrementalBatchSize = 256;
+                batchConfig.initialMaxWait = 250;
+                batchConfig.incrementalMaxWait = 60;
+                const text = await response.text();
+                await appendParsedPatchText(text, parsePatchFiles, enqueueFileDiff);
+                await maybeFlushPendingItems(true);
+                finalizeCodeViewLayout();
+                scheduleNavigationRefresh(treesModule, true);
+                streamMetrics.completedAt = performance.now();
+                return;
+              }
+
               if (!response.body?.getReader) {
                 const text = await response.text();
-                appendParsedPatchText(text, parsePatchFiles, enqueueFileDiff);
-                flushPendingItems();
-                refreshNavigation(treesModule);
+                await appendParsedPatchText(text, parsePatchFiles, enqueueFileDiff);
+                await maybeFlushPendingItems(true);
+                finalizeCodeViewLayout();
+                scheduleNavigationRefresh(treesModule, true);
+                streamMetrics.completedAt = performance.now();
                 return;
               }
 
@@ -4054,14 +4171,18 @@ extension CMUXCLI {
                 return index === -1 ? -1 : index + 1;
               }
 
-              function appendCompleteFileText(fileText) {
+              async function appendCompleteFileText(fileText) {
                 if (fileText.trim() === "") {
                   return;
                 }
-                enqueueFileDiff(processFile(fileText, `cmux-diff-file-${nextFileIndex}`));
+                const cacheKey = `cmux-diff-file-${diffModel.fileIndex}`;
+                await enqueueFileDiff(processFile(fileText, {
+                  cacheKey,
+                  isGitDiff: true,
+                }));
               }
 
-              function drainBuffer(force) {
+              async function drainBuffer(force) {
                 if (!sawGitBoundary) {
                   const firstBoundary = firstGitBoundaryIndex(buffer);
                   if (firstBoundary === -1) {
@@ -4077,12 +4198,12 @@ extension CMUXCLI {
                   if (nextBoundary === -1) {
                     break;
                   }
-                  appendCompleteFileText(buffer.slice(0, nextBoundary));
+                  await appendCompleteFileText(buffer.slice(0, nextBoundary));
                   buffer = buffer.slice(nextBoundary);
                 }
 
                 if (force && buffer.trim() !== "") {
-                  appendCompleteFileText(buffer);
+                  await appendCompleteFileText(buffer);
                   buffer = "";
                 }
               }
@@ -4094,24 +4215,75 @@ extension CMUXCLI {
                   break;
                 }
                 buffer += decoder.decode(value, { stream: true });
-                drainBuffer(false);
+                await drainBuffer(false);
               }
 
-              drainBuffer(true);
+              await drainBuffer(true);
               if (!sawGitBoundary) {
-                appendParsedPatchText(fallbackPrefix + buffer, parsePatchFiles, enqueueFileDiff);
+                await appendParsedPatchText(fallbackPrefix + buffer, parsePatchFiles, enqueueFileDiff);
               }
-              flushPendingItems();
-              refreshNavigation(treesModule);
+              await maybeFlushPendingItems(true);
+              finalizeCodeViewLayout();
+              scheduleNavigationRefresh(treesModule, true);
+              streamMetrics.completedAt = performance.now();
             }
 
-            function appendParsedPatchText(patchText, parsePatchFiles, enqueueFileDiff) {
+            async function appendParsedPatchText(patchText, parsePatchFiles, enqueueFileDiff) {
               const patches = parsePatchFiles(patchText, "cmux-diff");
               for (const patch of patches) {
                 for (const fileDiff of patch.files ?? []) {
-                  enqueueFileDiff(fileDiff);
+                  await enqueueFileDiff(fileDiff);
                 }
               }
+            }
+
+            function createStreamingDiffModel() {
+              return {
+                diffStats: {
+                  addedLines: 0,
+                  deletedLines: 0,
+                  fileCount: 0,
+                  totalLinesOfCode: 0,
+                },
+                fileIndex: 0,
+                itemIdByTreePath: new Map(),
+                nextCollisionSuffixByBase: new Map(),
+                treePathByItemId: new Map(),
+              };
+            }
+
+            function uniqueDiffTreePath(model, path) {
+              const basePath = typeof path === "string" && path.trim() !== "" ? path : label("untitled");
+              const nextSuffix = model.nextCollisionSuffixByBase.get(basePath) ?? 0;
+              model.nextCollisionSuffixByBase.set(basePath, nextSuffix + 1);
+              return nextSuffix === 0 ? basePath : `${basePath} (${nextSuffix + 1})`;
+            }
+
+            function yieldToNextFrame() {
+              return new Promise((resolve) => {
+                let resolved = false;
+                const done = () => {
+                  if (resolved) {
+                    return;
+                  }
+                  resolved = true;
+                  resolve();
+                };
+                if (typeof MessageChannel !== "undefined") {
+                  const channel = new MessageChannel();
+                  channel.port1.onmessage = done;
+                  channel.port2.postMessage(undefined);
+                }
+                window.requestAnimationFrame(done);
+                window.setTimeout(done, 16);
+              });
+            }
+
+            function shouldUseBulkPatchParser(patchURL) {
+              if (typeof patchURL !== "string") {
+                return false;
+              }
+              return patchURL.startsWith("./") || patchURL.startsWith("/");
             }
 
             async function loadPatchText() {
@@ -4224,13 +4396,13 @@ extension CMUXCLI {
             function setFilesVisible(visible) {
               appState.filesVisible = visible;
               document.body.dataset.filesHidden = visible ? "false" : "true";
+              filesSidebar.setAttribute("aria-hidden", String(!visible));
+              if (visible) {
+                filesSidebar.removeAttribute("inert");
+              } else {
+                filesSidebar.setAttribute("inert", "");
+              }
               updateToolbarState();
-              window.requestAnimationFrame(() => {
-                if (!codeView) {
-                  return;
-                }
-                codeView.render(true);
-              });
             }
 
             function setFileSearchOpen(open) {
@@ -4247,13 +4419,19 @@ extension CMUXCLI {
 
             function setCollapsed(collapsed) {
               appState.collapsed = collapsed;
-              diffItems = diffItems.map((item) => ({
+              codeViewItems = codeViewItems.map((item) => ({
                 ...item,
                 collapsed,
                 version: (item.version ?? 0) + 1,
               }));
+              const codeItemsById = new Map(codeViewItems.map((item) => [item.id, item]));
+              diffItems = diffItems.map((item) => codeItemsById.get(item.id) ?? {
+                ...item,
+                collapsed,
+                version: (item.version ?? 0) + 1,
+              });
               if (codeView) {
-                codeView.setItems(diffItems);
+                codeView.setItems(codeViewItems);
                 codeView.render(true);
               }
               updateToolbarState();
@@ -4640,22 +4818,22 @@ extension CMUXCLI {
               const pathCounts = new Map();
               const pathOrdinals = new Map();
               for (const item of items) {
-                const name = fileName(item.fileDiff ?? {});
+                const name = item.treePath ?? fileName(item.fileDiff ?? {});
                 pathCounts.set(name, (pathCounts.get(name) ?? 0) + 1);
               }
               return items.map((item) => {
                 const fileDiff = item.fileDiff ?? {};
-                const basePath = fileName(fileDiff);
+                const basePath = item.treePath ?? fileName(fileDiff);
                 const nextOrdinal = (pathOrdinals.get(basePath) ?? 0) + 1;
                 pathOrdinals.set(basePath, nextOrdinal);
                 const treePath = pathCounts.get(basePath) > 1 ? `${basePath} (${nextOrdinal})` : basePath;
-                const stats = fileStats(fileDiff);
+                const stats = item.stats ?? fileStats(fileDiff);
                 treePathByItemId.set(item.id, treePath);
                 itemIdByTreePath.set(treePath, item.id);
                 return {
                   item,
                   path: treePath,
-                  status: gitStatus(fileDiff),
+                  status: item.gitStatus ?? gitStatus(fileDiff),
                   stats,
                 };
               });
@@ -4709,12 +4887,20 @@ extension CMUXCLI {
               statsDeleted.textContent = `-${totals.deleted}`;
             }
 
+            function updateDiffStatsFromModel(model) {
+              filesCount.textContent = `${model.diffStats.fileCount}`;
+              statsFiles.textContent = `${model.diffStats.fileCount}`;
+              statsAdded.textContent = `+${model.diffStats.addedLines}`;
+              statsDeleted.textContent = `-${model.diffStats.deletedLines}`;
+            }
+
             function setupJumpSelector(items) {
               jumpSelect.textContent = "";
               const placeholder = document.createElement("option");
               placeholder.value = "";
               placeholder.textContent = label("jumpToFile");
               jumpSelect.append(placeholder);
+              jumpSelect.dataset.initialized = "true";
               for (const item of items) {
                 const option = document.createElement("option");
                 option.value = item.id;
@@ -4729,12 +4915,55 @@ extension CMUXCLI {
               };
             }
 
+            function appendJumpOptions(items) {
+              if (items.length === 0) {
+                return;
+              }
+              if (jumpSelect.dataset.initialized !== "true") {
+                setupJumpSelector([]);
+              }
+              const fragment = document.createDocumentFragment();
+              for (const item of items) {
+                const option = document.createElement("option");
+                option.value = item.id;
+                option.textContent = fileName(item.fileDiff ?? {});
+                fragment.append(option);
+              }
+              jumpSelect.append(fragment);
+              jumpSelect.hidden = false;
+            }
+
             function scrollToItem(itemId) {
               if (!codeView) {
                 return;
               }
-              codeView.scrollTo({ type: "item", id: itemId, align: "start", behavior: "smooth-auto" });
-              updateActiveFile(itemId);
+              const targetItemId = codeViewScrollTargetForItem(itemId);
+              if (!targetItemId) {
+                return;
+              }
+              codeView.scrollTo({ type: "item", id: targetItemId, align: "start", behavior: "smooth-auto" });
+              updateActiveFile(targetItemId);
+            }
+
+            function codeViewScrollTargetForItem(itemId) {
+              if (codeViewItemIds.has(itemId)) {
+                return itemId;
+              }
+              const index = diffItems.findIndex((item) => item.id === itemId);
+              if (index === -1) {
+                return codeViewItems[0]?.id ?? "";
+              }
+              for (let next = index + 1; next < diffItems.length; next += 1) {
+                if (codeViewItemIds.has(diffItems[next].id)) {
+                  return diffItems[next].id;
+                }
+              }
+              for (let previous = index - 1; previous >= 0; previous -= 1) {
+                if (codeViewItemIds.has(diffItems[previous].id)) {
+                  return diffItems[previous].id;
+                }
+              }
+              return "";
             }
 
             function scheduleActiveFileFromScroll() {
@@ -4748,7 +4977,7 @@ extension CMUXCLI {
             }
 
             function updateActiveFileFromScroll() {
-              if (!codeView || diffItems.length === 0) {
+              if (!codeView || codeViewItems.length === 0) {
                 return;
               }
               const scrollTop = viewerElement.scrollTop + 8;
@@ -4757,17 +4986,17 @@ extension CMUXCLI {
             }
 
             function activeItemIdForScrollTop(scrollTop) {
-              let current = diffItems[0].id;
+              let current = codeViewItems[0].id;
               let low = 0;
-              let high = diffItems.length - 1;
+              let high = codeViewItems.length - 1;
               while (low <= high) {
                 const mid = (low + high) >> 1;
-                const top = codeView.getTopForItem(diffItems[mid].id);
+                const top = codeView.getTopForItem(codeViewItems[mid].id);
                 if (typeof top !== "number") {
                   return activeItemIdForScrollTopLinear(scrollTop);
                 }
                 if (top <= scrollTop) {
-                  current = diffItems[mid].id;
+                  current = codeViewItems[mid].id;
                   low = mid + 1;
                 } else {
                   high = mid - 1;
@@ -4777,8 +5006,8 @@ extension CMUXCLI {
             }
 
             function activeItemIdForScrollTopLinear(scrollTop) {
-              let current = diffItems[0].id;
-              for (const item of diffItems) {
+              let current = codeViewItems[0].id;
+              for (const item of codeViewItems) {
                 const top = codeView.getTopForItem(item.id);
                 if (typeof top === "number" && top <= scrollTop) {
                   current = item.id;
