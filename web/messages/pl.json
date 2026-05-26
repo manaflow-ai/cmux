@@ -498,7 +498,11 @@
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu."
         },
         "terminal": {
-          "copyOnSelect": "Kopiuje zaznaczony tekst terminala do schowka systemowego po zatwierdzeniu zaznaczenia, w tym zaznaczenia słów i wierszy wykonane dwuklikiem lub potrójnym kliknięciem."
+          "copyOnSelect": "Kopiuje zaznaczony tekst terminala do schowka systemowego po zatwierdzeniu zaznaczenia, w tym zaznaczenia słów i wierszy wykonane dwuklikiem lub potrójnym kliknięciem.",
+          "quickTerminalPosition": "Pozycja przy krawędzi ekranu lub na środku dla pływającego Quick Terminal.",
+          "quickTerminalPrimarySizeRatio": "Rozmiar Quick Terminal wzdłuż osi wysuwania jako ułamek widocznego ekranu.",
+          "quickTerminalSecondarySizeRatio": "Rozmiar Quick Terminal na przeciwnej osi jako ułamek widocznego ekranu.",
+          "quickTerminalAutoHide": "Automatycznie ukrywaj Quick Terminal po utracie fokusu klawiatury."
         }
       }
     },
@@ -895,7 +899,10 @@
     "changelog": {
       "title": "Dziennik zmian",
       "metaDescription": "Notatki wydań i historia wersji cmux. Nowe funkcje, poprawki błędów i zmiany dla natywnego terminala macOS.",
-      "metaTitle": "Historia zmian"
+      "metaTitle": "Historia zmian",
+      "entries": {
+        "quickTerminal": "Panel Quick Terminal z konfigurowalną pozycją/rozmiarem, skrótem Option-Command-backtick, akcją w palecie poleceń i sterowaniem CLI `cmux quick-terminal`."
+      }
     },
     "navItems": {
       "gettingStarted": "Szybki start",

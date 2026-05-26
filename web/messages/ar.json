@@ -498,7 +498,11 @@
           "hideTabCloseButton": "أخفِ أزرار إغلاق التبويبات في شريط تبويبات الجزء."
         },
         "terminal": {
-          "copyOnSelect": "ينسخ نص الطرفية المحدد إلى حافظة النظام عند تثبيت التحديد، بما في ذلك تحديد الكلمات والأسطر بالنقر المزدوج والثلاثي."
+          "copyOnSelect": "ينسخ نص الطرفية المحدد إلى حافظة النظام عند تثبيت التحديد، بما في ذلك تحديد الكلمات والأسطر بالنقر المزدوج والثلاثي.",
+          "quickTerminalPosition": "موضع حافة الشاشة أو الوسط للـ Quick Terminal العائم.",
+          "quickTerminalPrimarySizeRatio": "حجم Quick Terminal على محور الانزلاق، كنسبة من الشاشة المرئية.",
+          "quickTerminalSecondarySizeRatio": "حجم Quick Terminal على المحور المقابل، كنسبة من الشاشة المرئية.",
+          "quickTerminalAutoHide": "إخفاء Quick Terminal تلقائيًا عندما يفقد تركيز لوحة المفاتيح."
         }
       }
     },
@@ -895,7 +899,10 @@
     "changelog": {
       "title": "سجل التغييرات",
       "metaDescription": "ملاحظات إصدار cmux وسجل الإصدارات. الميزات الجديدة وإصلاحات الأخطاء والتغييرات لطرفية macOS الأصلية.",
-      "metaTitle": "سجل التغييرات"
+      "metaTitle": "سجل التغييرات",
+      "entries": {
+        "quickTerminal": "لوحة Quick Terminal مع موضع/حجم قابلين للضبط، واختصار Option-Command-backtick، وإجراء في لوحة الأوامر، وعناصر تحكم CLI عبر `cmux quick-terminal`."
+      }
     },
     "navItems": {
       "gettingStarted": "البدء",

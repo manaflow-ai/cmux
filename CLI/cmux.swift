@@ -4764,9 +4764,6 @@ struct CMUXCLI {
         let normalizedArgs = Array(commandArgs.drop(while: { $0 == "--" }))
         let subcommand = normalizedArgs.first?.lowercased() ?? "toggle"
         let remaining = Array(normalizedArgs.dropFirst()).filter { $0 != "--" }
-        if let unknown = remaining.first {
-            throw CLIError(message: "quick-terminal \(subcommand): unexpected argument '\(unknown)'")
-        }
 
         let method: String
         switch subcommand {
@@ -4780,6 +4777,10 @@ struct CMUXCLI {
             method = "quick_terminal.status"
         default:
             throw CLIError(message: "quick-terminal requires one of: toggle, show, hide, status")
+        }
+        if !remaining.isEmpty {
+            let suffix = remaining.count == 1 ? "" : "s"
+            throw CLIError(message: "quick-terminal \(subcommand): unexpected \(remaining.count) argument\(suffix)")
         }
 
         let payload = try client.sendV2(method: method)

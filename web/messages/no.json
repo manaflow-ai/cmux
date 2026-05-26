@@ -498,7 +498,11 @@
           "hideTabCloseButton": "Skjul lukkeknapper for faner i faneraden i ruten."
         },
         "terminal": {
-          "copyOnSelect": "Kopierer markert terminaltekst til systemutklippstavlen når markeringen bekreftes, inkludert ord- og linjemarkeringer fra dobbelt- og trippelklikk."
+          "copyOnSelect": "Kopierer markert terminaltekst til systemutklippstavlen når markeringen bekreftes, inkludert ord- og linjemarkeringer fra dobbelt- og trippelklikk.",
+          "quickTerminalPosition": "Skjermkant- eller midtposisjon for den flytende Quick Terminal.",
+          "quickTerminalPrimarySizeRatio": "Quick Terminal-størrelse langs innskyvingsaksen som en andel av den synlige skjermen.",
+          "quickTerminalSecondarySizeRatio": "Quick Terminal-størrelse på motsatt akse som en andel av den synlige skjermen.",
+          "quickTerminalAutoHide": "Skjul Quick Terminal automatisk når den mister tastaturfokus."
         }
       }
     },
@@ -895,7 +899,10 @@
     "changelog": {
       "title": "Endringslogg",
       "metaDescription": "cmux utgivelsesnotater og versjonshistorikk. Nye funksjoner, feilrettinger og endringer for den native macOS-terminalen.",
-      "metaTitle": "Endringslogg"
+      "metaTitle": "Endringslogg",
+      "entries": {
+        "quickTerminal": "Quick Terminal-panel med konfigurerbar posisjon/størrelse, Option-Kommando-backtick-snarvei, kommandopalett-handling og `cmux quick-terminal` CLI-kontroller."
+      }
     },
     "navItems": {
       "gettingStarted": "Kom i gang",
