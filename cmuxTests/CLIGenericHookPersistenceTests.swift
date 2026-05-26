@@ -2593,6 +2593,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "surface.list":
                 return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -2645,5 +2647,31 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(launchCommand["arguments"] as? [String], scenario.expectedArguments)
         XCTAssertEqual(launchCommand["workingDirectory"] as? String, workspace.path)
         XCTAssertEqual(launchCommand["environment"] as? [String: String], scenario.expectedEnvironment)
+
+        if scenario.agent == "kiro" {
+            let resumeSetRequests = state.commands.compactMap { command -> [String: Any]? in
+                guard let payload = self.jsonObject(command),
+                      payload["method"] as? String == "surface.resume.set" else {
+                    return nil
+                }
+                return payload["params"] as? [String: Any]
+            }
+            XCTAssertEqual(resumeSetRequests.count, 1, state.commands.joined(separator: "\n"))
+            let params = try XCTUnwrap(resumeSetRequests.first)
+            XCTAssertEqual(params["kind"] as? String, "kiro")
+            XCTAssertEqual(params["checkpoint_id"] as? String, scenario.sessionId)
+            XCTAssertEqual(params["auto_resume"] as? Bool, true)
+            XCTAssertEqual(
+                params["command"] as? String,
+                "cd '\(workspace.path)' && '\(scenario.executable)' 'chat' '--resume-id' '\(scenario.sessionId)' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
+            )
+            XCTAssertEqual(params["environment"] as? [String: String], scenario.expectedEnvironment)
+            XCTAssertFalse(
+                state.commands.contains { command in
+                    self.jsonObject(command)?["method"] as? String == "surface.resume.clear"
+                },
+                "Kiro should publish a resume binding instead of clearing it: \(state.commands)"
+            )
+        }
     }
 }
