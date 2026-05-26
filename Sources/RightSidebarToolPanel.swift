@@ -9,10 +9,12 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     let mode: RightSidebarMode
 
     @Published private(set) var focusFlashToken: Int = 0
+    @Published private(set) var historySearchFocusToken: Int = 0
 
     private weak var workspace: Workspace?
     private weak var fileExplorerContainerView: FileExplorerContainerView?
     private weak var sessionIndexFocusAnchorView: RightSidebarToolFocusAnchorView?
+    private weak var historyFocusAnchorView: RightSidebarToolFocusAnchorView?
     private var fileExplorerStoreStorage: FileExplorerStore?
     private var fileExplorerStateStorage: FileExplorerState?
     private var sessionIndexStoreStorage: SessionIndexStore?
@@ -73,6 +75,10 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         sessionIndexFocusAnchorView = anchor
     }
 
+    fileprivate func attachHistoryFocusAnchor(_ anchor: RightSidebarToolFocusAnchorView?) {
+        historyFocusAnchorView = anchor
+    }
+
     func syncWorkspaceRoot(from workspace: Workspace) {
         switch mode {
         case .files, .find:
@@ -81,7 +87,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard let store = sessionIndexStoreStorage else { return }
             syncSessionIndexRoot(from: workspace, store: store)
-        case .feed, .dock:
+        case .feed, .dock, .history:
             break
         }
     }
@@ -106,6 +112,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     func close() {
         fileExplorerContainerView = nil
         sessionIndexFocusAnchorView = nil
+        historyFocusAnchorView = nil
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
         sessionIndexStoreStorage?.setCurrentDirectoryIfChanged(nil)
         workspaceObservationCancellable = nil
@@ -119,6 +126,11 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             _ = fileExplorerContainerView?.focusSearchField()
         case .sessions:
             guard let anchor = sessionIndexFocusAnchorView,
+                  let window = anchor.window else { return }
+            _ = window.makeFirstResponder(anchor)
+        case .history:
+            historySearchFocusToken &+= 1
+            guard let anchor = historyFocusAnchorView,
                   let window = anchor.window else { return }
             _ = window.makeFirstResponder(anchor)
         case .feed, .dock:
@@ -142,6 +154,9 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             return .panel
         case .sessions:
             guard sessionIndexFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
+            return .panel
+        case .history:
+            guard historyFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
             return .panel
         case .feed, .dock:
             return nil
@@ -227,11 +242,7 @@ struct RightSidebarToolPanelView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: appearance.backgroundColor))
             .overlay {
-                RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
-                    .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
-                    .shadow(color: cmuxAccentColor().opacity(focusFlashOpacity * 0.35), radius: 10)
-                    .padding(FocusFlashPattern.ringInset)
-                    .allowsHitTesting(false)
+                WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
             }
             .simultaneousGesture(TapGesture().onEnded { requestPanelFocusIfNeeded() })
             .onChange(of: panel.focusFlashToken) { _, _ in
@@ -271,6 +282,32 @@ struct RightSidebarToolPanelView: View {
             )
             .background(
                 RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
+                    .frame(width: 0, height: 0)
+            )
+        case .history:
+            HistoryPanelView(
+                focusSearchToken: panel.historySearchFocusToken,
+                onFocus: requestPanelFocusIfNeeded,
+                onOpenClosedItem: { itemId in
+                    AppDelegate.shared?.reopenClosedHistoryItem(
+                        id: itemId,
+                        preferredTabManager: tabManager
+                    ) == true
+                },
+                onOpenFocusedItem: { item in
+                    tabManager.navigateToFocusHistoryMenuItem(item)
+                },
+                onClearClosedItems: {
+                    if let appDelegate = AppDelegate.shared {
+                        appDelegate.clearRecentlyClosedHistory(preferredTabManager: tabManager)
+                    } else {
+                        ClosedItemHistoryStore.shared.removeAll()
+                        tabManager.clearRecentlyClosedBrowserPanelHistory()
+                    }
+                }
+            )
+            .background(
+                RightSidebarToolFocusAnchor(onViewChange: panel.attachHistoryFocusAnchor)
                     .frame(width: 0, height: 0)
             )
         case .feed, .dock:

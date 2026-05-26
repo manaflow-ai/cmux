@@ -493,7 +493,12 @@
         },
         "app": {
           "confirmQuit": "控制 cmux 在退出前何時要求確認。無論此設定為何，DEV 建置都會立即退出。舊的 app.warnBeforeQuit 仍會作為布林後備值接受。",
-          "warnBeforeQuit": "用於退出確認的舊版布林後備值。新設定請使用 app.confirmQuit。"
+          "warnBeforeQuit": "用於退出確認的舊版布林後備值。新設定請使用 app.confirmQuit。",
+          "warnBeforeClosingTabXButton": "使用分頁關閉按鈕關閉分頁前顯示確認。",
+          "hideTabCloseButton": "在窗格分頁列中隱藏分頁關閉按鈕。"
+        },
+        "terminal": {
+          "copyOnSelect": "確認選取後，將所選終端機文字複製到系統剪貼簿，包括透過按兩下和按三下選取的單字與整行。"
         }
       }
     },
@@ -975,7 +980,7 @@
       "supportedNote": "啟用 Claude 整合時，Claude Code 由 cmux Claude wrapper 處理。Antigravity 也接受 agy 作為 setup 別名，Rovo Dev 接受 rovo。",
       "manualTitle": "手動還原",
       "manualDesc": "cmux 正常啟動時會還原最後儲存的 snapshot。你也可以手動重新套用上一個 snapshot：",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "停用 agent 自動還原",
       "disableDesc": "若要還原 pane 而不啟動已儲存的 agent resume 命令，請關閉 Settings > Terminal > Resume Agent Sessions on Reopen 或設定：",
       "disableNote": "這只會停用 agent resume 命令。cmux 仍會還原佈局、工作目錄、scrollback 和瀏覽器歷史。",
@@ -1000,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "又一個基於 libghostty 的專案，這次是一個帶垂直分頁、更好的組織/通知、內建可編寫腳本瀏覽器的 macOS 終端機，專門針對大量使用終端機 agent 工作流程的使用者。",
+    "steipete": "來晚了，但 cmux 很棒。目前分工：Codex Mac App 用於知識工作、學習和閱讀；cmux + Codex CLI 用於寫程式。",
     "schrockn": "這正是我一直在找的產品。用了兩小時就愛上了。",
     "egrefen": "整個週末都在用，太棒了。",
     "max4c": "過去兩週最喜歡的工具",

@@ -59,7 +59,10 @@ extension Workspace {
             return panelNeedsConfirmClose(panelId: panelId)
         }
 
-        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: needsConfirmation) {
+        if CloseTabConfirmationPolicy.shouldConfirm(
+            requiresConfirmation: needsConfirmation,
+            source: .shortcut
+        ) {
             guard let confirmationManager else { return }
             let prompt = CloseOtherTabsConfirmationPrompt(
                 titles: candidates.map { candidate in
@@ -76,7 +79,7 @@ extension Workspace {
         }
 
         for candidate in candidates {
-            _ = requestCloseTab(candidate.tabId, force: needsConfirmation)
+            _ = requestCloseTabRecordingHistory(candidate.tabId, force: needsConfirmation)
         }
     }
 }
