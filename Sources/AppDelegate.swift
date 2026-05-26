@@ -13694,8 +13694,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        guard let legacyDigit = numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber),
+        let legacyAction = KeyboardShortcutSettings.Action.selectSurfaceByNumber
+        guard let legacyDigit = numberedConfiguredShortcutDigit(event: event, action: legacyAction),
               let action = KeyboardShortcutSettings.Action.surfaceSelectionAction(forDigit: legacyDigit),
+              legacyAction.shortcutContext.isAvailable(shortcutEventFocusContext(event)),
               !KeyboardShortcutSettings.hasExplicitShortcutConfiguration(for: action) else {
             return nil
         }

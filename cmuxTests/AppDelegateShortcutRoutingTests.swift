@@ -564,6 +564,54 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testLegacySurfaceNumberShortcutDoesNotRouteWhileRightSidebarFocused() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        let window = try XCTUnwrap(window(withId: windowId))
+        let contentView = try XCTUnwrap(window.contentView)
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        _ = try XCTUnwrap(workspace.newTerminalSurfaceInFocusedPane(focus: true))
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+        XCTAssertGreaterThanOrEqual(tabs.count, 2)
+        workspace.selectSurface(at: 0)
+
+        let sidebarResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        contentView.addSubview(sidebarResponder)
+        defer { sidebarResponder.removeFromSuperview() }
+        XCTAssertTrue(window.makeFirstResponder(sidebarResponder), "Expected right sidebar responder to take focus")
+        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .files, in: window)
+
+        withTemporaryShortcut(
+            action: .selectSurfaceByNumber,
+            shortcut: StoredShortcut(key: "1", command: false, shift: false, option: true, control: false)
+        ) {
+            guard let event = makeKeyDownEvent(
+                key: "2",
+                modifiers: [.option],
+                keyCode: 19,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Option+2 event")
+                return
+            }
+
+#if DEBUG
+            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+            XCTAssertEqual(workspace.bonsplitController.selectedTab(inPane: paneId)?.id, tabs[0].id)
+        }
+    }
+
     func testConfiguredChordPrefixIsClearedWhenAppResignsActive() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
