@@ -169,6 +169,30 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertFalse(work.supportsTranscriptPreview)
     }
 
+    func testTmuxSectionKeepsAttachedSessionsBeforeNewerDetachedSessions() {
+        let detached = makeEntry(
+            agent: .tmux,
+            sessionId: "detached",
+            title: "detached",
+            modified: Date(timeIntervalSince1970: 5_000),
+            specifics: .tmux(attachCommand: "tmux attach -t detached", attachedCount: 0)
+        )
+        let attached = makeEntry(
+            agent: .tmux,
+            sessionId: "attached",
+            title: "attached",
+            modified: Date(timeIntervalSince1970: 1_000),
+            specifics: .tmux(attachCommand: "tmux attach -t attached", attachedCount: 1)
+        )
+
+        let sorted = SessionIndexStore.entriesForSectionForTesting(
+            agent: .tmux,
+            entries: [detached, attached]
+        )
+
+        XCTAssertEqual(sorted.map(\.sessionId), ["attached", "detached"])
+    }
+
     func testTmuxSessionIndexFallsBackToNowWhenCreatedTimestampIsMalformed() {
         let separator = "\u{1F}"
         let now = Date(timeIntervalSince1970: 4_000)
@@ -351,6 +375,7 @@ final class SessionIndexViewTests: XCTestCase {
         sessionId: String = UUID().uuidString,
         title: String,
         fileURL: URL? = nil,
+        modified: Date = Date(timeIntervalSince1970: 0),
         specifics: AgentSpecifics? = nil,
         claudeConfigDirectoryForResume: String? = nil
     ) -> SessionEntry {
@@ -362,7 +387,7 @@ final class SessionIndexViewTests: XCTestCase {
             cwd: nil,
             gitBranch: nil,
             pullRequest: nil,
-            modified: Date(timeIntervalSince1970: 0),
+            modified: modified,
             fileURL: fileURL,
             specifics: specifics ?? agent.defaultSpecificsForTesting(
                 sessionId: sessionId,
@@ -464,7 +489,7 @@ private extension SessionAgent {
         case .codex:
             return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
         case .tmux:
-            return .tmux(attachCommand: "tmux attach -t \(sessionId)")
+            return .tmux(attachCommand: "tmux attach -t \(sessionId)", attachedCount: 0)
         case .grok:
             return .grok(model: nil, permissionMode: nil, sandboxMode: nil, grokHome: nil)
         case .opencode:

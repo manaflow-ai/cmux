@@ -290,11 +290,11 @@ final class SessionIndexStore: ObservableObject {
                     key: .agent(agent),
                     title: agent.displayName,
                     icon: .agent(agent),
-                    entries: entries
+                    entries: Self.entriesForSection(agent: agent, entries: entries)
                 )
             }
         case .directory:
-            let tmuxEntries = visible.filter { $0.agent == .tmux }
+            let tmuxEntries = Self.sortTmuxEntriesForDisplay(visible.filter { $0.agent == .tmux })
             let directoryEntries = visible.filter { $0.agent != .tmux }
             let buckets = Dictionary(grouping: directoryEntries) { $0.cwd ?? "" }
             // Any cwds that aren't yet in the saved order still need to show
@@ -340,6 +340,40 @@ final class SessionIndexStore: ObservableObject {
         cachedSections = sections
         cachedSectionsRevision = sectionsCacheRevision
         return sections
+    }
+
+    nonisolated static func entriesForSectionForTesting(
+        agent: SessionAgent,
+        entries: [SessionEntry]
+    ) -> [SessionEntry] {
+        entriesForSection(agent: agent, entries: entries)
+    }
+
+    nonisolated private static func entriesForSection(
+        agent: SessionAgent,
+        entries: [SessionEntry]
+    ) -> [SessionEntry] {
+        guard agent == .tmux else { return entries }
+        return sortTmuxEntriesForDisplay(entries)
+    }
+
+    nonisolated private static func sortTmuxEntriesForDisplay(_ entries: [SessionEntry]) -> [SessionEntry] {
+        entries.sorted { lhs, rhs in
+            let lhsAttachedCount = tmuxAttachedCount(lhs)
+            let rhsAttachedCount = tmuxAttachedCount(rhs)
+            if lhsAttachedCount != rhsAttachedCount {
+                return lhsAttachedCount > rhsAttachedCount
+            }
+            if lhs.modified != rhs.modified {
+                return lhs.modified > rhs.modified
+            }
+            return lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
+        }
+    }
+
+    nonisolated private static func tmuxAttachedCount(_ entry: SessionEntry) -> Int {
+        guard case let .tmux(_, attachedCount) = entry.specifics else { return 0 }
+        return attachedCount
     }
 
     /// Extend `directoryOrder` with any cwds seen in `entries` that aren't
@@ -1463,7 +1497,10 @@ final class SessionIndexStore: ObservableObject {
                 pullRequest: nil,
                 modified: descriptor.createdAt,
                 fileURL: nil,
-                specifics: .tmux(attachCommand: attachCommand)
+                specifics: .tmux(
+                    attachCommand: attachCommand,
+                    attachedCount: descriptor.attachedCount
+                )
             )
         }
     }
