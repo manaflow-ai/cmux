@@ -176,6 +176,7 @@ extension ControlNotificationContext {
 
     var notificationStrings: ControlNotificationStrings {
         ControlNotificationStrings(
+            defaultTitle: "Notification",
             dismissSelectorRequired: "",
             idRequired: "",
             notFound: "",

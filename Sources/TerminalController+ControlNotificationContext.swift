@@ -1,6 +1,13 @@
 import CmuxControlSocket
 import Foundation
 
+extension TerminalController {
+    /// The localized title used when a notification request omits its title.
+    nonisolated static var defaultNotificationTitle: String {
+        String(localized: "notification.default.title", defaultValue: "Notification")
+    }
+}
+
 /// The notification-domain witnesses are the byte-faithful bodies of the former
 /// `TerminalController.v2Notification*` dispatchers, minus the per-read
 /// `v2MainSync` hop: the coordinator already runs on the main actor inside the
@@ -261,6 +268,7 @@ extension TerminalController: ControlNotificationContext {
 
     var notificationStrings: ControlNotificationStrings {
         ControlNotificationStrings(
+            defaultTitle: Self.defaultNotificationTitle,
             dismissSelectorRequired: String(
                 localized: "socket.notification.dismissSelectorRequired",
                 defaultValue: "Select exactly one of id or all_read"

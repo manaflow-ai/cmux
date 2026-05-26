@@ -136256,6 +136256,23 @@
         }
       }
     },
+    "notification.default.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        }
+      }
+    },
     "notification.desktop.defaultTerminalTitle": {
       "extractionState": "manual",
       "localizations": {

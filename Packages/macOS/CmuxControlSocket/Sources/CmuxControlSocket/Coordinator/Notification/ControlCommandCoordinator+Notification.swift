@@ -42,7 +42,7 @@ extension ControlCommandCoordinator {
 
     /// `notification.create` — deliver to the resolved/focused surface.
     func notificationCreate(_ params: [String: JSONValue]) -> ControlCallResult {
-        let title = rawString(params, "title") ?? "Notification"
+        let title = rawString(params, "title") ?? notificationStrings.defaultTitle
         let subtitle = rawString(params, "subtitle") ?? ""
         let body = rawString(params, "body") ?? ""
         let resolution = context?.controlNotificationCreate(
@@ -78,7 +78,7 @@ extension ControlCommandCoordinator {
         guard let surfaceID = uuid(params, "surface_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
-        let title = rawString(params, "title") ?? "Notification"
+        let title = rawString(params, "title") ?? notificationStrings.defaultTitle
         let subtitle = rawString(params, "subtitle") ?? ""
         let body = rawString(params, "body") ?? ""
         let resolution = context?.controlNotificationCreateForSurface(
@@ -100,7 +100,7 @@ extension ControlCommandCoordinator {
         guard let surfaceID = uuid(params, "surface_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
-        let title = rawString(params, "title") ?? "Notification"
+        let title = rawString(params, "title") ?? notificationStrings.defaultTitle
         let subtitle = rawString(params, "subtitle") ?? ""
         let body = rawString(params, "body") ?? ""
         let resolution = context?.controlNotificationCreateForTarget(
@@ -354,14 +354,15 @@ extension ControlCommandCoordinator {
         return payload
     }
 
-    // MARK: - Localized error messages
+    // MARK: - Localized strings
 
-    /// The localized notification messages from the app conformance, or the
+    /// The localized notification strings from the app conformance, or the
     /// English defaults when no context is wired (the latter only happens
     /// pre-wiring; production always has a context). Keys/default values are
     /// identical to the legacy `String(localized:)` calls.
     private var notificationStrings: ControlNotificationStrings {
         context?.notificationStrings ?? ControlNotificationStrings(
+            defaultTitle: "Notification",
             dismissSelectorRequired: "Select exactly one of id or all_read",
             idRequired: "Missing or invalid notification id",
             notFound: "Notification not found",
