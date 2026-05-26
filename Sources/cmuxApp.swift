@@ -5217,6 +5217,7 @@ struct SettingsView: View {
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
+    @AppStorage(BrowserEngineSettings.engineKey) private var browserEngine = BrowserEngineSettings.defaultEngine.rawValue
     @AppStorage(BrowserAvailabilitySettings.disabledKey) private var browserDisabled = BrowserAvailabilitySettings.defaultDisabled
     @AppStorage(BrowserHiddenWebViewDiscardPolicy.enabledKey)
     private var browserHiddenWebViewDiscardEnabled = BrowserHiddenWebViewDiscardPolicy.defaultEnabled
@@ -5576,6 +5577,24 @@ struct SettingsView: View {
         BrowserThemeSettings.mode(for: browserThemeMode)
     }
 
+    private var selectedBrowserEngine: BrowserEngine {
+        _ = browserEngine
+        _ = browserDisabled
+        return BrowserEngineSettings.currentEngine(defaults: .standard)
+    }
+
+    private var browserEngineSelection: Binding<String> {
+        Binding(
+            get: { selectedBrowserEngine.rawValue },
+            set: { newValue in
+                let engine = BrowserEngineSettings.engine(for: newValue) ?? BrowserEngineSettings.defaultEngine
+                BrowserEngineSettings.setCurrentEngine(engine)
+                browserEngine = engine.rawValue
+                browserDisabled = !engine.usesEmbeddedBrowser
+            }
+        )
+    }
+
     private var browserThemeModeSelection: Binding<String> {
         Binding(
             get: { browserThemeMode },
@@ -5587,10 +5606,16 @@ struct SettingsView: View {
 
     private var browserEnabledBinding: Binding<Bool> {
         Binding(
-            get: { !browserDisabled },
+            get: {
+                _ = browserEngine
+                _ = browserDisabled
+                return BrowserEngineSettings.currentEngine(defaults: .standard).usesEmbeddedBrowser
+            },
             set: { newValue in
-                BrowserAvailabilitySettings.setDisabled(!newValue)
-                browserDisabled = !newValue
+                let engine: BrowserEngine = newValue ? .webKit : .systemDefault
+                BrowserEngineSettings.setCurrentEngine(engine)
+                browserEngine = engine.rawValue
+                browserDisabled = !engine.usesEmbeddedBrowser
             }
         )
     }
@@ -5606,10 +5631,14 @@ struct SettingsView: View {
     }
 
     private var browserEnabledSubtitle: String {
-        if browserDisabled {
-            return String(localized: "settings.browser.enabled.subtitleOff", defaultValue: "Browser tabs and link interception are disabled. Links open in your default browser.")
+        if !selectedBrowserEngine.usesEmbeddedBrowser {
+            return String(localized: "settings.browser.enabled.subtitleOff", defaultValue: "Browser tabs and link interception are routed to your macOS default browser.")
         }
         return String(localized: "settings.browser.enabled.subtitleOn", defaultValue: "Browser tabs, terminal link clicks, and intercepted open commands can use the embedded browser.")
+    }
+
+    private var browserEngineSubtitle: String {
+        selectedBrowserEngine.settingsSubtitle
     }
 
     private var browserHiddenWebViewDiscardDelayBinding: Binding<Double> {
@@ -5656,6 +5685,21 @@ struct SettingsView: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("BrowserEnabledToggle")
+        }
+
+        SettingsCardDivider()
+
+        SettingsPickerRow(
+            configurationReview: .json("browser.engine"),
+            String(localized: "settings.browser.engine", defaultValue: "Browser Engine"),
+            subtitle: browserEngineSubtitle,
+            controlWidth: pickerColumnWidth,
+            selection: browserEngineSelection,
+            accessibilityId: "SettingsBrowserEnginePicker"
+        ) {
+            ForEach(BrowserEngine.allCases) { engine in
+                Text(engine.displayName).tag(engine.rawValue)
+            }
         }
 
         SettingsCardDivider()
@@ -7944,7 +7988,8 @@ struct SettingsView: View {
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
-        BrowserAvailabilitySettings.setDisabled(BrowserAvailabilitySettings.defaultDisabled)
+        BrowserEngineSettings.setCurrentEngine(BrowserEngineSettings.defaultEngine)
+        browserEngine = BrowserEngineSettings.defaultEngine.rawValue
         browserDisabled = BrowserAvailabilitySettings.defaultDisabled
         browserHiddenWebViewDiscardEnabled = BrowserHiddenWebViewDiscardPolicy.defaultEnabled
         browserHiddenWebViewDiscardDelay = BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay

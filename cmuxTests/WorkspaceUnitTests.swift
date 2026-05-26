@@ -855,6 +855,60 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
     }
 
+    func testSettingsFileStoreAppliesBrowserEngineSetting() throws {
+        let defaults = UserDefaults.standard
+        let previousEngine = defaults.object(forKey: BrowserEngineSettings.engineKey)
+        let previousDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousEngine {
+                defaults.set(previousEngine, forKey: BrowserEngineSettings.engineKey)
+            } else {
+                defaults.removeObject(forKey: BrowserEngineSettings.engineKey)
+            }
+            if let previousDisabled {
+                defaults.set(previousDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        defaults.removeObject(forKey: BrowserEngineSettings.engineKey)
+        defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "browser": {
+                "engine": "systemDefault"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            defaults.string(forKey: BrowserEngineSettings.engineKey),
+            BrowserEngine.systemDefault.rawValue
+        )
+        XCTAssertTrue(BrowserAvailabilitySettings.isDisabled())
+    }
+
     func testSettingsFileStoreAppliesBrowserHiddenWebViewDiscardDelayAtMaximum() throws {
         let defaults = UserDefaults.standard
         let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)

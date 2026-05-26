@@ -7429,6 +7429,8 @@
         }
       }
     },
+    "browser.engine.systemDefault": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Default Browser" } }, "ja": { "stringUnit": { "state": "translated", "value": "デフォルトブラウザ" } } } },
+    "browser.engine.webkit": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "WebKit (Embedded)" } }, "ja": { "stringUnit": { "state": "translated", "value": "WebKit（内蔵）" } } } },
     "browser.profile.buttonHelp": {
       "extractionState": "manual",
       "localizations": {
@@ -69074,13 +69076,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Browser tabs, terminal link clicks, and intercepted open commands are disabled. Links open in your default browser."
+            "value": "Browser tabs and link interception are routed to your macOS default browser."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブラウザタブ、ターミナルのリンククリック、インターセプトされたopenコマンドは無効です。リンクはデフォルトブラウザで開きます。"
+            "value": "ブラウザタブとリンクのインターセプトは macOS のデフォルトブラウザにルーティングされます。"
           }
         }
       }
@@ -69102,6 +69104,9 @@
         }
       }
     },
+    "settings.browser.engine": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Browser Engine" } }, "ja": { "stringUnit": { "state": "translated", "value": "ブラウザエンジン" } } } },
+    "settings.browser.engine.subtitle.systemDefault": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Tabs and intercepted links open in your macOS default browser, preserving its signed-in state." } }, "ja": { "stringUnit": { "state": "translated", "value": "タブとインターセプトされたリンクは macOS のデフォルトブラウザで開き、サインイン状態を保持します。" } } } },
+    "settings.browser.engine.subtitle.webkit": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "WebKit runs inside cmux with automation, profiles, and imported browser data." } }, "ja": { "stringUnit": { "state": "translated", "value": "WebKit は cmux 内で実行され、自動化、プロファイル、インポートしたブラウザデータを利用できます。" } } } },
     "settings.browser.hiddenWebViewDiscard": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Browser Memory Saver" } }, "ja": { "stringUnit": { "state": "translated", "value": "ブラウザメモリセーバー" } } } },
     "settings.browser.hiddenWebViewDiscard.subtitleOff": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Hidden browser tabs keep page memory until closed." } }, "ja": { "stringUnit": { "state": "translated", "value": "非表示のブラウザタブは、閉じるまでページメモリを保持します。" } } } },
     "settings.browser.hiddenWebViewDiscard.subtitleOn": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Hidden browser tabs release page memory after the delay below, then restore when shown again." } }, "ja": { "stringUnit": { "state": "translated", "value": "非表示のブラウザタブは下の遅延後にページメモリを解放し、再表示時に復元します。" } } } },
@@ -82357,6 +82362,7 @@
             }
         }
     },
+    "settings.search.alias.setting.browser.engine": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "browser.engine webkit chromium chrome browser engine runtime default external" } }, "ja": { "stringUnit": { "state": "translated", "value": "browser.engine webkit chromium chrome browser engine runtime default external ブラウザ エンジン 既定 外部" } } } },
     "settings.search.alias.setting.browser.search-engine": {
         "extractionState": "manual",
         "localizations": {

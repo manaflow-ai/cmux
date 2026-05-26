@@ -157,6 +157,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "browser": [
+                    "engine": BrowserEngineSettings.defaultEngine.rawValue,
                     "defaultSearchEngine": BrowserSearchSettings.defaultSearchEngine.rawValue,
                     "showSearchSuggestions": BrowserSearchSettings.defaultSearchSuggestionsEnabled,
                     "theme": BrowserThemeSettings.defaultMode.rawValue,
