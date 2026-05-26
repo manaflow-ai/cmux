@@ -9738,6 +9738,24 @@ enum SidebarShortcutHintFreezePolicy {
     }
 }
 
+@MainActor
+private func sidebarLatestNotificationText(
+    tabId: UUID,
+    notificationStore: TerminalNotificationStore,
+    showsNotificationMessage: Bool
+) -> String? {
+    guard showsNotificationMessage,
+          let notification = notificationStore.latestNotification(forTabId: tabId) else {
+        return nil
+    }
+    let trimmedBody = notification.body.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmedBody.isEmpty {
+        return trimmedBody
+    }
+    let trimmedTitle = notification.title.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmedTitle.isEmpty ? nil : trimmedTitle
+}
+
 struct VerticalTabsSidebar: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @ObservedObject var fileExplorerState: FileExplorerState
@@ -11120,26 +11138,11 @@ struct VerticalTabsSidebar: View {
             in: tabManager,
             target: contextMenuPinTarget
         )
-        let liveUnreadCount = notificationStore.unreadCount(forTabId: tab.id)
-        let liveLatestNotificationText: String? = {
-            guard showsSidebarNotificationMessage,
-                  let notification = notificationStore.latestNotification(forTabId: tab.id) else {
-                return nil
-            }
-            let text = notification.body.isEmpty ? notification.title : notification.body
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }()
-        let liveShowsModifierShortcutHints = modifierKeyMonitor.isModifierPressed
-        let resolvedShowsModifierShortcutHints = SidebarShortcutHintFreezePolicy.resolved(
-            live: liveShowsModifierShortcutHints,
-            currentTabId: tab.id,
-            frozenTabId: frozenShortcutHintsTabId,
-            frozenValue: frozenShortcutHintsValue
-        )
-        let onContextMenuAppear: () -> Void = { [tabId = tab.id, snapshot = resolvedShowsModifierShortcutHints] in
+        let frozenShortcutHintsTabIdForRow = frozenShortcutHintsTabId == tab.id ? tab.id : nil
+        let frozenShortcutHintsValueForRow = frozenShortcutHintsTabId == tab.id ? frozenShortcutHintsValue : false
+        let onContextMenuAppear: () -> Void = { [tabId = tab.id, modifierKeyMonitor] in
             frozenShortcutHintsTabId = tabId
-            frozenShortcutHintsValue = snapshot
+            frozenShortcutHintsValue = modifierKeyMonitor.isModifierPressed
         }
         let onContextMenuDisappear: () -> Void = { [tabId = tab.id] in
             if frozenShortcutHintsTabId == tabId {
@@ -11186,6 +11189,7 @@ struct VerticalTabsSidebar: View {
         return TabItemView(
             tabManager: tabManager,
             notificationStore: notificationStore,
+            modifierKeyMonitor: modifierKeyMonitor,
             tab: tab,
             index: index,
             isActive: tabManager.selectedTabId == tab.id,
@@ -11196,13 +11200,10 @@ struct VerticalTabsSidebar: View {
             workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
             canCloseWorkspace: renderContext.canCloseWorkspace,
             accessibilityWorkspaceCount: renderContext.workspaceCount,
-            unreadCount: liveUnreadCount,
-            latestNotificationText: liveLatestNotificationText,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-            showsModifierShortcutHints: resolvedShowsModifierShortcutHints,
             dragAutoScrollController: dragAutoScrollController,
             isBeingDragged: isBeingDragged,
             topDropIndicatorVisible: topDropIndicatorVisible,
@@ -11215,6 +11216,8 @@ struct VerticalTabsSidebar: View {
             allContextMenuWorkspacesHideTerminalScrollBar: allContextMenuWorkspacesHideTerminalScrollBar,
             contextMenuPinState: contextMenuPinState,
             settings: renderContext.tabItemSettings,
+            frozenShortcutHintsTabId: frozenShortcutHintsTabIdForRow,
+            frozenShortcutHintsValue: frozenShortcutHintsValueForRow,
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
         )
@@ -13566,12 +13569,13 @@ enum SidebarTrailingAccessoryWidthPolicy {
     static let closeButtonWidth: CGFloat = 16
 }
 
-// PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
-// the parent rebuilds with unchanged values. Without this, every TabManager
-// or NotificationStore publish causes ALL tab items to re-evaluate (~18% of
-// main thread during typing). If you add new properties, update == below.
+// PERF: TabItemView is Equatable so SwiftUI skips heavy row body re-evaluation
+// when the parent rebuilds with unchanged values. Without this, every TabManager
+// publish causes ALL tab items to re-evaluate (~18% of main thread during
+// typing). If you add new static row properties, update == below. Keep live
+// notification and shortcut-hint presentation in isolated child views.
 // Reactive workspace state inside the row must not rely on parent diffs alone:
-// `.equatable()` can otherwise leave sidebar badges/details stale until an
+// `.equatable()` can otherwise leave sidebar workspace details stale until an
 // unrelated parent change sneaks through. Keep the workspace reference plain
 // and bridge only sidebar-visible workspace changes into local state.
 // Do NOT add @EnvironmentObject or new @Binding without updating ==.
@@ -13634,6 +13638,148 @@ private final class SidebarTabItemContextMenuState: ObservableObject {
     var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
 }
 
+private struct SidebarWorkspaceUnreadBadge: View {
+    @ObservedObject var notificationStore: TerminalNotificationStore
+    let tabId: UUID
+    let fillColor: Color
+    let textColor: Color
+
+    var body: some View {
+        let unreadCount = notificationStore.unreadCount(forTabId: tabId)
+        if unreadCount > 0 {
+            ZStack {
+                Circle()
+                    .fill(fillColor)
+                Text("\(unreadCount)")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(textColor)
+            }
+            .frame(width: 16, height: 16)
+        }
+    }
+}
+
+private struct SidebarWorkspaceLiveDetails: View {
+    @ObservedObject var notificationStore: TerminalNotificationStore
+    let tabId: UUID
+    let showsNotificationMessage: Bool
+    let fallbackSubtitle: String?
+    let subtitleColor: Color
+    let showsRemoteSection: Bool
+    let remoteWorkspaceSidebarText: String?
+    let remoteConnectionStatusText: String
+    let remoteStateHelpText: String
+    let remoteTextColor: Color
+    let remoteStatusColor: Color
+
+    var body: some View {
+        let latestNotificationText = sidebarLatestNotificationText(
+            tabId: tabId,
+            notificationStore: notificationStore,
+            showsNotificationMessage: showsNotificationMessage
+        )
+        let effectiveSubtitle = latestNotificationText ?? fallbackSubtitle
+
+        if let effectiveSubtitle {
+            Text(effectiveSubtitle)
+                .font(.system(size: 10))
+                .foregroundColor(subtitleColor)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .multilineTextAlignment(.leading)
+        }
+
+        if showsRemoteSection, let remoteWorkspaceSidebarText {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(remoteWorkspaceSidebarText)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(remoteTextColor)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    Spacer(minLength: 0)
+
+                    Text(remoteConnectionStatusText)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(remoteStatusColor)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.top, latestNotificationText == nil ? 1 : 2)
+            .safeHelp(remoteStateHelpText)
+        }
+    }
+}
+
+private struct SidebarWorkspaceTrailingAccessory: View {
+    let tabId: UUID
+    let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
+    let frozenShortcutHintsTabId: UUID?
+    let frozenShortcutHintsValue: Bool
+    @Binding var rowInteractionState: SidebarWorkspaceRowInteractionState
+    let alwaysShowShortcutHints: Bool
+    let workspaceShortcutLabel: String?
+    let canCloseWorkspace: Bool
+    let shortcutHintXOffset: Double
+    let shortcutHintYOffset: Double
+    let shortcutHintEmphasis: Double
+    let closeButtonTooltip: String
+    let closeButtonColor: Color
+    let closeAction: () -> Void
+
+    private var showsModifierShortcutHints: Bool {
+        SidebarShortcutHintFreezePolicy.resolved(
+            live: modifierKeyMonitor.isModifierPressed,
+            currentTabId: tabId,
+            frozenTabId: frozenShortcutHintsTabId,
+            frozenValue: frozenShortcutHintsValue
+        )
+    }
+
+    private var shortcutHintModeActive: Bool {
+        showsModifierShortcutHints || alwaysShowShortcutHints
+    }
+
+    private var showsWorkspaceShortcutHint: Bool {
+        shortcutHintModeActive && workspaceShortcutLabel != nil
+    }
+
+    private var showCloseButton: Bool {
+        rowInteractionState.shouldShowCloseButton(
+            canCloseWorkspace: canCloseWorkspace,
+            shortcutHintModeActive: shortcutHintModeActive
+        )
+    }
+
+    var body: some View {
+        Group {
+            if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
+                ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
+                    .offset(
+                        x: ShortcutHintDebugSettings.clamped(shortcutHintXOffset),
+                        y: ShortcutHintDebugSettings.clamped(shortcutHintYOffset)
+                    )
+                    .padding(.top, 6)
+                    .padding(.trailing, 10)
+                    .shortcutHintTransition()
+            } else if showCloseButton {
+                Button(action: closeAction) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(closeButtonColor)
+                }
+                .buttonStyle(.plain)
+                .safeHelp(closeButtonTooltip)
+                .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
+                .padding(.top, 8)
+                .padding(.trailing, 10)
+            }
+        }
+        .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
+    }
+}
+
 private struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
@@ -13648,10 +13794,7 @@ private struct TabItemView: View, Equatable {
         lhs.workspaceShortcutModifierSymbol == rhs.workspaceShortcutModifierSymbol &&
         lhs.canCloseWorkspace == rhs.canCloseWorkspace &&
         lhs.accessibilityWorkspaceCount == rhs.accessibilityWorkspaceCount &&
-        lhs.unreadCount == rhs.unreadCount &&
-        lhs.latestNotificationText == rhs.latestNotificationText &&
         lhs.rowSpacing == rhs.rowSpacing &&
-        lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
@@ -13660,14 +13803,17 @@ private struct TabItemView: View, Equatable {
         lhs.contextMenuPinState == rhs.contextMenuPinState &&
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
+        lhs.frozenShortcutHintsTabId == rhs.frozenShortcutHintsTabId &&
+        lhs.frozenShortcutHintsValue == rhs.frozenShortcutHintsValue &&
         lhs.settings == rhs.settings
     }
 
-    // Use plain references instead of @EnvironmentObject to avoid subscribing
-    // to ALL changes on these objects. Body reads use precomputed parameters;
-    // action handlers use the plain references without triggering re-evaluation.
+    // Use plain references instead of @EnvironmentObject so action handlers do
+    // not subscribe the heavy row body to every model publish. Live badge,
+    // subtitle, and shortcut-hint state is isolated in small child views.
     let tabManager: TabManager
     let notificationStore: TerminalNotificationStore
+    let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
     @Environment(\.colorScheme) private var colorScheme
     let tab: Tab
     let index: Int
@@ -13676,13 +13822,10 @@ private struct TabItemView: View, Equatable {
     let workspaceShortcutModifierSymbol: String
     let canCloseWorkspace: Bool
     let accessibilityWorkspaceCount: Int
-    let unreadCount: Int
-    let latestNotificationText: String?
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
-    let showsModifierShortcutHints: Bool
     let dragAutoScrollController: SidebarDragAutoScrollController
     // Row receives precomputed drag/drop snapshot values + action closures
     // instead of an `@Observable` store reference. This keeps TabItemView in
@@ -13704,8 +13847,10 @@ private struct TabItemView: View, Equatable {
     let allContextMenuWorkspacesHideTerminalScrollBar: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let settings: SidebarTabItemSettingsSnapshot
+    let frozenShortcutHintsTabId: UUID?
+    let frozenShortcutHintsValue: Bool
     /// Called from this row's contextMenu.onAppear so the parent can freeze
-    /// `showsModifierShortcutHints` to the value it last passed in. Prevents
+    /// `showsModifierShortcutHints` to its current live value. Prevents
     /// modifier-key transitions from flipping the badges on the row sitting
     /// behind the open context menu.
     let onContextMenuAppear: () -> Void
@@ -13865,20 +14010,9 @@ private struct TabItemView: View, Equatable {
         usesInvertedActiveForeground ? 1.0 : 0.9
     }
 
-    private var showCloseButton: Bool {
-        rowInteractionState.shouldShowCloseButton(
-            canCloseWorkspace: canCloseWorkspace,
-            shortcutHintModeActive: showsModifierShortcutHints || alwaysShowShortcutHints
-        )
-    }
-
     private var workspaceShortcutLabel: String? {
         guard let workspaceShortcutDigit else { return nil }
         return "\(workspaceShortcutModifierSymbol)\(workspaceShortcutDigit)"
-    }
-
-    private var showsWorkspaceShortcutHint: Bool {
-        (showsModifierShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
     }
 
     private var remoteWorkspaceSidebarText: String? {
@@ -13944,31 +14078,6 @@ private struct TabItemView: View, Equatable {
         }
     }
 
-    @ViewBuilder
-    private var remoteWorkspaceSection: some View {
-        let workspaceSnapshot = self.workspaceSnapshot
-        if !settings.hidesAllDetails, sidebarShowSSH, let remoteWorkspaceSidebarText = workspaceSnapshot.remoteWorkspaceSidebarText {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(remoteWorkspaceSidebarText)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(activeSecondaryColor(0.8))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-
-                    Spacer(minLength: 0)
-
-                    Text(workspaceSnapshot.remoteConnectionStatusText)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(activeSecondaryColor(0.58))
-                        .lineLimit(1)
-                }
-            }
-            .padding(.top, latestNotificationText == nil ? 1 : 2)
-            .safeHelp(workspaceSnapshot.remoteStateHelpText)
-        }
-    }
-
     private func copyWorkspaceIdsToPasteboard(_ ids: [UUID], includeRefs: Bool = false) {
         WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceIds(ids, includeRefs: includeRefs)
     }
@@ -14002,27 +14111,21 @@ private struct TabItemView: View, Equatable {
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
         let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
         let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath)
-        let latestNotificationSubtitle = latestNotificationText
         let conversationMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
             ? workspaceSnapshot.latestConversationMessage?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .nilIfEmpty
             : nil
-        let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                if unreadCount > 0 {
-                    ZStack {
-                        Circle()
-                            .fill(activeUnreadBadgeFillColor)
-                        Text("\(unreadCount)")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundColor(activeUnreadBadgeTextColor)
-                    }
-                    .frame(width: 16, height: 16)
-                }
+                SidebarWorkspaceUnreadBadge(
+                    notificationStore: notificationStore,
+                    tabId: tab.id,
+                    fillColor: activeUnreadBadgeFillColor,
+                    textColor: activeUnreadBadgeTextColor
+                )
 
                 if workspaceSnapshot.isPinned {
                     Image(systemName: "pin.fill")
@@ -14049,16 +14152,19 @@ private struct TabItemView: View, Equatable {
                 .id(description)
             }
 
-            if let subtitle = effectiveSubtitle {
-                Text(subtitle)
-                    .font(.system(size: 10))
-                    .foregroundColor(activeSecondaryColor(0.8))
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-                    .multilineTextAlignment(.leading)
-            }
-
-            remoteWorkspaceSection
+            SidebarWorkspaceLiveDetails(
+                notificationStore: notificationStore,
+                tabId: tab.id,
+                showsNotificationMessage: settings.showsNotificationMessage,
+                fallbackSubtitle: conversationMessageSubtitle,
+                subtitleColor: activeSecondaryColor(0.8),
+                showsRemoteSection: !settings.hidesAllDetails && sidebarShowSSH,
+                remoteWorkspaceSidebarText: workspaceSnapshot.remoteWorkspaceSidebarText,
+                remoteConnectionStatusText: workspaceSnapshot.remoteConnectionStatusText,
+                remoteStateHelpText: workspaceSnapshot.remoteStateHelpText,
+                remoteTextColor: activeSecondaryColor(0.8),
+                remoteStatusColor: activeSecondaryColor(0.58)
+            )
 
             if detailVisibility.showsMetadata {
                 let metadataEntries = workspaceSnapshot.metadataEntries
@@ -14289,34 +14395,28 @@ private struct TabItemView: View, Equatable {
                 }
         )
         .overlay(alignment: .topTrailing) {
-            if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
-                ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
-                    .offset(
-                        x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
-                        y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
-                    )
-                    .padding(.top, 6)
-                    .padding(.trailing, 10)
-                    .shortcutHintTransition()
-            } else if showCloseButton {
-                Button(action: {
+            SidebarWorkspaceTrailingAccessory(
+                tabId: tab.id,
+                modifierKeyMonitor: modifierKeyMonitor,
+                frozenShortcutHintsTabId: frozenShortcutHintsTabId,
+                frozenShortcutHintsValue: frozenShortcutHintsValue,
+                rowInteractionState: $rowInteractionState,
+                alwaysShowShortcutHints: alwaysShowShortcutHints,
+                workspaceShortcutLabel: workspaceShortcutLabel,
+                canCloseWorkspace: canCloseWorkspace,
+                shortcutHintXOffset: sidebarShortcutHintXOffset,
+                shortcutHintYOffset: sidebarShortcutHintYOffset,
+                shortcutHintEmphasis: shortcutHintEmphasis,
+                closeButtonTooltip: closeButtonTooltip,
+                closeButtonColor: activeSecondaryColor(0.7),
+                closeAction: {
                     #if DEBUG
                     cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
                     #endif
                     tabManager.closeWorkspaceWithConfirmation(tab)
-                }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(activeSecondaryColor(0.7))
                 }
-                .buttonStyle(.plain)
-                .safeHelp(closeButtonTooltip)
-                .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
-                .padding(.top, 8)
-                .padding(.trailing, 10)
-            }
+            )
         }
-        .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, 6)
         .background { rowHeightProbe }
         .contentShape(Rectangle())
@@ -15073,9 +15173,6 @@ private struct TabItemView: View, Equatable {
         selectedTabIds.subtract(orderedWorkspaceIds)
         syncSelectionAfterMutation()
     }
-
-    // latestNotificationText is now passed as a parameter from the parent view
-    // to avoid subscribing to notificationStore changes in every TabItemView.
 
     // Builds the joined "branch · directory" candidates list for inline mode.
     // Each entry pairs the (fixed) git summary with one entry from the
