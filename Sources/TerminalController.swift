@@ -8124,6 +8124,12 @@ class TerminalController {
                     "page_ref": v2Ref(kind: .page, uuid: pageId)
                 ])
             }
+            if pageFound {
+                return .err(code: "invalid_state", message: "Cannot reorder: workspace has only one page", data: [
+                    "page_id": pageId.uuidString,
+                    "page_ref": v2Ref(kind: .page, uuid: pageId)
+                ])
+            }
             return .err(code: "not_found", message: "Page not found", data: [
                 "page_id": pageId.uuidString,
                 "page_ref": v2Ref(kind: .page, uuid: pageId)

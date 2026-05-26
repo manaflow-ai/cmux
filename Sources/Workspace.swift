@@ -10725,6 +10725,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let runtimeState = storedState.runtimeState,
            Self.canRestoreRuntimeLayout(runtimeState.layout, detachedSurfaceIds: Set(runtimeState.detachedSurfaces.keys)) {
             restoreRuntimePageState(runtimeState)
+            restoreRuntimePageNotifications(from: storedState.sessionState)
         } else {
             teardownDetachedSurfaces(storedState.runtimeState?.detachedSurfaces)
             let oldToNewPanelIds = restoreSessionPageState(storedState.sessionState)
@@ -10735,6 +10736,36 @@ final class Workspace: Identifiable, ObservableObject {
             AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
             syncUnreadBadgeStateForAllPanels()
         }
+    }
+
+    private func restoreRuntimePageNotifications(from pageState: SessionWorkspacePageStateSnapshot) {
+        guard let notificationStore = AppDelegate.shared?.notificationStore else {
+            syncUnreadBadgeStateForAllPanels()
+            return
+        }
+
+        var notificationsById: [UUID: TerminalNotification] = [:]
+        func record(_ notification: TerminalNotification) {
+            notificationsById[notification.id] = notification
+        }
+
+        for notification in notificationStore.notifications(forTabId: id, surfaceId: nil) {
+            record(notification)
+        }
+
+        let identityPanelIds = Dictionary(uniqueKeysWithValues: pageState.panels.map { ($0.id, $0.id) })
+        for notification in restoredPageSessionNotifications(from: pageState, oldToNewPanelIds: identityPanelIds) {
+            record(notification)
+        }
+
+        for panelId in panels.keys {
+            for notification in notificationStore.notifications(forTabId: id, surfaceId: panelId) {
+                record(notification)
+            }
+        }
+
+        notificationStore.restoreSessionNotifications(Array(notificationsById.values), forTabId: id)
+        syncUnreadBadgeStateForAllPanels()
     }
 
     static func canRestoreRuntimeLayout(
