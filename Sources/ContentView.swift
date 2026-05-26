@@ -3251,6 +3251,11 @@ struct ContentView: View {
             }
         })
 
+        view = AnyView(view.environment(
+            \.cmuxWindowCornerRadius,
+            observedWindow.flatMap { WindowGlassEffect.windowCornerRadius(for: $0) }
+        ))
+
         view = AnyView(view.ignoresSafeArea())
         view = AnyView(view.sheet(isPresented: $isFeedbackComposerPresented) {
             SidebarFeedbackComposerSheet()
