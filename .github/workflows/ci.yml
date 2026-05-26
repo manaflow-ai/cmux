@@ -18,7 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Validate WarpBuild runner guards
+      - name: Validate Blacksmith runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
 
       - name: Validate create-dmg version pinning
@@ -155,7 +155,7 @@ jobs:
           bun test tests/vm-db-read-model.test.ts
 
   tests:
-    runs-on: warp-macos-15-arm64-6x
+    runs-on: blacksmith-6vcpu-macos-15
     timeout-minutes: 45
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
@@ -381,11 +381,11 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
 
   tests-build-and-lag:
-    # Build the full cmux scheme and run the lag regression on WarpBuild.
+    # Build the full cmux scheme and run the lag regression on Blacksmith.
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
-    runs-on: warp-macos-15-arm64-6x
+    runs-on: blacksmith-6vcpu-macos-15
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -486,6 +486,17 @@ jobs:
       - name: Validate Swift warning budget
         run: python3 scripts/swift_warning_budget.py --log /tmp/cmux-build-output.txt
 
+      - name: Create virtual display
+        run: |
+          set -euo pipefail
+          clang -framework Foundation -framework CoreGraphics \
+            -o /tmp/create-virtual-display scripts/create-virtual-display.m
+          /tmp/create-virtual-display &
+          VDISPLAY_PID=$!
+          echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
+          sleep 3
+          kill -0 "$VDISPLAY_PID"
+
       - name: Run CoreAnimation main-thread startup regression
         run: |
           set -euo pipefail
@@ -504,17 +515,6 @@ jobs:
           CMUX_CA_ASSERT_HOLD_SECONDS=15 \
           CMUX_TAG="ci-ca-main-thread" \
           ./scripts/verify-main-thread-ca-transactions.sh "$APP"
-
-      - name: Create virtual display
-        run: |
-          set -euo pipefail
-          clang -framework Foundation -framework CoreGraphics \
-            -o /tmp/create-virtual-display scripts/create-virtual-display.m
-          /tmp/create-virtual-display &
-          VDISPLAY_PID=$!
-          echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
-          sleep 3
-          kill -0 "$VDISPLAY_PID"
 
       - name: Run workspace churn typing-lag regression
         run: |
@@ -571,7 +571,7 @@ jobs:
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
-    runs-on: warp-macos-26-arm64-6x
+    runs-on: blacksmith-6vcpu-macos-26
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -654,7 +654,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
   ui-regressions:
-    runs-on: warp-macos-15-arm64-6x
+    runs-on: blacksmith-6vcpu-macos-15
     timeout-minutes: 25
     steps:
       - name: Checkout
