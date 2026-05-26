@@ -846,6 +846,54 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "OK")
     }
 
+    func testDotPathOpenBypassesProtectedSocketForExternalCLI() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-external-open-\(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fakeOpenURL = root.appendingPathComponent("open", isDirectory: false)
+        let openLogURL = root.appendingPathComponent("open-args.txt", isDirectory: false)
+        try fakeOpenScript().write(to: fakeOpenURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeOpenURL.path)
+
+        let socketPath = "/tmp/cmux-external-open-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: "ERROR: Access denied — only processes started inside cmux can connect"
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TEST_OPEN_TOOL_PATH"] = fakeOpenURL.path
+        environment["CMUX_TEST_OPEN_LOG"] = openLogURL.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["."],
+            environment: environment,
+            currentDirectoryURL: workingDirectory,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "OK")
+        XCTAssertEqual(responder.receivedRequests, [])
+
+        let openArguments = try readFakeOpenArguments(from: openLogURL)
+        XCTAssertEqual(openArguments.first, "-a")
+        XCTAssertEqual(openArguments.last, workingDirectory.standardizedFileURL.path)
+        XCTAssertTrue(openArguments.dropFirst().first?.hasSuffix(".app") == true, openArguments.joined(separator: " "))
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self)
@@ -1005,6 +1053,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         executablePath: String,
         arguments: [String],
         environment: [String: String],
+        currentDirectoryURL: URL? = nil,
         timeout: TimeInterval
     ) -> ProcessRunResult {
         let process = Process()
@@ -1012,6 +1061,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         process.environment = environment
+        process.currentDirectoryURL = currentDirectoryURL
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = outputPipe
         process.standardError = outputPipe
@@ -1043,6 +1093,26 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             stdout: String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
             timedOut: timedOut
         )
+    }
+
+    private func fakeOpenScript() -> String {
+        """
+        #!/bin/sh
+        : "${CMUX_TEST_OPEN_LOG:?}"
+        : > "$CMUX_TEST_OPEN_LOG"
+        for arg in "$@"; do
+          printf '%s\\n' "$arg" >> "$CMUX_TEST_OPEN_LOG"
+        done
+        exit 0
+        """
+    }
+
+    private func readFakeOpenArguments(from url: URL) throws -> [String] {
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        return Array(contents
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .dropLast())
     }
 }
 
