@@ -93,13 +93,13 @@ nonisolated enum CmuxAppCLIForwarder {
             }
         }
 
-        _ = cArguments.withUnsafeMutableBufferPointer { buffer in
+        let code = cArguments.withUnsafeMutableBufferPointer { buffer in
             cliURL.path.withCString { path in
                 execv(path, buffer.baseAddress)
+                return errno
             }
         }
 
-        let code = errno
         let reason = localizedExecutionFailureReason(forErrno: code)
         let message = String(
             format: String(localized: "cli.forward.error.execFailed", defaultValue: "Failed to run bundled cmux CLI: %@."),
