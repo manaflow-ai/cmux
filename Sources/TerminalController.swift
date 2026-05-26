@@ -17875,24 +17875,36 @@ class TerminalController {
         // Capture the main window on main thread
         var captureError: String?
         v2MainSync {
-            let visibleWindows = NSApp.windows.filter {
-                $0.isVisible && $0.frame.width > 100 && $0.frame.height > 100
+            let orderedWindows = ([NSApp.mainWindow, NSApp.keyWindow].compactMap { $0 } + NSApp.windows)
+            var seenWindowNumbers: Set<CGWindowID> = []
+            let windowCandidates = orderedWindows.compactMap { window -> CGWindowID? in
+                guard window.isVisible,
+                      !window.isMiniaturized,
+                      window.frame.width > 100,
+                      window.frame.height > 100 else { return nil }
+                let rawWindowNumber = window.windowNumber
+                guard rawWindowNumber > 0,
+                      let windowNumber = UInt32(exactly: rawWindowNumber) else {
+                    return nil
+                }
+                let cgWindowID = CGWindowID(windowNumber)
+                guard seenWindowNumbers.insert(cgWindowID).inserted else { return nil }
+                return cgWindowID
             }
-            let window = [NSApp.mainWindow, NSApp.keyWindow]
-                .compactMap { $0 }
-                .first { visibleWindows.contains($0) }
-                ?? visibleWindows.first
-                ?? NSApp.windows.first
-            guard let window else {
-                captureError = "No window available"
+            guard !windowCandidates.isEmpty else {
+                captureError = "No capturable window available"
                 return
             }
-            guard let cgImage = CGWindowListCreateImage(
-                .null,
-                .optionIncludingWindow,
-                CGWindowID(window.windowNumber),
-                [.boundsIgnoreFraming, .bestResolution]
-            ) else {
+
+            let cgImage = windowCandidates.lazy.compactMap { windowNumber in
+                CGWindowListCreateImage(
+                    .null,  // Capture just the window bounds
+                    .optionIncludingWindow,
+                    windowNumber,
+                    [.boundsIgnoreFraming, .bestResolution]
+                )
+            }.first
+            guard let cgImage else {
                 captureError = "Failed to capture window image"
                 return
             }

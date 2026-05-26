@@ -5284,6 +5284,8 @@ struct SettingsView: View {
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+    @AppStorage(TerminalRegexHighlightSettings.highlightsKey)
+    private var terminalRegexHighlights = TerminalRegexHighlightSettings.defaultHighlights
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
     private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
     @AppStorage(TerminalCopyOnSelectSettings.copyOnSelectKey)
@@ -5550,6 +5552,17 @@ struct SettingsView: View {
                 guard autoResumeAgentSessions != newValue else { return }
                 autoResumeAgentSessions = newValue
                 AgentSessionAutoResumeSettings.notifyDidChange()
+            }
+        )
+    }
+
+    private var terminalRegexHighlightsBinding: Binding<String> {
+        Binding(
+            get: { terminalRegexHighlights },
+            set: { newValue in
+                guard terminalRegexHighlights != newValue else { return }
+                terminalRegexHighlights = newValue
+                TerminalRegexHighlightSettings.notifyDidChange()
             }
         )
     }
@@ -6803,6 +6816,36 @@ struct SettingsView: View {
                                 .accessibilityIdentifier("SettingsTerminalAgentAutoResumeToggle")
                                 .accessibilityLabel(
                                     String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            SettingsCardRow(
+                                configurationReview: .json("terminal.regexHighlights"),
+                                String(localized: "settings.terminal.regexHighlights", defaultValue: "Automatic Text Highlights"),
+                                subtitle: String(localized: "settings.terminal.regexHighlights.subtitle", defaultValue: "Highlights visible terminal text that matches a regex. One pattern per line; prefix with #RRGGBB or #RRGGBBAA and a tab to choose the highlight color.")
+                            ) {
+                                EmptyView()
+                            }
+
+                            TextEditor(text: terminalRegexHighlightsBinding)
+                                .font(.system(.body, design: .monospaced))
+                                .frame(minHeight: 60, maxHeight: 120)
+                                .scrollContentBackground(.hidden)
+                                .padding(6)
+                                .background(Color(nsColor: .controlBackgroundColor))
+                                .cornerRadius(6)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                                )
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 12)
+                                .accessibilityIdentifier("SettingsTerminalRegexHighlightsEditor")
+                                .accessibilityLabel(
+                                    String(localized: "settings.terminal.regexHighlights", defaultValue: "Automatic Text Highlights")
                                 )
                         }
 
@@ -8105,7 +8148,11 @@ struct SettingsView: View {
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
         }
-        textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
+        let previousTerminalRegexHighlights = terminalRegexHighlights
+        terminalRegexHighlights = TerminalRegexHighlightSettings.defaultHighlights
+        if previousTerminalRegexHighlights != terminalRegexHighlights {
+            TerminalRegexHighlightSettings.notifyDidChange()
+        }
         textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
         let previousTerminalCopyOnSelect = terminalCopyOnSelect
         terminalCopyOnSelect = TerminalCopyOnSelectSettings.defaultCopyOnSelect

@@ -84,6 +84,10 @@ extension CmuxSettingsFileStore {
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
                     "copyOnSelect": TerminalCopyOnSelectSettings.defaultCopyOnSelect,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
+                    "regexHighlights": [
+                        "#FFE06680\tERROR",
+                        "#FF6B6B80\tpanic|fatal",
+                    ],
                     "agentHibernation": [
                         "enabled": AgentHibernationSettings.defaultEnabled,
                         "idleSeconds": Int(AgentHibernationSettings.defaultIdleSeconds),

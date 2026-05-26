@@ -527,6 +527,16 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
         }
 
+        if let raw = jsonString(section["regexHighlights"]) {
+            snapshot.managedUserDefaults[TerminalRegexHighlightSettings.highlightsKey] = .string(raw)
+        } else if let values = jsonStringArray(section["regexHighlights"]) {
+            snapshot.managedUserDefaults[TerminalRegexHighlightSettings.highlightsKey] = .string(
+                values.joined(separator: "\n")
+            )
+        } else if section.keys.contains("regexHighlights") {
+            logInvalid("terminal.regexHighlights", sourcePath: sourcePath)
+        }
+
         if let rawHibernation = section["agentHibernation"],
            let hibernation = rawHibernation as? [String: Any] {
             if let value = jsonBool(hibernation["enabled"]) {
@@ -1419,6 +1429,10 @@ final class CmuxSettingsFileStore {
             for change in changes {
                 if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
+                if change.defaultsKey == TerminalRegexHighlightSettings.highlightsKey {
+                    TerminalRegexHighlightSettings.notifyDidChange(notificationCenter: notificationCenter)
                 }
 
                 if change.defaultsKey == TerminalCopyOnSelectSettings.copyOnSelectKey {
