@@ -573,7 +573,10 @@ final class SessionPersistenceTests: XCTestCase {
             autoWelcomeIfNeeded: false
         )
 
-        let snapshot = try XCTUnwrap(waitForSessionSnapshot(at: snapshotURL))
+        let snapshot = try XCTUnwrap(waitForSessionSnapshot(at: snapshotURL) { snapshot in
+            snapshot.windows.first?.tabManager.workspaces.count == 2 &&
+                snapshot.windows.first?.tabManager.workspaces.last?.customTitle == "Recovered work"
+        })
         XCTAssertEqual(snapshot.windows.first?.tabManager.workspaces.count, 2)
         XCTAssertEqual(snapshot.windows.first?.tabManager.workspaces.last?.customTitle, "Recovered work")
     }
@@ -613,7 +616,9 @@ final class SessionPersistenceTests: XCTestCase {
         workspace.setPanelCustomTitle(panelId: splitPanel.id, title: "Restored Split")
 
         manager.closeWorkspace(workspace)
-        let closedSnapshot = try XCTUnwrap(waitForSessionSnapshot(at: snapshotURL))
+        let closedSnapshot = try XCTUnwrap(waitForSessionSnapshot(at: snapshotURL) { snapshot in
+            snapshot.windows.first?.tabManager.workspaces.count == 1
+        })
         XCTAssertEqual(closedSnapshot.windows.first?.tabManager.workspaces.count, 1)
         try? FileManager.default.removeItem(at: snapshotURL)
 
@@ -661,7 +666,7 @@ final class SessionPersistenceTests: XCTestCase {
             autoWelcomeIfNeeded: false
         )
 
-        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1))
+        app.debugFlushSessionPersistenceQueueForTesting()
 
         let snapshot = try XCTUnwrap(SessionPersistenceStore.load(fileURL: snapshotURL))
         XCTAssertEqual(snapshot.windows.first?.sidebar.width, 321)

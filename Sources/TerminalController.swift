@@ -5683,29 +5683,69 @@ class TerminalController {
 
     private func v2WorkspaceMoveToWindow(params: [String: Any]) -> V2CallResult {
         guard let wsId = v2UUID(params, "workspace_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.workspace.move.invalidWorkspaceId",
+                    defaultValue: "Missing or invalid workspace_id"
+                ),
+                data: nil
+            )
         }
         guard let windowId = v2UUID(params, "window_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.workspace.move.invalidWindowId",
+                    defaultValue: "Missing or invalid window_id"
+                ),
+                data: nil
+            )
         }
         let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
 
-        var result: V2CallResult = .err(code: "internal_error", message: "Failed to move workspace", data: nil)
+        var result: V2CallResult = .err(
+            code: "internal_error",
+            message: String(localized: "socket.workspace.move.failed", defaultValue: "Failed to move workspace"),
+            data: nil
+        )
         v2MainSync {
             guard let appDelegate = AppDelegate.shared else {
-                result = .err(code: "unavailable", message: "App delegate not available", data: nil)
+                result = .err(
+                    code: "unavailable",
+                    message: String(
+                        localized: "socket.workspace.move.unavailable",
+                        defaultValue: "Workspace move is unavailable right now"
+                    ),
+                    data: nil
+                )
                 return
             }
             guard appDelegate.tabManagerFor(tabId: wsId) != nil else {
-                result = .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": wsId.uuidString])
+                result = .err(
+                    code: "not_found",
+                    message: String(
+                        localized: "socket.workspace.move.workspaceNotFound",
+                        defaultValue: "Workspace not found"
+                    ),
+                    data: ["workspace_id": wsId.uuidString]
+                )
                 return
             }
             guard appDelegate.tabManagerFor(windowId: windowId) != nil else {
-                result = .err(code: "not_found", message: "Window not found", data: ["window_id": windowId.uuidString])
+                result = .err(
+                    code: "not_found",
+                    message: String(localized: "socket.workspace.move.windowNotFound", defaultValue: "Window not found"),
+                    data: ["window_id": windowId.uuidString]
+                )
                 return
             }
             guard appDelegate.moveWorkspaceToWindow(workspaceId: wsId, windowId: windowId, focus: focus) else {
-                result = .err(code: "internal_error", message: "Failed to move workspace", data: nil)
+                result = .err(
+                    code: "internal_error",
+                    message: String(localized: "socket.workspace.move.failed", defaultValue: "Failed to move workspace"),
+                    data: nil
+                )
                 return
             }
             result = .ok([

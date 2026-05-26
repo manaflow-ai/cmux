@@ -928,6 +928,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastTypingActivityAt: TimeInterval = 0
 #if DEBUG
     var debugSessionSnapshotFileURLForTesting: URL?
+
+    func debugFlushSessionPersistenceQueueForTesting() {
+        sessionPersistenceQueue.sync {}
+    }
 #endif
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
@@ -3781,7 +3785,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        saveSessionRecoverySnapshotIfNeeded(source: source)
+        requestSessionRecoverySnapshotSave(source: source)
 
         guard !sessionAutosaveTickInFlight else { return }
         sessionAutosaveTickInFlight = true
@@ -3820,6 +3824,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         deferredSessionRecoverySnapshotSave = .none
         guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp) else { return }
         saveSessionRecoverySnapshotIfNeeded(source: source)
+    }
+
+    private func discardDeferredSessionRecoverySnapshotSave() {
+        deferredSessionRecoverySnapshotSave = .none
     }
 
     private func saveSessionRecoverySnapshotIfNeeded(source: String) {
@@ -4461,6 +4469,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             guard moveWorkspaceToWindow(workspaceId: workspaceId, windowId: windowId, focus: focus) else {
                 _ = closeMainWindow(windowId: windowId, recordHistory: false)
+                discardDeferredSessionRecoverySnapshotSave()
                 return nil
             }
 
