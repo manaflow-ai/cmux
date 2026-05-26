@@ -95,4 +95,57 @@ final class GlobalHotkeyPanelControllerTests: XCTestCase {
         XCTAssertEqual(store.surfaceTabBarButtonSourcePath, configURL.path)
         XCTAssertEqual(store.surfaceTabBarButtons.first?.terminalCommand, "echo hotkey")
     }
+
+    func testHidingHotkeyPanelRestoresVisibleStandardWindowContext() {
+        _ = NSApplication.shared
+        let appDelegate = AppDelegate()
+        let standardWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let panel = GlobalHotkeyPanel(
+            contentRect: NSRect(x: 20, y: 20, width: 800, height: 600),
+            styleMask: GlobalHotkeyPanelConfiguration.styleMask,
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            standardWindow.orderOut(nil)
+            panel.orderOut(nil)
+            standardWindow.close()
+            panel.close()
+        }
+
+        let standardManager = TabManager(autoWelcomeIfNeeded: false)
+        let hotkeyManager = TabManager(autoWelcomeIfNeeded: false)
+        appDelegate.registerMainWindow(
+            standardWindow,
+            windowId: UUID(),
+            tabManager: standardManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState(),
+            role: .standard
+        )
+        appDelegate.registerMainWindow(
+            panel,
+            windowId: UUID(),
+            tabManager: hotkeyManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState(),
+            role: .globalHotkeyPanel
+        )
+
+        standardWindow.orderFront(nil)
+        appDelegate.setActiveMainWindow(panel)
+        XCTAssertTrue(appDelegate.tabManager === hotkeyManager)
+
+        panel.orderOut(nil)
+        appDelegate.restoreActiveMainWindowAfterHiding(panel)
+
+        XCTAssertTrue(appDelegate.tabManager === standardManager)
+    }
 }

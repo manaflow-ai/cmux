@@ -14784,6 +14784,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
+    func restoreActiveMainWindowAfterHiding(_ hiddenWindow: NSWindow) {
+        guard let hiddenContext = contextForMainTerminalWindow(hiddenWindow, reindex: false),
+              tabManager === hiddenContext.tabManager else { return }
+
+        let nextContext = visibleSessionRestorableMainWindowContext(excluding: hiddenContext, hiddenWindow: hiddenWindow)
+        activateMainWindowContext(nextContext)
+#if DEBUG
+        cmuxDebugLog(
+            "mainWindow.active.restoreAfterHide hidden={\(debugWindowToken(hiddenWindow))} next={\(debugContextToken(nextContext))} \(debugShortcutRouteSnapshot())"
+        )
+#endif
+    }
+
+    private func visibleSessionRestorableMainWindowContext(
+        excluding excludedContext: MainWindowContext,
+        hiddenWindow: NSWindow
+    ) -> MainWindowContext? {
+        func candidate(from window: NSWindow?) -> MainWindowContext? {
+            guard let window, window !== hiddenWindow, window.isVisible else { return nil }
+            guard let context = contextForMainTerminalWindow(window),
+                  context !== excludedContext,
+                  context.role.isSessionRestorable else { return nil }
+            return context
+        }
+
+        if let context = candidate(from: NSApp.keyWindow) {
+            return context
+        }
+        if let context = candidate(from: NSApp.mainWindow) {
+            return context
+        }
+        for window in NSApp.orderedWindows {
+            if let context = candidate(from: window) {
+                return context
+            }
+        }
+        return mainWindowContexts.values.first { context in
+            guard context !== excludedContext, context.role.isSessionRestorable else { return false }
+            return resolvedWindow(for: context)?.isVisible == true
+        }
+    }
+
     private func handleMainTerminalWindowShouldClose() -> Bool {
         // XCTest has no UI for the warn-before-quit dialog and would either block
         // on runModal or have NSApp.terminate kill the test process.

@@ -60,6 +60,7 @@ final class GlobalHotkeyPanelController: NSObject, NSWindowDelegate {
         guard let panel else { return }
         panel.orderOut(nil)
         panel.canHide = true
+        appDelegate?.restoreActiveMainWindowAfterHiding(panel)
 #if DEBUG
         cmuxDebugLog("globalHotkey.panel.hide window=\(panel.identifier?.rawValue ?? "<nil>")")
 #endif
