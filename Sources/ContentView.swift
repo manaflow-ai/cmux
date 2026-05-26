@@ -9583,6 +9583,13 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
 final class SidebarDragState {
     var draggedTabId: UUID?
     var dropIndicator: SidebarDropIndicator?
+    /// True while the `debug.sidebar.simulate_drag` debug-only V2 method is
+    /// driving the drag state. The lifecycle observers honor this by not
+    /// starting `SidebarDragFailsafeMonitor` (which would otherwise post a
+    /// `mouse_up_failsafe` clear request immediately since no real mouse is
+    /// pressed during simulation). DEBUG-only by convention; never set in
+    /// release flows.
+    var isSimulated: Bool = false
 
     init() {}
 }
@@ -9954,8 +9961,15 @@ struct VerticalTabsSidebar: View {
             cmuxDebugLog("sidebar.dragState.sidebar tab=\(debugShortSidebarTabId(newDraggedTabId))")
 #endif
             if newDraggedTabId != nil {
-                dragFailsafeMonitor.start {
-                    SidebarDragLifecycleNotification.postClearRequest(reason: $0)
+                // The failsafe monitor probes the real mouse-button state and
+                // posts `mouse_up_failsafe` if no mouse is held down. That's
+                // correct for HID-driven drags, but `debug.sidebar.simulate_drag`
+                // drives the state without any mouse, so skip the monitor when
+                // a simulated drag is in flight.
+                if !dragState.isSimulated {
+                    dragFailsafeMonitor.start {
+                        SidebarDragLifecycleNotification.postClearRequest(reason: $0)
+                    }
                 }
                 return
             }

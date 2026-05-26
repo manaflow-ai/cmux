@@ -15718,6 +15718,10 @@ class TerminalController {
 
         v2MainSync {
             guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return }
+            // Mark the drag as simulator-driven so VerticalTabsSidebar skips
+            // starting SidebarDragFailsafeMonitor — it would otherwise post
+            // mouse_up_failsafe immediately because no real mouse is pressed.
+            dragState.isSimulated = true
             dragState.draggedTabId = fromTabId
             dragState.dropIndicator = nil
         }
@@ -15737,6 +15741,7 @@ class TerminalController {
             guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return }
             dragState.draggedTabId = nil
             dragState.dropIndicator = nil
+            dragState.isSimulated = false
         }
 
         return .ok([
