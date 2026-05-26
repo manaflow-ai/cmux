@@ -1299,7 +1299,7 @@ enum GitStatusProvider {
         process.arguments = args
         let pipe = Pipe()
         process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
         do {
             try process.run()
             let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: pipe.fileHandleForReading)

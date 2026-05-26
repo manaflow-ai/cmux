@@ -1,5 +1,11 @@
 import Darwin
 import Foundation
+import OSLog
+
+nonisolated private let processPipeReaderLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "ProcessPipeReader"
+)
 
 struct ProcessPipeReadError: Error, Equatable, Sendable {
     let operation: String
@@ -60,7 +66,9 @@ enum ProcessPipeReader {
         while true {
             switch readChunk(fileDescriptor, chunkSize, "readDataToEndOfFile") {
             case .success(let chunk):
-                guard !chunk.isEmpty else { return ProcessPipeEndRead(data: data, readError: nil) }
+                guard !chunk.isEmpty else {
+                    return ProcessPipeEndRead(data: data, readError: nil)
+                }
                 data.append(chunk)
             case .failure(let error):
                 return ProcessPipeEndRead(data: data, readError: error)
@@ -69,17 +77,40 @@ enum ProcessPipeReader {
     }
 
     static func readDataToEndOfFileOrEmpty(from fileHandle: FileHandle) -> Data {
-        readDataToEndOfFile(from: fileHandle).data
+        let result = readDataToEndOfFile(from: fileHandle)
+        if let error = result.readError {
+            logReadFailure(
+                error,
+                fileDescriptor: fileHandle.fileDescriptor,
+                partialByteCount: result.data.count
+            )
+        }
+        return result.data
     }
 
     static func readAvailableDataOrEmpty(from fileHandle: FileHandle) -> Data {
         switch readAvailableData(from: fileHandle) {
         case .success(let data):
             return data
-        case .failure:
+        case .failure(let error):
+            logReadFailure(
+                error,
+                fileDescriptor: fileHandle.fileDescriptor,
+                partialByteCount: 0
+            )
             fileHandle.readabilityHandler = nil
             return Data()
         }
+    }
+
+    private static func logReadFailure(
+        _ error: ProcessPipeReadError,
+        fileDescriptor: Int32,
+        partialByteCount: Int
+    ) {
+        processPipeReaderLogger.warning(
+            "processPipeReader.readFailed operation=\(error.operation, privacy: .public) errno=\(Int(error.errnoCode), privacy: .public) message=\(error.message, privacy: .public) fd=\(fileDescriptor, privacy: .public) partialBytes=\(partialByteCount, privacy: .public)"
+        )
     }
 
     private static func readOnce(
