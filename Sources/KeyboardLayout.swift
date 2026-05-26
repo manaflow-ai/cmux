@@ -2,9 +2,16 @@ import AppKit
 import Carbon
 
 class KeyboardLayout {
+    enum InputSourceKind: Equatable {
+        case currentKeyboardInputSource
+        case currentKeyboardLayoutInputSource
+        case currentASCIICapableKeyboardInputSource
+    }
+
     /// Test-only override for the current input source ID.
     #if DEBUG
     static var debugInputSourceIdOverride: String?
+    static var debugCharacterForInputSourceKind: ((InputSourceKind, UInt16, NSEvent.ModifierFlags) -> String?)?
     #endif
 
     /// Return a string ID of the current keyboard input source.
@@ -30,18 +37,17 @@ class KeyboardLayout {
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags = []
     ) -> String? {
-        if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
-           let result = characterFromInputSource(source, forKeyCode: keyCode, modifierFlags: modifierFlags),
-           result.allSatisfy(\.isASCII) {
-            return result
-        }
-        // Current input source has no Unicode layout data or returned a non-ASCII
-        // character (e.g. Korean 두벌식 has layout data but UCKeyTranslate still
-        // produces Hangul). Fall back to the ASCII-capable source so shortcut
-        // matching still works.
-        if let asciiSource = TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue(),
-           let result = characterFromInputSource(asciiSource, forKeyCode: keyCode, modifierFlags: modifierFlags) {
-            return result
+        let sourceKinds: [InputSourceKind] = [
+            .currentKeyboardInputSource,
+            .currentASCIICapableKeyboardInputSource,
+        ]
+
+        for sourceKind in sourceKinds {
+            if let result = character(from: sourceKind, forKeyCode: keyCode, modifierFlags: modifierFlags),
+               !result.isEmpty,
+               result.allSatisfy(\.isASCII) {
+                return result
+            }
         }
         return nil
     }
@@ -90,6 +96,34 @@ class KeyboardLayout {
 
         guard status == noErr, length > 0 else { return nil }
         return String(utf16CodeUnits: chars, count: length).lowercased()
+    }
+
+    private static func character(
+        from sourceKind: InputSourceKind,
+        forKeyCode keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> String? {
+        #if DEBUG
+        if let debugCharacterForInputSourceKind {
+            return debugCharacterForInputSourceKind(sourceKind, keyCode, modifierFlags)
+        }
+        #endif
+
+        guard let source = inputSource(for: sourceKind) else {
+            return nil
+        }
+        return characterFromInputSource(source, forKeyCode: keyCode, modifierFlags: modifierFlags)
+    }
+
+    private static func inputSource(for sourceKind: InputSourceKind) -> TISInputSource? {
+        switch sourceKind {
+        case .currentKeyboardInputSource:
+            return TISCopyCurrentKeyboardInputSource()?.takeRetainedValue()
+        case .currentKeyboardLayoutInputSource:
+            return TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue()
+        case .currentASCIICapableKeyboardInputSource:
+            return TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue()
+        }
     }
 
     private static func translationModifierKeyState(for modifierFlags: NSEvent.ModifierFlags) -> UInt32 {
