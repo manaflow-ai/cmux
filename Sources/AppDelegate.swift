@@ -551,7 +551,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated(unsafe) static var shared: AppDelegate?
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
-
     private var isRunningUnderXCTestCached: Bool {
         Self.cachedIsRunningUnderXCTest
     }
@@ -924,6 +923,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
     private var didBootstrapInitialMainWindow = false
     private var isTerminatingApp = false
+    private var closedWindowHistorySuppressedWindowIds: Set<UUID> = []
+#if DEBUG
+    var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
+#endif
     // Set to true when the user has already confirmed quit via the warning dialog,
     // so applicationShouldTerminate does not show a second alert.
     private var isQuitWarningConfirmed = false
@@ -2991,7 +2994,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             if existingContexts.count > snapshotWindows.count {
                 for context in existingContexts.dropFirst(snapshotWindows.count) {
-                    _ = closeMainWindow(windowId: context.windowId)
+                    _ = closeMainWindow(windowId: context.windowId, recordHistory: false)
                 }
             }
         }
@@ -3987,20 +3990,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let windows: [SessionWindowSnapshot] = contexts
             .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
             .map { context in
-                let window = context.window ?? windowForMainWindowId(context.windowId)
-                return SessionWindowSnapshot(
-                    frame: window.map { SessionRectSnapshot($0.frame) },
-                    display: displaySnapshot(for: window),
-                    tabManager: context.tabManager.sessionSnapshot(
-                        includeScrollback: includeScrollback,
-                        restorableAgentIndex: restorableAgentIndex,
-                        surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
-                    ),
-                    sidebar: SessionSidebarSnapshot(
-                        isVisible: context.sidebarState.isVisible,
-                        selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
-                        width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
-                    )
+                sessionWindowSnapshot(
+                    for: context,
+                    includeScrollback: includeScrollback,
+                    restorableAgentIndex: restorableAgentIndex,
+                    surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
                 )
             }
 
@@ -4009,6 +4003,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             version: SessionSnapshotSchema.currentVersion,
             createdAt: Date().timeIntervalSince1970,
             windows: windows
+        )
+    }
+
+    private func sessionWindowSnapshot(
+        for context: MainWindowContext,
+        includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+    ) -> SessionWindowSnapshot {
+        let tabManagerSnapshot = context.tabManager.sessionSnapshot(
+            includeScrollback: includeScrollback,
+            restorableAgentIndex: restorableAgentIndex,
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+        )
+
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        return SessionWindowSnapshot(
+            frame: window.map { SessionRectSnapshot($0.frame) },
+            display: displaySnapshot(for: window),
+            tabManager: tabManagerSnapshot,
+            sidebar: SessionSidebarSnapshot(
+                isVisible: context.sidebarState.isVisible,
+                selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
+                width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
+            )
         )
     }
 
@@ -4195,6 +4214,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return windowId
     }
 
+    func sessionSnapshotForTesting(includeScrollback: Bool = false) -> AppSessionSnapshot? {
+        buildSessionSnapshot(includeScrollback: includeScrollback)
+    }
+
 #endif
 
     struct MainWindowSummary {
@@ -4309,7 +4332,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let bootstrapWorkspaceId = destinationManager.tabs.first?.id
 
         guard moveWorkspaceToWindow(workspaceId: workspaceId, windowId: windowId, focus: focus) else {
-            _ = closeMainWindow(windowId: windowId)
+            _ = closeMainWindow(windowId: windowId, recordHistory: false)
             return nil
         }
 
@@ -4318,7 +4341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            bootstrapWorkspaceId != workspaceId,
            let bootstrapWorkspace = destinationManager.tabs.first(where: { $0.id == bootstrapWorkspaceId }),
            destinationManager.tabs.count > 1 {
-            destinationManager.closeWorkspace(bootstrapWorkspace)
+            destinationManager.closeWorkspace(bootstrapWorkspace, recordHistory: false)
         }
         return windowId
     }
@@ -5243,10 +5266,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return didFocus
     }
 
-    func closeMainWindow(windowId: UUID) -> Bool {
+    func closeMainWindow(windowId: UUID, recordHistory: Bool = true) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
+        if !recordHistory {
+            closedWindowHistorySuppressedWindowIds.insert(windowId)
+        }
         window.performClose(nil)
         return true
+    }
+
+    func discardMainWindowWithoutClosedHistory(windowId: UUID) {
+        guard let window = windowForMainWindowId(windowId) else { return }
+        closedWindowHistorySuppressedWindowIds.insert(windowId)
+        window.close()
     }
 
     private func confirmCloseMainWindow(_ window: NSWindow) -> Bool {
@@ -5348,9 +5380,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard sourceManager.tabs.contains(where: { $0.id == sourceWorkspace.id }) else { return }
 
         if sourceManager.tabs.count > 1 {
-            sourceManager.closeWorkspace(sourceWorkspace)
+            sourceManager.closeWorkspace(sourceWorkspace, recordHistory: false)
         } else {
-            _ = closeMainWindow(windowId: sourceWindowId)
+            _ = closeMainWindow(windowId: sourceWindowId, recordHistory: false)
         }
     }
 
@@ -5632,7 +5664,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return activeCommandPaletteWindow()
     }
 
-    private func contextForMainWindow(_ window: NSWindow?) -> MainWindowContext? {
+    func contextForMainWindow(_ window: NSWindow?) -> MainWindowContext? {
         guard let window else { return nil }
         return contextForMainTerminalWindow(window)
     }
@@ -6694,7 +6726,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               context.tabManager.selectedWorkspace?.id != initialWorkspaceId else {
             return
         }
-        context.tabManager.closeWorkspace(initialWorkspace)
+        context.tabManager.closeWorkspace(initialWorkspace, recordHistory: false)
     }
 
     @discardableResult
@@ -6733,7 +6765,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     action: menuAction.action
                 )
                 item.toolTip = menuAction.tooltip
-                item.image = (menuAction.icon ?? menuAction.action.icon)?.sfSymbolImage
+                item.image = menuAction.icon?.contextMenuImage(
+                    configSourcePath: menuAction.iconSourcePath,
+                    globalConfigPath: cmuxConfigStore.globalConfigPath
+                )
                 menu.addItem(item)
             }
         }
@@ -7211,7 +7246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return event.window != nil || event.windowNumber > 0
     }
 
-    private func mainWindowContext(
+    func mainWindowContext(
         forShortcutEvent event: NSEvent?,
         debugSource: String = "unspecified"
     ) -> MainWindowContext? {
@@ -7397,7 +7432,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialTerminalInput: String? = nil,
         sessionWindowSnapshot: SessionWindowSnapshot? = nil,
         shouldActivate: Bool = true,
-        sourceWindow preferredSourceWindow: NSWindow? = nil
+        sourceWindow preferredSourceWindow: NSWindow? = nil,
+        closedWindowHistoryWorkspaceIds: [UUID] = [],
+        restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
         let windowId = UUID()
@@ -7407,12 +7444,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil
         )
-        if let tabManagerSnapshot = sessionWindowSnapshot?.tabManager {
-            tabManager.restoreSessionSnapshot(tabManagerSnapshot)
+        if let sessionWindowSnapshot {
+            let restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(sessionWindowSnapshot.tabManager)
+            if !closedWindowHistoryWorkspaceIds.isEmpty {
+                tabManager.remapClosedPanelHistoryAfterWindowRestore(
+                    originalWorkspaceIds: closedWindowHistoryWorkspaceIds,
+                    restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
+                )
+            }
+            restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
         }
 
         let sidebarWidth = sessionWindowSnapshot?.sidebar.width
-            .map(SessionPersistencePolicy.sanitizedSidebarWidth)
+            .map { SessionPersistencePolicy.sanitizedSidebarWidth($0) }
             ?? SessionPersistencePolicy.defaultSidebarWidth
         let sidebarState = SidebarState(
             isVisible: sessionWindowSnapshot?.sidebar.isVisible ?? true,
@@ -7539,7 +7583,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self, let controller else { return }
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
-        controller.shouldClose = { [weak self] in self?.handleMainTerminalWindowShouldClose() ?? true }
+        controller.shouldClose = { [weak self] in
+            let shouldClose = self?.handleMainTerminalWindowShouldClose() ?? true
+            if !shouldClose {
+                self?.closedWindowHistorySuppressedWindowIds.remove(windowId)
+            }
+            return shouldClose
+        }
         window.delegate = controller
         mainWindowControllers.append(controller)
 
@@ -12530,6 +12580,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        if matchConfiguredShortcut(event: event, action: .focusHistoryBack) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            if routedManager?.navigateBack() != true {
+                NSSound.beep()
+            }
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .focusHistoryForward) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            if routedManager?.navigateForward() != true {
+                NSSound.beep()
+            }
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .browserBack) {
             guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false
@@ -12650,7 +12716,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .reopenClosedBrowserPanel) {
-            _ = tabManager?.reopenMostRecentlyClosedBrowserPanel()
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            _ = reopenMostRecentlyClosedItem(preferredTabManager: routedManager)
             return true
         }
 
@@ -14664,6 +14731,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // window's position, matching upstream Ghostty behavior.
         let frame = window.frame
         lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
+        let closingContext = contextForMainTerminalWindow(window, reindex: false)
+
+        if let closingContext {
+            recordClosedWindowHistoryIfNeeded(for: closingContext)
+        }
 
         // Keep geometry available as a fallback for the next window placement.
         if !isTerminatingApp {
@@ -14708,6 +14780,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func recordClosedWindowHistoryIfNeeded(for context: MainWindowContext) {
+        let shouldSuppressClosedWindowHistory = closedWindowHistorySuppressedWindowIds.remove(context.windowId) != nil
+        guard !shouldSuppressClosedWindowHistory,
+              !isTerminatingApp,
+              !isApplyingSessionRestore else {
+            return
+        }
+        let snapshot = sessionWindowSnapshot(
+            for: context,
+            includeScrollback: true,
+            restorableAgentIndex: RestorableAgentSessionIndex.load()
+        )
+        guard !snapshot.tabManager.workspaces.isEmpty else {
+            return
+        }
+        ClosedItemHistoryStore.shared.push(.window(ClosedWindowHistoryEntry(
+            windowId: context.windowId,
+            snapshot: snapshot,
+            workspaceIds: context.tabManager.sessionSnapshotWorkspaceIds()
+        )))
+    }
+
+#if DEBUG
+    func suppressClosedWindowHistoryForTesting(windowId: UUID) {
+        closedWindowHistorySuppressedWindowIds.insert(windowId)
+    }
+
+    func recordClosedWindowHistoryForTesting(windowId: UUID) {
+        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else { return }
+        recordClosedWindowHistoryIfNeeded(for: context)
+    }
+
+    func isClosedWindowHistorySuppressedForTesting(windowId: UUID) -> Bool {
+        closedWindowHistorySuppressedWindowIds.contains(windowId)
+    }
+#endif
+
     private func isMainTerminalWindow(_ window: NSWindow) -> Bool {
         if mainWindowContexts[ObjectIdentifier(window)] != nil {
             return true
@@ -14726,11 +14835,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         workspaceForMainActor(tabId: tabId)
     }
 
-    func closeMainWindowContainingTabId(_ tabId: UUID) {
+    func closeMainWindowContainingTabId(_ tabId: UUID, recordHistory: Bool = true) {
+#if DEBUG
+        closeMainWindowContainingTabIdObserverForTesting?(tabId, recordHistory)
+#endif
         guard let context = contextContainingTabId(tabId) else { return }
         let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
-        window?.performClose(nil)
+        if !recordHistory {
+            closedWindowHistorySuppressedWindowIds.insert(context.windowId)
+        }
+        guard let window else {
+            if !recordHistory {
+                closedWindowHistorySuppressedWindowIds.remove(context.windowId)
+            }
+            return
+        }
+        window.performClose(nil)
     }
 
     @discardableResult

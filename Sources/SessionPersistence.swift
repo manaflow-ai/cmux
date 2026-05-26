@@ -13,8 +13,11 @@ enum SessionSnapshotSchema {
 }
 
 enum SessionPersistencePolicy {
-    static let defaultSidebarWidth: Double = 200
-    static let minimumSidebarWidth: Double = 180
+    static let sidebarMinimumWidthKey = "sidebarMinimumWidth"
+    static let defaultSidebarWidth: Double = 220
+    static let defaultMinimumSidebarWidth: Double = 216
+    static let minimumSidebarWidth: Double = 216
+    static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
     static let minimumWindowHeight: Double = 200
@@ -25,10 +28,33 @@ enum SessionPersistencePolicy {
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
 
-    static func sanitizedSidebarWidth(_ candidate: Double?) -> Double {
-        let fallback = defaultSidebarWidth
+    static func sanitizedSidebarWidth(_ candidate: Double?, defaults: UserDefaults = .standard) -> Double {
+        let resolvedMinimum = resolvedMinimumSidebarWidth(defaults: defaults)
+        let fallback = min(max(defaultSidebarWidth, resolvedMinimum), maximumSidebarWidth)
         guard let candidate, candidate.isFinite else { return fallback }
-        return min(max(candidate, minimumSidebarWidth), maximumSidebarWidth)
+        return min(max(candidate, resolvedMinimum), maximumSidebarWidth)
+    }
+
+    static func resolvedMinimumSidebarWidth(defaults: UserDefaults = .standard) -> Double {
+        guard let candidate = storedSidebarMinimumWidth(defaults: defaults) else {
+            return defaultMinimumSidebarWidth
+        }
+        return sanitizedMinimumSidebarWidth(candidate)
+    }
+
+    static func sanitizedMinimumSidebarWidth(_ candidate: Double) -> Double {
+        guard candidate.isFinite else { return defaultMinimumSidebarWidth }
+        return min(max(candidate, sidebarMinimumWidthRange.lowerBound), sidebarMinimumWidthRange.upperBound)
+    }
+
+    private static func storedSidebarMinimumWidth(defaults: UserDefaults) -> Double? {
+        if let value = defaults.object(forKey: sidebarMinimumWidthKey) as? NSNumber {
+            return value.doubleValue
+        }
+        if let value = defaults.string(forKey: sidebarMinimumWidthKey) {
+            return Double(value)
+        }
+        return nil
     }
 
     static func truncatedScrollback(_ text: String?) -> String? {
@@ -1537,6 +1563,18 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
     var remote: SessionRemoteWorkspaceSnapshot?
+}
+
+extension SessionWorkspaceSnapshot {
+    var hasRestorablePanels: Bool {
+        !panels.isEmpty
+    }
+}
+
+extension SessionWindowSnapshot {
+    var hasRestorablePanels: Bool {
+        tabManager.workspaces.contains { $0.hasRestorablePanels }
+    }
 }
 
 struct SessionTabManagerSnapshot: Codable, Sendable {

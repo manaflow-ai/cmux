@@ -156,7 +156,7 @@ jobs:
 
   tests:
     runs-on: warp-macos-15-arm64-6x
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
       # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash

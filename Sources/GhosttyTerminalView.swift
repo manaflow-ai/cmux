@@ -11261,14 +11261,16 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         notificationRingOverlayView.layer?.masksToBounds = false
         notificationRingOverlayView.autoresizingMask = [.width, .height]
+        let notificationRingStyle = WorkspaceAttentionCoordinator.notificationRingStyle
+        let notificationRingColor = notificationRingStyle.accent.strokeColor
         notificationRingLayer.fillColor = NSColor.clear.cgColor
-        notificationRingLayer.strokeColor = NSColor.systemBlue.cgColor
+        notificationRingLayer.strokeColor = notificationRingColor.cgColor
         notificationRingLayer.lineWidth = NotificationRingMetrics.lineWidth
         notificationRingLayer.lineJoin = .round
         notificationRingLayer.lineCap = .round
-        notificationRingLayer.shadowColor = NSColor.systemBlue.cgColor
-        notificationRingLayer.shadowOpacity = 0.35
-        notificationRingLayer.shadowRadius = 3
+        notificationRingLayer.shadowColor = notificationRingColor.cgColor
+        notificationRingLayer.shadowOpacity = Float(notificationRingStyle.glowOpacity)
+        notificationRingLayer.shadowRadius = notificationRingStyle.glowRadius
         notificationRingLayer.shadowOffset = .zero
         notificationRingLayer.opacity = 0
         notificationRingOverlayView.layer?.addSublayer(notificationRingLayer)
@@ -11278,14 +11280,16 @@ final class GhosttySurfaceScrollView: NSView {
         flashOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         flashOverlayView.layer?.masksToBounds = false
         flashOverlayView.autoresizingMask = [.width, .height]
+        let flashStyle = WorkspaceAttentionCoordinator.flashStyle(for: .navigation)
+        let flashColor = flashStyle.accent.strokeColor
         flashLayer.fillColor = NSColor.clear.cgColor
-        flashLayer.strokeColor = WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent.strokeColor.cgColor
+        flashLayer.strokeColor = flashColor.cgColor
         flashLayer.lineWidth = NotificationRingMetrics.lineWidth
         flashLayer.lineJoin = .round
         flashLayer.lineCap = .round
-        flashLayer.shadowColor = WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent.strokeColor.cgColor
-        flashLayer.shadowOpacity = Float(WorkspaceAttentionCoordinator.flashStyle(for: .navigation).glowOpacity)
-        flashLayer.shadowRadius = WorkspaceAttentionCoordinator.flashStyle(for: .navigation).glowRadius
+        flashLayer.shadowColor = flashColor.cgColor
+        flashLayer.shadowOpacity = Float(flashStyle.glowOpacity)
+        flashLayer.shadowRadius = flashStyle.glowRadius
         flashLayer.shadowOffset = .zero
         flashLayer.opacity = 0
         flashOverlayView.layer?.addSublayer(flashLayer)
