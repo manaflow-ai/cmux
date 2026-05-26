@@ -2533,6 +2533,31 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         }
     }
 
+    func testUnsetCmuxSettingUsesGhosttyWindowWorkingDirectoryInheritanceForNewWorkspace() throws {
+        let ghosttyHome = try makeTemporaryGhosttyConfigHome(
+            """
+            window-inherit-working-directory = false
+            working-directory = /tmp/cmux-ghostty-default-\(UUID().uuidString)
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: ghosttyHome) }
+
+        try withTemporaryGhosttyHome(ghosttyHome) {
+            try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
+                let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+                let manager = TabManager(
+                    initialWorkingDirectory: sourceCwd,
+                    autoWelcomeIfNeeded: false
+                )
+
+                let inserted = manager.addWorkspace(autoWelcomeIfNeeded: false)
+
+                XCTAssertNil(inserted.focusedTerminalPanel?.requestedWorkingDirectory)
+                XCTAssertNotEqual(inserted.currentDirectory, sourceCwd)
+            }
+        }
+    }
+
     func testExplicitNoInheritanceLeavesNewWorkspaceCwdUnsetWhenGlobalInheritanceEnabled() throws {
         try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
@@ -2682,6 +2707,38 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             defaults.set(value, forKey: key)
         } else {
             defaults.removeObject(forKey: key)
+        }
+
+        try body()
+    }
+
+    private func makeTemporaryGhosttyConfigHome(_ configContents: String) throws -> URL {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-cwd-\(UUID().uuidString)", isDirectory: true)
+        let ghosttyDirectory = home.appendingPathComponent(".config/ghostty", isDirectory: true)
+        try FileManager.default.createDirectory(at: ghosttyDirectory, withIntermediateDirectories: true)
+        try configContents.write(
+            to: ghosttyDirectory.appendingPathComponent("config", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        return home
+    }
+
+    private func withTemporaryGhosttyHome(
+        _ home: URL,
+        _ body: () throws -> Void
+    ) rethrows {
+        let previousFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", home.path, 1)
+        GhosttyConfig.invalidateLoadCache()
+        defer {
+            if let previousFixedHome {
+                setenv("CFFIXED_USER_HOME", previousFixedHome, 1)
+            } else {
+                unsetenv("CFFIXED_USER_HOME")
+            }
+            GhosttyConfig.invalidateLoadCache()
         }
 
         try body()
