@@ -4057,6 +4057,40 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
     }
 
+    func testConditionalThemeOverrideResolvesLightSplitThemeForPreferredScheme() throws {
+        try withTempConfig("theme = light:Catppuccin Latte,dark:Apple System Colors\n") { path in
+            XCTAssertEqual(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .light,
+                    configPaths: [path]
+                ),
+                "theme = Catppuccin Latte"
+            )
+        }
+    }
+
+    func testConditionalThemeOverrideSkipsPlainSingleTheme() throws {
+        try withTempConfig("theme = Catppuccin Mocha\n") { path in
+            XCTAssertNil(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .dark,
+                    configPaths: [path]
+                )
+            )
+        }
+    }
+
+    func testConditionalThemeOverrideSkipsSameThemePair() throws {
+        try withTempConfig("theme = light:Catppuccin Mocha,dark:Catppuccin Mocha\n") { path in
+            XCTAssertNil(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .dark,
+                    configPaths: [path]
+                )
+            )
+        }
+    }
+
     func testShouldApplyManagedDefaultAppearanceFollowsConfigFileIncludes() throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-test-theme-include-\(UUID().uuidString)")

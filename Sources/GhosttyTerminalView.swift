@@ -2382,10 +2382,11 @@ class GhosttyApp {
     }
 
     private func loadConditionalThemeOverrideIfNeeded(
-        _ config: ghostty_config_t
+        _ config: ghostty_config_t,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
     ) {
         guard let contents = Self.conditionalThemeOverrideConfigContents(
-            preferredColorScheme: GhosttyConfig.currentColorSchemePreference()
+            preferredColorScheme: preferredColorScheme
         ) else { return }
 
         loadInlineGhosttyConfig(
@@ -2398,8 +2399,13 @@ class GhosttyApp {
 
     func loadDefaultConfigFilesWithLegacyFallback(
         _ config: ghostty_config_t,
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference()
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference(),
+        conditionalThemeColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) -> Bool {
+        // Surface-only reloads may use a terminal-derived scheme for background
+        // handling, while Ghostty split-theme pairs follow app appearance.
+        let themeColorScheme = conditionalThemeColorScheme ?? preferredColorScheme
+
         #if DEBUG
         let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
         if startupPreviewProfile.loadsRealUserConfig {
@@ -2407,7 +2413,10 @@ class GhosttyApp {
             loadLegacyGhosttyConfigIfNeeded(config)
             loadCmuxAppSupportGhosttyConfigIfNeeded(config)
             ghostty_config_load_recursive_files(config)
-            loadConditionalThemeOverrideIfNeeded(config)
+            loadConditionalThemeOverrideIfNeeded(
+                config,
+                preferredColorScheme: themeColorScheme
+            )
             if Self.shouldApplyManagedDefaultAppearance() {
                 loadCmuxDefaultAppearanceConfig(
                     config,
@@ -2426,7 +2435,10 @@ class GhosttyApp {
         loadLegacyGhosttyConfigIfNeeded(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
-        loadConditionalThemeOverrideIfNeeded(config)
+        loadConditionalThemeOverrideIfNeeded(
+            config,
+            preferredColorScheme: themeColorScheme
+        )
         if Self.shouldApplyManagedDefaultAppearance() {
             loadCmuxDefaultAppearanceConfig(
                 config,
