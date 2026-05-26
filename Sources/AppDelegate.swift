@@ -3823,7 +3823,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         guard didSave else { return }
         updateSessionRecoveryAutosaveSaveState(
-            includeScrollback: false,
             persistedAt: now,
             fingerprint: recoveryFingerprint
         )
@@ -3999,11 +3998,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func updateSessionRecoveryAutosaveSaveState(
-        includeScrollback: Bool,
         persistedAt: Date,
         fingerprint: Int?
     ) {
-        guard !isTerminatingApp, !includeScrollback else { return }
+        guard !isTerminatingApp else { return }
         lastSessionRecoveryAutosaveFingerprint = fingerprint
         lastSessionRecoveryAutosavePersistedAt = persistedAt
     }
