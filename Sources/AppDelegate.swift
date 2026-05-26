@@ -2976,7 +2976,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let snapshotWindows = allSnapshotWindows.filter { $0.isQuickTerminal != true }
         guard !snapshotWindows.isEmpty else { return !allSnapshotWindows.isEmpty }
 
-        let existingContexts = sortedMainWindowContextsForSessionSnapshot()
+        let existingContexts = sortedMainWindowContextsForSessionSnapshot(includeQuickTerminal: false)
         isApplyingSessionRestore = true
         startupSessionSnapshot = nil
         didAttemptStartupSessionRestore = true
@@ -3016,7 +3016,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         completeSessionRestoreOperation(isManualReopen: true)
 
         if shouldActivate,
-           let primaryWindow = sortedMainWindowContextsForSessionSnapshot()
+           let primaryWindow = sortedMainWindowContextsForSessionSnapshot(includeQuickTerminal: false)
             .compactMap({ $0.window ?? windowForMainWindowId($0.windowId) })
             .first {
             primaryWindow.makeKeyAndOrderFront(nil)
