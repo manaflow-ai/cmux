@@ -4968,6 +4968,55 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(appDelegate.tabManager === firstManager, "Unresolved event window should not retarget active manager")
     }
 
+    func testSingleWindowModeRoutesAutomaticWorkspaceFallbackToExistingWindow() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        defaults.set(true, forKey: "singleWindowMode")
+
+        let existingWindowIds = mainWindowIds()
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            defaults.removeObject(forKey: "singleWindowMode")
+            for createdWindowId in mainWindowIds().subtracting(existingWindowIds) {
+                closeWindow(withId: createdWindowId)
+            }
+        }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let window = window(withId: windowId) else {
+            XCTFail("Expected main window context")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let existingWorkspaceCount = manager.tabs.count
+        let windowIdsBeforeAction = mainWindowIds()
+        appDelegate.tabManager = manager
+
+        guard let event = makeKeyDownEvent(
+            key: "n",
+            modifiers: [.command],
+            keyCode: 45,
+            windowNumber: Int.max
+        ) else {
+            XCTFail("Failed to construct Cmd+N event")
+            return
+        }
+
+        XCTAssertTrue(
+            appDelegate.performNewWorkspaceAction(event: event, debugSource: "test.singleWindowMode")
+        )
+
+        XCTAssertEqual(mainWindowIds(), windowIdsBeforeAction, "Single Window Mode must not create an automatic fallback window")
+        XCTAssertEqual(manager.tabs.count, existingWorkspaceCount + 1, "Single Window Mode should route fallback workspace creation to the existing window")
+    }
+
     func testCmdShiftMReturnsFalseWhenNoFocusedTerminalCanHandle() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
