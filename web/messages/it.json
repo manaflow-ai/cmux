@@ -488,6 +488,9 @@
       "exampleConfig": "Esempio di configurazione",
       "metaTitle": "Configurazione",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "Browser engine/runtime for browser commands and link interception. webkit runs inside cmux; systemDefault opens in the macOS default browser."
+        },
         "automation": {
           "suppressSubagentNotifications": "Nasconde le notifiche visibili di completamento e le modifiche di stato degli agenti figli Codex o Claude annidati, mantenendo i loro eventi nella telemetria Feed."
         },

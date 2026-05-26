@@ -383,7 +383,10 @@ enum BrowserEngineSettings {
             return engine
         }
         if defaults.object(forKey: legacyDisabledKey) != nil {
-            return defaults.bool(forKey: legacyDisabledKey) ? .systemDefault : .webKit
+            let migratedEngine: BrowserEngine = defaults.bool(forKey: legacyDisabledKey) ? .systemDefault : .webKit
+            defaults.set(migratedEngine.rawValue, forKey: engineKey)
+            defaults.synchronize()
+            return migratedEngine
         }
         return defaultEngine
     }

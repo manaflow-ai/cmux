@@ -488,6 +488,9 @@
       "exampleConfig": "Пример конфигурации",
       "metaTitle": "Конфигурация",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "Browser engine/runtime for browser commands and link interception. webkit runs inside cmux; systemDefault opens in the macOS default browser."
+        },
         "automation": {
           "suppressSubagentNotifications": "Подавляет видимые уведомления о завершении и изменения статуса от вложенных дочерних агентов Codex или Claude, сохраняя их события в телеметрии Feed."
         },

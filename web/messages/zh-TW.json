@@ -488,6 +488,9 @@
       "exampleConfig": "範例設定",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "Browser engine/runtime for browser commands and link interception. webkit runs inside cmux; systemDefault opens in the macOS default browser."
+        },
         "automation": {
           "suppressSubagentNotifications": "隱藏巢狀 Codex 或 Claude 子代理的可見完成通知和狀態變更，同時將其事件保留在 Feed 遙測中。"
         },

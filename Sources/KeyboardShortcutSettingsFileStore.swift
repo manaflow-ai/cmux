@@ -787,8 +787,9 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
-        if let raw = jsonString(section["engine"]) {
-            if let engine = BrowserEngineSettings.engine(for: raw) {
+        if section.keys.contains("engine") {
+            if let raw = jsonString(section["engine"]),
+               let engine = BrowserEngineSettings.engine(for: raw) {
                 snapshot.managedUserDefaults[BrowserEngineSettings.engineKey] = .string(engine.rawValue)
                 snapshot.managedUserDefaults[BrowserAvailabilitySettings.disabledKey] = .bool(!engine.usesEmbeddedBrowser)
             } else {

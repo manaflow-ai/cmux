@@ -5217,7 +5217,7 @@ struct SettingsView: View {
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
-    @AppStorage(BrowserEngineSettings.engineKey) private var browserEngine = BrowserEngineSettings.defaultEngine.rawValue
+    @AppStorage(BrowserEngineSettings.engineKey) private var browserEngine: String?
     @AppStorage(BrowserAvailabilitySettings.disabledKey) private var browserDisabled = BrowserAvailabilitySettings.defaultDisabled
     @AppStorage(BrowserHiddenWebViewDiscardPolicy.enabledKey)
     private var browserHiddenWebViewDiscardEnabled = BrowserHiddenWebViewDiscardPolicy.defaultEnabled
@@ -5578,9 +5578,10 @@ struct SettingsView: View {
     }
 
     private var selectedBrowserEngine: BrowserEngine {
-        _ = browserEngine
-        _ = browserDisabled
-        return BrowserEngineSettings.currentEngine(defaults: .standard)
+        if let engine = BrowserEngineSettings.engine(for: browserEngine) {
+            return engine
+        }
+        return browserDisabled ? .systemDefault : BrowserEngineSettings.defaultEngine
     }
 
     private var browserEngineSelection: Binding<String> {
@@ -5607,9 +5608,7 @@ struct SettingsView: View {
     private var browserEnabledBinding: Binding<Bool> {
         Binding(
             get: {
-                _ = browserEngine
-                _ = browserDisabled
-                return BrowserEngineSettings.currentEngine(defaults: .standard).usesEmbeddedBrowser
+                selectedBrowserEngine.usesEmbeddedBrowser
             },
             set: { newValue in
                 let engine: BrowserEngine = newValue ? .webKit : .systemDefault

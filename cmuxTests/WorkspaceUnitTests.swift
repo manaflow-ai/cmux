@@ -938,39 +938,44 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             }
         }
-        defaults.removeObject(forKey: BrowserEngineSettings.engineKey)
-        defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
-        defaults.removeObject(forKey: BrowserSearchSettings.searchEngineKey)
-        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
-
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-        try writeSettingsFile(
-            """
-            {
-              "browser": {
-                "engine": "chromium",
-                "defaultSearchEngine": "duckduckgo"
-              }
-            }
-            """,
-            to: settingsFileURL
-        )
+        for invalidEngineJSON in ["\"chromium\"", "42"] {
+            defaults.removeObject(forKey: BrowserEngineSettings.engineKey)
+            defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+            defaults.removeObject(forKey: BrowserSearchSettings.searchEngineKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
 
-        _ = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
-            startWatching: false
-        )
+            let settingsFileURL = directoryURL.appendingPathComponent(
+                "cmux-\(UUID().uuidString).json",
+                isDirectory: false
+            )
+            try writeSettingsFile(
+                """
+                {
+                  "browser": {
+                    "engine": \(invalidEngineJSON),
+                    "defaultSearchEngine": "duckduckgo"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
 
-        XCTAssertNil(defaults.string(forKey: BrowserEngineSettings.engineKey))
-        XCTAssertNil(defaults.object(forKey: BrowserAvailabilitySettings.disabledKey))
-        XCTAssertEqual(
-            defaults.string(forKey: BrowserSearchSettings.searchEngineKey),
-            BrowserSearchEngine.duckduckgo.rawValue
-        )
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+
+            XCTAssertNil(defaults.string(forKey: BrowserEngineSettings.engineKey))
+            XCTAssertNil(defaults.object(forKey: BrowserAvailabilitySettings.disabledKey))
+            XCTAssertEqual(
+                defaults.string(forKey: BrowserSearchSettings.searchEngineKey),
+                BrowserSearchEngine.duckduckgo.rawValue
+            )
+        }
     }
 
     func testSettingsFileStoreAppliesBrowserHiddenWebViewDiscardDelayAtMaximum() throws {

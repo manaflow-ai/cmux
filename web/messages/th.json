@@ -488,6 +488,9 @@
       "exampleConfig": "ตัวอย่างคอนฟิก",
       "metaTitle": "การตั้งค่า",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "Browser engine/runtime for browser commands and link interception. webkit runs inside cmux; systemDefault opens in the macOS default browser."
+        },
         "automation": {
           "suppressSubagentNotifications": "ซ่อนการแจ้งเตือนการทำงานเสร็จและการเปลี่ยนสถานะที่มองเห็นได้จากเอเจนต์ลูก Codex หรือ Claude แบบซ้อน โดยยังคงเก็บเหตุการณ์ไว้ในเทเลเมทรี Feed"
         },

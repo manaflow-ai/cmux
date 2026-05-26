@@ -4708,11 +4708,14 @@ final class BrowserEngineSettingsTests: XCTestCase {
         defaults.set(true, forKey: BrowserAvailabilitySettings.disabledKey)
 
         XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), .systemDefault)
+        XCTAssertEqual(defaults.string(forKey: BrowserEngineSettings.engineKey), BrowserEngine.systemDefault.rawValue)
         XCTAssertTrue(BrowserAvailabilitySettings.isDisabled(defaults: defaults))
 
+        defaults.removeObject(forKey: BrowserEngineSettings.engineKey)
         defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
 
         XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), .webKit)
+        XCTAssertEqual(defaults.string(forKey: BrowserEngineSettings.engineKey), BrowserEngine.webKit.rawValue)
         XCTAssertFalse(BrowserAvailabilitySettings.isDisabled(defaults: defaults))
     }
 
