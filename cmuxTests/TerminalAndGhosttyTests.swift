@@ -4880,6 +4880,77 @@ final class TerminalCmdClickPathPunctuationTrimmingTests: XCTestCase {
             literalPath
         )
     }
+
+    // MARK: - Relative path + trailing punctuation (bug #4569)
+
+    func testResolveQuicklookResolvesRelativeMarkdownPathWithTrailingDot() {
+        let cwd = "/Users/dev/project"
+        let existingFile = "/Users/dev/project/docs/specs/2026-05-22-test.md"
+
+        XCTAssertEqual(
+            cmuxResolveQuicklookPathForTesting(
+                "docs/specs/2026-05-22-test.md.",
+                cwd: cwd,
+                existingPaths: [existingFile]
+            ),
+            existingFile
+        )
+    }
+
+    func testResolveQuicklookResolvesRelativePathWithTrailingComma() {
+        let cwd = "/Users/dev/project"
+        let existingFile = "/Users/dev/project/src/main.swift"
+
+        XCTAssertEqual(
+            cmuxResolveQuicklookPathForTesting(
+                "src/main.swift,",
+                cwd: cwd,
+                existingPaths: [existingFile]
+            ),
+            existingFile
+        )
+    }
+
+    func testResolveQuicklookReturnsNilForRelativePathThatDoesNotExist() {
+        XCTAssertNil(
+            cmuxResolveQuicklookPathForTesting(
+                "docs/nonexistent.md.",
+                cwd: "/Users/dev/project",
+                existingPaths: []
+            )
+        )
+    }
+}
+
+// MARK: - Scheme detection gate for file-path-before-URL resolution (bug #4569)
+
+final class TerminalOpenURLSchemeGateTests: XCTestCase {
+    func testRelativePathWithTrailingDotHasNoScheme() {
+        XCTAssertNil(URL(string: "docs/specs/2026-05-22-test.md.")?.scheme)
+    }
+
+    func testBareDomainWithSlashHasNoScheme() {
+        // resolveBrowserNavigableURL handles these, but they have no scheme
+        XCTAssertNil(URL(string: "example.com/docs")?.scheme)
+    }
+
+    func testHTTPSURLHasScheme() {
+        XCTAssertEqual(URL(string: "https://example.com/path")?.scheme, "https")
+    }
+
+    func testFileURLHasScheme() {
+        XCTAssertEqual(URL(string: "file:///tmp/test.md")?.scheme, "file")
+    }
+
+    func testMailtoURLHasScheme() {
+        XCTAssertEqual(URL(string: "mailto:test@example.com")?.scheme, "mailto")
+    }
+
+    func testAbsolutePathHasNoScheme() {
+        // Absolute paths are filtered by isAbsolutePath before the scheme check,
+        // but verify URL(string:) doesn't synthesize a scheme for them.
+        XCTAssertNil(URL(string: "/tmp/test.md")?.scheme)
+    }
 }
 
 
