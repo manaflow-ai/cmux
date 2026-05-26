@@ -4,7 +4,15 @@ import Observation
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
+
 @main
+enum CmuxApplicationMain {
+    static func main() {
+        CLIForwardingLaunchRouter.forwardToBundledCLIIfNeeded()
+        cmuxApp.main()
+    }
+}
+
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
@@ -26,14 +34,6 @@ struct cmuxApp: App {
     }
 
     init() {
-        // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
-        // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
-        // share the name `cmux`, so if the GUI's Contents/MacOS leaks onto $PATH
-        // (which happens for any shell descended from this process), bare `cmux`
-        // resolves here instead of the CLI. See
-        // https://github.com/manaflow-ai/cmux/issues/4678.
-        CLIForwardingLaunchRouter.forwardToBundledCLIIfNeeded()
-
         StartupBreadcrumbLog.append("app.init.begin")
         UITestLaunchManifest.applyIfPresent()
         StartupBreadcrumbLog.append("app.init.uiTestManifest.applied")

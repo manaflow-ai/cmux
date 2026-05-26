@@ -1,5 +1,28 @@
 import Foundation
 
+nonisolated enum CmuxBundledCLI {
+    static func url(bundle: Bundle = .main) -> URL? {
+        bundle.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false)
+    }
+
+    static func expectedPath(bundle: Bundle = .main) -> String {
+        bundle.bundleURL
+            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+            .path
+    }
+
+    static func shellCommand(arguments: [String], bundle: Bundle = .main) -> String? {
+        guard let cliURL = url(bundle: bundle) else { return nil }
+        return ([cliURL.path] + arguments)
+            .map(shellQuoted)
+            .joined(separator: " ")
+    }
+
+    static func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
 struct CmuxCLIPathInstaller {
     struct InstallOutcome {
         let usedAdministratorPrivileges: Bool
@@ -53,9 +76,9 @@ struct CmuxCLIPathInstaller {
         fileManager: FileManager = .default,
         destinationURL: URL = URL(fileURLWithPath: "/usr/local/bin/cmux"),
         bundledCLIURLProvider: @escaping () -> URL? = {
-            CmuxCLIPathInstaller.defaultBundledCLIURL()
+            CmuxBundledCLI.url()
         },
-        expectedBundledCLIPath: String = CmuxCLIPathInstaller.defaultBundledCLIExpectedPath(),
+        expectedBundledCLIPath: String = CmuxBundledCLI.expectedPath(),
         privilegedInstaller: PrivilegedInstallHandler? = nil,
         privilegedUninstaller: PrivilegedUninstallHandler? = nil
     ) {
@@ -226,27 +249,17 @@ struct CmuxCLIPathInstaller {
         }
     }
 
-    private static func defaultBundledCLIURL(bundle: Bundle = .main) -> URL? {
-        bundle.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false)
-    }
-
-    private static func defaultBundledCLIExpectedPath(bundle: Bundle = .main) -> String {
-        bundle.bundleURL
-            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
-            .path
-    }
-
     private static func installWithAdministratorPrivileges(sourceURL: URL, destinationURL: URL) throws {
         let destinationPath = destinationURL.path
         let parentPath = destinationURL.deletingLastPathComponent().path
-        let command = "/bin/mkdir -p \(shellQuoted(parentPath)) && " +
-            "/bin/rm -f \(shellQuoted(destinationPath)) && " +
-            "/bin/ln -s \(shellQuoted(sourceURL.path)) \(shellQuoted(destinationPath))"
+        let command = "/bin/mkdir -p \(CmuxBundledCLI.shellQuoted(parentPath)) && " +
+            "/bin/rm -f \(CmuxBundledCLI.shellQuoted(destinationPath)) && " +
+            "/bin/ln -s \(CmuxBundledCLI.shellQuoted(sourceURL.path)) \(CmuxBundledCLI.shellQuoted(destinationPath))"
         try runPrivilegedShellCommand(command)
     }
 
     private static func uninstallWithAdministratorPrivileges(destinationURL: URL) throws {
-        let command = "/bin/rm -f \(shellQuoted(destinationURL.path))"
+        let command = "/bin/rm -f \(CmuxBundledCLI.shellQuoted(destinationURL.path))"
         try runPrivilegedShellCommand(command)
     }
 
@@ -302,10 +315,6 @@ struct CmuxCLIPathInstaller {
             }
             buffer.append(data)
         }
-    }
-
-    private static func shellQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private static func isPermissionDenied(_ error: Error) -> Bool {

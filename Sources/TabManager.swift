@@ -2691,11 +2691,12 @@ class TabManager: ObservableObject {
 
     @MainActor
     private func sendWelcomeWhenReady(to workspace: Workspace) {
+        let command = CmuxBundledCLI.shellCommand(arguments: ["welcome"]) ?? "cmux welcome"
         if let terminalPanel = workspace.focusedTerminalPanel,
            terminalPanel.surface.surface != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
-                terminalPanel.sendText("cmux welcome\n")
+                terminalPanel.sendText("\(command)\n")
             }
             return
         }
@@ -2715,7 +2716,7 @@ class TabManager: ObservableObject {
             panelsCancellable?.cancel()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
-                terminalPanel.sendText("cmux welcome\n")
+                terminalPanel.sendText("\(command)\n")
             }
         }
 

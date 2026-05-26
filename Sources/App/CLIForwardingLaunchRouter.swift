@@ -9,7 +9,7 @@ enum CLIForwardingLaunchRouter {
 
     /// If `argv` looks like a CLI invocation, exec the bundled CLI at
     /// `Contents/Resources/bin/cmux` and never return. macOS-launch arguments
-    /// (`-psn_...`, other `-` flags) and `cmux://` URLs are left to the GUI.
+    /// (`-psn_...`, app-defaults flags) and `cmux://` URLs are left to the GUI.
     static func forwardToBundledCLIIfNeeded(
         arguments argv: [String] = CommandLine.arguments,
         bundle: Bundle = .main,
@@ -28,7 +28,10 @@ enum CLIForwardingLaunchRouter {
             Darwin.exit(127)
         }
 
-        guard var cArgs = makeCStringArguments(cliPath: cliURL.path, arguments: argv) else {
+        guard var cArgs = makeCStringArguments(
+            cliPath: cliURL.path,
+            arguments: forwardedCLIArguments(from: argv)
+        ) else {
             writeStderr(localizedArgumentAllocationError())
             Darwin.exit(ENOMEM)
         }
@@ -55,16 +58,23 @@ enum CLIForwardingLaunchRouter {
     }
 
     static func shouldForwardToBundledCLI(arguments argv: [String]) -> Bool {
-        guard argv.count > 1 else { return false }
-
-        let first = argv[1]
-        if first.isEmpty || first.hasPrefix("-") { return false }
+        let cliArguments = forwardedCLIArguments(from: argv)
+        guard let first = cliArguments.first else { return false }
+        if first.isEmpty { return false }
         if first.contains("://") { return false }
 
         let guiLaunchSentinels: Set<String> = ["DEV", "STAGING", "NIGHTLY"]
         if guiLaunchSentinels.contains(first) { return false }
 
+        if first == "-v" || first == "-h" { return true }
+        if first.hasPrefix("--") { return true }
+        if first.hasPrefix("-") { return false }
+
         return true
+    }
+
+    static func forwardedCLIArguments(from argv: [String]) -> [String] {
+        argv.dropFirst().filter { !$0.hasPrefix("-psn_") }
     }
 
     static func bundledCLIURL(
@@ -90,13 +100,13 @@ enum CLIForwardingLaunchRouter {
         return nil
     }
 
-    private static func makeCStringArguments(cliPath: String, arguments argv: [String]) -> [UnsafeMutablePointer<CChar>?]? {
+    private static func makeCStringArguments(cliPath: String, arguments cliArguments: [String]) -> [UnsafeMutablePointer<CChar>?]? {
         var cArgs: [UnsafeMutablePointer<CChar>?] = []
 
         guard let cliPathArgument = strdup(cliPath) else { return nil }
         cArgs.append(cliPathArgument)
 
-        for arg in argv.dropFirst() {
+        for arg in cliArguments {
             guard let duplicated = strdup(arg) else {
                 freeCStringArguments(cArgs)
                 return nil

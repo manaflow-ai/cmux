@@ -7695,7 +7695,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func sendWelcomeCommandWhenReady(to workspace: Workspace, markShownOnSend: Bool = false) {
-        sendTextWhenReady("cmux welcome\n", to: workspace) {
+        let command = CmuxBundledCLI.shellCommand(arguments: ["welcome"]) ?? "cmux welcome"
+        sendTextWhenReady("\(command)\n", to: workspace) {
             if markShownOnSend {
                 UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
             }
