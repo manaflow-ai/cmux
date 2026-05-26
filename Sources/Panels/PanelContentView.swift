@@ -18,6 +18,8 @@ struct PanelContentView: View {
     let terminalAgentContext: String
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
+    let onResumeAgentHibernation: () -> Void
+    let onAutoResumeAgentHibernation: () -> Void
     let onTriggerFlash: () -> Void
 
     var body: some View {
@@ -43,6 +45,8 @@ struct PanelContentView: View {
                     hasUnreadNotification: hasUnreadNotification,
                     terminalAgentContext: terminalAgentContext,
                     onFocus: onFocus,
+                    onResumeAgentHibernation: onResumeAgentHibernation,
+                    onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
                     onTriggerFlash: onTriggerFlash
                 )
             }
