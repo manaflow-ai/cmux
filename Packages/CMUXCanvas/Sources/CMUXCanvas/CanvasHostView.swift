@@ -187,10 +187,15 @@ public struct CanvasMetalBackdrop: NSViewRepresentable {
 }
 
 private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
-    private var backgroundColor: NSColor
-    private var scene: CanvasScene
-    private var style: CanvasShellStyle
-    private var surfaceTextures: [CanvasSurfaceTextureSource]
+    private struct RenderState {
+        var backgroundColor: NSColor
+        var scene: CanvasScene
+        var style: CanvasShellStyle
+        var surfaceTextures: [CanvasSurfaceTextureSource]
+    }
+
+    private let stateLock = NSLock()
+    private var state: RenderState
     private let device: MTLDevice?
     private let commandQueue: MTLCommandQueue?
     private let textureLoader: MTKTextureLoader?
@@ -215,10 +220,12 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
         surfaceTextures: [CanvasSurfaceTextureSource],
         device: MTLDevice?
     ) {
-        self.backgroundColor = backgroundColor
-        self.scene = scene
-        self.style = style
-        self.surfaceTextures = surfaceTextures
+        self.state = RenderState(
+            backgroundColor: backgroundColor,
+            scene: scene,
+            style: style,
+            surfaceTextures: surfaceTextures
+        )
         self.device = device
         self.commandQueue = device?.makeCommandQueue()
         self.textureLoader = device.map(MTKTextureLoader.init(device:))
@@ -226,6 +233,10 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
     }
 
     var clearColor: MTLClearColor {
+        Self.clearColor(for: stateLock.withLock { state.backgroundColor })
+    }
+
+    private static func clearColor(for backgroundColor: NSColor) -> MTLClearColor {
         let color = backgroundColor.usingColorSpace(.deviceRGB) ?? backgroundColor
         return MTLClearColor(
             red: Double(color.redComponent),
@@ -241,40 +252,52 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
         style: CanvasShellStyle,
         surfaceTextures: [CanvasSurfaceTextureSource]
     ) {
-        self.scene = scene
-        self.backgroundColor = backgroundColor
-        self.style = style
-        self.surfaceTextures = surfaceTextures
-        pruneTextureCache(keeping: surfaceTextures)
-        scheduler.markNeedsRender()
+        stateLock.withLock {
+            self.state = RenderState(
+                backgroundColor: backgroundColor,
+                scene: scene,
+                style: style,
+                surfaceTextures: surfaceTextures
+            )
+            scheduler.markNeedsRender()
+        }
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-        scene = CanvasScene(
-            viewport: scene.viewport,
-            viewportSize: size,
-            scale: scene.scale,
-            padding: scene.padding,
-            minimumSurfaceDisplaySize: scene.minimumSurfaceDisplaySize,
-            grid: scene.grid,
-            surfaces: scene.surfaces,
-            alignmentGuides: scene.alignmentGuides
-        )
-        scheduler.markNeedsRender()
+        stateLock.withLock {
+            state.scene = CanvasScene(
+                viewport: state.scene.viewport,
+                viewportSize: size,
+                scale: state.scene.scale,
+                padding: state.scene.padding,
+                minimumSurfaceDisplaySize: state.scene.minimumSurfaceDisplaySize,
+                grid: state.scene.grid,
+                surfaces: state.scene.surfaces,
+                alignmentGuides: state.scene.alignmentGuides
+            )
+            scheduler.markNeedsRender()
+        }
         view.setNeedsDisplay(view.bounds)
     }
 
     func draw(in view: MTKView) {
-        let hasLiveSurfaceTextures = !surfaceTextures.isEmpty
-        guard scheduler.consumeFrame() || hasLiveSurfaceTextures else { return }
+        let renderState: RenderState? = stateLock.withLock {
+            let hasLiveSurfaceTextures = !self.state.surfaceTextures.isEmpty
+            guard scheduler.consumeFrame() || hasLiveSurfaceTextures else { return nil }
+            return self.state
+        }
+        guard let state = renderState else { return }
         guard let drawable = view.currentDrawable,
               let descriptor = view.currentRenderPassDescriptor,
-              let commandBuffer = commandQueue?.makeCommandBuffer(),
-              let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else {
+              let commandBuffer = commandQueue?.makeCommandBuffer() else {
+            return
+        }
+        descriptor.colorAttachments[0].clearColor = Self.clearColor(for: state.backgroundColor)
+        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else {
             return
         }
 
-        let plan = CanvasShellRenderPlan(scene: scene, style: style)
+        let plan = CanvasShellRenderPlan(scene: state.scene, style: state.style)
         let viewport = SIMD2<Float>(
             Float(max(1, view.bounds.width)),
             Float(max(1, view.bounds.height))
@@ -288,10 +311,16 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
             encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertexBuffer.vertexCount)
         }
 
-        drawSurfaceTextures(for: plan, viewport: viewport, encoder: encoder, view: view)
+        drawSurfaceTextures(
+            for: plan,
+            surfaceTextures: state.surfaceTextures,
+            viewport: viewport,
+            encoder: encoder,
+            view: view
+        )
 
         if let pipelineState = pipelineState(for: view),
-           let vertexBuffer = overlayVertexBuffer(for: plan) {
+           let vertexBuffer = overlayVertexBuffer(for: plan, style: state.style) {
             var viewport = viewport
             encoder.setRenderPipelineState(pipelineState)
             encoder.setVertexBuffer(vertexBuffer.buffer, offset: 0, index: 0)
@@ -370,7 +399,7 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
         return shellVertexBufferRing.nextBuffer(device: device, vertices: shellVertices)
     }
 
-    private func overlayVertexBuffer(for plan: CanvasShellRenderPlan) -> CanvasMetalVertexBuffer? {
+    private func overlayVertexBuffer(for plan: CanvasShellRenderPlan, style: CanvasShellStyle) -> CanvasMetalVertexBuffer? {
         guard let device else { return nil }
         overlayVertices.removeAll(keepingCapacity: true)
         overlayVertices.reserveCapacity(plan.surfaces.count * 24)
@@ -387,12 +416,14 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
 
     private func drawSurfaceTextures(
         for plan: CanvasShellRenderPlan,
+        surfaceTextures: [CanvasSurfaceTextureSource],
         viewport: SIMD2<Float>,
         encoder: MTLRenderCommandEncoder,
         view: MTKView
     ) {
         guard let device,
               let pipelineState = texturePipelineState(for: view) else { return }
+        pruneTextureCache(keeping: surfaceTextures)
         let sources = Dictionary(uniqueKeysWithValues: surfaceTextures.map { ($0.id, $0) })
         guard !sources.isEmpty else { return }
 

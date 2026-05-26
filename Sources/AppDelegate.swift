@@ -11460,7 +11460,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if workspace.panels[surfaceId] != nil {
             panelId = surfaceId
         } else {
-            panelId = workspace.panelIdFromSurfaceId(TabID(uuid: surfaceId))
+            panelId = workspace.panelIdFromSurfaceId(SurfaceID(uuid: surfaceId))
         }
         guard let panelId,
               workspace.panels[panelId] != nil else {
