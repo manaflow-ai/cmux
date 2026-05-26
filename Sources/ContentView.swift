@@ -9969,13 +9969,19 @@ struct VerticalTabsSidebar: View {
             let measuredWorkspaceRowsHeight = workspaceRowsMeasurement?.rowsHeight(
                 for: renderContext.workspaceIds
             )
+            let workspaceRowsLayoutCompleteness = SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
+                laidOutRowIds: laidOutWorkspaceRowIds,
+                workspaceIds: renderContext.workspaceIds
+            )
             let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
                 contentMinHeight: contentMinHeight,
-                rowsHeight: measuredWorkspaceRowsHeight
+                rowsHeight: measuredWorkspaceRowsHeight,
+                rowsLayoutCompleteness: workspaceRowsLayoutCompleteness
             )
             let workspaceContentOverflows = SidebarWorkspaceScrollLayout.rowsOverflow(
                 rowsHeight: measuredWorkspaceRowsHeight,
-                contentMinHeight: contentMinHeight
+                contentMinHeight: contentMinHeight,
+                rowsLayoutCompleteness: workspaceRowsLayoutCompleteness
             )
 
             ScrollViewReader { scrollProxy in
@@ -10066,6 +10072,7 @@ struct VerticalTabsSidebar: View {
                     requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: renderContext.workspaceIds)
                 }
                 .onChange(of: renderContext.workspaceIds) { oldWorkspaceIds, newWorkspaceIds in
+                    laidOutWorkspaceRowIds = []
                     workspaceRowsMeasurement = nil
                     guard shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
                         from: oldWorkspaceIds,

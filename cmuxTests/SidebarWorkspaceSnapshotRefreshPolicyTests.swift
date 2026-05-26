@@ -220,7 +220,8 @@ final class SidebarWorkspaceScrollLayoutTests: XCTestCase {
         XCTAssertFalse(
             SidebarWorkspaceScrollLayout.rowsOverflow(
                 rowsHeight: nil,
-                contentMinHeight: contentMinHeight
+                contentMinHeight: contentMinHeight,
+                rowsLayoutCompleteness: .unmeasured
             )
         )
     }
@@ -232,7 +233,52 @@ final class SidebarWorkspaceScrollLayoutTests: XCTestCase {
         )
 
         XCTAssertNil(measurement.rowsHeight(for: ["b", "c"]))
-        XCTAssertEqual(measurement.rowsHeight(for: ["a", "b"]), 240, accuracy: 0.001)
+        XCTAssertEqual(measurement.rowsHeight(for: ["a", "b"]) ?? -1, 240, accuracy: 0.001)
+    }
+
+    func testPartialLazyRowsForceOverflowAfterRowsMeasure() {
+        let contentMinHeight: CGFloat = 480
+
+        XCTAssertEqual(
+            SidebarWorkspaceScrollLayout.emptyAreaHeight(
+                contentMinHeight: contentMinHeight,
+                rowsHeight: 240,
+                rowsLayoutCompleteness: .partial
+            ),
+            0,
+            accuracy: 0.001
+        )
+        XCTAssertTrue(
+            SidebarWorkspaceScrollLayout.rowsOverflow(
+                rowsHeight: 240,
+                contentMinHeight: contentMinHeight,
+                rowsLayoutCompleteness: .partial
+            )
+        )
+    }
+
+    func testRowsLayoutCompletenessTracksUnmeasuredPartialAndCompleteRows() {
+        XCTAssertEqual(
+            SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
+                laidOutRowIds: Set<String>(),
+                workspaceIds: ["a"]
+            ),
+            .unmeasured
+        )
+        XCTAssertEqual(
+            SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
+                laidOutRowIds: Set(["a", "b"]),
+                workspaceIds: ["a", "b", "c"]
+            ),
+            .partial
+        )
+        XCTAssertEqual(
+            SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
+                laidOutRowIds: Set(["a", "b", "c"]),
+                workspaceIds: ["a", "b"]
+            ),
+            .complete
+        )
     }
 
     func testEmptyAreaFillsOnlyRemainingViewportSpaceWhenRowsFit() {
