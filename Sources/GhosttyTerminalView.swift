@@ -2088,7 +2088,8 @@ class GhosttyApp {
             source: "initialize.primaryConfig",
             preferredColorScheme: initialColorScheme,
             baselineConfig: primaryConfig,
-            forceNotify: primaryRenderingModeChanged
+            forceNotify: primaryRenderingModeChanged,
+            resolvedColorScheme: initialResolvedColorScheme
         )
 
         // Create runtime config with callbacks
@@ -2243,14 +2244,16 @@ class GhosttyApp {
             updateDefaultBackground(
                 from: fallbackConfig,
                 source: "initialize.fallbackConfig",
-                forceNotify: fallbackRenderingModeChanged
+                forceNotify: fallbackRenderingModeChanged,
+                resolvedColorScheme: initialResolvedColorScheme
             )
             updateDefaultBackgroundFromResolvedGhosttyConfig(
                 source: "initialize.fallbackConfig",
                 preferredColorScheme: initialColorScheme,
                 baselineConfig: fallbackConfig,
                 useOnDiskResolvedConfig: false,
-                forceNotify: fallbackRenderingModeChanged
+                forceNotify: fallbackRenderingModeChanged,
+                resolvedColorScheme: initialResolvedColorScheme
             )
 
             guard let created = ghostty_app_new(&runtimeConfig, fallbackConfig) else {

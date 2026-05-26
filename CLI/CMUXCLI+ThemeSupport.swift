@@ -259,11 +259,10 @@ extension CMUXCLI {
     }
 
     func clearManagedThemeOverride(targetBundleIdentifier: String) throws -> URL {
-        try removeStaleReleaseManagedThemeOverrideIfNeeded(activeBundleIdentifier: targetBundleIdentifier)
-
         let fileManager = FileManager.default
         let configURL = try cmuxThemeOverrideConfigURL(targetBundleIdentifier: targetBundleIdentifier)
         guard let existingContents = try readOptionalThemeOverrideContents(at: configURL) else {
+            try removeStaleReleaseManagedThemeOverrideIfNeeded(activeBundleIdentifier: targetBundleIdentifier)
             return configURL
         }
 
@@ -275,6 +274,7 @@ extension CMUXCLI {
                 try fileManager.removeItem(at: configURL)
             } catch {
                 guard !isThemeOverrideFileNotFoundError(error) else {
+                    try removeStaleReleaseManagedThemeOverrideIfNeeded(activeBundleIdentifier: targetBundleIdentifier)
                     return configURL
                 }
                 throw error
@@ -283,6 +283,7 @@ extension CMUXCLI {
             try strippedContents.appending("\n").write(to: configURL, atomically: true, encoding: .utf8)
         }
 
+        try removeStaleReleaseManagedThemeOverrideIfNeeded(activeBundleIdentifier: targetBundleIdentifier)
         return configURL
     }
 
@@ -304,12 +305,12 @@ extension CMUXCLI {
             return
         }
 
-        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            throw CLIError(message: staleThemeCleanupFailureMessage())
-        }
-        try CmuxGhosttyConfigPathResolver.removeStaleReleaseManagedThemeOverrideIfNeeded(
+        let appSupportDirectories = CmuxApplicationSupportDirectories.userDirectories(
+            environment: ProcessInfo.processInfo.environment
+        )
+        try CmuxGhosttyConfigPathResolver.removeStaleReleaseManagedThemeOverrideBeforeFallbackIfNeeded(
             currentBundleIdentifier: activeBundleIdentifier,
-            appSupportDirectory: appSupport
+            appSupportDirectories: appSupportDirectories
         )
     }
 

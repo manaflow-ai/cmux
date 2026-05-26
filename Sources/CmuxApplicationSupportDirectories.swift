@@ -183,18 +183,6 @@ enum CmuxGhosttyConfigPathResolver {
         return []
     }
 
-    static func existingConfigURLs(
-        for bundleIdentifier: String,
-        appSupportDirectory: URL,
-        fileManager: FileManager = .default
-    ) -> [URL] {
-        preferredExistingConfigURLs(
-            for: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory,
-            fileManager: fileManager
-        )
-    }
-
     private static func configURLs(
         for bundleIdentifier: String,
         appSupportDirectories: [URL],
