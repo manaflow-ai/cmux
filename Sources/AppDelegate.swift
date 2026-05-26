@@ -6535,6 +6535,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if addWorkspaceInPreferredMainWindow(event: event, debugSource: debugSource) == nil {
+            if SingleWindowModeSettings.isEnabled() {
+                pruneWindowlessMainWindowContexts()
+                if !mainWindowContexts.isEmpty {
+#if DEBUG
+                    logWorkspaceCreationRouting(
+                        phase: "single_window_no_window_fallback",
+                        source: debugSource,
+                        reason: "workspace_creation_returned_nil",
+                        event: event,
+                        chosenContext: nil
+                    )
+#endif
+                    return false
+                }
+            }
 #if DEBUG
             logWorkspaceCreationRouting(
                 phase: "fallback_new_window",
@@ -7059,8 +7074,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // If a keyboard event identifies a specific window but that context
-        // can't be resolved, do not fall back to another window.
-        if shortcutEventHasAddressableWindow(event) {
+        // can't be resolved, do not fall back to another window unless Single
+        // Window Mode is explicitly choosing reuse over automatic window creation.
+        if shortcutEventHasAddressableWindow(event),
+           !SingleWindowModeSettings.isEnabled() {
 #if DEBUG
             logWorkspaceCreationRouting(
                 phase: "choose",
@@ -7071,6 +7088,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
 #endif
             return nil
+        }
+        if shortcutEventHasAddressableWindow(event) {
+#if DEBUG
+            logWorkspaceCreationRouting(
+                phase: "choose",
+                source: debugSource,
+                reason: "single_window_event_context_fallback",
+                event: event,
+                chosenContext: nil
+            )
+#endif
         }
 
         if let keyWindow = NSApp.keyWindow,

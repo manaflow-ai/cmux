@@ -54480,6 +54480,57 @@
         }
       }
     },
+    "settings.app.singleWindowMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Single Window Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シングルウィンドウモード"
+          }
+        }
+      }
+    },
+    "settings.app.singleWindowMode.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux may create a new window when a workspace target cannot be resolved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの対象を解決できない場合、cmux が新しいウィンドウを作成することがあります。"
+          }
+        }
+      }
+    },
+    "settings.app.singleWindowMode.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic workspace requests reuse an existing main window. New windows only come from New Window commands."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動的なワークスペース要求は既存のメインウィンドウを再利用します。新しいウィンドウは「新規ウィンドウ」コマンドからのみ作成されます。"
+          }
+        }
+      }
+    },
     "settings.app.settingsFile.openButton": {
       "extractionState": "manual",
       "localizations": {
@@ -75293,6 +75344,23 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused ghostty working-directory 作業ディレクトリ 継承 現在 フォーカス Ghostty"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.app.single-window-mode": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces シングルウィンドウ 自動 新規ウィンドウ ワークスペース"
                 }
             }
         }
