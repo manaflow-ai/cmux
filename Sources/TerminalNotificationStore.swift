@@ -830,6 +830,7 @@ final class TerminalNotificationStore: ObservableObject {
     private static let notificationHookFailureThrottle: TimeInterval = 300
     private var lastNotificationDateByCooldownKey: [String: Date] = [:]
     private var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
+    private var openCodeCompletionPollTimer: Timer?
     private var indexes = NotificationIndexes()
 
     private init() {
@@ -843,12 +844,24 @@ final class TerminalNotificationStore: ObservableObject {
         }
         refreshDockBadge()
         refreshAuthorizationStatus()
+        startOpenCodeCompletionPolling()
     }
 
     deinit {
         if let userDefaultsObserver {
             NotificationCenter.default.removeObserver(userDefaultsObserver)
         }
+        openCodeCompletionPollTimer?.invalidate()
+    }
+
+    private func startOpenCodeCompletionPolling() {
+        openCodeCompletionPollTimer?.invalidate()
+        openCodeCompletionPollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
+            Task.detached(priority: .utility) {
+                RestorableAgentSessionIndex.pollOpenCodeCompletionNotifications()
+            }
+        }
+        openCodeCompletionPollTimer?.tolerance = 1.0
     }
 
     static func dockBadgeLabel(unreadCount: Int, isEnabled: Bool, runTag: String? = nil) -> String? {
@@ -1047,6 +1060,18 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    /// Reconcilie workspace unread indicators after a single notification is removed or
+    /// marked read from the store-level list.  When the tab has zero remaining unread
+    /// notifications we clear panel-derived, restored, and focused-read indicators; we
+    /// must not touch manual-unread (that is a user-explicit choice).
+    /// Called after `notifications` has been updated and `indexes` rebuilt.
+    private func reconcileWorkspaceUnreadAfterNotificationStateChange(tabId: UUID) {
+        guard (indexes.unreadCountByTabId[tabId] ?? 0) == 0 else { return }
+        setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
+        setWorkspaceRestoredUnread(false, forTabId: tabId)
+        clearFocusedReadIndicator(forTabId: tabId)
+        clearWorkspacePanelUnread(forTabId: tabId)
+    }
     @discardableResult
     private func setWorkspaceRestoredUnread(_ isUnread: Bool, forTabId tabId: UUID) -> Bool {
         var nextIds = restoredUnreadWorkspaceIds
@@ -1717,6 +1742,9 @@ final class TerminalNotificationStore: ObservableObject {
         notifications = updated
         if let removed {
             clearFocusedReadIndicator(forTabId: removed.tabId, surfaceId: removed.surfaceId)
+        }
+        if let removed {
+            reconcileWorkspaceUnreadAfterNotificationStateChange(tabId: removed.tabId)
         }
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }

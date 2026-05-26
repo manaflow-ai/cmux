@@ -152,6 +152,10 @@ enum OpenCodeDatabaseSnapshot {
     private static let sourcePath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
 
     static func make(prefix: String) throws -> Snapshot? {
+        try make(from: sourcePath, prefix: prefix)
+    }
+
+    static func make(from sourcePath: String, prefix: String) throws -> Snapshot? {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: sourcePath) else { return nil }
 
