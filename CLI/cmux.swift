@@ -4782,6 +4782,7 @@ struct CMUXCLI {
         "CMUX_SOCKET_MODE",
         "CMUX_SOCKET_PASSWORD",
         "CMUX_SOCKET_PATH",
+        "CMUX_PANEL_ID",
         "CMUX_SURFACE_ID",
         "CMUX_TAB_ID",
         "CMUX_WORKSPACE_ID",

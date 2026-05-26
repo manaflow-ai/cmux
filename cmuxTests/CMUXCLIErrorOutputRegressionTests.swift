@@ -878,6 +878,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         environment["CMUX_SOCKET_MODE"] = "off"
         environment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
         environment["CMUX_WORKSPACE_ID"] = "workspace:stale"
+        environment["CMUX_PANEL_ID"] = "panel:stale"
         environment["CMUX_SURFACE_ID"] = "surface:stale"
         environment["CMUX_TAB_ID"] = "tab:stale"
         environment["CMUX_TAG"] = "keepme"
@@ -912,6 +913,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             "CMUX_SOCKET_MODE",
             "CMUX_SOCKET_PASSWORD",
             "CMUX_SOCKET_PATH",
+            "CMUX_PANEL_ID",
             "CMUX_SURFACE_ID",
             "CMUX_TAB_ID",
             "CMUX_WORKSPACE_ID",
