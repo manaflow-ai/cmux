@@ -3803,7 +3803,6 @@ extension CMUXCLI {
 
               registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.light);
               registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.dark);
-              stabilizeCodeViewStickyPositioning(CodeView);
               status.textContent = label("parsingDiff");
               const patches = parsePatchFiles(payload.patch, "cmux-diff");
               diffItems = patches.flatMap((patch, patchIndex) =>
@@ -3831,7 +3830,6 @@ extension CMUXCLI {
               codeView.render(true);
               status.remove();
               codeView.subscribeToScroll(updateActiveFileFromScroll);
-              renderUntilCodeViewReady(codeView, viewerElement, performance.now());
               updateActiveFile(diffItems[0]?.id ?? "");
               window.__cmuxDiffViewer = { codeView, items: diffItems, state: appState };
             }
@@ -3908,7 +3906,6 @@ extension CMUXCLI {
               }
               codeView.setOptions(codeViewOptions());
               codeView.render(true);
-              renderUntilCodeViewReady(codeView, viewerElement, performance.now());
             }
 
             function setLayout(layout) {
@@ -3926,7 +3923,6 @@ extension CMUXCLI {
                   return;
                 }
                 codeView.render(true);
-                renderUntilCodeViewReady(codeView, viewerElement, performance.now());
               });
             }
 
@@ -3952,7 +3948,6 @@ extension CMUXCLI {
               if (codeView) {
                 codeView.setItems(diffItems);
                 codeView.render(true);
-                renderUntilCodeViewReady(codeView, viewerElement, performance.now());
               }
               updateToolbarState();
             }
@@ -4390,7 +4385,6 @@ extension CMUXCLI {
               }
               codeView.scrollTo({ type: "item", id: itemId, align: "start", behavior: "smooth-auto" });
               codeView.render(true);
-              renderUntilCodeViewReady(codeView, viewerElement, performance.now());
               updateActiveFile(itemId);
             }
 
@@ -4522,27 +4516,6 @@ extension CMUXCLI {
               registerCustomTheme(theme.name, () => Promise.resolve(shikiThemeFromGhostty(theme)));
             }
 
-            function stabilizeCodeViewStickyPositioning(CodeView) {
-              const prototype = CodeView.prototype;
-              if (prototype.__cmuxStableStickyPositioning === true || typeof prototype.applyStickyPositioning !== "function") {
-                return;
-              }
-
-              prototype.__cmuxStableStickyPositioning = true;
-              prototype.applyStickyPositioning = function({ stickyTop, stickyBottom }) {
-                const height = this.getHeight();
-                const itemMetrics = this.itemMetricsCache;
-                const stickyContainerHeight = stickyBottom - stickyTop;
-                this.renderState.stickyHeight = stickyContainerHeight;
-                this.renderState.stickyTop = stickyTop;
-                this.renderState.stickyBottom = stickyBottom;
-                this.stickyOffset.style.height = `${stickyTop}px`;
-                const stickyOffset = -Math.max(stickyContainerHeight, 0) + height;
-                this.stickyContainer.style.top = `${stickyOffset}px`;
-                this.stickyContainer.style.bottom = `${stickyOffset + itemMetrics.diffHeaderHeight}px`;
-              };
-            }
-
             function preloadDiffHighlighter(appearance, items, getFiletypeFromFileName, preloadHighlighter) {
               const themes = Array.from(new Set([
                 appearance.theme?.light,
@@ -4608,37 +4581,6 @@ extension CMUXCLI {
               };
             }
 
-            function renderUntilCodeViewReady(codeView, root, startedAt) {
-              codeView.render(true);
-              forceRenderReadyCodeViewItems(codeView);
-              const hasRenderedContent = Array.from(root.querySelectorAll("diffs-container")).some((container) =>
-                container.shadowRoot?.querySelector("[data-diffs-header], [data-line]")
-              );
-              if (!hasRenderedContent && performance.now() - startedAt < 10_000) {
-                window.requestAnimationFrame(() => renderUntilCodeViewReady(codeView, root, startedAt));
-              }
-            }
-
-            function forceRenderReadyCodeViewItems(codeView) {
-              for (const renderedItem of codeView.getRenderedItems()) {
-                if (renderedItem.type !== "diff") {
-                  continue;
-                }
-
-                const hasRenderedContent = renderedItem.element.shadowRoot?.querySelector("[data-diffs-header], [data-line]");
-                const hasReadyResult = renderedItem.instance?.hunksRenderer?.renderCache?.result != null;
-                if (hasRenderedContent || !hasReadyResult) {
-                  continue;
-                }
-
-                renderedItem.instance.render({
-                  fileContainer: renderedItem.element,
-                  fileDiff: renderedItem.item.fileDiff,
-                  forceRender: true,
-                  renderRange: renderedItem.instance.renderRange,
-                });
-              }
-            }
           </script>
         </body>
         </html>
