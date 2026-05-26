@@ -1488,6 +1488,18 @@ final class SocketClient {
         return defaultResponseTimeoutSeconds
     }()
 
+    private static func notConnectedMessage() -> String {
+        String(localized: "cli.socket.error.notConnected", defaultValue: "Not connected")
+    }
+
+    private static func commandTimedOutMessage() -> String {
+        String(localized: "cli.socket.error.commandTimedOut", defaultValue: "Command timed out")
+    }
+
+    private static func writeFailedMessage() -> String {
+        String(localized: "cli.socket.error.writeFailed", defaultValue: "Failed to write to socket")
+    }
+
     private static func isCompleteSingleLineResponse(_ data: Data) -> Bool {
         guard data.contains(UInt8(0x0A)),
               let response = String(data: data, encoding: .utf8) else {
@@ -1586,11 +1598,18 @@ final class SocketClient {
     }
 
     func connect() throws {
+        try connect(
+            retryDeadline: Self.connectRetryDeadline,
+            socketIOTimeout: Self.responseTimeoutSeconds
+        )
+    }
+
+    private func connect(retryDeadline: TimeInterval, socketIOTimeout: TimeInterval) throws {
         if socketFD >= 0 { return }
-        let deadline = Date().addingTimeInterval(Self.connectRetryDeadline)
+        let deadline = Date().addingTimeInterval(max(0, retryDeadline))
         while true {
             do {
-                try connectOnce()
+                try connectOnce(socketIOTimeout: socketIOTimeout)
                 return
             } catch {
                 guard Self.shouldRetryConnect(error), Date() < deadline else {
@@ -1613,7 +1632,7 @@ final class SocketClient {
         if relayEndpoint != nil, socketFD < 0 {
             try connect()
         }
-        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        guard socketFD >= 0 else { throw CLIError(message: Self.notConnectedMessage()) }
         let shouldCloseAfterSend = relayEndpoint != nil
         defer {
             if shouldCloseAfterSend {
@@ -1636,8 +1655,8 @@ final class SocketClient {
         let payload = command + "\n"
         try writeAll(
             Data(payload.utf8),
-            timeoutMessage: "Command timed out",
-            failureMessage: "Failed to write to socket"
+            timeoutMessage: Self.commandTimedOutMessage(),
+            failureMessage: Self.writeFailedMessage()
         )
 
         var data = Data()
@@ -1707,9 +1726,67 @@ final class SocketClient {
         return response
     }
 
-    private func connectOnce() throws {
+    func sendOneWay(
+        command: String,
+        writeTimeout: TimeInterval,
+        authenticationPassword: String? = nil
+    ) throws {
+        let openedRelayConnection = socketFD < 0 && relayEndpoint != nil
+        if openedRelayConnection {
+            try connect(retryDeadline: writeTimeout, socketIOTimeout: writeTimeout)
+        }
+        guard socketFD >= 0 else { throw CLIError(message: Self.notConnectedMessage()) }
+
+        // One-way sends are one-shot by design: callers must not reuse this
+        // SocketClient afterward because the server may still write a reply
+        // that this path intentionally never reads.
+        defer { close() }
+
+        try configureSocketWriteSafety(writeTimeout)
+        if openedRelayConnection, let authenticationPassword {
+            try authenticateOneWayConnection(
+                password: authenticationPassword,
+                timeout: writeTimeout
+            )
+        }
+
+        var operation = CLISocketOperationTelemetry.State(
+            name: CLISocketOperationTelemetry.operationName(for: command),
+            timeout: writeTimeout,
+            startedAt: Date(),
+            phase: .writeRequest
+        )
+        recordOperation(operation)
+
+        let payload = command + "\n"
+        try writeAll(
+            Data(payload.utf8),
+            timeoutMessage: Self.commandTimedOutMessage(),
+            failureMessage: Self.writeFailedMessage()
+        )
+
+        operation.phase = .completed
+        recordOperation(operation)
+    }
+
+    private func authenticateOneWayConnection(password: String, timeout: TimeInterval) throws {
+        let authPayload = "auth \(password)\n"
+        try writeAll(
+            Data(authPayload.utf8),
+            timeoutMessage: Self.commandTimedOutMessage(),
+            failureMessage: Self.writeFailedMessage()
+        )
+
+        let authResponse = try readLine(timeout: timeout)
+        if authResponse.hasPrefix("ERROR:"),
+           !authResponse.contains("Unknown command 'auth'") {
+            throw CLIError(message: authResponse)
+        }
+    }
+
+    private func connectOnce(socketIOTimeout: TimeInterval) throws {
         if let relayEndpoint {
-            try connectToRelay(endpoint: relayEndpoint)
+            try connectToRelay(endpoint: relayEndpoint, socketIOTimeout: socketIOTimeout)
             return
         }
 
@@ -1730,8 +1807,8 @@ final class SocketClient {
             throw CLIError(message: "Failed to create socket")
         }
         do {
-            try configureSocketWriteSafety(Self.responseTimeoutSeconds)
-            try configureReceiveTimeout(Self.responseTimeoutSeconds)
+            try configureSocketWriteSafety(socketIOTimeout)
+            try configureReceiveTimeout(socketIOTimeout)
         } catch {
             close()
             throw error
@@ -1838,7 +1915,7 @@ final class SocketClient {
         data.map { String(format: "%02x", $0) }.joined()
     }
 
-    private func connectToRelay(endpoint: RelayEndpoint) throws {
+    private func connectToRelay(endpoint: RelayEndpoint, socketIOTimeout: TimeInterval) throws {
         let credentials = try Self.relayCredentials(for: endpoint)
 
         socketFD = socket(AF_INET, SOCK_STREAM, 0)
@@ -1846,8 +1923,8 @@ final class SocketClient {
             throw CLIError(message: "Failed to create relay socket")
         }
         do {
-            try configureSocketWriteSafety(Self.responseTimeoutSeconds)
-            try configureReceiveTimeout(Self.responseTimeoutSeconds)
+            try configureSocketWriteSafety(socketIOTimeout)
+            try configureReceiveTimeout(socketIOTimeout)
         } catch {
             close()
             throw error
@@ -1881,15 +1958,15 @@ final class SocketClient {
         }
 
         do {
-            try authenticateRelay(credentials: credentials)
+            try authenticateRelay(credentials: credentials, timeout: socketIOTimeout)
         } catch {
             close()
             throw error
         }
     }
 
-    private func authenticateRelay(credentials: RelayCredentials) throws {
-        let challengeLine = try readLine()
+    private func authenticateRelay(credentials: RelayCredentials, timeout: TimeInterval) throws {
+        let challengeLine = try readLine(timeout: timeout)
         guard let challengeData = challengeLine.data(using: .utf8),
               let challenge = try JSONSerialization.jsonObject(with: challengeData) as? [String: Any],
               (challenge["protocol"] as? String) == "cmux-relay-auth",
@@ -1914,7 +1991,7 @@ final class SocketClient {
             failureMessage: "Failed to write to relay socket"
         )
 
-        let authResponseLine = try readLine()
+        let authResponseLine = try readLine(timeout: timeout)
         guard let authResponseData = authResponseLine.data(using: .utf8),
               let authResponse = try JSONSerialization.jsonObject(with: authResponseData) as? [String: Any],
               (authResponse["ok"] as? Bool) == true else {
@@ -1989,11 +2066,11 @@ final class SocketClient {
 #endif
     }
 
-    private func readLine(maxBytes: Int = 16 * 1024) throws -> String {
+    private func readLine(maxBytes: Int = 16 * 1024, timeout: TimeInterval) throws -> String {
         var data = Data()
 
         while data.count < maxBytes {
-            try configureReceiveTimeout(Self.responseTimeoutSeconds)
+            try configureReceiveTimeout(timeout)
 
             var byte: UInt8 = 0
             let count = Darwin.read(socketFD, &byte, 1)
@@ -3046,7 +3123,7 @@ struct CMUXCLI {
         }
         defer { client.close() }
 
-        try authenticateClientIfNeeded(
+        let authenticatedSocketPassword = try authenticateClientIfNeeded(
             client,
             explicitPassword: socketPasswordArg,
             socketPath: resolvedSocketPath
@@ -4394,9 +4471,19 @@ struct CMUXCLI {
             guard let codexDef = Self.agentDef(named: "codex") else { print("{}"); return }
             try runGenericAgentHook(def: codexDef, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "feed-hook": // Backwards compatibility for older installed Feed hooks. Hidden from help.
-            try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+            try runFeedHook(
+                commandArgs: commandArgs,
+                client: client,
+                telemetry: cliTelemetry,
+                socketPassword: authenticatedSocketPassword
+            )
         case "hooks":
-            try runHooksSocketCommand(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+            try runHooksSocketCommand(
+                commandArgs: commandArgs,
+                client: client,
+                telemetry: cliTelemetry,
+                socketPassword: authenticatedSocketPassword
+            )
 
         case "set-app-focus":
             guard let value = commandArgs.first else { throw CLIError(message: "set-app-focus requires a value") }
@@ -4830,11 +4917,12 @@ struct CMUXCLI {
         return client
     }
 
+    @discardableResult
     func authenticateClientIfNeeded(
         _ client: SocketClient,
         explicitPassword: String?,
         socketPath: String
-    ) throws {
+    ) throws -> String? {
         if let socketPassword = SocketPasswordResolver.resolve(
             explicit: explicitPassword,
             socketPath: socketPath
@@ -4844,7 +4932,9 @@ struct CMUXCLI {
                !authResponse.contains("Unknown command 'auth'") {
                 throw CLIError(message: authResponse)
             }
+            return socketPassword
         }
+        return nil
     }
 
     private func launchApp() throws {
@@ -28178,6 +28268,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     // MARK: - Feed (workstream) hook bridge
 
+    private static let nonActionableFeedHookWriteTimeoutSeconds: TimeInterval = 0.15
+
     /// Reads an agent hook JSON payload from stdin, forwards it to the
     /// running cmux app via the `feed.push` V2 socket verb, and (for
     /// actionable events: ExitPlanMode, AskUserQuestion, permission-
@@ -28197,9 +28289,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private func runFeedHook(
         commandArgs: [String],
         client: SocketClient,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketSentryTelemetry,
+        socketPassword: String? = nil
     ) throws {
-        _ = client
         _ = telemetry
         let source = optionValue(commandArgs, name: "--source") ?? ""
         guard !source.isEmpty else {
@@ -28305,6 +28397,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Wait is capped at 120s and the wrapper's hook timeout
         // is 125s so the socket always returns before Claude
         // would kill the hook subprocess itself.
+        //
+        // Non-actionable events are telemetry-only. They write the frame
+        // best-effort and never wait for a Feed acknowledgement.
         let waitTimeout: Double = isActionable ? 120 : 0
         let params: [String: Any] = [
             "event": eventDict,
@@ -28318,11 +28413,26 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         ])
         let line = String(data: payload, encoding: .utf8) ?? "{}"
 
+        if !isActionable {
+            do {
+                try client.sendOneWay(
+                    command: line,
+                    writeTimeout: Self.nonActionableFeedHookWriteTimeoutSeconds,
+                    authenticationPassword: socketPassword
+                )
+            } catch {
+                // Non-actionable hook events are best-effort telemetry. They
+                // must not extend the agent's tool-call critical path.
+            }
+            print("{}")
+            return
+        }
+
         let response: String
         do {
             response = try client.send(
                 command: line,
-                responseTimeout: waitTimeout > 0 ? waitTimeout + 5 : nil
+                responseTimeout: waitTimeout + 5
             )
         } catch {
             print("{}")
@@ -28927,7 +29037,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private func runHooksSocketCommand(
         commandArgs: [String],
         client: SocketClient,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketSentryTelemetry,
+        socketPassword: String? = nil
     ) throws {
         guard let first = commandArgs.first?.lowercased() else {
             throw CLIError(message: "Usage: cmux hooks <setup|uninstall|feed|claude|agent>")
@@ -28941,7 +29052,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case "feed":
             telemetry.breadcrumb("hooks.feed.dispatch")
             do {
-                try runFeedHook(commandArgs: rest, client: client, telemetry: telemetry)
+                try runFeedHook(
+                    commandArgs: rest,
+                    client: client,
+                    telemetry: telemetry,
+                    socketPassword: socketPassword
+                )
                 telemetry.breadcrumb("hooks.feed.completed")
             } catch {
                 telemetry.breadcrumb("hooks.feed.failure")
