@@ -7,6 +7,36 @@ import XCTest
 #endif
 
 final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
+    @MainActor
+    func testTerminalSurfaceStartupEnvironmentIncludesCmuxContextValues() throws {
+        let workspaceId = UUID()
+        let surface = TerminalSurface(
+            tabId: workspaceId,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil
+        )
+        defer { TerminalSurfaceRegistry.shared.unregister(surface) }
+
+        let expectedContextValues = [
+            "CMUX_WORKSPACE_ID": workspaceId.uuidString,
+            "CMUX_SURFACE_ID": surface.id.uuidString,
+            "CMUX_TAB_ID": workspaceId.uuidString,
+            "CMUX_PANEL_ID": surface.id.uuidString
+        ]
+
+        for (key, expectedValue) in expectedContextValues {
+            let value = try XCTUnwrap(surface.startupEnvironmentValue(key), "\(key) should be present")
+            XCTAssertFalse(value.isEmpty, "\(key) should be non-empty")
+            XCTAssertEqual(value, expectedValue)
+        }
+
+        let socketPath = try XCTUnwrap(
+            surface.startupEnvironmentValue("CMUX_SOCKET_PATH"),
+            "CMUX_SOCKET_PATH should be present"
+        )
+        XCTAssertFalse(socketPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
     func testApplyManagedTerminalIdentityEnvironmentOverridesInheritedValues() {
         var environment = [
             "TERM": "xterm-ghostty",
@@ -28,6 +58,45 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertTrue(protectedKeys.contains("TERM"))
         XCTAssertTrue(protectedKeys.contains("COLORTERM"))
         XCTAssertTrue(protectedKeys.contains("TERM_PROGRAM"))
+    }
+
+    func testApplyManagedGitWatchEnvironmentDisablesShellGitWatch() {
+        var environment: [String: String] = [:]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedGitWatchEnvironment(
+            watchGitStatusEnabled: false,
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        XCTAssertEqual(environment["CMUX_NO_GIT_WATCH"], "1")
+        XCTAssertTrue(protectedKeys.contains("CMUX_NO_GIT_WATCH"))
+    }
+
+    func testApplyManagedGitWatchEnvironmentClearsInheritedOptOutWhenEnabled() {
+        var environment = [
+            "CMUX_NO_GIT_WATCH": "1"
+        ]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedGitWatchEnvironment(
+            watchGitStatusEnabled: true,
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: environment,
+            protectedKeys: protectedKeys,
+            additionalEnvironment: [
+                "CMUX_NO_GIT_WATCH": "1"
+            ],
+            initialEnvironmentOverrides: [
+                "CMUX_NO_GIT_WATCH": "1"
+            ]
+        )
+
+        XCTAssertEqual(merged["CMUX_NO_GIT_WATCH"], "")
     }
 
     func testMergedStartupEnvironmentAllowsSessionReplayAndInitialEnvCMUXKeys() {

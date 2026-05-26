@@ -32,7 +32,7 @@ extension RestorableAgentSessionIndex {
     static func processDetectedSnapshots(
         registry: CmuxVaultAgentRegistry,
         fileManager: FileManager
-    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
+    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)] {
         let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         return processDetectedSnapshots(
@@ -48,7 +48,23 @@ extension RestorableAgentSessionIndex {
         fileManager: FileManager,
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval
-    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
+    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)] {
+        return processDetectedSnapshots(
+            registry: registry,
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            processArgumentsProvider: { CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0) }
+        )
+    }
+
+    static func processDetectedSnapshots(
+        registry: CmuxVaultAgentRegistry,
+        fileManager: FileManager,
+        processSnapshot: CmuxTopProcessSnapshot,
+        capturedAt: TimeInterval,
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)] {
         var resolved = processDetectedOpenCodeSnapshots(
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,
@@ -75,7 +91,7 @@ extension RestorableAgentSessionIndex {
         for process in processSnapshot.cmuxScopedProcesses() {
             guard let workspaceId = process.cmuxWorkspaceID,
                   let panelId = process.cmuxSurfaceID,
-                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
+                  let processArguments = processArgumentsProvider(process.pid) else {
                 continue
             }
             let observed = VaultObservedAgentProcess(
@@ -110,7 +126,12 @@ extension RestorableAgentSessionIndex {
                 ),
                 registration: registration
             )
-            resolved[PanelKey(workspaceId: workspaceId, panelId: panelId)] = (snapshot: snapshot, updatedAt: capturedAt)
+            let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+            resolved[key] = (
+                snapshot: snapshot,
+                updatedAt: capturedAt,
+                processIDs: processSnapshot.cmuxScopedProcessIDs(for: key)
+            )
         }
 
         return resolved
@@ -199,8 +220,8 @@ extension RestorableAgentSessionIndex {
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
         fileManager: FileManager
-    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
-        var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)] {
+        var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)] = [:]
         var sessionByWorkingDirectoryAndParent: [String: String] = [:]
         var sessionMissesByWorkingDirectoryAndParent = Set<String>()
         var openCodeProcesses: [
@@ -294,7 +315,8 @@ extension RestorableAgentSessionIndex {
             )
             resolved[process.panelKey] = (
                 snapshot: snapshot,
-                updatedAt: capturedAt
+                updatedAt: capturedAt,
+                processIDs: processSnapshot.cmuxScopedProcessIDs(for: process.panelKey)
             )
         }
 
@@ -782,9 +804,9 @@ private extension CmuxVaultAgentSessionIDSource {
     ) -> String? {
         switch self {
         case .argvOption(let option):
-            return process.arguments.value(afterOption: option)
+            return process.arguments.nonOptionValue(afterOption: option)
         case .piSessionFile:
-            if let session = process.arguments.value(afterOption: "--session") {
+            if let session = process.arguments.nonOptionValue(afterOption: "--session") {
                 return PiSessionLocator.resolvedSessionPath(
                     session,
                     for: process,
@@ -799,6 +821,19 @@ private extension CmuxVaultAgentSessionIDSource {
             }
             return nil
         }
+    }
+}
+
+private extension CmuxTopProcessSnapshot {
+    func cmuxScopedProcessIDs(for key: RestorableAgentSessionIndex.PanelKey) -> Set<Int> {
+        Set(
+            cmuxScopedProcesses()
+                .filter {
+                    $0.cmuxWorkspaceID == key.workspaceId &&
+                        $0.cmuxSurfaceID == key.panelId
+                }
+                .map(\.pid)
+        )
     }
 }
 
@@ -833,6 +868,13 @@ private extension Array where Element == String {
             }
         }
         return nil
+    }
+
+    func nonOptionValue(afterOption option: String) -> String? {
+        guard let value = value(afterOption: option), !value.hasPrefix("-") else {
+            return nil
+        }
+        return value
     }
 
     var grokResumeSessionID: String? {
