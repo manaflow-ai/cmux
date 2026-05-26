@@ -7,11 +7,28 @@ Go remote daemon for `cmux ssh` bootstrap, capability negotiation, and remote pr
 1. `cmuxd-remote version`
 2. `cmuxd-remote serve --stdio`
 3. `cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]`
-4. `cmuxd-remote cli <command> [args...]` — relay cmux commands to the local app over the reverse SSH forward
+4. `cmuxd-remote serve --unix [--id <id>] [--name <name>] [--socket <path>] [--registry-dir <dir>]` — run a named headless cmux instance
+5. `cmuxd-remote headless list [--json] [--registry-dir <dir>]`
+6. `cmuxd-remote headless connect (--id <id> | --socket <path>) [--registry-dir <dir>]`
+7. `cmuxd-remote cli <command> [args...]` — relay cmux commands to the local app over the reverse SSH forward
 
 `serve --ws` is explicit opt-in for cloud VM images only. The normal `cmux ssh`
 code path continues to use `serve --stdio` over an SSH exec channel and does not
 open a WebSocket listener.
+
+`serve --unix` is the daemon-side foundation for headless cmux. It keeps PTY
+sessions alive in a long-running process, listens on a Unix socket, and writes an
+instance record to `~/.cmux/headless/instances/<id>.json` by default. The desktop
+app can discover instances with `headless list` and bridge stdio to an existing
+instance with `headless connect`, including over SSH:
+
+```bash
+ssh devbox cmuxd-remote headless connect --id work
+```
+
+That bridge speaks the same newline-delimited JSON RPC as `serve --stdio`, so the
+desktop attach path can reuse the existing remote daemon client while targeting a
+long-lived instance instead of starting a transient daemon per workspace.
 
 When invoked as `cmux` (via wrapper/symlink installed during bootstrap), the binary auto-dispatches to the `cli` subcommand. This is busybox-style argv[0] detection.
 

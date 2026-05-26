@@ -7538,7 +7538,11 @@ final class WorkspaceRemoteSessionController {
 
     private func helloRemoteDaemonLocked(remotePath: String) throws -> DaemonHello {
         let request = #"{"id":1,"method":"hello","params":{}}"#
-        let script = "printf '%s\\n' \(Self.shellSingleQuoted(request)) | \(Self.shellSingleQuoted(remotePath)) serve --stdio"
+        let daemonCommand = WorkspaceRemoteSSHBatchCommandBuilder.daemonTransportCommand(
+            configuration: configuration,
+            remotePath: remotePath
+        )
+        let script = "printf '%s\\n' \(Self.shellSingleQuoted(request)) | \(daemonCommand)"
         let command = "sh -c \(Self.shellSingleQuoted(script))"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 12)
         guard result.status == 0 else {

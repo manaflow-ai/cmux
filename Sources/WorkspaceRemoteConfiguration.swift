@@ -61,6 +61,7 @@ nonisolated struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable 
     var sshOptions: [String]
     var preserveAfterTerminalExit: Bool?
     var skipDaemonBootstrap: Bool?
+    var headlessInstanceID: String?
 }
 
 struct WorkspaceRemoteWebSocketDaemonEndpoint: Equatable {
@@ -286,6 +287,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
     let terminalStartupCommand: String?
     let foregroundAuthToken: String?
     let daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint?
+    let headlessInstanceID: String?
     let preserveAfterTerminalExit: Bool
     /// True for cloud-VM remotes (Freestyle snapshots) where cmuxd-remote is pre-baked in
     /// the image and started via systemd. Skip the upload+exec bootstrap entirely and synthesize
@@ -307,6 +309,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         terminalStartupCommand: String?,
         foregroundAuthToken: String? = nil,
         daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
+        headlessInstanceID: String? = nil,
         preserveAfterTerminalExit: Bool = false,
         skipDaemonBootstrap: Bool = false
     ) {
@@ -323,13 +326,15 @@ struct WorkspaceRemoteConfiguration: Equatable {
         self.terminalStartupCommand = terminalStartupCommand
         self.foregroundAuthToken = foregroundAuthToken
         self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
+        self.headlessInstanceID = Self.normalizedOptional(headlessInstanceID)
         self.preserveAfterTerminalExit = preserveAfterTerminalExit
         self.skipDaemonBootstrap = skipDaemonBootstrap
     }
 
     var displayTarget: String {
-        guard let port else { return destination }
-        return "\(destination):\(port)"
+        let base = port.map { "\(destination):\($0)" } ?? destination
+        guard let headlessInstanceID else { return base }
+        return "\(base)#\(headlessInstanceID)"
     }
 
     var proxyBrokerTransportKey: String {
@@ -341,6 +346,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         let normalizedLocalProxyPort = localProxyPort.map(String.init) ?? ""
         let normalizedOptions = Self.proxyBrokerSSHOptions(sshOptions).joined(separator: "\u{1f}")
         let normalizedWebSocketDaemon = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
+        let normalizedHeadlessInstance = headlessInstanceID ?? ""
         let normalizedRequiredCapabilities = preserveAfterTerminalExit ? "pty.session" : ""
         return [
             normalizedTransport,
@@ -351,9 +357,14 @@ struct WorkspaceRemoteConfiguration: Equatable {
             normalizedOptions,
             normalizedLocalProxyPort,
             normalizedWebSocketDaemon,
+            normalizedHeadlessInstance,
             normalizedRequiredCapabilities,
         ]
             .joined(separator: "\u{1e}")
+    }
+
+    private static func normalizedOptional(_ value: String?) -> String? {
+        WorkspaceRemoteSSHOptionFilter.normalizedOptional(value)
     }
 
     private static func proxyBrokerSSHOptions(_ options: [String]) -> [String] {
@@ -376,6 +387,8 @@ extension SessionRemoteWorkspaceSnapshot {
             preserveAfterTerminalExit == true &&
             skipDaemonBootstrap != true &&
             SSHPTYAttachStartupCommandBuilder.sshOptionsSupportReusableForegroundAuth(optionsWithRestoreControlDefaults)
+        let normalizedHeadlessInstanceID = WorkspaceRemoteSSHOptionFilter.normalizedOptional(headlessInstanceID)
+        let preserveHeadlessSession = normalizedHeadlessInstanceID != nil
         let restoredSSHOptions = preservePTYSession ? optionsWithRestoreControlDefaults : normalizedOptions
         let foregroundAuthToken = preservePTYSession ? UUID().uuidString.lowercased() : nil
         let foregroundAuth = foregroundAuthToken.map {
@@ -385,6 +398,20 @@ extension SessionRemoteWorkspaceSnapshot {
                 identityFile: Self.normalizedIdentityPath(identityFile),
                 sshOptions: restoredSSHOptions,
                 token: $0
+            )
+        }
+        let terminalStartupCommand: String?
+        if preservePTYSession {
+            terminalStartupCommand = SSHPTYAttachStartupCommandBuilder.command(
+                foregroundAuth: foregroundAuth,
+                requireExisting: false
+            )
+        } else if preserveHeadlessSession {
+            terminalStartupCommand = SSHPTYAttachStartupCommandBuilder.command(requireExisting: false)
+        } else {
+            terminalStartupCommand = sshReconnectCommand(
+                destination: normalizedDestination,
+                port: normalizedPort
             )
         }
         return WorkspaceRemoteConfiguration(
@@ -398,18 +425,11 @@ extension SessionRemoteWorkspaceSnapshot {
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,
-            terminalStartupCommand: preservePTYSession
-                ? SSHPTYAttachStartupCommandBuilder.command(
-                    foregroundAuth: foregroundAuth,
-                    requireExisting: false
-                )
-                : sshReconnectCommand(
-                    destination: normalizedDestination,
-                    port: normalizedPort
-                ),
+            terminalStartupCommand: terminalStartupCommand,
             foregroundAuthToken: foregroundAuthToken,
             daemonWebSocketEndpoint: nil,
-            preserveAfterTerminalExit: preservePTYSession,
+            headlessInstanceID: normalizedHeadlessInstanceID,
+            preserveAfterTerminalExit: preservePTYSession || preserveHeadlessSession,
             skipDaemonBootstrap: skipDaemonBootstrap == true
         )
     }
@@ -470,7 +490,8 @@ extension WorkspaceRemoteConfiguration {
             identityFile: WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile),
             sshOptions: WorkspaceRemoteSSHOptionFilter.durableOptions(sshOptions),
             preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
-            skipDaemonBootstrap: skipDaemonBootstrap
+            skipDaemonBootstrap: skipDaemonBootstrap,
+            headlessInstanceID: headlessInstanceID
         )
     }
 }
