@@ -925,7 +925,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private enum MainWindowDisplayGeometryPhase {
         case stable
-        case volatile
+        case volatile(MainWindowDisplayGeometryTransitionReason)
+    }
+    enum MainWindowDisplayGeometryTransitionReason: Equatable, Sendable {
+        case sleepWake
+        case displayReconfiguration
     }
     private enum MainWindowDisplayGeometryChangeSource: String {
         case applicationDidChangeScreenParameters = "app.didChangeScreenParameters"
@@ -3503,7 +3507,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.beginMainWindowDisplayGeometryTransition(source: "workspace.sessionDidResignActive")
+                self.beginMainWindowDisplayGeometryTransition(
+                    source: "workspace.sessionDidResignActive",
+                    reason: .sleepWake
+                )
                 if self.isTerminatingApp {
                     _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
                 } else {
@@ -3519,7 +3526,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.beginMainWindowDisplayGeometryTransition(source: "workspace.screensDidSleep")
+                self?.beginMainWindowDisplayGeometryTransition(
+                    source: "workspace.screensDidSleep",
+                    reason: .sleepWake
+                )
             }
         }
         lifecycleSnapshotObservers.append(screensDidSleepObserver)
@@ -3572,6 +3582,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 guard let self else { return }
                 self.beginMainWindowDisplayGeometryTransition(
                     source: MainWindowDisplayGeometryChangeSource.applicationDidChangeScreenParameters.rawValue,
+                    reason: .displayReconfiguration,
                     trustCurrentGeometry: false
                 )
                 self.handleMainWindowDisplayGeometryChange(source: .applicationDidChangeScreenParameters)
@@ -3607,18 +3618,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private var isMainWindowDisplayGeometryVolatile: Bool {
-        mainWindowDisplayGeometryPhase == .volatile
+        switch mainWindowDisplayGeometryPhase {
+        case .stable:
+            return false
+        case .volatile:
+            return true
+        }
+    }
+
+    private var mainWindowDisplayGeometryTransitionReason: MainWindowDisplayGeometryTransitionReason? {
+        switch mainWindowDisplayGeometryPhase {
+        case .stable:
+            return nil
+        case .volatile(let reason):
+            return reason
+        }
     }
 
     private func beginMainWindowDisplayGeometryTransition(
         source: String,
+        reason: MainWindowDisplayGeometryTransitionReason,
         trustCurrentGeometry: Bool = true
     ) {
-        guard !isMainWindowDisplayGeometryVolatile else { return }
+        if case .volatile(let currentReason) = mainWindowDisplayGeometryPhase {
+            if currentReason == .displayReconfiguration && reason == .sleepWake {
+                mainWindowDisplayGeometryPhase = .volatile(reason)
+            }
+            return
+        }
         if trustCurrentGeometry {
             updateSavedDisplayWindowFrames()
         }
-        mainWindowDisplayGeometryPhase = .volatile
+        mainWindowDisplayGeometryPhase = .volatile(reason)
         if !trustCurrentGeometry {
             updateSavedDisplayWindowFrames()
         }
@@ -3845,14 +3876,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         liveWindow: NSWindow,
         displays: [SessionDisplayGeometry]
     ) -> Bool {
-        let savedFrame = entry.frame.cgRect
-        let liveFrame = liveWindow.frame
+        guard let reason = mainWindowDisplayGeometryTransitionReason else {
+            return false
+        }
+        return Self.shouldUseCachedWindowFrameDuringDisplayTransition(
+            savedFrame: entry.frame.cgRect,
+            liveFrame: liveWindow.frame,
+            cachedDisplay: entry.display,
+            liveDisplayID: liveWindow.screen?.cmuxDisplayID,
+            displays: displays,
+            reason: reason
+        )
+    }
+
+    nonisolated static func shouldUseCachedWindowFrameDuringDisplayTransition(
+        savedFrame: CGRect,
+        liveFrame: CGRect,
+        cachedDisplay: SessionDisplaySnapshot,
+        liveDisplayID: UInt32?,
+        displays: [SessionDisplayGeometry],
+        reason: MainWindowDisplayGeometryTransitionReason
+    ) -> Bool {
+        switch reason {
+        case .sleepWake, .displayReconfiguration:
+            break
+        }
         if liveFrame.width < savedFrame.width || liveFrame.height < savedFrame.height {
             return true
         }
 
-        guard let liveDisplayID = liveWindow.screen?.cmuxDisplayID,
-              let cachedDisplayID = entry.display.displayID else {
+        guard let liveDisplayID,
+              let cachedDisplayID = cachedDisplay.displayID else {
             return false
         }
         if cachedDisplayID != liveDisplayID {
@@ -3860,8 +3914,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         guard let currentDisplay = displays.first(where: { $0.displayID == liveDisplayID }),
-              let cachedFrame = entry.display.frame?.cgRect,
-              let cachedVisibleFrame = entry.display.visibleFrame?.cgRect else {
+              let cachedFrame = cachedDisplay.frame?.cgRect,
+              let cachedVisibleFrame = cachedDisplay.visibleFrame?.cgRect else {
             return false
         }
         let displayChanged = !Self.rectApproximatelyEqual(cachedFrame, currentDisplay.frame)
