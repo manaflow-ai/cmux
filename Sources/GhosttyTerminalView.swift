@@ -4433,19 +4433,16 @@ class GhosttyApp {
                 let actionBody = action.action.desktop_notification.body
                     .flatMap { String(cString: $0) } ?? ""
                 let route = cachedAppDesktopNotificationRouteForCallback()
-                guard case .deliver(let notificationTarget) = route else {
+                guard case .deliver = route else {
                     if case .fallThrough = route {
                         return false
                     }
                     return true
                 }
-                Task { @MainActor [notificationTarget, actionTitle, actionBody] in
-                    let owningManager = AppDelegate.shared?.tabManagerFor(tabId: notificationTarget.tabId)
-                        ?? AppDelegate.shared?.tabManager
-                    guard let workspace = owningManager?.tabs.first(where: { $0.id == notificationTarget.tabId }) else {
-                        return
-                    }
-                    if workspace.suppressesRawTerminalNotification(panelId: notificationTarget.surfaceId) {
+                Task { @MainActor [weak self, actionTitle, actionBody] in
+                    let currentRoute = Self.appDesktopNotificationRoute()
+                    self?.setCachedAppDesktopNotificationRoute(currentRoute)
+                    guard case .deliver(let notificationTarget) = currentRoute else {
                         return
                     }
                     let command = actionTitle.isEmpty
