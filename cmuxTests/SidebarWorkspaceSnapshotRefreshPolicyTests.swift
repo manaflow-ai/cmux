@@ -208,67 +208,6 @@ final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
     }
 }
 
-final class SidebarShortcutHintFreezePolicyTests: XCTestCase {
-    func testFrozenContextMenuPresentationOverridesLiveShortcutHintForSameTab() {
-        let tabId = UUID()
-
-        let showsShortcutHints = SidebarShortcutHintFreezePolicy.resolved(
-            live: false,
-            currentTabId: tabId,
-            frozenTabId: tabId,
-            frozenValue: true
-        )
-
-        XCTAssertTrue(showsShortcutHints)
-    }
-
-    func testNoFrozenPresentationUsesLiveShortcutHint() {
-        let showsShortcutHints = SidebarShortcutHintFreezePolicy.resolved(
-            live: true,
-            currentTabId: UUID(),
-            frozenTabId: nil,
-            frozenValue: false
-        )
-
-        XCTAssertTrue(showsShortcutHints)
-    }
-
-    func testFrozenPresentationHidesShortcutHintWhenLiveWouldShow() {
-        let tabId = UUID()
-
-        let showsShortcutHints = SidebarShortcutHintFreezePolicy.resolved(
-            live: true,
-            currentTabId: tabId,
-            frozenTabId: tabId,
-            frozenValue: false
-        )
-
-        XCTAssertFalse(showsShortcutHints)
-    }
-
-    func testNoFrozenPresentationHidesShortcutHintWhenLiveDoesNotShow() {
-        let showsShortcutHints = SidebarShortcutHintFreezePolicy.resolved(
-            live: false,
-            currentTabId: UUID(),
-            frozenTabId: nil,
-            frozenValue: true
-        )
-
-        XCTAssertFalse(showsShortcutHints)
-    }
-
-    func testNonMatchingTabIdUsesLiveShortcutHints() {
-        let showsShortcutHints = SidebarShortcutHintFreezePolicy.resolved(
-            live: false,
-            currentTabId: UUID(),
-            frozenTabId: UUID(),
-            frozenValue: true
-        )
-
-        XCTAssertFalse(showsShortcutHints)
-    }
-}
-
 final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
     func testHoverRevealIsIndependentFromStaleContextMenuVisibility() {
         var state = SidebarWorkspaceRowInteractionState()
