@@ -256,3 +256,65 @@ final class SidebarDragStateTests: XCTestCase {
         XCTAssertNil(state.dropIndicator)
     }
 }
+
+/// Covers the freeze policy that holds `showsModifierShortcutHints` stable
+/// for the row whose context menu is open. Without it, pressing/releasing
+/// the modifier key while a context menu is up would flip badges on the row
+/// sitting behind the menu (visual regression flagged on the lazy-sidebar PR).
+final class SidebarShortcutHintFreezePolicyTests: XCTestCase {
+    func testReturnsLiveWhenNoRowIsFrozen() {
+        let rowId = UUID()
+        XCTAssertTrue(
+            SidebarShortcutHintFreezePolicy.resolved(
+                live: true,
+                currentTabId: rowId,
+                frozenTabId: nil,
+                frozenValue: false
+            )
+        )
+        XCTAssertFalse(
+            SidebarShortcutHintFreezePolicy.resolved(
+                live: false,
+                currentTabId: rowId,
+                frozenTabId: nil,
+                frozenValue: true
+            )
+        )
+    }
+
+    func testReturnsFrozenWhenCurrentTabMatchesFrozenTab() {
+        let rowId = UUID()
+        XCTAssertFalse(
+            SidebarShortcutHintFreezePolicy.resolved(
+                live: true,
+                currentTabId: rowId,
+                frozenTabId: rowId,
+                frozenValue: false
+            ),
+            "When this row is frozen, the modifier flipping live should not surface."
+        )
+        XCTAssertTrue(
+            SidebarShortcutHintFreezePolicy.resolved(
+                live: false,
+                currentTabId: rowId,
+                frozenTabId: rowId,
+                frozenValue: true
+            ),
+            "Frozen-true must remain true even after the modifier is released."
+        )
+    }
+
+    func testReturnsLiveForRowsOtherThanTheFrozenOne() {
+        let frozenRow = UUID()
+        let otherRow = UUID()
+        XCTAssertTrue(
+            SidebarShortcutHintFreezePolicy.resolved(
+                live: true,
+                currentTabId: otherRow,
+                frozenTabId: frozenRow,
+                frozenValue: false
+            ),
+            "Freeze is per-row; only the row whose menu is open should be pinned."
+        )
+    }
+}
