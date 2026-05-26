@@ -9915,9 +9915,8 @@ struct VerticalTabsSidebar: View {
             switch self {
             case .workspace(let workspace):
                 return "workspace-\(workspace.id.uuidString)"
-            case .group(let group, let tabs):
-                let firstWorkspaceId = tabs.first?.id.uuidString ?? "empty"
-                return "group-\(group.id.uuidString)-\(firstWorkspaceId)"
+            case .group(let group, _):
+                return "group-\(group.id.uuidString)"
             }
         }
     }
@@ -11083,6 +11082,12 @@ struct VerticalTabsSidebar: View {
                 continue
             }
 
+            guard emittedGroupIds.insert(groupId).inserted else {
+                sections.append(.workspace(tab))
+                tabIndex += 1
+                continue
+            }
+
             var runTabs: [Workspace] = []
             while tabIndex < renderContext.tabs.endIndex {
                 let runTab = renderContext.tabs[tabIndex]
@@ -11090,7 +11095,6 @@ struct VerticalTabsSidebar: View {
                 runTabs.append(runTab)
                 tabIndex += 1
             }
-            emittedGroupIds.insert(groupId)
             sections.append(.group(group, runTabs))
         }
 

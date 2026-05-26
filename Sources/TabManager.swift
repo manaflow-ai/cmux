@@ -5680,6 +5680,83 @@ class TabManager: ObservableObject {
         return prunedWorkspaceGroups(updatedGroups, orderedExistingIds: tabs.map(\.id))
     }
 
+    @discardableResult
+    private func normalizeWorkspaceGroupBlocks() -> Bool {
+        let originalIds = tabs.map(\.id)
+        guard originalIds.count > 1, !workspaceGroups.isEmpty else { return false }
+
+        let existingIds = Set(originalIds)
+        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        var groupIdByWorkspaceId: [UUID: UUID] = [:]
+        for group in workspaceGroups {
+            for workspaceId in group.workspaceIds where existingIds.contains(workspaceId) {
+                groupIdByWorkspaceId[workspaceId] = group.id
+            }
+        }
+
+        var emittedWorkspaceIds = Set<UUID>()
+        let pinnedTabs = tabs.filter(\.isPinned)
+        let unpinnedTabs = tabs.filter { !$0.isPinned }
+        let normalizedIds =
+            normalizedWorkspaceGroupBlockIds(
+                for: pinnedTabs,
+                groupsById: groupsById,
+                groupIdByWorkspaceId: groupIdByWorkspaceId,
+                existingIds: existingIds,
+                emittedWorkspaceIds: &emittedWorkspaceIds
+            ) +
+            normalizedWorkspaceGroupBlockIds(
+                for: unpinnedTabs,
+                groupsById: groupsById,
+                groupIdByWorkspaceId: groupIdByWorkspaceId,
+                existingIds: existingIds,
+                emittedWorkspaceIds: &emittedWorkspaceIds
+            )
+
+        guard normalizedIds.count == originalIds.count, normalizedIds != originalIds else {
+            return false
+        }
+
+        let workspacesById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        tabs = normalizedIds.compactMap { workspacesById[$0] }
+        workspaceGroups = prunedWorkspaceGroups(workspaceGroups, orderedExistingIds: normalizedIds)
+        let movedWorkspaceIds = zip(originalIds, normalizedIds).compactMap { originalId, normalizedId in
+            originalId == normalizedId ? nil : normalizedId
+        }
+        postWorkspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
+        return true
+    }
+
+    private func normalizedWorkspaceGroupBlockIds(
+        for tabs: [Workspace],
+        groupsById: [UUID: SidebarWorkspaceGroup],
+        groupIdByWorkspaceId: [UUID: UUID],
+        existingIds: Set<UUID>,
+        emittedWorkspaceIds: inout Set<UUID>
+    ) -> [UUID] {
+        let partitionIds = Set(tabs.map(\.id))
+        var emittedGroupIds = Set<UUID>()
+        var normalizedIds: [UUID] = []
+
+        for tab in tabs {
+            if let groupId = groupIdByWorkspaceId[tab.id],
+               let group = groupsById[groupId] {
+                guard emittedGroupIds.insert(groupId).inserted else { continue }
+                for workspaceId in group.workspaceIds {
+                    guard existingIds.contains(workspaceId), partitionIds.contains(workspaceId) else {
+                        continue
+                    }
+                    guard emittedWorkspaceIds.insert(workspaceId).inserted else { continue }
+                    normalizedIds.append(workspaceId)
+                }
+            } else if emittedWorkspaceIds.insert(tab.id).inserted {
+                normalizedIds.append(tab.id)
+            }
+        }
+
+        return normalizedIds
+    }
+
     func workspaceGroupId(containing workspaceId: UUID) -> UUID? {
         workspaceGroups.first { $0.workspaceIds.contains(workspaceId) }?.id
     }
@@ -5748,8 +5825,10 @@ class TabManager: ObservableObject {
 
     func moveWorkspaces(_ workspaceIds: [UUID], toGroup groupId: UUID?) {
         let updatedGroups = assignWorkspaces(workspaceIds, toGroup: groupId, in: workspaceGroups)
-        guard updatedGroups != workspaceGroups else { return }
-        workspaceGroups = updatedGroups
+        if updatedGroups != workspaceGroups {
+            workspaceGroups = updatedGroups
+        }
+        normalizeWorkspaceGroupBlocks()
     }
 
     func moveWorkspace(_ workspaceId: UUID, toGroup groupId: UUID?) {

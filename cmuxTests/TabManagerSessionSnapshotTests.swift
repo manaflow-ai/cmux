@@ -63,7 +63,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let snapshot = manager.sessionSnapshot(includeScrollback: false)
         let groupSnapshot = try XCTUnwrap(snapshot.workspaceGroups?.first)
         XCTAssertEqual(groupSnapshot.id, group.id)
-        XCTAssertEqual(groupSnapshot.workspaceIndexes, [0, 2])
+        XCTAssertEqual(groupSnapshot.workspaceIndexes, [0, 1])
         XCTAssertNil(groupSnapshot.workspaceIds)
 
         let restored = TabManager(autoWelcomeIfNeeded: false)
@@ -73,8 +73,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restoredGroup.id, group.id)
         XCTAssertEqual(restoredGroup.title, "Planning")
         XCTAssertTrue(restoredGroup.isCollapsed)
-        XCTAssertEqual(restored.tabs.map(\.customTitle), ["First", "Second", "Third"])
-        XCTAssertEqual(restoredGroup.workspaceIds, [restored.tabs[0].id, restored.tabs[2].id])
+        XCTAssertEqual(restored.tabs.map(\.customTitle), ["First", "Third", "Second"])
+        XCTAssertEqual(restoredGroup.workspaceIds, [restored.tabs[0].id, restored.tabs[1].id])
     }
 
     func testFocusHistoryNavigatesWithinWorkspacePanels() throws {
