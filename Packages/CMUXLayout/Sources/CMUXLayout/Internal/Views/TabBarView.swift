@@ -1119,7 +1119,8 @@ struct TabBarView: View {
             trailingSeparatorBottomInset: isImmediatelyBeforeSelected
                 ? TabBarMetrics.selectedTabLeftSeparatorBottomInset
                 : 0,
-            canClose: controller.configuration.allowCloseTabs,
+            canClose: controller.configuration.allowCloseTabs && controller.configuration.showsTabCloseButtons,
+            canMiddleClickClose: controller.configuration.allowCloseTabs,
             controlShortcutDigit: tabControlShortcutDigit(for: index, tabCount: pane.tabs.count),
             allowsShortcutHints: isFocused && splitViewController.tabShortcutHintsEnabled,
             showsControlShortcutHint: showsControlShortcutHints,
@@ -1136,14 +1137,14 @@ struct TabBarView: View {
                     controller.selectTab(SurfaceID(id: tab.id))
                 }
             },
-            onClose: {
+            onClose: { source in
                 guard !tab.isPinned, controller.configuration.allowCloseTabs else { return }
                 // Close should be instant (no fade-out/removal animation).
 #if DEBUG
                 dlog("tab.close pane=\(pane.id.id.uuidString.prefix(5)) tab=\(tab.id.uuidString.prefix(5)) title=\"\(tab.title)\"")
 #endif
                 withTransaction(Transaction(animation: nil)) {
-                    controller.onTabCloseRequest?(SurfaceID(id: tab.id), pane.id)
+                    controller.onTabCloseRequest?(SurfaceID(id: tab.id), pane.id, source)
                     _ = controller.closeTab(SurfaceID(id: tab.id), inPane: pane.id)
                 }
             },

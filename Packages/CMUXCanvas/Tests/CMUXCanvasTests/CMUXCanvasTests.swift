@@ -342,6 +342,60 @@ final class CMUXCanvasTests: XCTestCase {
         XCTAssertEqual(animation.viewport(at: 12), animation.targetViewport)
     }
 
+    func testAnimatedViewportDrivesShellAndPortalFramesFromSameTransform() throws {
+        let id = LayoutItemID(id: try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000123")))
+        let descriptor = CanvasSurfaceDescriptor(
+            id: id,
+            kind: .terminal,
+            frame: PixelRect(x: 320, y: 180, width: 500, height: 360),
+            isFocused: true,
+            renderMode: .nativeOverlay
+        )
+        let animation = CanvasViewportAnimation(
+            startViewport: CanvasViewport(
+                visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800),
+                scale: 1
+            ),
+            targetViewport: CanvasViewport(
+                visibleRect: PixelRect(x: 180, y: 120, width: 2_400, height: 1_600),
+                scale: 0.5
+            ),
+            startTime: 10,
+            duration: 0.2
+        )
+        let viewportSize = CGSize(width: 1_200, height: 800)
+        let canvasWindowFrame = CGRect(x: 80, y: 120, width: 1_200, height: 800)
+        let style = CanvasShellStyle(headerHeight: 20)
+
+        for time in [10.0, 10.1, 10.2] {
+            let viewport = animation.viewport(at: time)
+            let scale = CGFloat(CanvasViewportZoom.presentationScale(for: viewport))
+            let scene = CanvasScene(
+                viewport: viewport,
+                viewportSize: viewportSize,
+                scale: scale,
+                surfaces: [descriptor]
+            )
+            let shellSurface = try XCTUnwrap(CanvasShellRenderPlan(scene: scene, style: style).surfaces.first)
+            let screenFrame = scene.surfaceScreenFrame(for: descriptor)
+            let portalFrame = try XCTUnwrap(CanvasWindowCoordinateMapper.windowFrame(
+                forCanvasRect: shellSurface.contentFrame,
+                inCanvasWindowFrame: canvasWindowFrame
+            ))
+
+            XCTAssertEqual(shellSurface.frame.minX, screenFrame.minX, accuracy: 0.0001)
+            XCTAssertEqual(shellSurface.frame.minY, screenFrame.minY, accuracy: 0.0001)
+            XCTAssertEqual(shellSurface.frame.width, CGFloat(descriptor.frame.width) * scale, accuracy: 0.0001)
+            XCTAssertEqual(shellSurface.frame.height, CGFloat(descriptor.frame.height) * scale, accuracy: 0.0001)
+            XCTAssertEqual(shellSurface.contentFrame.minX, shellSurface.frame.minX, accuracy: 0.0001)
+            XCTAssertEqual(shellSurface.contentFrame.minY, shellSurface.frame.minY + style.headerHeight, accuracy: 0.0001)
+            XCTAssertEqual(portalFrame.minX, canvasWindowFrame.minX + shellSurface.contentFrame.minX, accuracy: 0.0001)
+            XCTAssertEqual(portalFrame.minY, canvasWindowFrame.maxY - shellSurface.contentFrame.maxY, accuracy: 0.0001)
+            XCTAssertEqual(portalFrame.width, shellSurface.contentFrame.width, accuracy: 0.0001)
+            XCTAssertEqual(portalFrame.height, shellSurface.contentFrame.height, accuracy: 0.0001)
+        }
+    }
+
     func testWindowCoordinateMapperUsesCanvasTopLeftCoordinates() throws {
         let frame = try XCTUnwrap(CanvasWindowCoordinateMapper.windowFrame(
             forCanvasRect: CGRect(x: 40, y: 20, width: 320, height: 180),

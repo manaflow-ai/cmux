@@ -220,53 +220,59 @@ enum WorkspaceCanvasResizeHitRegionRegistry {
     static func contains(pointInWindow point: NSPoint, in window: NSWindow) -> Bool {
         guard let regions = regionsByWindowId[ObjectIdentifier(window)] else { return false }
         return regions.values.contains { viewRegions in
-            viewRegions.contains { $0.frameInWindow.insetBy(dx: -2, dy: -2).contains(point) }
+            viewRegions.contains { hitHandle(in: $0, pointInWindow: point) != nil }
         }
     }
 
     static func hit(pointInWindow point: NSPoint, in window: NSWindow) -> Hit? {
         guard let regions = regionsByWindowId[ObjectIdentifier(window)] else { return nil }
         for viewRegions in regions.values {
-            for region in viewRegions where region.frameInWindow.insetBy(dx: -2, dy: -2).contains(point) {
+            for region in viewRegions {
                 guard let itemID = region.itemID else {
                     continue
                 }
-                if let handle = region.handle {
-                    return Hit(
-                        itemID: itemID,
-                        handle: handle,
-                        frameInWindow: region.frameInWindow.standardized,
-                        usesFrameMaxForLocalY: true
-                    )
-                }
-                let frame = region.frameInWindow.standardized
-                let hitArea = CanvasResizeHitArea(
-                    cardSize: frame.size,
-                    edgeHitSize: region.edgeHitSize ?? 16,
-                    cornerHitSize: region.cornerHitSize ?? 44
-                )
-                let localPointFromTop = CGPoint(
-                    x: point.x - frame.minX,
-                    y: frame.maxY - point.y
-                )
-                let localPointFromBottom = CGPoint(
-                    x: point.x - frame.minX,
-                    y: point.y - frame.minY
-                )
-                let topHandle = hitArea.handle(at: localPointFromTop)
-                let bottomHandle = hitArea.handle(at: localPointFromBottom)
-                guard let preferred = preferredHandle(topHandle, bottomHandle) else {
-                    continue
-                }
+                guard let preferred = hitHandle(in: region, pointInWindow: point) else { continue }
                 return Hit(
                     itemID: itemID,
                     handle: preferred.handle,
-                    frameInWindow: frame,
+                    frameInWindow: preferred.frame,
                     usesFrameMaxForLocalY: preferred.usesFrameMaxForLocalY
                 )
             }
         }
         return nil
+    }
+
+    private static func hitHandle(
+        in region: Region,
+        pointInWindow point: NSPoint
+    ) -> (handle: CanvasResizeHandle, frame: CGRect, usesFrameMaxForLocalY: Bool)? {
+        guard region.frameInWindow.insetBy(dx: -2, dy: -2).contains(point) else { return nil }
+        if let handle = region.handle {
+            return (handle, region.frameInWindow.standardized, true)
+        }
+
+        let frame = region.frameInWindow.standardized
+        let hitArea = CanvasResizeHitArea(
+            cardSize: frame.size,
+            edgeHitSize: region.edgeHitSize ?? 16,
+            cornerHitSize: region.cornerHitSize ?? 44
+        )
+        let localPointFromTop = CGPoint(
+            x: point.x - frame.minX,
+            y: frame.maxY - point.y
+        )
+        let localPointFromBottom = CGPoint(
+            x: point.x - frame.minX,
+            y: point.y - frame.minY
+        )
+        guard let preferred = preferredHandle(
+            hitArea.handle(at: localPointFromTop),
+            hitArea.handle(at: localPointFromBottom)
+        ) else {
+            return nil
+        }
+        return (preferred.handle, frame, preferred.usesFrameMaxForLocalY)
     }
 
     private static func preferredHandle(
@@ -1070,7 +1076,8 @@ private final class CanvasResizeEventMonitorView: NSView {
         handle: CanvasResizeHandle,
         startPointInWindow: NSPoint,
         frameInWindow: CGRect,
-        usesFrameMaxForLocalY: Bool
+        usesFrameMaxForLocalY: Bool,
+        window: NSWindow
     )?
 
     override var isOpaque: Bool { false }
@@ -1100,6 +1107,9 @@ private final class CanvasResizeEventMonitorView: NSView {
             NSEvent.removeMonitor(monitor)
         }
         monitor = nil
+        if let activeResize {
+            WorkspaceCanvasResizeHitRegionRegistry.endPointerResize(in: activeResize.window)
+        }
         activeResize = nil
     }
 
@@ -1125,7 +1135,8 @@ private final class CanvasResizeEventMonitorView: NSView {
                 hit.handle,
                 event.locationInWindow,
                 hit.frameInWindow,
-                hit.usesFrameMaxForLocalY
+                hit.usesFrameMaxForLocalY,
+                window
             )
             WorkspaceCanvasResizeHitRegionRegistry.beginPointerResize(in: window)
             return nil
@@ -1148,7 +1159,7 @@ private final class CanvasResizeEventMonitorView: NSView {
             guard let activeResize else { return event }
             onResizeEnded?(activeResize.itemID, activeResize.handle)
             self.activeResize = nil
-            WorkspaceCanvasResizeHitRegionRegistry.endPointerResize(in: window)
+            WorkspaceCanvasResizeHitRegionRegistry.endPointerResize(in: activeResize.window)
             return nil
         default:
             return event

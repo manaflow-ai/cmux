@@ -54,13 +54,14 @@ struct SurfaceItemView: View {
     let saturation: Double
     let trailingSeparatorBottomInset: CGFloat
     let canClose: Bool
+    let canMiddleClickClose: Bool
     let controlShortcutDigit: Int?
     let allowsShortcutHints: Bool
     let showsControlShortcutHint: Bool
     let shortcutModifierSymbol: String
     let contextMenuState: TabContextMenuState
     let onSelect: () -> Void
-    let onClose: () -> Void
+    let onClose: (SurfaceCloseRequestSource) -> Void
     let onZoomToggle: () -> Void
     let onContextAction: (SurfaceContextAction) -> Void
     let onMoveDestination: (String) -> Void
@@ -190,8 +191,8 @@ struct SurfaceItemView: View {
         // Middle click to close (macOS convention).
         // Uses an AppKit event monitor so it doesn't interfere with left click selection or drag/reorder.
         .background(MiddleClickMonitorView(onMiddleClick: {
-            guard canClose, !tab.isPinned else { return }
-            onClose()
+            guard canMiddleClickClose, !tab.isPinned else { return }
+            onClose(.middleClick)
         }))
         .background(TabContextMenuPresenter(
             snapshot: TabContextMenuSnapshot(tabId: tab.id, state: contextMenuState),
@@ -406,7 +407,7 @@ struct SurfaceItemView: View {
             } else if canClose && (isSelected || isHovered || isCloseHovered) {
                 // Close button (always visible on active tab, shown on hover for others)
                 Button {
-                    onClose()
+                    onClose(.button)
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: TabBarMetrics.closeIconSize, weight: .semibold))

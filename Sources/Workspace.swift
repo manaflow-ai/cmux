@@ -9898,7 +9898,8 @@ final class Workspace: Identifiable, ObservableObject {
         )
         let config = WorkspaceLayoutConfiguration(
             allowSplits: true,
-            allowCloseTabs: !CloseTabWarningSettings.hidesTabCloseButton(),
+            allowCloseTabs: true,
+            showsTabCloseButtons: !CloseTabWarningSettings.hidesTabCloseButton(),
             allowCloseLastPane: false,
             allowTabReordering: true,
             allowCrossPaneTabMove: true,
@@ -9976,8 +9977,13 @@ final class Workspace: Identifiable, ObservableObject {
         layoutController.tabContextMoveDestinationsProvider = { [weak self] tabId, _ in
             self?.workspaceLayoutTabMoveDestinations(for: tabId) ?? []
         }
-        layoutController.onTabCloseRequest = { [weak self] tabId, _ in
-            self?.markTabCloseButtonClose(surfaceId: tabId)
+        layoutController.onTabCloseRequest = { [weak self] tabId, _, source in
+            switch source {
+            case .button:
+                self?.markTabCloseButtonClose(surfaceId: tabId)
+            case .middleClick:
+                self?.markExplicitClose(surfaceId: tabId)
+            }
         }
 
         // Set ourselves as delegate
@@ -10033,10 +10039,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func refreshTabCloseButtonVisibility() {
-        let allowCloseTabs = !CloseTabWarningSettings.hidesTabCloseButton()
+        let showsTabCloseButtons = !CloseTabWarningSettings.hidesTabCloseButton()
         var configuration = layoutController.configuration
-        guard configuration.allowCloseTabs != allowCloseTabs else { return }
-        configuration.allowCloseTabs = allowCloseTabs
+        guard configuration.showsTabCloseButtons != showsTabCloseButtons else { return }
+        configuration.showsTabCloseButtons = showsTabCloseButtons
         layoutController.configuration = configuration
     }
 

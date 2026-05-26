@@ -35,6 +35,9 @@ public struct WorkspaceLayoutConfiguration: Sendable {
     /// Whether to allow closing tabs
     public var allowCloseTabs: Bool
 
+    /// Whether tab close buttons are shown when closing is allowed.
+    public var showsTabCloseButtons: Bool
+
     /// Whether to allow closing the last pane
     public var allowCloseLastPane: Bool
 
@@ -79,6 +82,7 @@ public struct WorkspaceLayoutConfiguration: Sendable {
     public init(
         allowSplits: Bool = true,
         allowCloseTabs: Bool = true,
+        showsTabCloseButtons: Bool = true,
         allowCloseLastPane: Bool = false,
         allowTabReordering: Bool = true,
         allowCrossPaneTabMove: Bool = true,
@@ -89,6 +93,7 @@ public struct WorkspaceLayoutConfiguration: Sendable {
     ) {
         self.allowSplits = allowSplits
         self.allowCloseTabs = allowCloseTabs
+        self.showsTabCloseButtons = showsTabCloseButtons
         self.allowCloseLastPane = allowCloseLastPane
         self.allowTabReordering = allowTabReordering
         self.allowCrossPaneTabMove = allowCrossPaneTabMove

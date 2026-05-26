@@ -1,6 +1,11 @@
 import Foundation
 import SwiftUI
 
+public enum SurfaceCloseRequestSource: Sendable, Equatable {
+    case button
+    case middleClick
+}
+
 /// Main controller for the split tab bar system
 @MainActor
 @Observable
@@ -100,7 +105,7 @@ public final class WorkspaceLayoutController {
 
     /// Called when the user explicitly requests to close a tab from the tab strip UI.
     /// Internal host-driven closes should not use this hook.
-    @ObservationIgnored public var onTabCloseRequest: ((_ tabId: SurfaceID, _ paneId: PaneID) -> Void)?
+    @ObservationIgnored public var onTabCloseRequest: ((_ tabId: SurfaceID, _ paneId: PaneID, _ source: SurfaceCloseRequestSource) -> Void)?
 
     // MARK: - Internal State
 

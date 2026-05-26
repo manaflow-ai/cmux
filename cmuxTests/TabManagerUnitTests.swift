@@ -1407,7 +1407,8 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
                 return
             }
 
-            XCTAssertFalse(workspace.layoutController.configuration.allowCloseTabs)
+            XCTAssertTrue(workspace.layoutController.configuration.allowCloseTabs)
+            XCTAssertFalse(workspace.layoutController.configuration.showsTabCloseButtons)
         }
     }
 
@@ -1460,7 +1461,8 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
                 return
             }
 
-            XCTAssertFalse(workspace.layoutController.configuration.allowCloseTabs)
+            XCTAssertTrue(workspace.layoutController.configuration.allowCloseTabs)
+            XCTAssertFalse(workspace.layoutController.configuration.showsTabCloseButtons)
         }
     }
 
@@ -1474,10 +1476,12 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             }
 
             XCTAssertTrue(workspace.layoutController.configuration.allowCloseTabs)
+            XCTAssertTrue(workspace.layoutController.configuration.showsTabCloseButtons)
             defaults.set(true, forKey: CloseTabWarningSettings.hideTabCloseButtonKey)
             manager.refreshTabCloseButtonVisibility()
 
-            XCTAssertFalse(workspace.layoutController.configuration.allowCloseTabs)
+            XCTAssertTrue(workspace.layoutController.configuration.allowCloseTabs)
+            XCTAssertFalse(workspace.layoutController.configuration.showsTabCloseButtons)
         }
     }
 

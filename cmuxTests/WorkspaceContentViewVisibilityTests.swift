@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 import CoreGraphics
 import CMUXLayout
 
@@ -37,6 +38,43 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         XCTAssertEqual(hitArea.handle(at: CGPoint(x: 160, y: 212)), .bottom)
         XCTAssertNil(hitArea.handle(at: CGPoint(x: 160, y: 110)))
         XCTAssertNil(hitArea.handle(at: CGPoint(x: 60, y: 60)))
+    }
+
+    @MainActor
+    func testCanvasResizeRegistryContainsOnlyResizeHandles() {
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 500, height: 400), styleMask: [], backing: .buffered, defer: false)
+        let view = NSView(frame: .zero)
+        defer {
+            WorkspaceCanvasResizeHitRegionRegistry.remove(view: view)
+            WorkspaceCanvasResizeHitRegionRegistry.endPointerResize(in: window)
+        }
+
+        WorkspaceCanvasResizeHitRegionRegistry.update(
+            view: view,
+            window: window,
+            regions: [
+                WorkspaceCanvasResizeHitRegionRegistry.Region(
+                    itemID: LayoutItemID(),
+                    handle: nil,
+                    frameInWindow: CGRect(x: 100, y: 100, width: 320, height: 220),
+                    edgeHitSize: 16,
+                    cornerHitSize: 44
+                )
+            ]
+        )
+
+        XCTAssertTrue(
+            WorkspaceCanvasResizeHitRegionRegistry.contains(
+                pointInWindow: CGPoint(x: 108, y: 210),
+                in: window
+            )
+        )
+        XCTAssertFalse(
+            WorkspaceCanvasResizeHitRegionRegistry.contains(
+                pointInWindow: CGPoint(x: 260, y: 210),
+                in: window
+            )
+        )
     }
 
     func testNonSelectedNonRetiringWorkspaceIsFullyHidden() {

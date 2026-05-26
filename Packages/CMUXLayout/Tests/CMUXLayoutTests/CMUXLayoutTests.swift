@@ -251,6 +251,19 @@ final class CMUXLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testHiddenTabCloseButtonsDoNotBlockControllerClose() {
+        let controller = WorkspaceLayoutController(
+            configuration: WorkspaceLayoutConfiguration(showsTabCloseButtons: false)
+        )
+        let tabId = controller.createTab(title: "Test Surface", icon: "doc")!
+
+        let closed = controller.closeTab(tabId)
+
+        XCTAssertTrue(closed)
+        XCTAssertNil(controller.tab(tabId))
+    }
+
+    @MainActor
     func testCloseSelectedTabKeepsIndexStableWhenPossible() {
         do {
             let config = WorkspaceLayoutConfiguration(newTabPosition: .end)
