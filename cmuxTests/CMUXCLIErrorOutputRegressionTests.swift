@@ -846,6 +846,53 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "OK")
     }
 
+    func testEventsReconnectsByDefaultAndResumesFromLastSequence() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-events-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketEventStreamResponder(path: socketPath, eventSequences: [1, 2])
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "2"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["events", "--limit", "2"],
+            environment: environment,
+            timeout: 6
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+
+        let frames = try result.stdout
+            .split(separator: "\n")
+            .map { line -> [String: Any] in
+                try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                    result.stdout
+                )
+            }
+        XCTAssertEqual(frames.compactMap { ($0["seq"] as? NSNumber)?.int64Value }, [1, 2])
+        XCTAssertEqual(
+            frames.compactMap { $0["type"] as? String },
+            ["ack", "heartbeat", "event", "ack", "heartbeat", "event"]
+        )
+
+        let requests = responder.receivedRequests
+        XCTAssertEqual(requests.count, 2, requests.joined(separator: "\n"))
+        let reconnectRequest = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(requests[1].utf8)) as? [String: Any]
+        )
+        let params = try XCTUnwrap(reconnectRequest["params"] as? [String: Any])
+        XCTAssertEqual((params["after_seq"] as? NSNumber)?.int64Value, 1)
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self)
@@ -1183,6 +1230,212 @@ private final class UnixSocketResponder {
         let payload = response + "\n"
         payload.withCString { pointer in
             _ = write(clientFD, pointer, strlen(pointer))
+        }
+    }
+
+    private static func posixError(_ operation: String) -> NSError {
+        NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(errno),
+            userInfo: [NSLocalizedDescriptionKey: "\(operation) failed: \(String(cString: strerror(errno)))"]
+        )
+    }
+}
+
+private final class UnixSocketEventStreamResponder {
+    let path: String
+    private let eventSequences: [Int64]
+    private let queue = DispatchQueue(label: "com.cmux.tests.unix-socket-event-stream-responder")
+    private let lock = NSLock()
+    private var stopped = false
+    private var nextEventIndex = 0
+    private var requests: [String] = []
+    private var listenerFD: Int32 = -1
+
+    init(path: String, eventSequences: [Int64]) throws {
+        self.path = path
+        self.eventSequences = eventSequences
+
+        unlink(path)
+        listenerFD = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard listenerFD >= 0 else {
+            throw Self.posixError("socket")
+        }
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let maxLength = MemoryLayout.size(ofValue: address.sun_path)
+        guard path.utf8.count < maxLength else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(ENAMETOOLONG),
+                userInfo: [NSLocalizedDescriptionKey: "Unix socket path is too long: \(path)"]
+            )
+        }
+        path.withCString { pointer in
+            withUnsafeMutablePointer(to: &address.sun_path) { tuplePointer in
+                let buffer = UnsafeMutableRawPointer(tuplePointer).assumingMemoryBound(to: CChar.self)
+                strncpy(buffer, pointer, maxLength - 1)
+            }
+        }
+
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                Darwin.bind(listenerFD, socketPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            let error = Self.posixError("bind")
+            close(listenerFD)
+            listenerFD = -1
+            throw error
+        }
+        guard listen(listenerFD, 8) == 0 else {
+            let error = Self.posixError("listen")
+            close(listenerFD)
+            listenerFD = -1
+            throw error
+        }
+
+        let fd = listenerFD
+        queue.async { [weak self] in
+            self?.acceptLoop(listenerFD: fd)
+        }
+    }
+
+    deinit {
+        stop()
+    }
+
+    var receivedRequests: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return requests
+    }
+
+    func stop() {
+        lock.lock()
+        guard !stopped else {
+            lock.unlock()
+            return
+        }
+        stopped = true
+        let fd = listenerFD
+        listenerFD = -1
+        lock.unlock()
+
+        if fd >= 0 {
+            close(fd)
+        }
+        unlink(path)
+    }
+
+    private var isStopped: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return stopped
+    }
+
+    private func acceptLoop(listenerFD: Int32) {
+        while !isStopped {
+            let clientFD = accept(listenerFD, nil, nil)
+            if clientFD < 0 {
+                if isStopped {
+                    return
+                }
+                continue
+            }
+            handle(clientFD: clientFD)
+        }
+    }
+
+    private func handle(clientFD: Int32) {
+        defer { close(clientFD) }
+        guard let request = readLine(from: clientFD) else {
+            return
+        }
+
+        let sequence: Int64?
+        lock.lock()
+        requests.append(request)
+        if nextEventIndex < eventSequences.count {
+            sequence = eventSequences[nextEventIndex]
+            nextEventIndex += 1
+        } else {
+            sequence = nil
+        }
+        lock.unlock()
+
+        _ = writeLine([
+            "type": "ack",
+            "ok": true,
+            "protocol": "cmux-events",
+            "version": 1
+        ], to: clientFD)
+        _ = writeLine([
+            "type": "heartbeat",
+            "ok": true,
+            "protocol": "cmux-events",
+            "version": 1
+        ], to: clientFD)
+
+        if let sequence {
+            _ = writeLine([
+                "type": "event",
+                "protocol": "cmux-events",
+                "version": 1,
+                "seq": NSNumber(value: sequence),
+                "id": "test-\(sequence)",
+                "name": "test.event",
+                "category": "test",
+                "source": "test",
+                "payload": [:]
+            ], to: clientFD)
+        }
+    }
+
+    private func readLine(from fd: Int32) -> String? {
+        var request = Data()
+        while true {
+            var byte: UInt8 = 0
+            let count = read(fd, &byte, 1)
+            if count <= 0 {
+                return nil
+            }
+            request.append(byte)
+            if byte == 0x0A {
+                break
+            }
+        }
+        return String(data: request, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func writeLine(_ object: [String: Any], to fd: Int32) -> Bool {
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object),
+              let line = String(data: data, encoding: .utf8) else {
+            return false
+        }
+        return writeAll(Data((line + "\n").utf8), to: fd)
+    }
+
+    private func writeAll(_ data: Data, to fd: Int32) -> Bool {
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return true }
+            var offset = 0
+            while offset < rawBuffer.count {
+                let written = Darwin.write(fd, baseAddress.advanced(by: offset), rawBuffer.count - offset)
+                if written > 0 {
+                    offset += written
+                    continue
+                }
+                if written < 0, errno == EINTR {
+                    continue
+                }
+                return false
+            }
+            return true
         }
     }
 

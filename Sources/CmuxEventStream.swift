@@ -72,7 +72,7 @@ extension TerminalController {
 
     private nonisolated func writeEventsStreamLine(_ object: [String: Any], socket: Int32) -> Bool {
         guard let line = CmuxEventBus.encodeLine(object) else { return false }
-        return Self.writeAllToSocket(Data((line + "\n").utf8), to: socket)
+        return Self.writeAllToSocketNonBlocking(Data((line + "\n").utf8), to: socket)
     }
 
     private nonisolated static func stringSet(_ value: Any?) -> Set<String> {

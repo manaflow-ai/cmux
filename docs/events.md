@@ -11,7 +11,7 @@ from the same connection.
 ## Quick start
 
 ```bash
-cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
+cmux events --cursor-file ~/.cache/cmux/events.seq
 cmux events --category window --category workspace --category pane --category surface
 cmux events --category notification
 cmux events --category feed --category agent --no-heartbeat
@@ -202,7 +202,7 @@ Options:
 | `--cursor-file <path>` | Read the starting sequence from a file and update it after each event. |
 | `--name <event>` | Filter by event name. Repeatable. |
 | `--category <name>` | Filter by category. Repeatable. |
-| `--reconnect` | Reconnect forever and resume from the last received event. |
+| `--no-reconnect` | Exit instead of reconnecting after transient disconnects. |
 | `--limit <n>` | Exit after printing `n` event frames. |
 | `--no-ack` | Hide the initial ack frame. |
 | `--no-heartbeat` | Hide heartbeat frames. |

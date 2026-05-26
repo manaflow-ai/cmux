@@ -343,7 +343,7 @@ Events command:
 | `--cursor-file <path>` | Read the starting sequence from a file and update it after every event. |
 | `--name <event>` | Filter by event name. Repeatable. |
 | `--category <name>` | Filter by category. Repeatable. |
-| `--reconnect` | Reconnect and resume from the last received sequence until interrupted. |
+| `--no-reconnect` | Exit instead of reconnecting after transient disconnects. |
 | `--limit <n>` | Exit after printing `n` event frames. |
 | `--no-ack` | Suppress the initial ack frame in stdout. |
 | `--no-heartbeat`, `--no-heartbeats` | Suppress heartbeat frames in stdout. |
@@ -353,6 +353,8 @@ response frame is an `ack`; sequence resume metadata lives under `ack.resume` as
 `after_seq`, `oldest_seq`, `latest_seq`, `next_seq`, and `gap`. Event frames
 carry a process-local monotonic `seq` and a stable `id` for dedupe. Clients
 should persist `seq` after processing each event and reconnect with that value.
+The bundled `cmux events` command reconnects by default and resumes from the
+last received sequence; use `--no-reconnect` for one-shot failure behavior.
 See [events.md](events.md) for the full protocol and event catalog. Every emitted event is also appended to
 `~/.cmuxterm/events.jsonl`, including model lifecycle events for window
 creation, close, focus, key-window state, workspace selection, pane focus, and

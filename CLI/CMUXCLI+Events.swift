@@ -10,7 +10,7 @@ extension CMUXCLI {
         var cursorFile: String?
         var names: [String] = []
         var categories: [String] = []
-        var reconnect = false
+        var reconnect = true
         var limit: Int?
         var printAck = true
         var printHeartbeats = true
@@ -113,6 +113,8 @@ extension CMUXCLI {
                 "timed out waiting for event stream frame",
                 "stream request timed out",
                 "failed to write stream request",
+                "slow_consumer",
+                "pending event buffer exceeded",
                 "broken pipe",
                 "connection reset",
                 "connection refused",
@@ -172,6 +174,8 @@ extension CMUXCLI {
                 options.categories.append(try requireValue())
             case "--reconnect":
                 options.reconnect = true
+            case "--no-reconnect":
+                options.reconnect = false
             case "--limit":
                 let raw = try requireValue()
                 guard let limit = Int(raw), limit > 0 else {
@@ -197,8 +201,9 @@ extension CMUXCLI {
         }
         if let ok = object["ok"] as? Bool, ok == false {
             let error = object["error"] as? [String: Any]
+            let code = error?["code"] as? String
             let message = error?["message"] as? String ?? "event stream error"
-            throw CLIError(message: message)
+            throw CLIError(message: code.map { "\($0): \(message)" } ?? message)
         }
         return object
     }
