@@ -2829,6 +2829,17 @@ struct CMUXCLI {
             return
         }
 
+        if command == "layout",
+           layoutCommandDoesNotNeedSocket(commandArgs) {
+            try runLayoutCommand(
+                commandArgs: commandArgs,
+                client: nil,
+                jsonOutput: jsonOutput,
+                idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
+            )
+            return
+        }
+
         let envSocketPath = explicitSocketPath == nil
             ? try CLISocketEnvironment.socketPath(in: processEnv)
             : CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
@@ -3656,6 +3667,14 @@ struct CMUXCLI {
                 let sendParams: [String: Any] = ["text": text, "workspace_id": wsId]
                 _ = try client.sendV2(method: "surface.send_text", params: sendParams)
             }
+
+        case "layout":
+            try runLayoutCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat
+            )
 
         case "new-split":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
@@ -4550,16 +4569,6 @@ struct CMUXCLI {
         if expanded.hasPrefix("/") { return expanded }
         let cwd = FileManager.default.currentDirectoryPath
         return (cwd as NSString).appendingPathComponent(expanded)
-    }
-
-    private func sanitizedFilenameComponent(_ raw: String) -> String {
-        let sanitized = raw.replacingOccurrences(
-            of: #"[^\p{L}\p{N}._-]+"#,
-            with: "-",
-            options: .regularExpression
-        )
-        let trimmed = sanitized.trimmingCharacters(in: CharacterSet(charactersIn: "-."))
-        return trimmed.isEmpty ? "item" : trimmed
     }
 
     private func bestEffortPruneTemporaryFiles(
@@ -11691,6 +11700,8 @@ struct CMUXCLI {
             return settingsUsage()
         case "config":
             return configUsage()
+        case "layout":
+            return layoutUsage()
         case "welcome":
             return """
             Usage: cmux welcome
@@ -29793,6 +29804,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
+          layout <save|open|export|import|list|path> [options]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]

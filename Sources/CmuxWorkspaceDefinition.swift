@@ -34,3 +34,71 @@ struct CmuxWorkspaceDefinition: Codable, Sendable {
         }
     }
 }
+
+struct CmuxWorkspacePresetDefinition: Codable, Sendable {
+    static let currentSchema = "cmux.workspacePreset.v1"
+
+    var schema: String
+    var name: String
+    var workspace: CmuxWorkspaceDefinition
+
+    enum CodingKeys: String, CodingKey {
+        case schema
+        case name
+        case workspace
+    }
+
+    init(
+        schema: String = Self.currentSchema,
+        name: String,
+        workspace: CmuxWorkspaceDefinition
+    ) {
+        self.schema = schema
+        self.name = name
+        self.workspace = workspace
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schema = try container.decodeIfPresent(String.self, forKey: .schema) ?? Self.currentSchema
+        name = try Self.validatedPresetName(
+            try container.decode(String.self, forKey: .name),
+            codingPath: container.codingPath + [CodingKeys.name]
+        )
+        workspace = try container.decode(CmuxWorkspaceDefinition.self, forKey: .workspace)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(Self.currentSchema, forKey: .schema)
+        try container.encode(name, forKey: .name)
+        try container.encode(workspace, forKey: .workspace)
+    }
+
+    private static func validatedPresetName(_ raw: String, codingPath: [CodingKey]) throws -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: codingPath,
+                debugDescription: "Preset name must not be empty"
+            ))
+        }
+
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        guard trimmed.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: codingPath,
+                debugDescription: "Preset names may contain only letters, numbers, '.', '_', and '-'"
+            ))
+        }
+
+        guard !trimmed.contains("..") else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: codingPath,
+                debugDescription: "Preset names may not contain '..'"
+            ))
+        }
+
+        return trimmed
+    }
+}

@@ -1410,15 +1410,30 @@ extension Workspace {
         // subsequent leaves were created via newTerminalSplit which also seeds
         // a placeholder terminal.
         var focusPanelId: UUID?
+        var selectedTabIdByPaneId: [PaneID: TabID] = [:]
         for leaf in leaves {
-            populateCustomPane(leaf.paneId, surfaces: leaf.surfaces, baseCwd: baseCwd, focusPanelId: &focusPanelId)
+            populateCustomPane(
+                leaf.paneId,
+                surfaces: leaf.surfaces,
+                baseCwd: baseCwd,
+                focusPanelId: &focusPanelId,
+                selectedTabIdByPaneId: &selectedTabIdByPaneId
+            )
         }
 
         let liveRoot = bonsplitController.treeSnapshot()
         applyCustomDividerPositions(configNode: layout, liveNode: liveRoot)
 
         if let focusPanelId {
+            let focusedPaneId = paneId(forPanelId: focusPanelId)
             focusPanel(focusPanelId)
+            // `focusPanel` selects the focused surface; re-apply an explicit selected
+            // marker for the same pane so imported presets can keep selection metadata.
+            if let focusedPaneId,
+               let selectedTabId = selectedTabIdByPaneId[focusedPaneId],
+               selectedTabId != surfaceIdFromPanelId(focusPanelId) {
+                bonsplitController.selectTab(selectedTabId)
+            }
         }
     }
 
@@ -1470,7 +1485,8 @@ extension Workspace {
         _ paneId: PaneID,
         surfaces: [CmuxSurfaceDefinition],
         baseCwd: String,
-        focusPanelId: inout UUID?
+        focusPanelId: inout UUID?,
+        selectedTabIdByPaneId: inout [PaneID: TabID]
     ) {
         let existingPanelIds = bonsplitController
             .tabs(inPane: paneId)
@@ -1485,7 +1501,8 @@ extension Workspace {
                 inPane: paneId,
                 surface: firstSurface,
                 baseCwd: baseCwd,
-                focusPanelId: &focusPanelId
+                focusPanelId: &focusPanelId,
+                selectedTabIdByPaneId: &selectedTabIdByPaneId
             )
         }
 
@@ -1494,7 +1511,8 @@ extension Workspace {
                 inPane: paneId,
                 surface: surfaces[surfaceIndex],
                 baseCwd: baseCwd,
-                focusPanelId: &focusPanelId
+                focusPanelId: &focusPanelId,
+                selectedTabIdByPaneId: &selectedTabIdByPaneId
             )
         }
     }
@@ -1504,7 +1522,8 @@ extension Workspace {
         inPane paneId: PaneID,
         surface: CmuxSurfaceDefinition,
         baseCwd: String,
-        focusPanelId: inout UUID?
+        focusPanelId: inout UUID?,
+        selectedTabIdByPaneId: inout [PaneID: TabID]
     ) {
         switch surface.type {
         case .terminal where surface.cwd != nil || surface.env != nil:
@@ -1518,13 +1537,25 @@ extension Workspace {
             ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
+                applyCustomSurfaceSelection(
+                    panelId: panel.id,
+                    inPane: paneId,
+                    surface: surface,
+                    focusPanelId: &focusPanelId,
+                    selectedTabIdByPaneId: &selectedTabIdByPaneId
+                )
                 if let command = surface.command { sendInputWhenReady(command + "\n", to: panel) }
             }
 
         case .terminal:
             if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
-            if surface.focus == true { focusPanelId = panelId }
+            applyCustomSurfaceSelection(
+                panelId: panelId,
+                inPane: paneId,
+                surface: surface,
+                focusPanelId: &focusPanelId,
+                selectedTabIdByPaneId: &selectedTabIdByPaneId
+            )
             if let command = surface.command, let terminal = terminalPanel(for: panelId) {
                 sendInputWhenReady(command + "\n", to: terminal)
             }
@@ -1539,7 +1570,13 @@ extension Workspace {
             ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
+                applyCustomSurfaceSelection(
+                    panelId: panel.id,
+                    inPane: paneId,
+                    surface: surface,
+                    focusPanelId: &focusPanelId,
+                    selectedTabIdByPaneId: &selectedTabIdByPaneId
+                )
             }
         }
     }
@@ -1548,7 +1585,8 @@ extension Workspace {
         inPane paneId: PaneID,
         surface: CmuxSurfaceDefinition,
         baseCwd: String,
-        focusPanelId: inout UUID?
+        focusPanelId: inout UUID?,
+        selectedTabIdByPaneId: inout [PaneID: TabID]
     ) {
         switch surface.type {
         case .terminal:
@@ -1560,7 +1598,13 @@ extension Workspace {
                 startupEnvironment: surface.env ?? [:]
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
+                applyCustomSurfaceSelection(
+                    panelId: panel.id,
+                    inPane: paneId,
+                    surface: surface,
+                    focusPanelId: &focusPanelId,
+                    selectedTabIdByPaneId: &selectedTabIdByPaneId
+                )
                 if let command = surface.command { sendInputWhenReady(command + "\n", to: panel) }
             }
 
@@ -1573,8 +1617,31 @@ extension Workspace {
                 creationPolicy: .restoration
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
+                applyCustomSurfaceSelection(
+                    panelId: panel.id,
+                    inPane: paneId,
+                    surface: surface,
+                    focusPanelId: &focusPanelId,
+                    selectedTabIdByPaneId: &selectedTabIdByPaneId
+                )
             }
+        }
+    }
+
+    private func applyCustomSurfaceSelection(
+        panelId: UUID,
+        inPane paneId: PaneID,
+        surface: CmuxSurfaceDefinition,
+        focusPanelId: inout UUID?,
+        selectedTabIdByPaneId: inout [PaneID: TabID]
+    ) {
+        if surface.selected == true,
+           let tabId = surfaceIdFromPanelId(panelId) {
+            selectedTabIdByPaneId[paneId] = tabId
+            bonsplitController.selectTab(tabId)
+        }
+        if surface.focus == true {
+            focusPanelId = panelId
         }
     }
 
@@ -1598,6 +1665,148 @@ extension Workspace {
         default:
             break
         }
+    }
+
+    enum CustomLayoutExportError: LocalizedError {
+        case emptyPane
+        case unsupportedSurfaceTypes([String])
+
+        var errorDescription: String? {
+            switch self {
+            case .emptyPane:
+                return String(
+                    localized: "workspace.layoutExport.error.emptyPane",
+                    defaultValue: "A pane has no exportable surfaces"
+                )
+            case .unsupportedSurfaceTypes(let types):
+                return String.localizedStringWithFormat(
+                    String(
+                        localized: "workspace.layoutExport.error.unsupportedSurfaceTypes",
+                        defaultValue: "Layout export supports terminal and browser surfaces only; unsupported surfaces: %@"
+                    ),
+                    types.joined(separator: ", ")
+                )
+            }
+        }
+    }
+
+    func exportCustomLayoutDefinition() throws -> CmuxLayoutNode {
+        var unsupportedSurfaces: [String] = []
+        let node = try exportCustomLayoutNode(
+            bonsplitController.treeSnapshot(),
+            unsupportedSurfaces: &unsupportedSurfaces
+        )
+        if !unsupportedSurfaces.isEmpty {
+            throw CustomLayoutExportError.unsupportedSurfaceTypes(unsupportedSurfaces)
+        }
+        return node
+    }
+
+    private func exportCustomLayoutNode(
+        _ node: ExternalTreeNode,
+        unsupportedSurfaces: inout [String]
+    ) throws -> CmuxLayoutNode {
+        switch node {
+        case .pane(let pane):
+            var surfaces: [CmuxSurfaceDefinition] = []
+            let unsupportedCountBefore = unsupportedSurfaces.count
+            for tab in pane.tabs {
+                guard let tabUUID = UUID(uuidString: tab.id),
+                      let panelId = panelIdFromSurfaceId(TabID(uuid: tabUUID)),
+                      let panel = panels[panelId] else {
+                    continue
+                }
+                guard let surface = exportCustomSurfaceDefinition(
+                    panel: panel,
+                    panelId: panelId,
+                    selectedTabId: pane.selectedTabId
+                ) else {
+                    unsupportedSurfaces.append(publicLayoutSurfaceTypeLabel(for: panel.panelType))
+                    continue
+                }
+                surfaces.append(surface)
+            }
+
+            guard !surfaces.isEmpty else {
+                let paneUnsupportedSurfaces = Array(unsupportedSurfaces[unsupportedCountBefore...])
+                if !paneUnsupportedSurfaces.isEmpty {
+                    throw CustomLayoutExportError.unsupportedSurfaceTypes(paneUnsupportedSurfaces)
+                }
+                throw CustomLayoutExportError.emptyPane
+            }
+            return .pane(CmuxPaneDefinition(surfaces: surfaces))
+
+        case .split(let split):
+            let direction: CmuxSplitDirection = split.orientation == "vertical" ? .vertical : .horizontal
+            return .split(CmuxSplitDefinition(
+                direction: direction,
+                split: split.dividerPosition,
+                children: [
+                    try exportCustomLayoutNode(split.first, unsupportedSurfaces: &unsupportedSurfaces),
+                    try exportCustomLayoutNode(split.second, unsupportedSurfaces: &unsupportedSurfaces)
+                ]
+            ))
+        }
+    }
+
+    private func exportCustomSurfaceDefinition(
+        panel: any Panel,
+        panelId: UUID,
+        selectedTabId: String?
+    ) -> CmuxSurfaceDefinition? {
+        let title = normalizedExportString(panelTitle(panelId: panelId) ?? panel.displayTitle)
+        let isSelected = surfaceIdFromPanelId(panelId)?.uuid.uuidString == selectedTabId
+        let isFocused = panelId == focusedPanelId
+
+        switch panel.panelType {
+        case .terminal:
+            let terminal = panel as? TerminalPanel
+            return CmuxSurfaceDefinition(
+                type: .terminal,
+                name: title,
+                command: normalizedExportString(terminal?.surface.debugInitialCommand()),
+                cwd: normalizedExportString(terminal?.requestedWorkingDirectory ?? panelDirectories[panelId]),
+                env: nil,
+                url: nil,
+                selected: isSelected ? true : nil,
+                focus: isFocused ? true : nil
+            )
+        case .browser:
+            let browser = panel as? BrowserPanel
+            return CmuxSurfaceDefinition(
+                type: .browser,
+                name: title,
+                command: nil,
+                cwd: nil,
+                env: nil,
+                url: normalizedExportString(browser?.currentURL?.absoluteString),
+                selected: isSelected ? true : nil,
+                focus: isFocused ? true : nil
+            )
+        case .markdown, .filePreview, .rightSidebarTool:
+            return nil
+        }
+    }
+
+    private func publicLayoutSurfaceTypeLabel(for panelType: PanelType) -> String {
+        switch panelType {
+        case .terminal:
+            return String(localized: "workspace.layoutExport.surfaceType.terminal", defaultValue: "Terminal")
+        case .browser:
+            return String(localized: "workspace.layoutExport.surfaceType.browser", defaultValue: "Browser")
+        case .markdown:
+            return String(localized: "workspace.layoutExport.surfaceType.markdown", defaultValue: "Markdown")
+        case .filePreview:
+            return String(localized: "workspace.layoutExport.surfaceType.filePreview", defaultValue: "File Preview")
+        case .rightSidebarTool:
+            return String(localized: "workspace.layoutExport.surfaceType.rightSidebar", defaultValue: "Right Sidebar")
+        }
+    }
+
+    private func normalizedExportString(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func sendInputWhenReady(

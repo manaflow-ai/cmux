@@ -53,6 +53,7 @@ Environment:
 | `CMUX_WORKSPACE_ID` | Default workspace context inside cmux terminals. |
 | `CMUX_SURFACE_ID` | Default surface context inside cmux terminals. |
 | `CMUX_TAB_ID` | Default tab context for tab commands. |
+| `CMUX_LAYOUT_PRESET_DIR` | Override the directory used by `cmux layout` presets. Defaults to `~/.config/cmux/layouts`. |
 
 ## Top-Level Commands
 
@@ -98,6 +99,7 @@ Environment:
 | `move-tab-to-new-workspace` | Move a tab or surface into a newly created workspace. |
 | `list-workspaces` | List workspaces. |
 | `new-workspace` | Create a workspace, optionally with cwd, command, description, and layout. |
+| `layout` | Save, open, import, export, list, and locate named workspace layout presets. |
 | `ssh` | Open an SSH-backed workspace. |
 | `remote-daemon-status` | Print bundled remote daemon version, asset, checksum, and cache status. |
 | `new-split` | Split from a surface in a direction. |
@@ -200,6 +202,17 @@ Theme subcommands:
 | `themes set --light <theme>` | Set the light appearance theme. |
 | `themes set --dark <theme>` | Set the dark appearance theme. |
 | `themes clear` | Remove the cmux theme override. |
+
+Layout preset subcommands:
+
+| Command | Contract |
+| --- | --- |
+| `layout save <name>` | Export a workspace layout through `workspace.layout_export` and store it as `<name>.json` under the preset directory. Supports `--workspace`. |
+| `layout open <name>` | Read a stored preset and create a workspace with the saved layout through `workspace.create`. Supports `--cwd`, `--title`, and `--focus`; default focus is false. |
+| `layout export` | Print the current workspace layout preset as JSON, or write it with `--out`/`--output`. Supports `--workspace` and `--name`. |
+| `layout import <path>` | Canonicalize a JSON/JSONC preset or layout object and store it under the preset directory. Supports `--name`. |
+| `layout list`, `layout ls` | List stored presets without requiring a socket. Supports `--json`. |
+| `layout path` | Print the active preset directory without requiring a socket. Supports `--json`. |
 
 Workspace and tab action names:
 
@@ -424,6 +437,7 @@ the expected text without connecting to a cmux socket.
 - `cmux rename-tab --help` -> `Usage: cmux rename-tab`
 - `cmux new-workspace --help` -> `Usage: cmux new-workspace`
 - `cmux list-workspaces --help` -> `Usage: cmux list-workspaces`
+- `cmux layout --help` -> `Usage: cmux layout <save|open|export|import|list|path> [options]`
 - `cmux ssh --help` -> `Usage: cmux ssh <destination>`
 - `cmux new-split --help` -> `Usage: cmux new-split`
 - `cmux list-panes --help` -> `Usage: cmux list-panes`
