@@ -567,12 +567,20 @@ jobs:
 
       - name: Move nightly tag to built commit
         if: needs.decide.outputs.should_publish == 'true' && steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -f nightly "${{ needs.decide.outputs.head_sha }}"
-          git push origin refs/tags/nightly --force
+          # Push via a tokenized URL so we neither rely on the persisted
+          # checkout credentials (which intermittently fail with "Device not
+          # configured" on self-hosted runners) nor overlay a second
+          # Authorization header on top of them (which makes GitHub reject the
+          # push with `remote: Duplicate header: "Authorization"`).
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            refs/tags/nightly --force
 
       - name: Prune old nightly release assets
         if: needs.decide.outputs.should_publish == 'true' && steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true'
