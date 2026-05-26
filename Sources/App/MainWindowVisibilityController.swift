@@ -693,12 +693,12 @@ final class QuickTerminalController {
         placementProvider: @escaping @MainActor (QuickTerminalConfiguration) -> QuickTerminalPlacement? = { configuration in
             QuickTerminalPlacement.current(configuration: configuration)
         },
-        dependencies: Dependencies = .live
+        dependencies: Dependencies? = nil
     ) {
         self.appDelegate = appDelegate
         self.configurationProvider = configurationProvider
         self.placementProvider = placementProvider
-        self.dependencies = dependencies
+        self.dependencies = dependencies ?? Dependencies.live
     }
 
     func toggle() {
