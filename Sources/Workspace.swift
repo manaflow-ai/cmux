@@ -8362,6 +8362,14 @@ final class WorkspaceRemoteSessionController {
         queue.asyncAfter(deadline: deadline) { [weak self] in
             guard let self else { return }
             guard self.remotePortScanGeneration == generation else { return }
+            guard self.workspaceSchedulersEnabledLocked() else {
+                self.remotePortScanBurstActive = false
+                self.remotePortScanActiveReason = nil
+                if !self.remotePortScanTTYNames.isEmpty {
+                    self.remotePortScanPendingReason = self.remotePortScanPendingReason?.merged(with: .refresh) ?? .refresh
+                }
+                return
+            }
             self.performRemotePortScanLocked()
             self.runRemotePortScanBurstLocked(
                 index: index + 1,
