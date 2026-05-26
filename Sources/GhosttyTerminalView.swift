@@ -2088,7 +2088,7 @@ class GhosttyApp {
             GhosttyApp.runtimeApp(from: userdata)?.scheduleTick()
         }
         runtimeConfig.action_cb = { app, target, action in
-            guard let runtimeApp = GhosttyApp.runtimeApp(from: app) else { return false }
+            guard let runtimeApp = GhosttyApp.runtimeApp(fromApp: app) else { return false }
             return runtimeApp.handleAction(target: target, action: action)
         }
         // Some GhosttyKit builds import this callback as returning `Void` in Swift even
@@ -4209,7 +4209,7 @@ class GhosttyApp {
         return Unmanaged<GhosttyApp>.fromOpaque(userdata).takeUnretainedValue()
     }
 
-    private static func runtimeApp(from app: ghostty_app_t?) -> GhosttyApp? {
+    private static func runtimeApp(fromApp app: ghostty_app_t?) -> GhosttyApp? {
         guard let app else { return nil }
         guard let userdata = ghostty_app_userdata(app) else { return nil }
         return runtimeApp(from: userdata)
