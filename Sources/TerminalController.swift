@@ -10693,10 +10693,9 @@ class TerminalController {
             return error
         }
 
-        var result: Result<NamedSessionSummary, Error> = .failure(NamedSessionPersistenceError.restoreFailed)
+        var result: Result<NamedSessionSummary, Error>?
         v2MainSync {
             guard let appDelegate = AppDelegate.shared else {
-                result = .failure(NamedSessionPersistenceError.restoreFailed)
                 return
             }
             do {
@@ -10704,6 +10703,17 @@ class TerminalController {
             } catch {
                 result = .failure(error)
             }
+        }
+
+        guard let result else {
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized: "terminal.namedSession.unavailable",
+                    defaultValue: "Named session operation failed"
+                ),
+                data: nil
+            )
         }
 
         switch result {
