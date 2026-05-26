@@ -26,11 +26,8 @@ nonisolated enum GitDiffReviewFileStatus: Equatable, Sendable {
             return String(localized: "codeReview.status.untracked", defaultValue: "Untracked")
         case .typeChanged:
             return String(localized: "codeReview.status.typeChanged", defaultValue: "Type changed")
-        case .unknown(let raw):
-            return String.localizedStringWithFormat(
-                String(localized: "codeReview.status.unknown", defaultValue: "Unknown (%@)"),
-                raw
-            )
+        case .unknown:
+            return String(localized: "codeReview.status.unknown", defaultValue: "Unknown")
         }
     }
 }
