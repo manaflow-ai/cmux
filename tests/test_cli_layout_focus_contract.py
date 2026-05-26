@@ -158,10 +158,16 @@ def run_cli(
     return proc.stdout.strip()
 
 
-def run_cli_without_socket(cli: str, args: list[str]) -> str:
+def run_cli_without_socket(
+    cli: str,
+    args: list[str],
+    env_overrides: dict[str, str] | None = None,
+) -> str:
     env = dict(os.environ)
     for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET", "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
         env.pop(key, None)
+    if env_overrides:
+        env.update(env_overrides)
     proc = subprocess.run(
         [cli, *args],
         capture_output=True,
@@ -226,6 +232,15 @@ def main() -> int:
             help_text = run_cli_without_socket(cli, ["layout", "--help"])
             if "Usage: cmux layout" not in help_text:
                 raise AssertionError(f"layout help missing usage: {help_text!r}")
+
+            path_text = run_cli_without_socket(cli, ["layout", "path"], layout_env)
+            if Path(path_text) != Path(layout_dir):
+                raise AssertionError(f"layout path ignored CMUX_LAYOUT_PRESET_DIR: {path_text!r}")
+
+            list_text = run_cli_without_socket(cli, ["layout", "list", "--json"], layout_env)
+            listed = json.loads(list_text)
+            if listed != {"presets": []}:
+                raise AssertionError(f"layout list should work without a socket: {listed!r}")
 
             run_cli(cli, socket_path, ["new-workspace", "--name", "agent"])
             assert_last_call(state, "workspace.create", {"title": "agent", "focus": False})

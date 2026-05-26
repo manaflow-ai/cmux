@@ -164,7 +164,7 @@ extension CMUXCLI {
                         }
                     }
                 } catch {
-                    entry["error"] = error.localizedDescription
+                    entry["error"] = String(describing: error)
                 }
                 return entry
             }
@@ -477,7 +477,7 @@ extension CMUXCLI {
             throw CLIError(message: String.localizedStringWithFormat(
                 String(localized: "cli.layout.error.readFailed", defaultValue: "Failed to read %@: %@"),
                 url.path,
-                error.localizedDescription
+                String(describing: error)
             ))
         }
 
@@ -505,7 +505,7 @@ extension CMUXCLI {
             throw CLIError(message: String.localizedStringWithFormat(
                 String(localized: "cli.layout.error.parseFailed", defaultValue: "Failed to parse %@: %@"),
                 url.path,
-                error.localizedDescription
+                String(describing: error)
             ))
         }
     }

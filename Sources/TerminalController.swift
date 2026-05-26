@@ -5567,7 +5567,11 @@ class TerminalController {
 
     private func v2WorkspaceLayoutExport(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(
+                code: "unavailable",
+                message: String(localized: "workspace.layoutExport.error.unavailable", defaultValue: "Workspace is unavailable"),
+                data: nil
+            )
         }
 
         let requestedName = v2RawString(params, "name")?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5576,14 +5580,14 @@ class TerminalController {
 
         v2MainSync {
             guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                failure = "Workspace not found"
+                failure = String(localized: "workspace.layoutExport.error.workspaceNotFound", defaultValue: "Workspace not found")
                 return
             }
 
             do {
                 let layout = try workspace.exportCustomLayoutDefinition()
                 guard let layoutObject = v2JSONObject(layout) as? [String: Any] else {
-                    failure = "Failed to encode layout"
+                    failure = String(localized: "workspace.layoutExport.error.encodeFailed", defaultValue: "Failed to export workspace layout")
                     return
                 }
 
@@ -5606,8 +5610,11 @@ class TerminalController {
                     "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
                     "workspace": workspaceObject
                 ]
+            } catch let exportError as Workspace.CustomLayoutExportError {
+                failure = exportError.errorDescription
+                    ?? String(localized: "workspace.layoutExport.error.failed", defaultValue: "Failed to export workspace layout")
             } catch {
-                failure = error.localizedDescription
+                failure = String(localized: "workspace.layoutExport.error.failed", defaultValue: "Failed to export workspace layout")
             }
         }
 
@@ -5619,7 +5626,11 @@ class TerminalController {
             return .ok(out)
         }
 
-        return .err(code: "invalid_state", message: failure ?? "Failed to export workspace layout", data: nil)
+        return .err(
+            code: "invalid_state",
+            message: failure ?? String(localized: "workspace.layoutExport.error.failed", defaultValue: "Failed to export workspace layout"),
+            data: nil
+        )
     }
 
     private func v2WorkspaceSelect(params: [String: Any]) -> V2CallResult {

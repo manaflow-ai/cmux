@@ -1721,7 +1721,7 @@ extension Workspace {
                     panelId: panelId,
                     selectedTabId: pane.selectedTabId
                 ) else {
-                    unsupportedSurfaces.append(panel.panelType.rawValue)
+                    unsupportedSurfaces.append(publicLayoutSurfaceTypeLabel(for: panel.panelType))
                     continue
                 }
                 surfaces.append(surface)
@@ -1785,6 +1785,21 @@ extension Workspace {
             )
         case .markdown, .filePreview, .rightSidebarTool:
             return nil
+        }
+    }
+
+    private func publicLayoutSurfaceTypeLabel(for panelType: PanelType) -> String {
+        switch panelType {
+        case .terminal:
+            return String(localized: "workspace.layoutExport.surfaceType.terminal", defaultValue: "Terminal")
+        case .browser:
+            return String(localized: "workspace.layoutExport.surfaceType.browser", defaultValue: "Browser")
+        case .markdown:
+            return String(localized: "workspace.layoutExport.surfaceType.markdown", defaultValue: "Markdown")
+        case .filePreview:
+            return String(localized: "workspace.layoutExport.surfaceType.filePreview", defaultValue: "File Preview")
+        case .rightSidebarTool:
+            return String(localized: "workspace.layoutExport.surfaceType.rightSidebar", defaultValue: "Right Sidebar")
         }
     }
 
