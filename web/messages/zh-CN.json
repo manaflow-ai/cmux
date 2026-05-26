@@ -980,7 +980,7 @@
       "supportedNote": "启用 Claude 集成时，Claude Code 由 cmux Claude wrapper 处理。Antigravity 也接受 agy 作为 setup 别名，Rovo Dev 接受 rovo。",
       "manualTitle": "手动恢复",
       "manualDesc": "cmux 正常启动时会恢复最后保存的 snapshot。你也可以手动重新应用上一个 snapshot：",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "关闭 agent 自动恢复",
       "disableDesc": "如需只恢复 pane 而不启动保存的 agent resume 命令，请关闭 Settings > Terminal > Resume Agent Sessions on Reopen 或设置：",
       "disableNote": "这只会关闭 agent resume 命令。cmux 仍会恢复布局、工作目录、scrollback 和浏览器历史。",
