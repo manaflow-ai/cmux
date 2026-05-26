@@ -2836,6 +2836,38 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stderr, "")
     }
 
+    func testFileHandleSafeReadToEndCapturesDataWithoutThrowingReaders() throws {
+        let pipe = Pipe()
+        let expected = Data("pane output before child exit".utf8)
+        pipe.fileHandleForWriting.write(expected)
+        try pipe.fileHandleForWriting.close()
+
+        let result = pipe.fileHandleForReading.cmuxReadToEnd()
+
+        switch result {
+        case .success(let data):
+            XCTAssertEqual(data, expected)
+        case .failure(let error):
+            XCTFail("Expected safe read to capture data, got \(error)")
+        }
+    }
+
+    func testFileHandleSafeAvailableReadReportsClosedDescriptorAsFailure() throws {
+        let pipe = Pipe()
+        let readHandle = pipe.fileHandleForReading
+        try pipe.fileHandleForWriting.close()
+        try readHandle.close()
+
+        let result = readHandle.cmuxReadAvailableData()
+
+        switch result {
+        case .success(let data):
+            XCTFail("Expected closed descriptor failure, got \(data.count) bytes")
+        case .failure:
+            break
+        }
+    }
+
     func testAgentHookLaunchEnvironmentDoesNotPersistPathOrShell() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("hook")
