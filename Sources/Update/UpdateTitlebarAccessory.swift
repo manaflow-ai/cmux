@@ -2250,6 +2250,13 @@ private struct NotificationsPopoverView: View {
                                 withAnimation(.easeOut(duration: 0.18)) {
                                     notificationStore.remove(id: notification.id)
                                 }
+                            },
+                            onToggleRead: {
+                                if notification.isRead {
+                                    notificationStore.markUnread(id: notification.id)
+                                } else {
+                                    notificationStore.markRead(id: notification.id)
+                                }
                             }
                         )
                         if index < notificationStore.notifications.count - 1 {
@@ -2322,6 +2329,7 @@ private struct NotificationPopoverRow: View {
     let tabTitle: String?
     let onOpen: () -> Void
     let onClear: () -> Void
+    let onToggleRead: () -> Void
 
     @State private var dragOffset: CGFloat = 0
     @State private var isHovering: Bool = false
@@ -2334,9 +2342,7 @@ private struct NotificationPopoverRow: View {
             dismissBackground
             rowContent
                 .background(
-                    Color.primary
-                        .opacity(isHovering ? 0.11 : 0)
-                        .animation(.easeOut(duration: 0.12), value: isHovering)
+                    Color.primary.opacity(isHovering ? 0.11 : 0)
                 )
                 .offset(x: dragOffset)
                 .gesture(
@@ -2381,6 +2387,27 @@ private struct NotificationPopoverRow: View {
         // XCUITest's `.click()` is not always reliable for SwiftUI button-like rows hosted in an
         // `NSPopover`. Provide an explicit accessibility action so AXPress always routes to onOpen.
         .accessibilityAction { onOpen() }
+        .contextMenu {
+            Button(String(localized: "notifications.open", defaultValue: "Open")) {
+                onOpen()
+            }
+            if notification.isRead {
+                Button(String(localized: "notifications.markAsUnread", defaultValue: "Mark as Unread")) {
+                    onToggleRead()
+                }
+            } else {
+                Button(String(localized: "notifications.markAsRead", defaultValue: "Mark as Read")) {
+                    onToggleRead()
+                }
+            }
+            Divider()
+            Button(String(localized: "notifications.dismiss", defaultValue: "Dismiss"), role: .destructive) {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    dragOffset = -600
+                }
+                onClear()
+            }
+        }
     }
 
     private var dismissBackground: some View {
@@ -2422,7 +2449,6 @@ private struct NotificationPopoverRow: View {
                     Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
                         .font(.system(size: 10.5))
                         .foregroundColor(.secondary)
-                        .opacity(isHovering ? 0 : 1)
                         .padding(.trailing, 34)
                 }
 

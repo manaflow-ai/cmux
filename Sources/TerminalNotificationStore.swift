@@ -1564,6 +1564,14 @@ final class TerminalNotificationStore: ObservableObject {
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }
 
+    func markUnread(id: UUID) {
+        var updated = notifications
+        guard let index = updated.firstIndex(where: { $0.id == id }) else { return }
+        guard updated[index].isRead else { return }
+        updated[index].isRead = false
+        notifications = updated
+    }
+
     func markRead(forTabId tabId: UUID) {
         var updated = notifications
         var idsToClear: [String] = []
