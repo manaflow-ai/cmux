@@ -2623,6 +2623,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         )
         controller.moveCanvasItem(newItem.id, to: newFrame)
         _ = controller.focusCanvasItem(newItem.id)
+        _ = workspace.activateCanvasItem(newItem.id)
     }
 
     private func firstAvailableCanvasFrame(
