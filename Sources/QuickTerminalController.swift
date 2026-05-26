@@ -374,12 +374,16 @@ final class QuickTerminalController: NSObject, NSWindowDelegate {
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        let settings = QuickTerminalSettings.resolved()
-        guard settings.autoHide else { return }
-        guard phase.canAutoHide else { return }
         guard let panel = notification.object as? NSWindow, panel === self.panel else { return }
         guard panel.attachedSheet == nil else { return }
-        hide(restorePreviousApp: false)
+        guard phase.canAutoHide else { return }
+
+        let settings = QuickTerminalSettings.resolved()
+        if settings.autoHide {
+            hide(restorePreviousApp: false)
+        } else {
+            previousFrontmostApp = nil
+        }
     }
 
     private func replayPendingTransitionActionIfNeeded() {
