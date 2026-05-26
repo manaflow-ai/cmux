@@ -3650,7 +3650,24 @@ struct CMUXCLI {
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let response = try client.sendV2(method: "workspace.create", params: params)
             let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
-            print("OK \(wsId)")
+            if jsonOutput {
+                var jsonResponse: [String: Any] = [:]
+                if let workspaceId = response["workspace_id"] as? String {
+                    jsonResponse["workspace_id"] = workspaceId
+                }
+                if let workspaceRef = response["workspace_ref"] as? String {
+                    jsonResponse["workspace_ref"] = workspaceRef
+                }
+                if let initialSurfaceId = response["initial_surface_id"] as? String {
+                    jsonResponse["initial_surface_id"] = initialSurfaceId
+                }
+                if let initialSurfaceRef = response["initial_surface_ref"] as? String {
+                    jsonResponse["initial_surface_ref"] = initialSurfaceRef
+                }
+                print(jsonString(jsonResponse))
+            } else {
+                print("OK \(wsId)")
+            }
             if layoutOpt == nil, let commandText = commandOpt, !wsId.isEmpty {
                 let text = unescapeSendText(commandText + "\\n")
                 let sendParams: [String: Any] = ["text": text, "workspace_id": wsId]
@@ -12201,7 +12218,7 @@ struct CMUXCLI {
             """
         case "new-workspace":
             return """
-            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
+            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--json]
 
             Create a new workspace in the caller's window.
 
@@ -12216,6 +12233,7 @@ struct CMUXCLI {
               --window <id|ref|index>
                                    Target window (default: caller's window from $CMUX_WORKSPACE_ID/$CMUX_SURFACE_ID)
               --focus <true|false> Focus the new workspace (default: false)
+              --json               Output workspace and surface refs as JSON instead of OK line
 
             Example:
               cmux new-workspace
