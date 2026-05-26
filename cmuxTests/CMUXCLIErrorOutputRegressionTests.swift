@@ -894,6 +894,59 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertTrue(openArguments.dropFirst().first?.hasSuffix(".app") == true, openArguments.joined(separator: " "))
     }
 
+    func testExplicitSocketPathOpenUsesRequestedSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-explicit-open-\(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fakeOpenURL = root.appendingPathComponent("open", isDirectory: false)
+        let openLogURL = root.appendingPathComponent("open-args.txt", isDirectory: false)
+        try fakeOpenScript().write(to: fakeOpenURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeOpenURL.path)
+
+        let socketPath = "/tmp/cmux-explicit-open-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"workspace_ref":"workspace:explicit"}}"#
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TEST_OPEN_TOOL_PATH"] = fakeOpenURL.path
+        environment["CMUX_TEST_OPEN_LOG"] = openLogURL.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "."],
+            environment: environment,
+            currentDirectoryURL: workingDirectory,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "OK workspace:explicit")
+
+        let request = try XCTUnwrap(responder.receivedRequests.first)
+        let requestData = try XCTUnwrap(request.data(using: .utf8))
+        let requestObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: requestData, options: []) as? [String: Any]
+        )
+        XCTAssertEqual(requestObject["method"] as? String, "workspace.create")
+        let params = try XCTUnwrap(requestObject["params"] as? [String: Any])
+        XCTAssertEqual(params["cwd"] as? String, workingDirectory.standardizedFileURL.path)
+
+        let openArguments = try readFakeOpenArguments(from: openLogURL)
+        XCTAssertFalse(openArguments.contains(workingDirectory.standardizedFileURL.path), openArguments.joined(separator: " "))
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self)

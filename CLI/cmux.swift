@@ -2830,7 +2830,7 @@ struct CMUXCLI {
         }
 
         // If the argument looks like a path (not a known command), open a workspace there.
-        if looksLikePath(command) {
+        if looksLikePath(command), explicitSocketPath == nil {
             try openPath(command)
             return
         }
@@ -2866,6 +2866,11 @@ struct CMUXCLI {
             environment: processEnv,
             bundleIdentifier: cliBundleIdentifier
         )
+
+        if looksLikePath(command) {
+            try openPathViaExplicitSocket(command, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg)
+            return
+        }
 
         if command == "settings" {
             try runSettings(
@@ -4695,22 +4700,42 @@ struct CMUXCLI {
 
     /// Open a path in cmux by asking LaunchServices to deliver a directory URL to the app.
     private func openPath(_ path: String) throws {
+        let directory = try directoryForPathOpen(path)
+        try openDirectoryWithLaunchServices(directory)
+        print("OK")
+    }
+
+    /// Open a path through an explicitly selected socket, preserving deliberate instance routing.
+    private func openPathViaExplicitSocket(_ path: String, socketPath: String, explicitPassword: String?) throws {
+        let directory = try directoryForPathOpen(path)
+        let client = try connectClient(
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            launchIfNeeded: true
+        )
+        defer { client.close() }
+
+        let response = try client.sendV2(method: "workspace.create", params: ["cwd": directory])
+        let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+        if !wsRef.isEmpty {
+            print("OK \(wsRef)")
+        }
+        try activateApp()
+    }
+
+    private func directoryForPathOpen(_ path: String) throws -> String {
         let resolved = URL(fileURLWithPath: resolvePath(path)).standardizedFileURL.path
         var isDir: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir)
 
-        let directory: String
         if exists && isDir.boolValue {
-            directory = resolved
-        } else if exists {
-            // It's a file; use its parent directory
-            directory = (resolved as NSString).deletingLastPathComponent
-        } else {
-            throw CLIError(message: "Path does not exist: \(resolved)")
+            return resolved
+        }
+        if exists {
+            return (resolved as NSString).deletingLastPathComponent
         }
 
-        try openDirectoryWithLaunchServices(directory)
-        print("OK")
+        throw CLIError(message: "Path does not exist: \(resolved)")
     }
 
     private func openDirectoryWithLaunchServices(_ directory: String) throws {
@@ -4888,16 +4913,16 @@ struct CMUXCLI {
 
     private func launchApp() throws {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", "cmux"]
+        process.executableURL = URL(fileURLWithPath: openToolPath())
+        process.arguments = ["-a", appLaunchTarget()]
         try process.run()
         process.waitUntilExit()
     }
 
     private func activateApp() throws {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", "cmux"]
+        process.executableURL = URL(fileURLWithPath: openToolPath())
+        process.arguments = ["-a", appLaunchTarget()]
         try process.run()
         process.waitUntilExit()
     }
