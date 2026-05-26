@@ -159,11 +159,7 @@ extension CMUXCLI {
                         copyTreeListValue(into: &row, key: "window_index", from: window["index"])
                         copyTreeListValue(into: &row, key: "window_key", from: window["key"])
                         copyTreeListValue(into: &row, key: "pane_focused", from: pane["focused"])
-                        copyTreeListValue(
-                            into: &row,
-                            key: "active",
-                            from: surface["selected"] ?? surface["focused"]
-                        )
+                        row["active"] = listSurfaceIsActive(surface: surface, pane: pane)
                         result.append(row)
                     }
                 }
@@ -171,6 +167,68 @@ extension CMUXCLI {
         }
 
         return result
+    }
+
+    private func listSurfaceIsActive(surface: [String: Any], pane: [String: Any]) -> Bool {
+        if listSurfaceBool(surface["active"]) || listSurfaceBool(surface["focused"]) {
+            return true
+        }
+
+        guard listSurfaceBool(pane["focused"]) else {
+            return false
+        }
+
+        if listSurfaceBool(surface["selected"]) {
+            return true
+        }
+
+        guard let selectedSurfaceHandle = listSurfaceRelatedHandle(
+            pane,
+            refKey: "selected_surface_ref",
+            idKey: "selected_surface_id"
+        ) else {
+            return false
+        }
+        return listSurfaceMatchesHandle(surface, handle: selectedSurfaceHandle)
+    }
+
+    private func listSurfaceBool(_ value: Any?) -> Bool {
+        guard let value, !(value is NSNull) else { return false }
+        if let bool = value as? Bool {
+            return bool
+        }
+        if let number = value as? NSNumber {
+            return number.boolValue
+        }
+        if let string = value as? String {
+            switch string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true", "yes":
+                return true
+            default:
+                return false
+            }
+        }
+        return false
+    }
+
+    private func listSurfaceRelatedHandle(
+        _ item: [String: Any],
+        refKey: String,
+        idKey: String
+    ) -> String? {
+        if let ref = item[refKey] as? String, !ref.isEmpty {
+            return ref
+        }
+        if let id = item[idKey] as? String, !id.isEmpty {
+            return id
+        }
+        return nil
+    }
+
+    private func listSurfaceMatchesHandle(_ item: [String: Any], handle: String) -> Bool {
+        let trimmed = handle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return (item["id"] as? String) == trimmed || (item["ref"] as? String) == trimmed
     }
 
     private func copyTreeListContext(
