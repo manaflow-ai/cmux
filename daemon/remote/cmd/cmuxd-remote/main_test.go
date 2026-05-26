@@ -50,6 +50,10 @@ func (b *notifyingBuffer) String() string {
 }
 
 func startPersistentDaemonForTest(t *testing.T, token string) (string, func()) {
+	return startPersistentDaemonWithVerifierForTest(t, persistentDaemonFixedTokenVerifier(token))
+}
+
+func startPersistentDaemonWithVerifierForTest(t *testing.T, verifier persistentDaemonTokenVerifier) (string, func()) {
 	t.Helper()
 	socketDir, err := os.MkdirTemp("/tmp", "cmuxd-remote-test-*")
 	if err != nil {
@@ -65,7 +69,7 @@ func startPersistentDaemonForTest(t *testing.T, token string) (string, func()) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		done <- servePersistentDaemon(listener, token, io.Discard)
+		done <- servePersistentDaemonWithVerifier(listener, verifier, io.Discard)
 	}()
 	stop := func() {
 		_ = listener.Close()
@@ -426,6 +430,24 @@ func TestDialPersistentDaemonBadTokenWrapsAuthFailure(t *testing.T) {
 	}
 }
 
+func TestPersistentDaemonAcceptsRotatedTokenFile(t *testing.T) {
+	tokenFile := filepath.Join(t.TempDir(), "auth.token")
+	if err := os.WriteFile(tokenFile, []byte("old-token\n"), 0o600); err != nil {
+		t.Fatalf("write initial token: %v", err)
+	}
+	socketPath, stop := startPersistentDaemonWithVerifierForTest(
+		t,
+		persistentDaemonFileTokenVerifier("old-token", tokenFile),
+	)
+	defer stop()
+
+	if err := os.WriteFile(tokenFile, []byte("new-token\n"), 0o600); err != nil {
+		t.Fatalf("rotate token: %v", err)
+	}
+	conn, _, _ := openPersistentTestClient(t, socketPath, "new-token")
+	_ = conn.Close()
+}
+
 func TestAuthenticatePersistentDaemonClientReadDeadline(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()
@@ -464,7 +486,7 @@ func TestAuthenticatePersistentDaemonServerReadDeadline(t *testing.T) {
 
 	done := make(chan struct{}, 1)
 	go func() {
-		handlePersistentDaemonConnWithAuthTimeout(server, "token", hub, 50*time.Millisecond)
+		handlePersistentDaemonConnWithAuthTimeout(server, persistentDaemonFixedTokenVerifier("token"), hub, 50*time.Millisecond)
 		done <- struct{}{}
 	}()
 
@@ -495,26 +517,6 @@ func TestPersistentStdioProxyReturnsWhenDaemonClosesFirst(t *testing.T) {
 		t.Fatalf("proxyPersistentDaemonConn did not return after daemon side closed")
 	}
 	_ = stdinWriter.Close()
-}
-
-func TestPersistentDaemonLockPIDRoundTrip(t *testing.T) {
-	lockFile := filepath.Join(t.TempDir(), "daemon.lock")
-	file, err := os.OpenFile(lockFile, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		t.Fatalf("open lock file: %v", err)
-	}
-	defer file.Close()
-
-	if err := writePersistentDaemonLockPID(file); err != nil {
-		t.Fatalf("writePersistentDaemonLockPID: %v", err)
-	}
-	pid, err := persistentDaemonLockPID(lockFile)
-	if err != nil {
-		t.Fatalf("persistentDaemonLockPID: %v", err)
-	}
-	if pid != os.Getpid() {
-		t.Fatalf("persistentDaemonLockPID = %d, want %d", pid, os.Getpid())
-	}
 }
 
 func TestPersistentDaemonPTYReattachSurvivesClientDisconnect(t *testing.T) {

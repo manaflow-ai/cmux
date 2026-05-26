@@ -38,6 +38,16 @@ private enum WorkspaceRemoteSSHOptionFilter {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    static func normalizedPersistentDaemonSlot(_ value: String?) -> String? {
+        guard let slot = normalizedOptional(value),
+              slot != ".",
+              slot != "..",
+              slot.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil else {
+            return nil
+        }
+        return slot
+    }
+
     static func normalizedIdentityPath(_ value: String?) -> String? {
         guard let trimmed = normalizedOptional(value) else { return nil }
         guard trimmed.hasPrefix("~") else { return trimmed }
@@ -350,7 +360,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
         self.preserveAfterTerminalExit = preserveAfterTerminalExit
         self.persistentDaemonSlot = preserveAfterTerminalExit
-            ? WorkspaceRemoteSSHOptionFilter.normalizedOptional(persistentDaemonSlot)
+            ? WorkspaceRemoteSSHOptionFilter.normalizedPersistentDaemonSlot(persistentDaemonSlot)
             : nil
         self.skipDaemonBootstrap = skipDaemonBootstrap
     }
@@ -403,7 +413,7 @@ extension SessionRemoteWorkspaceSnapshot {
             (1...65535).contains(port) ? port : nil
         }
 
-        let normalizedPersistentDaemonSlot = WorkspaceRemoteSSHOptionFilter.normalizedOptional(persistentDaemonSlot)
+        let normalizedPersistentDaemonSlot = WorkspaceRemoteSSHOptionFilter.normalizedPersistentDaemonSlot(persistentDaemonSlot)
         let normalizedLocalSocketPath = WorkspaceRemoteSSHOptionFilter.normalizedOptional(localSocketPath)
         let normalizedRelayPort = relayPort.flatMap { port in
             (1...65535).contains(port) ? port : nil

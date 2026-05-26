@@ -382,18 +382,7 @@ func ensurePersistentDaemonDirectory(paths persistentDaemonPaths) error {
 }
 
 func persistentDaemonToken(paths persistentDaemonPaths) (string, error) {
-	readExisting := func() (string, error) {
-		data, err := os.ReadFile(paths.tokenFile)
-		if err != nil {
-			return "", err
-		}
-		token := strings.TrimSpace(string(data))
-		if token == "" {
-			return "", errors.New("persistent daemon token file is empty")
-		}
-		return token, nil
-	}
-	if token, err := readExisting(); err == nil {
+	if token, err := readPersistentDaemonTokenFile(paths.tokenFile); err == nil {
 		return token, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", err
@@ -426,9 +415,21 @@ func persistentDaemonToken(paths persistentDaemonPaths) (string, error) {
 	closeOK = true
 	if err := os.Link(tmpPath, paths.tokenFile); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return readExisting()
+			return readPersistentDaemonTokenFile(paths.tokenFile)
 		}
 		return "", err
+	}
+	return token, nil
+}
+
+func readPersistentDaemonTokenFile(tokenFile string) (string, error) {
+	data, err := os.ReadFile(tokenFile)
+	if err != nil {
+		return "", err
+	}
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", errors.New("persistent daemon token file is empty")
 	}
 	return token, nil
 }
@@ -503,10 +504,6 @@ func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, st
 		return nil
 	} else if shouldRemovePersistentSocketAfterDialError(err) {
 		_ = os.Remove(paths.socket)
-	} else if errors.Is(err, errPersistentDaemonAuthFailed) {
-		if recoverErr := recoverPersistentDaemonAuthFailure(paths, err); recoverErr != nil {
-			return recoverErr
-		}
 	} else {
 		return err
 	}
@@ -615,9 +612,6 @@ func runPersistentDaemonServer(slot string, stderr io.Writer) error {
 		return fmt.Errorf("persistent daemon slot %q is already running", paths.slot)
 	}
 	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
-	if err := writePersistentDaemonLockPID(lockFile); err != nil {
-		return err
-	}
 
 	_ = os.Remove(paths.socket)
 	listener, err := net.Listen("unix", paths.socket)
@@ -629,7 +623,7 @@ func runPersistentDaemonServer(slot string, stderr io.Writer) error {
 	_ = os.Chmod(paths.socket, 0o600)
 
 	signalPersistentDaemonReady()
-	return servePersistentDaemon(listener, token, stderr)
+	return servePersistentDaemonWithVerifier(listener, persistentDaemonFileTokenVerifier(token, paths.tokenFile), stderr)
 }
 
 func signalPersistentDaemonReady() {
@@ -649,79 +643,37 @@ func signalPersistentDaemonReady() {
 	_ = file.Close()
 }
 
-func writePersistentDaemonLockPID(file *os.File) error {
-	if err := file.Truncate(0); err != nil {
-		return err
-	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return err
-	}
-	_, err := fmt.Fprintf(file, "%d\n", os.Getpid())
-	return err
-}
-
-func persistentDaemonLockPID(lockFile string) (int, error) {
-	data, err := os.ReadFile(lockFile)
-	if err != nil {
-		return 0, err
-	}
-	raw := strings.TrimSpace(string(data))
-	if raw == "" {
-		return 0, errors.New("persistent daemon lock file does not contain a pid")
-	}
-	pid, err := strconv.Atoi(raw)
-	if err != nil || pid <= 1 {
-		return 0, fmt.Errorf("persistent daemon lock file contains invalid pid %q", raw)
-	}
-	return pid, nil
-}
-
-func recoverPersistentDaemonAuthFailure(paths persistentDaemonPaths, authErr error) error {
-	pid, err := persistentDaemonLockPID(paths.lockFile)
-	if err != nil {
-		return fmt.Errorf("%w; could not recover existing daemon: %v", authErr, err)
-	}
-	if pid == os.Getpid() {
-		return fmt.Errorf("%w; refusing to stop current process", authErr)
-	}
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
-		return fmt.Errorf("%w; could not stop existing daemon pid %d: %v", authErr, pid, err)
-	}
-	_ = os.Remove(paths.socket)
-	if err := waitPersistentDaemonLockAvailable(paths.lockFile, 2*time.Second); err != nil {
-		return fmt.Errorf("%w; existing daemon pid %d did not release lock: %v", authErr, pid, err)
-	}
-	return nil
-}
-
-func waitPersistentDaemonLockAvailable(lockFile string, timeout time.Duration) error {
-	file, err := os.OpenFile(lockFile, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	done := make(chan error, 1)
-	go func() {
-		lockErr := syscall.Flock(int(file.Fd()), syscall.LOCK_EX)
-		if lockErr == nil {
-			_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
-		}
-		done <- lockErr
-	}()
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case err := <-done:
-		return err
-	case <-timer.C:
-		_ = file.Close()
-		return fmt.Errorf("timed out waiting for lock release")
-	}
-}
-
 func servePersistentDaemon(listener net.Listener, token string, stderr io.Writer) error {
+	return servePersistentDaemonWithVerifier(listener, persistentDaemonFixedTokenVerifier(token), stderr)
+}
+
+type persistentDaemonTokenVerifier func(string) bool
+
+func persistentDaemonFixedTokenVerifier(token string) persistentDaemonTokenVerifier {
+	return func(provided string) bool {
+		return persistentDaemonTokensEqual(provided, token)
+	}
+}
+
+func persistentDaemonFileTokenVerifier(initialToken string, tokenFile string) persistentDaemonTokenVerifier {
+	return func(provided string) bool {
+		token := initialToken
+		if currentToken, err := readPersistentDaemonTokenFile(tokenFile); err == nil {
+			token = currentToken
+		}
+		return persistentDaemonTokensEqual(provided, token)
+	}
+}
+
+func persistentDaemonTokensEqual(provided string, token string) bool {
+	provided = strings.TrimSpace(provided)
+	token = strings.TrimSpace(token)
+	return provided != "" &&
+		token != "" &&
+		subtle.ConstantTimeCompare([]byte(provided), []byte(token)) == 1
+}
+
+func servePersistentDaemonWithVerifier(listener net.Listener, verifier persistentDaemonTokenVerifier, stderr io.Writer) error {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{}, stderr)
 	defer hub.closeAll()
 	for {
@@ -732,7 +684,7 @@ func servePersistentDaemon(listener net.Listener, token string, stderr io.Writer
 			}
 			return err
 		}
-		go handlePersistentDaemonConn(conn, token, hub)
+		go handlePersistentDaemonConn(conn, verifier, hub)
 	}
 }
 
@@ -746,11 +698,11 @@ func isClosedListenerError(err error) bool {
 	return strings.Contains(err.Error(), "use of closed network connection")
 }
 
-func handlePersistentDaemonConn(conn net.Conn, token string, hub *wsPTYHub) {
-	handlePersistentDaemonConnWithAuthTimeout(conn, token, hub, persistentDaemonAuthTimeout)
+func handlePersistentDaemonConn(conn net.Conn, verifier persistentDaemonTokenVerifier, hub *wsPTYHub) {
+	handlePersistentDaemonConnWithAuthTimeout(conn, verifier, hub, persistentDaemonAuthTimeout)
 }
 
-func handlePersistentDaemonConnWithAuthTimeout(conn net.Conn, token string, hub *wsPTYHub, timeout time.Duration) {
+func handlePersistentDaemonConnWithAuthTimeout(conn net.Conn, verifier persistentDaemonTokenVerifier, hub *wsPTYHub, timeout time.Duration) {
 	defer conn.Close()
 	if timeout > 0 {
 		if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
@@ -759,7 +711,7 @@ func handlePersistentDaemonConnWithAuthTimeout(conn net.Conn, token string, hub 
 	}
 	reader := bufio.NewReaderSize(conn, 64*1024)
 	writer := &stdioFrameWriter{writer: bufio.NewWriter(conn)}
-	if !authenticatePersistentDaemonConn(reader, writer, token) {
+	if !authenticatePersistentDaemonConn(reader, writer, verifier) {
 		return
 	}
 	if timeout > 0 {
@@ -770,7 +722,7 @@ func handlePersistentDaemonConnWithAuthTimeout(conn net.Conn, token string, hub 
 	_ = runRPCServerWithReader(reader, writer, hub, false)
 }
 
-func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWriter, token string) bool {
+func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWriter, verifier persistentDaemonTokenVerifier) bool {
 	line, oversized, err := readRPCFrame(reader, maxRPCFrameBytes)
 	if err != nil || oversized {
 		_ = writer.writeResponse(rpcResponse{
@@ -807,8 +759,7 @@ func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWr
 		return false
 	}
 	provided, _ := getStringParam(req.Params, "token")
-	provided = strings.TrimSpace(provided)
-	if provided == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(token)) != 1 {
+	if !verifier(provided) {
 		_ = writer.writeResponse(rpcResponse{
 			ID: req.ID,
 			OK: false,
