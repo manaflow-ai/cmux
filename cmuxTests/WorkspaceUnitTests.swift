@@ -5160,6 +5160,28 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.gitBranch?.isDirty, false)
     }
 
+    func testClosingPanelClearsShellActivitySequence() {
+        let workspace = Workspace()
+        guard let firstPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+        guard let secondPanel = workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split panel to be created")
+            return
+        }
+
+        workspace.updatePanelShellActivityState(
+            panelId: secondPanel.id,
+            state: .commandRunning,
+            shellActivitySequence: 42
+        )
+
+        XCTAssertEqual(workspace.panelShellActivitySequences[secondPanel.id], 42)
+        XCTAssertTrue(workspace.closePanel(secondPanel.id, force: true), "Expected split panel close to succeed")
+        XCTAssertNil(workspace.panelShellActivitySequences[secondPanel.id])
+    }
+
     func testForkAgentConversationToRightCreatesRightSplitWithForkStartupInput() throws {
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)

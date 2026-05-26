@@ -683,10 +683,15 @@ class TerminalController {
         let panelId: UUID
     }
 
-    private final class SocketFastPathState: @unchecked Sendable {
+    final class SocketFastPathState: @unchecked Sendable {
+        private struct ReportedShellActivity {
+            var state: Workspace.PanelShellActivityState
+            var sequence: UInt64?
+        }
+
         private let queue = DispatchQueue(label: "com.cmux.socket-fast-path")
         private var lastReportedDirectories: [SocketSurfaceKey: String] = [:]
-        private var lastReportedShellStates: [SocketSurfaceKey: Workspace.PanelShellActivityState] = [:]
+        private var lastReportedShellActivities: [SocketSurfaceKey: ReportedShellActivity] = [:]
         private let maxTrackedDirectories = 4096
         private let maxTrackedShellStates = 4096
 
@@ -707,20 +712,34 @@ class TerminalController {
         func shouldPublishShellActivity(
             workspaceId: UUID,
             panelId: UUID,
-            state: Workspace.PanelShellActivityState
+            state: Workspace.PanelShellActivityState,
+            shellActivitySequence: UInt64? = nil
         ) -> Bool {
             let key = SocketSurfaceKey(workspaceId: workspaceId, panelId: panelId)
             return queue.sync {
-                if lastReportedShellStates[key] == state {
-                    return false
+                if let current = lastReportedShellActivities[key] {
+                    if let shellActivitySequence {
+                        if let currentSequence = current.sequence {
+                            guard shellActivitySequence > currentSequence else {
+                                return false
+                            }
+                        }
+                    } else if current.state == state {
+                        return false
+                    }
                 }
-                if lastReportedShellStates.count >= maxTrackedShellStates {
-                    lastReportedShellStates.removeAll(keepingCapacity: true)
+
+                if lastReportedShellActivities.count >= maxTrackedShellStates {
+                    lastReportedShellActivities.removeAll(keepingCapacity: true)
                 }
-                lastReportedShellStates[key] = state
+                lastReportedShellActivities[key] = ReportedShellActivity(
+                    state: state,
+                    sequence: shellActivitySequence ?? lastReportedShellActivities[key]?.sequence
+                )
                 return true
             }
         }
+
     }
 
     private static let socketFastPathState = SocketFastPathState()
@@ -7254,7 +7273,8 @@ class TerminalController {
             let shouldPublish = Self.socketFastPathState.shouldPublishShellActivity(
                 workspaceId: workspaceId,
                 panelId: requestedSurfaceId,
-                state: state
+                state: state,
+                shellActivitySequence: shellActivitySequence
             )
             if shouldPublish {
                 DispatchQueue.main.async {
@@ -20009,7 +20029,8 @@ class TerminalController {
             guard Self.socketFastPathState.shouldPublishShellActivity(
                 workspaceId: scope.workspaceId,
                 panelId: scope.panelId,
-                state: state
+                state: state,
+                shellActivitySequence: shellActivitySequence
             ) else {
                 return "OK"
             }
