@@ -102,6 +102,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .amp: return "Amp"
         case .cursor: return "Cursor"
         case .gemini: return "Gemini"
+        case .kiro: return "Kiro"
         case .antigravity: return "Antigravity"
         case .opencode: return "OpenCode"
         case .rovodev: return "Rovo Dev"
