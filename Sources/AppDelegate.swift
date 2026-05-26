@@ -6535,21 +6535,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if addWorkspaceInPreferredMainWindow(event: event, debugSource: debugSource) == nil {
-            if SingleWindowModeSettings.isEnabled() {
-                pruneWindowlessMainWindowContexts()
-                if !mainWindowContexts.isEmpty {
-#if DEBUG
-                    logWorkspaceCreationRouting(
-                        phase: "single_window_no_window_fallback",
-                        source: debugSource,
-                        reason: "workspace_creation_returned_nil",
-                        event: event,
-                        chosenContext: nil
-                    )
-#endif
-                    return false
-                }
-            }
 #if DEBUG
             logWorkspaceCreationRouting(
                 phase: "fallback_new_window",
@@ -11903,12 +11888,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let hasEventWindowContext = shortcutEventHasAddressableWindow(event)
+        let shouldAllowSingleWindowWorkspaceShortcutFallback =
+            hasEventWindowContext
+            && SingleWindowModeSettings.isEnabled()
+            && matchConfiguredShortcut(event: event, action: .newTab)
         let didSynchronizeShortcutContext = synchronizeShortcutRoutingContext(event: event)
         if hasEventWindowContext && !didSynchronizeShortcutContext {
+            if shouldAllowSingleWindowWorkspaceShortcutFallback {
 #if DEBUG
-            cmuxDebugLog("handleCustomShortcut: unresolved event window context; bypassing app shortcut handling")
+                cmuxDebugLog("handleCustomShortcut: unresolved event window context; allowing single-window workspace fallback")
 #endif
-            return false
+            } else {
+#if DEBUG
+                cmuxDebugLog("handleCustomShortcut: unresolved event window context; bypassing app shortcut handling")
+#endif
+                return false
+            }
         }
         if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
         if matchConfiguredShortcut(event: event, action: .find) {

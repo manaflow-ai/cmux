@@ -4997,7 +4997,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let existingWorkspaceCount = manager.tabs.count
         let windowIdsBeforeAction = mainWindowIds()
-        appDelegate.tabManager = manager
 
         guard let event = makeKeyDownEvent(
             key: "n",
@@ -5009,9 +5008,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+#if DEBUG
         XCTAssertTrue(
-            appDelegate.performNewWorkspaceAction(event: event, debugSource: "test.singleWindowMode")
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Single Window Mode should let the Cmd+N shortcut route unresolved window events to an existing window"
         )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
 
         XCTAssertEqual(mainWindowIds(), windowIdsBeforeAction, "Single Window Mode must not create an automatic fallback window")
         XCTAssertEqual(manager.tabs.count, existingWorkspaceCount + 1, "Single Window Mode should route fallback workspace creation to the existing window")
