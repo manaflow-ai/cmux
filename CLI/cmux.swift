@@ -2829,6 +2829,12 @@ struct CMUXCLI {
             return
         }
 
+        // If the argument looks like a path (not a known command), open a workspace there.
+        if looksLikePath(command) {
+            try openPath(command)
+            return
+        }
+
         let envSocketPath = explicitSocketPath == nil
             ? try CLISocketEnvironment.socketPath(in: processEnv)
             : CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
@@ -2860,12 +2866,6 @@ struct CMUXCLI {
             environment: processEnv,
             bundleIdentifier: cliBundleIdentifier
         )
-
-        // If the argument looks like a path (not a known command), open a workspace there.
-        if looksLikePath(command) {
-            try openPath(command, socketPath: resolvedSocketPath)
-            return
-        }
 
         if command == "settings" {
             try runSettings(
@@ -4693,10 +4693,9 @@ struct CMUXCLI {
         return false
     }
 
-    /// Open a path in cmux by creating a new workspace with the given directory.
-    /// Launches the app if it isn't already running.
-    private func openPath(_ path: String, socketPath: String) throws {
-        let resolved = resolvePath(path)
+    /// Open a path in cmux by asking LaunchServices to deliver a directory URL to the app.
+    private func openPath(_ path: String) throws {
+        let resolved = URL(fileURLWithPath: resolvePath(path)).standardizedFileURL.path
         var isDir: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir)
 
@@ -4710,33 +4709,34 @@ struct CMUXCLI {
             throw CLIError(message: "Path does not exist: \(resolved)")
         }
 
-        // Try connecting to the socket. If it fails, launch the app and retry.
-        let client = SocketClient(path: socketPath)
-        if (try? client.connect()) == nil {
-            client.close()
-            try launchApp()
-            let launchedClient = try SocketClient.waitForConnectableSocket(path: socketPath, timeout: 10)
-            defer { launchedClient.close() }
-            let params: [String: Any] = ["cwd": directory]
-            let response = try launchedClient.sendV2(method: "workspace.create", params: params)
-            let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
-            if !wsRef.isEmpty {
-                print("OK \(wsRef)")
-            }
-            try activateApp()
-            return
-        }
-        defer { client.close() }
+        try openDirectoryWithLaunchServices(directory)
+        print("OK")
+    }
 
-        let params: [String: Any] = ["cwd": directory]
-        let response = try client.sendV2(method: "workspace.create", params: params)
-        let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
-        if !wsRef.isEmpty {
-            print("OK \(wsRef)")
+    private func openDirectoryWithLaunchServices(_ directory: String) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: openToolPath())
+        process.arguments = ["-a", appLaunchTarget(), directory]
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw CLIError(message: "Failed to open \(directory) in cmux")
         }
+    }
 
-        // Bring the app to front
-        try activateApp()
+    private func openToolPath() -> String {
+#if DEBUG
+        if let override = ProcessInfo.processInfo.environment["CMUX_TEST_OPEN_TOOL_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return NSString(string: override).expandingTildeInPath
+        }
+#endif
+        return "/usr/bin/open"
+    }
+
+    private func appLaunchTarget() -> String {
+        CLIExecutableLocator.enclosingAppBundle()?.bundleURL.path ?? "cmux"
     }
 
     private func runFeedback(
