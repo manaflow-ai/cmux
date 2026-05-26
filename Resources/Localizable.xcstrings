@@ -117273,6 +117273,7 @@
         "fr": { "stringUnit": { "state": "translated", "value": "Copier le texte" } },
         "it": { "stringUnit": { "state": "translated", "value": "Copia testo" } },
         "ja": { "stringUnit": { "state": "translated", "value": "テキストをコピー" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ចម្លងអត្ថបទ" } },
         "ko": { "stringUnit": { "state": "translated", "value": "텍스트 복사" } },
         "nb": { "stringUnit": { "state": "translated", "value": "Kopier tekst" } },
         "pl": { "stringUnit": { "state": "translated", "value": "Kopiuj tekst" } },
