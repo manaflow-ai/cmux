@@ -2382,6 +2382,7 @@ final class StoredShortcutMatchingTests: XCTestCase {
         )
         XCTAssertEqual(presentation?.swapButtonTitle, "Swap")
         XCTAssertTrue(presentation?.canSwap ?? false)
+        XCTAssertEqual(presentation?.undoButtonTitle, "Undo")
 
         XCTAssertTrue(
             KeyboardShortcutSettings.swapShortcutConflict(
