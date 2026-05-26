@@ -152,9 +152,11 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
         pendingSaveChordPrefix = nil
 
         if visible {
+            registerFocusIfReady()
             reinstallLocalEventMonitorIfNeeded()
         } else {
             removeLocalEventMonitor()
+            unregisterFocusIfNeeded()
         }
     }
 
@@ -250,6 +252,7 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
     }
 
     func retryPendingFocus() {
+        guard isVisibleInUI else { return }
         panel?.retryPendingFocus()
     }
 
@@ -263,10 +266,21 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
     ) {}
 
     private func registerFocusIfReady() {
-        guard let panel, let textView = textController?.textView else { return }
+        guard isVisibleInUI,
+              let panel,
+              let textView = textController?.textView else { return }
         panel.attachTextInsertionTarget(textView)
         panel.attachPreviewFocus(root: textView, primaryResponder: textView, intent: .textEditor)
         panel.retryPendingFocus()
+    }
+
+    private func unregisterFocusIfNeeded() {
+        guard let panel, let textView = textController?.textView else { return }
+        if textView.window?.firstResponder === textView {
+            textView.window?.makeFirstResponder(nil)
+        }
+        panel.detachTextInsertionTarget(textView)
+        panel.detachPreviewFocus(root: textView, primaryResponder: textView, intent: .textEditor)
     }
 }
 

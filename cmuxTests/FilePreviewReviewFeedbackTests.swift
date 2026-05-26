@@ -130,6 +130,38 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertFalse(bridge.handleSaveShortcut(event: event))
     }
 
+    func testFilePreviewPanelDetachTextInsertionTargetOnlyClearsMatchingTarget() throws {
+        let url = try temporaryTextFile(contents: "preview", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        let activeTarget = FilePreviewReviewFocusTestView()
+        let staleTarget = FilePreviewReviewFocusTestView()
+
+        panel.attachTextInsertionTarget(activeTarget)
+        panel.detachTextInsertionTarget(staleTarget)
+
+        XCTAssertTrue(panel.handleDroppedFileURLsAsText([url]))
+        XCTAssertFalse(activeTarget.filePreviewCurrentText.isEmpty)
+
+        panel.detachTextInsertionTarget(activeTarget)
+        XCTAssertFalse(panel.handleDroppedFileURLsAsText([url]))
+    }
+
+    func testFocusCoordinatorUnregisterRemovesOnlyMatchingEndpoint() {
+        let coordinator = FilePreviewFocusCoordinator(preferredIntent: .textEditor)
+        let activeTarget = FilePreviewReviewFocusTestView()
+        let staleTarget = FilePreviewReviewFocusTestView()
+
+        coordinator.register(root: activeTarget, primaryResponder: activeTarget, intent: .textEditor)
+        coordinator.unregister(root: staleTarget, primaryResponder: staleTarget, intent: .textEditor)
+
+        XCTAssertTrue(coordinator.endpoint(for: .textEditor) === activeTarget)
+
+        coordinator.unregister(root: activeTarget, primaryResponder: activeTarget, intent: .textEditor)
+        XCTAssertNil(coordinator.endpoint(for: .textEditor))
+    }
+
     func testHighlightedBridgeIgnoresEditsAfterDestroy() throws {
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -456,7 +488,17 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
     }
 }
 
-private final class FilePreviewReviewFocusTestView: NSView {
+private final class FilePreviewReviewFocusTestView: NSView, FilePreviewTextInsertionTarget {
+    private(set) var filePreviewCurrentText = ""
+
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
+
+    func focusFilePreviewTextTarget() {
+        window?.makeFirstResponder(self)
+    }
+
+    func insertFilePreviewText(_ text: String) {
+        filePreviewCurrentText += text
+    }
 }

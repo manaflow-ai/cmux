@@ -993,6 +993,12 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         textInsertionTarget = target
     }
 
+    func detachTextInsertionTarget(_ target: any FilePreviewTextInsertionTarget) {
+        guard let current = textInsertionTarget,
+              current === target else { return }
+        textInsertionTarget = nil
+    }
+
     func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
         guard previewMode == .text, let textInsertionTarget else { return false }
         let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
@@ -1017,6 +1023,14 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         intent: FilePreviewPanelFocusIntent
     ) {
         focusCoordinator.register(root: root, primaryResponder: primaryResponder, intent: intent)
+    }
+
+    func detachPreviewFocus(
+        root: NSView,
+        primaryResponder: NSView,
+        intent: FilePreviewPanelFocusIntent
+    ) {
+        focusCoordinator.unregister(root: root, primaryResponder: primaryResponder, intent: intent)
     }
 
     func noteFilePreviewFocusIntent(_ intent: FilePreviewPanelFocusIntent) {
