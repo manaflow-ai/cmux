@@ -5695,8 +5695,7 @@ final class WorkspaceRemoteSessionController {
         }
     }
 
-    func syncWorkspaceSchedulerMountState() {
-        let requestedMountEnabled = portalRenderingGate.isEnabled
+    func syncWorkspaceSchedulerMountState(enabled requestedMountEnabled: Bool) {
         queue.async { [weak self] in
             self?.syncWorkspaceSchedulerMountStateLocked(enabled: requestedMountEnabled)
         }
@@ -10349,7 +10348,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         set {
             guard portalRenderingGate.setEnabled(newValue) else { return }
-            remoteSessionController?.syncWorkspaceSchedulerMountState()
+            remoteSessionController?.syncWorkspaceSchedulerMountState(enabled: newValue)
         }
     }
     private var agentHibernationAutoResumePresentationVisible = true
