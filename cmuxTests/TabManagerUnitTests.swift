@@ -769,6 +769,57 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertEqual(pullRequestsByBranch["feature/recent-two"]?.number, 2502)
     }
 
+    func testPullRequestMapDropsStaleClosedHeadPullRequestForLongLivedBaseBranch() throws {
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
+        let pullRequests = [
+            TabManager.GitHubPullRequestProbeItem(
+                number: 959,
+                state: "CLOSED",
+                url: "https://github.com/manaflow-ai/cmux/pull/959",
+                updatedAt: "2026-03-06T12:00:00Z",
+                mergedAt: nil,
+                headRefName: "develop",
+                baseRefName: "main"
+            ),
+            TabManager.GitHubPullRequestProbeItem(
+                number: 2502,
+                state: "OPEN",
+                url: "https://github.com/manaflow-ai/cmux/pull/2502",
+                updatedAt: "2026-04-20T12:00:00Z",
+                headRefName: "feature/recent-two",
+                baseRefName: "develop"
+            ),
+        ]
+
+        let pullRequestsByBranch = TabManager.pullRequestMapByNormalizedBranchForTesting(
+            from: pullRequests,
+            now: now
+        )
+
+        XCTAssertNil(pullRequestsByBranch["develop"])
+        XCTAssertEqual(pullRequestsByBranch["feature/recent-two"]?.number, 2502)
+    }
+
+    func testPullRequestMapKeepsFreshClosedHeadPullRequest() throws {
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
+        let pullRequest = TabManager.GitHubPullRequestProbeItem(
+            number: 960,
+            state: "CLOSED",
+            url: "https://github.com/manaflow-ai/cmux/pull/960",
+            updatedAt: "2026-04-20T10:00:00Z",
+            mergedAt: nil,
+            headRefName: "feature/just-closed",
+            baseRefName: "main"
+        )
+
+        let pullRequestsByBranch = TabManager.pullRequestMapByNormalizedBranchForTesting(
+            from: [pullRequest],
+            now: now
+        )
+
+        XCTAssertEqual(pullRequestsByBranch["feature/just-closed"]?.number, 960)
+    }
+
     func testShouldSkipWorkspacePullRequestLookupOnlyForExactMainAndMaster() {
         XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "main"))
         XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "master"))
