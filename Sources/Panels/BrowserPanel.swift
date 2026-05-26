@@ -3057,6 +3057,13 @@ final class BrowserPanel: Panel, ObservableObject {
         hiddenWebViewDiscardManager.blockers(for: hiddenWebViewDiscardSnapshot)
     }
 
+    private func staleHiddenWebViewVisibleAttachmentBlockers() -> [String] {
+        hiddenWebViewDiscardManager.blockers(
+            for: hiddenWebViewDiscardSnapshot,
+            requirePolicyEnabled: false
+        )
+    }
+
     private func scheduleHiddenWebViewDiscardIfNeeded(reason: String) {
         hiddenWebViewDiscardManager.scheduleIfNeeded(reason: reason)
     }
@@ -3155,17 +3162,20 @@ final class BrowserPanel: Panel, ObservableObject {
               let hiddenAt = webViewLastHiddenAt else {
             return false
         }
-        guard BrowserHiddenWebViewDiscardPolicy.isEnabled else { return false }
         guard now.timeIntervalSince(hiddenAt) >= BrowserHiddenWebViewDiscardPolicy.hiddenDelay else {
             return false
         }
-        guard hiddenWebViewDiscardBlockers().isEmpty else { return false }
+        guard staleHiddenWebViewVisibleAttachmentBlockers().isEmpty else { return false }
 
         replaceWebViewPreservingState(
             from: webView,
             websiteDataStore: websiteDataStore,
             reason: reason
         )
+        webViewLastHiddenAt = now
+        webViewLastVisibilityChangeAt = now
+        webViewLastVisibilityChangeReason = reason
+        refreshWebViewLifecycleState()
         return true
     }
 

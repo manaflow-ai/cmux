@@ -2046,7 +2046,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
                 defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
             }
         }
-        defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.set(false, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
         defaults.set(
             BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay,
             forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey
@@ -2059,11 +2059,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        waitForBrowserPanelBlankLoad(panel)
 
         let hiddenAt = Date.now.addingTimeInterval(86_400)
         panel.noteWebViewVisibility(true, reason: "test.visible", now: hiddenAt.addingTimeInterval(-1))
@@ -2085,6 +2081,21 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertTrue(panel.shouldRenderWebView)
         XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
         XCTAssertEqual(panel.currentURL?.absoluteString, "about:blank")
+
+        let replacementWebView = panel.webView
+        let replacementInstanceID = panel.webViewInstanceID
+        let replacementPayload = panel.webViewLifecycleTopPayload(now: staleAttachTime)
+        XCTAssertEqual(replacementPayload["last_visibility_change_reason"] as? String, "test.portalPreAttach")
+        XCTAssertEqual(replacementPayload["hidden_duration_ms"] as? Int, 0)
+
+        XCTAssertFalse(
+            panel.replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded(
+                reason: "test.portalPreAttach.repeat",
+                now: staleAttachTime
+            )
+        )
+        XCTAssertTrue(panel.webView === replacementWebView)
+        XCTAssertEqual(panel.webViewInstanceID, replacementInstanceID)
     }
 
     func testDiscardReplacesHiddenWebViewAndRestoresOnDemand() {
@@ -2129,6 +2140,29 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
         panel.noteWebViewVisibility(true, reason: "test.visible")
         XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
+    }
+
+    private func waitForBrowserPanelBlankLoad(
+        _ panel: BrowserPanel,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        if panel.webView.isLoading {
+            let loaded = keyValueObservingExpectation(
+                for: panel.webView,
+                keyPath: "loading"
+            ) { observedObject, _ in
+                guard let webView = observedObject as? WKWebView else { return false }
+                return !webView.isLoading
+            }
+            wait(for: [loaded], timeout: 1.0)
+        }
+        XCTAssertFalse(
+            panel.webView.isLoading,
+            "Timed out waiting for about:blank to finish loading",
+            file: file,
+            line: line
+        )
     }
 
     func testRestoredHistoryBackDoesNotEmitNewTabLifecycleState() {
