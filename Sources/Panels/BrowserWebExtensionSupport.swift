@@ -1818,10 +1818,10 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             if isSameTab(activeTabsByRuntimeKey[existingAdapter.runtimeKey], existingAdapter) {
                 activeTabsByRuntimeKey[existingAdapter.runtimeKey] = nil
             }
+            tabAdaptersByPanelID[panel.id] = nil
             if !hasVisibleWindow(runtimeKey: existingAdapter.runtimeKey) {
                 focusedWindowsByRuntimeKey[existingAdapter.runtimeKey] = nil
             }
-            tabAdaptersByPanelID[panel.id] = nil
         }
         let adapter = tabAdaptersByPanelID[panel.id]
             ?? BrowserWebExtensionTabAdapter(

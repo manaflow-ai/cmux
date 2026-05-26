@@ -13063,6 +13063,7 @@ final class Workspace: Identifiable, ObservableObject {
         defer { isProgrammaticSplit = false }
         guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            BrowserWebExtensionSupport.unregister(panel: browserPanel)
             panels.removeValue(forKey: browserPanel.id)
             panelTitles.removeValue(forKey: browserPanel.id)
             return nil
@@ -13149,6 +13150,7 @@ final class Workspace: Identifiable, ObservableObject {
             isPinned: false,
             inPane: paneId
         ) else {
+            BrowserWebExtensionSupport.unregister(panel: browserPanel)
             panels.removeValue(forKey: browserPanel.id)
             panelTitles.removeValue(forKey: browserPanel.id)
             return nil
