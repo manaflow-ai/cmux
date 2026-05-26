@@ -3570,7 +3570,7 @@ extension CMUXCLI {
               grid-template-columns: minmax(0, 1fr) var(--cmux-diff-files-width);
               grid-template-rows: minmax(0, 1fr);
               grid-template-areas: "viewer files";
-              overflow: hidden;
+              overflow: visible;
               overscroll-behavior: contain;
               background: inherit;
             }
@@ -3794,6 +3794,11 @@ extension CMUXCLI {
               --diffs-line-height: var(--cmux-diff-line-height);
               --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
               box-shadow: 0 -1px 0 var(--cmux-diff-border), 0 1px 0 var(--cmux-diff-border);
+            }
+            #viewer diffs-container [data-diffs-header][data-sticky] {
+              backface-visibility: hidden;
+              transform: translateZ(0);
+              will-change: transform;
             }
             #status {
               padding: 16px;
