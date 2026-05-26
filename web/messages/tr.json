@@ -493,7 +493,12 @@
         },
         "app": {
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
-          "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın."
+          "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
+          "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
+          "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle."
+        },
+        "terminal": {
+          "copyOnSelect": "Seçim kesinleştiğinde seçilen terminal metnini sistem panosuna kopyalar; çift ve üçlü tıklamayla yapılan sözcük ve satır seçimleri dahil."
         }
       }
     },
@@ -975,7 +980,7 @@
       "supportedNote": "Claude Code, Settings'te Claude integration etkinse cmux Claude wrapper tarafından işlenir. Antigravity setup alias olarak agy'yi de kabul eder, Rovo Dev ise rovo'yu kabul eder.",
       "manualTitle": "Manuel geri yükleme",
       "manualDesc": "cmux normal açılışta son kaydedilen snapshot'ı geri yükler. Önceki snapshot'ı manuel olarak da tekrar uygulayabilirsiniz:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "Otomatik agent resume'u kapat",
       "disableDesc": "Kaydedilmiş agent resume komutlarını başlatmadan panelleri geri yüklemek için Settings > Terminal > Resume Agent Sessions on Reopen seçeneğini kapatın veya şunu ayarlayın:",
       "disableNote": "Bu yalnızca agent resume komutlarını kapatır. cmux layout, çalışma dizinleri, scrollback ve tarayıcı geçmişini geri yüklemeye devam eder.",
@@ -1000,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "Bir gün daha, bir libghostty tabanlı proje daha, bu sefer dikey sekmeli, daha iyi düzenleme/bildirimli, gömülü/betiklenebilir tarayıcılı, özellikle terminal tabanlı ajan iş akışlarını çok kullanan kişilere yönelik bir macOS terminali.",
+    "steipete": "Partiye geç kaldım ama cmux harika. Mevcut ayrım: bilgi çalışması, öğrenme ve okuma için Codex Mac uygulaması; kodlama için cmux + Codex CLI.",
     "schrockn": "Bu tam olarak aradığım ürün. Bu sabah iki saat sonra aşık oldum.",
     "egrefen": "Tüm hafta sonu bunu kullandım ve harika.",
     "max4c": "son iki haftadır en sevdiğim araç bu oldu",

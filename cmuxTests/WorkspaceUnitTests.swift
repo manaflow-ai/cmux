@@ -301,8 +301,12 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testNextPreviousWorkspaceShortcutDefaultsAndMetadata() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.nextSidebarTab.label, "Next Workspace")
         XCTAssertEqual(KeyboardShortcutSettings.Action.prevSidebarTab.label, "Previous Workspace")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryBack.label, "Focus Back")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryForward.label, "Focus Forward")
         XCTAssertEqual(KeyboardShortcutSettings.Action.nextSidebarTab.defaultsKey, "shortcut.nextSidebarTab")
         XCTAssertEqual(KeyboardShortcutSettings.Action.prevSidebarTab.defaultsKey, "shortcut.prevSidebarTab")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryBack.defaultsKey, "shortcut.focusHistoryBack")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryForward.defaultsKey, "shortcut.focusHistoryForward")
 
         let nextShortcut = KeyboardShortcutSettings.Action.nextSidebarTab.defaultShortcut
         XCTAssertEqual(nextShortcut.key, "]")
@@ -317,6 +321,23 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(prevShortcut.shift)
         XCTAssertFalse(prevShortcut.option)
         XCTAssertTrue(prevShortcut.control)
+
+        let focusBackShortcut = KeyboardShortcutSettings.Action.focusHistoryBack.defaultShortcut
+        XCTAssertEqual(focusBackShortcut.key, "[")
+        XCTAssertTrue(focusBackShortcut.command)
+        XCTAssertFalse(focusBackShortcut.shift)
+        XCTAssertFalse(focusBackShortcut.option)
+        XCTAssertFalse(focusBackShortcut.control)
+
+        let focusForwardShortcut = KeyboardShortcutSettings.Action.focusHistoryForward.defaultShortcut
+        XCTAssertEqual(focusForwardShortcut.key, "]")
+        XCTAssertTrue(focusForwardShortcut.command)
+        XCTAssertFalse(focusForwardShortcut.shift)
+        XCTAssertFalse(focusForwardShortcut.option)
+        XCTAssertFalse(focusForwardShortcut.control)
+
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.focusHistoryBack))
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.focusHistoryForward))
     }
 
     func testNextPreviousWorkspaceShortcutsConvertToMenuShortcut() {
@@ -402,6 +423,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
             (.switchRightSidebarToSessions, "3"),
             (.switchRightSidebarToFeed, "4"),
             (.switchRightSidebarToDock, "5"),
+            (.switchRightSidebarToHistory, "6"),
         ]
 
         for (action, key) in modeSwitchActions {
@@ -970,7 +992,8 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 "switchRightSidebarToFind": "ctrl+5",
                 "switchRightSidebarToSessions": "ctrl+6",
                 "switchRightSidebarToFeed": "ctrl+7",
-                "switchRightSidebarToDock": "ctrl+8"
+                "switchRightSidebarToDock": "ctrl+8",
+                "switchRightSidebarToHistory": "ctrl+9"
               }
             }
             """,
@@ -1006,6 +1029,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(
             store.override(for: .switchRightSidebarToDock),
             StoredShortcut(key: "8", command: false, shift: false, option: false, control: true)
+        )
+        XCTAssertEqual(
+            store.override(for: .switchRightSidebarToHistory),
+            StoredShortcut(key: "9", command: false, shift: false, option: false, control: true)
         )
     }
 
@@ -2708,7 +2735,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             cachedTitle: nil,
             customTitle: nil,
             manuallyUnread: false,
-            restoredUnread: false,
+            restoredUnreadIndicator: nil,
             restorableAgent: nil,
             restorableAgentResumeState: nil,
             resumeBinding: resumeBinding,
@@ -3507,6 +3534,56 @@ final class WorkspaceReorderTests: XCTestCase {
 
         XCTAssertEqual(manager.tabs.map(\.id), [second.id, first.id])
         XCTAssertEqual(observedMovedIds, [second.id])
+    }
+
+    @MainActor
+    func testMoveTabToTopPublishesWorkspaceReorderedEvent() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        CmuxEventBus.shared.resetForTesting()
+
+        manager.moveTabToTop(second.id)
+
+        let event = try XCTUnwrap(CmuxEventBus.shared.retainedSnapshot().last)
+        XCTAssertEqual(event["name"] as? String, "workspace.reordered")
+        XCTAssertEqual(event["source"] as? String, "workspace.lifecycle")
+        XCTAssertEqual(event["workspace_id"] as? String, second.id.uuidString)
+        let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+        XCTAssertEqual(
+            payload["workspace_ids"] as? [String],
+            [second.id.uuidString, first.id.uuidString]
+        )
+        XCTAssertEqual(payload["moved_workspace_ids"] as? [String], [second.id.uuidString])
+        XCTAssertEqual(payload["pinned_workspace_ids"] as? [String], [])
+    }
+
+    @MainActor
+    func testSetPinnedPublishesWorkspaceReorderedEventWithPinnedState() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        CmuxEventBus.shared.resetForTesting()
+
+        manager.setPinned(second, pinned: true)
+
+        let event = try XCTUnwrap(CmuxEventBus.shared.retainedSnapshot().last)
+        XCTAssertEqual(event["name"] as? String, "workspace.reordered")
+        XCTAssertEqual(event["source"] as? String, "workspace.lifecycle")
+        XCTAssertEqual(event["workspace_id"] as? String, second.id.uuidString)
+        let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+        XCTAssertEqual(
+            payload["workspace_ids"] as? [String],
+            [second.id.uuidString, first.id.uuidString]
+        )
+        XCTAssertEqual(payload["moved_workspace_ids"] as? [String], [second.id.uuidString])
+        XCTAssertEqual(payload["pinned_workspace_ids"] as? [String], [second.id.uuidString])
     }
 
     @MainActor
@@ -5020,6 +5097,45 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, firstPanel.id)
     }
 
+    func testHistoryToolSurfaceOpensAsReusableBonsplitPane() {
+        let workspace = Workspace()
+        guard let paneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected focused pane")
+            return
+        }
+
+        guard let firstPanel = workspace.openOrFocusRightSidebarToolSurface(
+            inPane: paneId,
+            mode: .history,
+            focus: true
+        ) else {
+            XCTFail("Expected History tool surface to be created")
+            return
+        }
+        guard let secondPanel = workspace.openOrFocusRightSidebarToolSurface(
+            inPane: paneId,
+            mode: .history,
+            focus: true
+        ) else {
+            XCTFail("Expected existing History tool surface to be focused")
+            return
+        }
+
+        XCTAssertEqual(firstPanel.id, secondPanel.id)
+        XCTAssertEqual(firstPanel.displayTitle, String(localized: "rightSidebar.mode.history", defaultValue: "History"))
+        XCTAssertEqual(firstPanel.displayIcon, "clock.arrow.circlepath")
+        XCTAssertGreaterThanOrEqual(firstPanel.historySearchFocusToken, 1)
+        XCTAssertEqual(
+            workspace.surfaceIdFromPanelId(firstPanel.id).flatMap { workspace.bonsplitController.tab($0)?.kind },
+            Workspace.SurfaceKind.rightSidebarTool
+        )
+        XCTAssertEqual(workspace.focusedPanelId, firstPanel.id)
+
+        let previousFocusToken = firstPanel.historySearchFocusToken
+        workspace.focusPanel(firstPanel.id)
+        XCTAssertGreaterThan(firstPanel.historySearchFocusToken, previousFocusToken)
+    }
+
     func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {
         let workspace = Workspace()
         guard let firstPanelId = workspace.focusedPanelId else {
@@ -6249,5 +6365,64 @@ final class SidebarWorkspaceShortcutHintMetricsTests: XCTestCase {
         let base = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 0)
         let widened = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 10)
         XCTAssertGreaterThan(widened, base)
+    }
+}
+
+final class ExtensionWorktreePrototypeTests: XCTestCase {
+    func testPipeOutputCollectorDrainsBufferedOutputOnFinish() async throws {
+        let pipe = Pipe()
+        let collector = CmuxExtensionPipeOutputCollector(fileHandle: pipe.fileHandleForReading)
+
+        pipe.fileHandleForWriting.write(Data("exclude-path\n".utf8))
+        try pipe.fileHandleForWriting.close()
+
+        let output = await collector.finish()
+
+        XCTAssertEqual(String(data: output, encoding: .utf8), "exclude-path\n")
+    }
+
+    func testCreateWorktreeKeepsCmuxDirectoryLocallyIgnored() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-worktree-prototype-\(UUID().uuidString)", isDirectory: true)
+        let projectRoot = root.appendingPathComponent("Project", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        _ = try runGit(["init"], in: projectRoot)
+        try "hello\n".write(to: projectRoot.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+        _ = try runGit(["add", "README.md"], in: projectRoot)
+        _ = try runGit([
+            "-c", "user.name=cmux Test",
+            "-c", "user.email=cmux@example.invalid",
+            "commit",
+            "-m",
+            "initial"
+        ], in: projectRoot)
+
+        let result = try await CmuxExtensionWorktreePrototype.createWorktree(projectRootPath: projectRoot.path)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.worktreePath))
+        XCTAssertTrue(result.workspaceTitle.hasPrefix("cmux-sidebar-"))
+        let status = try runGit(["status", "--short", "--untracked-files=all"], in: projectRoot)
+        XCTAssertEqual(status.trimmingCharacters(in: .whitespacesAndNewlines), "")
+    }
+
+    @discardableResult
+    private func runGit(_ arguments: [String], in directory: URL) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "-C", directory.path] + arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        process.waitUntilExit()
+        let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: outputData, encoding: .utf8) ?? ""
+        guard process.terminationStatus == 0 else {
+            XCTFail("git \(arguments.joined(separator: " ")) failed: \(output)")
+            throw NSError(domain: "ExtensionWorktreePrototypeTests", code: Int(process.terminationStatus))
+        }
+        return output
     }
 }

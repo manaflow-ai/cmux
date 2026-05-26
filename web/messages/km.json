@@ -493,7 +493,12 @@
         },
         "app": {
           "confirmQuit": "កំណត់ពេលដែល cmux ស្នើសុំការបញ្ជាក់មុនពេលចាកចេញ។ កំណែ DEV តែងតែចាកចេញភ្លាមៗ ដោយមិនគិតពីការកំណត់នេះទេ។ app.warnBeforeQuit ចាស់នៅតែត្រូវបានទទួលយកជាជម្រើសបម្រុង boolean។",
-          "warnBeforeQuit": "ជម្រើសបម្រុង boolean ចាស់សម្រាប់ការបញ្ជាក់មុនចាកចេញ។ ប្រើ app.confirmQuit សម្រាប់ការកំណត់ថ្មី។"
+          "warnBeforeQuit": "ជម្រើសបម្រុង boolean ចាស់សម្រាប់ការបញ្ជាក់មុនចាកចេញ។ ប្រើ app.confirmQuit សម្រាប់ការកំណត់ថ្មី។",
+          "warnBeforeClosingTabXButton": "បង្ហាញការបញ្ជាក់ មុនពេលបិទផ្ទាំងដោយប៊ូតុងបិទផ្ទាំង។",
+          "hideTabCloseButton": "លាក់ប៊ូតុងបិទផ្ទាំងនៅក្នុងរបារផ្ទាំងរបស់ផ្ទាំងបង្អួច។"
+        },
+        "terminal": {
+          "copyOnSelect": "ចម្លងអត្ថបទ terminal ដែលបានជ្រើសទៅក្ដារតម្រៀបរបស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់ រួមទាំងការជ្រើសពាក្យ និងបន្ទាត់ដោយចុចពីរដង និងចុចបីដង។"
         }
       }
     },
@@ -975,7 +980,7 @@
       "supportedNote": "Claude Code ត្រូវបានគ្រប់គ្រងដោយ cmux Claude wrapper នៅពេលបើក Claude integration ក្នុង Settings។ Antigravity ក៏ទទួល agy ជា setup alias ហើយ Rovo Dev ទទួល rovo។",
       "manualTitle": "ស្ដារដោយដៃ",
       "manualDesc": "cmux ស្ដារ snapshot ចុងក្រោយដែលបានរក្សាទុក ពេលបើកធម្មតា។ អ្នកក៏អាច apply snapshot មុនដោយដៃបាន៖",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "បិទ automatic agent resume",
       "disableDesc": "ដើម្បីស្ដារ pane ដោយមិនបើក command resume របស់ agent ដែលបានរក្សាទុក សូមបិទ Settings > Terminal > Resume Agent Sessions on Reopen ឬកំណត់៖",
       "disableNote": "វាបិទតែ command resume របស់ agent ប៉ុណ្ណោះ។ cmux នៅតែស្ដារ layout, working directory, scrollback និង browser history។",
@@ -996,6 +1001,7 @@
   },
   "testimonials": {
     "mitchellh": "មួយថ្ងៃទៀត មួយគម្រោង libghostty ទៀត លើកនេះជាទែមីណល macOS ជាមួយផ្ទាំងបញ្ឈរ, ការរៀបចំ/ជូនដំណឹងល្អជាង, កម្មវិធីរុករកបង្កប់/សរសេរស្គ្រីបបាន ដែលមានគោលដៅជាពិសេសសម្រាប់អ្នកដែលប្រើ workflow agent ផ្អែកលើទែមីណលច្រើន។",
+    "steipete": "ខ្ញុំមកយឺតបន្តិចហើយ ប៉ុន្តែ cmux ល្អណាស់។ ការបែងចែកបច្ចុប្បន្ន៖ កម្មវិធី Codex Mac សម្រាប់ការងារចំណេះដឹង ការរៀន និងការអាន; cmux + Codex CLI សម្រាប់សរសេរកូដ។",
     "schrockn": "នេះជាផលិតផលដែលខ្ញុំកំពុងស្វែងរកពិតប្រាកដ។ បន្ទាប់ពីប្រើពីរម៉ោងព្រឹកនេះ ខ្ញុំស្រឡាញ់វាហើយ។",
     "egrefen": "ខ្ញុំប្រើវាពេញចុងសប្តាហ៍ ហើយវាអស្ចារ្យ។",
     "max4c": "នេះជាឧបករណ៍ដែលខ្ញុំចូលចិត្តបំផុតក្នុងរយៈពេលពីរសប្តាហ៍កន្លងមក",

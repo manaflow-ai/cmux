@@ -446,7 +446,7 @@
       "supportedNote": "Claude Codeは、設定でClaude連携が有効な場合にcmux Claudeラッパーで処理されます。Antigravityはセットアップエイリアスとしてagyも受け付け、Rovo Devはrovoを受け付けます。",
       "manualTitle": "手動復元",
       "manualDesc": "cmuxは通常起動時に最後に保存したスナップショットを復元します。以前のスナップショットを手動で再適用することもできます：",
-      "manualItemMenu": "ファイル > 前回のセッションを再度開く",
+      "manualItemMenu": "履歴 > 前回のアプリ起動を復元",
       "disableTitle": "エージェント自動復元を無効にする",
       "disableDesc": "保存されたエージェント復元コマンドを起動せずにペインだけを復元するには、設定 > ターミナル > 再オープン時にエージェントセッションを復元 をオフにするか、次を設定します：",
       "disableNote": "これはエージェント復元コマンドだけを無効にします。cmuxはレイアウト、作業ディレクトリ、スクロールバック、ブラウザ履歴を引き続き復元します。",
@@ -553,7 +553,12 @@
         },
         "app": {
           "confirmQuit": "cmux の終了前に確認を求めるタイミングを制御します。DEV ビルドではこの設定に関係なく常にすぐ終了します。従来の app.warnBeforeQuit も boolean フォールバックとして引き続き受け付けます。",
-          "warnBeforeQuit": "終了確認用の従来の boolean フォールバックです。新しい設定では app.confirmQuit を使ってください。"
+          "warnBeforeQuit": "終了確認用の従来の boolean フォールバックです。新しい設定では app.confirmQuit を使ってください。",
+          "warnBeforeClosingTabXButton": "タブの閉じるボタンでタブを閉じる前に確認を表示します。",
+          "hideTabCloseButton": "ペインのタブバーでタブの閉じるボタンを非表示にします。"
+        },
+        "terminal": {
+          "copyOnSelect": "選択が確定したとき、ダブルクリックやトリプルクリックによる単語・行の選択を含め、選択したターミナルテキストをシステムクリップボードへコピーします。"
         }
       }
     },
@@ -1236,6 +1241,7 @@
   },
   "testimonials": {
     "mitchellh": "またlibghosttyベースのプロジェクトが登場。今回は縦タブ付きのmacOSターミナルで、ターミナルベースのAIエージェントワークフローを大量に使う人向けに、整理・通知機能や組み込み・スクリプタブルなブラウザを搭載。",
+    "steipete": "出遅れたけど、cmuxは素晴らしい。今の使い分け：Codex Macアプリは知識作業、学習、読書。cmux + Codex CLIはコーディング。",
     "schrockn": "まさに探していた製品です。今朝2時間使って、もう夢中です。",
     "egrefen": "週末ずっと使ってたけど、すごくいい。",
     "max4c": "この2週間で一番お気に入りのツール",
