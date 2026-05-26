@@ -779,6 +779,14 @@ final class WindowDragHandleHitTests: XCTestCase {
         location: NSPoint,
         window: NSWindow
     ) -> NSEvent {
+        let isButtonEvent: Bool
+        switch type {
+        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
+            isButtonEvent = true
+        default:
+            isButtonEvent = false
+        }
+
         guard let event = NSEvent.mouseEvent(
             with: type,
             location: location,
@@ -787,8 +795,8 @@ final class WindowDragHandleHitTests: XCTestCase {
             windowNumber: window.windowNumber,
             context: nil,
             eventNumber: 0,
-            clickCount: 1,
-            pressure: 1.0
+            clickCount: isButtonEvent ? 1 : 0,
+            pressure: isButtonEvent ? 1.0 : 0.0
         ) else {
             fatalError("Failed to create \(type) mouse event")
         }
