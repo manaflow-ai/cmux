@@ -2100,13 +2100,19 @@ final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
 
 @MainActor
 final class TabManagerSurfaceCreationTests: XCTestCase {
-    func testNewSurfaceFocusesCreatedSurface() {
+    func testNewSurfaceCreatesAndFocusesTopLevelTab() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {
             XCTFail("Expected a selected workspace")
             return
         }
 
+        guard let initialTopTabId = workspace.selectedTopLevelTabId else {
+            XCTFail("Expected initial top-level tab")
+            return
+        }
+        let initialLayoutController = workspace.bonsplitController
+        let initialPaneCount = initialLayoutController.allPaneIds.count
         let beforePanels = Set(workspace.panels.keys)
         manager.newSurface()
         let afterPanels = Set(workspace.panels.keys)
@@ -2115,10 +2121,88 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         XCTAssertEqual(createdPanels.count, 1, "Expected one new surface for Cmd+T path")
         guard let createdPanelId = createdPanels.first else { return }
 
+        XCTAssertEqual(workspace.topLevelTabCount, 2, "Expected Cmd+T to create a workspace top tab")
+        XCTAssertNotEqual(
+            workspace.selectedTopLevelTabId,
+            initialTopTabId,
+            "Expected Cmd+T to select the new workspace top tab"
+        )
+        XCTAssertFalse(
+            workspace.bonsplitController === initialLayoutController,
+            "Expected the selected top tab to own a distinct split controller"
+        )
+        XCTAssertEqual(
+            initialLayoutController.allPaneIds.count,
+            initialPaneCount,
+            "Expected Cmd+T not to split or mutate the original top tab layout"
+        )
         XCTAssertEqual(
             workspace.focusedPanelId,
             createdPanelId,
             "Expected newly created surface to be focused"
+        )
+    }
+
+    func testSplitsStayInsideSelectedTopLevelTab() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let firstTopTabId = workspace.selectedTopLevelTabId,
+              let firstPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace, top tab, and focused panel")
+            return
+        }
+        let firstLayoutController = workspace.bonsplitController
+        let firstPaneCount = firstLayoutController.allPaneIds.count
+
+        manager.newSurface()
+        guard let secondTopTabId = workspace.selectedTopLevelTabId else {
+            XCTFail("Expected second top tab to be selected")
+            return
+        }
+        let secondLayoutController = workspace.bonsplitController
+        let secondInitialPaneCount = secondLayoutController.allPaneIds.count
+
+        guard let splitPanelId = manager.createSplit(direction: .right) else {
+            XCTFail("Expected split creation in selected top tab")
+            return
+        }
+
+        XCTAssertEqual(
+            secondLayoutController.allPaneIds.count,
+            secondInitialPaneCount + 1,
+            "Expected split to be added to the selected top tab layout"
+        )
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: firstTopTabId, reassertAppKitFocus: false))
+        XCTAssertTrue(
+            workspace.bonsplitController === firstLayoutController,
+            "Expected switching back to restore the first top tab layout controller"
+        )
+        XCTAssertEqual(
+            firstLayoutController.allPaneIds.count,
+            firstPaneCount,
+            "Expected the first top tab layout to remain unsplit"
+        )
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            firstPanelId,
+            "Expected switching top tabs to restore the first tab's focused panel"
+        )
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: secondTopTabId, reassertAppKitFocus: false))
+        XCTAssertTrue(
+            workspace.bonsplitController === secondLayoutController,
+            "Expected switching forward to restore the second top tab layout controller"
+        )
+        XCTAssertEqual(
+            secondLayoutController.allPaneIds.count,
+            secondInitialPaneCount + 1,
+            "Expected the second top tab split layout to be preserved"
+        )
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            splitPanelId,
+            "Expected returning to the split top tab to restore its focused split panel"
         )
     }
 
