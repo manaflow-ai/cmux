@@ -8,6 +8,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     case amp
     case cursor
     case gemini
+    case antigravity
     case opencode
     case rovodev
     case hermesAgent
@@ -20,12 +21,13 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     static let allCases: [RestorableAgentKind] = [
         .claude,
         .codex,
-        .grok,
-        // Pi is registry-owned so the built-in Vault registration can be
-        // overridden by project config while direct .pi values still encode.
+        // Pi and Grok are registry-owned so the built-in Vault registrations can be
+        // overridden by project config while direct native values still encode.
         .amp,
         .cursor,
         .gemini,
+        // Antigravity is registry-owned so the built-in Vault registration can be
+        // overridden by project config while direct .antigravity values still encode.
         .opencode,
         .rovodev,
         .hermesAgent,
@@ -45,6 +47,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case "amp": self = .amp
         case "cursor": self = .cursor
         case "gemini": self = .gemini
+        case "antigravity": self = .antigravity
         case "opencode": self = .opencode
         case "rovodev": self = .rovodev
         case "hermes-agent": self = .hermesAgent
@@ -67,6 +70,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .amp: return "amp"
         case .cursor: return "cursor"
         case .gemini: return "gemini"
+        case .antigravity: return "antigravity"
         case .opencode: return "opencode"
         case .rovodev: return "rovodev"
         case .hermesAgent: return "hermes-agent"
@@ -83,6 +87,27 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
             return id
         }
         return nil
+    }
+
+    var displayName: String {
+        switch self {
+        case .claude: return "Claude Code"
+        case .codex: return "Codex"
+        case .grok: return "Grok"
+        case .pi: return "Pi"
+        case .amp: return "Amp"
+        case .cursor: return "Cursor"
+        case .gemini: return "Gemini"
+        case .antigravity: return "Antigravity"
+        case .opencode: return "OpenCode"
+        case .rovodev: return "Rovo Dev"
+        case .hermesAgent: return "Hermes Agent"
+        case .copilot: return "Copilot"
+        case .codebuddy: return "CodeBuddy"
+        case .factory: return "Factory"
+        case .qoder: return "Qoder"
+        case .custom(let id): return id
+        }
     }
 
     init(from decoder: Decoder) throws {

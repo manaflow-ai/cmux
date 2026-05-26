@@ -2,6 +2,12 @@ import Foundation
 import CMUXAgentLaunch
 
 extension TerminalSurface {
+    struct CmuxContextEnvironment: Equatable, Sendable {
+        let workspaceId: UUID
+        let surfaceId: UUID
+        let socketPath: String
+    }
+
     static let managedTerminalType = "xterm-256color"
     static let managedTerminalProgram = "ghostty"
     static let managedColorTerm = "truecolor"
@@ -24,6 +30,34 @@ extension TerminalSurface {
         protectedKeys.insert("COLORTERM")
         environment["TERM_PROGRAM"] = managedTerminalProgram
         protectedKeys.insert("TERM_PROGRAM")
+    }
+
+    static func applyManagedCmuxContextEnvironment(
+        _ context: CmuxContextEnvironment,
+        to environment: inout [String: String],
+        protectedKeys: inout Set<String>
+    ) {
+        let values = [
+            "CMUX_SURFACE_ID": context.surfaceId.uuidString,
+            "CMUX_WORKSPACE_ID": context.workspaceId.uuidString,
+            "CMUX_PANEL_ID": context.surfaceId.uuidString,
+            "CMUX_TAB_ID": context.workspaceId.uuidString,
+            "CMUX_SOCKET_PATH": context.socketPath
+        ]
+
+        for (key, value) in values {
+            environment[key] = value
+            protectedKeys.insert(key)
+        }
+    }
+
+    static func applyManagedGitWatchEnvironment(
+        watchGitStatusEnabled: Bool,
+        to environment: inout [String: String],
+        protectedKeys: inout Set<String>
+    ) {
+        environment["CMUX_NO_GIT_WATCH"] = watchGitStatusEnabled ? "" : "1"
+        protectedKeys.insert("CMUX_NO_GIT_WATCH")
     }
 
     static func mergedStartupEnvironment(

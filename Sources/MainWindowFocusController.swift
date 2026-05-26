@@ -55,6 +55,7 @@ final class MainWindowFocusController {
     private weak var fileSearchHost: FileExplorerContainerView?
     private weak var feedHost: FeedKeyboardFocusView?
     private weak var dockHost: DockKeyboardFocusView?
+    private weak var historyHost: RightSidebarHistoryFocusAnchorView?
 
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
@@ -109,7 +110,7 @@ final class MainWindowFocusController {
             fileExplorerHost = host
         case .find:
             fileSearchHost = host
-        case .sessions, .feed, .dock:
+        case .sessions, .feed, .dock, .history:
             break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
@@ -126,10 +127,23 @@ final class MainWindowFocusController {
         focusRegisteredRightSidebarEndpointIfNeeded(mode: .dock)
     }
 
+    func registerHistoryHost(_ host: RightSidebarHistoryFocusAnchorView) {
+        historyHost = host
+        focusRegisteredRightSidebarEndpointIfNeeded(mode: .history)
+    }
+
     func noteRightSidebarInteraction(mode: RightSidebarMode) {
         rememberedRightSidebarMode = mode
         rightSidebarFocusState = .focused(mode: mode, target: .host)
         intent = .rightSidebar(mode: mode)
+        if mode != .feed {
+            feedSelectedItemId = nil
+        }
+        publishFeedFocusSnapshot()
+    }
+
+    func rememberRightSidebarMode(_ mode: RightSidebarMode) {
+        rememberedRightSidebarMode = mode
         if mode != .feed {
             feedSelectedItemId = nil
         }
@@ -185,6 +199,9 @@ final class MainWindowFocusController {
             return true
         }
         if dockHost?.ownsKeyboardFocus(responder) == true {
+            return true
+        }
+        if historyHost?.ownsKeyboardFocus(responder) == true {
             return true
         }
         return false
@@ -639,6 +656,8 @@ final class MainWindowFocusController {
             return focusFirstItem ? .firstItem : .host
         case .dock:
             return focusFirstItem ? .firstItem : .host
+        case .history:
+            return focusFirstItem ? .searchField : .host
         }
     }
 
@@ -663,6 +682,11 @@ final class MainWindowFocusController {
                 dockHost?.focusFirstItemFromCoordinator()
             }
             return dockHost?.focusHostFromCoordinator() == true
+        case .history:
+            if target == .searchField {
+                return historyHost?.focusSearchFromCoordinator() == true
+            }
+            return historyHost?.focusHostFromCoordinator() == true
         }
     }
 
@@ -732,6 +756,9 @@ final class MainWindowFocusController {
         }
         if dockHost?.ownsKeyboardFocus(responder) == true {
             return .dock
+        }
+        if historyHost?.ownsKeyboardFocus(responder) == true {
+            return .history
         }
         return nil
     }

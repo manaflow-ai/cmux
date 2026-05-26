@@ -342,21 +342,21 @@ struct SessionEntry: Identifiable, Hashable {
             }
             return parts.joined(separator: " ")
         case let .grok(model, permissionMode, sandboxMode, grokHome):
-            var parts = ["grok -r \(Self.shellQuote(sessionId))"]
+            var argv = ["grok", "-r", sessionId]
             if let model, !model.isEmpty {
-                parts.append("-m \(Self.shellQuote(model))")
+                argv.append(contentsOf: ["-m", model])
             }
             if let permissionMode, !permissionMode.isEmpty {
-                parts.append("--permission-mode \(Self.shellQuote(permissionMode))")
+                argv.append(contentsOf: ["--permission-mode", permissionMode])
             }
             if let sandboxMode, !sandboxMode.isEmpty {
-                parts.append("--sandbox \(Self.shellQuote(sandboxMode))")
+                argv.append(contentsOf: ["--sandbox", sandboxMode])
             }
             let environment = grokHome.flatMap { value -> [String: String]? in
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 return trimmed.isEmpty ? nil : ["GROK_HOME": trimmed]
             } ?? [:]
-            return Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
+            return Self.singleQuotedShellCommand(environment: environment, argv: argv)
         case let .opencode(providerModel, agentName):
             var parts = ["opencode --session \(sessionId)"]
             if let providerModel, !providerModel.isEmpty {
@@ -412,13 +412,32 @@ struct SessionEntry: Identifiable, Hashable {
         return "env \(assignments.joined(separator: " ")) \(command)"
     }
 
+    private static func singleQuotedShellCommand(
+        environment: [String: String],
+        argv: [String]
+    ) -> String {
+        var parts: [String] = []
+        let assignments = environment
+            .filter { key, _ in
+                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil
+            }
+            .sorted { $0.key < $1.key }
+            .map { key, value in "\(key)=\(value)" }
+        if !assignments.isEmpty {
+            parts.append("env")
+            parts.append(contentsOf: assignments)
+        }
+        parts.append(contentsOf: argv)
+        return parts.map(Self.shellSingleQuote).joined(separator: " ")
+    }
+
+    private static func shellSingleQuote(_ value: String) -> String {
+        TerminalStartupShellQuoting.singleQuoted(value)
+    }
+
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
     static func shellQuote(_ value: String) -> String {
-        if value.range(of: "[^A-Za-z0-9_./:=+-]", options: .regularExpression) == nil {
-            return value
-        }
-        let escaped = value.replacingOccurrences(of: "'", with: #"'\''"#)
-        return "'\(escaped)'"
+        TerminalStartupShellQuoting.shellToken(value, allowingBareASCII: true)
     }
 
     var displayTitle: String {

@@ -30,6 +30,14 @@ nonisolated extension CmuxTopProcessSnapshot {
         )
     }
 
+    static func scopeCacheKey(from bsdInfo: proc_bsdinfo) -> CmuxTopProcessScopeCacheKey {
+        CmuxTopProcessScopeCacheKey(
+            pid: Int(bsdInfo.pbi_pid),
+            startSeconds: Int(bsdInfo.pbi_start_tvsec),
+            startMicroseconds: Int(bsdInfo.pbi_start_tvusec)
+        )
+    }
+
     static func cachedCMUXScope(
         for pid: Int,
         cacheKey: CmuxTopProcessScopeCacheKey
@@ -187,5 +195,14 @@ nonisolated extension CmuxTopProcessSnapshot {
             return nil
         }
         return process
+    }
+}
+
+nonisolated extension CmuxTopProcessArguments {
+    func matchesCMUXScope(workspaceId: UUID, surfaceId: UUID) -> Bool {
+        guard let scope = CmuxTopProcessSnapshot.cmuxScope(arguments: arguments, environment: environment) else {
+            return false
+        }
+        return scope.workspaceID == workspaceId && scope.surfaceID == surfaceId
     }
 }

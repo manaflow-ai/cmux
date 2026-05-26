@@ -26,6 +26,93 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.10": {
+    title:
+      "Copy on Select, Extension Sidebar Prototypes, Browser & Terminal Polish",
+    features: [
+      {
+        title: "Copy on Select",
+        description:
+          "Highlighting text in the terminal now copies it to the clipboard the instant the mouse is released. The setting is off by default and toggles from Settings so existing selection behavior stays untouched for anyone who relies on it.",
+      },
+      {
+        title: "CmuxExtensionKit Sidebar Prototypes",
+        description:
+          "An in-tree preview of the upcoming extension API for custom workspace sidebars. Sample sidebars cover an attention queue, browser stack, dev server status, last prompt, and project worktree views, each rendered through the same provider/reducer surface a third-party extension will use.",
+      },
+      {
+        title: "TaskManager 0.64.8 Memory Leak Fix",
+        description:
+          "The TaskManager panel had a snapshot-boundary violation that retained pane store references inside a lazy list subtree, keeping every entry's `@Published` updates wired to every row. 0.64.10 lifts that state above the list and passes immutable snapshots, so reopening the manager no longer accumulates retained state across sessions.",
+      },
+      {
+        title: "Browser Polish",
+        description:
+          "The browser loading spinner now runs on Core Animation so it stays smooth during heavy rendering, Cmd+Up and Cmd+Down forward into the browser pane (Google Docs jump-to-top/bottom works), the URL bar no longer steals focus on tab switch, and the markdown viewer renders remote SVG images correctly.",
+      },
+      {
+        title: "Workspace Reorder CLI",
+        description:
+          "`cmux reorder-workspaces` accepts batch input, supports `--dry-run`, and emits reorder events so scripted layouts can plan a full sidebar reshuffle in one call and react to the changes via the socket.",
+      },
+      {
+        title: "Tab Close Guards",
+        description:
+          "Tab close buttons can now warn before closing or be hidden entirely from Settings, so a stray click on the X stops dropping the surface without confirmation.",
+      },
+    ],
+  },
+  "0.64.9": {
+    title: "0.64.8 Memory Leak Hotfix",
+    features: [
+      {
+        title: "Fix 8GB RSS Growth on Non-Git Workspaces",
+        description:
+          "Git repository search now stops at filesystem root instead of walking forever into `/..`. On older Foundation builds, `deletingLastPathComponent()` could yield `/..` and keep climbing, allocating ever-longer parent paths until the OS OOM killer fired. Non-Git workspaces no longer grow RSS from ~450MB to 8GB within minutes on 0.64.8.",
+      },
+      {
+        title: "Restore Browser Memory Saver Default",
+        description:
+          "Hidden browser webview renderers discard by default again, reverting the 0.64.8 keep-alive default that exposed the memory regression. The keep-alive behavior remains available as an opt-in setting for workflows that need to preserve DOM state across workspace switches.",
+      },
+    ],
+  },
+  "0.64.8": {
+    title:
+      "Antigravity CLI, Grok Vault Resume, CLI Window Targeting, Browser Screenshots",
+    features: [
+      {
+        title: "Antigravity CLI Integration",
+        description:
+          "Antigravity joins the supported coding-agent lineup with hook notifications, task manager attribution, and Vault session restore, the same way Claude, Codex, Gemini, and Grok already work in cmux.",
+      },
+      {
+        title: "Native Grok Vault Resume",
+        description:
+          "Grok sessions can now be resumed natively from Vault. cmux parses registered Grok transcripts by layout, deduplicates sessions across shell-Grok homes, and quotes built-in resume commands so they round-trip cleanly.",
+      },
+      {
+        title: "CLI Window Targeting",
+        description:
+          "cmux CLI commands now accept `--window` to scope workspace, pane, surface, SSH, VM, notifications, tree, and top flows to a specific window. Refs resolve inside the targeted window, and cross-window pane handles are rejected before they mutate state.",
+      },
+      {
+        title: "Browser Screenshot Clipboard Actions",
+        description:
+          "Capture a screenshot of the current browser pane and copy it straight to the clipboard, ready to paste into an agent conversation or notes.",
+      },
+      {
+        title: "Browser Webviews Kept Alive",
+        description:
+          "Reverts the 0.64.7 default of discarding hidden browser webview renderers. Switching back to a hidden browser pane now resumes instantly without reloading. The discard behavior remains available as an opt-in setting.",
+      },
+      {
+        title: "Bug Fixes",
+        description:
+          "Fixes for minimal-mode pane tabs moving the window when dragged, Option dead-key accent composition (Option+n then a now commits \"ã\"), equalize splits with 3+ panes, Quick Look preview crashes, git index.lock polling, theme override paths leaking from channel builds, sidebar overlay contrast, terminal scheme synchronization on theme reload, restored unread badges, transparent terminal hosting, browser navigation race conditions, and session search ripgrep cancellation crashes.",
+      },
+    ],
+  },
   "0.64.7": {
     title:
       "Grok Build CLI, Browser Memory & Background Preload, Conversation Forks",
