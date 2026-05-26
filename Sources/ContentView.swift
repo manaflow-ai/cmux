@@ -14811,26 +14811,17 @@ private struct TabItemView: View, Equatable {
         let isShift = modifiers.contains(.shift)
         let wasSelected = tabManager.selectedTabId == tab.id
 
-        if isShift, let lastIndex = lastSidebarSelectionIndex {
-            let lower = min(lastIndex, index)
-            let upper = max(lastIndex, index)
-            let rangeIds = tabManager.tabs[lower...upper].map { $0.id }
-            if isCommand {
-                selectedTabIds.formUnion(rangeIds)
-            } else {
-                selectedTabIds = Set(rangeIds)
-            }
-        } else if isCommand {
-            if selectedTabIds.contains(tab.id) {
-                selectedTabIds.remove(tab.id)
-            } else {
-                selectedTabIds.insert(tab.id)
-            }
-        } else {
-            selectedTabIds = [tab.id]
-        }
-
-        lastSidebarSelectionIndex = index
+        let selectionResult = SidebarWorkspaceSelectionReducer.select(
+            workspaceId: tab.id,
+            index: index,
+            workspaceIds: tabManager.tabs.map(\.id),
+            selectedIds: selectedTabIds,
+            anchorIndex: lastSidebarSelectionIndex,
+            isCommand: isCommand,
+            isShift: isShift
+        )
+        selectedTabIds = selectionResult.selectedIds
+        lastSidebarSelectionIndex = selectionResult.anchorIndex
         tabManager.selectTab(tab)
         if wasSelected, !isCommand, !isShift {
             tabManager.dismissNotificationOnDirectInteraction(
