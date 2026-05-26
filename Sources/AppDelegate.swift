@@ -12336,6 +12336,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return handled
         }
 
+        if matchConfiguredShortcut(event: event, action: .newPage) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            _ = routedManager?.selectedWorkspace?.newPage(select: true)
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .renamePage) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            guard let workspace = routedManager?.selectedWorkspace,
+                  let pageId = workspace.activePage?.id else {
+                return false
+            }
+            workspace.promptRenamePage(pageId: pageId)
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .closePage) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            guard let workspace = routedManager?.selectedWorkspace,
+                  let pageId = workspace.activePage?.id else {
+                return false
+            }
+            workspace.closePage(pageId)
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .nextPage) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            routedManager?.selectedWorkspace?.selectNextPage()
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .previousPage) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            routedManager?.selectedWorkspace?.selectPreviousPage()
+            return true
+        }
+
+        let pageSelectionShortcuts: [(KeyboardShortcutSettings.Action, Int?)] = [
+            (.selectPage1, 0),
+            (.selectPage2, 1),
+            (.selectPage3, 2),
+            (.selectPage4, 3),
+            (.selectPage5, 4),
+            (.selectPage6, 5),
+            (.selectPage7, 6),
+            (.selectPage8, 7),
+            (.selectLastPage, nil),
+        ]
+        for (action, pageIndex) in pageSelectionShortcuts where matchConfiguredShortcut(event: event, action: action) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            if let pageIndex {
+                routedManager?.selectedWorkspace?.selectPage(at: pageIndex)
+            } else {
+                routedManager?.selectedWorkspace?.selectLastPage()
+            }
+            return true
+        }
+
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
         if matchConfiguredShortcut(event: event, action: .nextSidebarTab) {
 #if DEBUG

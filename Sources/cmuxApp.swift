@@ -778,6 +778,102 @@ struct cmuxApp: App {
 
             Divider()
 
+            splitCommandButton(title: String(localized: "menu.view.newPage", defaultValue: "New Page"), shortcut: menuShortcut(for: .newPage)) {
+                _ = activeTabManager.selectedWorkspace?.newPage(select: true)
+            }
+
+            Button(String(localized: "menu.view.duplicatePage", defaultValue: "Duplicate Page")) {
+                guard let workspace = activeTabManager.selectedWorkspace,
+                      let pageId = workspace.activePage?.id else {
+                    NSSound.beep()
+                    return
+                }
+                _ = workspace.duplicatePage(sourcePageId: pageId, select: true)
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.renamePage", defaultValue: "Rename Page…"), shortcut: menuShortcut(for: .renamePage)) {
+                guard let workspace = activeTabManager.selectedWorkspace,
+                      let pageId = workspace.activePage?.id else {
+                    NSSound.beep()
+                    return
+                }
+                workspace.promptRenamePage(pageId: pageId)
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.closePage", defaultValue: "Close Page"), shortcut: menuShortcut(for: .closePage)) {
+                guard let workspace = activeTabManager.selectedWorkspace,
+                      let pageId = workspace.activePage?.id else {
+                    NSSound.beep()
+                    return
+                }
+                workspace.closePage(pageId)
+            }
+            .disabled({
+                guard let workspace = activeTabManager.selectedWorkspace,
+                      let pageId = workspace.activePage?.id else { return true }
+                return !workspace.canClosePage(pageId)
+            }())
+
+            splitCommandButton(title: String(localized: "menu.view.nextPage", defaultValue: "Next Page"), shortcut: menuShortcut(for: .nextPage)) {
+                activeTabManager.selectedWorkspace?.selectNextPage()
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.previousPage", defaultValue: "Previous Page"), shortcut: menuShortcut(for: .previousPage)) {
+                activeTabManager.selectedWorkspace?.selectPreviousPage()
+            }
+
+            Button(String(localized: "workspace.page.context.closeOthers", defaultValue: "Close Other Pages")) {
+                guard let workspace = activeTabManager.selectedWorkspace,
+                      let pageId = workspace.activePage?.id else {
+                    NSSound.beep()
+                    return
+                }
+                workspace.closeOtherPages(keeping: pageId)
+            }
+            .disabled((activeTabManager.selectedWorkspace?.pages.count ?? 0) <= 1)
+
+            Button(String(localized: "workspace.page.context.moveLeft", defaultValue: "Move Page Left")) {
+                guard let workspace = activeTabManager.selectedWorkspace,
+                      let pageId = workspace.activePage?.id else {
+                    NSSound.beep()
+                    return
+                }
+                _ = workspace.movePageLeft(pageId: pageId)
+            }
+            .disabled((activeTabManager.selectedWorkspace?.activePageIndex ?? 0) <= 0)
+
+            Button(String(localized: "workspace.page.context.moveRight", defaultValue: "Move Page Right")) {
+                guard let workspace = activeTabManager.selectedWorkspace,
+                      let pageId = workspace.activePage?.id else {
+                    NSSound.beep()
+                    return
+                }
+                _ = workspace.movePageRight(pageId: pageId)
+            }
+            .disabled({
+                guard let workspace = activeTabManager.selectedWorkspace,
+                      let activeIndex = workspace.activePageIndex else {
+                    return true
+                }
+                return activeIndex >= workspace.pages.count - 1
+            }())
+
+            Menu(String(localized: "menu.view.selectPage", defaultValue: "Select Page")) {
+                if let workspace = activeTabManager.selectedWorkspace {
+                    let activePageId = workspace.activePage?.id
+                    ForEach(Array(workspace.pages.enumerated()), id: \.element.id) { index, page in
+                        let shortcut = pageSelectionMenuShortcut(index: index, pageCount: workspace.pages.count)
+                        splitCommandButton(title: page.title, shortcut: shortcut ?? .unbound) {
+                            workspace.selectPage(page.id)
+                        }
+                        .disabled(page.id == activePageId)
+                    }
+                }
+            }
+            .disabled((activeTabManager.selectedWorkspace?.pages.isEmpty ?? true))
+
+            Divider()
+
             splitCommandButton(title: String(localized: "menu.view.splitRight", defaultValue: "Split Right"), shortcut: menuShortcut(for: .splitRight)) {
                 performSplitFromMenu(direction: .right)
             }
@@ -884,6 +980,26 @@ struct cmuxApp: App {
     func menuShortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
         return KeyboardShortcutSettings.menuShortcut(for: action)
+    }
+
+    func pageSelectionMenuShortcut(index: Int, pageCount: Int) -> StoredShortcut? {
+        guard let digit = WorkspaceShortcutMapper.optionDigitForPage(at: index, pageCount: pageCount) else {
+            return nil
+        }
+        let action: KeyboardShortcutSettings.Action?
+        switch digit {
+        case 1: action = .selectPage1
+        case 2: action = .selectPage2
+        case 3: action = .selectPage3
+        case 4: action = .selectPage4
+        case 5: action = .selectPage5
+        case 6: action = .selectPage6
+        case 7: action = .selectPage7
+        case 8: action = .selectPage8
+        case 9: action = .selectLastPage
+        default: action = nil
+        }
+        return action.map { KeyboardShortcutSettings.menuShortcut(for: $0) }
     }
 
     private var notificationMenuSnapshot: NotificationMenuSnapshot {

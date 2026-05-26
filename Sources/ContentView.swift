@@ -2358,11 +2358,15 @@ struct ContentView: View {
                         .padding(.leading, -6)
                 }
 
-                Text(titlebarText)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
-                    .lineLimit(1)
-                    .allowsHitTesting(false)
+                if let workspace = tabManager.selectedWorkspace {
+                    titlebarPageStrip(workspace: workspace, textColor: fakeTitlebarTextColor(appearance: appearance))
+                } else {
+                    Text(titlebarText)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
+                        .lineLimit(1)
+                        .allowsHitTesting(false)
+                }
 
                 Spacer()
 
@@ -2378,6 +2382,101 @@ struct ContentView: View {
         .background(TitlebarDoubleClickMonitorView())
         .overlay(alignment: .bottom) {
             WindowChromeBorder(orientation: .horizontal)
+        }
+    }
+
+    private func titlebarPageStrip(workspace: Workspace, textColor: Color) -> some View {
+        let pages = workspace.pages
+        let activePageId = workspace.activePageId
+        let canCloseOthers = pages.count > 1
+
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(pages) { page in
+                    let pageId = page.id
+                    titlebarPageButton(
+                        title: page.title,
+                        isActive: pageId == activePageId,
+                        canClose: workspace.canClosePage(pageId),
+                        canCloseOthers: canCloseOthers,
+                        textColor: textColor,
+                        selectAction: { workspace.selectPage(pageId) },
+                        renameAction: { workspace.promptRenamePage(pageId: pageId) },
+                        duplicateAction: { _ = workspace.duplicatePage(sourcePageId: pageId, select: true) },
+                        closeOthersAction: { workspace.closeOtherPages(keeping: pageId) },
+                        closeAction: { workspace.closePage(pageId) }
+                    )
+                }
+
+                Button {
+                    _ = workspace.newPage(select: true)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(textColor.opacity(0.8))
+                .help(String(localized: "menu.view.newPage", defaultValue: "New Page"))
+            }
+            .frame(maxHeight: .infinity, alignment: .center)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func titlebarPageButton(
+        title: String,
+        isActive: Bool,
+        canClose: Bool,
+        canCloseOthers: Bool,
+        textColor: Color,
+        selectAction: @escaping () -> Void,
+        renameAction: @escaping () -> Void,
+        duplicateAction: @escaping () -> Void,
+        closeOthersAction: @escaping () -> Void,
+        closeAction: @escaping () -> Void
+    ) -> some View {
+        Button {
+            selectAction()
+        } label: {
+            HStack(spacing: 4) {
+                Text(title)
+                    .font(.system(size: 12, weight: isActive ? .semibold : .regular))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(isActive ? textColor.opacity(0.16) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .stroke(isActive ? textColor.opacity(0.20) : Color.clear, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(isActive ? textColor : textColor.opacity(0.72))
+        .help(title)
+        .contextMenu {
+            Button(String(localized: "workspace.page.context.rename", defaultValue: "Rename Page…")) {
+                renameAction()
+            }
+            Button(String(localized: "workspace.page.context.duplicate", defaultValue: "Duplicate Page")) {
+                duplicateAction()
+            }
+            Divider()
+            Button(String(localized: "workspace.page.context.closeOthers", defaultValue: "Close Other Pages")) {
+                closeOthersAction()
+            }
+            .disabled(!canCloseOthers)
+            Button(String(localized: "workspace.page.context.close", defaultValue: "Close Page")) {
+                closeAction()
+            }
+            .disabled(!canClose)
         }
     }
 

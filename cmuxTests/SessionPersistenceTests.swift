@@ -126,6 +126,111 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(store.notificationMenuSnapshot.hasUnreadNotifications)
     }
 
+    @MainActor
+    func testRestoredInactivePageRestoresPaneNotificationsWhenSelected() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let originalNotificationStore = appDelegate.notificationStore
+        appDelegate.notificationStore = store
+        store.replaceNotificationsForTesting([])
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let source = Workspace()
+        let firstPageId = source.activePageId
+        let firstPanelId = try XCTUnwrap(source.focusedPanelId)
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: source.id,
+            surfaceId: firstPanelId,
+            panelId: firstPanelId,
+            title: "Agent finished",
+            subtitle: "codex",
+            body: "Inactive page completed",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_100),
+            isRead: false,
+            paneFlash: true
+        )
+        store.replaceNotificationsForTesting([notification])
+
+        _ = source.newPage(select: true)
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        let firstPageSnapshot = try XCTUnwrap(snapshot.pages?.first { $0.id == firstPageId })
+        XCTAssertEqual(firstPageSnapshot.state.panels.first?.notifications?.first?.body, "Inactive page completed")
+
+        store.replaceNotificationsForTesting([])
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        XCTAssertNil(store.latestNotification(forTabId: restored.id))
+
+        restored.selectPage(firstPageId)
+
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredNotification = try XCTUnwrap(store.latestNotification(forTabId: restored.id))
+        XCTAssertEqual(restoredNotification.surfaceId, restoredPanelId)
+        XCTAssertEqual(restoredNotification.panelId, restoredPanelId)
+        XCTAssertEqual(restoredNotification.body, "Inactive page completed")
+        XCTAssertFalse(restoredNotification.isRead)
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: restoredPanelId))
+        let restoredSurfaceId = try XCTUnwrap(restored.surfaceIdFromPanelId(restoredPanelId))
+        XCTAssertEqual(restored.bonsplitController.tab(restoredSurfaceId)?.showsNotificationBadge, true)
+    }
+
+    @MainActor
+    func testSelectingNewPagePreservesWorkspaceAndInactivePageNotifications() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let originalNotificationStore = appDelegate.notificationStore
+        appDelegate.notificationStore = store
+        store.replaceNotificationsForTesting([])
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let workspace = Workspace()
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let workspaceNotification = TerminalNotification(
+            id: UUID(),
+            tabId: workspace.id,
+            surfaceId: nil,
+            panelId: nil,
+            title: "Workspace alert",
+            subtitle: "",
+            body: "Workspace notification should survive page switch",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_200),
+            isRead: false,
+            paneFlash: true
+        )
+        let panelNotification = TerminalNotification(
+            id: UUID(),
+            tabId: workspace.id,
+            surfaceId: firstPanelId,
+            panelId: firstPanelId,
+            title: "Panel alert",
+            subtitle: "",
+            body: "Inactive page notification should survive page switch",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_201),
+            isRead: false,
+            paneFlash: true
+        )
+        store.replaceNotificationsForTesting([workspaceNotification, panelNotification])
+
+        let secondPage = workspace.newPage(select: true)
+
+        XCTAssertEqual(workspace.activePageId, secondPage.id)
+        XCTAssertEqual(
+            store.notifications(forTabId: workspace.id, surfaceId: nil).map(\.id),
+            [workspaceNotification.id]
+        )
+        XCTAssertEqual(
+            store.notifications(forTabId: workspace.id, surfaceId: firstPanelId).map(\.id),
+            [panelNotification.id]
+        )
+    }
+
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -250,6 +355,42 @@ final class SessionPersistenceTests: XCTestCase {
 
         let decoded = try JSONDecoder().decode(AppSessionSnapshot.self, from: data)
         XCTAssertNil(decoded.windows.first?.tabManager.workspaces.first?.customColor)
+    }
+
+    func testSaveAndLoadRoundTripPreservesWorkspacePagesAndActivePageSelection() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        let firstPageId = UUID()
+        let secondPageId = UUID()
+        snapshot.windows[0].tabManager.workspaces[0].activePageId = secondPageId
+        snapshot.windows[0].tabManager.workspaces[0].pages = [
+            SessionWorkspacePageSnapshot(
+                id: firstPageId,
+                title: "Agents",
+                state: makePageStateSnapshot(currentDirectory: "/tmp/project/agents")
+            ),
+            SessionWorkspacePageSnapshot(
+                id: secondPageId,
+                title: "Editor",
+                state: makePageStateSnapshot(currentDirectory: "/tmp/project/editor")
+            ),
+        ]
+
+        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+
+        let loaded = SessionPersistenceStore.load(fileURL: snapshotURL)
+        let workspace = loaded?.windows.first?.tabManager.workspaces.first
+        XCTAssertEqual(workspace?.activePageId, secondPageId)
+        XCTAssertEqual(workspace?.pages?.map(\.title), ["Agents", "Editor"])
+        XCTAssertEqual(workspace?.pages?.map(\.state.currentDirectory), [
+            "/tmp/project/agents",
+            "/tmp/project/editor",
+        ])
     }
 
     func testLoadRejectsSchemaVersionMismatch() {
@@ -1646,6 +1787,19 @@ final class SessionPersistenceTests: XCTestCase {
     private func fileNumber(for fileURL: URL) throws -> Int {
         let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
         return try XCTUnwrap(attributes[.systemFileNumber] as? Int)
+    }
+
+    private func makePageStateSnapshot(currentDirectory: String) -> SessionWorkspacePageStateSnapshot {
+        SessionWorkspacePageStateSnapshot(
+            currentDirectory: currentDirectory,
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: [],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
     }
 }
 
