@@ -54540,7 +54540,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "단일 창 모드"
+            "value": "단일 윈도우 모드"
           }
         },
         "nb": {
@@ -54659,7 +54659,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 대상을 확인할 수 없으면 cmux가 새 창을 만들 수 있습니다."
+            "value": "작업 공간 대상을 확인할 수 없으면 cmux가 새 윈도우를 만들 수 있습니다."
           }
         },
         "nb": {
@@ -54778,7 +54778,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "자동 작업 공간 요청은 기존 기본 창을 다시 사용합니다. 새 창은 새 창 명령에서만 만들어집니다."
+            "value": "자동 작업 공간 요청은 기존 기본 윈도우를 다시 사용합니다. 새 윈도우는 새 윈도우 명령에서만 만들어집니다."
           }
         },
         "nb": {
@@ -75714,7 +75714,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces 단일 창 자동 새 창 방지 대체 탭 작업 공간"
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces 단일 윈도우 자동 새 윈도우 방지 대체 탭 작업 공간"
                 }
             },
             "nb": {

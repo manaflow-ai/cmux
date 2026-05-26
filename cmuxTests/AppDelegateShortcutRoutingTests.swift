@@ -4975,12 +4975,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let defaults = UserDefaults.standard
+        let previousSingleWindowModeValue = defaults.object(forKey: SingleWindowModeSettings.key)
         defaults.set(true, forKey: SingleWindowModeSettings.key)
 
         let existingWindowIds = mainWindowIds()
         let windowId = appDelegate.createMainWindow()
         defer {
-            defaults.removeObject(forKey: SingleWindowModeSettings.key)
+            restoreDefaultsValue(
+                previousSingleWindowModeValue,
+                forKey: SingleWindowModeSettings.key,
+                defaults: defaults
+            )
             for createdWindowId in mainWindowIds().subtracting(existingWindowIds) {
                 closeWindow(withId: createdWindowId)
             }
