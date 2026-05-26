@@ -3579,7 +3579,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            self?.updateSavedDisplayWindowFrameFromUserWindowChange(notification.object as? NSWindow)
+            MainActor.assumeIsolated {
+                self?.updateSavedDisplayWindowFrameFromUserWindowChange(notification.object as? NSWindow)
+            }
         }
         lifecycleSnapshotObservers.append(windowMoveObserver)
 
@@ -3588,7 +3590,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            self?.updateSavedDisplayWindowFrameFromUserWindowChange(notification.object as? NSWindow)
+            MainActor.assumeIsolated {
+                self?.updateSavedDisplayWindowFrameFromUserWindowChange(notification.object as? NSWindow)
+            }
         }
         lifecycleSnapshotObservers.append(windowResizeObserver)
     }
