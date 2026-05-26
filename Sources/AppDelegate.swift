@@ -5594,7 +5594,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteSnapshotByWindowId.removeValue(forKey: context.windowId)
 
         if tabManager === context.tabManager {
-            activateMainWindowContext(Array(mainWindowContexts.values).first { resolvedWindow(for: $0) != nil } ?? (allowWindowlessFallback ? mainWindowContexts.values.first : nil))
+            activateMainWindowContext(firstSessionRestorableMainWindowContext(allowWindowlessFallback: allowWindowlessFallback))
         }
 
         if let store = notificationStore {
@@ -5608,6 +5608,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for context in Array(mainWindowContexts.values) where resolvedWindow(for: context) == nil {
             discardOrphanedMainWindowContext(context)
         }
+    }
+
+    private func firstSessionRestorableMainWindowContext(allowWindowlessFallback: Bool = false) -> MainWindowContext? {
+        mainWindowContexts.values.first { context in
+            context.role.isSessionRestorable && resolvedWindow(for: context) != nil
+        } ?? (allowWindowlessFallback ? mainWindowContexts.values.first { $0.role.isSessionRestorable } : nil)
     }
 
 #if DEBUG
@@ -14872,10 +14878,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Repoint "active" pointers to any remaining main terminal window.
             let nextContext: MainWindowContext? = {
                 if let keyWindow = NSApp.keyWindow,
-                   let ctx = contextForMainTerminalWindow(keyWindow, reindex: false) {
+                   let ctx = contextForMainTerminalWindow(keyWindow, reindex: false),
+                   ctx.role.isSessionRestorable {
                     return ctx
                 }
-                return mainWindowContexts.values.first
+                return firstSessionRestorableMainWindowContext(allowWindowlessFallback: true)
             }()
 
             activateMainWindowContext(nextContext)

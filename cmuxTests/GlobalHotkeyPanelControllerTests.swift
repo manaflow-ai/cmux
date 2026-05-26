@@ -148,4 +148,57 @@ final class GlobalHotkeyPanelControllerTests: XCTestCase {
 
         XCTAssertTrue(appDelegate.tabManager === standardManager)
     }
+
+    func testDiscardingActiveStandardContextDoesNotFallBackToHotkeyPanel() {
+        _ = NSApplication.shared
+        let appDelegate = AppDelegate()
+        let standardWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let panel = GlobalHotkeyPanel(
+            contentRect: NSRect(x: 20, y: 20, width: 800, height: 600),
+            styleMask: GlobalHotkeyPanelConfiguration.styleMask,
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            standardWindow.orderOut(nil)
+            panel.orderOut(nil)
+            standardWindow.close()
+            panel.close()
+        }
+
+        let standardWindowId = UUID()
+        let standardManager = TabManager(autoWelcomeIfNeeded: false)
+        let hotkeyManager = TabManager(autoWelcomeIfNeeded: false)
+        appDelegate.registerMainWindow(
+            standardWindow,
+            windowId: standardWindowId,
+            tabManager: standardManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState(),
+            role: .standard
+        )
+        appDelegate.registerMainWindow(
+            panel,
+            windowId: UUID(),
+            tabManager: hotkeyManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState(),
+            role: .globalHotkeyPanel
+        )
+
+        appDelegate.setActiveMainWindow(standardWindow)
+        XCTAssertTrue(appDelegate.tabManager === standardManager)
+
+        appDelegate.unregisterMainWindowContextForTesting(windowId: standardWindowId)
+
+        XCTAssertNil(appDelegate.tabManager)
+        XCTAssertFalse(appDelegate.tabManager === hotkeyManager)
+    }
 }
