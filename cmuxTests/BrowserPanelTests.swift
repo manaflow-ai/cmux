@@ -314,7 +314,7 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         </body>
         </html>
         """.write(to: indexURL, atomically: true, encoding: .utf8)
-        let patchURL = trustedRootURL.appendingPathComponent("index.patch", isDirectory: false)
+        let patchURL = rootURL.appendingPathComponent("index.patch", isDirectory: false)
         try "diff --git a/a b/a\n".write(to: patchURL, atomically: true, encoding: .utf8)
 
         try CmuxDiffViewerURLSchemeHandler.shared.register(
