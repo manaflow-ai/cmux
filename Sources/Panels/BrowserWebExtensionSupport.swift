@@ -1569,6 +1569,41 @@ enum BrowserWebExtensionSupport {
         )
     }
 
+    static func needsPreparationBeforeNavigation(
+        profileID: UUID,
+        websiteDataStore: WKWebsiteDataStore
+    ) -> Bool {
+        guard #available(macOS 15.4, *) else { return false }
+        return BrowserWebExtensionRuntime.shared.needsPreparationBeforeNavigation(
+            profileID: profileID,
+            websiteDataStore: websiteDataStore
+        )
+    }
+
+    static func prepareBeforeNavigation(
+        profileID: UUID,
+        websiteDataStore: WKWebsiteDataStore
+    ) async {
+        guard #available(macOS 15.4, *) else { return }
+        await BrowserWebExtensionRuntime.shared.prepareBeforeNavigation(
+            profileID: profileID,
+            websiteDataStore: websiteDataStore
+        )
+    }
+
+    static func webExtensionPageConfiguration(
+        for url: URL,
+        profileID: UUID,
+        websiteDataStore: WKWebsiteDataStore
+    ) -> WKWebViewConfiguration? {
+        guard #available(macOS 15.4, *) else { return nil }
+        return BrowserWebExtensionRuntime.shared.webExtensionPageConfiguration(
+            for: url,
+            profileID: profileID,
+            websiteDataStore: websiteDataStore
+        )
+    }
+
     static func register(panel: BrowserPanel) {
         guard #available(macOS 15.4, *) else { return }
         BrowserWebExtensionRuntime.shared.register(panel: panel)
@@ -1719,6 +1754,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     private var runtimePermissionPromptDenyHandlers: [UUID: () -> Void] = [:]
     private var runtimePermissionPromptWindows: [UUID: NSWindow] = [:]
     private var backgroundLoadTasksByRuntimeKey: [BrowserWebExtensionRuntimeKey: [UUID: Task<Void, Never>]] = [:]
+    private var installedRecordLoadTasksByRuntimeKey: [BrowserWebExtensionRuntimeKey: Task<Void, Never>] = [:]
     private var loadedRuntimeKeys: Set<BrowserWebExtensionRuntimeKey> = []
 
     override init() {
@@ -1736,6 +1772,35 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             defaultWebsiteDataStore: websiteDataStore
         )
         configuration.webExtensionController = controller
+    }
+
+    func needsPreparationBeforeNavigation(
+        profileID: UUID,
+        websiteDataStore: WKWebsiteDataStore
+    ) -> Bool {
+        !loadedRuntimeKeys.contains(runtimeKey(profileID: profileID, websiteDataStore: websiteDataStore))
+    }
+
+    func prepareBeforeNavigation(
+        profileID: UUID,
+        websiteDataStore: WKWebsiteDataStore
+    ) async {
+        let key = runtimeKey(profileID: profileID, websiteDataStore: websiteDataStore)
+        _ = ensureController(runtimeKey: key, defaultWebsiteDataStore: websiteDataStore)
+        await loadInstalledRecordsIfNeeded(runtimeKey: key, websiteDataStore: websiteDataStore)
+    }
+
+    func webExtensionPageConfiguration(
+        for url: URL,
+        profileID: UUID,
+        websiteDataStore: WKWebsiteDataStore
+    ) -> WKWebViewConfiguration? {
+        let key = runtimeKey(profileID: profileID, websiteDataStore: websiteDataStore)
+        guard loadedRuntimeKeys.contains(key),
+              let context = controllersByRuntimeKey[key]?.extensionContext(for: url) else {
+            return nil
+        }
+        return context.webViewConfiguration
     }
 
     func register(panel: BrowserPanel) {
@@ -2036,9 +2101,10 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         controller.delegate = self
         controllersByRuntimeKey[runtimeKey] = controller
 
-        Task { @MainActor [weak self] in
-            await self?.loadInstalledRecordsIfNeeded(runtimeKey: runtimeKey, websiteDataStore: defaultWebsiteDataStore)
-        }
+        startLoadingInstalledRecordsIfNeeded(
+            runtimeKey: runtimeKey,
+            websiteDataStore: defaultWebsiteDataStore
+        )
 
         return controller
     }
@@ -2187,7 +2253,29 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         websiteDataStore: WKWebsiteDataStore
     ) async {
         guard !loadedRuntimeKeys.contains(runtimeKey) else { return }
-        loadedRuntimeKeys.insert(runtimeKey)
+        startLoadingInstalledRecordsIfNeeded(runtimeKey: runtimeKey, websiteDataStore: websiteDataStore)
+        guard let task = installedRecordLoadTasksByRuntimeKey[runtimeKey] else { return }
+        await task.value
+    }
+
+    private func startLoadingInstalledRecordsIfNeeded(
+        runtimeKey: BrowserWebExtensionRuntimeKey,
+        websiteDataStore: WKWebsiteDataStore
+    ) {
+        guard !loadedRuntimeKeys.contains(runtimeKey) else { return }
+        guard installedRecordLoadTasksByRuntimeKey[runtimeKey] == nil else { return }
+        installedRecordLoadTasksByRuntimeKey[runtimeKey] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.loadInstalledRecords(runtimeKey: runtimeKey, websiteDataStore: websiteDataStore)
+            self.installedRecordLoadTasksByRuntimeKey[runtimeKey] = nil
+        }
+    }
+
+    private func loadInstalledRecords(
+        runtimeKey: BrowserWebExtensionRuntimeKey,
+        websiteDataStore: WKWebsiteDataStore
+    ) async {
+        guard !loadedRuntimeKeys.contains(runtimeKey) else { return }
         for record in store.records where record.profileState(for: runtimeKey.profileID).isEnabled {
             do {
                 try await load(record: record, runtimeKey: runtimeKey, websiteDataStore: websiteDataStore)
@@ -2195,6 +2283,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
                 try? store.setLastError(error.localizedDescription, for: record.id, profileID: runtimeKey.profileID)
             }
         }
+        loadedRuntimeKeys.insert(runtimeKey)
         postDidChange()
     }
 

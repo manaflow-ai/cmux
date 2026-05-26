@@ -2916,6 +2916,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let preserveRestoredSessionHistory: Bool
     }
     private var pendingRemoteNavigation: PendingRemoteNavigation?
+    private var pendingWebExtensionPreparationNavigationToken: UUID?
     private let developerToolsDetachedOpenGracePeriod: TimeInterval = 0.35
     private var developerToolsDetachedOpenGraceDeadline: Date?
     private var developerToolsTransitionTargetVisible: Bool?
@@ -3052,6 +3053,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func resetWebViewLifecycleMetadata(resetVisibility: Bool = true) {
         cancelHiddenWebViewDiscard()
+        pendingWebExtensionPreparationNavigationToken = nil
         webViewLifecycleState = .newTab
         if resetVisibility {
             webViewLastVisibleAt = nil
@@ -3506,13 +3508,27 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func loadWebExtensionPage(_ url: URL, webViewConfiguration configuration: WKWebViewConfiguration) {
-        loadPageAfterReplacingWebView(
+        loadWebExtensionPage(
             URLRequest(url: url),
+            webViewConfiguration: configuration,
+            recordTypedNavigation: false,
+            preserveRestoredSessionHistory: false
+        )
+    }
+
+    private func loadWebExtensionPage(
+        _ request: URLRequest,
+        webViewConfiguration configuration: WKWebViewConfiguration,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool
+    ) {
+        loadPageAfterReplacingWebView(
+            request,
             webViewConfiguration: configuration,
             usesWebExtensionPageConfiguration: true,
             reason: "webExtensionPage",
-            recordTypedNavigation: false,
-            preserveRestoredSessionHistory: false
+            recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory
         )
     }
 
@@ -3528,6 +3544,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let previousWebView = webView
         let desiredZoom = max(minPageZoom, min(maxPageZoom, previousWebView.pageZoom))
 
+        pendingWebExtensionPreparationNavigationToken = nil
         invalidateSearchFocusRequests(reason: reason)
         searchState = nil
         loadingEndWorkItem?.cancel()
@@ -3569,7 +3586,8 @@ final class BrowserPanel: Panel, ObservableObject {
             request: request,
             originalURL: url,
             recordTypedNavigation: recordTypedNavigation,
-            preserveRestoredSessionHistory: preserveRestoredSessionHistory
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            allowWebExtensionConfigurationReplacement: false
         )
     }
 
@@ -5023,8 +5041,70 @@ final class BrowserPanel: Panel, ObservableObject {
         preserveRestoredSessionHistory: Bool = false
     ) {
         guard let url = request.url else { return }
+        pendingWebExtensionPreparationNavigationToken = nil
         cancelHiddenWebViewDiscard()
         clearWebViewDiscardState(reason: "navigation")
+        if BrowserWebExtensionSupport.needsPreparationBeforeNavigation(
+            profileID: profileID,
+            websiteDataStore: websiteDataStore
+        ) {
+            prepareWebExtensionsThenNavigate(
+                request: request,
+                originalURL: url,
+                recordTypedNavigation: recordTypedNavigation,
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory
+            )
+            return
+        }
+        continueNavigationAfterWebExtensionPreparation(
+            request: request,
+            originalURL: url,
+            recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory
+        )
+    }
+
+    private func prepareWebExtensionsThenNavigate(
+        request: URLRequest,
+        originalURL: URL,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool
+    ) {
+        let token = UUID()
+        pendingWebExtensionPreparationNavigationToken = token
+        hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
+        shouldRenderWebView = true
+        currentURL = Self.remoteProxyDisplayURL(for: originalURL) ?? originalURL
+        navigationDelegate?.lastAttemptedURL = originalURL
+        Task { @MainActor [
+            weak self,
+            navigationProfileID = profileID,
+            navigationWebsiteDataStore = websiteDataStore
+        ] in
+            await BrowserWebExtensionSupport.prepareBeforeNavigation(
+                profileID: navigationProfileID,
+                websiteDataStore: navigationWebsiteDataStore
+            )
+            guard let self,
+                  self.pendingWebExtensionPreparationNavigationToken == token else {
+                return
+            }
+            self.pendingWebExtensionPreparationNavigationToken = nil
+            self.continueNavigationAfterWebExtensionPreparation(
+                request: request,
+                originalURL: originalURL,
+                recordTypedNavigation: recordTypedNavigation,
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory
+            )
+        }
+    }
+
+    private func continueNavigationAfterWebExtensionPreparation(
+        request: URLRequest,
+        originalURL url: URL,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool
+    ) {
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
             pendingRemoteNavigation = PendingRemoteNavigation(
                 request: request,
@@ -5068,11 +5148,23 @@ final class BrowserPanel: Panel, ObservableObject {
         request: URLRequest,
         originalURL: URL,
         recordTypedNavigation: Bool,
-        preserveRestoredSessionHistory: Bool
+        preserveRestoredSessionHistory: Bool,
+        allowWebExtensionConfigurationReplacement: Bool = true
     ) {
         cancelHiddenWebViewDiscard()
         if !preserveRestoredSessionHistory {
             abandonRestoredSessionHistoryIfNeeded()
+        }
+        if allowWebExtensionConfigurationReplacement,
+           let extensionConfiguration = webExtensionPageConfiguration(forNavigationTo: originalURL),
+           !currentWebViewCanLoadWebExtensionPage(originalURL) {
+            loadWebExtensionPage(
+                request,
+                webViewConfiguration: extensionConfiguration,
+                recordTypedNavigation: recordTypedNavigation,
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory
+            )
+            return
         }
         if shouldReplaceWebExtensionPageConfiguration(forNavigationTo: originalURL) {
             loadBrowserPage(
@@ -5096,6 +5188,26 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         navigationDelegate?.lastAttemptedURL = originalURL
         browserLoadRequest(effectiveRequest, in: webView)
+    }
+
+    private func webExtensionPageConfiguration(forNavigationTo url: URL) -> WKWebViewConfiguration? {
+        BrowserWebExtensionSupport.webExtensionPageConfiguration(
+            for: url,
+            profileID: profileID,
+            websiteDataStore: websiteDataStore
+        )
+    }
+
+    private func currentWebViewCanLoadWebExtensionPage(_ url: URL) -> Bool {
+        guard currentWebViewUsesWebExtensionPageConfiguration else { return false }
+        guard #available(macOS 15.4, *) else { return false }
+        guard let controller = webView.configuration.webExtensionController,
+              let targetContext = controller.extensionContext(for: url),
+              let currentContextURL = webView.url ?? currentURL,
+              let currentContext = controller.extensionContext(for: currentContextURL) else {
+            return false
+        }
+        return currentContext === targetContext
     }
 
     private func shouldReplaceWebExtensionPageConfiguration(forNavigationTo url: URL) -> Bool {
