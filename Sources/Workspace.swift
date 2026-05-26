@@ -10559,9 +10559,13 @@ final class Workspace: Identifiable, ObservableObject {
     func syncPanelDerivedWorkspaceUnread() {
         AppDelegate.shared?.notificationStore?.setPanelDerivedUnread(
             !manualUnreadPanelIds.isEmpty ||
-                restoredUnreadPanelIndicators.values.contains { $0.contributesToWorkspaceUnread },
+                hasWorkspaceContributingRestoredUnreadIndicator,
             forTabId: id
         )
+    }
+
+    private var hasWorkspaceContributingRestoredUnreadIndicator: Bool {
+        restoredUnreadPanelIndicators.values.contains { $0.contributesToWorkspaceUnread }
     }
 
     private func normalizePinnedTabs(in paneId: PaneID) {
@@ -10753,9 +10757,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     func markPanelRead(_ panelId: UUID) {
         guard panels[panelId] != nil else { return }
-        AppDelegate.shared?.notificationStore?.markRead(forTabId: id, surfaceId: panelId)
+        let notificationStore = AppDelegate.shared?.notificationStore
+        notificationStore?.markRead(forTabId: id, surfaceId: panelId)
         _ = clearManualUnreadState(panelId: panelId)
-        _ = clearRestoredUnreadIndicatorState(panelId: panelId)
+        let didClearRestored = clearRestoredUnreadIndicatorState(panelId: panelId)
+        if didClearRestored && !hasWorkspaceContributingRestoredUnreadIndicator {
+            _ = notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
+        }
         syncUnreadBadgeStateForPanel(panelId)
     }
 
