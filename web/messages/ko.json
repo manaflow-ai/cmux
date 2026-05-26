@@ -980,7 +980,7 @@
       "supportedNote": "Claude integration이 Settings에서 켜져 있으면 Claude Code는 cmux Claude wrapper가 처리합니다. Antigravity는 setup alias로 agy도 받고, Rovo Dev는 rovo를 받습니다.",
       "manualTitle": "수동 복원",
       "manualDesc": "cmux는 일반 실행 시 마지막으로 저장된 snapshot을 복원합니다. 이전 snapshot을 수동으로 다시 적용할 수도 있습니다:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "Agent 자동 resume 끄기",
       "disableDesc": "저장된 agent resume 명령을 실행하지 않고 pane만 복원하려면 Settings > Terminal > Resume Agent Sessions on Reopen을 끄거나 다음을 설정하세요:",
       "disableNote": "이 설정은 agent resume 명령만 끕니다. cmux는 layout, 작업 디렉터리, scrollback, 브라우저 기록을 계속 복원합니다.",
