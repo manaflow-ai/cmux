@@ -111947,6 +111947,23 @@
         }
       }
     },
+    "sessionIndex.agent.tmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux"
+          }
+        }
+      }
+    },
     "sessionIndex.agent.grok": {
       "extractionState": "manual",
       "localizations": {
@@ -112382,6 +112399,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "再開コマンドをコピー"
+          }
+        }
+      }
+    },
+    "sessionIndex.tmux.sessionTitle.oneWindowOnePane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · 1 window, 1 pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · 1 ウィンドウ、1 ペイン"
+          }
+        }
+      }
+    },
+    "sessionIndex.tmux.sessionTitle.oneWindowManyPanes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · 1 window, %d panes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · 1 ウィンドウ、%d ペイン"
+          }
+        }
+      }
+    },
+    "sessionIndex.tmux.sessionTitle.manyWindowsOnePane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %d windows, 1 pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %d ウィンドウ、1 ペイン"
+          }
+        }
+      }
+    },
+    "sessionIndex.tmux.sessionTitle.manyWindowsManyPanes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %d windows, %d panes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %d ウィンドウ、%d ペイン"
           }
         }
       }

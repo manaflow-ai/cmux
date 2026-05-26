@@ -137,6 +137,51 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
+    func testTmuxSessionIndexBuildsAttachEntriesWithWindowAndPaneCounts() {
+        let separator = "\u{1F}"
+        let entries = SessionIndexStore.tmuxEntriesForTesting(
+            sessionsOutput: [
+                "detached\(separator)1\(separator)0\(separator)2000",
+                "work session\(separator)2\(separator)1\(separator)1000",
+            ].joined(separator: "\n"),
+            windowsOutput: [
+                "work session\(separator)1",
+                "work session\(separator)2",
+                "detached\(separator)1",
+            ].joined(separator: "\n"),
+            executablePath: "/opt/homebrew/bin/tmux",
+            now: Date(timeIntervalSince1970: 3000)
+        )
+
+        XCTAssertEqual(entries.map(\.sessionId), ["work session", "detached"])
+        let work = entries[0]
+        XCTAssertEqual(work.agent, .tmux)
+        XCTAssertEqual(
+            work.displayTitle,
+            String.localizedStringWithFormat(
+                String(localized: "sessionIndex.tmux.sessionTitle.manyWindowsManyPanes", defaultValue: "%@ · %d windows, %d panes"),
+                "work session",
+                2,
+                3
+            )
+        )
+        XCTAssertEqual(work.resumeCommand, "'/opt/homebrew/bin/tmux' 'attach' '-t' 'work session'")
+        XCTAssertFalse(work.supportsTranscriptPreview)
+    }
+
+    func testTmuxSessionIndexFallsBackToNowWhenCreatedTimestampIsMalformed() {
+        let separator = "\u{1F}"
+        let now = Date(timeIntervalSince1970: 4_000)
+        let entries = SessionIndexStore.tmuxEntriesForTesting(
+            sessionsOutput: "scratch\(separator)1\(separator)0\(separator)not-a-timestamp",
+            windowsOutput: "scratch\(separator)1",
+            now: now
+        )
+
+        XCTAssertEqual(entries.first?.modified, now)
+        XCTAssertEqual(entries.first?.resumeCommand, "'tmux' 'attach' '-t' 'scratch'")
+    }
+
     func testCurrentDirectorySetterDoesNotPublishEqualValue() {
         let store = SessionIndexStore()
         var emittedValues: [String?] = []
@@ -397,6 +442,8 @@ private extension SessionAgent {
             )
         case .codex:
             return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
+        case .tmux:
+            return .tmux(attachCommand: "tmux attach -t \(sessionId)")
         case .grok:
             return .grok(model: nil, permissionMode: nil, sandboxMode: nil, grokHome: nil)
         case .opencode:

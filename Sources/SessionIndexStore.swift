@@ -156,8 +156,23 @@ struct IndexSection: Identifiable, Equatable {
     let title: String
     let icon: SectionIcon
     let entries: [SessionEntry]
+    let allowsSectionReorder: Bool
 
     var id: SectionKey { key }
+
+    init(
+        key: SectionKey,
+        title: String,
+        icon: SectionIcon,
+        entries: [SessionEntry],
+        allowsSectionReorder: Bool = true
+    ) {
+        self.key = key
+        self.title = title
+        self.icon = icon
+        self.entries = entries
+        self.allowsSectionReorder = allowsSectionReorder
+    }
 }
 
 enum SectionIcon: Equatable {
@@ -279,7 +294,9 @@ final class SessionIndexStore: ObservableObject {
                 )
             }
         case .directory:
-            let buckets = Dictionary(grouping: visible) { $0.cwd ?? "" }
+            let tmuxEntries = visible.filter { $0.agent == .tmux }
+            let directoryEntries = visible.filter { $0.agent != .tmux }
+            let buckets = Dictionary(grouping: directoryEntries) { $0.cwd ?? "" }
             // Any cwds that aren't yet in the saved order still need to show
             // up. They get appended by most-recent activity, purely locally,
             // without mutating `directoryOrder` from inside this view-body
@@ -295,7 +312,7 @@ final class SessionIndexStore: ObservableObject {
                     let rMax = buckets[rhs]?.map(\.modified).max() ?? .distantPast
                     return lMax > rMax
                 }
-            sections = (directoryOrder + unknownSorted)
+            var directorySections = (directoryOrder + unknownSorted)
                 .filter { buckets[$0] != nil }
                 .map { path in
                     IndexSection(
@@ -305,6 +322,19 @@ final class SessionIndexStore: ObservableObject {
                         entries: buckets[path] ?? []
                     )
                 }
+            if !tmuxEntries.isEmpty {
+                directorySections.insert(
+                    IndexSection(
+                        key: .agent(.tmux),
+                        title: SessionAgent.tmux.displayName,
+                        icon: .agent(.tmux),
+                        entries: tmuxEntries,
+                        allowsSectionReorder: false
+                    ),
+                    at: 0
+                )
+            }
+            sections = directorySections
         }
 
         cachedSections = sections
@@ -320,6 +350,7 @@ final class SessionIndexStore: ObservableObject {
         var seen = Set(directoryOrder)
         var additions: [(path: String, latest: Date)] = []
         for entry in entries {
+            guard entry.agent != .tmux else { continue }
             let path = entry.cwd ?? ""
             if seen.insert(path).inserted {
                 additions.append((path, entry.modified))
@@ -384,6 +415,7 @@ final class SessionIndexStore: ObservableObject {
             return entries
         }
         return entries.filter { entry in
+            if entry.agent == .tmux { return true }
             guard let cwd = normalizedDirectory(entry.cwd) else { return false }
             return cwd == dir || cwd.hasPrefix(dir + "/")
         }
@@ -560,7 +592,7 @@ final class SessionIndexStore: ObservableObject {
         let bigLimit = 10_000
         let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
         var merged = await Self.loadAgents(
-            order.agents,
+            Self.nonTmuxAgents(order.agents),
             registry: order.registry,
             needle: "",
             cwdFilter: cwdFilter,
@@ -1160,7 +1192,7 @@ final class SessionIndexStore: ObservableObject {
             let target = offset + limit
             let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
             var merged = await Self.loadAgents(
-                order.agents,
+                Self.nonTmuxAgents(order.agents),
                 registry: order.registry,
                 needle: needle,
                 cwdFilter: cwdFilter,
@@ -1208,6 +1240,10 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
+    nonisolated private static func nonTmuxAgents(_ agents: [SessionAgent]) -> [SessionAgent] {
+        agents.filter { $0 != .tmux }
+    }
+
     nonisolated private static func timedAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
         offset: Int, limit: Int, errorBag: ErrorBag,
@@ -1248,6 +1284,7 @@ final class SessionIndexStore: ObservableObject {
         switch agent {
         case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .tmux: return await loadTmuxEntries(needle: needle, offset: offset, limit: limit)
         case .grok:
             return await loadGrokEntries(
                 registration: registry.registration(id: "grok") ?? .builtInGrok,
@@ -1269,6 +1306,231 @@ final class SessionIndexStore: ObservableObject {
                 cwdFilter: cwdFilter,
                 offset: offset,
                 limit: limit
+            )
+        }
+    }
+
+    // MARK: tmux
+
+    private struct TmuxSessionDescriptor: Equatable {
+        let name: String
+        let windowCount: Int
+        let paneCount: Int
+        let attachedCount: Int
+        let createdAt: Date
+    }
+
+    nonisolated private static let tmuxListSeparator = "\u{1F}"
+
+    nonisolated private static func loadTmuxEntries(
+        needle: String,
+        offset: Int,
+        limit: Int
+    ) async -> [SessionEntry] {
+        await Task.detached(priority: .utility) {
+            loadTmuxEntriesSynchronously(needle: needle, offset: offset, limit: limit)
+        }.value
+    }
+
+    nonisolated private static func loadTmuxEntriesSynchronously(
+        needle: String,
+        offset: Int,
+        limit: Int
+    ) -> [SessionEntry] {
+        guard let executablePath = resolvedTmuxExecutablePath(),
+              let sessionsOutput = runTmuxCommand(
+                executablePath: executablePath,
+                arguments: [
+                    "list-sessions",
+                    "-F",
+                    "#{session_name}\(tmuxListSeparator)#{session_windows}\(tmuxListSeparator)#{session_attached}\(tmuxListSeparator)#{session_created}"
+                ]
+              ) else {
+            return []
+        }
+        let windowsOutput = runTmuxCommand(
+            executablePath: executablePath,
+            arguments: [
+                "list-windows",
+                "-a",
+                "-F",
+                "#{session_name}\(tmuxListSeparator)#{window_panes}"
+            ]
+        ) ?? ""
+        let entries = tmuxEntries(
+            sessionsOutput: sessionsOutput,
+            windowsOutput: windowsOutput,
+            executablePath: executablePath,
+            now: Date.now
+        )
+        let filtered = needle.isEmpty
+            ? entries
+            : entries.filter { entry in
+                entry.displayTitle.range(of: needle, options: [.caseInsensitive, .literal]) != nil
+                    || entry.sessionId.range(of: needle, options: [.caseInsensitive, .literal]) != nil
+            }
+        return Array(filtered.dropFirst(offset).prefix(limit))
+    }
+
+    nonisolated private static func resolvedTmuxExecutablePath() -> String? {
+        let fileManager = FileManager.default
+        var candidates: [String] = [
+            "/opt/homebrew/bin/tmux",
+            "/usr/local/bin/tmux",
+            "/usr/bin/tmux",
+        ]
+        let pathEntries = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+            .split(separator: ":", omittingEmptySubsequences: true)
+            .map(String.init)
+        candidates.append(contentsOf: pathEntries.map { ($0 as NSString).appendingPathComponent("tmux") })
+
+        var seen = Set<String>()
+        for candidate in candidates where seen.insert(candidate).inserted {
+            if fileManager.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    nonisolated private static func runTmuxCommand(
+        executablePath: String,
+        arguments: [String]
+    ) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        if let nullDevice = FileHandle(forWritingAtPath: "/dev/null") {
+            process.standardError = nullDevice
+        }
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    nonisolated static func tmuxEntriesForTesting(
+        sessionsOutput: String,
+        windowsOutput: String,
+        executablePath: String = "tmux",
+        now: Date
+    ) -> [SessionEntry] {
+        tmuxEntries(
+            sessionsOutput: sessionsOutput,
+            windowsOutput: windowsOutput,
+            executablePath: executablePath,
+            now: now
+        )
+    }
+
+    nonisolated private static func tmuxEntries(
+        sessionsOutput: String,
+        windowsOutput: String,
+        executablePath: String,
+        now: Date
+    ) -> [SessionEntry] {
+        parseTmuxSessions(
+            sessionsOutput: sessionsOutput,
+            windowsOutput: windowsOutput,
+            now: now
+        )
+        .sorted { lhs, rhs in
+            if lhs.attachedCount != rhs.attachedCount {
+                return lhs.attachedCount > rhs.attachedCount
+            }
+            return lhs.createdAt > rhs.createdAt
+        }
+        .map { descriptor in
+            let attachCommand = tmuxAttachCommand(
+                executablePath: executablePath,
+                sessionName: descriptor.name
+            )
+            return SessionEntry(
+                id: "tmux:\(descriptor.name)",
+                agent: .tmux,
+                sessionId: descriptor.name,
+                title: tmuxSessionTitle(descriptor),
+                cwd: nil,
+                gitBranch: nil,
+                pullRequest: nil,
+                modified: descriptor.createdAt,
+                fileURL: nil,
+                specifics: .tmux(attachCommand: attachCommand)
+            )
+        }
+    }
+
+    nonisolated private static func parseTmuxSessions(
+        sessionsOutput: String,
+        windowsOutput: String,
+        now: Date
+    ) -> [TmuxSessionDescriptor] {
+        var paneCountsBySession: [String: Int] = [:]
+        for line in windowsOutput.split(separator: "\n", omittingEmptySubsequences: true) {
+            let fields = line.split(separator: Character(tmuxListSeparator), omittingEmptySubsequences: false)
+            guard fields.count >= 2 else { continue }
+            let name = String(fields[0])
+            let panes = Int(String(fields[1])) ?? 0
+            paneCountsBySession[name, default: 0] += panes
+        }
+
+        return sessionsOutput.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
+            let fields = line.split(separator: Character(tmuxListSeparator), omittingEmptySubsequences: false)
+            guard fields.count >= 4 else { return nil }
+            let name = String(fields[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { return nil }
+            let windowCount = max(Int(String(fields[1])) ?? 0, 0)
+            let attachedCount = max(Int(String(fields[2])) ?? 0, 0)
+            let createdSeconds = TimeInterval(String(fields[3])) ?? now.timeIntervalSince1970
+            return TmuxSessionDescriptor(
+                name: name,
+                windowCount: windowCount,
+                paneCount: paneCountsBySession[name] ?? 0,
+                attachedCount: attachedCount,
+                createdAt: Date(timeIntervalSince1970: createdSeconds)
+            )
+        }
+    }
+
+    nonisolated private static func tmuxAttachCommand(executablePath: String, sessionName: String) -> String {
+        [executablePath, "attach", "-t", sessionName]
+            .map(TerminalStartupShellQuoting.singleQuoted)
+            .joined(separator: " ")
+    }
+
+    nonisolated private static func tmuxSessionTitle(_ descriptor: TmuxSessionDescriptor) -> String {
+        switch (descriptor.windowCount == 1, descriptor.paneCount == 1) {
+        case (true, true):
+            return String.localizedStringWithFormat(
+                String(localized: "sessionIndex.tmux.sessionTitle.oneWindowOnePane", defaultValue: "%@ · 1 window, 1 pane"),
+                descriptor.name
+            )
+        case (true, false):
+            return String.localizedStringWithFormat(
+                String(localized: "sessionIndex.tmux.sessionTitle.oneWindowManyPanes", defaultValue: "%@ · 1 window, %d panes"),
+                descriptor.name,
+                descriptor.paneCount
+            )
+        case (false, true):
+            return String.localizedStringWithFormat(
+                String(localized: "sessionIndex.tmux.sessionTitle.manyWindowsOnePane", defaultValue: "%@ · %d windows, 1 pane"),
+                descriptor.name,
+                descriptor.windowCount
+            )
+        case (false, false):
+            return String.localizedStringWithFormat(
+                String(localized: "sessionIndex.tmux.sessionTitle.manyWindowsManyPanes", defaultValue: "%@ · %d windows, %d panes"),
+                descriptor.name,
+                descriptor.windowCount,
+                descriptor.paneCount
             )
         }
     }
