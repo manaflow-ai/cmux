@@ -938,6 +938,97 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
     }
 }
 
+final class TerminalScrollbackViewportIntentTests: XCTestCase {
+    private func makeScrollbar(total: UInt64, offset: UInt64, len: UInt64) -> GhosttyScrollbar {
+        GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(
+                total: total,
+                offset: offset,
+                len: len
+            )
+        )
+    }
+
+    func testReviewingScrollbackSuppressesPassiveBottomPacket() {
+        let bottomScrollbar = makeScrollbar(total: 100, offset: 90, len: 10)
+
+        let decision = TerminalScrollbackViewportIntent.reviewingScrollback
+            .scrollbarSyncDecision(for: bottomScrollbar)
+
+        XCTAssertEqual(decision.intent, .reviewingScrollback)
+        XCTAssertFalse(decision.allowExplicitScrollbarSync)
+        XCTAssertFalse(decision.shouldSynchronizeViewport)
+    }
+
+    func testReviewingScrollbackPreservesVisibleRowsForPassiveNonBottomPacket() {
+        let nonBottomScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
+
+        let decision = TerminalScrollbackViewportIntent.reviewingScrollback
+            .scrollbarSyncDecision(for: nonBottomScrollbar)
+
+        XCTAssertEqual(decision.intent, .reviewingScrollback)
+        XCTAssertFalse(decision.allowExplicitScrollbarSync)
+        XCTAssertTrue(decision.shouldSynchronizeViewport)
+    }
+
+    func testFollowOutputKeepsFollowingThroughPassiveNonBottomPacket() {
+        let nonBottomScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
+
+        let decision = TerminalScrollbackViewportIntent.followOutput
+            .scrollbarSyncDecision(for: nonBottomScrollbar)
+
+        XCTAssertEqual(decision.intent, .followOutput)
+        XCTAssertFalse(decision.allowExplicitScrollbarSync)
+        XCTAssertTrue(decision.shouldSynchronizeViewport)
+    }
+
+    func testBottomScrollIntentWaitsForBottomPacketBeforeResumingFollowOutput() {
+        let nonBottomScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
+        let bottomScrollbar = makeScrollbar(total: 100, offset: 90, len: 10)
+        let pendingIntent = TerminalScrollbackViewportIntent.awaitingExplicitScrollPacket(.bottom)
+
+        let streamingDecision = pendingIntent.scrollbarSyncDecision(for: nonBottomScrollbar)
+
+        XCTAssertEqual(streamingDecision.intent, pendingIntent)
+        XCTAssertFalse(streamingDecision.allowExplicitScrollbarSync)
+        XCTAssertTrue(streamingDecision.shouldSynchronizeViewport)
+
+        let bottomDecision = streamingDecision.intent.scrollbarSyncDecision(for: bottomScrollbar)
+
+        XCTAssertEqual(bottomDecision.intent, .followOutput)
+        XCTAssertTrue(bottomDecision.allowExplicitScrollbarSync)
+        XCTAssertTrue(bottomDecision.shouldSynchronizeViewport)
+    }
+
+    func testLiveScrollDoesNotClearPendingExplicitScrollIntent() {
+        let pendingIntent = TerminalScrollbackViewportIntent.awaitingExplicitScrollPacket(.bottom)
+
+        let nextIntent = pendingIntent.applyingLiveScroll(
+            scrollOffset: 80,
+            bottomThreshold: 5
+        )
+
+        XCTAssertEqual(nextIntent, pendingIntent)
+    }
+
+    func testLiveScrollTracksReviewAndFollowIntentWhenNoExplicitPacketIsPending() {
+        XCTAssertEqual(
+            TerminalScrollbackViewportIntent.followOutput.applyingLiveScroll(
+                scrollOffset: 6,
+                bottomThreshold: 5
+            ),
+            .reviewingScrollback
+        )
+        XCTAssertEqual(
+            TerminalScrollbackViewportIntent.reviewingScrollback.applyingLiveScroll(
+                scrollOffset: 0,
+                bottomThreshold: 5
+            ),
+            .followOutput
+        )
+    }
+}
+
 @MainActor
 final class TerminalOffscreenStartupTests: XCTestCase {
     func testPlainSurfaceDoesNotStartRuntimeBeforeWindowAttachmentOrInput() {

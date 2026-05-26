@@ -10974,6 +10974,88 @@ struct GhosttyScrollbar {
     }
 }
 
+enum TerminalScrollbackExplicitScrollPacketExpectation: Equatable {
+    case any
+    case bottom
+}
+
+enum TerminalScrollbackViewportIntent: Equatable {
+    case followOutput
+    case reviewingScrollback
+    case awaitingExplicitScrollPacket(TerminalScrollbackExplicitScrollPacketExpectation)
+
+    var isFollowingOutput: Bool {
+        guard case .followOutput = self else {
+            return false
+        }
+        return true
+    }
+
+    var isAwaitingExplicitScrollPacket: Bool {
+        guard case .awaitingExplicitScrollPacket = self else {
+            return false
+        }
+        return true
+    }
+
+    func applyingLiveScroll(scrollOffset: CGFloat, bottomThreshold: CGFloat) -> Self {
+        guard !isAwaitingExplicitScrollPacket else {
+            return self
+        }
+        if scrollOffset > bottomThreshold {
+            return .reviewingScrollback
+        }
+        if scrollOffset <= 0 {
+            return .followOutput
+        }
+        return self
+    }
+
+    func scrollbarSyncDecision(for scrollbar: GhosttyScrollbar) -> TerminalScrollbackScrollbarSyncDecision {
+        let allowExplicitScrollbarSync: Bool = {
+            switch self {
+            case .awaitingExplicitScrollPacket(.any):
+                return true
+            case .awaitingExplicitScrollPacket(.bottom):
+                return scrollbar.isAtBottom
+            case .followOutput, .reviewingScrollback:
+                return false
+            }
+        }()
+        let nextIntent: Self = {
+            guard allowExplicitScrollbarSync else {
+                return self
+            }
+            return scrollbar.isAtBottom ? .followOutput : .reviewingScrollback
+        }()
+        return TerminalScrollbackScrollbarSyncDecision(
+            intent: nextIntent,
+            allowExplicitScrollbarSync: allowExplicitScrollbarSync,
+            shouldSynchronizeViewport: shouldSynchronizeViewport(
+                for: scrollbar,
+                allowExplicitScrollbarSync: allowExplicitScrollbarSync
+            )
+        )
+    }
+
+    func shouldSynchronizeViewport(
+        for scrollbar: GhosttyScrollbar,
+        allowExplicitScrollbarSync: Bool
+    ) -> Bool {
+        // While reviewing scrollback, still honor non-bottom scrollbar packets so
+        // streaming output and resize changes preserve the same visible terminal rows.
+        // Suppress only passive bottom packets that would resume follow mode without
+        // an explicit user scroll request.
+        allowExplicitScrollbarSync || isFollowingOutput || !scrollbar.isAtBottom
+    }
+}
+
+struct TerminalScrollbackScrollbarSyncDecision: Equatable {
+    let intent: TerminalScrollbackViewportIntent
+    let allowExplicitScrollbarSync: Bool
+    let shouldSynchronizeViewport: Bool
+}
+
 extension Notification.Name {
     static let ghosttyDidTick = Notification.Name("ghosttyDidTick")
     static let ghosttyDidRenderFrame = Notification.Name("ghosttyDidRenderFrame")
@@ -11100,16 +11182,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
     private var lastSentRow: Int?
-    private enum ExplicitScrollPacketExpectation {
-        case any
-        case bottom
-    }
-    private enum ScrollbackViewportIntent {
-        case followOutput
-        case reviewingScrollback
-        case awaitingExplicitScrollPacket(ExplicitScrollPacketExpectation)
-    }
-    private var scrollbackViewportIntent: ScrollbackViewportIntent = .followOutput
+    private var scrollbackViewportIntent: TerminalScrollbackViewportIntent = .followOutput
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
@@ -14009,20 +14082,10 @@ final class GhosttySurfaceScrollView: NSView {
 
                 let currentOrigin = scrollView.contentView.bounds.origin
 
-                // While reviewing scrollback, still honor non-bottom scrollbar packets so
-                // streaming output and resize changes preserve the same visible terminal rows.
-                // Suppress only passive bottom packets that would resume follow mode without
-                // an explicit user scroll request.
-                let shouldFollowOutput: Bool = {
-                    guard case .followOutput = scrollbackViewportIntent else {
-                        return false
-                    }
-                    return true
-                }()
-                let shouldAutoScroll =
-                    allowExplicitScrollbarSync ||
-                    shouldFollowOutput ||
-                    !scrollbar.isAtBottom
+                let shouldAutoScroll = scrollbackViewportIntent.shouldSynchronizeViewport(
+                    for: scrollbar,
+                    allowExplicitScrollbarSync: allowExplicitScrollbarSync
+                )
 
                 if shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
                     scrollView.contentView.scroll(to: targetOrigin)
@@ -14049,20 +14112,10 @@ final class GhosttySurfaceScrollView: NSView {
         let documentHeight = documentView.frame.height
         let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
 
-        let isAwaitingExplicitScrollbarPacket: Bool = {
-            guard case .awaitingExplicitScrollPacket = scrollbackViewportIntent else {
-                return false
-            }
-            return true
-        }()
-        if !isAwaitingExplicitScrollbarPacket {
-            // Track if user has scrolled away from bottom to review scrollback.
-            if scrollOffset > Self.scrollToBottomThreshold {
-                scrollbackViewportIntent = .reviewingScrollback
-            } else if scrollOffset <= 0 {
-                scrollbackViewportIntent = .followOutput
-            }
-        }
+        scrollbackViewportIntent = scrollbackViewportIntent.applyingLiveScroll(
+            scrollOffset: scrollOffset,
+            bottomThreshold: Self.scrollToBottomThreshold
+        )
 
         let row = Int(scrollOffset / cellHeight)
 
@@ -14076,32 +14129,15 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         let wasVisible = scrollView.hasVerticalScroller
-        let explicitExpectation: ExplicitScrollPacketExpectation? = {
-            guard case let .awaitingExplicitScrollPacket(expectation) = scrollbackViewportIntent else {
-                return nil
-            }
-            return expectation
-        }()
-        let allowExplicitScrollbarSync: Bool = {
-            switch explicitExpectation {
-            case .some(.any):
-                return true
-            case .some(.bottom):
-                return scrollbar.isAtBottom
-            case .none:
-                return false
-            }
-        }()
-        if allowExplicitScrollbarSync {
-            scrollbackViewportIntent = scrollbar.isAtBottom ? .followOutput : .reviewingScrollback
-        }
+        let scrollSyncDecision = scrollbackViewportIntent.scrollbarSyncDecision(for: scrollbar)
+        scrollbackViewportIntent = scrollSyncDecision.intent
         surfaceView.scrollbar = scrollbar
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
-            _ = synchronizeGeometryAndContent(allowExplicitScrollbarSync: allowExplicitScrollbarSync)
+            _ = synchronizeGeometryAndContent(allowExplicitScrollbarSync: scrollSyncDecision.allowExplicitScrollbarSync)
             return
         }
-        synchronizeScrollView(allowExplicitScrollbarSync: allowExplicitScrollbarSync)
+        synchronizeScrollView(allowExplicitScrollbarSync: scrollSyncDecision.allowExplicitScrollbarSync)
     }
 
     @discardableResult
