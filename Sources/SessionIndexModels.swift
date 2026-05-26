@@ -37,6 +37,7 @@ struct RegisteredSessionAgent: Hashable, Sendable {
 enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
     case claude
     case codex
+    case grok
     case opencode
     case rovodev
     case hermesAgent
@@ -44,13 +45,14 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
 
     var id: String { rawValue }
 
-    static let builtInCases: [SessionAgent] = [.claude, .codex, .opencode, .rovodev, .hermesAgent]
+    static let builtInCases: [SessionAgent] = [.claude, .codex, .grok, .opencode, .rovodev, .hermesAgent]
 
     init?(rawValue: String) {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         switch value {
         case "claude": self = .claude
         case "codex": self = .codex
+        case "grok": self = .grok
         case "opencode": self = .opencode
         case "rovodev": self = .rovodev
         case "hermes-agent": self = .hermesAgent
@@ -64,6 +66,7 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
         switch self {
         case .claude: return "claude"
         case .codex: return "codex"
+        case .grok: return "grok"
         case .opencode: return "opencode"
         case .rovodev: return "rovodev"
         case .hermesAgent: return "hermes-agent"
@@ -80,8 +83,12 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
            container.contains(.id) {
             let id = try container.decode(String.self, forKey: .id)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = try container.decodeIfPresent(String.self, forKey: .name)
+            let iconAssetName = try container.decodeIfPresent(String.self, forKey: .iconAssetName)
+            let hasRegisteredMetadata = name != nil || iconAssetName != nil
             if let builtIn = SessionAgent(rawValue: id),
-               !CmuxVaultAgentRegistration.isValidID(id) || SessionAgent.builtInCases.contains(builtIn) {
+               (!CmuxVaultAgentRegistration.isValidID(id) || SessionAgent.builtInCases.contains(builtIn)),
+               !hasRegisteredMetadata {
                 self = builtIn
                 return
             }
@@ -94,8 +101,8 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
             }
             self = .registered(RegisteredSessionAgent(
                 id: id,
-                name: try container.decodeIfPresent(String.self, forKey: .name),
-                iconAssetName: try container.decodeIfPresent(String.self, forKey: .iconAssetName)
+                name: name,
+                iconAssetName: iconAssetName
             ))
             return
         }
@@ -189,12 +196,60 @@ struct PullRequestLink: Hashable {
 
 /// Agent-specific fields used to build the resume command with appropriate flags.
 enum AgentSpecifics: Hashable {
-    case claude(model: String?, permissionMode: String?)
+    case claude(model: String?, permissionMode: String?, configDirectoryForResume: String?)
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
+    case grok(model: String?, permissionMode: String?, sandboxMode: String?, grokHome: String?)
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
     case hermesAgent(source: String?, model: String?, hermesHome: String?)
     case registered(CmuxVaultAgentRegistration)
+}
+
+enum ClaudeConfigurationRoot {
+    nonisolated static func configuredResumeDirectory(
+        _ configDir: String,
+        fileManager: FileManager = .default
+    ) -> String? {
+        let preferredConfigDir = ClaudeConfigDirectoryPath.preferredPath(
+            configDir,
+            fileManager: fileManager
+        )
+        guard isLikelyConfigured(preferredConfigDir, fileManager: fileManager) else {
+            return nil
+        }
+        return preferredConfigDir
+    }
+
+    nonisolated static func isLikelyConfigured(
+        _ configDir: String,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        let configPath = ((configDir as NSString).expandingTildeInPath as NSString)
+            .appendingPathComponent(".claude.json")
+        guard let data = fileManager.contents(atPath: configPath),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        return hasConfiguredAuthValue(obj["oauthAccount"])
+            || hasConfiguredAuthValue(obj["primaryApiKey"])
+            || hasConfiguredAuthValue(obj["apiKey"])
+    }
+
+    private nonisolated static func hasConfiguredAuthValue(_ value: Any?) -> Bool {
+        guard let value, !(value is NSNull) else {
+            return false
+        }
+        if let string = value as? String {
+            return !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        if let dictionary = value as? [String: Any] {
+            return !dictionary.isEmpty
+        }
+        if let array = value as? [Any] {
+            return !array.isEmpty
+        }
+        return true
+    }
 }
 
 struct SessionEntry: Identifiable, Hashable {
@@ -219,9 +274,37 @@ struct SessionEntry: Identifiable, Hashable {
         return cwd
     }
 
+    func withClaudeConfigDirectoryForResume(_ configDirectory: String?) -> SessionEntry {
+        guard case let .claude(model, permissionMode, currentConfigDirectory) = specifics,
+              currentConfigDirectory != configDirectory else {
+            return self
+        }
+        return SessionEntry(
+            id: id,
+            agent: agent,
+            sessionId: sessionId,
+            title: title,
+            cwd: cwd,
+            gitBranch: gitBranch,
+            pullRequest: pullRequest,
+            modified: modified,
+            fileURL: fileURL,
+            specifics: .claude(
+                model: model,
+                permissionMode: permissionMode,
+                configDirectoryForResume: configDirectory
+            )
+        )
+    }
+
     /// Shell command that resumes this session in a new terminal, with the agent's
     /// known per-session settings injected as CLI flags.
     var resumeCommand: String? {
+        resumeCommandWithCwd
+    }
+
+    /// Shell command that resumes this session after guarding the launch directory.
+    var resumeCommandWithCwd: String? {
         guard let command = resumeCommandWithoutWorkingDirectory else { return nil }
         guard let cwd = resumeWorkingDirectory else {
             return command
@@ -231,7 +314,7 @@ struct SessionEntry: Identifiable, Hashable {
 
     private var resumeCommandWithoutWorkingDirectory: String? {
         switch specifics {
-        case let .claude(model, permissionMode):
+        case let .claude(model, permissionMode, configDirectoryForResume):
             var parts = ["claude --resume \(sessionId)"]
             if let model, !model.isEmpty {
                 parts.append("--model \(Self.shellQuote(model))")
@@ -239,7 +322,7 @@ struct SessionEntry: Identifiable, Hashable {
             if let permissionMode, !permissionMode.isEmpty {
                 parts.append("--permission-mode \(Self.shellQuote(permissionMode))")
             }
-            let environment = claudeConfigDirectoryForResume.map {
+            let environment = configDirectoryForResume.map {
                 ["CLAUDE_CONFIG_DIR": $0, "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1", "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "CLAUDE_CONFIG_DIR"]
             } ?? [:]
             return Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
@@ -258,6 +341,22 @@ struct SessionEntry: Identifiable, Hashable {
                 parts.append("-c model_reasoning_effort=\(Self.shellQuote(effort))")
             }
             return parts.joined(separator: " ")
+        case let .grok(model, permissionMode, sandboxMode, grokHome):
+            var argv = ["grok", "-r", sessionId]
+            if let model, !model.isEmpty {
+                argv.append(contentsOf: ["-m", model])
+            }
+            if let permissionMode, !permissionMode.isEmpty {
+                argv.append(contentsOf: ["--permission-mode", permissionMode])
+            }
+            if let sandboxMode, !sandboxMode.isEmpty {
+                argv.append(contentsOf: ["--sandbox", sandboxMode])
+            }
+            let environment = grokHome.flatMap { value -> [String: String]? in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : ["GROK_HOME": trimmed]
+            } ?? [:]
+            return Self.singleQuotedShellCommand(environment: environment, argv: argv)
         case let .opencode(providerModel, agentName):
             var parts = ["opencode --session \(sessionId)"]
             if let providerModel, !providerModel.isEmpty {
@@ -299,21 +398,6 @@ struct SessionEntry: Identifiable, Hashable {
         }
     }
 
-    private var claudeConfigDirectoryForResume: String? {
-        guard agent == .claude,
-              let fileURL else {
-            return nil
-        }
-        let pathComponents = fileURL.standardizedFileURL.pathComponents
-        guard let projectsIndex = pathComponents.lastIndex(of: "projects"),
-              projectsIndex > 0 else {
-            return nil
-        }
-        let configComponents = Array(pathComponents[..<projectsIndex])
-        let configDir = NSString.path(withComponents: configComponents)
-        return configDir.isEmpty ? nil : ClaudeConfigDirectoryPath.preferredPath(configDir)
-    }
-
     private static func withShellEnvironment(
         _ environment: [String: String],
         command: String
@@ -328,13 +412,32 @@ struct SessionEntry: Identifiable, Hashable {
         return "env \(assignments.joined(separator: " ")) \(command)"
     }
 
+    private static func singleQuotedShellCommand(
+        environment: [String: String],
+        argv: [String]
+    ) -> String {
+        var parts: [String] = []
+        let assignments = environment
+            .filter { key, _ in
+                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil
+            }
+            .sorted { $0.key < $1.key }
+            .map { key, value in "\(key)=\(value)" }
+        if !assignments.isEmpty {
+            parts.append("env")
+            parts.append(contentsOf: assignments)
+        }
+        parts.append(contentsOf: argv)
+        return parts.map(Self.shellSingleQuote).joined(separator: " ")
+    }
+
+    private static func shellSingleQuote(_ value: String) -> String {
+        TerminalStartupShellQuoting.singleQuoted(value)
+    }
+
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
     static func shellQuote(_ value: String) -> String {
-        if value.range(of: "[^A-Za-z0-9_./:=+-]", options: .regularExpression) == nil {
-            return value
-        }
-        let escaped = value.replacingOccurrences(of: "'", with: #"'\''"#)
-        return "'\(escaped)'"
+        TerminalStartupShellQuoting.shellToken(value, allowingBareASCII: true)
     }
 
     var displayTitle: String {

@@ -210,6 +210,57 @@ final class BonsplitTabDragUITests: XCTestCase {
             waitForCondition(timeout: 3.0) { closeButton.isHittable },
             "Expected right sidebar close button to be hittable. button=\(closeButton.debugDescription)"
         )
+        let openAsPaneButton = app.buttons["RightSidebar.openAsPaneButton"]
+        XCTAssertTrue(openAsPaneButton.waitForExistence(timeout: 5.0), "Expected open-as-pane button inside the right sidebar chrome.")
+        XCTAssertTrue(
+            waitForCondition(timeout: 3.0) { openAsPaneButton.isHittable },
+            "Expected right sidebar open-as-pane button to be hittable. button=\(openAsPaneButton.debugDescription)"
+        )
+        XCTAssertEqual(openAsPaneButton.frame.width, closeButton.frame.width, accuracy: 1)
+        XCTAssertEqual(openAsPaneButton.frame.height, closeButton.frame.height, accuracy: 1)
+        XCTAssertEqual(openAsPaneButton.frame.minY, closeButton.frame.minY, accuracy: 1)
+        XCTAssertEqual(openAsPaneButton.frame.maxY, closeButton.frame.maxY, accuracy: 1)
+        let headerGeometryKeys = [
+            "rightSidebarHeaderCloseMinX",
+            "rightSidebarHeaderCloseMaxX",
+            "rightSidebarHeaderCloseMinY",
+            "rightSidebarHeaderCloseMaxY",
+            "rightSidebarHeaderCloseWidth",
+            "rightSidebarHeaderCloseHeight",
+            "rightSidebarHeaderOpenAsPaneMinX",
+            "rightSidebarHeaderOpenAsPaneMaxX",
+            "rightSidebarHeaderOpenAsPaneMinY",
+            "rightSidebarHeaderOpenAsPaneMaxY",
+            "rightSidebarHeaderOpenAsPaneWidth",
+            "rightSidebarHeaderOpenAsPaneHeight",
+        ]
+        guard let headerGeometry = waitForJSONNumbers(
+            headerGeometryKeys,
+            atPath: dataPath,
+            timeout: 5.0
+        ),
+              let closeMinX = Double(headerGeometry["rightSidebarHeaderCloseMinX"] ?? ""),
+              let closeMaxX = Double(headerGeometry["rightSidebarHeaderCloseMaxX"] ?? ""),
+              let closeWidth = Double(headerGeometry["rightSidebarHeaderCloseWidth"] ?? ""),
+              let closeHeight = Double(headerGeometry["rightSidebarHeaderCloseHeight"] ?? ""),
+              let closeMinY = Double(headerGeometry["rightSidebarHeaderCloseMinY"] ?? ""),
+              let closeMaxY = Double(headerGeometry["rightSidebarHeaderCloseMaxY"] ?? ""),
+              let openMinX = Double(headerGeometry["rightSidebarHeaderOpenAsPaneMinX"] ?? ""),
+              let openMaxX = Double(headerGeometry["rightSidebarHeaderOpenAsPaneMaxX"] ?? ""),
+              let openWidth = Double(headerGeometry["rightSidebarHeaderOpenAsPaneWidth"] ?? ""),
+              let openHeight = Double(headerGeometry["rightSidebarHeaderOpenAsPaneHeight"] ?? ""),
+              let openMinY = Double(headerGeometry["rightSidebarHeaderOpenAsPaneMinY"] ?? ""),
+              let openMaxY = Double(headerGeometry["rightSidebarHeaderOpenAsPaneMaxY"] ?? "") else {
+            XCTFail("Timed out waiting for right sidebar header control geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+        XCTAssertEqual(closeMaxX - closeMinX, closeWidth, accuracy: 0.5, "Expected close x bounds to match width. geometry=\(headerGeometry)")
+        XCTAssertEqual(openMaxX - openMinX, openWidth, accuracy: 0.5, "Expected open-as-pane x bounds to match width. geometry=\(headerGeometry)")
+        XCTAssertLessThan(openMaxX, closeMinX, "Expected open-as-pane control to remain left of close. geometry=\(headerGeometry)")
+        XCTAssertEqual(openWidth, closeWidth, accuracy: 0.5, "Expected header accessory controls to share width. geometry=\(headerGeometry)")
+        XCTAssertEqual(openHeight, closeHeight, accuracy: 0.5, "Expected header accessory controls to share height. geometry=\(headerGeometry)")
+        XCTAssertEqual(openMinY, closeMinY, accuracy: 0.5, "Expected header accessory controls to share top edge. geometry=\(headerGeometry)")
+        XCTAssertEqual(openMaxY, closeMaxY, accuracy: 0.5, "Expected header accessory controls to share bottom edge. geometry=\(headerGeometry)")
 
         let shortcutHint = app.staticTexts["rightSidebarCloseShortcutHint"]
         XCTAssertTrue(shortcutHint.waitForExistence(timeout: 5.0), "Expected Cmd+Option+B hint over the close button.")
@@ -261,6 +312,85 @@ final class BonsplitTabDragUITests: XCTestCase {
             },
             "Expected Cmd+Option+B to hide the right sidebar when it is open."
         )
+    }
+
+    func testTitlebarShortcutHintsDoNotCoverHeaderIcons() {
+        let (app, dataPath) = launchConfiguredApp(alwaysShowShortcutHints: true)
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for titlebar shortcut hint geometry test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected titlebar geometry data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        let controls = [
+            "titlebarControl_toggleSidebar",
+            "titlebarControl_showNotifications",
+            "titlebarControl_newTab",
+            "titlebarControl_focusHistoryBack",
+            "titlebarControl_focusHistoryForward",
+        ]
+        let hints = [
+            "titlebarShortcutHint_toggleSidebar",
+            "titlebarShortcutHint_showNotifications",
+            "titlebarShortcutHint_newTab",
+            "titlebarShortcutHint_focusHistoryBack",
+            "titlebarShortcutHint_focusHistoryForward",
+        ]
+        let trafficLights = [
+            "titlebarTrafficLightClose",
+            "titlebarTrafficLightMinimize",
+            "titlebarTrafficLightZoom",
+        ]
+        let allPrefixes = controls + hints + trafficLights
+        let keys = allPrefixes.flatMap { prefix in
+            ["\(prefix)X", "\(prefix)Y", "\(prefix)Width", "\(prefix)Height"]
+        }
+        guard let geometry = waitForJSONNumbers(keys, atPath: dataPath, timeout: 5.0) else {
+            XCTFail("Timed out waiting for titlebar control geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        func rect(_ prefix: String) -> CGRect {
+            CGRect(
+                x: Double(geometry["\(prefix)X"] ?? "") ?? 0,
+                y: Double(geometry["\(prefix)Y"] ?? "") ?? 0,
+                width: Double(geometry["\(prefix)Width"] ?? "") ?? 0,
+                height: Double(geometry["\(prefix)Height"] ?? "") ?? 0
+            )
+        }
+
+        let closeTrafficLight = rect("titlebarTrafficLightClose")
+        XCTAssertGreaterThan(closeTrafficLight.width, 0)
+        XCTAssertGreaterThan(closeTrafficLight.height, 0)
+
+        for trafficLight in trafficLights.dropFirst() {
+            let frame = rect(trafficLight)
+            XCTAssertEqual(frame.width, closeTrafficLight.width, accuracy: 0.5, "Expected traffic lights to share width. geometry=\(geometry)")
+            XCTAssertEqual(frame.height, closeTrafficLight.height, accuracy: 0.5, "Expected traffic lights to share height. geometry=\(geometry)")
+            XCTAssertEqual(frame.midY, closeTrafficLight.midY, accuracy: 0.5, "Expected traffic lights to share vertical center. geometry=\(geometry)")
+        }
+
+        let firstControlHeight = rect(controls[0]).height
+        for (controlPrefix, hintPrefix) in zip(controls, hints) {
+            let control = rect(controlPrefix)
+            let hint = rect(hintPrefix)
+            XCTAssertEqual(control.height, firstControlHeight, accuracy: 0.5, "Expected titlebar controls to share height. geometry=\(geometry)")
+            XCTAssertEqual(control.midY, closeTrafficLight.midY, accuracy: 1.0, "Expected \(controlPrefix) to align to traffic light center. geometry=\(geometry)")
+            XCTAssertFalse(
+                control.intersects(hint),
+                "Expected shortcut hint \(hintPrefix) not to cover titlebar control \(controlPrefix). geometry=\(geometry)"
+            )
+        }
     }
 
     func testMinimalModeTitlebarDoubleClickZoomsWindow() {
@@ -632,6 +762,73 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
     }
 
+    func testManyPaneTabBarActionsUseTrailingWhitespaceBeforeClipping() {
+        let actionButtonCount = 10
+        let (app, dataPath) = launchConfiguredApp(
+            startWithHiddenSidebar: true,
+            windowSize: "760x420",
+            actionButtonCount: actionButtonCount
+        )
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for narrow action-lane UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        let window = app.windows.element(boundBy: 0)
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
+
+        let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
+        let betaTitle = ready["betaTitle"] ?? "UITest Beta"
+        let alphaTab = app.buttons[alphaTitle]
+        let betaTab = app.buttons[betaTitle]
+        XCTAssertTrue(alphaTab.waitForExistence(timeout: 5.0), "Expected alpha tab to exist")
+        XCTAssertTrue(betaTab.waitForExistence(timeout: 5.0), "Expected beta tab to exist")
+
+        let firstActionButton = app.descendants(matching: .any)
+            .matching(identifier: "paneTabBarControl.custom.cmux-ui-test-action-1")
+            .firstMatch
+        let lastActionButton = app.descendants(matching: .any)
+            .matching(identifier: "paneTabBarControl.custom.cmux-ui-test-action-\(actionButtonCount)")
+            .firstMatch
+
+        hover(
+            in: window,
+            at: CGPoint(
+                x: min(window.frame.maxX - 140, betaTab.frame.maxX + 80),
+                y: alphaTab.frame.midY
+            )
+        )
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 2.0) {
+                firstActionButton.exists && firstActionButton.isHittable &&
+                    lastActionButton.exists && lastActionButton.isHittable
+            },
+            "Expected all custom pane tab bar action buttons to be hittable in trailing whitespace. window=\(window.frame) alphaTab=\(alphaTab.frame) betaTab=\(betaTab.frame) first=\(firstActionButton.debugDescription) last=\(lastActionButton.debugDescription)"
+        )
+        XCTAssertLessThan(
+            firstActionButton.frame.minX,
+            lastActionButton.frame.minX,
+            "Expected custom action buttons to lay out in configured order. first=\(firstActionButton.frame) last=\(lastActionButton.frame)"
+        )
+        XCTAssertLessThanOrEqual(
+            lastActionButton.frame.maxX,
+            window.frame.maxX + 1,
+            "Expected the rightmost custom action button to stay inside the window. window=\(window.frame) last=\(lastActionButton.frame)"
+        )
+    }
+
     private enum WorkspacePresentationMode: String {
         case standard
         case minimal
@@ -642,7 +839,8 @@ final class BonsplitTabDragUITests: XCTestCase {
         presentationMode: WorkspacePresentationMode = .minimal,
         showRightSidebar: Bool = false,
         alwaysShowShortcutHints: Bool = false,
-        windowSize: String? = nil
+        windowSize: String? = nil,
+        actionButtonCount: Int? = nil
     ) -> (XCUIApplication, String) {
         let app = XCUIApplication()
         let dataPath = "/tmp/cmux-ui-test-bonsplit-tab-drag-\(UUID().uuidString).json"
@@ -656,6 +854,9 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
         if let windowSize {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_WINDOW_SIZE"] = windowSize
+        }
+        if let actionButtonCount {
+            app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_ACTION_BUTTON_COUNT"] = String(actionButtonCount)
         }
         if showRightSidebar {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
@@ -729,6 +930,38 @@ final class BonsplitTabDragUITests: XCTestCase {
            let rawValue = data[key],
            let value = Double(rawValue),
            value > threshold {
+            return data
+        }
+        return nil
+    }
+
+    private func waitForJSONNumbers(
+        _ keys: [String],
+        atPath path: String,
+        timeout: TimeInterval
+    ) -> [String: String]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let data = loadJSON(atPath: path),
+               keys.allSatisfy({ key in
+                   guard let rawValue = data[key],
+                         Double(rawValue) != nil else {
+                       return false
+                   }
+                   return true
+               }) {
+                return data
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        if let data = loadJSON(atPath: path),
+           keys.allSatisfy({ key in
+               guard let rawValue = data[key],
+                     Double(rawValue) != nil else {
+                   return false
+               }
+               return true
+           }) {
             return data
         }
         return nil

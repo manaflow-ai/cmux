@@ -7,7 +7,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
-import Bonsplit
+@testable import Bonsplit
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -15,6 +15,20 @@ import UserNotifications
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitRegionProviding {
+    nonisolated(unsafe) var tabFrames: [CGRect] = []
+
+    deinit {}
+
+    nonisolated func containsBonsplitTabItemHit(localPoint: NSPoint) -> Bool {
+        tabFrames.contains { $0.contains(localPoint) }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
 
 @MainActor
 final class WindowGlassEffectTests: XCTestCase {
@@ -133,7 +147,7 @@ final class WindowAccessorTests: XCTestCase {
 
 @MainActor
 final class MainWindowFocusRedrawTests: XCTestCase {
-    func testKeyRegainInvalidatesContentWhenPointerIsOverSidebarDivider() {
+    func testKeyRegainInvalidatesRootContentView() {
         _ = NSApplication.shared
 
         let appDelegate = AppDelegate()
@@ -164,25 +178,13 @@ final class MainWindowFocusRedrawTests: XCTestCase {
         )
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
         window.contentView = contentView
-        defer { window.close() }
+        defer {
+            window.orderOut(nil)
+            window.contentView = nil
+        }
 
         contentView.layoutSubtreeIfNeeded()
         splitView.adjustSubviews()
-        let dividerPointInSplit = NSPoint(
-            x: sidebar.frame.maxX + splitView.dividerThickness / 2,
-            y: splitView.bounds.midY
-        )
-        let dividerRectInSplit = NSRect(
-            x: sidebar.frame.maxX,
-            y: 0,
-            width: max(splitView.dividerThickness, 1),
-            height: splitView.bounds.height
-        ).insetBy(dx: -5, dy: 0)
-
-        XCTAssertTrue(
-            dividerRectInSplit.contains(dividerPointInSplit),
-            "Test setup should place the pointer over the sidebar/main split divider without depending on screen coordinates."
-        )
 
         contentView.needsDisplay = false
 
@@ -195,7 +197,7 @@ final class MainWindowFocusRedrawTests: XCTestCase {
 
         XCTAssertTrue(
             contentView.needsDisplay,
-            "Regaining key focus must invalidate the root content view even when the pointer is over the resize divider."
+            "Regaining key focus must invalidate the root content view."
         )
     }
 }
@@ -497,8 +499,8 @@ final class FocusFlashPatternTests: XCTestCase {
         XCTAssertEqual(FocusFlashPattern.keyTimes, [0, 0.25, 0.5, 0.75, 1])
         XCTAssertEqual(FocusFlashPattern.duration, 0.9, accuracy: 0.0001)
         XCTAssertEqual(FocusFlashPattern.curves, [.easeOut, .easeIn, .easeOut, .easeIn])
-        XCTAssertEqual(FocusFlashPattern.ringInset, 6, accuracy: 0.0001)
-        XCTAssertEqual(FocusFlashPattern.ringCornerRadius, 10, accuracy: 0.0001)
+        XCTAssertEqual(FocusFlashPattern.ringInset, Double(PanelOverlayRingMetrics.inset), accuracy: 0.0001)
+        XCTAssertEqual(FocusFlashPattern.ringCornerRadius, Double(PanelOverlayRingMetrics.cornerRadius), accuracy: 0.0001)
     }
 
     func testFocusFlashPatternSegmentsCoverFullDoublePulseTimeline() {
@@ -657,6 +659,8 @@ final class WindowDragHandleHitTests: XCTestCase {
     private final class SidebarActionRegionView: NSView, MinimalModeSidebarControlActionHitRegionProviding {
         nonisolated(unsafe) var config = TitlebarControlsStyle.classic.config
 
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
         nonisolated func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
             minimalModeSidebarControlActionSlot(localPoint: localPoint) != nil
         }
@@ -801,7 +805,7 @@ final class WindowDragHandleHitTests: XCTestCase {
     func testTitlebarControlGapsAreOutsideButtonHitColumns() {
         let config = TitlebarControlsStyle.classic.config
         let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
-        XCTAssertEqual(ranges.count, 3)
+        XCTAssertEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
 
         XCTAssertTrue(
             TitlebarControlsHitRegions.pointFallsInButtonColumn(
@@ -821,6 +825,63 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(
             TitlebarControlsHitRegions.pointFallsInButtonColumn(NSPoint(x: secondGapX, y: 14), config: config),
             "The gap between the notification and new-workspace icons should remain available for window dragging"
+        )
+    }
+
+    func testDragHandleYieldsToRegisteredMinimalModeSidebarButtonColumns() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let dragHandle = NSView(frame: contentView.bounds)
+        dragHandle.autoresizingMask = [.width, .height]
+        contentView.addSubview(dragHandle)
+
+        let controlRegion = SidebarActionRegionView(
+            frame: NSRect(
+                x: 72,
+                y: 88,
+                width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+                height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
+            )
+        )
+        contentView.addSubview(controlRegion)
+        MinimalModeTitlebarControlHitRegionRegistry.register(controlRegion)
+        defer { MinimalModeTitlebarControlHitRegionRegistry.unregister(controlRegion) }
+
+        let ranges = TitlebarControlsHitRegions.buttonXRanges(config: controlRegion.config)
+        let backButtonPoint = NSPoint(
+            x: controlRegion.frame.minX + ranges[MinimalModeSidebarControlActionSlot.focusHistoryBack.rawValue].lowerBound + 1,
+            y: controlRegion.frame.midY
+        )
+        XCTAssertTrue(isMinimalModeTitlebarControlHit(window: window, locationInWindow: backButtonPoint))
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(
+                dragHandle.convert(backButtonPoint, from: nil),
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "Registered minimal-mode titlebar buttons should not fall through to the window drag handle."
+        )
+
+        let emptyTitlebarPoint = NSPoint(x: contentView.bounds.maxX - 20, y: controlRegion.frame.midY)
+        XCTAssertTrue(
+            windowDragHandleShouldCaptureHit(
+                dragHandle.convert(emptyTitlebarPoint, from: nil),
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "Empty titlebar space should still be draggable."
         )
     }
 
@@ -859,7 +920,66 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
     }
 
-    func testTitlebarChromeSettingsUseHardcodedDefaults() {
+    func testMinimalModeSidebarTitlebarControlsAlignWithTrafficLightCenter() {
+        let defaults = UserDefaults.standard
+        let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        // WindowDecorationsController.apply reads the production presentation-mode setting
+        // from UserDefaults.standard, so this test saves and restores the shared key narrowly.
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer {
+            if let savedMode {
+                defaults.set(savedMode, forKey: WorkspacePresentationModeSettings.modeKey)
+            } else {
+                defaults.removeObject(forKey: WorkspacePresentationModeSettings.modeKey)
+            }
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 180),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.test")
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        defer { window.orderOut(nil) }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        guard let closeButton = window.standardWindowButton(.closeButton),
+              let closeButtonSuperview = closeButton.superview else {
+            XCTFail("Expected close traffic-light button")
+            return
+        }
+
+        let controller = WindowDecorationsController()
+        controller.apply(to: window)
+
+        guard let target = contentView.subviews.compactMap({ $0 as? MinimalModeSidebarControlActionView }).first else {
+            XCTFail("Expected minimal sidebar titlebar click target")
+            return
+        }
+
+        let trafficLightFrame = closeButtonSuperview.convert(closeButton.frame, to: contentView)
+        let opticalYOffset = MinimalModeSidebarTitlebarControlsMetrics.titlebarControlsOpticalYOffset(in: window)
+        let expectedHostCenterY = contentView.isFlipped
+            ? trafficLightFrame.midY + opticalYOffset
+            : trafficLightFrame.midY - opticalYOffset
+        XCTAssertEqual(
+            target.frame.midY,
+            expectedHostCenterY,
+            accuracy: 0.25,
+            "Minimal-mode sidebar controls should compensate for the titlebar icon padding by one backing pixel"
+        )
+    }
+
+    func testTitlebarChromeSettingsUseDefaultsAndStoredOverrides() {
         let suiteName = "WindowDragHandleHitTests.titlebarChromeSettings.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -879,6 +999,51 @@ final class WindowDragHandleHitTests: XCTestCase {
             MinimalModeTitlebarDebugSettings.leftControlsLeadingInset(defaults: defaults),
             CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset),
             accuracy: 0.001
+        )
+        XCTAssertEqual(
+            MinimalModeSidebarTitlebarControlsMetrics.topInset(defaults: defaults),
+            CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset),
+            accuracy: 0.001
+        )
+
+        defaults.set(44.5, forKey: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
+        defaults.set(6.5, forKey: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
+        defaults.set(12.0, forKey: "titlebarDebug.trafficLightsXOffset")
+        defaults.set(-3.0, forKey: "titlebarDebug.trafficLightsYOffset")
+        defaults.set(88.0, forKey: MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey)
+        defaults.set(92.0, forKey: MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey)
+
+        let storedSnapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
+        XCTAssertEqual(storedSnapshot.leftControlsLeadingInset, 44.5, accuracy: 0.001)
+        XCTAssertEqual(storedSnapshot.leftControlsTopInset, 6.5, accuracy: 0.001)
+        XCTAssertEqual(storedSnapshot.trafficLightTabBarLeadingInset, 88.0, accuracy: 0.001)
+        XCTAssertEqual(storedSnapshot.trafficLightTitlebarLeadingInset, 92.0, accuracy: 0.001)
+
+        defaults.set(999.0, forKey: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
+        XCTAssertEqual(
+            MinimalModeTitlebarDebugSettings.leftControlsLeadingInset(defaults: defaults),
+            CGFloat(MinimalModeTitlebarDebugSettings.horizontalInsetRange.upperBound),
+            accuracy: 0.001
+        )
+    }
+
+    func testTitlebarChromeSettingsIgnoreLegacyNativeTrafficLightOffsets() {
+        let suiteName = "WindowDragHandleHitTests.titlebarChromeLegacyTrafficLights.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(44.0, forKey: "titlebarDebug.trafficLightsXOffset")
+        defaults.set(-12.0, forKey: "titlebarDebug.trafficLightsYOffset")
+
+        let snapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
+        XCTAssertEqual(
+            snapshot,
+            MinimalModeTitlebarDebugSnapshot(
+                leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
+                leftControlsTopInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
+                trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
+                trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+            )
         )
     }
 
@@ -912,6 +1077,91 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .cursorUpdate))
         XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: nil))
         XCTAssertTrue(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .leftMouseDown))
+    }
+
+    func testDragHandleNeverCapturesRegisteredBonsplitPaneTab() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let container = NSView(frame: contentView.bounds)
+        contentView.addSubview(container)
+
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 82, width: 220, height: 30))
+        tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
+        container.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer { BonsplitTabItemHitRegionRegistry.unregister(tabRegion) }
+
+        let tabWindowPoint = tabRegion.convert(NSPoint(x: 48, y: 15), to: nil)
+        let tabDragHandlePoint = dragHandle.convert(tabWindowPoint, from: nil)
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(
+                tabDragHandlePoint,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "A visible pane tab must own its mouse-down; the titlebar drag handle must not turn it into a window drag"
+        )
+
+        let emptyWindowPoint = tabRegion.convert(NSPoint(x: 180, y: 15), to: nil)
+        let emptyDragHandlePoint = dragHandle.convert(emptyWindowPoint, from: nil)
+        XCTAssertTrue(
+            windowDragHandleShouldCaptureHit(
+                emptyDragHandlePoint,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "Empty tab-strip chrome should remain available for app-window dragging"
+        )
+    }
+
+    func testTabBarEmptyChromeOverlayNeverCapturesRegisteredBonsplitPaneTabWhenFrameCacheIsEmpty() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let dragZone = TabBarDragZoneView.DragNSView(frame: NSRect(x: 0, y: 72, width: 320, height: 30))
+        dragZone.hitRegion = .trailingEmptyChrome(tabFrames: [], reservedTrailingWidth: 48)
+        dragZone.hitTestEventTypeOverride = .leftMouseDown
+        contentView.addSubview(dragZone)
+
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 10, y: 72, width: 90, height: 30))
+        tabRegion.tabFrames = [tabRegion.bounds]
+        contentView.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer { BonsplitTabItemHitRegionRegistry.unregister(tabRegion) }
+
+        XCTAssertNil(
+            dragZone.hitTest(NSPoint(x: 40, y: 15)),
+            "The empty-chrome overlay must not turn a pane-tab mouse-down into an app-window drag while tab frames are still populating"
+        )
+        XCTAssertIdentical(
+            dragZone.hitTest(NSPoint(x: 140, y: 15)),
+            dragZone,
+            "Empty tab-strip chrome after the registered tab should still be available for app-window dragging"
+        )
     }
 
     func testDragHandleSkipsForeignLeftMouseDownDuringLaunch() {
@@ -1505,6 +1755,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         defer { window.orderOut(nil) }
 
         let rootView = RightSidebarPanelView(
+            tabManager: TabManager(),
             fileExplorerStore: FileExplorerStore(),
             fileExplorerState: FileExplorerState(),
             sessionIndexStore: SessionIndexStore(),
@@ -1512,6 +1763,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             workspaceId: nil,
             onResumeSession: nil,
             onOpenFilePreview: { _ in },
+            onOpenAsPane: { _ in },
             onClose: {}
         )
         let hostingView = NSHostingView(rootView: rootView)
@@ -1601,6 +1853,44 @@ final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
         let view = TitlebarLeadingInsetPassthroughView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
         XCTAssertFalse(view.mouseDownCanMoveWindow)
     }
+
+    func testMainWindowHostingViewCannotMoveWindowViaMouseDown() {
+        let view = MainWindowHostingView(rootView: Color.clear)
+        XCTAssertFalse(
+            view.mouseDownCanMoveWindow,
+            "Main content must never become an implicit AppKit window-drag region; explicit titlebar chrome owns app-window dragging"
+        )
+    }
+
+    func testMainWindowDragBehaviorRequiresExplicitDragZones() {
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        window.isMovable = true
+        window.isMovableByWindowBackground = true
+
+        configureCmuxMainWindowDragBehavior(window)
+
+        XCTAssertFalse(
+            window.isMovable,
+            "Main windows must not use native AppKit titlebar dragging because pane tabs live in the titlebar band"
+        )
+        XCTAssertFalse(window.isMovableByWindowBackground)
+
+        let previous = withTemporaryWindowMovableEnabled(window: window) {
+            XCTAssertTrue(window.isMovable)
+        }
+
+        XCTAssertEqual(previous, false)
+        XCTAssertFalse(
+            window.isMovable,
+            "Explicit chrome drag zones may temporarily enable movement, but the main window must return to pane-tab-safe immovable state"
+        )
+    }
 }
 
 
@@ -1662,6 +1952,25 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
         XCTAssertEqual(clearWindowDragSuppression(window: window), 0)
         XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
         XCTAssertFalse(window.isMovable)
+    }
+
+    func testClearWindowDragSuppressionFinishesActiveMoveSequence() {
+        let window = makeWindow()
+        window.isMovable = true
+
+        XCTAssertEqual(
+            beginWindowMoveSuppressionSequence(window: window, reason: .bonsplitPaneTabDrag),
+            .bonsplitPaneTabDrag
+        )
+        XCTAssertFalse(window.isMovable)
+        XCTAssertEqual(activeWindowMoveSuppressionSequenceReason(window: window), .bonsplitPaneTabDrag)
+
+        XCTAssertEqual(clearWindowDragSuppression(window: window), 0)
+
+        XCTAssertNil(activeWindowMoveSuppressionSequenceReason(window: window))
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
+        XCTAssertFalse(isWindowDragSuppressed(window: window))
+        XCTAssertTrue(window.isMovable)
     }
 
     func testWindowDragSuppressionDepthLifecycle() {
@@ -1792,6 +2101,135 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
         let dragged = makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 20, y: 20), window: window)
         XCTAssertFalse(shouldSuppressWindowMoveForFolderDrag(window: window, event: dragged))
     }
+
+    func testBonsplitPaneTabMouseDownSuppressesWindowMove() {
+        let (window, contentView) = makeWindowWithContentView()
+        window.isMovable = true
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
+        tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
+        contentView.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer { BonsplitTabItemHitRegionRegistry.unregister(tabRegion) }
+
+        let tabPoint = tabRegion.convert(NSPoint(x: 28, y: 15), to: nil)
+        let event = makeMouseEvent(type: .leftMouseDown, location: tabPoint, window: window)
+
+        XCTAssertTrue(shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: window, event: event))
+        XCTAssertEqual(windowMoveSuppressionReason(window: window, event: event), .bonsplitPaneTabDrag)
+    }
+
+    func testBonsplitPaneTabDragSequenceKeepsWindowImmovableUntilMouseUp() {
+        let (window, contentView) = makeWindowWithContentView()
+        window.isMovable = true
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
+        tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
+        contentView.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer {
+            _ = finishWindowMoveSuppressionSequence(window: window)
+            BonsplitTabItemHitRegionRegistry.unregister(tabRegion)
+        }
+
+        let tabPoint = tabRegion.convert(NSPoint(x: 28, y: 15), to: nil)
+        let down = makeMouseEvent(type: .leftMouseDown, location: tabPoint, window: window)
+
+        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: down), .bonsplitPaneTabDrag)
+        XCTAssertFalse(window.isMovable)
+        XCTAssertTrue(isWindowDragSuppressed(window: window))
+        XCTAssertEqual(activeWindowMoveSuppressionSequenceReason(window: window), .bonsplitPaneTabDrag)
+
+        let draggedOutsideTab = makeMouseEvent(
+            type: .leftMouseDragged,
+            location: NSPoint(x: contentView.bounds.midX, y: contentView.bounds.midY),
+            window: window
+        )
+        XCTAssertEqual(
+            beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: draggedOutsideTab),
+            .bonsplitPaneTabDrag
+        )
+        XCTAssertFalse(window.isMovable, "Window must remain immovable for the whole tab-drag mouse sequence")
+        XCTAssertFalse(shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: window, event: draggedOutsideTab))
+
+        let up = makeMouseEvent(type: .leftMouseUp, location: tabPoint, window: window)
+        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: up), .bonsplitPaneTabDrag)
+        XCTAssertTrue(shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: window, event: up))
+        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
+        XCTAssertTrue(window.isMovable)
+        XCTAssertFalse(isWindowDragSuppressed(window: window))
+        XCTAssertNil(activeWindowMoveSuppressionSequenceReason(window: window))
+    }
+
+    func testBonsplitPaneTabSuppressionRestoresImmovableMainWindow() {
+        let (window, contentView) = makeWindowWithContentView()
+        window.isMovable = false
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
+        tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
+        contentView.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer {
+            _ = finishWindowMoveSuppressionSequence(window: window)
+            BonsplitTabItemHitRegionRegistry.unregister(tabRegion)
+        }
+
+        let tabPoint = tabRegion.convert(NSPoint(x: 28, y: 15), to: nil)
+        let down = makeMouseEvent(type: .leftMouseDown, location: tabPoint, window: window)
+
+        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: down), .bonsplitPaneTabDrag)
+        XCTAssertFalse(window.isMovable)
+        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
+        XCTAssertFalse(
+            window.isMovable,
+            "Tab-drag suppression must not restore native AppKit window dragging when the main window baseline is immovable"
+        )
+    }
+
+    func testNewMouseDownReevaluatesAfterStaleBonsplitPaneTabSuppression() {
+        let (window, contentView) = makeWindowWithContentView()
+        window.isMovable = true
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
+        tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
+        contentView.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer {
+            _ = finishWindowMoveSuppressionSequence(window: window)
+            BonsplitTabItemHitRegionRegistry.unregister(tabRegion)
+        }
+
+        let tabPoint = tabRegion.convert(NSPoint(x: 28, y: 15), to: nil)
+        let down = makeMouseEvent(type: .leftMouseDown, location: tabPoint, window: window)
+        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: down), .bonsplitPaneTabDrag)
+        XCTAssertFalse(window.isMovable)
+
+        let emptyChromePoint = tabRegion.convert(NSPoint(x: 180, y: 15), to: nil)
+        let nextDown = makeMouseEvent(type: .leftMouseDown, location: emptyChromePoint, window: window)
+        XCTAssertNil(
+            beginOrContinueWindowMoveSuppressionSequenceForEvent(
+                window: window,
+                event: nextDown,
+                pressedMouseButtons: 1
+            ),
+            "A fresh mouse-down must end stale tab suppression and re-check the actual hit target"
+        )
+        XCTAssertTrue(window.isMovable)
+        XCTAssertFalse(isWindowDragSuppressed(window: window))
+        XCTAssertNil(activeWindowMoveSuppressionSequenceReason(window: window))
+    }
+
+    func testBonsplitPaneTabSuppressionLeavesEmptyTabChromeDraggable() {
+        let (window, contentView) = makeWindowWithContentView()
+        window.isMovable = true
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
+        tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
+        contentView.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer { BonsplitTabItemHitRegionRegistry.unregister(tabRegion) }
+
+        let emptyChromePoint = tabRegion.convert(NSPoint(x: 180, y: 15), to: nil)
+        let event = makeMouseEvent(type: .leftMouseDown, location: emptyChromePoint, window: window)
+
+        XCTAssertFalse(shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: window, event: event))
+        XCTAssertNil(windowMoveSuppressionReason(window: window, event: event))
+    }
 }
 
 private final class FilePreviewPDFChromeNotificationFlag: @unchecked Sendable {
@@ -1802,17 +2240,6 @@ private final class FilePreviewPDFChromeNotificationFlag: @unchecked Sendable {
 @MainActor
 final class FilePreviewPDFChromeTests: XCTestCase {
     func testChromeHostsAcceptFirstMouse() {
-        let settingsKey = "paneFirstClickFocus.enabled"
-        let previousValue = UserDefaults.standard.object(forKey: settingsKey)
-        defer {
-            if let previousValue {
-                UserDefaults.standard.set(previousValue, forKey: settingsKey)
-            } else {
-                UserDefaults.standard.removeObject(forKey: settingsKey)
-            }
-        }
-        UserDefaults.standard.set(true, forKey: settingsKey)
-
         let host = FilePreviewPDFChromeHostingView(rootView: AnyView(EmptyView()))
 
         XCTAssertTrue(host.acceptsFirstMouse(for: nil))
@@ -1910,12 +2337,18 @@ final class FilePreviewPDFChromeTests: XCTestCase {
             NSPoint(x: zoomChromeHost.frame.midX, y: zoomChromeHost.frame.midY),
             to: container
         )
+        let shareProbe = chromeHost.convert(
+            NSPoint(x: zoomChromeHost.frame.maxX - 20, y: zoomChromeHost.frame.midY),
+            to: container
+        )
         let leftChromeHit = container.hitTest(leftProbe)
         let rightChromeHit = container.hitTest(rightProbe)
-        let debugFrames = "container=\(container.frame) content=\(String(describing: contentHost?.frame)) chromeHost=\(chromeHost.frame) left=\(sidebarChromeHost.frame) right=\(zoomChromeHost.frame) leftProbe=\(leftProbe) rightProbe=\(rightProbe) leftHit=\(String(describing: leftChromeHit)) rightHit=\(String(describing: rightChromeHit))"
+        let shareChromeHit = container.hitTest(shareProbe)
+        let debugFrames = "container=\(container.frame) content=\(String(describing: contentHost?.frame)) chromeHost=\(chromeHost.frame) left=\(sidebarChromeHost.frame) right=\(zoomChromeHost.frame) leftProbe=\(leftProbe) rightProbe=\(rightProbe) shareProbe=\(shareProbe) leftHit=\(String(describing: leftChromeHit)) rightHit=\(String(describing: rightChromeHit)) shareHit=\(String(describing: shareChromeHit))"
 
         XCTAssertTrue(isView(leftChromeHit, inside: sidebarChromeHost), debugFrames)
         XCTAssertTrue(isView(rightChromeHit, inside: zoomChromeHost), debugFrames)
+        XCTAssertTrue(isView(shareChromeHit, inside: zoomChromeHost), debugFrames)
     }
 
     func testThumbnailSidebarUsesFullWidthSingleColumnLayout() throws {
@@ -2210,6 +2643,78 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
 
 @MainActor
 final class FilePreviewPanelTextSavingTests: XCTestCase {
+    func testNativePreviewSessionsDetachAndReuseViewsAcrossRecreation() throws {
+        let url = try temporaryTextFile(contents: "preview", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
+        let sessions = panel.nativeViewSessions
+
+        let pdfView = sessions.pdf.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: NSColor.textBackgroundColor,
+            drawsBackground: true
+        )
+        let imageView = sessions.image.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: NSColor.textBackgroundColor,
+            drawsBackground: true
+        )
+        let mediaView = sessions.media.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: NSColor.textBackgroundColor,
+            drawsBackground: true
+        )
+        let quickLookView = sessions.quickLook.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: NSColor.textBackgroundColor,
+            drawsBackground: true
+        )
+
+        let host = NSView()
+        host.addSubview(pdfView)
+        host.addSubview(imageView)
+        host.addSubview(mediaView)
+        host.addSubview(quickLookView)
+
+        XCTAssertTrue(pdfView === sessions.pdf.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: NSColor.textBackgroundColor,
+            drawsBackground: true
+        ))
+        XCTAssertNil(pdfView.superview)
+
+        XCTAssertTrue(imageView === sessions.image.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: NSColor.textBackgroundColor,
+            drawsBackground: true
+        ))
+        XCTAssertNil(imageView.superview)
+
+        XCTAssertTrue(mediaView === sessions.media.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: NSColor.textBackgroundColor,
+            drawsBackground: true
+        ))
+        XCTAssertNil(mediaView.superview)
+
+        XCTAssertTrue(quickLookView === sessions.quickLook.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: NSColor.textBackgroundColor,
+            drawsBackground: true
+        ))
+        XCTAssertNil(quickLookView.superview)
+    }
+
     func testSaveTextContentWritesLiveTextViewContent() async throws {
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -2454,6 +2959,54 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         withExtendedLifetime([firstWindow, secondWindow]) {}
     }
 
+    func testTextEditorClearThemeDoesNotDrawAppKitBackgrounds() {
+        _ = NSApplication.shared
+        let scrollView = NSScrollView()
+        let textView = SavingTextView()
+        scrollView.documentView = textView
+
+        FilePreviewTextEditor<FilePreviewPanel>.applyTheme(
+            to: scrollView,
+            backgroundColor: .clear,
+            foregroundColor: .white,
+            drawsBackground: false
+        )
+
+        XCTAssertFalse(scrollView.drawsBackground)
+        XCTAssertFalse(scrollView.contentView.drawsBackground)
+        XCTAssertFalse(textView.drawsBackground)
+        XCTAssertEqual(scrollView.backgroundColor.alphaComponent, 0)
+        XCTAssertEqual(scrollView.contentView.backgroundColor.alphaComponent, 0)
+        XCTAssertEqual(textView.backgroundColor.alphaComponent, 0)
+        XCTAssertEqual(textView.textColor, .white)
+        XCTAssertEqual(textView.insertionPointColor, .white)
+    }
+
+    func testTextEditorOpaqueThemeDrawsAppKitBackgrounds() {
+        _ = NSApplication.shared
+        let scrollView = NSScrollView()
+        let textView = SavingTextView()
+        let backgroundColor = NSColor(srgbRed: 0.12, green: 0.14, blue: 0.16, alpha: 1)
+        scrollView.documentView = textView
+
+        FilePreviewTextEditor<FilePreviewPanel>.applyTheme(
+            to: scrollView,
+            backgroundColor: backgroundColor,
+            foregroundColor: .white,
+            drawsBackground: true
+        )
+
+        XCTAssertTrue(scrollView.drawsBackground)
+        XCTAssertTrue(scrollView.contentView.drawsBackground)
+        XCTAssertTrue(textView.drawsBackground)
+        XCTAssertEqual(scrollView.backgroundColor, backgroundColor)
+        XCTAssertEqual(scrollView.contentView.backgroundColor, backgroundColor)
+        XCTAssertEqual(textView.backgroundColor, backgroundColor)
+        XCTAssertEqual(scrollView.backgroundColor.alphaComponent, 1)
+        XCTAssertEqual(scrollView.contentView.backgroundColor.alphaComponent, 1)
+        XCTAssertEqual(textView.backgroundColor.alphaComponent, 1)
+    }
+
     func testPendingTextFocusAppliesWhenTextViewAttaches() throws {
         _ = NSApplication.shared
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
@@ -2516,10 +3069,164 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertNotEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
-    private func temporaryTextFile(contents: String, encoding: String.Encoding) throws -> URL {
+    func testExternalOpenApplicationResolverOrdersDefaultAppFirstAndDeduplicates() {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.mov")
+        let quickTimeURL = URL(fileURLWithPath: "/Applications/QuickTime Player.app")
+        let vlcURL = URL(fileURLWithPath: "/Applications/VLC.app")
+        let names = [
+            quickTimeURL.path: "QuickTime Player",
+            vlcURL.path: "VLC",
+        ]
+        let resolver = FileExternalOpenApplicationResolver(
+            defaultApplicationURL: { _ in quickTimeURL },
+            applicationURLs: { _ in [vlcURL, quickTimeURL, vlcURL] },
+            displayName: { names[$0.path] ?? $0.lastPathComponent },
+            shouldIncludeApplication: { _ in true }
+        )
+
+        let applications = resolver.applications(for: fileURL)
+
+        XCTAssertEqual(applications.map(\.displayName), ["QuickTime Player", "VLC"])
+        XCTAssertEqual(applications.map(\.isDefault), [true, false])
+    }
+
+    func testExternalOpenApplicationResolverFallsBackWhenDefaultAppIsFiltered() {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.pdf")
+        let cmuxURL = URL(fileURLWithPath: "/Applications/cmux.app")
+        let previewURL = URL(fileURLWithPath: "/System/Applications/Preview.app")
+        let resolver = FileExternalOpenApplicationResolver(
+            defaultApplicationURL: { _ in cmuxURL },
+            applicationURLs: { _ in [cmuxURL, previewURL] },
+            displayName: { $0.deletingPathExtension().lastPathComponent },
+            shouldIncludeApplication: { $0 != cmuxURL }
+        )
+
+        let applications = resolver.applications(for: fileURL)
+
+        XCTAssertEqual(applications.map(\.displayName), ["Preview"])
+        XCTAssertEqual(applications.map(\.isDefault), [false])
+    }
+
+    func testCmdClickSupportedFileRoutingDefaultsToReadableRegularFilesOnly() throws {
+        let suiteName = "cmux.file-preview-routing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile(contents: "preview me", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        XCTAssertTrue(CmdClickSupportedFileRouteSettings.isEnabled(defaults: defaults))
+        XCTAssertTrue(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: directoryURL.path, defaults: defaults))
+
+        defaults.set(false, forKey: CmdClickSupportedFileRouteSettings.key)
+        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+    }
+
+    func testCmdClickMarkdownRoutingDoesNotRequireSupportedFileRoutingSetting() throws {
+        let suiteName = "cmux.markdown-preview-routing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile(contents: "# preview me", encoding: .utf8, pathExtension: "md")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        defaults.set(true, forKey: CmdClickMarkdownRouteSettings.key)
+        defaults.set(false, forKey: CmdClickSupportedFileRouteSettings.key)
+
+        XCTAssertTrue(CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+    }
+
+    func testCmdClickFilePreviewRoutingReusesRightSidePane() throws {
+        let sourceURL = try temporaryTextFile(contents: "source", encoding: .utf8)
+        let firstURL = try temporaryTextFile(contents: "first", encoding: .utf8)
+        let secondURL = try temporaryTextFile(contents: "second", encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        let sourcePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let sourcePanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: sourcePane,
+            filePath: sourceURL.path,
+            focus: true
+        ))
+
+        let firstPanel = try XCTUnwrap(workspace.openOrFocusFilePreviewSplit(
+            from: sourcePanel.id,
+            filePath: firstURL.path
+        ))
+        let rightPane = try XCTUnwrap(workspace.paneId(forPanelId: firstPanel.id))
+        let paneCountAfterFirstOpen = workspace.bonsplitController.allPaneIds.count
+        let rightTabsAfterFirstOpen = workspace.bonsplitController.tabs(inPane: rightPane).count
+
+        let secondPanel = try XCTUnwrap(workspace.openOrFocusFilePreviewSplit(
+            from: sourcePanel.id,
+            filePath: secondURL.path
+        ))
+
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, paneCountAfterFirstOpen)
+        XCTAssertEqual(workspace.paneId(forPanelId: secondPanel.id)?.id, rightPane.id)
+        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: rightPane).count, rightTabsAfterFirstOpen + 1)
+    }
+
+    func testCmdClickMarkdownRoutingReusesRightSidePane() throws {
+        let sourceURL = try temporaryTextFile(contents: "source", encoding: .utf8)
+        let firstURL = try temporaryTextFile(contents: "# first", encoding: .utf8, pathExtension: "md")
+        let secondURL = try temporaryTextFile(contents: "# second", encoding: .utf8, pathExtension: "md")
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        let sourcePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let sourcePanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: sourcePane,
+            filePath: sourceURL.path,
+            focus: true
+        ))
+
+        let firstPanel = try XCTUnwrap(workspace.openOrFocusMarkdownSplit(
+            from: sourcePanel.id,
+            filePath: firstURL.path
+        ))
+        let rightPane = try XCTUnwrap(workspace.paneId(forPanelId: firstPanel.id))
+        let paneCountAfterFirstOpen = workspace.bonsplitController.allPaneIds.count
+        let rightTabsAfterFirstOpen = workspace.bonsplitController.tabs(inPane: rightPane).count
+
+        let secondPanel = try XCTUnwrap(workspace.openOrFocusMarkdownSplit(
+            from: sourcePanel.id,
+            filePath: secondURL.path
+        ))
+
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, paneCountAfterFirstOpen)
+        XCTAssertEqual(workspace.paneId(forPanelId: secondPanel.id)?.id, rightPane.id)
+        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: rightPane).count, rightTabsAfterFirstOpen + 1)
+    }
+
+    private func temporaryTextFile(
+        contents: String,
+        encoding: String.Encoding,
+        pathExtension: String = "txt"
+    ) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("txt")
+            .appendingPathExtension(pathExtension)
         try contents.write(to: url, atomically: true, encoding: encoding)
         return url
     }
@@ -2609,6 +3316,25 @@ final class BonsplitTabDragPayloadTests: XCTestCase {
         XCTAssertNotNil(BonsplitTabDragPayload.transfer(from: pasteboard))
     }
 
+    func testWorkspaceDropRoutingAcceptsTabTransferTypeOnly() {
+        XCTAssertTrue(
+            BonsplitTabDragPayload.canRouteWorkspaceDrop(
+                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType]
+            )
+        )
+    }
+
+    func testWorkspaceDropRoutingRejectsFilePreviewCompatibilityTransfer() {
+        XCTAssertFalse(
+            BonsplitTabDragPayload.canRouteWorkspaceDrop(
+                pasteboardTypes: [
+                    DragOverlayRoutingPolicy.filePreviewTransferType,
+                    DragOverlayRoutingPolicy.bonsplitTabTransferType,
+                ]
+            )
+        )
+    }
+
     private func makeBonsplitPayloadPasteboard(
         kind: String?,
         includesFilePreviewTransferType: Bool = false
@@ -2631,110 +3357,6 @@ final class BonsplitTabDragPayloadTests: XCTestCase {
             pasteboard.setData(data, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
         }
         return pasteboard
-    }
-}
-
-@MainActor
-final class MarkdownPanelPointerObserverViewTests: XCTestCase {
-    private func makeWindow() -> NSWindow {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        window.contentView?.layoutSubtreeIfNeeded()
-        return window
-    }
-
-    private func makeMouseEvent(
-        type: NSEvent.EventType,
-        location: NSPoint,
-        window: NSWindow,
-        eventNumber: Int = 1
-    ) -> NSEvent {
-        guard let event = NSEvent.mouseEvent(
-            with: type,
-            location: location,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
-            eventNumber: eventNumber,
-            clickCount: 1,
-            pressure: 1.0
-        ) else {
-            fatalError("Expected to create mouse event")
-        }
-        return event
-    }
-
-    func testObserverTriggersFocusForVisibleLeftClickInsideBounds() {
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        let overlay = MarkdownPanelPointerObserverView(frame: contentView.bounds)
-        overlay.autoresizingMask = [.width, .height]
-        let focusExpectation = expectation(description: "observer forwards focus callback")
-        var pointerDownCount = 0
-        overlay.onPointerDown = {
-            pointerDownCount += 1
-            focusExpectation.fulfill()
-        }
-        contentView.addSubview(overlay)
-
-        _ = overlay.handleEventIfNeeded(
-            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 60, y: 60), window: window)
-        )
-        wait(for: [focusExpectation], timeout: 1.0)
-
-        XCTAssertEqual(pointerDownCount, 1)
-    }
-
-    func testObserverIgnoresOutsideOrForeignWindowClicks() {
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
-        let otherWindow = makeWindow()
-        defer { otherWindow.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        let overlay = MarkdownPanelPointerObserverView(frame: contentView.bounds)
-        overlay.autoresizingMask = [.width, .height]
-        let noFocusExpectation = expectation(description: "observer ignores invalid clicks")
-        noFocusExpectation.isInverted = true
-        var pointerDownCount = 0
-        overlay.onPointerDown = {
-            pointerDownCount += 1
-            noFocusExpectation.fulfill()
-        }
-        contentView.addSubview(overlay)
-
-        _ = overlay.handleEventIfNeeded(
-            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 400, y: 400), window: window)
-        )
-        _ = overlay.handleEventIfNeeded(
-            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 60, y: 60), window: otherWindow, eventNumber: 2)
-        )
-        _ = overlay.handleEventIfNeeded(
-            makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 60, y: 60), window: window, eventNumber: 3)
-        )
-        wait(for: [noFocusExpectation], timeout: 0.1)
-
-        XCTAssertEqual(pointerDownCount, 0)
-    }
-
-    func testObserverDoesNotParticipateInHitTesting() {
-        let overlay = MarkdownPanelPointerObserverView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
-        XCTAssertNil(overlay.hitTest(NSPoint(x: 40, y: 30)))
     }
 }
 
@@ -2763,17 +3385,27 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
         XCTAssertEqual(model.flashReason, .navigation)
     }
 
-    func testNavigationFlashUsesNonNotificationPresentation() {
-        XCTAssertNotEqual(
-            WorkspaceAttentionCoordinator.flashStyle(for: .navigation),
-            WorkspaceAttentionCoordinator.flashStyle(for: .notificationArrival)
-        )
+    func testAllFlashReasonsUseNotificationRingAccent() {
+        let reasons: [WorkspaceAttentionFlashReason] = [
+            .navigation,
+            .notificationArrival,
+            .notificationDismiss,
+            .unreadIndicatorDismiss,
+            .debug,
+        ]
+
+        for reason in reasons {
+            XCTAssertEqual(
+                WorkspaceAttentionCoordinator.flashStyle(for: reason).accent,
+                WorkspaceAttentionCoordinator.notificationRingStyle.accent
+            )
+        }
     }
 
-    func testNavigationFlashUsesNonNeutralAccent() {
+    func testFocusFlashUsesNotificationRingColor() {
         XCTAssertEqual(
-            WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent,
-            .navigationTeal
+            WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent.strokeColor.hexString(),
+            WorkspaceAttentionCoordinator.notificationRingStyle.accent.strokeColor.hexString()
         )
     }
 
