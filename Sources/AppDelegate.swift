@@ -11330,9 +11330,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) {
             return .deferredNotification(notificationId)
         }
-        if let panelTarget = focusedPanelNotificationTarget(target) {
+        let workspaceAlreadyUnread = notificationStore.workspaceIsUnread(forTabId: target.tabId)
+        if let panelTarget = focusedPanelNotificationTarget(target), !workspaceAlreadyUnread {
             panelTarget.workspace.markPanelUnread(panelTarget.panelId)
-        } else if !notificationStore.workspaceIsUnread(forTabId: target.tabId) {
+        } else if !workspaceAlreadyUnread {
             notificationStore.markUnread(forTabId: target.tabId)
         }
         return .markedWorkspaceWithoutNotification(target.tabId)

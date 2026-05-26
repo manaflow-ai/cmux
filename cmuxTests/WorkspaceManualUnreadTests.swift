@@ -937,6 +937,41 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertFalse(store.workspaceIsUnread(forTabId: nextWorkspace.id))
     }
 
+    func testMarkOldestUnreadDoesNotDuplicateExistingWorkspaceManualUnreadOnFocusedPanel() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let window = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let currentPanelId = try XCTUnwrap(currentWorkspace.focusedPanelId)
+        let nextWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+
+        store.markUnread(forTabId: currentWorkspace.id)
+        store.markUnread(forTabId: nextWorkspace.id)
+
+        XCTAssertNil(appDelegate.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(preferredWindow: window))
+
+        XCTAssertEqual(manager.selectedTabId, nextWorkspace.id)
+        XCTAssertTrue(store.hasManualUnread(forTabId: currentWorkspace.id))
+        XCTAssertTrue(store.workspaceIsUnread(forTabId: currentWorkspace.id))
+        XCTAssertFalse(currentWorkspace.manualUnreadPanelIds.contains(currentPanelId))
+        XCTAssertFalse(store.workspaceIsUnread(forTabId: nextWorkspace.id))
+    }
+
     func testJumpToLatestUnreadExcludesNotificationsFromExcludedWorkspace() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let store = TerminalNotificationStore.shared
