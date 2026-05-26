@@ -1568,8 +1568,13 @@ final class TerminalNotificationStore: ObservableObject {
         var updated = notifications
         guard let index = updated.firstIndex(where: { $0.id == id }) else { return }
         guard updated[index].isRead else { return }
+        let tabId = updated[index].tabId
         updated[index].isRead = false
         notifications = updated
+        // The notification itself now provides the workspace unread indicator. Clear any
+        // existing manual workspace unread for the same tab so we don't double-count it
+        // (matches markLatestNotificationAsOldestUnread above).
+        setWorkspaceManualUnread(false, forTabId: tabId)
     }
 
     func markRead(forTabId tabId: UUID) {
