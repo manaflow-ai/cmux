@@ -214,8 +214,8 @@ final class TerminalPanel: Panel, ObservableObject {
         tmuxLayoutReport = report
     }
 
-    func tmuxControlReportPayload() -> [String: Any] {
-        surface.tmuxControlReportPayload()
+    func tmuxControlReportPayload(includePaneText: Bool = false) -> [String: Any] {
+        surface.tmuxControlReportPayload(includePaneText: includePaneText)
     }
 
     func registerTextBoxInputView(_ view: TextBoxInputTextView) {

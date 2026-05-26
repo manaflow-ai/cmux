@@ -5,7 +5,7 @@ enum TmuxControlEvent: Equatable, Sendable {
     case enter
     case exit
     case windowsChanged(Data)
-    case paneOutput(paneId: UInt32, data: Data)
+    case paneOutput(paneId: UInt32, text: String)
 }
 
 struct TmuxControlLayoutNode: Codable, Equatable, Sendable {
@@ -113,9 +113,12 @@ struct TmuxControlState: Equatable, Sendable {
                 paneTextById = paneTextById.filter { paneIds.contains($0.key) }
                 topologyParseError = nil
             } catch {
-                topologyParseError = String(describing: error)
+                topologyParseError = "json_decode_failed"
+#if DEBUG
+                cmuxDebugLog("tmux.control topology decode failed: \(String(describing: error))")
+#endif
             }
-        case .paneOutput(let paneId, let data):
+        case .paneOutput(let paneId, let chunk):
             active = true
             lastEvent = "pane_output"
             lastPaneOutputId = paneId
@@ -123,7 +126,6 @@ struct TmuxControlState: Equatable, Sendable {
                 paneIds.append(paneId)
                 paneIds.sort()
             }
-            let chunk = String(decoding: data, as: UTF8.self)
             let combined = (paneTextById[paneId] ?? "") + chunk
             if combined.count > Self.paneTextLimit {
                 paneTextById[paneId] = String(combined.suffix(Self.paneTextLimit))
@@ -133,23 +135,29 @@ struct TmuxControlState: Equatable, Sendable {
         }
     }
 
-    var debugPayload: [String: Any] {
-        [
+    func debugPayload(includePaneText: Bool = false) -> [String: Any] {
+        var payload: [String: Any] = [
             "active": active,
             "last_event": lastEvent,
             "session_id": sessionId.map { $0 as Any } ?? NSNull(),
             "tmux_version": tmuxVersion ?? NSNull(),
             "pane_ids": paneIds,
             "windows": windows.map(\.debugPayload),
-            "panes": paneIds.map { paneId in
+            "panes": paneIds.map { ["id": $0] },
+            "last_pane_output_id": lastPaneOutputId.map { $0 as Any } ?? NSNull(),
+            "topology_parse_error": topologyParseError ?? NSNull()
+        ]
+
+        if includePaneText {
+            payload["panes"] = paneIds.map { paneId in
                 [
                     "id": paneId,
                     "text": paneTextById[paneId] ?? ""
                 ]
-            },
-            "last_pane_output_id": lastPaneOutputId.map { $0 as Any } ?? NSNull(),
-            "topology_parse_error": topologyParseError ?? NSNull()
-        ]
+            }
+        }
+
+        return payload
     }
 }
 
@@ -184,25 +192,6 @@ func shouldAllowEnsureFocusWindowActivation(
 }
 
 extension TerminalSurface {
-    @MainActor
-    func applyTmuxControlEvent(_ event: TmuxControlEvent) {
-        var next = tmuxControlState
-        next.apply(event)
-        guard next != tmuxControlState else { return }
-        tmuxControlState = next
-#if DEBUG
-        cmuxDebugLog(
-            "tmux.control surface=\(id.uuidString.prefix(5)) active=\(next.active) " +
-            "event=\(next.lastEvent) panes=\(next.paneIds)"
-        )
-#endif
-    }
-
-    @MainActor
-    func tmuxControlReportPayload() -> [String: Any] {
-        tmuxControlState.debugPayload
-    }
-
     func debugInitialCommand() -> String? {
         initialCommand
     }

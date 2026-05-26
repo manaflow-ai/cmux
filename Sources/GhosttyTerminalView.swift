@@ -4426,15 +4426,15 @@ class GhosttyApp {
             case GHOSTTY_TMUX_WINDOWS_CHANGED:
                 event = .windowsChanged(data)
             case GHOSTTY_TMUX_PANE_OUTPUT:
-                event = .paneOutput(paneId: tmuxAction.id, data: data)
+                event = .paneOutput(paneId: tmuxAction.id, text: String(decoding: data, as: UTF8.self))
             default:
                 event = nil
             }
             guard let event else { return true }
-            return performOnMain {
+            Task { @MainActor in
                 terminalSurface.applyTmuxControlEvent(event)
-                return true
             }
+            return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id,
@@ -5297,7 +5297,27 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var portalLifecycleState: PortalLifecycleState = .live
     private var portalLifecycleGeneration: UInt64 = 1
     private var activePortalHostLease: PortalHostLease?
-    @Published var tmuxControlState = TmuxControlState()
+    @Published private(set) var tmuxControlState = TmuxControlState()
+
+    @MainActor
+    func applyTmuxControlEvent(_ event: TmuxControlEvent) {
+        var next = tmuxControlState
+        next.apply(event)
+        guard next != tmuxControlState else { return }
+        tmuxControlState = next
+#if DEBUG
+        cmuxDebugLog(
+            "tmux.control surface=\(id.uuidString.prefix(5)) active=\(next.active) " +
+            "event=\(next.lastEvent) panes=\(next.paneIds)"
+        )
+#endif
+    }
+
+    @MainActor
+    func tmuxControlReportPayload(includePaneText: Bool = false) -> [String: Any] {
+        tmuxControlState.debugPayload(includePaneText: includePaneText)
+    }
+
     @Published var searchState: SearchState? = nil {
 	        didSet {
 	            if let searchState {

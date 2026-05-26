@@ -8831,6 +8831,7 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
+        let includeTmuxPaneText = v2Bool(params, "include_tmux_pane_text") ?? false
 
         var payload: [String: Any]?
         v2MainSync {
@@ -8841,7 +8842,10 @@ class TerminalController {
                 var tmuxControl: Any = NSNull()
                 if let tp = panel as? TerminalPanel {
                     inWindow = tp.surface.isViewInWindow
-                    tmuxControl = ws.tmuxControlReport(forPanelId: tp.id) ?? NSNull()
+                    tmuxControl = ws.tmuxControlReport(
+                        forPanelId: tp.id,
+                        includePaneText: includeTmuxPaneText
+                    ) ?? NSNull()
                 } else if let bp = panel as? BrowserPanel {
                     inWindow = bp.webView.window != nil
                 }

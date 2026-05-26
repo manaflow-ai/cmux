@@ -3855,11 +3855,13 @@ struct CMUXCLI {
 
         case "surface-health":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
+            let includeTmuxPaneText = hasFlag(commandArgs, name: "--include-tmux-pane-text")
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
             if let wsId { params["workspace_id"] = wsId }
+            if includeTmuxPaneText { params["include_tmux_pane_text"] = true }
             let payload = try client.sendV2(method: "surface.health", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -12665,13 +12667,14 @@ struct CMUXCLI {
             """
         case "surface-health":
             return """
-            Usage: cmux surface-health [--workspace <id|ref|index>] [--window <id|ref|index>]
+            Usage: cmux surface-health [--workspace <id|ref|index>] [--window <id|ref|index>] [--include-tmux-pane-text]
 
             List health details for surfaces in a workspace.
 
             Flags:
               --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>      Window context for workspace refs and indexes
+              --include-tmux-pane-text      Include raw tmux control pane text in JSON output
 
             Example:
               cmux surface-health

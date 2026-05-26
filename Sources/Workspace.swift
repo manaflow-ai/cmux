@@ -10707,25 +10707,11 @@ final class Workspace: Identifiable, ObservableObject {
         return terminalPanels.contains { $0.surface.surface != nil }
     }
 
-    func tmuxControlReport(forPanelId panelId: UUID) -> [String: Any]? {
+    func tmuxControlReport(forPanelId panelId: UUID, includePaneText: Bool = false) -> [String: Any]? {
         guard let panel = panels[panelId] as? TerminalPanel else { return nil }
-        var payload = panel.tmuxControlReportPayload()
+        var payload = panel.tmuxControlReportPayload(includePaneText: includePaneText)
         payload["surface_id"] = panel.id.uuidString
-        payload["active"] = panel.tmuxControlState.active
         return payload
-    }
-
-    func tmuxControlReports() -> [[String: Any]] {
-        panels.values.compactMap { panel in
-            guard let terminalPanel = panel as? TerminalPanel else { return nil }
-            var payload = terminalPanel.tmuxControlReportPayload()
-            payload["surface_id"] = terminalPanel.id.uuidString
-            payload["active"] = terminalPanel.tmuxControlState.active
-            return payload
-        }
-        .sorted {
-            (($0["surface_id"] as? String) ?? "") < (($1["surface_id"] as? String) ?? "")
-        }
     }
 
     func panelTitle(panelId: UUID) -> String? {
