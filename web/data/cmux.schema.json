@@ -296,6 +296,18 @@
           "default": true,
           "description": "Show a confirmation before closing a tab."
         },
+        "warnBeforeClosingTabXButton": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.app.warnBeforeClosingTabXButton",
+          "description": "Show a confirmation before closing a tab with the tab close button."
+        },
+        "hideTabCloseButton": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.app.hideTabCloseButton",
+          "description": "Hide tab close buttons in the pane tab bar."
+        },
         "renameSelectsExistingName": {
           "type": "boolean",
           "default": true,
@@ -318,6 +330,12 @@
           "type": "boolean",
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
+        },
+        "copyOnSelect": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
+          "description": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."
         },
         "autoResumeAgentSessions": {
           "type": "boolean",
@@ -349,6 +367,13 @@
               "description": "Maximum live restorable agent terminals to keep before cmux hibernates eligible background terminals, oldest first."
             }
           }
+        },
+        "textBoxMaxLines": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 10,
+          "description": "Maximum number of lines the rich terminal TextBox input can grow to before it scrolls."
         },
         "resumeCommands": {
           "type": "array",
@@ -940,6 +965,8 @@
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
+              "focusTextBoxInput",
+              "attachTextBoxFile",
               "focusLeft",
               "focusRight",
               "focusUp",

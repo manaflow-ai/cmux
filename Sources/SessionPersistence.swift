@@ -1236,6 +1236,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var tmuxStartCommand: String?
     var hibernation: SessionAgentHibernationSnapshot?
     var resumeBinding: SurfaceResumeBindingSnapshot?
+    var textBoxDraft: SessionTextBoxInputDraftSnapshot?
     var remotePTYSessionID: String?
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
@@ -1248,6 +1249,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         tmuxStartCommand: String? = nil,
         hibernation: SessionAgentHibernationSnapshot? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
+        textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil
     ) {
@@ -1257,6 +1259,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.tmuxStartCommand = tmuxStartCommand
         self.hibernation = hibernation
         self.resumeBinding = resumeBinding
+        self.textBoxDraft = textBoxDraft
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
     }
@@ -1265,6 +1268,90 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
 struct SessionAgentHibernationSnapshot: Codable, Sendable {
     var hibernatedAt: TimeInterval
     var lastActivityAt: TimeInterval
+}
+
+struct SessionTextBoxInputDraftSnapshot: Codable, Equatable, Sendable {
+    var isActive: Bool
+    var parts: [SessionTextBoxInputDraftPart]
+}
+
+struct SessionTextBoxInputDraftPart: Codable, Equatable, Sendable {
+    enum Kind: String, Codable, Sendable {
+        case text
+        case attachment
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case text
+        case attachment
+    }
+
+    let kind: Kind
+    let text: String?
+    let attachment: SessionTextBoxInputAttachmentSnapshot?
+
+    private init(kind: Kind, text: String?, attachment: SessionTextBoxInputAttachmentSnapshot?) {
+        self.kind = kind
+        self.text = text
+        self.attachment = attachment
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try container.decode(Kind.self, forKey: .kind)
+        let text = try container.decodeIfPresent(String.self, forKey: .text)
+        let attachment = try container.decodeIfPresent(
+            SessionTextBoxInputAttachmentSnapshot.self,
+            forKey: .attachment
+        )
+
+        switch kind {
+        case .text:
+            guard text != nil, attachment == nil else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .text,
+                    in: container,
+                    debugDescription: "Text draft parts must contain text and no attachment."
+                )
+            }
+        case .attachment:
+            guard attachment != nil, text == nil else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .attachment,
+                    in: container,
+                    debugDescription: "Attachment draft parts must contain an attachment and no text."
+                )
+            }
+        }
+
+        self.kind = kind
+        self.text = text
+        self.attachment = attachment
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(text, forKey: .text)
+        try container.encodeIfPresent(attachment, forKey: .attachment)
+    }
+
+    static func text(_ text: String) -> SessionTextBoxInputDraftPart {
+        SessionTextBoxInputDraftPart(kind: .text, text: text, attachment: nil)
+    }
+
+    static func attachment(_ attachment: SessionTextBoxInputAttachmentSnapshot) -> SessionTextBoxInputDraftPart {
+        SessionTextBoxInputDraftPart(kind: .attachment, text: nil, attachment: attachment)
+    }
+}
+
+struct SessionTextBoxInputAttachmentSnapshot: Codable, Equatable, Sendable {
+    var displayName: String
+    var submissionText: String
+    var submissionPath: String
+    var localPath: String?
+    var cleanupLocalPathWhenDisposed: Bool
 }
 
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
@@ -1357,6 +1444,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var isPinned: Bool
     var isManuallyUnread: Bool
     var hasUnreadIndicator: Bool? = nil
+    var restoredUnreadContributesToWorkspace: Bool? = nil
     var notifications: [SessionNotificationSnapshot]? = nil
     var gitBranch: SessionGitBranchSnapshot?
     var listeningPorts: [Int]
