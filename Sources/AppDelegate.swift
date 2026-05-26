@@ -11633,8 +11633,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshGhosttyGotoSplitShortcuts()
-            self?.applyGhosttyQuickTerminalSettings()
+            Task { @MainActor [weak self] in
+                self?.refreshGhosttyGotoSplitShortcuts()
+                self?.applyGhosttyQuickTerminalSettings()
+            }
         }
     }
 
