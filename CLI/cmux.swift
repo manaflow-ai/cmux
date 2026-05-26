@@ -25801,16 +25801,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 requireLiveProcess: true
             )) == true
         }
-        func hasOtherRunningSession(workspaceId: String) -> Bool {
+        func hasOtherRunningSessionOnSurface(workspaceId: String, surfaceId: String) -> Bool {
             (try? store.hasRunningSession(
                 workspaceId: workspaceId,
-                surfaceId: nil,
+                surfaceId: surfaceId,
                 excludingSessionId: sessionId,
                 requireLiveProcess: true
             )) == true
         }
         func setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: String, surfaceId: String) {
-            if hasOtherRunningSession(workspaceId: workspaceId) {
+            if hasOtherRunningSessionOnSurface(workspaceId: workspaceId, surfaceId: surfaceId) {
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.status.keepRunning agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
