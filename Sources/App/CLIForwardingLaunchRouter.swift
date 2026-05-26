@@ -46,10 +46,11 @@ enum CLIForwardingLaunchRouter {
         unsetenv(guardKey)
 
         let errorText = String(cString: strerror(execErrno))
+        cliForwardingLogger.warning("failed to exec bundled CLI")
         #if DEBUG
-        cliForwardingLogger.warning("failed to exec bundled CLI at \(cliURL.path, privacy: .public): \(errorText, privacy: .public)")
+        cliForwardingLogger.debug("failed to exec bundled CLI at \(cliURL.path, privacy: .public): \(errorText, privacy: .public)")
         #endif
-        writeStderr(localizedExecFailureError(errorText))
+        writeStderr(localizedExecFailureError())
         Darwin.exit(127)
     }
 
@@ -118,23 +119,22 @@ enum CLIForwardingLaunchRouter {
     private static func localizedMissingBundledCLIError() -> String {
         String(
             localized: "cli.forwarding.error.missingBundledCLI",
-            defaultValue: "error: bundled cmux CLI was not found"
+            defaultValue: "cmux could not run this command from the app bundle. Reinstall cmux or run the command from a standard cmux CLI installation."
         )
     }
 
     private static func localizedArgumentAllocationError() -> String {
         String(
             localized: "cli.forwarding.error.allocateArguments",
-            defaultValue: "error: failed to allocate launch arguments for bundled cmux CLI"
+            defaultValue: "cmux could not start this command. Try again, or reinstall cmux if the problem continues."
         )
     }
 
-    private static func localizedExecFailureError(_ errorText: String) -> String {
-        let format = String(
+    private static func localizedExecFailureError() -> String {
+        String(
             localized: "cli.forwarding.error.execFailed",
-            defaultValue: "error: failed to launch bundled cmux CLI: %@"
+            defaultValue: "cmux could not start the command-line tool from the app bundle. Reinstall cmux or run the command from a standard cmux CLI installation."
         )
-        return String(format: format, errorText)
     }
 
     private static func processExecutableURL() -> URL? {
