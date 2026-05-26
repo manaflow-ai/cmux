@@ -2455,6 +2455,57 @@ import UIKit
 }
 
 @MainActor
+@Test func queuedRawTerminalInputDoesNotRenderPlainTextFallbackBeforeStyledRefresh() async throws {
+    let workspaceID = UUID().uuidString
+    let terminalID = UUID().uuidString
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: workspaceID,
+        terminalID: terminalID,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let router = PlainFallbackDuringInputRouter(
+        workspaceID: workspaceID,
+        terminalID: terminalID
+    )
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        stackAccessToken: nil
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    try assertStyledPrompt(try #require(store.selectedWorkspace?.terminals.first), suffix: "")
+
+    store.sendTerminalRawInput("a")
+    await router.waitForStyledRefreshRequest()
+
+    let intermediate = try #require(store.selectedWorkspace?.terminals.first)
+    try assertStyledPrompt(intermediate, suffix: "")
+    #expect(!intermediate.snapshot.renderedVisibleLines.contains { $0.contains("plain prompt") })
+
+    await router.releaseStyledRefresh()
+    let final = try await waitForSelectedTerminal(in: store) {
+        $0.snapshot.renderedVisibleLines.first == "red prompt a"
+    }
+    try assertStyledPrompt(final, suffix: "a")
+
+    let requests = await router.sentRequests()
+    #expect(requests.filter { $0.method == "terminal.input" }.map(\.text) == ["a"])
+    #expect(requests.filter { $0.method == "terminal.snapshot" }.count == 3)
+}
+
+@MainActor
 @Test func terminalSnapshotRequestIncludesReportedViewportSize() async throws {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
@@ -3620,6 +3671,102 @@ private actor DelayedRemoteCreateTerminalRouter: RequestAwareTransportRouter {
         guard !terminalCreateReleased else { return }
         await withCheckedContinuation { continuation in
             terminalCreateReleaseContinuation = continuation
+        }
+    }
+}
+
+private actor PlainFallbackDuringInputRouter: RequestAwareTransportRouter {
+    private let workspaceID: String
+    private let terminalID: String
+    private var snapshotRequestCount = 0
+    private var styledRefreshRequested = false
+    private var styledRefreshReleased = false
+    private var styledRefreshRequestWaiters: [CheckedContinuation<Void, Never>] = []
+    private var styledRefreshReleaseContinuation: CheckedContinuation<Void, Never>?
+    private var requests: [RecordedRPCRequest] = []
+
+    init(workspaceID: String, terminalID: String) {
+        self.workspaceID = workspaceID
+        self.terminalID = terminalID
+    }
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func waitForStyledRefreshRequest() async {
+        guard !styledRefreshRequested else { return }
+        await withCheckedContinuation { continuation in
+            styledRefreshRequestWaiters.append(continuation)
+        }
+    }
+
+    func releaseStyledRefresh() {
+        styledRefreshReleased = true
+        styledRefreshReleaseContinuation?.resume()
+        styledRefreshReleaseContinuation = nil
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try rpcWorkspaceListFrame(
+                workspaceID: workspaceID,
+                title: "Live Workspace",
+                terminalID: terminalID
+            )
+        case "terminal.input":
+            return try rpcResultFrame(result: ["accepted": true])
+        case "terminal.snapshot":
+            snapshotRequestCount += 1
+            if snapshotRequestCount == 1 {
+                return try rpcSnapshotResultFrame(
+                    workspaceID: workspaceID,
+                    terminalID: terminalID,
+                    visibleLines: ["red prompt"],
+                    fidelity: "ansi_vt",
+                    snapshotOverride: styledPromptSnapshot(terminalID: terminalID, suffix: "")
+                )
+            }
+            if snapshotRequestCount == 2 {
+                return try rpcSnapshotResultFrame(
+                    workspaceID: workspaceID,
+                    terminalID: terminalID,
+                    visibleLines: ["plain prompt a"],
+                    fidelity: "plain_text"
+                )
+            }
+            markStyledRefreshRequested()
+            await waitForStyledRefreshRelease()
+            return try rpcSnapshotResultFrame(
+                workspaceID: workspaceID,
+                terminalID: terminalID,
+                visibleLines: ["red prompt a"],
+                fidelity: "ansi_vt",
+                snapshotOverride: styledPromptSnapshot(terminalID: terminalID, suffix: "a")
+            )
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+
+    private func markStyledRefreshRequested() {
+        styledRefreshRequested = true
+        let waiters = styledRefreshRequestWaiters
+        styledRefreshRequestWaiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    private func waitForStyledRefreshRelease() async {
+        guard !styledRefreshReleased else { return }
+        await withCheckedContinuation { continuation in
+            styledRefreshReleaseContinuation = continuation
         }
     }
 }
