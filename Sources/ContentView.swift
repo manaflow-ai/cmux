@@ -16837,11 +16837,20 @@ struct WindowChromeBorder: View {
                 height: orientation == .horizontal ? 1 : nil
             )
             .onAppear {
-                separatorColor = WindowChromeSeparatorColor.current()
+                refreshSeparatorColorIfNeeded()
             }
             .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+                refreshSeparatorColorIfNeeded()
+            }
+            .onChange(of: colorOverride == nil) { _, usesSeparatorColor in
+                guard usesSeparatorColor else { return }
                 separatorColor = WindowChromeSeparatorColor.current()
             }
+    }
+
+    private func refreshSeparatorColorIfNeeded() {
+        guard colorOverride == nil else { return }
+        separatorColor = WindowChromeSeparatorColor.current()
     }
 }
 
