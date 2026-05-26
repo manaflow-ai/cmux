@@ -1111,6 +1111,33 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testDisplayReconfigurationKeepsCachedFrameWhenDisplayGeometryChanges() {
+        let savedDisplay = SessionDisplaySnapshot(
+            displayID: 2,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
+        )
+        let resizedDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            frame: CGRect(x: 0, y: 0, width: 1_920, height: 1_080),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_920, height: 1_050)
+        )
+
+        let shouldUseCachedFrame = AppDelegate.shouldUseCachedWindowFrameDuringDisplayTransition(
+            savedFrame: CGRect(x: 120, y: 80, width: 1_200, height: 900),
+            liveFrame: CGRect(x: 120, y: 80, width: 900, height: 700),
+            cachedDisplay: savedDisplay,
+            liveDisplayID: 2,
+            displays: [resizedDisplay],
+            reason: .displayReconfiguration
+        )
+
+        XCTAssertTrue(
+            shouldUseCachedFrame,
+            "Display reconfiguration should still protect system-shrunk frames when display geometry changed"
+        )
+    }
+
     func testResolvedWindowFrameClampsWhenDisplayGeometryChangesEvenWithSameDisplayID() {
         let savedFrame = SessionRectSnapshot(x: 1_303, y: -90, width: 1_280, height: 1_410)
         let savedDisplay = SessionDisplaySnapshot(

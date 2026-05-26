@@ -3668,7 +3668,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            shouldKeepCachedFrameDuringDisplayTransition(entry, liveWindow: window, displays: displays) {
             return
         }
-        if let displayID = window.screen?.cmuxDisplayID,
+        if isMainWindowDisplayGeometryVolatile,
+           let displayID = window.screen?.cmuxDisplayID,
            let entry = savedDisplayWindowFrames[displayID]?.first(where: { $0.windowId == context.windowId }),
            shouldRestoreCachedFrameForCurrentDisplay(entry, liveWindow: window, displays: displays) {
             return
@@ -3897,11 +3898,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         displays: [SessionDisplayGeometry],
         reason: MainWindowDisplayGeometryTransitionReason
     ) -> Bool {
-        switch reason {
-        case .sleepWake, .displayReconfiguration:
-            break
-        }
-        if liveFrame.width < savedFrame.width || liveFrame.height < savedFrame.height {
+        let liveFrameShrank = liveFrame.width < savedFrame.width || liveFrame.height < savedFrame.height
+        if reason == .sleepWake && liveFrameShrank {
             return true
         }
 
@@ -3938,6 +3936,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowId: UUID,
         liveWindow: NSWindow?
     ) -> (frame: SessionRectSnapshot, display: SessionDisplaySnapshot)? {
+        guard isMainWindowDisplayGeometryVolatile else {
+            return nil
+        }
+
         let connectedDisplayIDs = currentConnectedDisplayIDs()
         for (displayID, entries) in savedDisplayWindowFrames where !connectedDisplayIDs.contains(displayID) {
             if let entry = entries.first(where: { $0.windowId == windowId }) {
