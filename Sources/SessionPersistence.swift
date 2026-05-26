@@ -1225,10 +1225,6 @@ nonisolated enum TerminalStartupReturnShellScript {
         #"fi"#,
     ]
 
-    static let lines = [shellLine] + zshIntegrationReentryLines + [
-        #"exec "$_cmux_resume_shell" -l"#
-    ]
-
     static func commandThenReturnLines(command: String) -> [String] {
         let quotedCommand = TerminalStartupShellQuoting.singleQuoted(command)
         return [

@@ -239,8 +239,8 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
             let restoredRemoteCommand = try XCTUnwrap(restored.remoteConfiguration?.terminalStartupCommand)
 
-            XCTAssertTrue(restoredRemoteCommand.contains("cmux-macmini"), restoredRemoteCommand)
-            XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), restoredRemoteCommand)
+            XCTAssertEqual(restoredRemoteCommand, remoteCommand)
+            XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), remoteCommand)
             XCTAssertTrue(restoredInput.hasInitialInput)
             XCTAssertGreaterThan(restoredInput.byteCount, 0)
             let input = try XCTUnwrap(restoredPanel.surface.initialInput)
