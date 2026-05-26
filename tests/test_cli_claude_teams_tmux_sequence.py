@@ -21,6 +21,8 @@ INITIAL_SURFACE_ID = "44444444-4444-4444-8444-444444444444"
 INITIAL_TAB_ID = "55555555-5555-4555-8555-555555555555"
 NEW_PANE_ID = "66666666-6666-4666-8666-666666666666"
 NEW_SURFACE_ID = "77777777-7777-4777-8777-777777777777"
+INITIAL_PANE_PID = 4242
+NEW_PANE_PID = 4343
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -55,6 +57,7 @@ class FakeCmuxState:
                 "id": INITIAL_PANE_ID,
                 "ref": "pane:1",
                 "index": 7,
+                "pane_pid": INITIAL_PANE_PID,
                 "surface_ids": [INITIAL_SURFACE_ID],
             }
         ]
@@ -122,6 +125,7 @@ class FakeCmuxState:
                             "id": pane["id"],
                             "ref": pane["ref"],
                             "index": pane["index"],
+                            "pane_pid": pane["pane_pid"],
                         }
                         for pane in self.panes
                     ]
@@ -166,6 +170,7 @@ class FakeCmuxState:
                         "id": NEW_PANE_ID,
                         "ref": "pane:2",
                         "index": 8,
+                        "pane_pid": NEW_PANE_PID,
                         "surface_ids": [NEW_SURFACE_ID],
                     }
                 )
@@ -264,6 +269,7 @@ def main() -> int:
         window_target_log = tmp / "window-target.log"
         split_pane_log = tmp / "split-pane.log"
         pane_list_log = tmp / "pane-list.log"
+        pane_pid_list_log = tmp / "pane-pid-list.log"
 
         make_executable(
             real_bin / "claude",
@@ -278,6 +284,7 @@ printf '%s\\n' "$split_pane" > "$FAKE_SPLIT_PANE_LOG"
 tmux select-layout -t "$window_target" main-vertical
 tmux resize-pane -t "${TMUX_PANE}" -x 30%
 tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
+tmux list-panes -t "$window_target" -F '#{pane_id} #{pane_pid}' > "$FAKE_PANE_PID_LIST_LOG"
 """,
         )
 
@@ -290,6 +297,7 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
         env["FAKE_WINDOW_TARGET_LOG"] = str(window_target_log)
         env["FAKE_SPLIT_PANE_LOG"] = str(split_pane_log)
         env["FAKE_PANE_LIST_LOG"] = str(pane_list_log)
+        env["FAKE_PANE_PID_LIST_LOG"] = str(pane_pid_list_log)
 
         try:
             proc = subprocess.run(
@@ -340,6 +348,18 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
         expected_panes = [f"%{INITIAL_PANE_ID}", f"%{NEW_PANE_ID}"]
         if pane_lines != expected_panes:
             print(f"FAIL: expected list-panes output {expected_panes!r}, got {pane_lines!r}")
+            return 1
+
+        pane_pid_lines = pane_pid_list_log.read_text(encoding="utf-8").splitlines()
+        expected_pane_pids = [
+            f"%{INITIAL_PANE_ID} {INITIAL_PANE_PID}",
+            f"%{NEW_PANE_ID} {NEW_PANE_PID}",
+        ]
+        if pane_pid_lines != expected_pane_pids:
+            print(
+                "FAIL: expected list-panes pane_pid output "
+                f"{expected_pane_pids!r}, got {pane_pid_lines!r}"
+            )
             return 1
 
         if state.current_pane_id != INITIAL_PANE_ID:

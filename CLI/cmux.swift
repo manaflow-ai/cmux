@@ -15793,9 +15793,11 @@ struct CMUXCLI {
             context["pane_uuid"] = resolvedPaneId
             let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": canonicalWorkspaceId])
             let panes = panePayload["panes"] as? [[String: Any]] ?? []
-            if let pane = panes.first(where: { ($0["id"] as? String) == resolvedPaneId }),
-               let index = intFromAny(pane["index"]) {
-                context["pane_index"] = String(index)
+            if let pane = panes.first(where: { ($0["id"] as? String) == resolvedPaneId }) {
+                if let index = intFromAny(pane["index"]) {
+                    context["pane_index"] = String(index)
+                }
+                context["pane_pid"] = String(tmuxPanePID(from: pane, paneId: resolvedPaneId))
             }
         }
 

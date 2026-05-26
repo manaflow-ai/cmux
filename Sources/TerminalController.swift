@@ -9632,6 +9632,13 @@ class TerminalController {
                         dict["cell_width_px"] = Int(size.cell_width_px)
                         dict["cell_height_px"] = Int(size.cell_height_px)
                     }
+
+                    let foregroundPID = ghostty_surface_foreground_pid(ghosttySurface)
+                    if foregroundPID > 0, foregroundPID <= UInt64(Int.max) {
+                        let panePID = Int(foregroundPID)
+                        dict["pane_pid"] = panePID
+                        dict["pane_foreground_pid"] = panePID
+                    }
                 }
 
                 return dict
