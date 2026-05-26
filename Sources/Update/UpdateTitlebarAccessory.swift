@@ -2387,17 +2387,28 @@ private struct NotificationPopoverRow: View {
     private static let rowHeight: CGFloat = 56
 
     var body: some View {
-        // Wrap as a Button so the row participates in the key-view loop: keyboard users
-        // can tab to a row and activate it with space/return. Visual styling is owned by
-        // rowContent; the button background lets the NSTrackingArea-driven hover tint
-        // shine through.
-        Button(action: onOpen) {
-            rowContent
-                .background(
-                    Color.primary.opacity(isHovering ? 0.11 : 0)
-                )
+        // Row uses a ZStack so the hover-only clear button is a *sibling* of the row's
+        // primary-action Button, not nested in its label. Nested SwiftUI buttons don't
+        // produce reliable independent hit targets on macOS — clicks on a nested button
+        // can be consumed by the outer button's tap area.
+        ZStack(alignment: .trailing) {
+            // Primary row action wrapped as a Button so the row participates in the
+            // key-view loop: keyboard users can tab to a row and activate it with
+            // space/return. Visual styling is owned by rowContent; the button background
+            // lets the NSTrackingArea-driven hover tint shine through.
+            Button(action: onOpen) {
+                rowContent
+                    .background(
+                        Color.primary.opacity(isHovering ? 0.11 : 0)
+                    )
+            }
+            .buttonStyle(.plain)
+
+            clearButton
+                .padding(.trailing, 10)
+                .opacity(isHovering ? 1 : 0)
+                .allowsHitTesting(isHovering)
         }
-        .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
         // Hover detection runs through an AppKit NSTrackingArea (HoverTrackingRepresentable)
         // because SwiftUI's `.onHover` / `.onContinuousHover` arbitrate with the row's
@@ -2482,12 +2493,6 @@ private struct NotificationPopoverRow: View {
         }
         .frame(minHeight: Self.rowHeight)
         .padding(.leading, 4)
-        .overlay(alignment: .trailing) {
-            clearButton
-                .padding(.trailing, 10)
-                .opacity(isHovering ? 1 : 0)
-                .allowsHitTesting(isHovering)
-        }
     }
 
     private var clearButton: some View {
