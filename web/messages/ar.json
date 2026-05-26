@@ -980,7 +980,7 @@
       "supportedNote": "يتعامل cmux Claude wrapper مع Claude Code عندما يكون تكامل Claude مفعّلًا في الإعدادات. يقبل Antigravity أيضًا agy كاسم إعداد مستعار، ويقبل Rovo Dev rovo.",
       "manualTitle": "استعادة يدوية",
       "manualDesc": "يستعيد cmux آخر snapshot محفوظ عند التشغيل العادي. يمكنك أيضًا إعادة تطبيق snapshot السابقة يدويًا:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "تعطيل الاستئناف التلقائي للوكلاء",
       "disableDesc": "لاستعادة اللوحات من دون تشغيل أوامر استئناف الوكلاء المحفوظة، أوقف Settings > Terminal > Resume Agent Sessions on Reopen أو اضبط:",
       "disableNote": "يعطّل هذا أوامر استئناف الوكلاء فقط. يستمر cmux في استعادة التخطيط ومجلدات العمل والتمرير الخلفي وسجل المتصفح.",
@@ -1005,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "يوم آخر ومشروع آخر مبني على libghostty، هذه المرة طرفية macOS مع علامات تبويب عمودية، تنظيم/إشعارات أفضل، متصفح مدمج/قابل للبرمجة موجه خصيصاً للأشخاص الذين يستخدمون الكثير من سير العمل الوكيلية في الطرفية.",
+    "steipete": "تأخرت عن الحضور، لكن cmux رائع. التقسيم الحالي: تطبيق Codex على Mac للعمل المعرفي والتعلم والقراءة؛ cmux + Codex CLI للبرمجة.",
     "schrockn": "هذا بالضبط المنتج الذي كنت أبحث عنه. بعد ساعتين هذا الصباح أصبحت مغرماً به.",
     "egrefen": "استخدمته طوال عطلة نهاية الأسبوع وهو مذهل.",
     "max4c": "كانت هذه أداتي المفضلة خلال الأسبوعين الماضيين",

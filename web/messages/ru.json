@@ -980,7 +980,7 @@
       "supportedNote": "Claude Code обрабатывается wrapper-ом cmux Claude, когда интеграция Claude включена в Settings. Antigravity также принимает agy как alias для setup, а Rovo Dev принимает rovo.",
       "manualTitle": "Ручное восстановление",
       "manualDesc": "cmux восстанавливает последний сохраненный snapshot при обычном запуске. Предыдущий snapshot также можно применить вручную:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "Отключить автоматическое возобновление агентов",
       "disableDesc": "Чтобы восстановить панели без запуска сохраненных agent resume-команд, отключите Settings > Terminal > Resume Agent Sessions on Reopen или задайте:",
       "disableNote": "Это отключает только команды resume агентов. cmux всё равно восстанавливает layout, рабочие каталоги, scrollback и историю браузера.",
@@ -1005,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "Очередной день, очередной проект на libghostty, на этот раз терминал для macOS с вертикальными вкладками, лучшей организацией/уведомлениями, встроенным/скриптуемым браузером, специально для тех, кто активно использует агентские workflow из терминала.",
+    "steipete": "Я поздно подключился, но cmux отличный. Текущее разделение: приложение Codex для Mac для работы со знаниями, обучения и чтения; cmux + Codex CLI для кодинга.",
     "schrockn": "Это именно тот продукт, который я искал. Через два часа утром я влюбился.",
     "egrefen": "Использовал это всё выходные и это потрясающе.",
     "max4c": "это был мой любимый инструмент последние две недели",
