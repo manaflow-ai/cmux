@@ -292,11 +292,7 @@ extension CMUXCLI {
         } catch let error as CLIError {
             throw error
         } catch {
-            let message = String(
-                localized: "cli.themes.error.cleanupFailed",
-                defaultValue: "Unable to clean stale cmux theme override."
-            )
-            throw CLIError(message: message)
+            throw CLIError(message: staleThemeCleanupFailureMessage())
         }
     }
 
@@ -309,11 +305,18 @@ extension CMUXCLI {
         }
 
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            throw CLIError(message: "Unable to resolve Application Support directory")
+            throw CLIError(message: staleThemeCleanupFailureMessage())
         }
         try CmuxGhosttyConfigPathResolver.removeStaleReleaseManagedThemeOverrideIfNeeded(
             currentBundleIdentifier: activeBundleIdentifier,
             appSupportDirectory: appSupport
+        )
+    }
+
+    private func staleThemeCleanupFailureMessage() -> String {
+        String(
+            localized: "cli.themes.error.cleanupFailed",
+            defaultValue: "Unable to clean stale cmux theme override."
         )
     }
 
