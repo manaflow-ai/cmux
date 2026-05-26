@@ -228,30 +228,33 @@ final class QuickTerminalController: NSObject, NSWindowDelegate {
     private var terminalSurface: TerminalSurface?
     private var previousFrontmostApp: NSRunningApplication?
     private let workspaceId = UUID()
+    private var portOrdinal: Int?
     private var phase: VisibilityPhase = .hidden
     private var pendingTransitionAction: PendingTransitionAction?
 
     private var isVisible: Bool { phase.reportsVisible }
 
-    func toggle(activateApp: Bool = true) {
+    @discardableResult
+    func toggle(activateApp: Bool = true) -> Bool {
         if isVisible {
-            hide(restorePreviousApp: activateApp)
+            return hide(restorePreviousApp: activateApp)
         } else {
-            show(activateApp: activateApp)
+            return show(activateApp: activateApp)
         }
     }
 
-    func show(activateApp: Bool = true) {
+    @discardableResult
+    func show(activateApp: Bool = true) -> Bool {
         if phase.isTransitioning {
             pendingTransitionAction = .show(activateApp: activateApp)
-            return
+            return true
         }
-        guard !isVisible else { return }
+        guard !isVisible else { return true }
 
         let settings = QuickTerminalSettings.resolved()
         guard let panel = ensurePanel(),
               let visibleFrame = screen(for: panel)?.visibleFrame else {
-            return
+            return false
         }
         let finalFrame = settings.position.finalFrame(
             in: visibleFrame,
@@ -307,25 +310,27 @@ final class QuickTerminalController: NSObject, NSWindowDelegate {
                 self.replayPendingTransitionActionIfNeeded()
             }
         }
+        return true
     }
 
-    func hide(restorePreviousApp: Bool) {
+    @discardableResult
+    func hide(restorePreviousApp: Bool) -> Bool {
         if phase.isTransitioning {
             pendingTransitionAction = .hide(restorePreviousApp: restorePreviousApp)
-            return
+            return true
         }
-        guard isVisible else { return }
+        guard isVisible else { return true }
 
         let settings = QuickTerminalSettings.resolved()
         guard let panel else {
             phase = .hidden
             previousFrontmostApp = nil
-            return
+            return false
         }
 
         guard let visibleFrame = screen(for: panel)?.visibleFrame else {
             finishHide(panel: panel, restorePreviousApp: restorePreviousApp)
-            return
+            return true
         }
         let hiddenFrame = settings.position.hiddenFrame(from: panel.frame, visibleFrame: visibleFrame)
 
@@ -341,6 +346,7 @@ final class QuickTerminalController: NSObject, NSWindowDelegate {
                 self?.finishHide(panel: panel, restorePreviousApp: restorePreviousApp)
             }
         }
+        return true
     }
 
     func statusPayload() -> [String: Any] {
@@ -361,6 +367,7 @@ final class QuickTerminalController: NSObject, NSWindowDelegate {
         terminalSurface?.hostedView.setVisibleInUI(false)
         panel = nil
         terminalSurface = nil
+        portOrdinal = nil
         phase = .hidden
         previousFrontmostApp = nil
         pendingTransitionAction = nil
@@ -422,6 +429,7 @@ final class QuickTerminalController: NSObject, NSWindowDelegate {
                 tabId: workspaceId,
                 context: GHOSTTY_SURFACE_CONTEXT_WINDOW,
                 configTemplate: nil,
+                portOrdinal: quickTerminalPortOrdinal(),
                 initialEnvironmentOverrides: ["CMUX_QUICK_TERMINAL": "1"]
             )
         }
@@ -436,6 +444,15 @@ final class QuickTerminalController: NSObject, NSWindowDelegate {
 
         self.panel = panel
         return panel
+    }
+
+    private func quickTerminalPortOrdinal() -> Int {
+        if let portOrdinal {
+            return portOrdinal
+        }
+        let allocatedOrdinal = TabManager.allocatePortOrdinal()
+        portOrdinal = allocatedOrdinal
+        return allocatedOrdinal
     }
 
     private func finishHide(panel: QuickTerminalPanel, restorePreviousApp: Bool) {

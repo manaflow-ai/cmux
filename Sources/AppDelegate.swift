@@ -6019,20 +6019,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func toggleQuickTerminalVisibility(activateApp: Bool = true) -> Bool {
-        quickTerminalController.toggle(activateApp: activateApp)
-        return true
+        return quickTerminalController.toggle(activateApp: activateApp)
     }
 
     @discardableResult
     func showQuickTerminal(activateApp: Bool = true) -> Bool {
-        quickTerminalController.show(activateApp: activateApp)
-        return true
+        return quickTerminalController.show(activateApp: activateApp)
     }
 
     @discardableResult
     func hideQuickTerminal(restorePreviousApp: Bool = true) -> Bool {
-        quickTerminalController.hide(restorePreviousApp: restorePreviousApp)
-        return true
+        return quickTerminalController.hide(restorePreviousApp: restorePreviousApp)
     }
 
     func quickTerminalStatusPayload() -> [String: Any] {

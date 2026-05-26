@@ -11004,7 +11004,7 @@ class TerminalController {
             didToggle = AppDelegate.shared?.toggleQuickTerminalVisibility(activateApp: false) == true
         }
         guard didToggle else {
-            return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
+            return .err(code: "unavailable", message: "Quick terminal unavailable", data: nil)
         }
         return .ok(v2QuickTerminalStatus())
     }
@@ -11015,7 +11015,7 @@ class TerminalController {
             didShow = AppDelegate.shared?.showQuickTerminal(activateApp: false) == true
         }
         guard didShow else {
-            return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
+            return .err(code: "unavailable", message: "Quick terminal unavailable", data: nil)
         }
         return .ok(v2QuickTerminalStatus())
     }
@@ -11026,7 +11026,7 @@ class TerminalController {
             didHide = AppDelegate.shared?.hideQuickTerminal(restorePreviousApp: false) == true
         }
         guard didHide else {
-            return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
+            return .err(code: "unavailable", message: "Quick terminal unavailable", data: nil)
         }
         return .ok(v2QuickTerminalStatus())
     }

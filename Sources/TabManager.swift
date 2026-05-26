@@ -1139,7 +1139,14 @@ class TabManager: ObservableObject {
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
-    static var nextPortOrdinal: Int = 0
+    private(set) static var nextPortOrdinal: Int = 0
+
+    static func allocatePortOrdinal() -> Int {
+        let ordinal = nextPortOrdinal
+        nextPortOrdinal += 1
+        return ordinal
+    }
+
     private nonisolated static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]
     private nonisolated static let workspaceGitMetadataFallbackRefreshInterval: TimeInterval = 5 * 60
     private nonisolated static let backgroundPollInterval: TimeInterval = 60
@@ -2615,8 +2622,7 @@ class TabManager: ObservableObject {
             // boots terminal state. The ssh/new-workspace path can otherwise crash while
             // reading @Published placement state from existing workspaces mid-creation.
             let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
-            let ordinal = Self.nextPortOrdinal
-            Self.nextPortOrdinal += 1
+            let ordinal = Self.allocatePortOrdinal()
             let newWorkspace = makeWorkspaceForCreation(
                 title: title ?? "Terminal \(nextTabCount)",
                 workingDirectory: workingDirectory,
@@ -9953,8 +9959,7 @@ extension TabManager {
         let workspaceSnapshots = snapshot.workspaces
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         for workspaceSnapshot in workspaceSnapshots {
-            let ordinal = Self.nextPortOrdinal
-            Self.nextPortOrdinal += 1
+            let ordinal = Self.allocatePortOrdinal()
             let workspace = Workspace(
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
@@ -9968,8 +9973,7 @@ extension TabManager {
         }
 
         if newTabs.isEmpty {
-            let ordinal = Self.nextPortOrdinal
-            Self.nextPortOrdinal += 1
+            let ordinal = Self.allocatePortOrdinal()
             let fallback = Workspace(title: "Terminal 1", portOrdinal: ordinal)
             fallback.owningTabManager = self
             wireClosedBrowserTracking(for: fallback)
