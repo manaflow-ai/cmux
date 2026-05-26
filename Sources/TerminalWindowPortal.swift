@@ -406,9 +406,10 @@ final class WindowTerminalHostView: NSView {
         // The sidebar resizer handle is implemented in SwiftUI. When terminals
         // are portal-hosted, this AppKit host can otherwise sit above the handle
         // and steal hover/mouse events.
-        let visibleHostedFrames = visibleHostedTerminalCandidates().map(\.frame)
+        let visibleHostedTerminals = visibleHostedTerminalCandidates()
+        let visibleHostedFrames = visibleHostedTerminals.map(\.frame)
 
-        if shouldPassThroughToTrailingSidebarResizer(at: point, visibleHostedFrames: visibleHostedFrames) {
+        if shouldPassThroughToTrailingSidebarResizer(at: point, visibleHostedTerminals: visibleHostedTerminals) {
             return true
         }
 
@@ -458,16 +459,19 @@ final class WindowTerminalHostView: NSView {
 
     private func shouldPassThroughToTrailingSidebarResizer(
         at point: NSPoint,
-        visibleHostedFrames: [NSRect]
+        visibleHostedTerminals: [(view: GhosttySurfaceScrollView, frame: NSRect, isRightSidebarDockSurface: Bool)]
     ) -> Bool {
-        guard let rightMostEdge = visibleHostedFrames.map(\.maxX).max() else { return false }
+        let contentHostedFrames = visibleHostedTerminals
+            .filter { !$0.isRightSidebarDockSurface }
+            .map(\.frame)
+        guard let rightMostEdge = contentHostedFrames.map(\.maxX).max() else { return false }
         let trailingGap = bounds.maxX - rightMostEdge
         guard trailingGap > Self.minimumVisibleLeadingContentWidth else { return false }
         return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightMostEdge).contains(point.x)
     }
 
-    private func visibleHostedTerminalCandidates() -> [(view: GhosttySurfaceScrollView, frame: NSRect)] {
-        subviews.flatMap { subview -> [(view: GhosttySurfaceScrollView, frame: NSRect)] in
+    private func visibleHostedTerminalCandidates() -> [(view: GhosttySurfaceScrollView, frame: NSRect, isRightSidebarDockSurface: Bool)] {
+        subviews.flatMap { subview -> [(view: GhosttySurfaceScrollView, frame: NSRect, isRightSidebarDockSurface: Bool)] in
             if let hostedView = subview as? GhosttySurfaceScrollView {
                 guard !hostedView.isHidden,
                       hostedView.alphaValue > 0,
@@ -476,7 +480,7 @@ final class WindowTerminalHostView: NSView {
                       hostedView.frame.height > 1 else {
                     return []
                 }
-                return [(view: hostedView, frame: hostedView.frame)]
+                return [(view: hostedView, frame: hostedView.frame, isRightSidebarDockSurface: hostedView.isRightSidebarDockSurface)]
             }
 
             guard let clipView = subview as? WindowTerminalCanvasClipView,
@@ -487,14 +491,14 @@ final class WindowTerminalHostView: NSView {
                   clipView.frame.height > 1 else {
                 return []
             }
-            return clipView.subviews.compactMap { child -> (view: GhosttySurfaceScrollView, frame: NSRect)? in
+            return clipView.subviews.compactMap { child -> (view: GhosttySurfaceScrollView, frame: NSRect, isRightSidebarDockSurface: Bool)? in
                 guard let hostedView = child as? GhosttySurfaceScrollView,
                       !hostedView.isHidden,
                       hostedView.alphaValue > 0,
                       hostedView.window != nil else {
                     return nil
                 }
-                return (view: hostedView, frame: clipView.frame)
+                return (view: hostedView, frame: clipView.frame, isRightSidebarDockSurface: hostedView.isRightSidebarDockSurface)
             }
         }
     }

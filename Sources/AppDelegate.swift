@@ -12502,7 +12502,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if matchConfiguredShortcut(event: event, action: .equalizeSplits) { performEqualizeSplitsShortcut(); return true }
         if matchConfiguredShortcut(event: event, action: .canvasFreeform) {
-            return performCanvasModeShortcut(event: event)
+            return performCanvasModeShortcut(policy: .freeform, event: event)
         }
         if matchConfiguredShortcut(event: event, action: .canvasScrollingColumns) {
             return performCanvasModeShortcut(policy: .scrollingColumns, event: event)

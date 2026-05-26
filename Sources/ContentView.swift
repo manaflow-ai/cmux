@@ -8014,7 +8014,7 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
-            workspace.enterCanvasOverview()
+            workspace.enterCanvasOverview(policy: .freeform)
         }
         registry.register(commandId: "palette.canvasScrollingColumns") {
             guard let workspace = tabManager.selectedWorkspace else {
@@ -8028,7 +8028,7 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
-            workspace.enterCanvasOverview()
+            workspace.enterCanvasOverview(policy: .freeform)
         }
         registry.register(commandId: "palette.equalizeSplits") {
             if let workspace = tabManager.selectedWorkspace, !tabManager.equalizeSplits(tabId: workspace.id) {
