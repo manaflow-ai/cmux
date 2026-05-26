@@ -174,6 +174,7 @@ extension CmuxSettingsFileStore {
                     "insecureHttpHostsAllowedInEmbeddedBrowser": BrowserInsecureHTTPSettings.defaultAllowlistPatterns,
                     "showImportHintOnBlankTabs": BrowserImportHintSettings.defaultShowOnBlankTabs,
                     "extensionsDeveloperMode": BrowserExtensionDeveloperModeSettings.defaultEnabled,
+                    "extensionsAllowFileURLAccess": BrowserExtensionFileURLAccessSettings.defaultEnabled,
                     "reactGrabVersion": ReactGrabSettings.defaultVersion,
                 ],
             ],

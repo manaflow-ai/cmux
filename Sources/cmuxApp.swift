@@ -5258,6 +5258,8 @@ struct SettingsView: View {
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
     @AppStorage(BrowserExtensionDeveloperModeSettings.key)
     private var browserExtensionsDeveloperMode = BrowserExtensionDeveloperModeSettings.defaultEnabled
+    @AppStorage(BrowserExtensionFileURLAccessSettings.key)
+    private var browserExtensionsAllowFileURLAccess = BrowserExtensionFileURLAccessSettings.defaultEnabled
     @AppStorage(NotificationSoundSettings.key) private var notificationSound = NotificationSoundSettings.defaultValue
     @AppStorage(NotificationSoundSettings.customFilePathKey)
     private var notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
@@ -7665,6 +7667,19 @@ struct SettingsView: View {
                                 .accessibilityIdentifier("SettingsBrowserExtensionsDeveloperModeToggle")
                         }
 
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("browser.extensionsAllowFileURLAccess"),
+                            String(localized: "settings.browser.extensions.fileAccess", defaultValue: "Local File Access"),
+                            subtitle: String(localized: "settings.browser.extensions.fileAccess.subtitle", defaultValue: "Allow extension host permissions to include file:// URLs after normal install or runtime consent.")
+                        ) {
+                            Toggle("", isOn: $browserExtensionsAllowFileURLAccess)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsBrowserExtensionsFileAccessToggle")
+                        }
+
                         if !browserExtensionSummaries.isEmpty {
                             SettingsCardDivider()
 
@@ -8241,6 +8256,7 @@ struct SettingsView: View {
 
     private static func validateBypassedSettingsConfigurationReviews() {
         SettingsConfigurationReview.json("browser.extensionsDeveloperMode").validate()
+        SettingsConfigurationReview.json("browser.extensionsAllowFileURLAccess").validate()
         SettingsConfigurationReview.json("browser.insecureHttpHostsAllowedInEmbeddedBrowser").validate()
         SettingsConfigurationReview.json("browser.showImportHintOnBlankTabs").validate()
     }
@@ -8290,6 +8306,8 @@ struct SettingsView: View {
         BrowserAvailabilitySettings.setDisabled(BrowserAvailabilitySettings.defaultDisabled)
         browserDisabled = BrowserAvailabilitySettings.defaultDisabled
         UserDefaults.standard.removeObject(forKey: BrowserExtensionDeveloperModeSettings.key)
+        UserDefaults.standard.removeObject(forKey: BrowserExtensionFileURLAccessSettings.key)
+        browserExtensionsAllowFileURLAccess = BrowserExtensionFileURLAccessSettings.defaultEnabled
         browserHiddenWebViewDiscardEnabled = BrowserHiddenWebViewDiscardPolicy.defaultEnabled
         browserHiddenWebViewDiscardDelay = BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
         browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue

@@ -322,17 +322,20 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         )
         let appexURL = root.appendingPathComponent("Bitwarden.appex", isDirectory: true)
         try createAppExtension(at: appexURL, bundleIdentifier: "com.example.Bitwarden.Extension")
+        let profileID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
 
         let record = try store.installRecord(
             from: try store.discoverSource(from: appexURL, developerModeEnabled: true),
             displayName: "Bitwarden",
             displayVersion: "1.0",
             grantedPermissions: ["storage", "nativeMessaging"],
-            grantedPermissionMatchPatterns: []
+            grantedPermissionMatchPatterns: [],
+            profileID: profileID
         )
 
         XCTAssertEqual(record.sourceKind, .appExtensionBundle)
-        XCTAssertEqual(record.grantedPermissions, ["nativeMessaging", "storage"])
+        XCTAssertEqual(record.grantedPermissions, [])
+        XCTAssertEqual(record.profileState(for: profileID).grantedPermissions, ["nativeMessaging", "storage"])
     }
 
     func testProfileScopedStateDoesNotLeakBetweenProfiles() throws {
@@ -343,15 +346,16 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         let store = BrowserWebExtensionInstallStore(registryURL: registryURL)
         let appexURL = root.appendingPathComponent("Bitwarden.appex", isDirectory: true)
         try createAppExtension(at: appexURL, bundleIdentifier: "com.example.Bitwarden.Extension")
+        let profileA = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+        let profileB = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
         let record = try store.installRecord(
             from: try store.discoverSource(from: appexURL, developerModeEnabled: true),
             displayName: "Bitwarden",
             displayVersion: "1.0",
             grantedPermissions: ["storage", "nativeMessaging"],
-            grantedPermissionMatchPatterns: ["https://example.com/*"]
+            grantedPermissionMatchPatterns: ["https://example.com/*"],
+            profileID: profileA
         )
-        let profileA = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let profileB = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
 
         try store.setEnabled(false, for: record.id, profileID: profileA)
         try store.setLastError(" crashed during load ", for: record.id, profileID: profileA)
@@ -367,11 +371,11 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         XCTAssertEqual(profileASummary.grantedPermissionMatchPatterns, ["https://example.com/*"])
 
         let profileBSummary = try XCTUnwrap(reloaded.summaries(profileID: profileB).first)
-        XCTAssertTrue(profileBSummary.isEnabled)
+        XCTAssertFalse(profileBSummary.isEnabled)
         XCTAssertFalse(profileBSummary.isLoaded)
         XCTAssertNil(profileBSummary.lastError)
-        XCTAssertEqual(profileBSummary.grantedPermissions, ["nativeMessaging", "storage"])
-        XCTAssertEqual(profileBSummary.grantedPermissionMatchPatterns, ["https://example.com/*"])
+        XCTAssertEqual(profileBSummary.grantedPermissions, [])
+        XCTAssertEqual(profileBSummary.grantedPermissionMatchPatterns, [])
 
         try reloaded.setEnabled(true, for: record.id, profileID: profileA)
         XCTAssertNil(reloaded.summaries(profileID: profileA).first?.lastError)
@@ -385,21 +389,22 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         let store = BrowserWebExtensionInstallStore(registryURL: registryURL)
         let appexURL = root.appendingPathComponent("Bitwarden.appex", isDirectory: true)
         try createAppExtension(at: appexURL, bundleIdentifier: "com.example.Bitwarden.Extension")
+        let profileA = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+        let profileB = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
         let record = try store.installRecord(
             from: try store.discoverSource(from: appexURL, developerModeEnabled: true),
             displayName: "Bitwarden",
             displayVersion: "1.0",
             grantedPermissions: ["storage"],
-            grantedPermissionMatchPatterns: []
+            grantedPermissionMatchPatterns: [],
+            profileID: profileA
         )
-        let profileA = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        let profileB = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
 
         try store.recordRuntimePermissionDecision(
             granted: true,
             permissions: ["tabs", "madeUpPermission"],
-            permissionURLs: ["https://vault.example/account"],
-            permissionMatchPatterns: ["https://vault.example/*"],
+            permissionURLs: ["https://vault.example/account", "file:///Users/lawrence/private.txt"],
+            permissionMatchPatterns: ["https://vault.example/*", "file:///*"],
             for: record.id,
             profileID: profileA
         )
@@ -422,7 +427,8 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         XCTAssertEqual(profileAState.deniedPermissionMatchPatterns, ["https://blocked.example/*"])
 
         let profileBState = try XCTUnwrap(reloaded.records.first?.profileState(for: profileB))
-        XCTAssertEqual(profileBState.grantedPermissions, ["storage"])
+        XCTAssertFalse(profileBState.isEnabled)
+        XCTAssertTrue(profileBState.grantedPermissions.isEmpty)
         XCTAssertTrue(profileBState.deniedPermissions.isEmpty)
         XCTAssertTrue(profileBState.grantedPermissionURLs.isEmpty)
         XCTAssertTrue(profileBState.deniedPermissionURLs.isEmpty)
@@ -443,7 +449,8 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
             displayName: "Bitwarden",
             displayVersion: "1.0",
             grantedPermissions: ["storage"],
-            grantedPermissionMatchPatterns: []
+            grantedPermissionMatchPatterns: [],
+            profileID: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
         )
         XCTAssertEqual(store.records.count, 1)
 
@@ -453,7 +460,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         XCTAssertTrue(store.records.isEmpty)
     }
 
-    func testReinstallPreservesProfileScopedState() throws {
+    func testReinstallUpdatesOnlyInstallingProfileState() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -462,33 +469,75 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         let appexURL = root.appendingPathComponent("Bitwarden.appex", isDirectory: true)
         try createAppExtension(at: appexURL, bundleIdentifier: "com.example.Bitwarden.Extension")
         let source = try store.discoverSource(from: appexURL, developerModeEnabled: true)
+        let profileA = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+        let profileB = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
         let record = try store.installRecord(
             from: source,
             displayName: "Bitwarden",
             displayVersion: "1.0",
             grantedPermissions: ["storage"],
-            grantedPermissionMatchPatterns: ["https://one.example/*"]
+            grantedPermissionMatchPatterns: ["https://one.example/*"],
+            profileID: profileA
         )
-        let profileID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-        try store.setEnabled(false, for: record.id)
-        try store.setEnabled(false, for: record.id, profileID: profileID)
-        try store.setLastError("load failed", for: record.id, profileID: profileID)
+        try store.setEnabled(false, for: record.id, profileID: profileA)
+        try store.setLastError("load failed", for: record.id, profileID: profileA)
+        try store.recordRuntimePermissionDecision(
+            granted: false,
+            permissions: ["clipboardRead"],
+            for: record.id,
+            profileID: profileB
+        )
 
         let reinstalled = try store.installRecord(
             from: source,
             displayName: "Bitwarden",
             displayVersion: "2.0",
             grantedPermissions: ["storage", "nativeMessaging"],
-            grantedPermissionMatchPatterns: ["https://two.example/*"]
+            grantedPermissionMatchPatterns: ["https://two.example/*"],
+            profileID: profileA
         )
 
         XCTAssertEqual(reinstalled.id, record.id)
         XCTAssertFalse(reinstalled.isEnabled)
-        let summary = try XCTUnwrap(store.summaries(profileID: profileID).first)
-        XCTAssertFalse(summary.isEnabled)
-        XCTAssertEqual(summary.lastError, "load failed")
-        XCTAssertEqual(summary.grantedPermissions, ["nativeMessaging", "storage"])
-        XCTAssertEqual(summary.grantedPermissionMatchPatterns, ["https://two.example/*"])
+        let profileASummary = try XCTUnwrap(store.summaries(profileID: profileA).first)
+        XCTAssertTrue(profileASummary.isEnabled)
+        XCTAssertNil(profileASummary.lastError)
+        XCTAssertEqual(profileASummary.grantedPermissions, ["nativeMessaging", "storage"])
+        XCTAssertEqual(profileASummary.grantedPermissionMatchPatterns, ["https://two.example/*"])
+
+        let profileBState = reinstalled.profileState(for: profileB)
+        XCTAssertFalse(profileBState.isEnabled)
+        XCTAssertEqual(profileBState.deniedPermissions, ["clipboardRead"])
+        XCTAssertTrue(profileBState.grantedPermissions.isEmpty)
+        XCTAssertTrue(profileBState.grantedPermissionMatchPatterns.isEmpty)
+    }
+
+    func testHostGrantSanitizationDropsFileAndNonWebSchemesByDefault() {
+        XCTAssertEqual(
+            browserWebExtensionSanitizedPermissionURLStrings([
+                "https://vault.example/login",
+                "http://example.test/",
+                "file:///Users/lawrence/private.txt",
+                "cmux://workspace/123",
+            ]),
+            ["http://example.test/", "https://vault.example/login"]
+        )
+
+        XCTAssertEqual(
+            browserWebExtensionSanitizedMatchPatternStrings([
+                "<all_urls>",
+                "*://example.com/*",
+                "file:///*",
+                "ftp://example.com/*",
+                "cmux://workspace/*",
+            ]),
+            [
+                "http://*/*",
+                "http://example.com/*",
+                "https://*/*",
+                "https://example.com/*",
+            ]
+        )
     }
 
     func testContextIdentifierUsesAppExtensionBundleIdentifier() throws {
@@ -545,7 +594,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         let store = BrowserWebExtensionInstallStore(
             registryURL: root.appendingPathComponent("registry.json")
         )
-        let source = try store.discoverSource(from: appURL)
+        let source = try store.discoverSource(from: appURL, developerModeEnabled: true)
 
         XCTAssertEqual(source.kind, .appExtensionBundle)
         XCTAssertEqual(source.url.lastPathComponent, "Passwords.appex")
@@ -572,10 +621,36 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         let store = BrowserWebExtensionInstallStore(
             registryURL: root.appendingPathComponent("registry.json")
         )
-        let source = try store.discoverSource(from: appURL)
+        let source = try store.discoverSource(from: appURL, developerModeEnabled: true)
 
         XCTAssertEqual(source.kind, .appExtensionBundle)
         XCTAssertEqual(source.url.lastPathComponent, "Passwords.appex")
+    }
+
+    func testRejectsUnsignedApplicationBundleOutsideDeveloperMode() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let appURL = root.appendingPathComponent("Passwords.app", isDirectory: true)
+        let pluginsURL = appURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("PlugIns", isDirectory: true)
+        try createAppExtension(
+            at: pluginsURL.appendingPathComponent("Passwords.appex", isDirectory: true),
+            bundleIdentifier: "com.example.Passwords.Extension"
+        )
+
+        let store = BrowserWebExtensionInstallStore(
+            registryURL: root.appendingPathComponent("registry.json")
+        )
+
+        XCTAssertThrowsError(try store.discoverSource(from: appURL, developerModeEnabled: false)) { error in
+            guard case BrowserWebExtensionInstallError.untrustedSource(let url, _) = error else {
+                XCTFail("Expected untrustedSource, got \(error)")
+                return
+            }
+            XCTAssertEqual(url, appURL.standardizedFileURL)
+        }
     }
 
     func testRejectsApplicationBundleWithMultipleSafariWebExtensions() throws {
@@ -622,7 +697,8 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
             displayName: "Sample Extension",
             displayVersion: "1.2.3",
             grantedPermissions: ["storage"],
-            grantedPermissionMatchPatterns: []
+            grantedPermissionMatchPatterns: [],
+            profileID: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
         )
 
         try Data("{ broken json".utf8).write(to: registryURL)

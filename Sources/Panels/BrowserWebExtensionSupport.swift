@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import OSLog
+import Security
 import WebKit
 
 nonisolated private let browserWebExtensionLogger = Logger(
@@ -32,6 +33,14 @@ struct BrowserWebExtensionActionSnapshot: Identifiable, Equatable, Sendable {
 private struct BrowserWebExtensionActivePopupState: Equatable {
     let presentationID: UUID
     let actionID: UUID
+}
+
+private struct BrowserWebExtensionRuntimePermissionPromptMetadata {
+    let extensionName: String
+    let source: String
+    let profileName: String
+    let requestingOrigin: String
+    let requestedAccess: String
 }
 
 @available(macOS 15.4, *)
@@ -233,6 +242,104 @@ enum BrowserExtensionDeveloperModeSettings {
     }
 }
 
+enum BrowserExtensionFileURLAccessSettings {
+    static let key = "browserExtensionsAllowFileURLAccess"
+    static let defaultEnabled = false
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: key)
+    }
+}
+
+func browserWebExtensionSanitizedPermissionURLStrings(
+    _ rawURLs: [String],
+    allowsFileURLAccess: Bool = BrowserExtensionFileURLAccessSettings.isEnabled()
+) -> [String] {
+    Array(Set(rawURLs.compactMap { rawURL in
+        guard let url = URL(string: rawURL),
+              browserWebExtensionCanGrantAccess(to: url, allowsFileURLAccess: allowsFileURLAccess) else {
+            return nil
+        }
+        return url.absoluteString
+    })).sorted()
+}
+
+func browserWebExtensionSanitizedPermissionURLs(
+    _ urls: Set<URL>,
+    allowsFileURLAccess: Bool = BrowserExtensionFileURLAccessSettings.isEnabled()
+) -> [URL] {
+    urls
+        .filter { browserWebExtensionCanGrantAccess(to: $0, allowsFileURLAccess: allowsFileURLAccess) }
+        .sorted { $0.absoluteString.localizedStandardCompare($1.absoluteString) == .orderedAscending }
+}
+
+func browserWebExtensionSanitizedMatchPatternStrings(
+    _ rawPatterns: [String],
+    allowsFileURLAccess: Bool = BrowserExtensionFileURLAccessSettings.isEnabled()
+) -> [String] {
+    let sanitized = rawPatterns.flatMap { rawPattern -> [String] in
+        let pattern = rawPattern.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !pattern.isEmpty else { return [] }
+        if pattern == "<all_urls>" {
+            return ["http://*/*", "https://*/*"]
+        }
+        guard let delimiterRange = pattern.range(of: "://") else { return [] }
+        let scheme = pattern[..<delimiterRange.lowerBound].lowercased()
+        let rest = pattern[delimiterRange.upperBound...]
+        switch scheme {
+        case "http", "https":
+            return [pattern]
+        case "*":
+            return ["http://\(rest)", "https://\(rest)"]
+        case "file":
+            return allowsFileURLAccess ? [pattern] : []
+        default:
+            return []
+        }
+    }
+    return Array(Set(sanitized)).sorted()
+}
+
+func browserWebExtensionHasHighRiskHostAccess(_ rawPatterns: [String]) -> Bool {
+    rawPatterns.contains { pattern in
+        let trimmed = pattern.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return trimmed == "<all_urls>" ||
+            trimmed == "*://*/*" ||
+            trimmed == "http://*/*" ||
+            trimmed == "https://*/*"
+    }
+}
+
+func browserWebExtensionContainsSensitivePermission(_ permissions: [String]) -> Bool {
+    let sensitivePermissions: Set<String> = [
+        "bookmarks",
+        "clipboardRead",
+        "cookies",
+        "downloads",
+        "history",
+        "nativeMessaging",
+        "tabs",
+        "webRequest",
+        "webRequestAuthProvider",
+    ]
+    return !Set(permissions).intersection(sensitivePermissions).isEmpty
+}
+
+private func browserWebExtensionCanGrantAccess(
+    to url: URL,
+    allowsFileURLAccess: Bool
+) -> Bool {
+    guard let scheme = url.scheme?.lowercased() else { return false }
+    switch scheme {
+    case "http", "https":
+        return true
+    case "file":
+        return allowsFileURLAccess
+    default:
+        return false
+    }
+}
+
 struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
     static let current = BrowserWebExtensionHostCapabilityPolicy()
 
@@ -331,6 +438,14 @@ struct BrowserWebExtensionProfileState: Codable, Equatable, Sendable {
     var deniedPermissionMatchPatterns: [String]
     var lastError: String?
 
+    static var disabled: BrowserWebExtensionProfileState {
+        BrowserWebExtensionProfileState(
+            isEnabled: false,
+            grantedPermissions: [],
+            grantedPermissionMatchPatterns: []
+        )
+    }
+
     init(
         isEnabled: Bool,
         grantedPermissions: [String],
@@ -360,10 +475,11 @@ struct BrowserWebExtensionProfileState: Codable, Equatable, Sendable {
             from: deniedPermissions,
             sourceKind: sourceKind
         )).subtracting(grantedPermissions)
-        let grantedPermissionURLs = Set(grantedPermissionURLs)
-        let deniedPermissionURLs = Set(deniedPermissionURLs).subtracting(grantedPermissionURLs)
-        let grantedPermissionMatchPatterns = Set(grantedPermissionMatchPatterns)
-        let deniedPermissionMatchPatterns = Set(deniedPermissionMatchPatterns)
+        let grantedPermissionURLs = Set(browserWebExtensionSanitizedPermissionURLStrings(grantedPermissionURLs))
+        let deniedPermissionURLs = Set(browserWebExtensionSanitizedPermissionURLStrings(deniedPermissionURLs))
+            .subtracting(grantedPermissionURLs)
+        let grantedPermissionMatchPatterns = Set(browserWebExtensionSanitizedMatchPatternStrings(grantedPermissionMatchPatterns))
+        let deniedPermissionMatchPatterns = Set(browserWebExtensionSanitizedMatchPatternStrings(deniedPermissionMatchPatterns))
             .subtracting(grantedPermissionMatchPatterns)
 
         return BrowserWebExtensionProfileState(
@@ -426,6 +542,7 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Senda
     var grantedPermissionMatchPatterns: [String]
     var deniedPermissionMatchPatterns: [String]
     var profileStates: [String: BrowserWebExtensionProfileState]
+    var appliesToAllProfiles: Bool
 
     init(
         id: UUID,
@@ -440,7 +557,8 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Senda
         grantedPermissionURLs: [String] = [],
         deniedPermissionURLs: [String] = [],
         deniedPermissionMatchPatterns: [String] = [],
-        profileStates: [String: BrowserWebExtensionProfileState] = [:]
+        profileStates: [String: BrowserWebExtensionProfileState] = [:],
+        appliesToAllProfiles: Bool = false
     ) {
         self.id = id
         self.displayName = displayName
@@ -455,10 +573,14 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Senda
         self.grantedPermissionMatchPatterns = grantedPermissionMatchPatterns
         self.deniedPermissionMatchPatterns = deniedPermissionMatchPatterns
         self.profileStates = profileStates
+        self.appliesToAllProfiles = appliesToAllProfiles
     }
 
     var defaultProfileState: BrowserWebExtensionProfileState {
-        BrowserWebExtensionProfileState(
+        guard appliesToAllProfiles else {
+            return .disabled
+        }
+        return BrowserWebExtensionProfileState(
             isEnabled: isEnabled,
             grantedPermissions: grantedPermissions,
             grantedPermissionMatchPatterns: grantedPermissionMatchPatterns,
@@ -496,6 +618,7 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Senda
         case grantedPermissionMatchPatterns
         case deniedPermissionMatchPatterns
         case profileStates
+        case appliesToAllProfiles
     }
 
     init(from decoder: Decoder) throws {
@@ -519,6 +642,7 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Senda
             [String: BrowserWebExtensionProfileState].self,
             forKey: .profileStates
         ) ?? [:]
+        appliesToAllProfiles = try container.decodeIfPresent(Bool.self, forKey: .appliesToAllProfiles) ?? false
     }
 }
 
@@ -536,6 +660,7 @@ private struct BrowserWebExtensionPersistedInstallRecord: Decodable {
     let grantedPermissionMatchPatterns: [String]
     let deniedPermissionMatchPatterns: [String]
     let profileStates: [String: BrowserWebExtensionProfileState]
+    let appliesToAllProfiles: Bool
 
     func installRecord() -> BrowserWebExtensionInstallRecord? {
         guard let sourceKind = BrowserWebExtensionInstallRecord.SourceKind(rawValue: sourceKind) else {
@@ -554,7 +679,8 @@ private struct BrowserWebExtensionPersistedInstallRecord: Decodable {
             grantedPermissionURLs: grantedPermissionURLs,
             deniedPermissionURLs: deniedPermissionURLs,
             deniedPermissionMatchPatterns: deniedPermissionMatchPatterns,
-            profileStates: profileStates
+            profileStates: profileStates,
+            appliesToAllProfiles: appliesToAllProfiles
         )
     }
 
@@ -572,6 +698,7 @@ private struct BrowserWebExtensionPersistedInstallRecord: Decodable {
         case grantedPermissionMatchPatterns
         case deniedPermissionMatchPatterns
         case profileStates
+        case appliesToAllProfiles
     }
 
     init(from decoder: Decoder) throws {
@@ -595,12 +722,48 @@ private struct BrowserWebExtensionPersistedInstallRecord: Decodable {
             [String: BrowserWebExtensionProfileState].self,
             forKey: .profileStates
         ) ?? [:]
+        appliesToAllProfiles = try container.decodeIfPresent(Bool.self, forKey: .appliesToAllProfiles) ?? false
     }
 }
 
 struct BrowserWebExtensionInstallSource: Equatable, Sendable {
     let kind: BrowserWebExtensionInstallRecord.SourceKind
     let url: URL
+    let containingAppURL: URL?
+    let trust: BrowserWebExtensionSourceTrust?
+
+    init(
+        kind: BrowserWebExtensionInstallRecord.SourceKind,
+        url: URL,
+        containingAppURL: URL? = nil,
+        trust: BrowserWebExtensionSourceTrust? = nil
+    ) {
+        self.kind = kind
+        self.url = url
+        self.containingAppURL = containingAppURL
+        self.trust = trust
+    }
+}
+
+struct BrowserWebExtensionSourceTrust: Equatable, Sendable {
+    let containingApp: BrowserWebExtensionCodeSignatureInfo
+    let appExtension: BrowserWebExtensionCodeSignatureInfo
+}
+
+struct BrowserWebExtensionCodeSignatureInfo: Equatable, Sendable {
+    let identifier: String?
+    let teamID: String?
+    let certificateSummary: String?
+
+    var displayName: String {
+        if let certificateSummary, !certificateSummary.isEmpty {
+            return certificateSummary
+        }
+        if let identifier, !identifier.isEmpty {
+            return identifier
+        }
+        return String(localized: "browser.extensions.signature.unknownSigner", defaultValue: "Unknown signer")
+    }
 }
 
 func browserWebExtensionSourceDescription(
@@ -660,6 +823,7 @@ enum BrowserWebExtensionInstallError: LocalizedError, Equatable {
     case noWebExtensionInApp(URL)
     case unsupportedSource(URL)
     case developerModeRequired(URL)
+    case untrustedSource(URL, String)
     case extensionNotFound(String)
     case ambiguousExtension(String)
     case loadFailed(String)
@@ -691,6 +855,12 @@ enum BrowserWebExtensionInstallError: LocalizedError, Equatable {
             return String(
                 format: String(localized: "browser.extensions.error.developerModeRequired", defaultValue: "Developer Mode is required to load %@ directly. Install the containing app bundle instead, or enable Browser Extensions Developer Mode."),
                 url.lastPathComponent
+            )
+        case .untrustedSource(let url, let reason):
+            return String(
+                format: String(localized: "browser.extensions.error.untrustedSource", defaultValue: "%@ could not be verified as a signed Safari Web Extension source. %@"),
+                url.lastPathComponent,
+                reason
             )
         case .extensionNotFound(let query):
             return String(
@@ -813,7 +983,9 @@ final class BrowserWebExtensionInstallStore {
         displayName: String,
         displayVersion: String?,
         grantedPermissions: [String],
-        grantedPermissionMatchPatterns: [String]
+        grantedPermissionMatchPatterns: [String],
+        profileID: UUID,
+        installForAllProfiles: Bool = false
     ) throws -> BrowserWebExtensionInstallRecord {
         guard source.kind == .appExtensionBundle else {
             throw BrowserWebExtensionInstallError.unsupportedSource(source.url)
@@ -825,28 +997,29 @@ final class BrowserWebExtensionInstallStore {
             from: grantedPermissions,
             sourceKind: source.kind
         ).sorted()
-        let sanitizedMatchPatterns = grantedPermissionMatchPatterns.sorted()
+        let sanitizedMatchPatterns = browserWebExtensionSanitizedMatchPatternStrings(grantedPermissionMatchPatterns)
         let deniedPermissions = existingRecord?.deniedPermissions ?? []
         let grantedPermissionURLs = existingRecord?.grantedPermissionURLs ?? []
         let deniedPermissionURLs = existingRecord?.deniedPermissionURLs ?? []
         let deniedPermissionMatchPatterns = existingRecord?.deniedPermissionMatchPatterns ?? []
         let profileStates = Dictionary(
             uniqueKeysWithValues: (existingRecord?.profileStates ?? [:]).map { key, state in
-                (
-                    key,
-                    BrowserWebExtensionProfileState(
-                        isEnabled: state.isEnabled,
-                        grantedPermissions: sanitizedPermissions,
-                        grantedPermissionMatchPatterns: sanitizedMatchPatterns,
-                        deniedPermissions: state.deniedPermissions,
-                        grantedPermissionURLs: state.grantedPermissionURLs,
-                        deniedPermissionURLs: state.deniedPermissionURLs,
-                        deniedPermissionMatchPatterns: state.deniedPermissionMatchPatterns,
-                        lastError: state.lastError
-                    ).sanitized(sourceKind: source.kind)
-                )
+                (key, state.sanitized(sourceKind: source.kind))
             }
         )
+        var nextProfileStates = profileStates
+        let previousProfileState = existingRecord?.profileState(for: profileID)
+        let installingProfileState = BrowserWebExtensionProfileState(
+            isEnabled: true,
+            grantedPermissions: sanitizedPermissions,
+            grantedPermissionMatchPatterns: sanitizedMatchPatterns,
+            deniedPermissions: previousProfileState?.deniedPermissions ?? [],
+            grantedPermissionURLs: previousProfileState?.grantedPermissionURLs ?? [],
+            deniedPermissionURLs: previousProfileState?.deniedPermissionURLs ?? [],
+            deniedPermissionMatchPatterns: previousProfileState?.deniedPermissionMatchPatterns ?? [],
+            lastError: nil
+        ).sanitized(sourceKind: source.kind)
+        nextProfileStates[BrowserWebExtensionInstallRecord.profileStateKey(for: profileID)] = installingProfileState
 
         let record = BrowserWebExtensionInstallRecord(
             id: recordID,
@@ -854,14 +1027,15 @@ final class BrowserWebExtensionInstallStore {
             displayVersion: displayVersion,
             sourceKind: source.kind,
             sourcePath: source.url.path,
-            isEnabled: existingRecord?.isEnabled ?? true,
-            grantedPermissions: sanitizedPermissions,
-            grantedPermissionMatchPatterns: sanitizedMatchPatterns,
+            isEnabled: installForAllProfiles ? true : (existingRecord?.isEnabled ?? false),
+            grantedPermissions: installForAllProfiles ? sanitizedPermissions : (existingRecord?.grantedPermissions ?? []),
+            grantedPermissionMatchPatterns: installForAllProfiles ? sanitizedMatchPatterns : (existingRecord?.grantedPermissionMatchPatterns ?? []),
             deniedPermissions: deniedPermissions,
             grantedPermissionURLs: grantedPermissionURLs,
             deniedPermissionURLs: deniedPermissionURLs,
             deniedPermissionMatchPatterns: deniedPermissionMatchPatterns,
-            profileStates: profileStates
+            profileStates: nextProfileStates,
+            appliesToAllProfiles: installForAllProfiles || (existingRecord?.appliesToAllProfiles ?? false)
         )
 
         var nextRecords = previousRecords
@@ -922,32 +1096,34 @@ final class BrowserWebExtensionInstallStore {
             from: permissions,
             sourceKind: sourceKind
         )
+        let sanitizedPermissionURLs = browserWebExtensionSanitizedPermissionURLStrings(permissionURLs)
+        let sanitizedPermissionMatchPatterns = browserWebExtensionSanitizedMatchPatternStrings(permissionMatchPatterns)
 
         if granted {
             state.grantedPermissions = Self.union(state.grantedPermissions, grantablePermissions)
             state.deniedPermissions = Self.subtract(state.deniedPermissions, grantablePermissions)
-            state.grantedPermissionURLs = Self.union(state.grantedPermissionURLs, permissionURLs)
-            state.deniedPermissionURLs = Self.subtract(state.deniedPermissionURLs, permissionURLs)
+            state.grantedPermissionURLs = Self.union(state.grantedPermissionURLs, sanitizedPermissionURLs)
+            state.deniedPermissionURLs = Self.subtract(state.deniedPermissionURLs, sanitizedPermissionURLs)
             state.grantedPermissionMatchPatterns = Self.union(
                 state.grantedPermissionMatchPatterns,
-                permissionMatchPatterns
+                sanitizedPermissionMatchPatterns
             )
             state.deniedPermissionMatchPatterns = Self.subtract(
                 state.deniedPermissionMatchPatterns,
-                permissionMatchPatterns
+                sanitizedPermissionMatchPatterns
             )
         } else {
             state.deniedPermissions = Self.union(state.deniedPermissions, grantablePermissions)
             state.grantedPermissions = Self.subtract(state.grantedPermissions, grantablePermissions)
-            state.deniedPermissionURLs = Self.union(state.deniedPermissionURLs, permissionURLs)
-            state.grantedPermissionURLs = Self.subtract(state.grantedPermissionURLs, permissionURLs)
+            state.deniedPermissionURLs = Self.union(state.deniedPermissionURLs, sanitizedPermissionURLs)
+            state.grantedPermissionURLs = Self.subtract(state.grantedPermissionURLs, sanitizedPermissionURLs)
             state.deniedPermissionMatchPatterns = Self.union(
                 state.deniedPermissionMatchPatterns,
-                permissionMatchPatterns
+                sanitizedPermissionMatchPatterns
             )
             state.grantedPermissionMatchPatterns = Self.subtract(
                 state.grantedPermissionMatchPatterns,
-                permissionMatchPatterns
+                sanitizedPermissionMatchPatterns
             )
         }
 
@@ -990,7 +1166,17 @@ final class BrowserWebExtensionInstallStore {
             guard let appExtensionURL = firstWebExtensionAppExtension(in: resolvedURL, fileManager: fileManager) else {
                 throw BrowserWebExtensionInstallError.noWebExtensionInApp(resolvedURL)
             }
-            return BrowserWebExtensionInstallSource(kind: .appExtensionBundle, url: appExtensionURL)
+            let trust = try verifiedSourceTrust(
+                containingAppURL: resolvedURL,
+                appExtensionURL: appExtensionURL,
+                developerModeEnabled: developerModeEnabled
+            )
+            return BrowserWebExtensionInstallSource(
+                kind: .appExtensionBundle,
+                url: appExtensionURL,
+                containingAppURL: resolvedURL,
+                trust: trust
+            )
         }
 
         if pathExtension == "appex" {
@@ -999,7 +1185,11 @@ final class BrowserWebExtensionInstallStore {
             }
             switch appExtensionValidationResult(for: resolvedURL, fileManager: fileManager) {
             case .valid:
-                return BrowserWebExtensionInstallSource(kind: .appExtensionBundle, url: resolvedURL)
+                return BrowserWebExtensionInstallSource(
+                    kind: .appExtensionBundle,
+                    url: resolvedURL,
+                    trust: optionalDirectAppExtensionTrust(for: resolvedURL)
+                )
             case .missingManifest:
                 throw BrowserWebExtensionInstallError.noManifest(resolvedURL)
             case .missingInfoPlist:
@@ -1010,6 +1200,142 @@ final class BrowserWebExtensionInstallStore {
         }
 
         throw BrowserWebExtensionInstallError.unsupportedSource(resolvedURL)
+    }
+
+    private static func verifiedSourceTrust(
+        containingAppURL: URL,
+        appExtensionURL: URL,
+        developerModeEnabled: Bool
+    ) throws -> BrowserWebExtensionSourceTrust? {
+        guard appExtensionIsEmbeddedInContainingApp(appExtensionURL, containingAppURL: containingAppURL) else {
+            throw BrowserWebExtensionInstallError.noWebExtensionInApp(containingAppURL)
+        }
+
+        if developerModeEnabled {
+            return optionalSourceTrust(containingAppURL: containingAppURL, appExtensionURL: appExtensionURL)
+        }
+
+        let appSignature = try requiredCodeSignatureInfo(for: containingAppURL)
+        let appExtensionSignature = try requiredCodeSignatureInfo(for: appExtensionURL)
+        guard let appTeamID = appSignature.teamID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !appTeamID.isEmpty,
+              let appExtensionTeamID = appExtensionSignature.teamID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !appExtensionTeamID.isEmpty else {
+            throw BrowserWebExtensionInstallError.untrustedSource(
+                containingAppURL,
+                String(localized: "browser.extensions.error.untrustedSource.missingTeam", defaultValue: "The app and extension must be signed with a developer team identity.")
+            )
+        }
+        guard appTeamID == appExtensionTeamID else {
+            throw BrowserWebExtensionInstallError.untrustedSource(
+                containingAppURL,
+                String(localized: "browser.extensions.error.untrustedSource.teamMismatch", defaultValue: "The containing app and embedded extension are signed by different teams.")
+            )
+        }
+        return BrowserWebExtensionSourceTrust(
+            containingApp: appSignature,
+            appExtension: appExtensionSignature
+        )
+    }
+
+    private static func optionalSourceTrust(
+        containingAppURL: URL,
+        appExtensionURL: URL
+    ) -> BrowserWebExtensionSourceTrust? {
+        guard let containingApp = try? requiredCodeSignatureInfo(for: containingAppURL),
+              let appExtension = try? requiredCodeSignatureInfo(for: appExtensionURL) else {
+            return nil
+        }
+        return BrowserWebExtensionSourceTrust(containingApp: containingApp, appExtension: appExtension)
+    }
+
+    private static func optionalDirectAppExtensionTrust(for appExtensionURL: URL) -> BrowserWebExtensionSourceTrust? {
+        guard let appExtension = try? requiredCodeSignatureInfo(for: appExtensionURL) else {
+            return nil
+        }
+        return BrowserWebExtensionSourceTrust(containingApp: appExtension, appExtension: appExtension)
+    }
+
+    private static func appExtensionIsEmbeddedInContainingApp(
+        _ appExtensionURL: URL,
+        containingAppURL: URL
+    ) -> Bool {
+        let pluginsURL = containingAppURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("PlugIns", isDirectory: true)
+            .standardizedFileURL
+        let standardizedAppExtensionPath = appExtensionURL.standardizedFileURL.path
+        let pluginPath = pluginsURL.path
+        return standardizedAppExtensionPath.hasPrefix(pluginPath + "/")
+    }
+
+    private static func requiredCodeSignatureInfo(for url: URL) throws -> BrowserWebExtensionCodeSignatureInfo {
+        var staticCode: SecStaticCode?
+        let createStatus = SecStaticCodeCreateWithPath(
+            url as CFURL,
+            SecCSFlags(rawValue: 0),
+            &staticCode
+        )
+        guard createStatus == errSecSuccess, let staticCode else {
+            throw BrowserWebExtensionInstallError.untrustedSource(
+                url,
+                codeSigningErrorDescription(createStatus)
+            )
+        }
+
+        var validationError: Unmanaged<CFError>?
+        let validationStatus = SecStaticCodeCheckValidityWithErrors(
+            staticCode,
+            SecCSFlags(rawValue: kSecCSStrictValidate | kSecCSCheckAllArchitectures),
+            nil,
+            &validationError
+        )
+        if let validationError {
+            validationError.release()
+        }
+        guard validationStatus == errSecSuccess else {
+            throw BrowserWebExtensionInstallError.untrustedSource(
+                url,
+                codeSigningErrorDescription(validationStatus)
+            )
+        }
+
+        var signingInfo: CFDictionary?
+        let copyStatus = SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: kSecCSSigningInformation),
+            &signingInfo
+        )
+        guard copyStatus == errSecSuccess,
+              let info = signingInfo as? [String: Any] else {
+            throw BrowserWebExtensionInstallError.untrustedSource(
+                url,
+                codeSigningErrorDescription(copyStatus)
+            )
+        }
+
+        let certificates = info[kSecCodeInfoCertificates as String] as? [SecCertificate] ?? []
+        let certificateSummary = certificates
+            .compactMap { SecCertificateCopySubjectSummary($0) as String? }
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return BrowserWebExtensionCodeSignatureInfo(
+            identifier: (info[kSecCodeInfoIdentifier as String] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            teamID: (info[kSecCodeInfoTeamIdentifier as String] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            certificateSummary: certificateSummary?.isEmpty == false ? certificateSummary : nil
+        )
+    }
+
+    private static func codeSigningErrorDescription(_ status: OSStatus) -> String {
+        if let message = SecCopyErrorMessageString(status, nil) as String? {
+            return message
+        }
+        return String(
+            format: String(localized: "browser.extensions.error.untrustedSource.status", defaultValue: "Code signing validation failed with status %@."),
+            String(status)
+        )
     }
 
     func discoverSource(
@@ -1104,12 +1430,12 @@ final class BrowserWebExtensionInstallStore {
             from: record.deniedPermissions,
             sourceKind: record.sourceKind
         ).filter { !record.grantedPermissions.contains($0) }.sorted()
-        record.grantedPermissionURLs = Array(Set(record.grantedPermissionURLs)).sorted()
-        record.deniedPermissionURLs = Array(Set(record.deniedPermissionURLs))
+        record.grantedPermissionURLs = browserWebExtensionSanitizedPermissionURLStrings(record.grantedPermissionURLs)
+        record.deniedPermissionURLs = browserWebExtensionSanitizedPermissionURLStrings(record.deniedPermissionURLs)
             .filter { !record.grantedPermissionURLs.contains($0) }
             .sorted()
-        record.grantedPermissionMatchPatterns = record.grantedPermissionMatchPatterns.sorted()
-        record.deniedPermissionMatchPatterns = Array(Set(record.deniedPermissionMatchPatterns))
+        record.grantedPermissionMatchPatterns = browserWebExtensionSanitizedMatchPatternStrings(record.grantedPermissionMatchPatterns)
+        record.deniedPermissionMatchPatterns = browserWebExtensionSanitizedMatchPatternStrings(record.deniedPermissionMatchPatterns)
             .filter { !record.grantedPermissionMatchPatterns.contains($0) }
             .sorted()
         record.profileStates = Dictionary(
@@ -1559,14 +1885,15 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             )
             throw BrowserWebExtensionInstallError.loadFailed(firstError.localizedDescription)
         }
-        try await promptForInstallConsent(webExtension: webExtension, sourceKind: source.kind)
+        try await promptForInstallConsent(webExtension: webExtension, source: source)
 
         let record = try store.installRecord(
             from: source,
             displayName: webExtension.displayName ?? url.deletingPathExtension().lastPathComponent,
             displayVersion: webExtension.displayVersion ?? webExtension.version,
             grantedPermissions: webExtension.requestedPermissions.map { String($0.rawValue) },
-            grantedPermissionMatchPatterns: requiredMatchPatternStrings(for: webExtension)
+            grantedPermissionMatchPatterns: requiredMatchPatternStrings(for: webExtension),
+            profileID: profileID
         )
         try await load(record: record, profileID: profileID)
         postDidChange()
@@ -1950,22 +2277,22 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
                 for: WKWebExtension.Permission(rawPermission)
             )
         }
-        for rawURL in profileState.grantedPermissionURLs {
+        for rawURL in browserWebExtensionSanitizedPermissionURLStrings(profileState.grantedPermissionURLs) {
             if let url = URL(string: rawURL) {
                 context.setPermissionStatus(.grantedExplicitly, for: url)
             }
         }
-        for rawURL in profileState.deniedPermissionURLs {
+        for rawURL in browserWebExtensionSanitizedPermissionURLStrings(profileState.deniedPermissionURLs) {
             if let url = URL(string: rawURL) {
                 context.setPermissionStatus(.deniedExplicitly, for: url)
             }
         }
-        for rawPattern in profileState.grantedPermissionMatchPatterns {
+        for rawPattern in browserWebExtensionSanitizedMatchPatternStrings(profileState.grantedPermissionMatchPatterns) {
             if let pattern = try? WKWebExtension.MatchPattern(string: rawPattern) {
                 context.setPermissionStatus(.grantedExplicitly, for: pattern)
             }
         }
-        for rawPattern in profileState.deniedPermissionMatchPatterns {
+        for rawPattern in browserWebExtensionSanitizedMatchPatternStrings(profileState.deniedPermissionMatchPatterns) {
             if let pattern = try? WKWebExtension.MatchPattern(string: rawPattern) {
                 context.setPermissionStatus(.deniedExplicitly, for: pattern)
             }
@@ -2044,14 +2371,14 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
     private func promptForInstallConsent(
         webExtension: WKWebExtension,
-        sourceKind: BrowserWebExtensionInstallRecord.SourceKind
+        source: BrowserWebExtensionInstallSource
     ) async throws {
         let alert = NSAlert()
         alert.messageText = String(localized: "browser.extensions.install.title", defaultValue: "Install Browser Extension?")
-        alert.informativeText = installConsentMessage(webExtension, sourceKind: sourceKind)
+        alert.informativeText = installConsentMessage(webExtension, source: source)
         alert.addButton(withTitle: String(localized: "browser.extensions.install.confirm", defaultValue: "Install"))
         alert.addButton(withTitle: String(localized: "browser.extensions.install.cancel", defaultValue: "Cancel"))
-        alert.alertStyle = .informational
+        alert.alertStyle = installConsentNeedsWarning(webExtension) ? .warning : .informational
         let response = await runModal(alert)
         guard response == .alertFirstButtonReturn else {
             throw BrowserWebExtensionInstallError.cancelled
@@ -2060,13 +2387,13 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
     private func installConsentMessage(
         _ webExtension: WKWebExtension,
-        sourceKind: BrowserWebExtensionInstallRecord.SourceKind
+        source: BrowserWebExtensionInstallSource
     ) -> String {
         let extensionName = webExtension.displayName
             ?? String(localized: "browser.extensions.unknownExtension", defaultValue: "Unknown extension")
         let permissions = browserWebExtensionHostGrantablePermissionNames(
             from: webExtension.requestedPermissions.map { String($0.rawValue) },
-            sourceKind: sourceKind
+            sourceKind: source.kind
         )
             .sorted()
             .joined(separator: ", ")
@@ -2084,10 +2411,46 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
                 defaultValue: "%@\n\nSource: %@\nAPI permissions: %@\nWebsite access: %@\n\ncmux grants only these permissions and lets the system browser engine enforce extension isolation, host access, and runtime permission prompts."
             ),
             extensionName,
-            browserWebExtensionSourceDescription(for: sourceKind),
+            installConsentSourceDescription(for: source),
             permissionsLine,
             hostsLine
         )
+    }
+
+    private func installConsentSourceDescription(for source: BrowserWebExtensionInstallSource) -> String {
+        var lines = [browserWebExtensionSourceDescription(for: source.kind)]
+        if let containingAppURL = source.containingAppURL {
+            lines.append(
+                String(
+                    format: String(localized: "browser.extensions.install.containingApp", defaultValue: "Containing app: %@"),
+                    containingAppURL.lastPathComponent
+                )
+            )
+        }
+        if let trust = source.trust {
+            lines.append(browserWebExtensionSigningDescription(for: trust))
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func browserWebExtensionSigningDescription(for trust: BrowserWebExtensionSourceTrust) -> String {
+        let signer = trust.appExtension.displayName
+        let teamID = trust.appExtension.teamID?.isEmpty == false
+            ? trust.appExtension.teamID!
+            : String(localized: "browser.extensions.signature.noTeam", defaultValue: "No team ID")
+        return String(
+            format: String(localized: "browser.extensions.install.signedBy", defaultValue: "Signed by: %@ (Team ID: %@)"),
+            signer,
+            teamID
+        )
+    }
+
+    private func installConsentNeedsWarning(_ webExtension: WKWebExtension) -> Bool {
+        let rawPermissions = webExtension.requestedPermissions.map { String($0.rawValue) }
+        let rawPatterns = webExtension.requestedPermissionMatchPatterns.map(\.string) +
+            webExtension.allRequestedMatchPatterns.map(\.string)
+        return browserWebExtensionContainsSensitivePermission(rawPermissions) ||
+            browserWebExtensionHasHighRiskHostAccess(rawPatterns)
     }
 
     private func runModal(_ alert: NSAlert) async -> NSApplication.ModalResponse {
@@ -2152,7 +2515,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     private func requiredMatchPatternStrings(for webExtension: WKWebExtension) -> [String] {
         let requestedPatterns = webExtension.requestedPermissionMatchPatterns.map(\.string)
         let injectedContentPatterns = webExtension.allRequestedMatchPatterns.map(\.string)
-        return Array(Set(requestedPatterns + injectedContentPatterns)).sorted()
+        return browserWebExtensionSanitizedMatchPatternStrings(requestedPatterns + injectedContentPatterns)
     }
 
     private func postDidChange() {
@@ -2519,16 +2882,21 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             completionHandler([], nil)
             return
         }
-        let message = grantablePermissions.map { String($0.rawValue) }.sorted().joined(separator: ", ")
+        let grantedPermissionNames = grantablePermissions.map { String($0.rawValue) }
+        let message = grantedPermissionNames.sorted().joined(separator: ", ")
         let recordID = recordID(for: context)
         let profileID = profileID(for: context)
-        promptForRuntimePermission(message: message) { [weak self] allowed in
+        let metadata = runtimePermissionPromptMetadata(for: context, tab: tab, requestedAccess: message)
+        promptForRuntimePermission(
+            metadata: metadata,
+            isSensitive: browserWebExtensionContainsSensitivePermission(grantedPermissionNames)
+        ) { [weak self] allowed in
             if let self,
                let recordID,
                let profileID {
                 try? self.store.recordRuntimePermissionDecision(
                     granted: allowed,
-                    permissions: grantablePermissions.map { String($0.rawValue) },
+                    permissions: grantedPermissionNames,
                     for: recordID,
                     profileID: profileID
                 )
@@ -2546,6 +2914,11 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         return record.sourceKind
     }
 
+    private func installedRecord(for context: WKWebExtensionContext) -> BrowserWebExtensionInstallRecord? {
+        guard let recordID = recordID(for: context) else { return nil }
+        return store.records.first(where: { $0.id == recordID })
+    }
+
     func webExtensionController(
         _ controller: WKWebExtensionController,
         promptForPermissionToAccess urls: Set<URL>,
@@ -2553,22 +2926,31 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         for context: WKWebExtensionContext,
         completionHandler: @escaping (Set<URL>, Date?) -> Void
     ) {
-        let message = urls.map(\.absoluteString).sorted().joined(separator: ", ")
+        let grantableURLs = Set(browserWebExtensionSanitizedPermissionURLs(urls))
+        guard !grantableURLs.isEmpty else {
+            completionHandler([], nil)
+            return
+        }
+        let message = grantableURLs.map(\.absoluteString).sorted().joined(separator: ", ")
         let recordID = recordID(for: context)
         let profileID = profileID(for: context)
-        promptForRuntimePermission(message: message) { [weak self] allowed in
+        let metadata = runtimePermissionPromptMetadata(for: context, tab: tab, requestedAccess: message)
+        promptForRuntimePermission(
+            metadata: metadata,
+            isSensitive: grantableURLs.contains { $0.isFileURL }
+        ) { [weak self] allowed in
             if let self,
                let recordID,
                let profileID {
                 try? self.store.recordRuntimePermissionDecision(
                     granted: allowed,
-                    permissionURLs: urls.map(\.absoluteString),
+                    permissionURLs: grantableURLs.map(\.absoluteString),
                     for: recordID,
                     profileID: profileID
                 )
                 self.postDidChange()
             }
-            completionHandler(allowed ? urls : [], nil)
+            completionHandler(allowed ? grantableURLs : [], nil)
         }
     }
 
@@ -2579,22 +2961,32 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         for context: WKWebExtensionContext,
         completionHandler: @escaping (Set<WKWebExtension.MatchPattern>, Date?) -> Void
     ) {
-        let message = matchPatterns.map(\.string).sorted().joined(separator: ", ")
+        let sanitizedPatternStrings = browserWebExtensionSanitizedMatchPatternStrings(matchPatterns.map(\.string))
+        let grantablePatterns = Set(sanitizedPatternStrings.compactMap { try? WKWebExtension.MatchPattern(string: $0) })
+        guard !grantablePatterns.isEmpty else {
+            completionHandler([], nil)
+            return
+        }
+        let message = sanitizedPatternStrings.joined(separator: ", ")
         let recordID = recordID(for: context)
         let profileID = profileID(for: context)
-        promptForRuntimePermission(message: message) { [weak self] allowed in
+        let metadata = runtimePermissionPromptMetadata(for: context, tab: tab, requestedAccess: message)
+        promptForRuntimePermission(
+            metadata: metadata,
+            isSensitive: browserWebExtensionHasHighRiskHostAccess(matchPatterns.map(\.string))
+        ) { [weak self] allowed in
             if let self,
                let recordID,
                let profileID {
                 try? self.store.recordRuntimePermissionDecision(
                     granted: allowed,
-                    permissionMatchPatterns: matchPatterns.map(\.string),
+                    permissionMatchPatterns: sanitizedPatternStrings,
                     for: recordID,
                     profileID: profileID
                 )
                 self.postDidChange()
             }
-            completionHandler(allowed ? matchPatterns : [], nil)
+            completionHandler(allowed ? grantablePatterns : [], nil)
         }
     }
 
@@ -2628,19 +3020,86 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         return fallbackView.window?.convertToScreen(rectInWindow) ?? rectInWindow
     }
 
+    private func runtimePermissionPromptMetadata(
+        for context: WKWebExtensionContext,
+        tab: (any WKWebExtensionTab)?,
+        requestedAccess: String
+    ) -> BrowserWebExtensionRuntimePermissionPromptMetadata {
+        let record = installedRecord(for: context)
+        let extensionName = record?.displayName
+            ?? context.webExtension.displayName
+            ?? String(localized: "browser.extensions.unknownExtension", defaultValue: "Unknown extension")
+        let source = record
+            .map { Self.runtimePermissionSourceDescription(for: $0) }
+            ?? String(localized: "browser.extensions.summary.appExtension", defaultValue: "Safari app extension")
+        let profileName = profileID(for: context)
+            .map { BrowserProfileStore.shared.displayName(for: $0) }
+            ?? String(localized: "browser.profile.default", defaultValue: "Default")
+        let tabOrigin = runtimePermissionOriginDescription(for: tab, context: context)
+        return BrowserWebExtensionRuntimePermissionPromptMetadata(
+            extensionName: extensionName,
+            source: source,
+            profileName: profileName,
+            requestingOrigin: tabOrigin,
+            requestedAccess: requestedAccess
+        )
+    }
+
+    private static func runtimePermissionSourceDescription(for record: BrowserWebExtensionInstallRecord) -> String {
+        let sourceName = URL(fileURLWithPath: record.sourcePath).lastPathComponent
+        return String(
+            format: String(localized: "browser.extensions.permission.source", defaultValue: "%@ (%@)"),
+            browserWebExtensionSourceDescription(for: record.sourceKind),
+            sourceName
+        )
+    }
+
+    private func runtimePermissionOriginDescription(
+        for tab: (any WKWebExtensionTab)?,
+        context: WKWebExtensionContext
+    ) -> String {
+        guard let url = tab?.url?(for: context),
+              let origin = browserWebExtensionOriginDescription(for: url) else {
+            return String(localized: "browser.extensions.permission.unknownOrigin", defaultValue: "Unknown tab")
+        }
+        return origin
+    }
+
+    private func browserWebExtensionOriginDescription(for url: URL) -> String? {
+        guard let scheme = url.scheme?.lowercased(), !scheme.isEmpty else { return nil }
+        if scheme == "file" {
+            return String(localized: "browser.extensions.permission.fileOrigin", defaultValue: "Local file")
+        }
+        guard let host = url.host(percentEncoded: false), !host.isEmpty else {
+            return scheme
+        }
+        if let port = url.port {
+            return "\(scheme)://\(host):\(port)"
+        }
+        return "\(scheme)://\(host)"
+    }
+
     private func promptForRuntimePermission(
-        message: String,
+        metadata: BrowserWebExtensionRuntimePermissionPromptMetadata,
+        isSensitive: Bool,
         completion: @escaping (Bool) -> Void
     ) {
         let alert = NSAlert()
         alert.messageText = String(localized: "browser.extensions.permission.title", defaultValue: "Allow Extension Permission?")
         alert.informativeText = String(
-            format: String(localized: "browser.extensions.permission.message", defaultValue: "An extension is asking for access to:\n\n%@"),
-            message
+            format: String(
+                localized: "browser.extensions.permission.message",
+                defaultValue: "%@ from %@ is asking for access in profile %@ from %@.\n\nRequested access:\n%@\n\nThis decision is saved for this browser profile."
+            ),
+            metadata.extensionName,
+            metadata.source,
+            metadata.profileName,
+            metadata.requestingOrigin,
+            metadata.requestedAccess
         )
         alert.addButton(withTitle: String(localized: "browser.extensions.permission.allow", defaultValue: "Allow"))
         alert.addButton(withTitle: String(localized: "browser.extensions.permission.deny", defaultValue: "Deny"))
-        alert.alertStyle = .informational
+        alert.alertStyle = isSensitive ? .warning : .informational
         let promptID = UUID()
         runtimePermissionPromptDenyHandlers[promptID] = {
             completion(false)
@@ -3244,13 +3703,15 @@ private final class BrowserWebExtensionAuxiliaryUIDelegate: NSObject, WKUIDelega
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url,
-           browserShouldOpenURLExternally(url) {
-            Task { @MainActor in
-                _ = try? await NSWorkspace.shared.open(
-                    url,
-                    configuration: NSWorkspace.OpenConfiguration()
-                )
-            }
+           browserShouldRouteExternalNavigation(url) {
+            browserHandleExternalNavigation(
+                url,
+                source: "extensionAuxiliaryWindow",
+                webView: webView,
+                loadFallbackRequest: { request in
+                    webView.load(browserPreparedNavigationRequest(request))
+                }
+            )
         }
         return nil
     }

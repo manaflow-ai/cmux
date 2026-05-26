@@ -893,6 +893,9 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["extensionsDeveloperMode"]) {
             snapshot.managedUserDefaults[BrowserExtensionDeveloperModeSettings.key] = .bool(value)
         }
+        if let value = jsonBool(section["extensionsAllowFileURLAccess"]) {
+            snapshot.managedUserDefaults[BrowserExtensionFileURLAccessSettings.key] = .bool(value)
+        }
         if let raw = jsonString(section["reactGrabVersion"]) {
             snapshot.managedUserDefaults[ReactGrabSettings.versionKey] = .string(raw)
         }

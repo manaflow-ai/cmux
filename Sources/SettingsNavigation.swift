@@ -484,6 +484,7 @@ enum SettingsSearchIndex {
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser": settingID(for: .browser, idSuffix: "http-allowlist"),
         "browser.showImportHintOnBlankTabs": settingID(for: .browserImport, idSuffix: "import-hint"),
         "browser.extensionsDeveloperMode": settingID(for: .browser, idSuffix: "extensions"),
+        "browser.extensionsAllowFileURLAccess": settingID(for: .browser, idSuffix: "extensions"),
         "browser.reactGrabVersion": settingID(for: .browser, idSuffix: "react-grab"),
         "shortcuts.bindings": settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")
     ]
