@@ -692,45 +692,32 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let currentSessionId = "idle-current-surface-session"
         let otherSessionId = "running-other-surface-session"
         let otherSurfaceId = "44444444-4444-4444-4444-444444444444"
-        let now = Date().timeIntervalSince1970
-        let livePID = 1
-        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
-        let store: [String: Any] = [
-            "version": 1,
-            "sessions": [
-                currentSessionId: [
-                    "sessionId": currentSessionId,
-                    "workspaceId": context.workspaceId,
-                    "surfaceId": context.surfaceId,
-                    "cwd": context.root.path,
-                    "pid": livePID,
-                    "runtimeStatus": "running",
-                    "activePromptDepth": 1,
-                    "activePromptTurnId": "current-turn",
-                    "activePromptTurnIds": ["current-turn"],
-                    "startedAt": now,
-                    "updatedAt": now,
-                ],
-                otherSessionId: [
-                    "sessionId": otherSessionId,
-                    "workspaceId": context.workspaceId,
-                    "surfaceId": otherSurfaceId,
-                    "cwd": context.root.path,
-                    "pid": livePID,
-                    "runtimeStatus": "running",
-                    "activePromptDepth": 1,
-                    "activePromptTurnId": "other-turn",
-                    "activePromptTurnIds": ["other-turn"],
-                    "startedAt": now,
-                    "updatedAt": now,
-                ],
-            ],
-        ]
-        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
-            .write(to: stateURL, options: .atomic)
+        startAgentHookMockServerAccepting(
+            context: context,
+            connectionLimit: 96,
+            surfaceIds: [context.surfaceId, otherSurfaceId]
+        )
+
+        let otherEnvironment = codexLaunchEnvironment(context: context, sessionId: otherSessionId)
+            .merging(["CMUX_SURFACE_ID": otherSurfaceId], uniquingKeysWith: { _, new in new })
+        let otherPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(otherSessionId)","turn_id":"other-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"other"}"#,
+            extraEnvironment: otherEnvironment
+        )
+        XCTAssertFalse(otherPrompt.timedOut, otherPrompt.stderr)
+        XCTAssertEqual(otherPrompt.status, 0, otherPrompt.stderr)
 
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: currentSessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        let currentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(currentSessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"current"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(currentPrompt.timedOut, currentPrompt.stderr)
+        XCTAssertEqual(currentPrompt.status, 0, currentPrompt.stderr)
 
         let stopStart = context.state.commands.count
         let stop = runCodexHook(
@@ -7378,7 +7365,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     private func startAgentHookMockServerAccepting(
         context: ClaudeHookContext,
-        connectionLimit: Int
+        connectionLimit: Int,
+        surfaceIds: [String]? = nil
     ) {
         DispatchQueue.global(qos: .userInitiated).async {
             var accepted = 0
@@ -7413,7 +7401,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                             pending.removeSubrange(0...newlineRange.lowerBound)
                             guard let line = String(data: lineData, encoding: .utf8) else { continue }
                             context.state.append(line)
-                            let response = self.agentHookMockResponse(line: line, context: context) + "\n"
+                            let response = self.agentHookMockResponse(
+                                line: line,
+                                context: context,
+                                surfaceIds: surfaceIds ?? [context.surfaceId]
+                            ) + "\n"
                             _ = response.withCString { ptr in
                                 Darwin.write(clientFD, ptr, strlen(ptr))
                             }
@@ -7424,7 +7416,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
-    private func agentHookMockResponse(line: String, context: ClaudeHookContext) -> String {
+    private func agentHookMockResponse(line: String, context: ClaudeHookContext, surfaceIds: [String]) -> String {
         guard let payload = jsonObject(line) else {
             return "OK"
         }
@@ -7433,7 +7425,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         switch method {
         case "surface.list":
-            return surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            return surfaceListResponse(id: id, surfaceIds: surfaceIds)
         case "feed.push":
             return v2Response(id: id, ok: true, result: [:])
         case "surface.resume.set":
@@ -7443,6 +7435,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         default:
             return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
         }
+    }
+
+    private func surfaceListResponse(id: String, surfaceIds: [String]) -> String {
+        let surfaces = surfaceIds.enumerated().map { index, surfaceId in
+            ["id": surfaceId, "ref": "surface:\(index + 1)", "focused": index == 0] as [String: Any]
+        }
+        return v2Response(id: id, ok: true, result: ["surfaces": surfaces])
     }
 
     private func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {
