@@ -148,84 +148,50 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         )
     }
 
-    func testUnifiedSidebarContrastOverlaySeparatesLightTerminalBackground() {
-        let snapshot = makeSnapshot(unifySurfaceBackdrops: true, backgroundHex: "#FFFFFF")
-        guard let overlay = snapshot.sidebarContrastOverlayColor(for: .leftSidebar) else {
-            XCTFail("expected sidebar overlay")
-            return
-        }
+    func testUnifiedSidebarBackdropsDoNotTintMatchedTerminalBackground() {
+        for backgroundHex in ["#FFFFFF", "#000000", "#777777"] {
+            let snapshot = makeSnapshot(
+                unifySurfaceBackdrops: true,
+                backgroundHex: backgroundHex,
+                backgroundOpacity: 1
+            )
 
-        XCTAssertLessThan(overlay.luminance, (NSColor(hex: "#FFFFFF") ?? .white).luminance)
-        XCTAssertEqual(overlay.alphaComponent, 0.20, accuracy: 0.0001)
-        XCTAssertNil(snapshot.sidebarContrastOverlayColor(for: .titlebar))
+            assertClearBackdrop(snapshot.policy(for: .leftSidebar))
+            assertClearBackdrop(snapshot.policy(for: .rightSidebar))
+            XCTAssertNil(snapshot.sidebarContrastOverlayColor(for: .leftSidebar), backgroundHex)
+            XCTAssertNil(snapshot.sidebarContrastOverlayColor(for: .rightSidebar), backgroundHex)
+            XCTAssertNil(snapshot.sidebarContrastOverlayColor(for: .titlebar), backgroundHex)
+        }
     }
 
-    func testUnifiedSidebarContrastOverlaySeparatesDarkTerminalBackground() {
-        let snapshot = makeSnapshot(unifySurfaceBackdrops: true, backgroundHex: "#000000")
-        guard let overlay = snapshot.sidebarContrastOverlayColor(for: .rightSidebar) else {
-            XCTFail("expected sidebar overlay")
-            return
-        }
-
-        XCTAssertGreaterThan(overlay.luminance, (NSColor(hex: "#000000") ?? .black).luminance)
-        XCTAssertEqual(overlay.alphaComponent, 0.18, accuracy: 0.0001)
-        XCTAssertNil(makeSnapshot(unifySurfaceBackdrops: false).sidebarContrastOverlayColor(for: .leftSidebar))
-    }
-
-    func testUnifiedSidebarContrastOverlayUsesCompositedTerminalBackground() {
+    func testUnifiedSidebarBackdropsDoNotTintTransparentTerminalBackground() {
         let snapshot = makeSnapshot(
             unifySurfaceBackdrops: true,
             backgroundHex: "#000000",
             backgroundOpacity: 0.05
         )
-        guard let overlay = snapshot.sidebarContrastOverlayColor(for: .leftSidebar),
-              let overlaySRGB = overlay.usingColorSpace(.sRGB),
-              let compositedSRGB = snapshot.compositedTerminalBackgroundColor.usingColorSpace(.sRGB) else {
-            XCTFail("expected sRGB-convertible sidebar overlay")
-            return
-        }
 
-        let isLight = cmuxReadableColorScheme(for: snapshot.compositedTerminalBackgroundColor) == .light
-        let adjustment: CGFloat = isLight ? -0.05 : 0.07
-        XCTAssertEqual(
-            overlaySRGB.redComponent,
-            min(1, max(0, compositedSRGB.redComponent + adjustment)),
-            accuracy: 0.001
-        )
-        XCTAssertEqual(
-            overlaySRGB.greenComponent,
-            min(1, max(0, compositedSRGB.greenComponent + adjustment)),
-            accuracy: 0.001
-        )
-        XCTAssertEqual(
-            overlaySRGB.blueComponent,
-            min(1, max(0, compositedSRGB.blueComponent + adjustment)),
-            accuracy: 0.001
-        )
-        XCTAssertEqual(overlaySRGB.alphaComponent, isLight ? 0.20 : 0.18, accuracy: 0.0001)
+        XCTAssertEqual(snapshot.compositedTerminalBackgroundColor.alphaComponent, 1, accuracy: 0.0001)
+        assertClearBackdrop(snapshot.policy(for: .leftSidebar))
+        assertClearBackdrop(snapshot.policy(for: .rightSidebar))
+        XCTAssertNil(snapshot.sidebarContrastOverlayColor(for: .leftSidebar))
+        XCTAssertNil(snapshot.sidebarContrastOverlayColor(for: .rightSidebar))
     }
 
-    func testUnifiedSidebarContrastOverlayUsesChromeReadableSchemeForMediumBackground() {
+    func testSeparateSidebarBackdropsKeepCustomTintBehavior() {
         let snapshot = makeSnapshot(
-            unifySurfaceBackdrops: true,
-            backgroundHex: "#777777",
-            backgroundOpacity: 1
+            unifySurfaceBackdrops: false,
+            backgroundHex: "#000000",
+            sidebarTintHexDark: "#FF0000",
+            sidebarTintOpacity: 0.4
         )
 
-        XCTAssertFalse(snapshot.compositedTerminalBackgroundColor.isLightColor)
-        XCTAssertEqual(snapshot.chromeColorScheme, .light)
-
-        guard let overlay = snapshot.sidebarContrastOverlayColor(for: .leftSidebar),
-              let overlaySRGB = overlay.usingColorSpace(.sRGB),
-              let compositedSRGB = snapshot.compositedTerminalBackgroundColor.usingColorSpace(.sRGB) else {
-            XCTFail("expected sRGB-convertible sidebar overlay")
+        guard case let .sidebarMaterial(sidebarPolicy) = snapshot.policy(for: .leftSidebar) else {
+            XCTFail("left sidebar should keep its own tint material")
             return
         }
-
-        XCTAssertLessThan(overlaySRGB.redComponent, compositedSRGB.redComponent)
-        XCTAssertLessThan(overlaySRGB.greenComponent, compositedSRGB.greenComponent)
-        XCTAssertLessThan(overlaySRGB.blueComponent, compositedSRGB.blueComponent)
-        XCTAssertEqual(overlaySRGB.alphaComponent, 0.20, accuracy: 0.0001)
+        XCTAssertEqual(sidebarPolicy.tintColor.hexString(includeAlpha: true), "#FF000066")
+        XCTAssertNil(snapshot.sidebarContrastOverlayColor(for: .leftSidebar))
     }
 
     func testOpaqueTerminalUsesOpaqueWindowFill() {
