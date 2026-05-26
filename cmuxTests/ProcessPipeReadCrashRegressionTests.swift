@@ -12,7 +12,7 @@ final class ProcessPipeReadCrashRegressionTests: XCTestCase {
     func testReadAvailableDataReturnsEmptyWhenWriterRemainsOpenWithoutBufferedBytes() {
         let pipe = Pipe()
         let completion = DispatchSemaphore(value: 0)
-        var result: Result<Data, ProcessPipeReadError>?
+        var result: Result<ProcessPipeAvailableRead, ProcessPipeReadError>?
 
         DispatchQueue.global(qos: .userInitiated).async {
             result = ProcessPipeReader.readAvailableData(from: pipe.fileHandleForReading)
@@ -29,12 +29,30 @@ final class ProcessPipeReadCrashRegressionTests: XCTestCase {
         }
 
         switch result {
-        case .success(let data):
-            XCTAssertTrue(data.isEmpty)
+        case .success(.wouldBlock):
+            break
+        case .success(let read):
+            XCTFail("readAvailableData should report wouldBlock, got \(read)")
         case .failure(let error):
             XCTFail("readAvailableData failed unexpectedly: \(error)")
         case nil:
             XCTFail("readAvailableData did not produce a result")
+        }
+    }
+
+    func testReadAvailableDataReportsEndOfFileWhenWriterIsClosed() {
+        let pipe = Pipe()
+        try? pipe.fileHandleForWriting.close()
+
+        let result = ProcessPipeReader.readAvailableData(from: pipe.fileHandleForReading)
+
+        switch result {
+        case .success(.endOfFile):
+            break
+        case .success(let read):
+            XCTFail("readAvailableData should report endOfFile, got \(read)")
+        case .failure(let error):
+            XCTFail("readAvailableData failed unexpectedly: \(error)")
         }
     }
 

@@ -110,9 +110,14 @@ enum AgentForkSupport {
             process.standardOutput = pipe
             process.standardError = pipe
             pipe.fileHandleForReading.readabilityHandler = { [outputBuffer] handle in
-                let data = ProcessPipeReader.readAvailableDataOrEmpty(from: handle)
-                guard !data.isEmpty else { return }
-                outputBuffer.append(data)
+                switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+                case .data(let data):
+                    outputBuffer.append(data)
+                case .wouldBlock:
+                    return
+                case .endOfFile:
+                    handle.readabilityHandler = nil
+                }
             }
             process.environment = AgentForkSupport.processEnvironmentForOpenCodeProbe(environment: environment)
             process.terminationHandler = { [weak self] _ in

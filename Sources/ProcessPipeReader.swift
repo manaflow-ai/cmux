@@ -27,13 +27,19 @@ struct ProcessPipeEndRead: Equatable, Sendable {
     let readError: ProcessPipeReadError?
 }
 
+enum ProcessPipeAvailableRead: Equatable, Sendable {
+    case data(Data)
+    case wouldBlock
+    case endOfFile
+}
+
 enum ProcessPipeReader {
     static let defaultChunkSize = 64 * 1024
 
     static func readAvailableData(
         from fileHandle: FileHandle,
         maxLength: Int = defaultChunkSize
-    ) -> Result<Data, ProcessPipeReadError> {
+    ) -> Result<ProcessPipeAvailableRead, ProcessPipeReadError> {
         readOnceNonBlocking(
             fileDescriptor: fileHandle.fileDescriptor,
             maxLength: maxLength,
@@ -88,10 +94,10 @@ enum ProcessPipeReader {
         return result.data
     }
 
-    static func readAvailableDataOrEmpty(from fileHandle: FileHandle) -> Data {
+    static func readAvailableDataOrEndOfFile(from fileHandle: FileHandle) -> ProcessPipeAvailableRead {
         switch readAvailableData(from: fileHandle) {
-        case .success(let data):
-            return data
+        case .success(let result):
+            return result
         case .failure(let error):
             logReadFailure(
                 error,
@@ -99,7 +105,7 @@ enum ProcessPipeReader {
                 partialByteCount: 0
             )
             fileHandle.readabilityHandler = nil
-            return Data()
+            return .endOfFile
         }
     }
 
@@ -116,8 +122,7 @@ enum ProcessPipeReader {
     private static func readOnce(
         fileDescriptor: Int32,
         maxLength: Int,
-        operation: String,
-        treatWouldBlockAsEmpty: Bool = false
+        operation: String
     ) -> Result<Data, ProcessPipeReadError> {
         guard maxLength > 0 else { return .success(Data()) }
 
@@ -139,8 +144,37 @@ enum ProcessPipeReader {
             if code == EINTR {
                 continue
             }
-            if treatWouldBlockAsEmpty && (code == EAGAIN || code == EWOULDBLOCK) {
-                return .success(Data())
+            return .failure(ProcessPipeReadError(operation: operation, errnoCode: code))
+        }
+    }
+
+    private static func readAvailableOnce(
+        fileDescriptor: Int32,
+        maxLength: Int,
+        operation: String
+    ) -> Result<ProcessPipeAvailableRead, ProcessPipeReadError> {
+        guard maxLength > 0 else { return .success(.wouldBlock) }
+
+        var buffer = [UInt8](repeating: 0, count: maxLength)
+        while true {
+            let bytesRead = buffer.withUnsafeMutableBytes { pointer -> Int in
+                guard let baseAddress = pointer.baseAddress else { return 0 }
+                return Darwin.read(fileDescriptor, baseAddress, maxLength)
+            }
+
+            if bytesRead > 0 {
+                return .success(.data(Data(buffer.prefix(bytesRead))))
+            }
+            if bytesRead == 0 {
+                return .success(.endOfFile)
+            }
+
+            let code = errno
+            if code == EINTR {
+                continue
+            }
+            if code == EAGAIN || code == EWOULDBLOCK {
+                return .success(.wouldBlock)
             }
             return .failure(ProcessPipeReadError(operation: operation, errnoCode: code))
         }
@@ -150,8 +184,8 @@ enum ProcessPipeReader {
         fileDescriptor: Int32,
         maxLength: Int,
         operation: String
-    ) -> Result<Data, ProcessPipeReadError> {
-        guard maxLength > 0 else { return .success(Data()) }
+    ) -> Result<ProcessPipeAvailableRead, ProcessPipeReadError> {
+        guard maxLength > 0 else { return .success(.wouldBlock) }
 
         let originalFlags = Darwin.fcntl(fileDescriptor, F_GETFL)
         guard originalFlags != -1 else {
@@ -171,11 +205,10 @@ enum ProcessPipeReader {
             }
         }
 
-        let result = readOnce(
+        let result = readAvailableOnce(
             fileDescriptor: fileDescriptor,
             maxLength: maxLength,
-            operation: operation,
-            treatWouldBlockAsEmpty: true
+            operation: operation
         )
 
         if shouldRestoreFlags,
@@ -186,9 +219,9 @@ enum ProcessPipeReader {
             )
             let partialByteCount: Int
             switch result {
-            case .success(let data):
+            case .success(.data(let data)):
                 partialByteCount = data.count
-            case .failure:
+            case .success(.wouldBlock), .success(.endOfFile), .failure:
                 partialByteCount = 0
             }
             logReadFailure(

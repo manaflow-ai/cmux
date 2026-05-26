@@ -101,11 +101,16 @@ extension CMUXCLI {
         var output = Data()
         let outputLock = NSLock()
         pipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = ProcessPipeReader.readAvailableDataOrEmpty(from: handle)
-            guard !data.isEmpty else { return }
-            outputLock.lock()
-            output.append(data)
-            outputLock.unlock()
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            case .data(let data):
+                outputLock.lock()
+                output.append(data)
+                outputLock.unlock()
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                handle.readabilityHandler = nil
+            }
         }
         do {
             try process.run()
