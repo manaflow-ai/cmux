@@ -90,7 +90,16 @@ nonisolated enum GitDiffReviewParser {
                 continue
             }
             if line.hasPrefix("similarity index") {
-                currentStatus = .renamed
+                continue
+            }
+            if line.hasPrefix("copy from ") {
+                currentOldPath = String(line.dropFirst("copy from ".count))
+                currentStatus = .copied
+                continue
+            }
+            if line.hasPrefix("copy to ") {
+                currentPath = String(line.dropFirst("copy to ".count))
+                currentStatus = .copied
                 continue
             }
             if line.hasPrefix("rename from ") {

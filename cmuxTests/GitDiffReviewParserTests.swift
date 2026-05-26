@@ -8,6 +8,22 @@ import XCTest
 #endif
 
 final class GitDiffReviewParserTests: XCTestCase {
+    func testLoaderPreservesPathForNonGitDirectory() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-code-review-loader-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        do {
+            _ = try await GitDiffReviewLoader.load(rootPath: directory.path)
+            XCTFail("Expected non-Git directory to fail")
+        } catch let error as GitDiffReviewLoadError {
+            XCTAssertEqual(error, .notGitRepository(directory.path))
+        }
+    }
+
     func testParserBuildsFilesHunksAndLineNumbersFromUnifiedDiff() {
         let diffText = """
         diff --git a/Sources/App.swift b/Sources/App.swift
@@ -260,6 +276,27 @@ final class GitDiffReviewParserTests: XCTestCase {
         XCTAssertEqual(files[0].path, "new name.txt")
         XCTAssertEqual(files[0].oldPath, "old name.txt")
         XCTAssertEqual(files[0].status, .renamed)
+    }
+
+    func testParserUsesCopyMarkersForCopyFallbackStatus() {
+        let diffText = """
+        diff --git a/template.txt b/copied.txt
+        similarity index 91%
+        copy from template.txt
+        copy to copied.txt
+        index 1111111..2222222 100644
+        --- a/template.txt
+        +++ b/copied.txt
+        @@ -1 +1 @@
+         shared
+        """
+
+        let files = GitDiffReviewParser.parse(diffText: diffText, statusText: "")
+
+        XCTAssertEqual(files.count, 1)
+        XCTAssertEqual(files[0].path, "copied.txt")
+        XCTAssertEqual(files[0].oldPath, "template.txt")
+        XCTAssertEqual(files[0].status, .copied)
     }
 
     func testParserMapsPorcelainConflictCodesToUnmerged() {

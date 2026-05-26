@@ -82,7 +82,11 @@ nonisolated enum GitDiffReviewLoader {
 
         let cancellationState = GitDiffProcessCancellationState()
         return try await withTaskCancellationHandler {
-            try await runGitProcess(arguments, cancellationState: cancellationState)
+            try await runGitProcess(
+                arguments,
+                workingDirectoryPath: workingDirectoryPath(from: arguments),
+                cancellationState: cancellationState
+            )
         } onCancel: {
             cancellationState.cancel()
         }
@@ -90,6 +94,7 @@ nonisolated enum GitDiffReviewLoader {
 
     private static func runGitProcess(
         _ arguments: [String],
+        workingDirectoryPath: String?,
         cancellationState: GitDiffProcessCancellationState
     ) async throws -> String {
         let process = Process()
@@ -144,13 +149,23 @@ nonisolated enum GitDiffReviewLoader {
         }
 
         guard terminationStatus == 0 else {
-            if errorOutput.contains("not a git repository") {
-                throw GitDiffReviewLoadError.notGitRepository("")
+            if errorOutput.contains("not a git repository"),
+               let workingDirectoryPath {
+                throw GitDiffReviewLoadError.notGitRepository(workingDirectoryPath)
             }
             throw GitDiffReviewLoadError.commandFailed
         }
 
         return output
+    }
+
+    private static func workingDirectoryPath(from arguments: [String]) -> String? {
+        for (index, argument) in arguments.enumerated() where argument == "-C" {
+            let pathIndex = index + 1
+            guard pathIndex < arguments.count else { return nil }
+            return arguments[pathIndex]
+        }
+        return nil
     }
 
     private static func readAllData(from handle: FileHandle) async throws -> Data {
