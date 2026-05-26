@@ -640,8 +640,10 @@ final class QuickTerminalController {
 
     init(
         appDelegate: AppDelegate,
-        configurationProvider: @escaping @MainActor () -> QuickTerminalConfiguration = QuickTerminalConfiguration.current,
-        placementProvider: @escaping @MainActor (QuickTerminalConfiguration) -> QuickTerminalPlacement? = QuickTerminalPlacement.current
+        configurationProvider: @escaping @MainActor () -> QuickTerminalConfiguration = { QuickTerminalConfiguration.current() },
+        placementProvider: @escaping @MainActor (QuickTerminalConfiguration) -> QuickTerminalPlacement? = { configuration in
+            QuickTerminalPlacement.current(configuration: configuration)
+        }
     ) {
         self.appDelegate = appDelegate
         self.configurationProvider = configurationProvider
