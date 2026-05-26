@@ -3602,7 +3602,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             detectedSnapshots: [
                 RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
                     snapshot: detectedSnapshot,
-                    updatedAt: 999
+                    updatedAt: 999,
+                    processIDs: [123]
                 ),
             ]
         )
@@ -3668,7 +3669,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             detectedSnapshots: [
                 RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
                     snapshot: detectedSnapshot,
-                    updatedAt: 999
+                    updatedAt: 999,
+                    processIDs: [456]
                 ),
             ]
         )
@@ -4769,6 +4771,67 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(restoredPanel.requestedWorkingDirectory, "/tmp/new")
         XCTAssertTrue(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+    }
+
+    @MainActor
+    func testRestoreDoesNotRunResumeBindingForHibernatedSnapshot() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sourcePanel = try XCTUnwrap(source.terminalPanel(for: sourcePanelId))
+        let sourcePaneId = try XCTUnwrap(source.paneId(forPanelId: sourcePanelId))
+        _ = try XCTUnwrap(source.newTerminalSurface(inPane: sourcePaneId, focus: true))
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-hibernated-restore",
+            workingDirectory: "/tmp/agent",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: "/tmp/agent",
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        sourcePanel.enterAgentHibernation(
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            hibernatedAt: Date(timeIntervalSince1970: 20)
+        )
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "script",
+                kind: "custom",
+                command: "./resume.sh",
+                cwd: "/tmp/binding",
+                checkpointId: "script",
+                source: "process-detected",
+                autoResume: true,
+                updatedAt: 10
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+        let sourcePanelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == sourcePanelId })
+        XCTAssertNotNil(sourcePanelSnapshot.terminal?.hibernation)
+        XCTAssertNotNil(sourcePanelSnapshot.terminal?.agent?.resumeCommand)
+        XCTAssertNotEqual(snapshot.focusedPanelId, sourcePanelId)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        let restoredPanelSnapshot = try XCTUnwrap(
+            restoredSnapshot.panels.first {
+                $0.terminal?.resumeBinding?.command == "./resume.sh"
+            }
+        )
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelSnapshot.id))
+
+        XCTAssertFalse(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        XCTAssertEqual(restoredPanelSnapshot.terminal?.agent?.sessionId, "codex-hibernated-restore")
     }
 
     @MainActor
