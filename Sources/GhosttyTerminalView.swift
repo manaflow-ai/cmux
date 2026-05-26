@@ -2382,11 +2382,10 @@ class GhosttyApp {
     }
 
     private func loadConditionalThemeOverrideIfNeeded(
-        _ config: ghostty_config_t,
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+        _ config: ghostty_config_t
     ) {
         guard let contents = Self.conditionalThemeOverrideConfigContents(
-            preferredColorScheme: preferredColorScheme
+            preferredColorScheme: GhosttyConfig.currentColorSchemePreference()
         ) else { return }
 
         loadInlineGhosttyConfig(
@@ -2408,10 +2407,7 @@ class GhosttyApp {
             loadLegacyGhosttyConfigIfNeeded(config)
             loadCmuxAppSupportGhosttyConfigIfNeeded(config)
             ghostty_config_load_recursive_files(config)
-            loadConditionalThemeOverrideIfNeeded(
-                config,
-                preferredColorScheme: preferredColorScheme
-            )
+            loadConditionalThemeOverrideIfNeeded(config)
             if Self.shouldApplyManagedDefaultAppearance() {
                 loadCmuxDefaultAppearanceConfig(
                     config,
@@ -2430,10 +2426,7 @@ class GhosttyApp {
         loadLegacyGhosttyConfigIfNeeded(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
-        loadConditionalThemeOverrideIfNeeded(
-            config,
-            preferredColorScheme: preferredColorScheme
-        )
+        loadConditionalThemeOverrideIfNeeded(config)
         if Self.shouldApplyManagedDefaultAppearance() {
             loadCmuxDefaultAppearanceConfig(
                 config,
