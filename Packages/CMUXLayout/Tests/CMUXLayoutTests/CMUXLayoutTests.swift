@@ -1366,6 +1366,9 @@ final class CMUXLayoutTests: XCTestCase {
                 insertFirst: false
             )
         )
+        let secondTargetTab = try XCTUnwrap(controller.createTab(title: "Second Target", inPane: targetPaneId))
+        controller.selectTab(targetTab.id)
+        controller.focusPane(targetPaneId)
         let delegate = PaneLifecycleDelegateSpy()
         delegate.shouldClosePaneResult = false
         controller.delegate = delegate
@@ -1373,7 +1376,10 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertFalse(controller.moveTab(movingTab, toPane: targetPaneId))
         XCTAssertEqual(delegate.shouldClosePaneIds, [sourcePaneId])
         XCTAssertEqual(controller.tabs(inPane: sourcePaneId).map(\.id), [movingTab])
-        XCTAssertEqual(controller.tabs(inPane: targetPaneId).map(\.id), [targetTab.id])
+        XCTAssertEqual(controller.selectedTab(inPane: sourcePaneId)?.id, movingTab)
+        XCTAssertEqual(controller.tabs(inPane: targetPaneId).map(\.id), [targetTab.id, secondTargetTab])
+        XCTAssertEqual(controller.selectedTab(inPane: targetPaneId)?.id, targetTab.id)
+        XCTAssertEqual(controller.focusedPaneId, targetPaneId)
         XCTAssertEqual(controller.allPaneIds.count, 2)
     }
 

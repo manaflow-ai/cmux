@@ -396,6 +396,10 @@ public final class WorkspaceLayoutController {
 
         guard configuration.allowCrossPaneTabMove else { return false }
 
+        let previousFocusedPaneId = internalController.focusedPaneId
+        let sourceSelectedTabId = sourcePane.selectedTabId
+        let targetSelectedTabId = targetPane.selectedTabId
+
         sourcePane.removeTab(tabItem.id)
         if let index {
             targetPane.insertTab(tabItem, at: index)
@@ -406,9 +410,19 @@ public final class WorkspaceLayoutController {
         if sourcePane.tabs.isEmpty && internalController.rootNode.allPaneIds.count > 1 {
             if !closePane(PaneID(id: sourcePane.id.id)) {
                 targetPane.removeTab(tabItem.id)
+                if let targetSelectedTabId,
+                   targetPane.tabs.contains(where: { $0.id == targetSelectedTabId }) {
+                    targetPane.selectTab(targetSelectedTabId)
+                }
                 sourcePane.insertTab(tabItem, at: min(sourceIndex, sourcePane.tabs.count))
-                sourcePane.selectTab(tabItem.id)
-                internalController.focusPane(sourcePane.id)
+                if let sourceSelectedTabId,
+                   sourcePane.tabs.contains(where: { $0.id == sourceSelectedTabId }) {
+                    sourcePane.selectTab(sourceSelectedTabId)
+                }
+                if let previousFocusedPaneId,
+                   internalController.rootNode.findPane(previousFocusedPaneId) != nil {
+                    internalController.focusPane(previousFocusedPaneId)
+                }
                 notifyGeometryChange()
                 return false
             }
