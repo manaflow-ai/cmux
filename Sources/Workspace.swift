@@ -10725,20 +10725,24 @@ final class Workspace: Identifiable, ObservableObject {
         if let runtimeState = storedState.runtimeState,
            Self.canRestoreRuntimeLayout(runtimeState.layout, detachedSurfaceIds: Set(runtimeState.detachedSurfaces.keys)) {
             restoreRuntimePageState(runtimeState)
-            restoreRuntimePageNotifications(from: storedState.sessionState)
+            restorePageSwitchNotifications(
+                from: storedState.sessionState,
+                oldToNewPanelIds: identityPanelIdMap(for: storedState.sessionState)
+            )
         } else {
             teardownDetachedSurfaces(storedState.runtimeState?.detachedSurfaces)
             let oldToNewPanelIds = restoreSessionPageState(storedState.sessionState)
-            let restoredNotifications = restoredPageSessionNotifications(
+            restorePageSwitchNotifications(
                 from: storedState.sessionState,
                 oldToNewPanelIds: oldToNewPanelIds
             )
-            AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
-            syncUnreadBadgeStateForAllPanels()
         }
     }
 
-    private func restoreRuntimePageNotifications(from pageState: SessionWorkspacePageStateSnapshot) {
+    private func restorePageSwitchNotifications(
+        from selectedPageState: SessionWorkspacePageStateSnapshot,
+        oldToNewPanelIds: [UUID: UUID]
+    ) {
         guard let notificationStore = AppDelegate.shared?.notificationStore else {
             syncUnreadBadgeStateForAllPanels()
             return
@@ -10753,8 +10757,19 @@ final class Workspace: Identifiable, ObservableObject {
             record(notification)
         }
 
-        let identityPanelIds = Dictionary(uniqueKeysWithValues: pageState.panels.map { ($0.id, $0.id) })
-        for notification in restoredPageSessionNotifications(from: pageState, oldToNewPanelIds: identityPanelIds) {
+        for storedState in storedPageStates.values {
+            for notification in restoredPageSessionNotifications(
+                from: storedState.sessionState,
+                oldToNewPanelIds: identityPanelIdMap(for: storedState.sessionState)
+            ) {
+                record(notification)
+            }
+        }
+
+        for notification in restoredPageSessionNotifications(
+            from: selectedPageState,
+            oldToNewPanelIds: oldToNewPanelIds
+        ) {
             record(notification)
         }
 
@@ -10766,6 +10781,10 @@ final class Workspace: Identifiable, ObservableObject {
 
         notificationStore.restoreSessionNotifications(Array(notificationsById.values), forTabId: id)
         syncUnreadBadgeStateForAllPanels()
+    }
+
+    private func identityPanelIdMap(for pageState: SessionWorkspacePageStateSnapshot) -> [UUID: UUID] {
+        Dictionary(uniqueKeysWithValues: pageState.panels.map { ($0.id, $0.id) })
     }
 
     static func canRestoreRuntimeLayout(

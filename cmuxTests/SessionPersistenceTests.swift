@@ -178,6 +178,59 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restored.bonsplitController.tab(restoredSurfaceId)?.showsNotificationBadge, true)
     }
 
+    @MainActor
+    func testSelectingNewPagePreservesWorkspaceAndInactivePageNotifications() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let originalNotificationStore = appDelegate.notificationStore
+        appDelegate.notificationStore = store
+        store.replaceNotificationsForTesting([])
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let workspace = Workspace()
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let workspaceNotification = TerminalNotification(
+            id: UUID(),
+            tabId: workspace.id,
+            surfaceId: nil,
+            panelId: nil,
+            title: "Workspace alert",
+            subtitle: "",
+            body: "Workspace notification should survive page switch",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_200),
+            isRead: false,
+            paneFlash: true
+        )
+        let panelNotification = TerminalNotification(
+            id: UUID(),
+            tabId: workspace.id,
+            surfaceId: firstPanelId,
+            panelId: firstPanelId,
+            title: "Panel alert",
+            subtitle: "",
+            body: "Inactive page notification should survive page switch",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_201),
+            isRead: false,
+            paneFlash: true
+        )
+        store.replaceNotificationsForTesting([workspaceNotification, panelNotification])
+
+        let secondPage = workspace.newPage(select: true)
+
+        XCTAssertEqual(workspace.activePageId, secondPage.id)
+        XCTAssertEqual(
+            store.notifications(forTabId: workspace.id, surfaceId: nil).map(\.id),
+            [workspaceNotification.id]
+        )
+        XCTAssertEqual(
+            store.notifications(forTabId: workspace.id, surfaceId: firstPanelId).map(\.id),
+            [panelNotification.id]
+        )
+    }
+
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
