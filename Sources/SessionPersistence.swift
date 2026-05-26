@@ -1559,6 +1559,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customDescription: String?
     var customColor: String?
     var isPinned: Bool
+    var groupId: UUID? = nil
     var isManuallyUnread: Bool? = nil
     var hasUnreadIndicator: Bool? = nil
     var notifications: [SessionNotificationSnapshot]? = nil
@@ -1572,6 +1573,12 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
     var remote: SessionRemoteWorkspaceSnapshot?
+}
+
+struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
+    var id: UUID
+    var name: String
+    var isCollapsed: Bool
 }
 
 extension SessionWorkspaceSnapshot {
@@ -1589,6 +1596,7 @@ extension SessionWindowSnapshot {
 struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
+    var workspaceGroups: [SessionWorkspaceGroupSnapshot]? = nil
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {

@@ -923,6 +923,15 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 }
 #endif
 
+/// Named collapsible sidebar group containing one or more workspaces.
+/// The membership relation lives on `Workspace.groupId`; this struct only
+/// stores the group's identity, display name, and persisted collapse state.
+struct WorkspaceGroup: Identifiable, Equatable, Sendable {
+    let id: UUID
+    var name: String
+    var isCollapsed: Bool
+}
+
 @MainActor
 class TabManager: ObservableObject {
     private enum WorkspacePullRequestSnapshot: Equatable {
@@ -1131,7 +1140,23 @@ class TabManager: ObservableObject {
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
 
-    @Published var tabs: [Workspace] = []
+    @Published var tabs: [Workspace] = [] {
+        didSet {
+            // Drop any group whose last member workspace was removed so the
+            // sidebar never shows empty group headers. The check is O(N+G)
+            // and skips entirely when no groups exist.
+            guard !workspaceGroups.isEmpty else { return }
+            let occupiedGroupIds = Set(tabs.compactMap(\.groupId))
+            let filtered = workspaceGroups.filter { occupiedGroupIds.contains($0.id) }
+            if filtered.count != workspaceGroups.count {
+                workspaceGroups = filtered
+            }
+        }
+    }
+    /// Named groupings of workspaces shown as collapsible sections in the sidebar.
+    /// Group order in this array defines section order in the sidebar.
+    /// Each member workspace stores its `groupId` on the `Workspace` model.
+    @Published var workspaceGroups: [WorkspaceGroup] = []
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
@@ -5650,6 +5675,136 @@ class TabManager: ObservableObject {
         tabs.insert(tab, at: insertIndex)
     }
 
+    // MARK: - Workspace Groups
+
+    /// Create a new group containing the given workspaces. Pinned workspaces are skipped
+    /// (groups only apply to unpinned workspaces). Returns the new group id, or nil if
+    /// no eligible workspaces were provided.
+    @discardableResult
+    func createWorkspaceGroup(name: String, workspaceIds: [UUID]) -> UUID? {
+        let eligibleIds = workspaceIds.compactMap { id -> UUID? in
+            guard let tab = tabs.first(where: { $0.id == id }), !tab.isPinned else { return nil }
+            return id
+        }
+        guard !eligibleIds.isEmpty else { return nil }
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedName = trimmedName.isEmpty
+            ? String(localized: "workspaceGroup.defaultName", defaultValue: "New Group")
+            : trimmedName
+        let group = WorkspaceGroup(id: UUID(), name: resolvedName, isCollapsed: false)
+        workspaceGroups.append(group)
+        for id in eligibleIds {
+            assignGroup(workspaceId: id, groupId: group.id)
+        }
+        normalizeWorkspaceGroupContiguity()
+        postWorkspaceOrderDidChange(movedWorkspaceIds: eligibleIds)
+        return group.id
+    }
+
+    /// Add an existing workspace to an existing group. No-op for pinned workspaces.
+    func addWorkspaceToGroup(workspaceId: UUID, groupId: UUID) {
+        guard let tab = tabs.first(where: { $0.id == workspaceId }), !tab.isPinned else { return }
+        guard workspaceGroups.contains(where: { $0.id == groupId }) else { return }
+        guard tab.groupId != groupId else { return }
+        assignGroup(workspaceId: workspaceId, groupId: groupId)
+        normalizeWorkspaceGroupContiguity()
+        pruneEmptyWorkspaceGroups()
+        postWorkspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
+    }
+
+    /// Remove a workspace from any group it belongs to. The workspace moves into the
+    /// ungrouped section at the bottom of the sidebar.
+    func removeWorkspaceFromGroup(workspaceId: UUID) {
+        guard let tab = tabs.first(where: { $0.id == workspaceId }), tab.groupId != nil else { return }
+        assignGroup(workspaceId: workspaceId, groupId: nil)
+        normalizeWorkspaceGroupContiguity()
+        pruneEmptyWorkspaceGroups()
+        postWorkspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
+    }
+
+    /// Rename a group. Whitespace-only names are ignored.
+    func renameWorkspaceGroup(groupId: UUID, name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
+        guard workspaceGroups[index].name != trimmed else { return }
+        workspaceGroups[index].name = trimmed
+    }
+
+    /// Delete a group. Its member workspaces become ungrouped and remain in the sidebar.
+    func deleteWorkspaceGroup(groupId: UUID) {
+        let memberIds = tabs.filter { $0.groupId == groupId }.map(\.id)
+        for id in memberIds {
+            assignGroup(workspaceId: id, groupId: nil)
+        }
+        workspaceGroups.removeAll { $0.id == groupId }
+        normalizeWorkspaceGroupContiguity()
+        postWorkspaceOrderDidChange(movedWorkspaceIds: memberIds)
+    }
+
+    /// Toggle the collapse state of a group's section header.
+    func toggleWorkspaceGroupCollapsed(groupId: UUID) {
+        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
+        workspaceGroups[index].isCollapsed.toggle()
+    }
+
+    func setWorkspaceGroupCollapsed(groupId: UUID, isCollapsed: Bool) {
+        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
+        guard workspaceGroups[index].isCollapsed != isCollapsed else { return }
+        workspaceGroups[index].isCollapsed = isCollapsed
+    }
+
+    private func assignGroup(workspaceId: UUID, groupId: UUID?) {
+        guard let tab = tabs.first(where: { $0.id == workspaceId }) else { return }
+        guard tab.groupId != groupId else { return }
+        tab.groupId = groupId
+    }
+
+    /// Reorder `tabs` so each group's members are contiguous, preserving relative order
+    /// within each group. Pinned workspaces stay at the top; ungrouped unpinned workspaces
+    /// stay at the bottom. Group section order matches `workspaceGroups`.
+    private func normalizeWorkspaceGroupContiguity() {
+        guard !tabs.isEmpty else { return }
+        let pinned = tabs.filter { $0.isPinned }
+        let unpinned = tabs.filter { !$0.isPinned }
+        let knownGroupIds = Set(workspaceGroups.map(\.id))
+        // Defensively drop groupId values that no longer reference a known group.
+        for tab in unpinned where tab.groupId.map({ !knownGroupIds.contains($0) }) ?? false {
+            tab.groupId = nil
+        }
+        var groupedByGroupId: [UUID: [Workspace]] = [:]
+        var ungrouped: [Workspace] = []
+        for tab in unpinned {
+            if let groupId = tab.groupId {
+                groupedByGroupId[groupId, default: []].append(tab)
+            } else {
+                ungrouped.append(tab)
+            }
+        }
+        var reordered: [Workspace] = []
+        reordered.append(contentsOf: pinned)
+        for group in workspaceGroups {
+            if let members = groupedByGroupId[group.id] {
+                reordered.append(contentsOf: members)
+            }
+        }
+        reordered.append(contentsOf: ungrouped)
+        // Only assign when the order actually changes to avoid spurious republishes.
+        if reordered.map(\.id) != tabs.map(\.id) {
+            tabs = reordered
+        }
+    }
+
+    /// Remove any groups that no longer contain workspaces. Called after operations that
+    /// could leave a group empty (deleting a workspace, moving it out of a group, etc.).
+    func pruneEmptyWorkspaceGroups() {
+        let occupiedGroupIds = Set(tabs.compactMap(\.groupId))
+        let next = workspaceGroups.filter { occupiedGroupIds.contains($0.id) }
+        if next.count != workspaceGroups.count {
+            workspaceGroups = next
+        }
+    }
+
     private func clampedReorderIndex(for workspace: Workspace, targetIndex: Int) -> Int {
         let clamped = max(0, min(targetIndex, tabs.count - 1))
         let pinnedCount = tabs.filter { $0.isPinned }.count
@@ -9887,9 +10042,17 @@ extension TabManager {
         let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
             restorableTabs.firstIndex(where: { $0.id == selectedTabId })
         }
+        let occupiedGroupIds = Set(restorableTabs.compactMap(\.groupId))
+        let groupSnapshots: [SessionWorkspaceGroupSnapshot]? = {
+            let snapshots = workspaceGroups
+                .filter { occupiedGroupIds.contains($0.id) }
+                .map { SessionWorkspaceGroupSnapshot(id: $0.id, name: $0.name, isCollapsed: $0.isCollapsed) }
+            return snapshots.isEmpty ? nil : snapshots
+        }()
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
-            workspaces: workspaceSnapshots
+            workspaces: workspaceSnapshots,
+            workspaceGroups: groupSnapshots
         )
     }
 
@@ -9988,6 +10151,27 @@ extension TabManager {
         // Single atomic assignment of @Published properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
+        let restoredGroups: [WorkspaceGroup] = {
+            guard let groupSnapshots = snapshot.workspaceGroups else { return [] }
+            let referencedGroupIds = Set(newTabs.compactMap(\.groupId))
+            var seen: Set<UUID> = []
+            return groupSnapshots.compactMap { groupSnapshot in
+                guard referencedGroupIds.contains(groupSnapshot.id),
+                      seen.insert(groupSnapshot.id).inserted else { return nil }
+                return WorkspaceGroup(
+                    id: groupSnapshot.id,
+                    name: groupSnapshot.name,
+                    isCollapsed: groupSnapshot.isCollapsed
+                )
+            }
+        }()
+        // Clear any group references on restored workspaces that no longer correspond
+        // to a known group (older snapshots, manual edits, etc.).
+        let knownGroupIds = Set(restoredGroups.map(\.id))
+        for workspace in newTabs where workspace.groupId.map({ !knownGroupIds.contains($0) }) ?? false {
+            workspace.groupId = nil
+        }
+        workspaceGroups = restoredGroups
         selectedTabId = newSelectedId
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)

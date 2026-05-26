@@ -9901,8 +9901,63 @@ struct VerticalTabsSidebar: View {
         let allSelectedRemoteContextMenuTargetsConnecting: Bool
         let allSelectedRemoteContextMenuTargetsDisconnected: Bool
         let workspaceTerminalScrollBarHiddenById: [UUID: Bool]
+        let workspaceGroups: [WorkspaceGroup]
+        let workspaceGroupById: [UUID: WorkspaceGroup]
 
         var workspaceIds: [UUID] { tabIds }
+    }
+
+    /// One drawable row in the workspace sidebar: either a collapsible group header
+    /// or a workspace row. Group sections are inferred from contiguous runs of
+    /// workspaces in `tabs` that share the same `groupId`. `TabManager`
+    /// normalizes the tab order so all members of a group are adjacent.
+    private enum SidebarWorkspaceRenderItem: Identifiable {
+        case groupHeader(WorkspaceGroup, memberCount: Int)
+        case workspace(Workspace)
+
+        var id: String {
+            switch self {
+            case .groupHeader(let group, _):
+                return "group.\(group.id.uuidString)"
+            case .workspace(let workspace):
+                return "workspace.\(workspace.id.uuidString)"
+            }
+        }
+    }
+
+    private static func sidebarWorkspaceRenderItems(
+        tabs: [Workspace],
+        groupsById: [UUID: WorkspaceGroup]
+    ) -> [SidebarWorkspaceRenderItem] {
+        guard !tabs.isEmpty else { return [] }
+        var memberCountByGroupId: [UUID: Int] = [:]
+        for tab in tabs {
+            if let gid = tab.groupId {
+                memberCountByGroupId[gid, default: 0] += 1
+            }
+        }
+        var items: [SidebarWorkspaceRenderItem] = []
+        items.reserveCapacity(tabs.count + groupsById.count)
+        var lastEmittedGroupId: UUID? = nil
+        var emittedHeaders: Set<UUID> = []
+        var skipUntilNextGroup = false
+        for tab in tabs {
+            let groupId = tab.groupId
+            if groupId != lastEmittedGroupId {
+                lastEmittedGroupId = groupId
+                skipUntilNextGroup = false
+                if let groupId, let group = groupsById[groupId], !emittedHeaders.contains(groupId) {
+                    let count = memberCountByGroupId[groupId] ?? 0
+                    items.append(.groupHeader(group, memberCount: count))
+                    emittedHeaders.insert(groupId)
+                    skipUntilNextGroup = group.isCollapsed
+                }
+            }
+            if groupId == nil || !skipUntilNextGroup {
+                items.append(.workspace(tab))
+            }
+        }
+        return items
     }
 
     var body: some View {
@@ -9928,6 +9983,8 @@ struct VerticalTabsSidebar: View {
             }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
+        let workspaceGroups = tabManager.workspaceGroups
+        let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let renderContext = WorkspaceListRenderContext(
             tabs: tabs,
             tabIds: tabs.map(\.id),
@@ -9940,7 +9997,9 @@ struct VerticalTabsSidebar: View {
             selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
             allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
-            workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById
+            workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById,
+            workspaceGroups: workspaceGroups,
+            workspaceGroupById: workspaceGroupById
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -10963,13 +11022,22 @@ struct VerticalTabsSidebar: View {
     }
 
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
+        let renderItems = Self.sidebarWorkspaceRenderItems(
+            tabs: renderContext.tabs,
+            groupsById: renderContext.workspaceGroupById
+        )
         // LazyVStack is safe here because `dragState` is @Observable:
         // drag mutations at 60fps invalidate only the rows/overlays that
         // read them, never this sidebar body. See SidebarDragState and
         // https://github.com/manaflow-ai/cmux/issues/2586.
-        LazyVStack(spacing: tabRowSpacing) {
-            ForEach(renderContext.tabs, id: \.id) { tab in
-                workspaceRow(tab, renderContext: renderContext)
+        return LazyVStack(spacing: tabRowSpacing) {
+            ForEach(renderItems) { item in
+                switch item {
+                case .groupHeader(let group, let memberCount):
+                    sidebarWorkspaceGroupHeader(group: group, memberCount: memberCount)
+                case .workspace(let tab):
+                    workspaceRow(tab, renderContext: renderContext)
+                }
             }
         }
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
@@ -11170,9 +11238,138 @@ struct VerticalTabsSidebar: View {
         }
     }
 
+    @ViewBuilder
+    private func sidebarWorkspaceGroupHeader(
+        group: WorkspaceGroup,
+        memberCount: Int
+    ) -> some View {
+        SidebarWorkspaceGroupHeaderView(
+            groupId: group.id,
+            name: group.name,
+            isCollapsed: group.isCollapsed,
+            memberCount: memberCount,
+            onToggleCollapsed: { [weak tabManager, groupId = group.id] in
+                tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
+            },
+            onRename: { [weak tabManager, groupId = group.id, currentName = group.name] in
+                guard let tabManager else { return }
+                presentSidebarWorkspaceGroupRenamePrompt(
+                    tabManager: tabManager,
+                    groupId: groupId,
+                    currentName: currentName
+                )
+            },
+            onDelete: { [weak tabManager, groupId = group.id] in
+                tabManager?.deleteWorkspaceGroup(groupId: groupId)
+            }
+        )
+        .id("workspaceGroupHeader.\(group.id.uuidString)")
+        .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
+    }
+
+    private func presentSidebarWorkspaceGroupRenamePrompt(
+        tabManager: TabManager,
+        groupId: UUID,
+        currentName: String
+    ) {
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "workspaceGroup.rename.title",
+            defaultValue: "Rename Group"
+        )
+        alert.informativeText = String(
+            localized: "workspaceGroup.rename.message",
+            defaultValue: "Enter a new name for this group."
+        )
+        alert.addButton(
+            withTitle: String(localized: "workspaceGroup.rename.confirm", defaultValue: "Rename")
+        )
+        alert.addButton(
+            withTitle: String(localized: "common.cancel", defaultValue: "Cancel")
+        )
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        input.stringValue = currentName
+        input.placeholderString = String(
+            localized: "workspaceGroup.rename.placeholder",
+            defaultValue: "Group name"
+        )
+        alert.accessoryView = input
+        DispatchQueue.main.async { input.becomeFirstResponder() }
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+        tabManager.renameWorkspaceGroup(groupId: groupId, name: input.stringValue)
+    }
+
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
+    }
+}
+
+/// Dia-style collapsible group header that sits between workspace rows in the sidebar.
+/// Conforms to the snapshot-boundary rule: no `@ObservedObject`/`@EnvironmentObject`
+/// references; receives values + closures only.
+private struct SidebarWorkspaceGroupHeaderView: View {
+    let groupId: UUID
+    let name: String
+    let isCollapsed: Bool
+    let memberCount: Int
+    let onToggleCollapsed: () -> Void
+    let onRename: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        Button(action: onToggleCollapsed) {
+            HStack(spacing: 6) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Text(name)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(name))
+        .accessibilityValue(
+            Text(
+                isCollapsed
+                    ? String(
+                        localized: "workspaceGroup.collapsed.a11y",
+                        defaultValue: "Collapsed"
+                    )
+                    : String(
+                        localized: "workspaceGroup.expanded.a11y",
+                        defaultValue: "Expanded"
+                    )
+            )
+        )
+        .contextMenu {
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.rename",
+                    defaultValue: "Rename Group…"
+                ),
+                action: onRename
+            )
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.delete",
+                    defaultValue: "Delete Group"
+                ),
+                role: .destructive,
+                action: onDelete
+            )
+        }
     }
 }
 
@@ -14478,6 +14675,8 @@ private struct TabItemView: View, Equatable {
         }
         .disabled(contextMenuPinState == nil)
 
+        workspaceGroupContextMenuSection(targetIds: targetIds, isMulti: isMulti)
+
         if let key = renameWorkspaceShortcut.keyEquivalent {
             Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
                 promptRename()
@@ -15375,6 +15574,116 @@ private struct TabItemView: View, Equatable {
         }
         alert.addButton(withTitle: String(localized: "alert.invalidColor.ok", defaultValue: "OK"))
         _ = alert.runModal()
+    }
+
+    @ViewBuilder
+    private func workspaceGroupContextMenuSection(
+        targetIds: [UUID],
+        isMulti: Bool
+    ) -> some View {
+        let targetWorkspaces = targetIds.compactMap { id in
+            tabManager.tabs.first(where: { $0.id == id })
+        }
+        let eligibleTargetIds = targetWorkspaces.filter { !$0.isPinned }.map(\.id)
+        // Pinned workspaces cannot be grouped; if every target is pinned, hide the menu entirely.
+        if !eligibleTargetIds.isEmpty {
+            let groups = tabManager.workspaceGroups
+            let eligibleGroupIdsForTargets = Set(
+                targetWorkspaces.compactMap { $0.isPinned ? nil : $0.groupId }
+            )
+            let allTargetsInSameGroup: UUID? = {
+                let groupIds = targetWorkspaces.compactMap { $0.isPinned ? nil : $0.groupId }
+                guard groupIds.count == eligibleTargetIds.count, let first = groupIds.first,
+                      groupIds.allSatisfy({ $0 == first }) else { return nil }
+                return first
+            }()
+            let hasAnyGroupedTarget = !eligibleGroupIdsForTargets.isEmpty
+            Menu(
+                String(
+                    localized: "contextMenu.workspaceGroup",
+                    defaultValue: "Group"
+                )
+            ) {
+                Button(
+                    isMulti
+                        ? String(
+                            localized: "contextMenu.workspaceGroup.newFromSelection",
+                            defaultValue: "New Group from Selection…"
+                        )
+                        : String(
+                            localized: "contextMenu.workspaceGroup.newFromWorkspace",
+                            defaultValue: "New Group from Workspace…"
+                        )
+                ) {
+                    promptNewWorkspaceGroup(workspaceIds: eligibleTargetIds)
+                }
+                if !groups.isEmpty {
+                    Divider()
+                    ForEach(groups) { group in
+                        Button(group.name) {
+                            for id in eligibleTargetIds {
+                                tabManager.addWorkspaceToGroup(workspaceId: id, groupId: group.id)
+                            }
+                        }
+                        .disabled(allTargetsInSameGroup == group.id)
+                    }
+                }
+                if hasAnyGroupedTarget {
+                    Divider()
+                    Button(
+                        String(
+                            localized: "contextMenu.workspaceGroup.remove",
+                            defaultValue: "Remove from Group"
+                        )
+                    ) {
+                        for id in eligibleTargetIds {
+                            tabManager.removeWorkspaceFromGroup(workspaceId: id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func promptNewWorkspaceGroup(workspaceIds: [UUID]) {
+        guard !workspaceIds.isEmpty else { return }
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "alert.newWorkspaceGroup.title",
+            defaultValue: "New Group"
+        )
+        alert.informativeText = String(
+            localized: "alert.newWorkspaceGroup.message",
+            defaultValue: "Name this workspace group."
+        )
+        let input = NSTextField(string: "")
+        input.placeholderString = String(
+            localized: "alert.newWorkspaceGroup.placeholder",
+            defaultValue: "Group name"
+        )
+        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
+        alert.accessoryView = input
+        alert.addButton(
+            withTitle: String(
+                localized: "alert.newWorkspaceGroup.create",
+                defaultValue: "Create"
+            )
+        )
+        alert.addButton(
+            withTitle: String(
+                localized: "alert.newWorkspaceGroup.cancel",
+                defaultValue: "Cancel"
+            )
+        )
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        DispatchQueue.main.async {
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+        tabManager.createWorkspaceGroup(name: input.stringValue, workspaceIds: workspaceIds)
     }
 
     private func promptRename() {
