@@ -7,7 +7,8 @@ enum LargeTextSelectionPolicy {
     }
 
     static let defaultMaximumLiveSelectionLineFragments = 2_000
-    static let defaultCharactersPerWrappedLine = 100
+    static let defaultEstimatedColumnsPerWrappedLine = 48
+    static let defaultCharactersPerWrappedLine = defaultEstimatedColumnsPerWrappedLine
 
     nonisolated static func mode(
         for text: String,
@@ -21,7 +22,8 @@ enum LargeTextSelectionPolicy {
         var lineFragments = 0
         var currentLineEstimatedColumns = 0
         var sawAnyCharacter = false
-        var previousCharacterWasNewline = false
+        var previousCharacterWasLineBreak = false
+        var previousCharacterWasCarriageReturn = false
 
         func appendLineFragment() -> Bool {
             currentLineEstimatedColumns = 0
@@ -31,13 +33,19 @@ enum LargeTextSelectionPolicy {
 
         for scalar in text.unicodeScalars {
             sawAnyCharacter = true
-            if scalar.value == 10 {
-                if currentLineEstimatedColumns > 0 || previousCharacterWasNewline || lineFragments == 0 {
+            if isLineBreak(scalar) {
+                if scalar.value == 0x0A, previousCharacterWasCarriageReturn {
+                    previousCharacterWasCarriageReturn = false
+                    continue
+                }
+                if currentLineEstimatedColumns > 0 || previousCharacterWasLineBreak || lineFragments == 0 {
                     guard appendLineFragment() else { return .copyOnly }
                 }
-                previousCharacterWasNewline = true
+                previousCharacterWasLineBreak = true
+                previousCharacterWasCarriageReturn = scalar.value == 0x0D
             } else {
-                previousCharacterWasNewline = false
+                previousCharacterWasLineBreak = false
+                previousCharacterWasCarriageReturn = false
                 currentLineEstimatedColumns += estimatedDisplayColumns(for: scalar)
                 if currentLineEstimatedColumns >= charactersPerWrappedLine {
                     guard appendLineFragment() else { return .copyOnly }
@@ -45,10 +53,19 @@ enum LargeTextSelectionPolicy {
             }
         }
 
-        if currentLineEstimatedColumns > 0 || !sawAnyCharacter || previousCharacterWasNewline {
+        if currentLineEstimatedColumns > 0 || !sawAnyCharacter || previousCharacterWasLineBreak {
             guard appendLineFragment() else { return .copyOnly }
         }
         return .liveSelection
+    }
+
+    private nonisolated static func isLineBreak(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x0A, 0x0B, 0x0C, 0x0D, 0x85, 0x2028, 0x2029:
+            return true
+        default:
+            return false
+        }
     }
 
     private nonisolated static func estimatedDisplayColumns(for scalar: Unicode.Scalar) -> Int {
@@ -118,25 +135,14 @@ enum LargeTextSelectionPolicy {
 
 private struct BoundedTextSelectionModifier: ViewModifier {
     let text: String
-    let charactersPerWrappedLine: Int
-    let maximumLineFragments: Int
+    let mode: LargeTextSelectionPolicy.Mode
 
     func body(content: Content) -> some View {
-        switch LargeTextSelectionPolicy.mode(
-            for: text,
-            charactersPerWrappedLine: charactersPerWrappedLine,
-            maximumLineFragments: maximumLineFragments
-        ) {
+        switch mode {
         case .liveSelection:
             content.textSelection(.enabled)
         case .copyOnly:
-            content.contextMenu {
-                Button {
-                    WorkspaceSurfaceIdentifierClipboardText.copy(text)
-                } label: {
-                    Text(String(localized: "textSelection.copyText", defaultValue: "Copy Text"))
-                }
-            }
+            content.copyOnlyTextSelection(for: text)
         }
     }
 }
@@ -144,15 +150,23 @@ private struct BoundedTextSelectionModifier: ViewModifier {
 extension View {
     func boundedTextSelection(
         for text: String,
-        charactersPerWrappedLine: Int = LargeTextSelectionPolicy.defaultCharactersPerWrappedLine,
-        maximumLineFragments: Int = LargeTextSelectionPolicy.defaultMaximumLiveSelectionLineFragments
+        mode: LargeTextSelectionPolicy.Mode
     ) -> some View {
         modifier(
             BoundedTextSelectionModifier(
                 text: text,
-                charactersPerWrappedLine: charactersPerWrappedLine,
-                maximumLineFragments: maximumLineFragments
+                mode: mode
             )
         )
+    }
+
+    func copyOnlyTextSelection(for text: String) -> some View {
+        contextMenu {
+            Button {
+                WorkspaceSurfaceIdentifierClipboardText.copy(text)
+            } label: {
+                Text(String(localized: "textSelection.copyText", defaultValue: "Copy Text"))
+            }
+        }
     }
 }

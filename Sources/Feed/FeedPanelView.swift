@@ -1519,7 +1519,7 @@ private struct PermissionActionArea: View {
                     Text(primary)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(.primary.opacity(0.95))
-                        .boundedTextSelection(for: primary)
+                        .copyOnlyTextSelection(for: primary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

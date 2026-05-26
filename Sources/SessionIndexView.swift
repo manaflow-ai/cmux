@@ -956,7 +956,7 @@ private struct SessionTranscriptTurnView: View, Equatable {
             Text(row.text)
                 .font(row.role.bodyFont)
                 .foregroundColor(.primary.opacity(0.92))
-                .boundedTextSelection(for: row.text)
+                .boundedTextSelection(for: row.text, mode: row.textSelectionMode)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -976,6 +976,7 @@ private struct SessionTranscriptDisplayRow: Identifiable, Equatable {
     let id: String
     let role: SessionTranscriptRole
     let text: String
+    let textSelectionMode: LargeTextSelectionPolicy.Mode
     let isContinuation: Bool
 
     private static let chunkCharacterLimit = 5_000
@@ -987,6 +988,7 @@ private struct SessionTranscriptDisplayRow: Identifiable, Equatable {
                     id: "\(turn.id)-\(offset)",
                     role: turn.role,
                     text: chunk,
+                    textSelectionMode: LargeTextSelectionPolicy.mode(for: chunk),
                     isContinuation: offset > 0
                 )
             }
