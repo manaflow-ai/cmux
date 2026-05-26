@@ -4,6 +4,7 @@ import Foundation
 enum SidebarWorkspaceDetailDefaults {
     static let showBranchDirectoryKey = "sidebarShowBranchDirectory"
     static let showPullRequestsKey = "sidebarShowPullRequest"
+    static let watchGitStatusKey = "sidebarWatchGitStatus"
     static let showSSHKey = "sidebarShowSSH"
     static let showPortsKey = "sidebarShowPorts"
     static let showLogKey = "sidebarShowLog"
@@ -12,6 +13,7 @@ enum SidebarWorkspaceDetailDefaults {
 
     static let showBranchDirectory = true
     static let showPullRequests = true
+    static let watchGitStatus = true
     static let showSSH = true
     static let showPorts = true
     static let showLog = true
@@ -29,6 +31,10 @@ extension SidebarWorkspaceDetailDefaults {
 
     static func showPullRequestsValue(defaults: UserDefaults) -> Bool {
         boolValue(defaults: defaults, key: showPullRequestsKey, defaultValue: showPullRequests)
+    }
+
+    static func watchGitStatusValue(defaults: UserDefaults) -> Bool {
+        boolValue(defaults: defaults, key: watchGitStatusKey, defaultValue: watchGitStatus)
     }
 }
 
@@ -108,10 +114,17 @@ enum AppSettingsFileMapping {
             jsonKey: "sendAnonymousTelemetry",
             defaultsKey: TelemetrySettings.sendAnonymousTelemetryKey
         ),
-        .init(jsonKey: "warnBeforeQuit", defaultsKey: QuitWarningSettings.warnBeforeQuitKey),
         .init(
             jsonKey: "warnBeforeClosingTab",
             defaultsKey: CloseTabWarningSettings.warnBeforeClosingTabKey
+        ),
+        .init(
+            jsonKey: "warnBeforeClosingTabXButton",
+            defaultsKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey
+        ),
+        .init(
+            jsonKey: "hideTabCloseButton",
+            defaultsKey: CloseTabWarningSettings.hideTabCloseButtonKey
         ),
         .init(
             jsonKey: "renameSelectsExistingName",
@@ -150,6 +163,11 @@ enum TerminalSettingsFileMapping {
             invalidPath: "terminal.showScrollBar"
         ),
         .init(
+            jsonKey: "copyOnSelect",
+            defaultsKey: TerminalCopyOnSelectSettings.copyOnSelectKey,
+            invalidPath: "terminal.copyOnSelect"
+        ),
+        .init(
             jsonKey: "autoResumeAgentSessions",
             defaultsKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
             invalidPath: "terminal.autoResumeAgentSessions"
@@ -173,6 +191,14 @@ enum SidebarSettingsFileMapping {
             defaultsKey: SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey
         ),
         .init(
+            jsonKey: "stackBranchDirectory",
+            defaultsKey: SidebarBranchDirectoryStackedSettings.key
+        ),
+        .init(
+            jsonKey: "pathLastSegmentOnly",
+            defaultsKey: SidebarPathLastSegmentSettings.key
+        ),
+        .init(
             jsonKey: "showNotificationMessage",
             defaultsKey: SidebarWorkspaceDetailSettings.showNotificationMessageKey
         ),
@@ -183,6 +209,10 @@ enum SidebarSettingsFileMapping {
         .init(
             jsonKey: "showPullRequests",
             defaultsKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey
+        ),
+        .init(
+            jsonKey: "watchGitStatus",
+            defaultsKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey
         ),
         .init(
             jsonKey: "makePullRequestsClickable",
@@ -224,6 +254,10 @@ enum SidebarSettingsFileMapping {
 enum AutomationSettingsFileMapping {
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(jsonKey: "claudeCodeIntegration", defaultsKey: ClaudeCodeIntegrationSettings.hooksEnabledKey),
+        .init(
+            jsonKey: "suppressSubagentNotifications",
+            defaultsKey: AgentSubagentNotificationSettings.suppressNotificationsKey
+        ),
         .init(jsonKey: "cursorIntegration", defaultsKey: CursorIntegrationSettings.hooksEnabledKey),
         .init(jsonKey: "geminiIntegration", defaultsKey: GeminiIntegrationSettings.hooksEnabledKey),
     ]
@@ -291,12 +325,21 @@ extension CmuxSettingsFileStore {
         "app.iMessageMode",
         "app.reorderOnNotification",
         "app.sendAnonymousTelemetry",
+        "app.confirmQuit",
         "app.warnBeforeQuit",
         "app.warnBeforeClosingTab",
+        "app.warnBeforeClosingTabXButton",
+        "app.hideTabCloseButton",
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
         "terminal.showScrollBar",
+        "terminal.copyOnSelect",
         "terminal.autoResumeAgentSessions",
+        "terminal.agentHibernation.enabled",
+        "terminal.agentHibernation.idleSeconds",
+        "terminal.agentHibernation.maxLiveTerminals",
+        "terminal.textBoxMaxLines",
+        "terminal.resumeCommands",
         "notifications.dockBadge",
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",
@@ -309,9 +352,12 @@ extension CmuxSettingsFileStore {
         "sidebar.hideAllDetails",
         "sidebar.showWorkspaceDescription",
         "sidebar.branchLayout",
+        "sidebar.stackBranchDirectory",
+        "sidebar.pathLastSegmentOnly",
         "sidebar.showNotificationMessage",
         "sidebar.showBranchDirectory",
         "sidebar.showPullRequests",
+        "sidebar.watchGitStatus",
         "sidebar.makePullRequestsClickable",
         "sidebar.openPullRequestLinksInCmuxBrowser",
         "sidebar.openPortLinksInCmuxBrowser",
@@ -337,6 +383,7 @@ extension CmuxSettingsFileStore {
         "automation.claudeCodeIntegration",
         "automation.claudeBinaryPath",
         "automation.ripgrepBinaryPath",
+        "automation.suppressSubagentNotifications",
         "automation.cursorIntegration",
         "automation.geminiIntegration",
         "automation.portBase",

@@ -133,7 +133,7 @@ final class SessionIndexViewTests: XCTestCase {
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env GROK_HOME='/tmp/grok home' grok -r grok-session-123 -m grok-4 --permission-mode auto --sandbox danger-full-access"
+            "'env' 'GROK_HOME=/tmp/grok home' 'grok' '-r' 'grok-session-123' '-m' 'grok-4' '--permission-mode' 'auto' '--sandbox' 'danger-full-access'"
         )
     }
 
@@ -405,6 +405,11 @@ private extension SessionAgent {
             return .rovodev
         case .hermesAgent:
             return .hermesAgent(source: nil, model: nil, hermesHome: nil)
+        case .registered:
+            // Registered (Vault) agents aren't exercised by these tests; if a
+            // future test reaches this branch, point them at the missing
+            // helper instead of silently returning a misleading default.
+            fatalError("defaultSpecificsForTesting does not support .registered SessionAgent; extend the helper when adding registered-agent coverage")
         }
     }
 }
