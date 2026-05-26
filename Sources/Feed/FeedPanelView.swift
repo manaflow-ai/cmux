@@ -1519,7 +1519,7 @@ private struct PermissionActionArea: View {
                     Text(primary)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(.primary.opacity(0.95))
-                        .copyOnlyTextSelection(for: primary)
+                        .boundedTextSelection(for: primary, mode: preview.primarySelectionMode)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -1550,6 +1550,11 @@ private struct PermissionInputPreview {
     let sigil: String?
     let primary: String?
     let secondary: String?
+
+    var primarySelectionMode: LargeTextSelectionPolicy.Mode {
+        guard let primary else { return .copyOnly }
+        return LargeTextSelectionPolicy.byteBoundedPreviewMode(for: primary)
+    }
 
     init(toolName: String, toolInputJSON: String) {
         let dict = (try? JSONSerialization.jsonObject(

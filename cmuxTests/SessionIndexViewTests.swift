@@ -42,6 +42,22 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
+    func testLargeTextSelectionPolicyKeepsSmallByteBoundedPreviewSelectable() {
+        XCTAssertEqual(
+            LargeTextSelectionPolicy.byteBoundedPreviewMode(for: "echo ok"),
+            .liveSelection
+        )
+    }
+
+    func testLargeTextSelectionPolicyRejectsLargeByteBoundedPreview() {
+        let text = String(repeating: "x", count: 2_001)
+
+        XCTAssertEqual(
+            LargeTextSelectionPolicy.byteBoundedPreviewMode(for: text),
+            .copyOnly
+        )
+    }
+
     func testLargeTextSelectionPolicyAccountsForWrappedLongLines() {
         let text = String(repeating: "x", count: 250_000)
 

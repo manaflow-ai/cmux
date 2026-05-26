@@ -9,6 +9,17 @@ enum LargeTextSelectionPolicy {
     static let defaultMaximumLiveSelectionLineFragments = 2_000
     static let defaultEstimatedColumnsPerWrappedLine = 48
     static let defaultCharactersPerWrappedLine = defaultEstimatedColumnsPerWrappedLine
+    static let defaultMaximumByteBoundedPreviewBytes = 2_000
+
+    nonisolated static func byteBoundedPreviewMode(
+        for text: String,
+        maximumUTF8Bytes: Int = defaultMaximumByteBoundedPreviewBytes
+    ) -> Mode {
+        guard maximumUTF8Bytes > 0 else {
+            return .copyOnly
+        }
+        return text.utf8.count <= maximumUTF8Bytes ? .liveSelection : .copyOnly
+    }
 
     nonisolated static func mode(
         for text: String,
