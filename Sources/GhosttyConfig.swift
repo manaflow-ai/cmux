@@ -215,19 +215,22 @@ struct GhosttyConfig {
         }
 
         if rawSidebarBackground != nil {
-            let shouldClearMissingBackgroundVariants = rawSidebarBackground.map {
-                Self.themeValueUsesSameResolvedThemeInBothColorSchemes($0)
-            } == true && sidebarBackground != nil
+            let shouldClearMissingLightBackground = rawSidebarBackground.map {
+                Self.resolvesSidebarBackgroundColor($0, preferredColorScheme: .light)
+            } == true
+            let shouldClearMissingDarkBackground = rawSidebarBackground.map {
+                Self.resolvesSidebarBackgroundColor($0, preferredColorScheme: .dark)
+            } == true
             applySidebarBackgroundColor(
                 sidebarBackgroundLight,
                 key: "sidebarTintHexLight",
-                clearsManagedValueWhenMissing: shouldClearMissingBackgroundVariants,
+                clearsManagedValueWhenMissing: shouldClearMissingLightBackground,
                 appliedValues: &appliedValues
             )
             applySidebarBackgroundColor(
                 sidebarBackgroundDark,
                 key: "sidebarTintHexDark",
-                clearsManagedValueWhenMissing: shouldClearMissingBackgroundVariants,
+                clearsManagedValueWhenMissing: shouldClearMissingDarkBackground,
                 appliedValues: &appliedValues
             )
             applySidebarBackgroundColor(
@@ -312,6 +315,14 @@ struct GhosttyConfig {
 
     private static func appliedSidebarAppearanceValues(defaults: UserDefaults) -> [String: String] {
         defaults.dictionary(forKey: sidebarAppearanceAppliedDefaultsKey) as? [String: String] ?? [:]
+    }
+
+    private static func resolvesSidebarBackgroundColor(
+        _ raw: String,
+        preferredColorScheme: ColorSchemePreference
+    ) -> Bool {
+        let resolved = resolveThemeName(from: raw, preferredColorScheme: preferredColorScheme)
+        return NSColor(hex: resolved) != nil
     }
 
     private func applySidebarColorIfConfigured(

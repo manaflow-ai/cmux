@@ -4324,6 +4324,33 @@ final class SidebarBackgroundConfigTests: XCTestCase {
                        "Unmanaged user-edited light tint should not be cleared")
     }
 
+    func testApplyToUserDefaultsClearsManagedBackgroundVariantWhenSwitchingToDarkOnly() {
+        let defaults = UserDefaults.standard
+        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark", GhosttyConfig.sidebarAppearanceAppliedDefaultsKey]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
+
+        defaults.set("#AAAAAA", forKey: "sidebarTintHexLight")
+        defaults.set("#BBBBBB", forKey: "sidebarTintHexDark")
+        defaults.set([
+            "sidebarTintHexLight": "#AAAAAA",
+            "sidebarTintHexDark": "#BBBBBB",
+        ], forKey: GhosttyConfig.sidebarAppearanceAppliedDefaultsKey)
+
+        var config = GhosttyConfig()
+        config.rawSidebarBackground = "dark:#222222"
+        config.resolveSidebarBackground(preferredColorScheme: .light)
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHex"), "#222222")
+        XCTAssertNil(defaults.string(forKey: "sidebarTintHexLight"))
+        XCTAssertNil(defaults.string(forKey: "sidebarTintHexDark"))
+    }
+
     func testApplyToUserDefaultsPreservesManagedColorsWhenNewConfigValueIsInvalid() {
         let defaults = UserDefaults.standard
         let keys = [
