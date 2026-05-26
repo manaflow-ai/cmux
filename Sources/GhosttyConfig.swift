@@ -215,19 +215,25 @@ struct GhosttyConfig {
         }
 
         if rawSidebarBackground != nil {
+            let shouldClearMissingBackgroundVariants = rawSidebarBackground.map {
+                Self.themeValueUsesSameResolvedThemeInBothColorSchemes($0)
+            } == true && sidebarBackground != nil
             applySidebarBackgroundColor(
                 sidebarBackgroundLight,
                 key: "sidebarTintHexLight",
+                clearsManagedValueWhenMissing: shouldClearMissingBackgroundVariants,
                 appliedValues: &appliedValues
             )
             applySidebarBackgroundColor(
                 sidebarBackgroundDark,
                 key: "sidebarTintHexDark",
+                clearsManagedValueWhenMissing: shouldClearMissingBackgroundVariants,
                 appliedValues: &appliedValues
             )
             applySidebarBackgroundColor(
                 sidebarBackground,
                 key: "sidebarTintHex",
+                clearsManagedValueWhenMissing: false,
                 appliedValues: &appliedValues
             )
         } else {
@@ -318,18 +324,17 @@ struct GhosttyConfig {
             clearManagedSidebarAppearanceValue(key: key, appliedValues: &appliedValues)
             return
         }
+        guard let color else {
+            return
+        }
         applySidebarColor(color, key: key, appliedValues: &appliedValues)
     }
 
     private func applySidebarColor(
-        _ color: NSColor?,
+        _ color: NSColor,
         key: String,
         appliedValues: inout [String: String]
     ) {
-        guard let color else {
-            clearManagedSidebarAppearanceValue(key: key, appliedValues: &appliedValues)
-            return
-        }
         let value = color.hexString()
         UserDefaults.standard.set(value, forKey: key)
         appliedValues[key] = value
@@ -338,11 +343,13 @@ struct GhosttyConfig {
     private func applySidebarBackgroundColor(
         _ color: NSColor?,
         key: String,
+        clearsManagedValueWhenMissing: Bool,
         appliedValues: inout [String: String]
     ) {
         guard let color else {
-            UserDefaults.standard.removeObject(forKey: key)
-            appliedValues.removeValue(forKey: key)
+            if clearsManagedValueWhenMissing {
+                clearManagedSidebarAppearanceValue(key: key, appliedValues: &appliedValues)
+            }
             return
         }
         let value = color.hexString()
