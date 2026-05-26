@@ -46,6 +46,10 @@ reviews:
 
   pre_merge_checks:
     custom_checks:
+      - name: "cmux bugfix regression proof"
+        mode: error
+        instructions: |
+          For PRs that fix a bug, regression, crash, flaky behavior, data loss, or broken product/runtime behavior, fail when the diff violates `.github/review-bot-rules/bugfix-regression-proof.md`: require a behavior-level regression test that verifies runtime behavior, built artifacts, or user-visible outcomes, visible as a red test-only commit followed by a green fix commit, or an identified pre-existing failing check plus final green check. Do not accept source-shape checks as regression coverage. Pass for PRs that do not claim or implement a bugfix, including docs-only changes, metadata-only changes, refactors with no claimed broken behavior, and review-bot rule changes.
       - name: "cmux Swift actor isolation"
         mode: error
         instructions: |

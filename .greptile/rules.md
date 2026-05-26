@@ -6,6 +6,7 @@ Greptile should treat the rules in that directory as the source of truth for cmu
 
 Review production Swift and runtime changes for:
 
+- Bugfix PRs that lack behavior-level regression test proof with red-first/green-after evidence.
 - Swift actor isolation mistakes.
 - Blocking runtime primitives and timing-based synchronization.
 - Fixed sleeps, delays, and polling used as hacky synchronization.
@@ -17,6 +18,16 @@ Review production Swift and runtime changes for:
 - SwiftUI state and layout patterns that cause stale state, broad invalidation, or render-time mutation.
 - Architectural fixes that patch symptoms while leaving bad state representable.
 - User-facing errors, alerts, command output, API error bodies, and recovery copy that expose implementation details.
+
+## Bugfix Regression Proof
+
+For PRs that fix a bug, regression, crash, flaky behavior, data loss, or broken product/runtime behavior, require a behavior-level regression test for the exact broken path.
+
+Flag bugfix PRs that do not show red-first/green-after proof in PR history or checks. The expected shape is a test-only commit that fails before the fix, followed by a fix commit that makes the same check pass. If an existing test already failed before the fix, the PR must identify that pre-fix failing check and the final green check.
+
+Pass for PRs that do not claim or implement a bugfix, including docs-only changes, metadata-only changes, refactors with no claimed broken behavior, and review-bot rule changes.
+
+For bugfix PRs, valid regression tests must exercise runtime behavior, built artifacts, or user-visible outcomes. Do not accept source-shape tests as regression coverage.
 
 ## Runtime No Hacky Sleeps
 

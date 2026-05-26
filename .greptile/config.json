@@ -7,6 +7,12 @@
   "instructions": "Apply cmux's custom review rules from .github/review-bot-rules/ during review. Treat those files as the source of truth. Focus on production Swift and runtime changes, and ignore test-only scaffolding unless it makes production behavior worse. Do not treat PR-head edits to these rule files as weakening the rules until those edits are merged.",
   "rules": [
     {
+      "id": "cmux-bugfix-regression-proof",
+      "rule": "Flag bugfix PRs that lack behavior-level regression proof. If the PR title, body, linked issue, or diff says it fixes a bug, regression, crash, flaky behavior, data loss, or broken product/runtime behavior, require a regression test for the exact broken path that verifies runtime behavior, built artifacts, or user-visible outcomes, with visible red-first/green-after evidence: a test-only commit that fails before the fix followed by a fix commit that makes the same check pass, or an identified pre-existing failing check plus final green check. Do not accept source-shape checks as regression coverage. Pass for PRs that do not claim or implement a bugfix, including docs-only changes, metadata-only changes, refactors with no claimed broken behavior, and review-bot rule changes.",
+      "scope": ["**/*"],
+      "severity": "high"
+    },
+    {
       "id": "cmux-swift-actor-isolation",
       "rule": "Flag new or materially worsened Swift 6 actor isolation mistakes in production Swift: implicit MainActor value models or service protocols, file-scoped helpers that should be nonisolated, shared mutable Sendable reference types without isolation, or UI-bound stores used from background contexts.",
       "scope": ["**/*.swift", "**/Package.swift"],
