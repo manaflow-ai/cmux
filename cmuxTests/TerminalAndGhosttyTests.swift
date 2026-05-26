@@ -3397,6 +3397,32 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
+    func testScrollToBottomIntentSurvivesConcurrentLiveScrollNotification() {
+        guard let fixture = makeManualScrollbackFixture() else { return }
+        defer { fixture.window.orderOut(nil) }
+
+        fixture.hostedView.noteExplicitScrollIntent(expectBottomPacket: true)
+
+        NotificationCenter.default.post(
+            name: NSScrollView.didLiveScrollNotification,
+            object: fixture.scrollView
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: fixture.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(
+            fixture.scrollView.contentView.bounds.origin.y,
+            0,
+            accuracy: 0.01,
+            "A live-scroll notification must not clear an explicit scroll-to-bottom intent before its bottom packet"
+        )
+    }
+
     func testResizeScrollbarUpdatePreservesManualScrollbackPosition() {
         guard let fixture = makeManualScrollbackFixture() else { return }
         defer { fixture.window.orderOut(nil) }

@@ -14049,11 +14049,19 @@ final class GhosttySurfaceScrollView: NSView {
         let documentHeight = documentView.frame.height
         let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
 
-        // Track if user has scrolled away from bottom to review scrollback
-        if scrollOffset > Self.scrollToBottomThreshold {
-            scrollbackViewportIntent = .reviewingScrollback
-        } else if scrollOffset <= 0 {
-            scrollbackViewportIntent = .followOutput
+        let isAwaitingExplicitScrollbarPacket: Bool = {
+            guard case .awaitingExplicitScrollPacket = scrollbackViewportIntent else {
+                return false
+            }
+            return true
+        }()
+        if !isAwaitingExplicitScrollbarPacket {
+            // Track if user has scrolled away from bottom to review scrollback.
+            if scrollOffset > Self.scrollToBottomThreshold {
+                scrollbackViewportIntent = .reviewingScrollback
+            } else if scrollOffset <= 0 {
+                scrollbackViewportIntent = .followOutput
+            }
         }
 
         let row = Int(scrollOffset / cellHeight)
