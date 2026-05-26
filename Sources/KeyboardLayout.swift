@@ -32,13 +32,15 @@ class KeyboardLayout {
     /// preserving command-aware layouts such as "Dvorak - QWERTY Command".
     /// Some CJK input sources lack kTISPropertyUnicodeKeyLayoutData, and others (Korean
     /// 두벌식) have it but UCKeyTranslate still returns non-ASCII characters. In either
-    /// case we fall back to TISCopyCurrentASCIICapableKeyboardInputSource().
+    /// case we ask the current keyboard layout input source before falling back to
+    /// TISCopyCurrentASCIICapableKeyboardInputSource().
     static func character(
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags = []
     ) -> String? {
         let sourceKinds: [InputSourceKind] = [
             .currentKeyboardInputSource,
+            .currentKeyboardLayoutInputSource,
             .currentASCIICapableKeyboardInputSource,
         ]
 
