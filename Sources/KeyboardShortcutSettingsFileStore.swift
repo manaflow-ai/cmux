@@ -513,6 +513,18 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
         }
 
+        if let value = jsonBool(section["showTextBoxOnNewTerminals"]) {
+            snapshot.managedUserDefaults[TerminalTextBoxInputSettings.showOnNewTerminalsKey] = .bool(value)
+        } else if section.keys.contains("showTextBoxOnNewTerminals") {
+            logInvalid("terminal.showTextBoxOnNewTerminals", sourcePath: sourcePath)
+        }
+
+        if let value = jsonBool(section["focusTextBoxOnNewTerminals"]) {
+            snapshot.managedUserDefaults[TerminalTextBoxInputSettings.focusOnNewTerminalsKey] = .bool(value)
+        } else if section.keys.contains("focusTextBoxOnNewTerminals") {
+            logInvalid("terminal.focusTextBoxOnNewTerminals", sourcePath: sourcePath)
+        }
+
         if let value = jsonInt(section["textBoxMaxLines"]) {
             if value >= TerminalTextBoxInputSettings.minimumMaxLines,
                value <= TerminalTextBoxInputSettings.maximumMaxLines {

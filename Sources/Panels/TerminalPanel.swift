@@ -174,6 +174,22 @@ final class TerminalPanel: Panel, ObservableObject {
         tmuxLayoutReport = report
     }
 
+    func focusTextBoxInputWhenAvailable() {
+        isTextBoxActive = true
+        textBoxInputFocusIntent = .textBox
+        shouldFocusTextBoxWhenAvailable = true
+        shouldOpenTextBoxFilePickerWhenAvailable = false
+        shouldHideTextBoxOnNextEscape = false
+    }
+
+    func showTextBoxInputWhenAvailable() {
+        isTextBoxActive = true
+        textBoxInputFocusIntent = .terminal
+        shouldFocusTextBoxWhenAvailable = false
+        shouldOpenTextBoxFilePickerWhenAvailable = false
+        shouldHideTextBoxOnNextEscape = false
+    }
+
     func registerTextBoxInputView(_ view: TextBoxInputTextView) {
         textBoxInputView = view
         if let restoredTextBoxDraft {

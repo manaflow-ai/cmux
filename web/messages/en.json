@@ -455,6 +455,21 @@
       "reqItem1": "macOS 14.0 or later",
       "reqItem2": "Apple Silicon or Intel Mac"
     },
+    "textBox": {
+      "title": "TextBox (Beta)",
+      "metaTitle": "TextBox (Beta)",
+      "metaDescription": "Configure the beta cmux TextBox input for new terminal tabs, splits, and workspaces.",
+      "intro": "TextBox is cmux's rich terminal input surface for composing prompts before sending them to a terminal.",
+      "betaCallout": "TextBox is a beta feature. Its defaults and behavior may change while it is being tested.",
+      "defaultsTitle": "Defaults",
+      "defaultsDesc": "The TextBox settings live in Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals opens new workspaces, terminal tabs, and terminal splits with the TextBox visible while keeping focus in the terminal.",
+      "focusSetting": "Focus TextBox on New Terminals puts keyboard focus in the TextBox. Focusing also shows the TextBox.",
+      "maxLinesSetting": "TextBox Max Lines caps the TextBox height before its content scrolls.",
+      "configTitle": "cmux.json",
+      "configDesc": "Set the same defaults in ~/.config/cmux/cmux.json under terminal:",
+      "focusNote": "Restored sessions keep their saved TextBox visibility and focus state. These defaults apply only to newly created terminal surfaces."
+    },
     "sessionRestore": {
       "title": "Session Restore",
       "metaTitle": "Session Restore",
@@ -1270,6 +1285,7 @@
       "gettingStarted": "Getting Started",
       "concepts": "Concepts",
       "configuration": "Configuration",
+      "textBox": "TextBox (Beta)",
       "sessionRestore": "Session Restore",
       "customCommands": "Custom Commands",
       "keyboardShortcuts": "Keyboard Shortcuts",

@@ -10025,6 +10025,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureTerminalPanel(_ terminalPanel: TerminalPanel) {
+        if TerminalTextBoxInputSettings.focusOnNewTerminals() {
+            terminalPanel.focusTextBoxInputWhenAvailable()
+        } else if TerminalTextBoxInputSettings.showOnNewTerminals() {
+            terminalPanel.showTextBoxInputWhenAvailable()
+        }
         terminalPanel.onRequestWorkspacePaneFlash = { [weak self, weak terminalPanel] reason in
             guard let self, let terminalPanel else { return }
             self.triggerWorkspacePaneFlash(panelId: terminalPanel.id, reason: reason)

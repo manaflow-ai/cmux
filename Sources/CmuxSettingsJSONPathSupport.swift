@@ -73,6 +73,8 @@ extension CmuxSettingsFileStore {
         "terminal.showScrollBar",
         "terminal.copyOnSelect",
         "terminal.autoResumeAgentSessions",
+        "terminal.showTextBoxOnNewTerminals",
+        "terminal.focusTextBoxOnNewTerminals",
         "terminal.textBoxMaxLines",
         "terminal.resumeCommands",
         "notifications.dockBadge",

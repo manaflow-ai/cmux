@@ -68,6 +68,8 @@ const settingsFileExample = `{
   //   "showScrollBar": false,
   //   "copyOnSelect": true,
   //   "autoResumeAgentSessions": true,
+  //   "showTextBoxOnNewTerminals": false,
+  //   "focusTextBoxOnNewTerminals": false,
   //   "textBoxMaxLines": 10
   // },
 
