@@ -55,6 +55,15 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
+    func testLargeTextSelectionPolicyDefaultUsesNarrowPreviewWidth() {
+        let text = String(repeating: "x", count: 100_000)
+
+        XCTAssertEqual(
+            LargeTextSelectionPolicy.mode(for: text),
+            .copyOnly
+        )
+    }
+
     func testLargeTextSelectionPolicyCountsCJKCharactersNotUTF8Bytes() {
         let text = String(repeating: "日", count: 40)
         XCTAssertEqual(
@@ -76,6 +85,17 @@ final class SessionIndexViewTests: XCTestCase {
                 charactersPerWrappedLine: 100,
                 maximumLineFragments: 2
             ),
+            .copyOnly
+        )
+    }
+
+    func testLargeTextSelectionPolicyCountsUnicodeLineSeparators() {
+        let text = (0..<2_100)
+            .map { "row \($0)" }
+            .joined(separator: "\u{2028}")
+
+        XCTAssertEqual(
+            LargeTextSelectionPolicy.mode(for: text),
             .copyOnly
         )
     }
