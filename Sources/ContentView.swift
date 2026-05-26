@@ -3170,7 +3170,7 @@ struct ContentView: View {
             updateSidebarResizerBandState()
         })
 
-        view = AnyView(view.onChange(of: rightSidebarMaxWidthSetting) { _ in
+        view = AnyView(view.onChange(of: rightSidebarMaxWidthSetting) { _, _ in
             clampRightSidebarWidthIfNeeded()
             if rightSidebarVisible {
                 schedulePortalGeometrySynchronize()
