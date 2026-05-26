@@ -16015,7 +16015,7 @@ class TerminalController {
         }
 
         guard let action else {
-            return "ERROR: Unknown shortcut name. Use a KeyboardShortcutSettings action id such as selectSurface1, or a supported alias such as focus_left, split_right, workspace_digits, surface_1."
+            return "ERROR: Unknown shortcut name. Use an action id such as selectSurface1, or a supported alias such as focus_left, split_right, workspace_digits, surface_1."
         }
 
         if combo.lowercased() == "clear" || combo.lowercased() == "unbound" || combo.lowercased() == "none" {
