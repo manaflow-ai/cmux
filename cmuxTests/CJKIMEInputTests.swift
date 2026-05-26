@@ -1355,7 +1355,7 @@ final class AccessibilityInsertTextRegressionTests: XCTestCase {
         XCTAssertEqual(pressedKeycodes, [36], "Trailing newline should be delivered as Return, not pasted text")
     }
 
-    func testDirectInsertTextPreservesLeadingEscapeForAutomation() {
+    func testDirectInsertTextRoutesLeadingEscapeThroughRawTextPath() {
         _ = NSApplication.shared
 
         let surface = TerminalSurface(
@@ -1374,6 +1374,7 @@ final class AccessibilityInsertTextRegressionTests: XCTestCase {
         )
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            GhosttyNSView.debugGhosttySurfaceTextObserver = nil
             window.orderOut(nil)
         }
 
@@ -1400,6 +1401,7 @@ final class AccessibilityInsertTextRegressionTests: XCTestCase {
 
         var pressedText: [String] = []
         var pressedKeycodes: [UInt32] = []
+        var rawText: [Data] = []
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
             guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
             if let text = keyEvent.text {
@@ -1408,11 +1410,15 @@ final class AccessibilityInsertTextRegressionTests: XCTestCase {
                 pressedKeycodes.append(keyEvent.keycode)
             }
         }
+        GhosttyNSView.debugGhosttySurfaceTextObserver = { data in
+            rawText.append(data)
+        }
 
         view.insertText("\u{1B}[A", replacementRange: NSRange(location: NSNotFound, length: 0))
 
-        XCTAssertEqual(pressedText, ["\u{1B}[A"])
-        XCTAssertEqual(pressedKeycodes, [], "Direct NSTextInputClient insertText should preserve raw ESC bytes")
+        XCTAssertEqual(rawText, [Data("\u{1B}[A".utf8)])
+        XCTAssertEqual(pressedText, [], "Automation escape payloads should bypass key-event text encoding")
+        XCTAssertEqual(pressedKeycodes, [], "Automation escape payloads should preserve ESC as raw PTY bytes, not Escape key events")
     }
 
     func testAccessibilityValueSanitizesLeadingEscapeSequence() {
