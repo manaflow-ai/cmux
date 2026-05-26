@@ -2228,6 +2228,8 @@ private struct NotificationsPopoverView: View {
             }
         )
         .frame(width: 16, height: 16)
+        .accessibilityLabel(Text(String(localized: "notifications.resize", defaultValue: "Resize notifications")))
+        .accessibilityHint(Text(String(localized: "notifications.resize.hint", defaultValue: "Drag to resize the notifications popover")))
     }
 
     private var header: some View {

@@ -51946,6 +51946,23 @@
         }
       }
     },
+    "notifications.resize.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag to resize the notifications popover"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグして通知ポップオーバーをリサイズ"
+          }
+        }
+      }
+    },
     "notifications.row.clear": {
       "extractionState": "manual",
       "localizations": {
