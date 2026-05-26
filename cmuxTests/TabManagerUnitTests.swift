@@ -76,6 +76,30 @@ private func splitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
     }
 }
 
+@discardableResult
+private func assertProportionalEqualizedSplitTree(
+    _ node: ExternalTreeNode,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) -> Int {
+    switch node {
+    case .pane:
+        return 1
+    case .split(let split):
+        let firstLeafCount = assertProportionalEqualizedSplitTree(split.first, file: file, line: line)
+        let secondLeafCount = assertProportionalEqualizedSplitTree(split.second, file: file, line: line)
+        let totalLeafCount = firstLeafCount + secondLeafCount
+        XCTAssertEqual(
+            split.dividerPosition,
+            Double(firstLeafCount) / Double(totalLeafCount),
+            accuracy: 0.000_1,
+            file: file,
+            line: line
+        )
+        return totalLeafCount
+    }
+}
+
 private func runProcess(
     executablePath: String,
     arguments: [String],
@@ -275,6 +299,106 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(workspace.panels.count, panelCountBefore - 1)
         XCTAssertNotNil(workspace.panels[initialPanelId], "Expected sibling panel to remain")
     }
+
+    func testChildExitWindowCloseRequestsNoClosedWindowHistory() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        var closeRequest: (tabId: UUID, recordHistory: Bool)?
+        appDelegate.closeMainWindowContainingTabIdObserverForTesting = { tabId, recordHistory in
+            closeRequest = (tabId, recordHistory)
+        }
+        defer {
+            appDelegate.closeMainWindowContainingTabIdObserverForTesting = nil
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        appDelegate.recordClosedWindowHistoryForTesting(windowId: windowId)
+        XCTAssertTrue(ClosedItemHistoryStore.shared.canReopen)
+        ClosedItemHistoryStore.shared.removeAll()
+
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panelId)
+        drainMainQueue()
+
+        XCTAssertEqual(closeRequest?.tabId, workspace.id)
+        XCTAssertEqual(closeRequest?.recordHistory, false)
+
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        appDelegate.recordClosedWindowHistoryForTesting(windowId: windowId)
+        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
+        XCTAssertFalse(appDelegate.isClosedWindowHistorySuppressedForTesting(windowId: windowId))
+    }
+
+    func testSessionSnapshotKeepsWindowWithNoRestorableWorkspaces() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "wss://remote.example.test",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        XCTAssertFalse(workspace.isRestorableInSessionSnapshot)
+        let snapshot = try XCTUnwrap(appDelegate.sessionSnapshotForTesting())
+        XCTAssertEqual(snapshot.windows.count, 1)
+        XCTAssertTrue(snapshot.windows[0].tabManager.workspaces.isEmpty)
+    }
+
+    func testClosedWindowHistorySkipsWindowWithNoRestorableWorkspaces() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "wss://remote.example.test",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        appDelegate.recordClosedWindowHistoryForTesting(windowId: windowId)
+
+        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
+    }
 }
 
 
@@ -348,6 +472,183 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertEqual(
             TabManager.githubRepositorySlugs(fromGitRemoteVOutput: output),
             ["manaflow-ai/cmux", "austinwang/cmux"]
+        )
+    }
+
+    func testGitHubRepositorySlugsFromGitConfigIgnoreInlineComments() {
+        let config = """
+        [remote "origin"] ; user's main fork
+            url = git@github.com:austinwang/cmux.git # main origin
+            fetch = +refs/heads/*:refs/remotes/origin/*
+        [remote "upstream"] # canonical repo
+            url = https://github.com/manaflow-ai/cmux.git ; upstream source
+            fetch = +refs/heads/*:refs/remotes/upstream/*
+        """
+
+        XCTAssertEqual(
+            TabManager.githubRepositorySlugs(fromGitConfigForTesting: config),
+            ["manaflow-ai/cmux", "austinwang/cmux"]
+        )
+    }
+
+    func testGitHubRepositorySlugsFromGitConfigUnquotesUrlValues() {
+        let config = """
+        [remote "origin"] ; user's main fork
+            url = "git@github.com:austinwang/cmux.git" # main origin
+            fetch = +refs/heads/*:refs/remotes/origin/*
+        [remote "upstream"] # canonical repo
+            url = "https://github.com/manaflow-ai/cmux.git" ; upstream source
+            fetch = +refs/heads/*:refs/remotes/upstream/*
+        """
+
+        XCTAssertEqual(
+            TabManager.githubRepositorySlugs(fromGitConfigForTesting: config),
+            ["manaflow-ai/cmux", "austinwang/cmux"]
+        )
+    }
+
+    func testGitHubRepositorySlugsFromGitConfigUsesLastRemoteURLValue() {
+        let config = """
+        [remote "origin"]
+            url = https://github.com/old-owner/old-repo.git
+            url = https://github.com/manaflow-ai/cmux.git
+        """
+
+        XCTAssertEqual(
+            TabManager.githubRepositorySlugs(fromGitConfigForTesting: config),
+            ["manaflow-ai/cmux"]
+        )
+    }
+
+    func testGitHubRepositorySlugsFromGitConfigReadsIncludedConfigFiles() throws {
+        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-git-config-includes-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let gitURL = repoURL.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(at: gitURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: repoURL)
+        }
+
+        try "ref: refs/heads/main\n".write(
+            to: gitURL.appendingPathComponent("HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [include]
+            path = remotes.inc
+        [includeIf "gitdir:\(gitURL.path)/**"]
+            path = conditional-remotes.inc
+        """.write(
+            to: gitURL.appendingPathComponent("config"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [remote "origin"]
+            url = "git@github.com:austinwang/cmux.git" # user's main fork
+        """.write(
+            to: gitURL.appendingPathComponent("remotes.inc"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [remote "upstream"]
+            url = https://github.com/manaflow-ai/cmux.git ; canonical repo
+        """.write(
+            to: gitURL.appendingPathComponent("conditional-remotes.inc"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        XCTAssertEqual(
+            TabManager.githubRepositorySlugs(directoryForTesting: repoURL.path),
+            ["manaflow-ai/cmux", "austinwang/cmux"]
+        )
+    }
+
+    func testGitHubRepositorySlugsFromGitConfigAppliesIncludesInPlace() throws {
+        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-git-config-include-order-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let gitURL = repoURL.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(at: gitURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: repoURL)
+        }
+
+        try "ref: refs/heads/main\n".write(
+            to: gitURL.appendingPathComponent("HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [include]
+            path = remotes.inc
+        [remote "origin"]
+            url = https://github.com/manaflow-ai/cmux.git
+        """.write(
+            to: gitURL.appendingPathComponent("config"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [remote "origin"]
+            url = https://github.com/old-owner/old-repo.git
+        """.write(
+            to: gitURL.appendingPathComponent("remotes.inc"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        XCTAssertEqual(
+            TabManager.githubRepositorySlugs(directoryForTesting: repoURL.path),
+            ["manaflow-ai/cmux"]
+        )
+    }
+
+    func testGitHubRepositorySlugsFromGitConfigTreatsTrailingSlashGitdirAsRecursive() throws {
+        let parentURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-git-config-recursive-include-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let repoURL = parentURL
+            .appendingPathComponent("teams", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+        let gitURL = repoURL.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(at: gitURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: parentURL)
+        }
+
+        try "ref: refs/heads/main\n".write(
+            to: gitURL.appendingPathComponent("HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [includeIf "gitdir:\(parentURL.path)/"]
+            path = recursive-remotes.inc
+        """.write(
+            to: gitURL.appendingPathComponent("config"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [remote "upstream"]
+            url = https://github.com/manaflow-ai/cmux.git
+        """.write(
+            to: gitURL.appendingPathComponent("recursive-remotes.inc"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        XCTAssertEqual(
+            TabManager.githubRepositorySlugs(directoryForTesting: repoURL.path),
+            ["manaflow-ai/cmux"]
         )
     }
 
@@ -1087,6 +1388,99 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         )
     }
 
+    func testTabCloseButtonWarningHonorsCmuxJSON() throws {
+        try withCloseTabConfig(warnBeforeClosingTabXButton: true) {
+            XCTAssertTrue(
+                CloseTabConfirmationPolicy.shouldConfirm(
+                    requiresConfirmation: false,
+                    source: .tabCloseButton
+                )
+            )
+        }
+    }
+
+    func testHideTabCloseButtonHonorsCmuxJSON() throws {
+        try withCloseTabConfig(hideTabCloseButton: true) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace else {
+                XCTFail("Expected selected workspace")
+                return
+            }
+
+            XCTAssertFalse(workspace.bonsplitController.configuration.allowCloseTabs)
+        }
+    }
+
+    func testTabCloseButtonWarningDefaultsOffForCleanPanel() throws {
+        try assertTabCloseButtonConfirmation(
+            warnBeforeClosingTab: nil,
+            warnBeforeClosingTabXButton: nil,
+            panelNeedsConfirmation: false,
+            expectedPromptCount: 0,
+            expectedPanelClosed: true
+        )
+    }
+
+    func testTabCloseButtonWarningPromptsWhenEnabledForCleanPanel() throws {
+        try assertTabCloseButtonConfirmation(
+            warnBeforeClosingTab: nil,
+            warnBeforeClosingTabXButton: true,
+            panelNeedsConfirmation: false,
+            expectedPromptCount: 1,
+            expectedPanelClosed: false
+        )
+    }
+
+    func testMiddleClickCloseDoesNotUseXButtonWarning() throws {
+        try assertTabCloseButtonConfirmation(
+            warnBeforeClosingTab: nil,
+            warnBeforeClosingTabXButton: true,
+            panelNeedsConfirmation: false,
+            marksTabCloseButtonSource: false,
+            expectedPromptCount: 0,
+            expectedPanelClosed: true
+        )
+    }
+
+    func testTabCloseButtonPreservesExistingDirtyPanelWarningWhenXButtonSettingIsOff() throws {
+        try assertTabCloseButtonConfirmation(
+            warnBeforeClosingTab: nil,
+            warnBeforeClosingTabXButton: nil,
+            panelNeedsConfirmation: true,
+            expectedPromptCount: 1,
+            expectedPanelClosed: false
+        )
+    }
+
+    func testHideTabCloseButtonDisablesBonsplitTabCloseAffordances() throws {
+        try withCloseTabUserDefaults(hideTabCloseButton: true) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace else {
+                XCTFail("Expected selected workspace")
+                return
+            }
+
+            XCTAssertFalse(workspace.bonsplitController.configuration.allowCloseTabs)
+        }
+    }
+
+    func testTabCloseButtonVisibilityRefreshesFromDefaults() throws {
+        try withCloseTabUserDefaults(hideTabCloseButton: false) {
+            let defaults = UserDefaults.standard
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace else {
+                XCTFail("Expected selected workspace")
+                return
+            }
+
+            XCTAssertTrue(workspace.bonsplitController.configuration.allowCloseTabs)
+            defaults.set(true, forKey: CloseTabWarningSettings.hideTabCloseButtonKey)
+            manager.refreshTabCloseButtonVisibility()
+
+            XCTAssertFalse(workspace.bonsplitController.configuration.allowCloseTabs)
+        }
+    }
+
     func testCloseCurrentPanelHonorsWarnBeforeClosingTabDisabledForPinnedWorkspaceLastSurface() throws {
         try assertPinnedWorkspaceLastSurfaceConfirmation(
             warnBeforeClosingTab: false,
@@ -1504,23 +1898,126 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         }
     }
 
+    private func assertTabCloseButtonConfirmation(
+        warnBeforeClosingTab: Bool?,
+        warnBeforeClosingTabXButton: Bool?,
+        panelNeedsConfirmation: Bool,
+        marksTabCloseButtonSource: Bool = true,
+        expectedPromptCount: Int,
+        expectedPanelClosed: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        try withCloseTabUserDefaults(
+            warnBeforeClosingTab: warnBeforeClosingTab,
+            warnBeforeClosingTabXButton: warnBeforeClosingTabXButton,
+            hideTabCloseButton: false
+        ) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace,
+                  let paneId = workspace.bonsplitController.focusedPaneId,
+                  let initialPanelId = workspace.focusedPanelId,
+                  let initialTerminalPanel = workspace.terminalPanel(for: initialPanelId),
+                  workspace.newTerminalSurface(inPane: paneId, focus: false) != nil,
+                  let initialSurfaceId = workspace.surfaceIdFromPanelId(initialPanelId) else {
+                XCTFail("Expected workspace with two terminal surfaces", file: file, line: line)
+                return
+            }
+            workspace.focusPanel(initialPanelId)
+            initialTerminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(panelNeedsConfirmation)
+
+            var promptCount = 0
+            manager.confirmCloseHandler = { _, _, _ in
+                promptCount += 1
+                return false
+            }
+
+            if marksTabCloseButtonSource {
+                workspace.markTabCloseButtonClose(surfaceId: initialSurfaceId)
+            } else {
+                workspace.markExplicitClose(surfaceId: initialSurfaceId)
+            }
+            _ = workspace.bonsplitController.closeTab(initialSurfaceId)
+            drainMainQueue()
+            drainMainQueue()
+            drainMainQueue()
+
+            XCTAssertEqual(promptCount, expectedPromptCount, file: file, line: line)
+            if expectedPanelClosed {
+                XCTAssertNil(workspace.panels[initialPanelId], file: file, line: line)
+            } else {
+                XCTAssertNotNil(workspace.panels[initialPanelId], file: file, line: line)
+            }
+        }
+    }
+
+    private func withCloseTabUserDefaults(
+        warnBeforeClosingTab: Bool? = nil,
+        warnBeforeClosingTabXButton: Bool? = nil,
+        hideTabCloseButton: Bool? = nil,
+        run: () throws -> Void
+    ) throws {
+        let defaults = UserDefaults.standard
+        let originalWarnBeforeClosingTab = defaults.object(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+        let originalWarnBeforeClosingTabXButton = defaults.object(forKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey)
+        let originalHideTabCloseButton = defaults.object(forKey: CloseTabWarningSettings.hideTabCloseButtonKey)
+        defer {
+            restore(originalWarnBeforeClosingTab, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey, defaults: defaults)
+            restore(originalWarnBeforeClosingTabXButton, forKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey, defaults: defaults)
+            restore(originalHideTabCloseButton, forKey: CloseTabWarningSettings.hideTabCloseButtonKey, defaults: defaults)
+        }
+
+        setOrRemove(warnBeforeClosingTab, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey, defaults: defaults)
+        setOrRemove(warnBeforeClosingTabXButton, forKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey, defaults: defaults)
+        setOrRemove(hideTabCloseButton, forKey: CloseTabWarningSettings.hideTabCloseButtonKey, defaults: defaults)
+
+        try run()
+    }
+
+    private func setOrRemove(_ value: Bool?, forKey key: String, defaults: UserDefaults) {
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    private func restore(_ value: Any?, forKey key: String, defaults: UserDefaults) {
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     private func withWarnBeforeClosingTabConfig(
         _ warnBeforeClosingTab: Bool?,
+        run: () throws -> Void
+    ) throws {
+        try withCloseTabConfig(warnBeforeClosingTab: warnBeforeClosingTab, run: run)
+    }
+
+    private func withCloseTabConfig(
+        warnBeforeClosingTab: Bool? = nil,
+        warnBeforeClosingTabXButton: Bool? = nil,
+        hideTabCloseButton: Bool? = nil,
         run: () throws -> Void
     ) throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let defaults = UserDefaults.standard
         let originalWarnBeforeClosingTab = defaults.object(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+        let originalWarnBeforeClosingTabXButton = defaults.object(forKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey)
+        let originalHideTabCloseButton = defaults.object(forKey: CloseTabWarningSettings.hideTabCloseButtonKey)
         let originalBackups = defaults.object(forKey: settingsFileBackupsDefaultsKey)
         defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+        defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey)
+        defaults.removeObject(forKey: CloseTabWarningSettings.hideTabCloseButtonKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
         defer {
             KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
-            if let originalWarnBeforeClosingTab {
-                defaults.set(originalWarnBeforeClosingTab, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
-            } else {
-                defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
-            }
+            restore(originalWarnBeforeClosingTab, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey, defaults: defaults)
+            restore(originalWarnBeforeClosingTabXButton, forKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey, defaults: defaults)
+            restore(originalHideTabCloseButton, forKey: CloseTabWarningSettings.hideTabCloseButtonKey, defaults: defaults)
             if let originalBackups {
                 defaults.set(originalBackups, forKey: settingsFileBackupsDefaultsKey)
             } else {
@@ -1536,8 +2033,12 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
         let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-        let settingLine = warnBeforeClosingTab.map { #"    "warnBeforeClosingTab": \#($0)"# } ?? ""
-        let appBody = settingLine.isEmpty ? "" : "\n\(settingLine)\n  "
+        let settingLines = [
+            warnBeforeClosingTab.map { #"    "warnBeforeClosingTab": \#($0)"# },
+            warnBeforeClosingTabXButton.map { #"    "warnBeforeClosingTabXButton": \#($0)"# },
+            hideTabCloseButton.map { #"    "hideTabCloseButton": \#($0)"# },
+        ].compactMap { $0 }
+        let appBody = settingLines.isEmpty ? "" : "\n\(settingLines.joined(separator: ",\n"))\n  "
         try """
         {
           "app": {\(appBody)}
@@ -1850,13 +2351,13 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
 
 @MainActor
 final class TabManagerEqualizeSplitsTests: XCTestCase {
-    func testEqualizeSplitsSetsEverySplitDividerToHalf() {
+    func testEqualizeSplitsUsesLeafProportionsForAsymmetricTree() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
               let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
-              workspace.newTerminalSplit(from: rightPanel.id, orientation: .vertical) != nil else {
-            XCTFail("Expected nested split setup to succeed")
+              workspace.newTerminalSplit(from: rightPanel.id, orientation: .horizontal) != nil else {
+            XCTFail("Expected asymmetric horizontal split setup to succeed")
             return
         }
 
@@ -1879,9 +2380,8 @@ final class TabManagerEqualizeSplitsTests: XCTestCase {
 
         let equalizedSplits = splitNodes(in: workspace.bonsplitController.treeSnapshot())
         XCTAssertEqual(equalizedSplits.count, initialSplits.count)
-        for split in equalizedSplits {
-            XCTAssertEqual(split.dividerPosition, 0.5, accuracy: 0.000_1)
-        }
+        let equalizedLeafCount = assertProportionalEqualizedSplitTree(workspace.bonsplitController.treeSnapshot())
+        XCTAssertEqual(equalizedLeafCount, 3)
     }
 }
 
@@ -2414,6 +2914,125 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, reopenedPanelId)
     }
 
+    func testReopenClosedItemFallsBackToLegacyClosedBrowserStack() {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+        defer {
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let expectedURL = URL(string: "https://example.com/self-close-item-fallback")
+        guard let workspace = manager.selectedWorkspace,
+              let closedBrowserId = manager.openBrowser(url: expectedURL),
+              let browserPanel = workspace.panels[closedBrowserId] as? BrowserPanel else {
+            XCTFail("Expected browser panel setup")
+            return
+        }
+
+        drainMainQueue()
+        browserPanel.webView.uiDelegate?.webViewDidClose?(browserPanel.webView)
+        drainMainQueue()
+
+        XCTAssertNil(workspace.panels[closedBrowserId])
+        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
+
+        XCTAssertTrue(appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: manager))
+        drainMainQueue()
+
+        guard let reopenedPanel = workspace.panels.values.compactMap({ $0 as? BrowserPanel }).first else {
+            XCTFail("Expected reopened browser panel")
+            return
+        }
+        XCTAssertEqual(reopenedPanel.currentURL, expectedURL)
+    }
+
+    func testReopenClosedItemUsesNewerLegacyBrowserBeforeOlderClosedStore() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+        defer {
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let expectedURL = URL(string: "https://example.com/newer-legacy-browser")
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        var olderPanelSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
+        olderPanelSnapshot.customTitle = "Older Stored Panel"
+        ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+            closedAt: Date(timeIntervalSince1970: 1),
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: workspace.id,
+                paneId: paneId.id,
+                tabIndex: 0,
+                snapshot: olderPanelSnapshot
+            ))
+        ))
+
+        guard let closedBrowserId = manager.openBrowser(url: expectedURL),
+              let browserPanel = workspace.panels[closedBrowserId] as? BrowserPanel else {
+            XCTFail("Expected browser panel setup")
+            return
+        }
+
+        drainMainQueue()
+        browserPanel.webView.uiDelegate?.webViewDidClose?(browserPanel.webView)
+        drainMainQueue()
+
+        XCTAssertNil(workspace.panels[closedBrowserId])
+        let panelIdsAfterClose = Set(workspace.panels.keys)
+
+        XCTAssertTrue(appDelegate.reopenMostRecentlyClosedItem(
+            preferredTabManager: manager,
+            shouldActivate: false
+        ))
+        drainMainQueue()
+
+        guard let reopenedPanelId = singleNewPanelId(in: workspace, comparedTo: panelIdsAfterClose),
+              let reopenedPanel = workspace.panels[reopenedPanelId] as? BrowserPanel else {
+            XCTFail("Expected Cmd+Shift+T to restore the newer self-closed browser before the older stored tab")
+            return
+        }
+        XCTAssertEqual(reopenedPanel.currentURL, expectedURL)
+        XCTAssertTrue(ClosedItemHistoryStore.shared.canReopen)
+    }
+
+    func testClearRecentlyClosedHistoryClearsLegacyBrowserStack() {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+        defer {
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let expectedURL = URL(string: "https://example.com/clear-legacy-reopen")
+        guard let workspace = manager.selectedWorkspace,
+              let closedBrowserId = manager.openBrowser(url: expectedURL),
+              let browserPanel = workspace.panels[closedBrowserId] as? BrowserPanel else {
+            XCTFail("Expected browser panel setup")
+            return
+        }
+
+        drainMainQueue()
+        browserPanel.webView.uiDelegate?.webViewDidClose?(browserPanel.webView)
+        drainMainQueue()
+
+        XCTAssertNil(workspace.panels[closedBrowserId])
+        appDelegate.clearRecentlyClosedHistory(preferredTabManager: manager)
+
+        XCTAssertFalse(appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: manager))
+    }
+
     func testReopenFromDifferentWorkspaceFocusesReopenedBrowser() {
         let manager = TabManager()
         guard let workspace1 = manager.selectedWorkspace,
@@ -2449,7 +3068,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         drainMainQueue()
 
         let currentWorkspace = manager.addWorkspace()
-        manager.closeWorkspace(originalWorkspace)
+        manager.closeWorkspace(originalWorkspace, recordHistory: false)
 
         XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
         XCTAssertFalse(manager.tabs.contains(where: { $0.id == originalWorkspace.id }))
