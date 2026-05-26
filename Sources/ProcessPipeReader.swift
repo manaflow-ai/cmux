@@ -34,7 +34,7 @@ enum ProcessPipeReader {
         from fileHandle: FileHandle,
         maxLength: Int = defaultChunkSize
     ) -> Result<Data, ProcessPipeReadError> {
-        readOnce(
+        readOnceNonBlocking(
             fileDescriptor: fileHandle.fileDescriptor,
             maxLength: maxLength,
             operation: "readAvailableData"
@@ -116,7 +116,8 @@ enum ProcessPipeReader {
     private static func readOnce(
         fileDescriptor: Int32,
         maxLength: Int,
-        operation: String
+        operation: String,
+        treatWouldBlockAsEmpty: Bool = false
     ) -> Result<Data, ProcessPipeReadError> {
         guard maxLength > 0 else { return .success(Data()) }
 
@@ -138,7 +139,65 @@ enum ProcessPipeReader {
             if code == EINTR {
                 continue
             }
+            if treatWouldBlockAsEmpty && (code == EAGAIN || code == EWOULDBLOCK) {
+                return .success(Data())
+            }
             return .failure(ProcessPipeReadError(operation: operation, errnoCode: code))
         }
+    }
+
+    private static func readOnceNonBlocking(
+        fileDescriptor: Int32,
+        maxLength: Int,
+        operation: String
+    ) -> Result<Data, ProcessPipeReadError> {
+        guard maxLength > 0 else { return .success(Data()) }
+
+        let originalFlags = Darwin.fcntl(fileDescriptor, F_GETFL)
+        guard originalFlags != -1 else {
+            return .failure(ProcessPipeReadError(
+                operation: "\(operation).fcntlGetFlags",
+                errnoCode: errno
+            ))
+        }
+
+        let shouldRestoreFlags = (originalFlags & O_NONBLOCK) == 0
+        if shouldRestoreFlags {
+            guard Darwin.fcntl(fileDescriptor, F_SETFL, originalFlags | O_NONBLOCK) != -1 else {
+                return .failure(ProcessPipeReadError(
+                    operation: "\(operation).fcntlSetNonBlocking",
+                    errnoCode: errno
+                ))
+            }
+        }
+
+        let result = readOnce(
+            fileDescriptor: fileDescriptor,
+            maxLength: maxLength,
+            operation: operation,
+            treatWouldBlockAsEmpty: true
+        )
+
+        if shouldRestoreFlags,
+           Darwin.fcntl(fileDescriptor, F_SETFL, originalFlags) == -1 {
+            let restoreError = ProcessPipeReadError(
+                operation: "\(operation).fcntlRestoreFlags",
+                errnoCode: errno
+            )
+            let partialByteCount: Int
+            switch result {
+            case .success(let data):
+                partialByteCount = data.count
+            case .failure:
+                partialByteCount = 0
+            }
+            logReadFailure(
+                restoreError,
+                fileDescriptor: fileDescriptor,
+                partialByteCount: partialByteCount
+            )
+        }
+
+        return result
     }
 }

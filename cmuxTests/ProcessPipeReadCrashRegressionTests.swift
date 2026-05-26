@@ -9,6 +9,35 @@ import XCTest
 #endif
 
 final class ProcessPipeReadCrashRegressionTests: XCTestCase {
+    func testReadAvailableDataReturnsEmptyWhenWriterRemainsOpenWithoutBufferedBytes() {
+        let pipe = Pipe()
+        let completion = DispatchSemaphore(value: 0)
+        var result: Result<Data, ProcessPipeReadError>?
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            result = ProcessPipeReader.readAvailableData(from: pipe.fileHandleForReading)
+            completion.signal()
+        }
+
+        let status = completion.wait(timeout: .now() + 1)
+        try? pipe.fileHandleForWriting.close()
+
+        guard status == .success else {
+            _ = completion.wait(timeout: .now() + 1)
+            XCTFail("readAvailableData blocked on an empty pipe with an open writer")
+            return
+        }
+
+        switch result {
+        case .success(let data):
+            XCTAssertTrue(data.isEmpty)
+        case .failure(let error):
+            XCTFail("readAvailableData failed unexpectedly: \(error)")
+        case nil:
+            XCTFail("readAvailableData did not produce a result")
+        }
+    }
+
     func testProcessOutputCollectorTreatsBrokenReadDescriptorAsClosedPipe() {
         let stdout = Pipe()
         let stderr = Pipe()
