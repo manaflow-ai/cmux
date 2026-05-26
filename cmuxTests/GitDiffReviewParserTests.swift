@@ -98,6 +98,80 @@ final class GitDiffReviewParserTests: XCTestCase {
         XCTAssertEqual(files[0].deletions, 1)
     }
 
+    func testParserKeepsUnquotedDiffGitPathsContainingSpaces() {
+        let path = "Sources/my file.swift"
+        let diffText = """
+        diff --git a/Sources/my file.swift b/Sources/my file.swift
+        index 1111111..2222222 100644
+        --- a/Sources/my file.swift
+        +++ b/Sources/my file.swift
+        @@ -1 +1 @@
+        -old
+        +new
+        """
+
+        let files = GitDiffReviewParser.parse(
+            diffText: diffText,
+            statusText: " M \(path)\u{0}"
+        )
+
+        XCTAssertEqual(files.count, 1)
+        XCTAssertEqual(files[0].path, path)
+        XCTAssertEqual(files[0].oldPath, path)
+        XCTAssertEqual(files[0].status, .modified)
+        XCTAssertEqual(files[0].additions, 1)
+        XCTAssertEqual(files[0].deletions, 1)
+    }
+
+    func testParserKeepsUnquotedDiffGitPathsContainingBoundaryText() {
+        let path = "src/tests b/helpers/foo.swift"
+        let diffText = """
+        diff --git a/src/tests b/helpers/foo.swift b/src/tests b/helpers/foo.swift
+        index 1111111..2222222 100644
+        --- a/src/tests b/helpers/foo.swift
+        +++ b/src/tests b/helpers/foo.swift
+        @@ -1 +1 @@
+        -old
+        +new
+        """
+
+        let files = GitDiffReviewParser.parse(
+            diffText: diffText,
+            statusText: " M \(path)\u{0}"
+        )
+
+        XCTAssertEqual(files.count, 1)
+        XCTAssertEqual(files[0].path, path)
+        XCTAssertEqual(files[0].oldPath, path)
+        XCTAssertEqual(files[0].status, .modified)
+        XCTAssertEqual(files[0].additions, 1)
+        XCTAssertEqual(files[0].deletions, 1)
+    }
+
+    func testParserKeepsHunkLinesThatLookLikeFileMarkers() {
+        let diffText = """
+        diff --git a/file.txt b/file.txt
+        index 1111111..2222222 100644
+        --- a/file.txt
+        +++ b/file.txt
+        @@ -1 +1 @@
+        --- old heading
+        +++ new heading
+        """
+
+        let files = GitDiffReviewParser.parse(
+            diffText: diffText,
+            statusText: " M file.txt\u{0}"
+        )
+
+        XCTAssertEqual(files.count, 1)
+        XCTAssertEqual(files[0].hunks[0].lines.count, 2)
+        XCTAssertEqual(files[0].hunks[0].lines[0].kind, .deletion)
+        XCTAssertEqual(files[0].hunks[0].lines[0].content, "-- old heading")
+        XCTAssertEqual(files[0].hunks[0].lines[1].kind, .addition)
+        XCTAssertEqual(files[0].hunks[0].lines[1].content, "++ new heading")
+    }
+
     func testParserDecodesQuotedOctalPathEscapesAsUTF8() {
         let path = "r\u{00E9}sum\u{00E9}.txt"
         let diffText = """

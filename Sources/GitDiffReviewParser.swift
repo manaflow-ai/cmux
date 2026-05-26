@@ -101,6 +101,19 @@ nonisolated enum GitDiffReviewParser {
                 currentStatus = .renamed
                 continue
             }
+            if currentHunkHeader == nil, line.hasPrefix("--- ") {
+                if let path = parseDiffFileMarkerPath(String(line.dropFirst("--- ".count))) {
+                    currentOldPath = path
+                }
+                continue
+            }
+            if currentHunkHeader == nil, line.hasPrefix("+++ ") {
+                if let path = parseDiffFileMarkerPath(String(line.dropFirst("+++ ".count))) {
+                    currentPath = path
+                    currentStatus = statusEntries[path]?.status ?? currentStatus
+                }
+                continue
+            }
             if line.hasPrefix("@@ ") {
                 flushHunk()
                 let starts = parseHunkStarts(line)
@@ -251,10 +264,21 @@ nonisolated enum GitDiffReviewParser {
     }
 
     private static func parseDiffHeaderPathTokens(_ body: String) -> [String] {
+        let trimmed = body.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return [] }
+
+        if trimmed.first == "\"" {
+            return parseQuotedDiffHeaderPathTokens(trimmed)
+        }
+
+        return parseUnquotedDiffHeaderPathTokens(trimmed)
+    }
+
+    private static func parseQuotedDiffHeaderPathTokens(_ body: String) -> [String] {
         var tokens: [String] = []
         var index = body.startIndex
 
-        while index < body.endIndex {
+        while index < body.endIndex, tokens.count < 2 {
             while index < body.endIndex, body[index] == " " {
                 index = body.index(after: index)
             }
@@ -265,15 +289,56 @@ nonisolated enum GitDiffReviewParser {
                 tokens.append(parsed.token)
                 index = parsed.nextIndex
             } else {
-                let start = index
-                while index < body.endIndex, body[index] != " " {
-                    index = body.index(after: index)
-                }
-                tokens.append(String(body[start..<index]))
+                tokens.append(String(body[index..<body.endIndex]))
+                break
             }
         }
 
         return tokens
+    }
+
+    private static func parseUnquotedDiffHeaderPathTokens(_ body: String) -> [String] {
+        let candidates = diffHeaderPathBoundaryCandidates(in: body)
+        if let exactMatch = candidates.first(where: { stripDiffPathPrefix($0.oldPath) == stripDiffPathPrefix($0.newPath) }) {
+            return [exactMatch.oldPath, exactMatch.newPath]
+        }
+        if let firstCandidate = candidates.first {
+            return [firstCandidate.oldPath, firstCandidate.newPath]
+        }
+        return [body]
+    }
+
+    private static func diffHeaderPathBoundaryCandidates(in body: String) -> [(oldPath: String, newPath: String)] {
+        var candidates: [(oldPath: String, newPath: String)] = []
+        var searchRange = body.startIndex..<body.endIndex
+
+        while let boundary = body.range(of: " b/", range: searchRange) {
+            let oldPath = String(body[..<boundary.lowerBound])
+            let newPathStart = body.index(after: boundary.lowerBound)
+            let newPath = String(body[newPathStart..<body.endIndex])
+            candidates.append((oldPath: oldPath, newPath: newPath))
+            searchRange = body.index(after: boundary.lowerBound)..<body.endIndex
+        }
+
+        return candidates
+    }
+
+    private static func parseDiffFileMarkerPath(_ marker: String) -> String? {
+        let pathText: String
+        if let tabIndex = marker.firstIndex(of: "\t") {
+            pathText = String(marker[..<tabIndex])
+        } else {
+            pathText = marker
+        }
+
+        guard pathText != "/dev/null" else { return nil }
+
+        if pathText.first == "\"" {
+            let parsed = parseQuotedPathToken(pathText, startingAt: pathText.index(after: pathText.startIndex))
+            return stripDiffPathPrefix(parsed.token)
+        }
+
+        return stripDiffPathPrefix(pathText)
     }
 
     private static func parseQuotedPathToken(_ body: String, startingAt start: String.Index) -> (token: String, nextIndex: String.Index) {
