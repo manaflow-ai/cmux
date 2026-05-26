@@ -4446,10 +4446,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
 
+        let sameWorkspacePanelController = destinationWorkspace.id == sourceWorkspace.id
+            ? sourceWorkspace.bonsplitController(containingPanelId: panelId)
+            : nil
+        let destinationController = targetPane.flatMap { pane in
+            destinationWorkspace.bonsplitController(containingPaneId: pane)
+        } ?? sameWorkspacePanelController ?? destinationWorkspace.bonsplitController
         let resolvedTargetPane = targetPane.flatMap { pane in
-            destinationWorkspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
-        } ?? destinationWorkspace.bonsplitController.focusedPaneId
-            ?? destinationWorkspace.bonsplitController.allPaneIds.first
+            destinationController.allPaneIds.first(where: { $0 == pane })
+        } ?? destinationController.focusedPaneId
+            ?? destinationController.allPaneIds.first
 
         guard let resolvedTargetPane else {
 #if DEBUG
@@ -4464,7 +4470,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if destinationWorkspace.id == sourceWorkspace.id {
             if let splitTarget {
                 guard let sourceTabId = sourceWorkspace.surfaceIdFromPanelId(panelId),
-                      sourceWorkspace.bonsplitController.splitPane(
+                      let sourceController = sourceWorkspace.bonsplitController(containingSurfaceId: sourceTabId),
+                      sourceController === destinationController,
+                      sourceController.splitPane(
                         resolvedTargetPane,
                         orientation: splitTarget.orientation,
                         movingTab: sourceTabId,
@@ -4557,7 +4565,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let splitStart = ProcessInfo.processInfo.systemUptime
 #endif
             guard let movedTabId = destinationWorkspace.surfaceIdFromPanelId(panelId),
-                  destinationWorkspace.bonsplitController.splitPane(
+                  let splitController = destinationWorkspace.bonsplitController(containingSurfaceId: movedTabId),
+                  splitController.splitPane(
                     resolvedTargetPane,
                     orientation: splitTarget.orientation,
                     movingTab: movedTabId,
@@ -9532,12 +9541,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? workspace.bonsplitController.focusedPaneId
             ?? workspace.bonsplitController.allPaneIds.first
         guard let trackedPaneId else { return }
+        let trackedController = workspace.bonsplitController(containingPaneId: trackedPaneId)
+            ?? workspace.bonsplitController
 
-        let titles: [String] = workspace.bonsplitController.tabs(inPane: trackedPaneId).compactMap { tab in
+        let titles: [String] = trackedController.tabs(inPane: trackedPaneId).compactMap { tab in
             guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { return nil }
             return workspace.panelTitle(panelId: panelId)
         }
-        let selectedTitle = workspace.bonsplitController.selectedTab(inPane: trackedPaneId)
+        let selectedTitle = trackedController.selectedTab(inPane: trackedPaneId)
             .flatMap { workspace.panelIdFromSurfaceId($0.id) }
             .flatMap { workspace.panelTitle(panelId: $0) } ?? ""
 
