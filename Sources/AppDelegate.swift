@@ -7480,6 +7480,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
         }
+        if mainWindowContexts.isEmpty {
+            // Bind the automation socket as soon as the initial model exists.
+            // Startup probes and CLI automation should not be gated on AppKit
+            // window construction or SwiftUI view materialization.
+            startSocketListenerIfEnabled(
+                tabManager: tabManager,
+                source: "createMainWindow.initialModelReady"
+            )
+        }
 
         let sidebarWidth = sessionWindowSnapshot?.sidebar.width
             .map { SessionPersistencePolicy.sanitizedSidebarWidth($0) }
@@ -14731,6 +14740,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarSelectionState = nil
             fileExplorerState = nil
             TerminalController.shared.setActiveTabManager(nil)
+            NotificationCenter.default.post(name: .cmuxSelectedWorkspaceDidChange, object: nil)
             return
         }
         tabManager = context.tabManager
@@ -14738,6 +14748,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarSelectionState = context.sidebarSelectionState
         fileExplorerState = context.fileExplorerState
         TerminalController.shared.setActiveTabManager(context.tabManager)
+        NotificationCenter.default.post(name: .cmuxSelectedWorkspaceDidChange, object: context.tabManager)
     }
 
     func setActiveMainWindow(_ window: NSWindow) {

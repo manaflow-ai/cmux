@@ -455,6 +455,97 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         XCTAssertNil(workspace.customTitle)
         XCTAssertNotEqual(workspace.panelTitles[splitPanel.id], Optional(workspace.title))
     }
+
+    func testTitleNotificationDispatcherDoesNotPostUnchangedTitle() {
+        let dispatcher = GhosttyTitleNotificationDispatcher()
+        let center = NotificationCenter()
+        let tabId = UUID()
+        let surfaceId = UUID()
+        var postCount = 0
+        let immediateDelivery: (@escaping () -> Void) -> Void = { block in
+            postCount += 1
+            block()
+        }
+
+        XCTAssertTrue(
+            dispatcher.postTitleIfChanged(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: "tmux",
+                object: nil,
+                center: center,
+                deliver: immediateDelivery
+            )
+        )
+        XCTAssertFalse(
+            dispatcher.postTitleIfChanged(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: "tmux",
+                object: nil,
+                center: center,
+                deliver: immediateDelivery
+            )
+        )
+        XCTAssertTrue(
+            dispatcher.postTitleIfChanged(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: "vim",
+                object: nil,
+                center: center,
+                deliver: immediateDelivery
+            )
+        )
+
+        XCTAssertEqual(postCount, 2)
+    }
+
+    func testTitleNotificationDispatcherEvictsOldSurfaceTitles() {
+        let dispatcher = GhosttyTitleNotificationDispatcher(maximumTrackedTitles: 1)
+        let center = NotificationCenter()
+        let tabId = UUID()
+        let firstSurfaceId = UUID()
+        let secondSurfaceId = UUID()
+        var postCount = 0
+        let immediateDelivery: (@escaping () -> Void) -> Void = { block in
+            postCount += 1
+            block()
+        }
+
+        XCTAssertTrue(
+            dispatcher.postTitleIfChanged(
+                tabId: tabId,
+                surfaceId: firstSurfaceId,
+                title: "tmux",
+                object: nil,
+                center: center,
+                deliver: immediateDelivery
+            )
+        )
+        XCTAssertTrue(
+            dispatcher.postTitleIfChanged(
+                tabId: tabId,
+                surfaceId: secondSurfaceId,
+                title: "vim",
+                object: nil,
+                center: center,
+                deliver: immediateDelivery
+            )
+        )
+        XCTAssertTrue(
+            dispatcher.postTitleIfChanged(
+                tabId: tabId,
+                surfaceId: firstSurfaceId,
+                title: "tmux",
+                object: nil,
+                center: center,
+                deliver: immediateDelivery
+            )
+        )
+
+        XCTAssertEqual(postCount, 3)
+    }
 }
 
 @MainActor

@@ -1909,6 +1909,8 @@ final class CmuxConfigStore: ObservableObject {
     private var resolvedNewWorkspaceCommandCache: CmuxResolvedCommand?
     private var resolvedNewWorkspaceActionCache: CmuxResolvedConfigAction?
     private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
+    private var notificationHooksByDirectoryCache: [String: [CmuxResolvedNotificationHook]] = [:]
+    private var notificationHooksWithoutDirectoryCache: [CmuxResolvedNotificationHook]?
     private var lifetimeCancellables = Set<AnyCancellable>()
     private var trackingCancellables = Set<AnyCancellable>()
     private var localFileWatchSource: DispatchSourceFileSystemObject?
@@ -1935,6 +1937,13 @@ final class CmuxConfigStore: ObservableObject {
 
     private static func canonicalPath(_ path: String) -> String {
         URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    private static func notificationHookCacheKey(for directory: String?) -> String? {
+        guard let directory else { return nil }
+        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return (trimmed as NSString).standardizingPath
     }
 
     init(
@@ -2003,19 +2012,33 @@ final class CmuxConfigStore: ObservableObject {
     }
 
     func notificationHooks(startingFrom directory: String?) -> [CmuxResolvedNotificationHook] {
+        let cacheKey = Self.notificationHookCacheKey(for: directory)
+        if let cacheKey, let cached = notificationHooksByDirectoryCache[cacheKey] {
+            return cached
+        }
+        if cacheKey == nil, let cached = notificationHooksWithoutDirectoryCache {
+            return cached
+        }
+
         let globalConfig = parseConfig(at: globalConfigPath).config
         let localConfigs: [(path: String, config: CmuxConfigFile)]
-        if let directory, !directory.isEmpty {
-            localConfigs = findCmuxConfigHierarchy(startingFrom: directory).compactMap { path in
+        if let cacheKey {
+            localConfigs = findCmuxConfigHierarchy(startingFrom: cacheKey).compactMap { path in
                 parseConfig(at: path).config.map { (path: path, config: $0) }
             }
         } else {
             localConfigs = []
         }
-        return resolveNotificationHooks(
+        let hooks = resolveNotificationHooks(
             globalConfig: globalConfig,
             localConfigs: localConfigs
         )
+        if let cacheKey {
+            notificationHooksByDirectoryCache[cacheKey] = hooks
+        } else {
+            notificationHooksWithoutDirectoryCache = hooks
+        }
+        return hooks
     }
 
     private func updateLocalConfigPath(_ directory: String?) {
@@ -2251,6 +2274,8 @@ final class CmuxConfigStore: ObservableObject {
         surfaceTabBarWorkspaceCommands = resolvedWorkspaceButtons.workspaceCommands
         surfaceTabBarButtons = resolvedWorkspaceButtons.buttons
         notificationHooks = resolvedNotificationHooks
+        notificationHooksByDirectoryCache.removeAll(keepingCapacity: true)
+        notificationHooksWithoutDirectoryCache = nil
         resolvedNewWorkspaceActionCache = resolvedNewWorkspaceAction.action
         resolvedNewWorkspaceCommandCache = resolvedNewWorkspaceAction.command
         if let issue = resolvedNewWorkspaceAction.issue {
