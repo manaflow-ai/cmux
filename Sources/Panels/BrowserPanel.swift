@@ -2299,6 +2299,7 @@ private enum BrowserInsecureHTTPNavigationIntent {
 
 nonisolated enum BrowserWebViewLifecycleState: String {
     case newTab = "new_tab"
+    case deferredURL = "deferred_url"
     case liveVisible = "live_visible"
     case liveHidden = "live_hidden"
     case discarded
@@ -2758,9 +2759,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private var isWebViewVisibleInUI: Bool = false
     private var isClosingWebViewLifecycle: Bool = false
 
-    /// True when the browser is showing the internal empty new-tab page (no WKWebView attached yet).
+    /// True when the browser is showing the internal empty new-tab page.
     var isShowingNewTabPage: Bool {
-        !shouldRenderWebView
+        !shouldRenderWebView && preferredURLStringForOmnibar() == nil
     }
 
     /// Published page title
@@ -3019,7 +3020,7 @@ final class BrowserPanel: Panel, ObservableObject {
         } else if hiddenWebViewDiscardManager.isDiscardedForMemory {
             nextState = .discarded
         } else if !shouldRenderWebView {
-            nextState = .newTab
+            nextState = preferredURLStringForOmnibar() == nil ? .newTab : .deferredURL
         } else if isWebViewVisibleInUI {
             nextState = .liveVisible
         } else {

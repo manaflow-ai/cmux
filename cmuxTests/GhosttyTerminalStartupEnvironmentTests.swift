@@ -7,6 +7,36 @@ import XCTest
 #endif
 
 final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
+    @MainActor
+    func testTerminalSurfaceStartupEnvironmentIncludesCmuxContextValues() throws {
+        let workspaceId = UUID()
+        let surface = TerminalSurface(
+            tabId: workspaceId,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil
+        )
+        defer { TerminalSurfaceRegistry.shared.unregister(surface) }
+
+        let expectedContextValues = [
+            "CMUX_WORKSPACE_ID": workspaceId.uuidString,
+            "CMUX_SURFACE_ID": surface.id.uuidString,
+            "CMUX_TAB_ID": workspaceId.uuidString,
+            "CMUX_PANEL_ID": surface.id.uuidString
+        ]
+
+        for (key, expectedValue) in expectedContextValues {
+            let value = try XCTUnwrap(surface.startupEnvironmentValue(key), "\(key) should be present")
+            XCTAssertFalse(value.isEmpty, "\(key) should be non-empty")
+            XCTAssertEqual(value, expectedValue)
+        }
+
+        let socketPath = try XCTUnwrap(
+            surface.startupEnvironmentValue("CMUX_SOCKET_PATH"),
+            "CMUX_SOCKET_PATH should be present"
+        )
+        XCTAssertFalse(socketPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
     func testApplyManagedTerminalIdentityEnvironmentOverridesInheritedValues() {
         var environment = [
             "TERM": "xterm-ghostty",

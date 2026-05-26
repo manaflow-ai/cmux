@@ -1877,6 +1877,20 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         XCTAssertFalse(panel.isShowingNewTabPage)
     }
 
+    func testBrowserPanelWithDeferredInitialURLIsNotNewTabPage() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/restored"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: url,
+            renderInitialNavigation: false
+        )
+
+        XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.currentURL, url)
+        XCTAssertFalse(panel.isShowingNewTabPage)
+        XCTAssertEqual(panel.webViewLifecycleState, .deferredURL)
+    }
+
     func testBrowserPanelThemeModeUpdatesWebViewAppearance() {
         let panel = BrowserPanel(workspaceId: UUID())
 
