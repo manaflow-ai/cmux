@@ -61,7 +61,11 @@ nonisolated enum GitDiffReviewParser {
             deletions = 0
         }
 
-        for rawLine in diffText.components(separatedBy: "\n") {
+        let diffLines = diffText.components(separatedBy: "\n")
+        for (rawLineIndex, rawLine) in diffLines.enumerated() {
+            if rawLineIndex == diffLines.count - 1, rawLine.isEmpty {
+                continue
+            }
             let line = rawLine.removingTrailingCarriageReturn()
 
             if line.hasPrefix("diff --git ") {
@@ -138,7 +142,7 @@ nonisolated enum GitDiffReviewParser {
                         kind: .note,
                         oldLineNumber: nil,
                         newLineNumber: nil,
-                        content: line
+                        content: String(line.dropFirst())
                     )
                 )
             } else {

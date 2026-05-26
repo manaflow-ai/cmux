@@ -119,4 +119,47 @@ final class GitDiffReviewParserTests: XCTestCase {
         XCTAssertEqual(files[0].path, path)
         XCTAssertEqual(files[0].status, .modified)
     }
+
+    func testParserStripsNoteMarkerFromLineContent() {
+        let diffText = """
+        diff --git a/file.txt b/file.txt
+        index 1111111..2222222 100644
+        --- a/file.txt
+        +++ b/file.txt
+        @@ -1 +1 @@
+        -old
+        +new
+        \\ No newline at end of file
+        """
+
+        let files = GitDiffReviewParser.parse(
+            diffText: diffText,
+            statusText: " M file.txt\u{0}"
+        )
+
+        XCTAssertEqual(files.count, 1)
+        let noteLine = files[0].hunks[0].lines[2]
+        XCTAssertEqual(noteLine.kind, .note)
+        XCTAssertEqual(noteLine.content, " No newline at end of file")
+    }
+
+    func testParserIgnoresTrailingDiffNewline() {
+        let diffText = [
+            "diff --git a/file.txt b/file.txt",
+            "index 1111111..2222222 100644",
+            "--- a/file.txt",
+            "+++ b/file.txt",
+            "@@ -1 +1 @@",
+            "-old",
+            "+new",
+        ].joined(separator: "\n") + "\n"
+
+        let files = GitDiffReviewParser.parse(
+            diffText: diffText,
+            statusText: " M file.txt\u{0}"
+        )
+
+        XCTAssertEqual(files.count, 1)
+        XCTAssertEqual(files[0].hunks[0].lines.map(\.kind), [.deletion, .addition])
+    }
 }
