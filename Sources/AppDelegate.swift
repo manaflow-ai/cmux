@@ -7655,7 +7655,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self, let controller else { return }
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
-        controller.shouldClose = { [weak self] in
+        controller.shouldClose = { [weak self, weak window] in
+            if isQuickTerminal,
+               self?.isTerminatingApp == false,
+               let quickTerminalWindow = window as? CmuxMainWindow {
+                self?.quickTerminalController.hideFromCloseShortcut(quickTerminalWindow)
+                return false
+            }
             let shouldClose = self?.handleMainTerminalWindowShouldClose() ?? true
             if !shouldClose {
                 self?.closedWindowHistorySuppressedWindowIds.remove(windowId)

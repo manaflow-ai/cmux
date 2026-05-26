@@ -677,6 +677,17 @@ final class QuickTerminalController {
         return pendingSessionSnapshot
     }
 
+    func hideFromCloseShortcut(_ window: CmuxMainWindow) {
+        guard !isAnimating else { return }
+        let configuration = configurationProvider()
+        guard let placement = placementProvider(configuration) else {
+            window.orderOut(nil)
+            window.setSoftHiddenForVisibilityController(true)
+            return
+        }
+        hide(window, placement: placement, configuration: configuration)
+    }
+
     private func shouldHide(_ window: NSWindow) -> Bool {
         NSApp.isActive &&
             window.isVisible &&
