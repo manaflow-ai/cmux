@@ -1700,8 +1700,8 @@ extension CMUXCLI {
         let file = components.reduce(filesRoot) { partial, component in
             partial.appendingPathComponent(component, isDirectory: false)
         }
-        let standardizedRoot = filesRoot.standardizedFileURL
-        let standardizedFile = file.standardizedFileURL
+        let standardizedRoot = filesRoot.standardizedFileURL.resolvingSymlinksInPath()
+        let standardizedFile = file.standardizedFileURL.resolvingSymlinksInPath()
         guard standardizedFile.path.hasPrefix(standardizedRoot.path + "/") else {
             return nil
         }
@@ -1710,6 +1710,10 @@ extension CMUXCLI {
 
     private func gitUntrackedPathHash(_ path: String, in repoRoot: String) throws -> String {
         try gitSingleLine(["hash-object", "--no-filters", "--", path], in: repoRoot)
+    }
+
+    private func gitUntrackedSnapshotFileHash(_ url: URL, in repoRoot: String) throws -> String {
+        try gitSingleLine(["hash-object", "--no-filters", "--", url.path], in: repoRoot)
     }
 
     private func gitUntrackedPathHashes(
@@ -1736,8 +1740,8 @@ extension CMUXCLI {
                   let components = safeRelativePathComponents(path) else {
                 continue
             }
-            let attributes = try FileManager.default.attributesOfItem(atPath: sourceURL.path)
-            guard attributes[.type] as? FileAttributeType == .typeRegular else {
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: sourceURL.path),
+                  attributes[.type] as? FileAttributeType == .typeRegular else {
                 continue
             }
             let fileSize = UInt64((attributes[.size] as? NSNumber)?.int64Value ?? 0)
@@ -1745,20 +1749,24 @@ extension CMUXCLI {
                   capturedBytes + fileSize <= CMUXAgentTurnUntrackedSnapshotLimits.maxTotalBytes else {
                 continue
             }
-            let destinationURL = components.reduce(filesRoot) { partial, component in
-                partial.appendingPathComponent(component, isDirectory: false)
+            do {
+                let destinationURL = components.reduce(filesRoot) { partial, component in
+                    partial.appendingPathComponent(component, isDirectory: false)
+                }
+                try FileManager.default.createDirectory(
+                    at: destinationURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                if FileManager.default.fileExists(atPath: destinationURL.path) {
+                    try FileManager.default.removeItem(at: destinationURL)
+                }
+                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                let hash = try gitUntrackedSnapshotFileHash(destinationURL, in: repoRoot)
+                hashes[path] = hash
+                capturedBytes += fileSize
+            } catch {
+                continue
             }
-            try FileManager.default.createDirectory(
-                at: destinationURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
-                try FileManager.default.removeItem(at: destinationURL)
-            }
-            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
-            let hash = try gitUntrackedPathHash(path, in: repoRoot)
-            hashes[path] = hash
-            capturedBytes += fileSize
         }
         if hashes.isEmpty {
             try? FileManager.default.removeItem(at: snapshotDirectory)
