@@ -5286,6 +5286,7 @@ struct SettingsView: View {
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(WorkspaceWorkingDirectoryInheritanceSettings.key)
     private var workspaceInheritWorkingDirectory = WorkspaceWorkingDirectoryInheritanceSettings.defaultValue
+    @AppStorage(SingleWindowModeSettings.key) private var singleWindowMode = SingleWindowModeSettings.defaultValue
     @AppStorage(LastSurfaceCloseShortcutSettings.key)
     private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
     @AppStorage(PaneFirstClickFocusSettings.enabledKey)
@@ -5381,6 +5382,19 @@ struct SettingsView: View {
         return String(
             localized: "settings.app.workspaceInheritWorkingDirectory.subtitleOff",
             defaultValue: "New workspaces leave their working directory unset so Ghostty's working-directory setting can apply."
+        )
+    }
+
+    private var singleWindowModeSubtitle: String {
+        if singleWindowMode {
+            return String(
+                localized: "settings.app.singleWindowMode.subtitleOn",
+                defaultValue: "Automatic workspace requests reuse an existing main window. New windows only come from New Window commands."
+            )
+        }
+        return String(
+            localized: "settings.app.singleWindowMode.subtitleOff",
+            defaultValue: "cmux may create a new window when a workspace target cannot be resolved."
         )
     }
 
@@ -6265,6 +6279,28 @@ struct SettingsView: View {
                             ForEach(NewWorkspacePlacement.allCases) { placement in
                                 Text(placement.displayName).tag(placement.rawValue)
                             }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("app.singleWindowMode"),
+                            String(
+                                localized: "settings.app.singleWindowMode",
+                                defaultValue: "Single Window Mode"
+                            ),
+                            subtitle: singleWindowModeSubtitle
+                        ) {
+                            Toggle("", isOn: $singleWindowMode)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsSingleWindowModeToggle")
+                                .accessibilityLabel(
+                                    String(
+                                        localized: "settings.app.singleWindowMode",
+                                        defaultValue: "Single Window Mode"
+                                    )
+                                )
                         }
 
                         SettingsCardDivider()
@@ -8100,6 +8136,7 @@ struct SettingsView: View {
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         workspaceInheritWorkingDirectory = WorkspaceWorkingDirectoryInheritanceSettings.defaultValue
+        singleWindowMode = SingleWindowModeSettings.defaultValue
         workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: WorkspaceTitlebarSettings.showTitlebarKey)

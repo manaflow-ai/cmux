@@ -54583,6 +54583,363 @@
         }
       }
     },
+    "settings.app.singleWindowMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع النافذة الواحدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Režim jednog prozora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enkeltvinduestilstand"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einzelfenstermodus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Single Window Mode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de una sola ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode fenêtre unique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modalità finestra singola"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シングルウィンドウモード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단일 윈도우 모드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enkeltvindu-modus"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryb jednego okna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de janela única"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим одного окна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหมดหน้าต่างเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tek Pencere Modu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим одного вікна"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "单窗口模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "單視窗模式"
+          }
+        }
+      }
+    },
+    "settings.app.singleWindowMode.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قد ينشئ cmux نافذة جديدة عند تعذّر حل هدف مساحة العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux može otvoriti novi prozor kada se odredište radnog prostora ne može razriješiti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan oprette et nyt vindue, når et arbejdsområdemål ikke kan findes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kann ein neues Fenster erstellen, wenn ein Arbeitsbereichsziel nicht aufgelöst werden kann."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux may create a new window when a workspace target cannot be resolved."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux puede crear una ventana nueva cuando no se puede resolver el destino del espacio de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux peut créer une nouvelle fenêtre lorsque la cible de l’espace de travail ne peut pas être résolue."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux può creare una nuova finestra quando non riesce a risolvere la destinazione dello spazio di lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの対象を解決できない場合、cmux が新しいウィンドウを作成することがあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 대상을 확인할 수 없으면 cmux가 새 윈도우를 만들 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan opprette et nytt vindu når et arbeidsområdemål ikke kan løses."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux może utworzyć nowe okno, gdy nie można ustalić celu obszaru roboczego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux pode criar uma nova janela quando não conseguir resolver o destino do workspace."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux может создать новое окно, если цель рабочей области не удается определить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux อาจสร้างหน้าต่างใหม่เมื่อไม่สามารถระบุเป้าหมายของพื้นที่ทำงานได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir çalışma alanı hedefi çözümlenemediğinde cmux yeni bir pencere oluşturabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux може створити нове вікно, якщо не вдається визначити ціль робочої області."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当无法解析工作区目标时，cmux 可能会创建新窗口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當無法解析工作區目標時，cmux 可能會建立新視窗。"
+          }
+        }
+      }
+    },
+    "settings.app.singleWindowMode.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعيد طلبات مساحات العمل التلقائية استخدام نافذة رئيسية موجودة. لا تُنشأ النوافذ الجديدة إلا من أوامر نافذة جديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski zahtjevi za radni prostor ponovo koriste postojeći glavni prozor. Novi prozori nastaju samo iz naredbi Novi prozor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatiske arbejdsområdeanmodninger genbruger et eksisterende hovedvindue. Nye vinduer oprettes kun fra kommandoer for nyt vindue."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatische Arbeitsbereichsanfragen verwenden ein vorhandenes Hauptfenster wieder. Neue Fenster entstehen nur durch Befehle für ein neues Fenster."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic workspace requests reuse an existing main window. New windows only come from New Window commands."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las solicitudes automáticas de espacios de trabajo reutilizan una ventana principal existente. Las ventanas nuevas solo se crean con comandos de Nueva ventana."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les demandes automatiques d’espace de travail réutilisent une fenêtre principale existante. Les nouvelles fenêtres proviennent uniquement des commandes Nouvelle fenêtre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le richieste automatiche di area di lavoro riutilizzano una finestra principale esistente. Le nuove finestre vengono create solo dai comandi Nuova finestra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動的なワークスペース要求は既存のメインウィンドウを再利用します。新しいウィンドウは「新規ウィンドウ」コマンドからのみ作成されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 작업 공간 요청은 기존 기본 윈도우를 다시 사용합니다. 새 윈도우는 새 윈도우 명령에서만 만들어집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatiske arbeidsområdeforespørsler bruker et eksisterende hovedvindu på nytt. Nye vinduer opprettes bare fra Nye vindu-kommandoer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatyczne żądania obszaru roboczego używają istniejącego okna głównego. Nowe okna powstają tylko z poleceń Nowe okno."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solicitações automáticas de workspace reutilizam uma janela principal existente. Novas janelas só são criadas por comandos de Nova janela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматические запросы рабочей области повторно используют существующее главное окно. Новые окна создаются только командами «Новое окно»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำขอพื้นที่ทำงานอัตโนมัติจะใช้หน้าต่างหลักที่มีอยู่ซ้ำ หน้าต่างใหม่จะสร้างจากคำสั่งหน้าต่างใหม่เท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik çalışma alanı istekleri mevcut bir ana pencereyi yeniden kullanır. Yeni pencereler yalnızca Yeni Pencere komutlarından oluşturulur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматичні запити робочої області повторно використовують наявне головне вікно. Нові вікна створюються лише командами «Нове вікно»."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动工作区请求会复用现有主窗口。新窗口只会由“新建窗口”命令创建。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動工作區要求會重用現有主視窗。新視窗只會由「新增視窗」指令建立。"
+          }
+        }
+      }
+    },
     "settings.app.settingsFile.openButton": {
       "extractionState": "manual",
       "localizations": {
@@ -76373,6 +76730,125 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused ghostty working-directory 作業ディレクトリ 継承 現在 フォーカス Ghostty"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.app.single-window-mode": {
+        "extractionState": "manual",
+        "localizations": {
+            "ar": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces نافذة واحدة منع تلقائي نوافذ جديدة احتياطي تبويبات مساحات عمل"
+                }
+            },
+            "bs": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces jedan prozor spriječi automatske nove prozore zamjena kartice radni prostori"
+                }
+            },
+            "da": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces enkelt vindue forhindre automatiske nye vinduer fallback faner arbejdsområder"
+                }
+            },
+            "de": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces einzelnes Fenster automatische neue Fenster verhindern Fallback Tabs Arbeitsbereiche"
+                }
+            },
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces"
+                }
+            },
+            "es": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces una sola ventana evitar ventanas nuevas automáticas alternativa pestañas espacios de trabajo"
+                }
+            },
+            "fr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces fenêtre unique empêcher nouvelles fenêtres automatiques repli onglets espaces de travail"
+                }
+            },
+            "it": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces finestra singola impedisci nuove finestre automatiche fallback schede aree di lavoro"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces シングルウィンドウ 自動 新規ウィンドウ ワークスペース"
+                }
+            },
+            "ko": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces 단일 윈도우 자동 새 윈도우 방지 대체 탭 작업 공간"
+                }
+            },
+            "nb": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces enkelt vindu forhindre automatiske nye vinduer reserve faner arbeidsområder"
+                }
+            },
+            "pl": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces jedno okno blokuj automatyczne nowe okna fallback karty obszary robocze"
+                }
+            },
+            "pt-BR": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces janela única impedir novas janelas automáticas fallback abas workspaces"
+                }
+            },
+            "ru": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces одно окно запретить автоматические новые окна резерв вкладки рабочие области"
+                }
+            },
+            "th": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces หน้าต่างเดียว ป้องกัน หน้าต่างใหม่ อัตโนมัติ สำรอง แท็บ พื้นที่ทำงาน"
+                }
+            },
+            "tr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces tek pencere otomatik yeni pencereleri engelle yedek sekmeler çalışma alanları"
+                }
+            },
+            "uk": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces одне вікно заборонити автоматичні нові вікна резерв вкладки робочі області"
+                }
+            },
+            "zh-Hans": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces 单窗口 阻止 自动 新窗口 回退 标签 工作区"
+                }
+            },
+            "zh-Hant": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.singleWindowMode single window mode prevent automatic new windows fallback tabs workspaces 單視窗 阻止 自動 新視窗 回退 標籤 工作區"
                 }
             }
         }

@@ -61,6 +61,7 @@ const settingsFileExample = `{
   //   "confirmQuit": "always",
   //   "openSupportedFilesInCmux": true,
   //   "workspaceInheritWorkingDirectory": true,
+  //   "singleWindowMode": false,
   //   "iMessageMode": true
   // },
 

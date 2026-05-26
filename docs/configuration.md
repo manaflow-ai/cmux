@@ -2,6 +2,12 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+## `app.singleWindowMode`
+
+When `true`, automatic workspace requests reuse an existing main window instead of creating a fallback macOS window. Explicit new-window actions such as New Window, `Cmd+Shift+N`, AppleScript `new window`, and `cmux new-window` still create windows.
+
+Default: `false`.
+
 ## `app.confirmQuit`
 
 Controls when cmux asks before quitting:
