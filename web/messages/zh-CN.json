@@ -1005,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "又一个基于 libghostty 的项目，这次是一个带垂直标签页、更好的组织/通知、内置可编程浏览器的 macOS 终端，专门面向大量使用终端 agent 工作流的用户。",
+    "steipete": "来晚了，但 cmux 很棒。当前分工：Codex Mac 应用用于知识工作、学习和阅读；cmux + Codex CLI 用于编码。",
     "schrockn": "这正是我一直在找的产品。用了两小时就爱上了。",
     "egrefen": "整个周末都在用，太棒了。",
     "max4c": "过去两周最喜欢的工具",

@@ -109,6 +109,24 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum TerminalTextBoxInputSettings {
+    static let maxLinesKey = "terminal.textBoxMaxLines"
+    static let defaultMaxLines = 10
+    static let minimumMaxLines = 1
+    static let maximumMaxLines = 20
+
+    static func resolvedMaxLines(_ value: Int) -> Int {
+        min(max(value, minimumMaxLines), maximumMaxLines)
+    }
+
+    static func maxLines(defaults: UserDefaults = .standard) -> Int {
+        guard let value = defaults.object(forKey: maxLinesKey) as? Int else {
+            return defaultMaxLines
+        }
+        return resolvedMaxLines(value)
+    }
+}
+
 enum TerminalCopyOnSelectSettings {
     static let copyOnSelectKey = "terminal.copyOnSelect"
     static let defaultCopyOnSelect = false
