@@ -162,7 +162,7 @@ extension CMUXCLI {
                         copyTreeListValue(
                             into: &row,
                             key: "active",
-                            from: surface["selected"] ?? surface["focused"] ?? pane["focused"]
+                            from: surface["selected"] ?? surface["focused"]
                         )
                         result.append(row)
                     }

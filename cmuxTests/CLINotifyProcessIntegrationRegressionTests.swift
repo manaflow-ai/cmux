@@ -3469,6 +3469,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                                             "id": "33333333-3333-3333-3333-333333333333",
                                             "ref": "pane:3",
                                             "index": 0,
+                                            "focused": true,
                                             "surfaces": [
                                                 [
                                                     "id": "44444444-4444-4444-4444-444444444444",
@@ -3486,6 +3487,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                                                     "type": "browser",
                                                     "title": "Docs",
                                                     "url": "https://example.test",
+                                                ],
+                                                [
+                                                    "id": "66666666-6666-6666-6666-666666666666",
+                                                    "ref": "surface:6",
+                                                    "index": 2,
+                                                    "type": "terminal",
+                                                    "title": "other shell",
+                                                    "tty": "/dev/ttys456",
                                                 ],
                                             ],
                                         ],
@@ -3517,13 +3526,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertTrue(result.stdout.contains("* surface:4"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("* surface:6"), result.stdout)
         XCTAssertTrue(result.stdout.contains("surface:4"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("surface:6"), result.stdout)
         XCTAssertTrue(result.stdout.contains("terminal"), result.stdout)
         XCTAssertTrue(result.stdout.contains("window=window:1"), result.stdout)
         XCTAssertTrue(result.stdout.contains("workspace=workspace:2"), result.stdout)
         XCTAssertTrue(result.stdout.contains("pane=pane:3"), result.stdout)
         XCTAssertTrue(result.stdout.contains(#""agent shell""#), result.stdout)
         XCTAssertTrue(result.stdout.contains("tty=/dev/ttys123"), result.stdout)
+        XCTAssertTrue(result.stdout.contains(#""other shell""#), result.stdout)
+        XCTAssertTrue(result.stdout.contains("tty=/dev/ttys456"), result.stdout)
         XCTAssertFalse(result.stdout.contains("surface:5"), result.stdout)
         XCTAssertFalse(result.stdout.contains("Docs"), result.stdout)
         XCTAssertEqual(
