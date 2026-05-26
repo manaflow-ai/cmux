@@ -110,7 +110,7 @@ enum AgentForkSupport {
             process.standardOutput = pipe
             process.standardError = pipe
             pipe.fileHandleForReading.readabilityHandler = { [outputBuffer] handle in
-                let data = handle.availableData
+                let data = ProcessPipeReader.readAvailableDataOrEmpty(from: handle)
                 guard !data.isEmpty else { return }
                 outputBuffer.append(data)
             }
@@ -272,7 +272,8 @@ enum AgentForkSupport {
             killTimer?.cancel()
             process?.terminationHandler = nil
             pipe?.fileHandleForReading.readabilityHandler = nil
-            if let remainingData = pipe?.fileHandleForReading.readDataToEndOfFile() {
+            if let readHandle = pipe?.fileHandleForReading {
+                let remainingData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: readHandle)
                 outputBuffer.append(remainingData)
             }
             guard !timedOut else {

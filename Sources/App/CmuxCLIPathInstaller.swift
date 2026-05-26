@@ -294,7 +294,7 @@ struct CmuxCLIPathInstaller {
     ) {
         group.enter()
         pipe.fileHandleForReading.readabilityHandler = { fileHandle in
-            let data = fileHandle.availableData
+            let data = ProcessPipeReader.readAvailableDataOrEmpty(from: fileHandle)
             guard !data.isEmpty else {
                 fileHandle.readabilityHandler = nil
                 group.leave()

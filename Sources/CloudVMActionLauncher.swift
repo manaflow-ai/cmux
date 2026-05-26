@@ -242,10 +242,10 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
     func start() {
         stdoutHandle.readabilityHandler = { [weak self] handle in
-            self?.append(handle.availableData, to: .stdout)
+            self?.append(ProcessPipeReader.readAvailableDataOrEmpty(from: handle), to: .stdout)
         }
         stderrHandle.readabilityHandler = { [weak self] handle in
-            self?.append(handle.availableData, to: .stderr)
+            self?.append(ProcessPipeReader.readAvailableDataOrEmpty(from: handle), to: .stderr)
         }
     }
 
@@ -262,8 +262,8 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
-        append(stdoutHandle.readDataToEndOfFile(), to: .stdout)
-        append(stderrHandle.readDataToEndOfFile(), to: .stderr)
+        append(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutHandle), to: .stdout)
+        append(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrHandle), to: .stderr)
         try? stdoutHandle.close()
         try? stderrHandle.close()
 

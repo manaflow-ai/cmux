@@ -571,7 +571,7 @@ final class VSCodeServeWebController {
 
         let collector = ServeWebOutputCollector()
         let outputReader: (FileHandle) -> Void = { fileHandle in
-            let data = fileHandle.availableData
+            let data = ProcessPipeReader.readAvailableDataOrEmpty(from: fileHandle)
             guard !data.isEmpty else {
                 fileHandle.readabilityHandler = nil
                 return
@@ -663,7 +663,7 @@ final class VSCodeServeWebController {
 
     private static func drainAvailableOutput(from fileHandle: FileHandle, collector: ServeWebOutputCollector) {
         while true {
-            let data = fileHandle.availableData
+            let data = ProcessPipeReader.readAvailableDataOrEmpty(from: fileHandle)
             guard !data.isEmpty else { return }
             collector.append(data)
         }
