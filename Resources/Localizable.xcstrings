@@ -117810,6 +117810,12 @@
         "ja": { "stringUnit": { "state": "translated", "value": "無題" } }
       }
     },
+    "cli.pathOpen.error.activateFailed": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Failed to activate cmux" } }, "ja": { "stringUnit": { "state": "translated", "value": "cmux をアクティブにできませんでした" } } } },
+    "cli.pathOpen.error.launchFailed": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Failed to launch cmux" } }, "ja": { "stringUnit": { "state": "translated", "value": "cmux を起動できませんでした" } } } },
+    "cli.pathOpen.error.openFailed": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Failed to open %@ in cmux" } }, "ja": { "stringUnit": { "state": "translated", "value": "%@ を cmux で開けませんでした" } } } },
+    "cli.pathOpen.error.pathDoesNotExist": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Path does not exist: %@" } }, "ja": { "stringUnit": { "state": "translated", "value": "パスが存在しません: %@" } } } },
+    "cli.pathOpen.error.processMonitorFailed": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Failed to monitor process exit: %@" } }, "ja": { "stringUnit": { "state": "translated", "value": "プロセス終了の監視に失敗しました: %@" } } } },
+    "cli.pathOpen.error.timedOut": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "%@ (timed out)" } }, "ja": { "stringUnit": { "state": "translated", "value": "%@ (タイムアウト)" } } } },
     "cli.rightSidebar.usage": {
       "extractionState": "manual",
       "localizations": {

@@ -4717,9 +4717,7 @@ struct CMUXCLI {
 
         let response = try client.sendV2(method: "workspace.create", params: ["cwd": directory])
         let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
-        if !wsRef.isEmpty {
-            print("OK \(wsRef)")
-        }
+        print(wsRef.isEmpty ? "OK" : "OK \(wsRef)")
         try activateApp()
     }
 
@@ -4735,13 +4733,13 @@ struct CMUXCLI {
             return (resolved as NSString).deletingLastPathComponent
         }
 
-        throw CLIError(message: "Path does not exist: \(resolved)")
+        throw CLIError(message: String(localized: "cli.pathOpen.error.pathDoesNotExist", defaultValue: "Path does not exist: \(resolved)"))
     }
 
     private func openDirectoryWithLaunchServices(_ directory: String) throws {
         try runOpenTool(
             arguments: ["-a", appLaunchTarget(), directory],
-            failureMessage: "Failed to open \(directory) in cmux"
+            failureMessage: String(localized: "cli.pathOpen.error.openFailed", defaultValue: "Failed to open \(directory) in cmux")
         )
     }
 
@@ -4751,26 +4749,77 @@ struct CMUXCLI {
         process.arguments = arguments
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        let exitSignal = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in
-            exitSignal.signal()
-        }
 
         try process.run()
 
-        if exitSignal.wait(timeout: .now() + 10) == .timedOut {
+        if try !waitForProcessExit(process, timeout: 10) {
             process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+            if try !waitForProcessExit(process, timeout: 1) {
                 kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
+                _ = try? waitForProcessExit(process, timeout: 1)
             }
-            process.terminationHandler = nil
-            throw CLIError(message: "\(failureMessage) (timed out)")
+            throw CLIError(message: String(localized: "cli.pathOpen.error.timedOut", defaultValue: "\(failureMessage) (timed out)"))
         }
 
-        process.terminationHandler = nil
         guard process.terminationStatus == 0 else {
             throw CLIError(message: failureMessage)
+        }
+    }
+
+    private func waitForProcessExit(_ process: Process, timeout: TimeInterval) throws -> Bool {
+        if !process.isRunning {
+            process.waitUntilExit()
+            return true
+        }
+
+        let queue = kqueue()
+        guard queue >= 0 else {
+            let errorMessage = String(cString: strerror(errno))
+            throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit: \(errorMessage)"))
+        }
+        defer { close(queue) }
+
+        var event = kevent(
+            ident: UInt(process.processIdentifier),
+            filter: Int16(EVFILT_PROC),
+            flags: UInt16(EV_ADD | EV_ENABLE | EV_ONESHOT),
+            fflags: UInt32(NOTE_EXIT),
+            data: 0,
+            udata: nil
+        )
+        guard kevent(queue, &event, 1, nil, 0, nil) == 0 else {
+            if errno == ESRCH {
+                process.waitUntilExit()
+                return true
+            }
+            let errorMessage = String(cString: strerror(errno))
+            throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit: \(errorMessage)"))
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                return false
+            }
+
+            var timeoutSpec = timespec(
+                tv_sec: Int(remaining),
+                tv_nsec: Int((remaining - floor(remaining)) * 1_000_000_000)
+            )
+            var triggeredEvent = kevent()
+            let result = kevent(queue, nil, 0, &triggeredEvent, 1, &timeoutSpec)
+            if result > 0 {
+                process.waitUntilExit()
+                return true
+            }
+            if result == 0 {
+                return false
+            }
+            if errno != EINTR {
+                let errorMessage = String(cString: strerror(errno))
+                throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit: \(errorMessage)"))
+            }
         }
     }
 
@@ -4939,14 +4988,14 @@ struct CMUXCLI {
     private func launchApp() throws {
         try runOpenTool(
             arguments: ["-a", appLaunchTarget()],
-            failureMessage: "Failed to launch cmux"
+            failureMessage: String(localized: "cli.pathOpen.error.launchFailed", defaultValue: "Failed to launch cmux")
         )
     }
 
     private func activateApp() throws {
         try runOpenTool(
             arguments: ["-a", appLaunchTarget()],
-            failureMessage: "Failed to activate cmux"
+            failureMessage: String(localized: "cli.pathOpen.error.activateFailed", defaultValue: "Failed to activate cmux")
         )
     }
 
