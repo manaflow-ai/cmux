@@ -536,6 +536,7 @@ extension Workspace {
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
                 resumeBinding: resumeBinding,
+                sessionIdentity: terminalPanel.surface.terminalSessionIdentity,
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: agentWasRunning
@@ -934,8 +935,10 @@ extension Workspace {
     private func createPanel(from snapshot: SessionPanelSnapshot, inPane paneId: PaneID) -> UUID? {
         switch snapshot.type {
         case .terminal:
-            let resumeBinding = snapshot.terminal?.resumeBinding
-            let restorableAgent = snapshot.terminal?.agent
+            let restoredSessionIdentity = snapshot.terminal?.sessionIdentity
+            let isZellijBackedRestore = restoredSessionIdentity?.backend == .zellij
+            let resumeBinding = isZellijBackedRestore ? nil : snapshot.terminal?.resumeBinding
+            let restorableAgent = isZellijBackedRestore ? nil : snapshot.terminal?.agent
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
             // Only auto-resume if the agent was actively running when the snapshot was saved.
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
@@ -954,7 +957,7 @@ extension Workspace {
                 ?? snapshot.directory
                 ?? currentDirectory
             let localWorkingDirectory = remoteTerminalStartupCommand() == nil ? workingDirectory : nil
-            let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingInput == nil
+            let restorableTmuxStartCommand = !isZellijBackedRestore && restorableAgent == nil && restoredBindingInput == nil
                 ? Self.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                 : nil
             let restoredTmuxStartupScript = restorableTmuxStartCommand.flatMap {
@@ -968,7 +971,7 @@ extension Workspace {
                 restorableAgent: restorableAgent,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 resumeStartupInput: restoredBindingInput
-            )
+            ) && !isZellijBackedRestore
             let restoredAgentResumeInput = shouldAutoResumeAgent
                 ? (restoredBindingInput == nil ? restorableAgent?.resumeStartupInput() : nil)
                 : nil
@@ -1014,6 +1017,7 @@ extension Workspace {
                 initialCommand: restoredRemotePTYAttachCommand ?? restoredTmuxStartupScript?.path,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredRemotePTYAttachCommand == nil ? restoredStartupInput : nil,
+                terminalSessionIdentity: restoredSessionIdentity,
                 startupEnvironment: replayEnvironment,
                 remotePTYSessionID: restoredRemotePTYSessionID
             ) else {
@@ -12320,6 +12324,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         startupEnvironment: [String: String] = [:],
+        terminalSessionIdentity: TerminalSessionIdentity? = nil,
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil
     ) -> TerminalPanel? {
@@ -12402,6 +12407,7 @@ final class Workspace: Identifiable, ObservableObject {
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
+            terminalSessionIdentity: terminalSessionIdentity,
             additionalEnvironment: startupEnvironment
         )
         configureTerminalPanel(newPanel)
@@ -12511,6 +12517,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
+        terminalSessionIdentity: TerminalSessionIdentity? = nil,
         startupEnvironment: [String: String] = [:],
         remotePTYSessionID: String? = nil
     ) -> TerminalPanel? {
@@ -12542,6 +12549,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
+            terminalSessionIdentity: terminalSessionIdentity,
             additionalEnvironment: startupEnvironment
         )
         configureTerminalPanel(newPanel)

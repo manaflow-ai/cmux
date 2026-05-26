@@ -342,6 +342,13 @@
           "default": true,
           "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
         },
+        "sessionBackend": {
+          "type": "string",
+          "enum": ["native", "zellij"],
+          "default": "native",
+          "descriptionKey": "schemaDescriptions.terminal.sessionBackend",
+          "description": "Choose how new local terminal surfaces are launched. native starts a normal Ghostty-backed shell. zellij launches each eligible terminal inside a stable zellij session so live processes can survive cmux quit and relaunch. The zellij CLI must be on PATH."
+        },
         "textBoxMaxLines": {
           "type": "integer",
           "minimum": 1,

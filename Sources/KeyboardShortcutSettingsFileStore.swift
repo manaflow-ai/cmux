@@ -513,6 +513,17 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
         }
 
+        if let raw = jsonString(section["sessionBackend"]) {
+            let backend = TerminalSessionBackendSettings.backend(for: raw)
+            if backend.rawValue == raw {
+                snapshot.managedUserDefaults[TerminalSessionBackendSettings.backendKey] = .string(raw)
+            } else {
+                logInvalid("terminal.sessionBackend", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("sessionBackend") {
+            logInvalid("terminal.sessionBackend", sourcePath: sourcePath)
+        }
+
         if let value = jsonInt(section["textBoxMaxLines"]) {
             if value >= TerminalTextBoxInputSettings.minimumMaxLines,
                value <= TerminalTextBoxInputSettings.maximumMaxLines {
