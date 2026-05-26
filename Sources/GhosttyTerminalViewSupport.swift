@@ -5,7 +5,7 @@ enum TmuxControlEvent: Equatable, Sendable {
     case enter
     case exit
     case windowsChanged(Data)
-    case paneOutput(paneId: UInt32, text: String)
+    case paneOutput(paneId: UInt32, data: Data)
 }
 
 struct TmuxControlLayoutNode: Codable, Equatable, Sendable {
@@ -78,7 +78,7 @@ struct TmuxControlTopology: Codable, Equatable, Sendable {
 }
 
 struct TmuxControlState: Equatable, Sendable {
-    private static let paneTextLimit = 65_536
+    private static let paneTextByteLimit = 65_536
 
     var active = false
     var lastEvent = "inactive"
@@ -86,7 +86,7 @@ struct TmuxControlState: Equatable, Sendable {
     var tmuxVersion: String?
     var paneIds: [UInt32] = []
     var windows: [TmuxControlWindow] = []
-    var paneTextById: [UInt32: String] = [:]
+    var paneBytesById: [UInt32: Data] = [:]
     var lastPaneOutputId: UInt32?
     var topologyParseError: String?
 
@@ -110,7 +110,7 @@ struct TmuxControlState: Equatable, Sendable {
                 let layoutPaneIds = topology.windows.flatMap(\.paneIds)
                 let ids = topology.paneIds.isEmpty ? layoutPaneIds : topology.paneIds
                 paneIds = Array(Set(ids)).sorted()
-                paneTextById = paneTextById.filter { paneIds.contains($0.key) }
+                paneBytesById = paneBytesById.filter { paneIds.contains($0.key) }
                 topologyParseError = nil
             } catch {
                 topologyParseError = "json_decode_failed"
@@ -126,11 +126,12 @@ struct TmuxControlState: Equatable, Sendable {
                 paneIds.append(paneId)
                 paneIds.sort()
             }
-            let combined = (paneTextById[paneId] ?? "") + chunk
-            if combined.count > Self.paneTextLimit {
-                paneTextById[paneId] = String(combined.suffix(Self.paneTextLimit))
+            var combined = paneBytesById[paneId] ?? Data()
+            combined.append(chunk)
+            if combined.count > Self.paneTextByteLimit {
+                paneBytesById[paneId] = Data(combined.suffix(Self.paneTextByteLimit))
             } else {
-                paneTextById[paneId] = combined
+                paneBytesById[paneId] = combined
             }
         }
     }
@@ -152,12 +153,33 @@ struct TmuxControlState: Equatable, Sendable {
             payload["panes"] = paneIds.map { paneId in
                 [
                     "id": paneId,
-                    "text": paneTextById[paneId] ?? ""
+                    "text": Self.decodedPaneText(from: paneBytesById[paneId] ?? Data())
                 ]
             }
         }
 
         return payload
+    }
+
+    private static func decodedPaneText(from data: Data) -> String {
+        guard !data.isEmpty else { return "" }
+        if let string = String(data: data, encoding: .utf8) {
+            return string
+        }
+
+        let maxLeadingDrop = min(3, data.count)
+        for leadingDrop in 0...maxLeadingDrop {
+            let leadingTrimmed = data.dropFirst(leadingDrop)
+            let maxTrailingDrop = min(3, leadingTrimmed.count)
+            for trailingDrop in 0...maxTrailingDrop where leadingDrop != 0 || trailingDrop != 0 {
+                let candidate = leadingTrimmed.dropLast(trailingDrop)
+                if let string = String(data: Data(candidate), encoding: .utf8) {
+                    return string
+                }
+            }
+        }
+
+        return String(decoding: data, as: UTF8.self)
     }
 }
 

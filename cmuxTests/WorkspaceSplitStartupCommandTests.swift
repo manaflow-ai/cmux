@@ -329,19 +329,27 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
 
         state.apply(.paneOutput(
             paneId: 2,
-            text: "/tmp/cmux-known-path\n"
+            data: Data("/tmp/cmux-known-path\n".utf8)
         ))
         XCTAssertEqual(state.lastEvent, "pane_output")
         XCTAssertEqual(state.lastPaneOutputId, 2)
-        XCTAssertTrue(state.paneTextById[2]?.contains("/tmp/cmux-known-path") == true)
+        XCTAssertTrue(String(decoding: state.paneBytesById[2] ?? Data(), as: UTF8.self).contains("/tmp/cmux-known-path"))
 
         let redactedPayload = state.debugPayload()
         let redactedPanes = try XCTUnwrap(redactedPayload["panes"] as? [[String: Any]])
         XCTAssertNil(redactedPanes.first { ($0["id"] as? UInt32) == 2 }?["text"])
 
-        let textPayload = state.debugPayload(includePaneText: true)
-        let textPanes = try XCTUnwrap(textPayload["panes"] as? [[String: Any]])
+        let wave = "\u{1F30A}"
+        let waveBytes = Array(wave.utf8)
+        state.apply(.paneOutput(paneId: 2, data: Data(waveBytes.prefix(2))))
+        var textPayload = state.debugPayload(includePaneText: true)
+        var textPanes = try XCTUnwrap(textPayload["panes"] as? [[String: Any]])
         XCTAssertEqual(textPanes.first { ($0["id"] as? UInt32) == 2 }?["text"] as? String, "/tmp/cmux-known-path\n")
+
+        state.apply(.paneOutput(paneId: 2, data: Data(waveBytes.suffix(2))))
+        textPayload = state.debugPayload(includePaneText: true)
+        textPanes = try XCTUnwrap(textPayload["panes"] as? [[String: Any]])
+        XCTAssertEqual(textPanes.first { ($0["id"] as? UInt32) == 2 }?["text"] as? String, "/tmp/cmux-known-path\n\(wave)")
 
         state.apply(.windowsChanged(Data("{}".utf8)))
         XCTAssertEqual(state.topologyParseError, "json_decode_failed")
@@ -350,6 +358,6 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertFalse(state.active)
         XCTAssertEqual(state.lastEvent, "exit")
         XCTAssertTrue(state.paneIds.isEmpty)
-        XCTAssertTrue(state.paneTextById.isEmpty)
+        XCTAssertTrue(state.paneBytesById.isEmpty)
     }
 }

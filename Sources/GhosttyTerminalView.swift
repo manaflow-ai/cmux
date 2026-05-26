@@ -4426,7 +4426,7 @@ class GhosttyApp {
             case GHOSTTY_TMUX_WINDOWS_CHANGED:
                 event = .windowsChanged(data)
             case GHOSTTY_TMUX_PANE_OUTPUT:
-                event = .paneOutput(paneId: tmuxAction.id, text: String(decoding: data, as: UTF8.self))
+                event = .paneOutput(paneId: tmuxAction.id, data: data)
             default:
                 event = nil
             }
