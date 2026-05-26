@@ -65,7 +65,7 @@ enum SidebarWorkspaceScrollLayout {
         contentMinHeight: CGFloat,
         rowsHeight: CGFloat
     ) -> CGFloat {
-        contentMinHeight
+        max(0, contentMinHeight - max(0, rowsHeight))
     }
 
     nonisolated static func contentOverflows(
