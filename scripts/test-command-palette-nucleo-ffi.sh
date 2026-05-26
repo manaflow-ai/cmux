@@ -19,7 +19,7 @@ if [ "${CMUX_NUCLEO_FFI_CLEAN:-0}" = "1" ]; then
 fi
 NSUnbufferedIO=YES CMUX_NUCLEO_FFI_LIB="${LIB_PATH}" \
   xcodebuild \
-    -project "${ROOT}/GhosttyTabs.xcodeproj" \
+    -project "${ROOT}/cmux.xcodeproj" \
     -scheme cmux-unit \
     -configuration Debug \
     -destination 'platform=macOS' \

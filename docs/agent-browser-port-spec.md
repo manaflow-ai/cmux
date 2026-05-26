@@ -288,6 +288,7 @@ Proposed methods:
 1. `surface.move` with `surface_id` + destination (`pane_id` or `workspace_id`/`window_id`) + placement (`before_surface_id|after_surface_id|start|end`)
 2. `surface.reorder` with `surface_id` + sibling anchor (`before_surface_id|after_surface_id`)
 3. `workspace.reorder` with `workspace_id` + anchor (`before_workspace_id|after_workspace_id`)
+4. `workspace.reorder_many` with a `workspace_ids` final leading order inside pinned and unpinned groups. Unmentioned workspaces keep their relative order after the listed workspaces in the same group.
 
 Hard invariant:
 1. `surface_id` must remain unchanged after all move/reorder operations.
@@ -342,7 +343,7 @@ Hard invariant:
 - [x] Implement cross-workspace surface moves.
 - [x] Implement cross-window surface moves.
 - [x] Implement `workspace.reorder`.
-- [x] Add CLI commands for tab/surface reordering and moving (`move-surface`, `reorder-surface`, `reorder-workspace`).
+- [x] Add CLI commands for tab/surface reordering and moving (`move-surface`, `reorder-surface`, `reorder-workspace`, `reorder-workspaces`).
 - [x] Add response payloads that confirm final `window_id/workspace_id/pane_id/surface_id`.
 - [x] Add explicit invariants tests for `surface_id` stability.
 
@@ -407,8 +408,8 @@ Hard invariant:
 4. No regressions in existing window/workspace/surface workflows.
 
 Planned verification commands at implementation completion:
-1. `ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && ./scripts/run-tests-v2.sh'`
-2. `ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && ./scripts/run-tests-v1.sh'`
+1. `ssh cmux-vm 'cd /Users/cmux/cmux && ./scripts/run-tests-v2.sh'`
+2. `ssh cmux-vm 'cd /Users/cmux/cmux && ./scripts/run-tests-v1.sh'`
 
 ## Decision Log (Locked - February 12, 2026)
 

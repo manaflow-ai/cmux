@@ -32,7 +32,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
 
             descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
 
-            XCTAssertTrue(defaults.bool(forKey: IMessageModeSettings.key))
+            XCTAssertEqual(defaults.object(forKey: IMessageModeSettings.key) as? Bool, true)
             XCTAssertTrue(descriptor.isOn(defaults))
             XCTAssertEqual(descriptor.commandTitle(defaults: defaults), disableTitle)
             XCTAssertTrue(descriptor.commandSubtitle(defaults: defaults).contains(onState))
@@ -60,7 +60,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             XCTAssertTrue(descriptor.isOn(defaults))
             descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
 
-            XCTAssertFalse(defaults.bool(forKey: TerminalScrollBarSettings.showScrollBarKey))
+            XCTAssertEqual(defaults.object(forKey: TerminalScrollBarSettings.showScrollBarKey) as? Bool, false)
             XCTAssertTrue(didNotify)
         }
     }
@@ -93,8 +93,129 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
 
             descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
 
-            XCTAssertFalse(defaults.bool(forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey))
+            XCTAssertEqual(
+                defaults.object(forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey) as? Bool,
+                false
+            )
             XCTAssertFalse(descriptor.isOn(defaults))
+        }
+    }
+
+    func testOpenSupportedFilesCommandTogglesAndPostsChangeNotification() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.openSupportedFilesInCmux"
+                )
+            )
+            let notificationCenter = NotificationCenter()
+            var didNotify = false
+            let token = notificationCenter.addObserver(
+                forName: CmdClickSupportedFileRouteSettings.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                didNotify = true
+            }
+            defer { notificationCenter.removeObserver(token) }
+
+            XCTAssertTrue(descriptor.isOn(defaults))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
+
+            XCTAssertEqual(defaults.object(forKey: CmdClickSupportedFileRouteSettings.key) as? Bool, false)
+            XCTAssertFalse(descriptor.isOn(defaults))
+            XCTAssertTrue(didNotify)
+        }
+    }
+
+    func testAgentHibernationCommandTogglesAndPostsChangeNotification() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.agentHibernation"
+                )
+            )
+            let notificationCenter = NotificationCenter()
+            var didNotify = false
+            let token = notificationCenter.addObserver(
+                forName: AgentHibernationSettings.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                didNotify = true
+            }
+            defer { notificationCenter.removeObserver(token) }
+
+            XCTAssertFalse(descriptor.isOn(defaults))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
+
+            XCTAssertTrue(AgentHibernationSettings.isEnabled(defaults: defaults))
+            XCTAssertTrue(descriptor.isOn(defaults))
+            XCTAssertTrue(didNotify)
+        }
+    }
+
+    func testWarnBeforeQuitCommandWritesConfirmQuitSourceOfTruth() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.warnBeforeQuit"
+                )
+            )
+
+            defaults.set(QuitConfirmationMode.dirtyOnly.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            XCTAssertTrue(descriptor.isOn(defaults))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertEqual(defaults.string(forKey: QuitWarningSettings.confirmQuitKey), QuitConfirmationMode.never.rawValue)
+            XCTAssertEqual(defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool, false)
+            XCTAssertFalse(descriptor.isOn(defaults))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertEqual(defaults.string(forKey: QuitWarningSettings.confirmQuitKey), QuitConfirmationMode.always.rawValue)
+            XCTAssertEqual(defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool, true)
+            XCTAssertTrue(descriptor.isOn(defaults))
+        }
+    }
+
+    func testConfigLinkAndFileOpeningSettingsHaveCommandPaletteToggles() throws {
+        XCTAssertNotNil(
+            CommandPaletteSettingsToggleCommands.descriptor(
+                commandId: "palette.toggleSetting.openTerminalLinksInCmuxBrowser"
+            )
+        )
+        XCTAssertNotNil(
+            CommandPaletteSettingsToggleCommands.descriptor(
+                commandId: "palette.toggleSetting.openSupportedFilesInCmux"
+            )
+        )
+    }
+
+    func testSuppressSubagentNotificationsCommandTogglesDefaultAndReportsState() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.suppressSubagentNotifications"
+                )
+            )
+
+            let offState = String(localized: "command.toggleSetting.state.off", defaultValue: "Off")
+            let onState = String(localized: "command.toggleSetting.state.on", defaultValue: "On")
+            XCTAssertTrue(descriptor.isOn(defaults))
+            XCTAssertTrue(descriptor.commandSubtitle(defaults: defaults).contains(onState))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertEqual(
+                defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey) as? Bool,
+                false
+            )
+            XCTAssertFalse(descriptor.isOn(defaults))
+            XCTAssertTrue(descriptor.commandSubtitle(defaults: defaults).contains(offState))
         }
     }
 
@@ -124,7 +245,10 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
 
             descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
 
-            XCTAssertFalse(defaults.bool(forKey: BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowserKey))
+            XCTAssertEqual(
+                defaults.object(forKey: BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowserKey) as? Bool,
+                false
+            )
         }
     }
 

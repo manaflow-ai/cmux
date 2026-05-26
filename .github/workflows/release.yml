@@ -137,7 +137,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .spm-cache
-          key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
 
       - name: Setup Go
@@ -330,6 +330,8 @@ jobs:
           xcrun stapler staple "$APP_PATH"
           xcrun stapler validate "$APP_PATH"
           spctl -a -vv --type execute "$APP_PATH"
+          ./scripts/smoke-launch-macos-app.sh "$APP_PATH"
+          ./scripts/verify-app-bundle-channel-metadata.sh "$APP_PATH" stable
           rm -f "$ZIP_SUBMIT"
           # create-dmg generates a styled drag-to-install DMG
           create-dmg \

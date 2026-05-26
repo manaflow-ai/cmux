@@ -32,6 +32,22 @@ const skills = [
     useKey: "settingsUse",
   },
   {
+    id: "cmux-customization",
+    path: "skills/cmux-customization/SKILL.md",
+    command: "cmux reload-config",
+    nameKey: "customizationName",
+    descriptionKey: "customizationDescription",
+    useKey: "customizationUse",
+  },
+  {
+    id: "cmux-diagnostics",
+    path: "skills/cmux-diagnostics/SKILL.md",
+    command: "skills/cmux-diagnostics/scripts/cmux-diagnostics",
+    nameKey: "diagnosticsName",
+    descriptionKey: "diagnosticsDescription",
+    useKey: "diagnosticsUse",
+  },
+  {
     id: "cmux-browser",
     path: "skills/cmux-browser/SKILL.md",
     command: "cmux browser surface:2 snapshot --interactive",
@@ -46,14 +62,6 @@ const skills = [
     nameKey: "markdownName",
     descriptionKey: "markdownDescription",
     useKey: "markdownUse",
-  },
-  {
-    id: "cmux-debug-windows",
-    path: "skills/cmux-debug-windows/SKILL.md",
-    command: "skills/cmux-debug-windows/scripts/debug_windows_snapshot.sh",
-    nameKey: "debugWindowsName",
-    descriptionKey: "debugWindowsDescription",
-    useKey: "debugWindowsUse",
   },
 ] as const;
 
@@ -77,6 +85,18 @@ const skillCoverage = [
     referencesKey: "settingsReferences",
   },
   {
+    id: "cmux-customization",
+    nameKey: "customizationName",
+    scopeKey: "customizationScope",
+    referencesKey: "customizationReferences",
+  },
+  {
+    id: "cmux-diagnostics",
+    nameKey: "diagnosticsName",
+    scopeKey: "diagnosticsScope",
+    referencesKey: "diagnosticsReferences",
+  },
+  {
     id: "cmux-browser",
     nameKey: "browserName",
     scopeKey: "browserScope",
@@ -88,33 +108,9 @@ const skillCoverage = [
     scopeKey: "markdownScope",
     referencesKey: "markdownReferences",
   },
-  {
-    id: "cmux-debug-windows",
-    nameKey: "debugWindowsName",
-    scopeKey: "debugWindowsScope",
-    referencesKey: "debugWindowsReferences",
-  },
 ] as const;
 
 const suggestedSkills = [
-  {
-    id: "cmux-custom-commands",
-    nameKey: "suggestCustomCommandsName",
-    useKey: "suggestCustomCommandsUse",
-    whyKey: "suggestCustomCommandsWhy",
-  },
-  {
-    id: "cmux-agent-hooks",
-    nameKey: "suggestAgentHooksName",
-    useKey: "suggestAgentHooksUse",
-    whyKey: "suggestAgentHooksWhy",
-  },
-  {
-    id: "cmux-notifications",
-    nameKey: "suggestNotificationsName",
-    useKey: "suggestNotificationsUse",
-    whyKey: "suggestNotificationsWhy",
-  },
   {
     id: "cmux-ssh",
     nameKey: "suggestSshName",
@@ -132,6 +128,51 @@ const suggestedSkills = [
     nameKey: "suggestVaultName",
     useKey: "suggestVaultUse",
     whyKey: "suggestVaultWhy",
+  },
+] as const;
+
+const customizationExamples = [
+  {
+    id: "worktree-agents",
+    nameKey: "exampleWorktreeName",
+    surfaceKey: "exampleWorktreeSurface",
+    useKey: "exampleWorktreeUse",
+  },
+  {
+    id: "full-stack-dev",
+    nameKey: "exampleFullStackName",
+    surfaceKey: "exampleFullStackSurface",
+    useKey: "exampleFullStackUse",
+  },
+  {
+    id: "ssh-devbox",
+    nameKey: "exampleSshName",
+    surfaceKey: "exampleSshSurface",
+    useKey: "exampleSshUse",
+  },
+  {
+    id: "review-pr",
+    nameKey: "exampleReviewName",
+    surfaceKey: "exampleReviewSurface",
+    useKey: "exampleReviewUse",
+  },
+  {
+    id: "docs-workspace",
+    nameKey: "exampleDocsName",
+    surfaceKey: "exampleDocsSurface",
+    useKey: "exampleDocsUse",
+  },
+  {
+    id: "ci-watch",
+    nameKey: "exampleCiName",
+    surfaceKey: "exampleCiSurface",
+    useKey: "exampleCiUse",
+  },
+  {
+    id: "quick-agent-buttons",
+    nameKey: "exampleAgentButtonsName",
+    surfaceKey: "exampleAgentButtonsSurface",
+    useKey: "exampleAgentButtonsUse",
   },
 ] as const;
 
@@ -163,7 +204,12 @@ export default function SkillsPage() {
           code: (chunks) => <code>{chunks}</code>,
         })}
       </p>
-      <CodeBlock title={t("installFromGitHub")} lang="bash">{`curl -fsSL https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills.sh | bash`}</CodeBlock>
+      <CodeBlock title={t("installWithVercel")} lang="bash">{`# Install all cmux skills
+npx skills add manaflow-ai/cmux -g -y
+
+# Or install just diagnostics
+npx skills add manaflow-ai/cmux --skill cmux-diagnostics -g -y`}</CodeBlock>
+      <CodeBlock title={t("installWithSkillsSh")} lang="bash">{`curl -fsSL https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills.sh | bash`}</CodeBlock>
       <Callout type="info">
         {t.rich("installDestination", {
           code: (chunks) => <code>{chunks}</code>,
@@ -234,6 +280,41 @@ export default function SkillsPage() {
           ))}
         </tbody>
       </table>
+
+      <DocsHeading level={2} id="customization-examples-title">{t("customizationExamplesTitle")}</DocsHeading>
+      <p>{t("customizationExamplesIntro")}</p>
+      <table>
+        <thead>
+          <tr>
+            <th>{t("exampleHeader")}</th>
+            <th>{t("exampleSurfaceHeader")}</th>
+            <th>{t("exampleUseHeader")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {customizationExamples.map((example) => (
+            <tr key={example.id}>
+              <td>
+                <strong>{t(example.nameKey)}</strong>
+                <br />
+                <code>{example.id}</code>
+              </td>
+              <td>{t(example.surfaceKey)}</td>
+              <td>{t(example.useKey)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <Callout type="info">
+        {t.rich("customizationExamplesCallout", {
+          code: (chunks) => <code>{chunks}</code>,
+        })}
+      </Callout>
+      <CodeBlock title={t("customizationExamplePrompts")} lang="text">{[
+        t("customizationPromptWorktree"),
+        t("customizationPromptFullStack"),
+        t("customizationPromptAgentButtons"),
+      ].join("\n")}</CodeBlock>
 
       <DocsHeading level={2} id="help-menu-title">{t("helpMenuTitle")}</DocsHeading>
       <p>
