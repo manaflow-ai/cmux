@@ -164,6 +164,84 @@
         "featureSocketApiDesc": "programmatisk kontroll for å opprette faner og sende inndata",
         "featureGpuLabel": "GPU-akselerert",
         "featureGpuDesc": "drevet av libghostty for jevn gjengivelse"
+      },
+      "passkeyAuth": {
+        "title": "Passkey-autentisering i cmux-nettleseren",
+        "summary": "Den innebygde cmux-nettleseren støtter passkey-autentisering og kan importere informasjonskapsler fra andre nettlesere med cmux browser import.",
+        "date": "22. mai 2026",
+        "p1": "cmux-nettleseren støtter nå passkey-autentisering. Innloggingsflyter som bruker passkeys, WebAuthn, Touch ID eller maskinvarebaserte sikkerhetsnøkler kan fullføres i en cmux-nettleserrute.",
+        "p2": "Hvis du allerede bruker en annen nettleser for samme nettsted, importerer du kompatible informasjonskapsler én gang:",
+        "p3": "Krever cmux v0.64+. Dette hjelper når Claude Code, Codex, OpenCode, Gemini CLI eller en annen agent må teste en autentisert lokal app uten å forlate cmux."
+      },
+      "taskManager": {
+        "title": "Oppgavebehandling i cmux",
+        "summary": "Bruk cmux top eller Oppgavebehandling fra kommandopaletten for å se CPU- og RAM-bruk for kodeagentene dine.",
+        "date": "22. mai 2026",
+        "p1": "cmux har nå en oppgavebehandling for å se hvor mye CPU og RAM kodeagentene og terminalprosessene dine bruker.",
+        "p2": "Åpne den fra CLI:",
+        "p3": "Eller trykk Cmd+Shift+P og velg Oppgavebehandling fra kommandopaletten.",
+        "p4": "Krever cmux v0.64.4+."
+      },
+      "sessionRestore": {
+        "seoP": "Hvis du ser etter hvordan du gjenoppretter Claude Code-, OpenCode-, opencode-, Codex-, Gemini CLI-, Antigravity CLI-, Grok Build CLI-, Amp-, Cursor CLI-, Rovo Dev-, Copilot-, CodeBuddy-, Factory-, Qoder- eller Hermes Agent-økter etter et terminalkrasj, installer cmux hooks og hold agentgjenopptak aktivert.",
+        "summary": "Hvordan cmux gjenoppretter oppsett og fortsetter Claude Code-, Codex-, OpenCode-, Gemini CLI-, Antigravity CLI-, Grok Build CLI- og andre agentøkter.",
+        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory og Qoder kan fortsette når cmux har en opprinnelig økt-ID. For de fleste agenter installerer du integrasjonen med <code>cmux hooks setup</code>.",
+        "title": "Øktgjenoppretting i cmux",
+        "date": "13. mai 2026",
+        "p1": "Terminalarbeid tåler avbrudd bedre når appen kan bygge opp formen på arbeidet ditt igjen. cmux behandler nå workspace-oppsettet som varig tilstand, ikke som noe som er bundet til én app-prosess.",
+        "p2": "Den viktige grensen er tilstanden til levende prosesser. cmux gjenoppretter det den eier, og det støttede verktøy eksponerer gjennom sine egne resume-API-er. Den tar ikke checkpoints av vilkårlige terminalprosesser.",
+        "baselineTitle": "Det som alltid kommer tilbake",
+        "baselineP": "Etter en vanlig omstart gjenoppretter cmux appens øyeblikksbilde av økten:",
+        "baselineItemLayout": "Oppsett for vinduer, workspaces og paneler",
+        "baselineItemCwd": "Arbeidsmapper",
+        "baselineItemScrollback": "Terminal-scrollback, best mulig",
+        "baselineItemBrowser": "Nettleser-URL og navigasjonshistorikk",
+        "agentTitle": "Agentøkter trenger hooks",
+        "agentP2": "Setup-kommandoen installerer støttede agenter som har binærfiler på PATH, og hopper over resten. Claude Code håndteres av cmux Claude-wrapperen når Claude-integrasjonen er aktivert i Settings.",
+        "implementationTitle": "Slik fungerer det",
+        "implementationP1": "cmux skriver et JSON-øyeblikksbilde av økten under Application Support med vindustre, workspace-metadata, paneloppsett, terminal-cwd, scrollback-avspillingsdata og nettleserens navigasjonstilstand.",
+        "implementationP2": "Agent-hooks skriver øktmappinger under ~/.cmuxterm. Ved gjenoppretting bygger cmux først UI-et på nytt. Hvis automatisk agent-resume er aktivert, starter den hver støttede agent med agentens native resume-kommando og den lagrede økt-ID-en.",
+        "limitsTitle": "Hva som er utenfor omfang",
+        "limitsP": "tmux, vim, shells og ikke-støttede verktøy åpnes som vanlige terminaler med mindre de har en cmux-integrasjon som lagrer en trygg native resume-kommando. Det gjør gjenoppretting forutsigbar og unngår å spille av gamle prompts eller hemmeligheter.",
+        "docsCta": "Les <link>dokumentasjonen for øktgjenoppretting</link> for setup-kommandoer, støttede agenter og feilsøking."
+      },
+      "cmuxFinder": {
+        "title": "cmux Finder",
+        "summary": "cmux har nå en filutforsker som forhåndsviser videoer, bilder, PDF-er og Markdown-filer.",
+        "date": "22. mai 2026",
+        "p1": "cmux har nå en Finder-lignende filutforsker i sidelinjen.",
+        "p2": "Den forhåndsviser videoer, bilder, PDF-er og Markdown-filer i cmux, slik at du kan inspisere genererte artefakter uten å forlate workspacet.",
+        "p3": "Jeg bruker den mest til demovideoer og skjermbilder som Codex tar opp mens den tester endringer.",
+        "p4": "Slå filforhåndsvisning av eller på med Cmd+Shift+P, og velg Enable Cmd-click File Previews eller Disable Cmd-click File Previews.",
+        "p5": "Krever cmux v0.64+."
+      },
+      "cmuxVault": {
+        "title": "Vi introduserer cmux Vault",
+        "summary": "Søk i Codex-, Claude Code-, OpenCode- og Pi-økter fra Vault-panelet og dra dem inn i workspacet.",
+        "date": "22. mai 2026",
+        "p1": "cmux har nå et Vault-panel i høyre sidelinje for gamle agentøkter.",
+        "p2": "Det indekserer Codex-, Claude Code-, OpenCode- og Pi-økter, med fulltekstsøk i transkriptene.",
+        "p3": "Dra en økt fra Vault inn i et workspace for å åpne den igjen der du jobber.",
+        "p4": "Krever cmux v0.64+."
+      },
+      "markdownViewer": {
+        "title": "En bedre Markdown-viser i cmux",
+        "summary": "Åpne README.md med cmux open eller dra Markdown-filer fra høyre sidelinje.",
+        "date": "22. mai 2026",
+        "p1": "cmux har en bedre Markdown-viser for README-filer, dokumentasjon og genererte rapporter.",
+        "p2": "Åpne en fil fra CLI:",
+        "p3": "Du kan også dra en Markdown-fil fra høyre sidelinje inn i workspacet.",
+        "p4": "Takk til <tobiLink>@tobi</tobiLink> for bidraget."
+      },
+      "unreadShortcuts": {
+        "title": "Snarveier for uleste workspaces i cmux",
+        "summary": "Cmd+Control+U går gjennom uleste workspaces mens de forblir ulest, og Cmd+Option+U veksler lesestatus.",
+        "date": "22. mai 2026",
+        "p1": "cmux har to nye snarveier for å håndtere uleste workspaces når agenter blir ferdige samtidig.",
+        "p2": "Cmd+Control+U markerer gjeldende workspace som det eldste uleste og hopper deretter til det nyeste uleste workspacet.",
+        "p3": "Det sender gjeldende workspace bakerst i den uleste syklusen, slik at du kan fortsette å bla gjennom ulest arbeid uten å fjerne statusen.",
+        "p4": "Cmd+Option+U veksler gjeldende workspace mellom lest og ulest.",
+        "p5": "Dette er nyttig når du hopper til et nytt ulest workspace med Cmd+Shift+U, men må bytte kontekst før du svarer."
       }
     },
     "zenOfCmux": {
@@ -181,6 +259,114 @@
     "introducingCmux": {
       "metaTitle": "Vi presenterer cmux",
       "metaDescription": "Hvorfor vi bygde cmux, en ny terminal for macOS."
+    },
+    "passkeyAuth": {
+      "metaTitle": "Passkey-autentisering i cmux-nettleseren",
+      "metaDescription": "cmux v0.64+ støtter passkey-autentisering i nettleserruter og kan importere informasjonskapsler fra andre nettlesere med cmux browser import.",
+      "metaKeywords": [
+        "passkey-autentisering i cmux-nettleseren",
+        "passkey-autentisering",
+        "WebAuthn",
+        "Touch ID",
+        "import av informasjonskapsler",
+        "nettleserinformasjonskapsler",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "Gemini CLI",
+        "AI-kodeagenter"
+      ]
+    },
+    "taskManager": {
+      "metaTitle": "Oppgavebehandling i cmux",
+      "metaDescription": "cmux v0.64.4+ inkluderer en oppgavebehandling for å sjekke CPU- og RAM-bruk fra kodeagenter med cmux top eller kommandopaletten.",
+      "metaKeywords": [
+        "cmux oppgavebehandling",
+        "cmux top",
+        "CPU-bruk for kodeagenter",
+        "RAM-bruk for kodeagenter",
+        "terminalprosessovervåking",
+        "Claude Code CPU",
+        "Codex CPU",
+        "OpenCode CPU",
+        "AI-kodeagenter"
+      ]
+    },
+    "sessionRestore": {
+      "metaDescription": "Slik gjenoppretter du Claude Code-, Codex-, OpenCode-, Gemini CLI-, Antigravity CLI-, Grok Build CLI- og andre kodeagentøkter etter relansering eller terminalkrasj med cmux.",
+      "metaKeywords": [
+        "cmux",
+        "gjenoppretting av økt",
+        "gjenopprett terminal etter krasj",
+        "terminalkrasj-gjenoppretting",
+        "terminal",
+        "macOS",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "opencode",
+        "Gemini CLI",
+        "Antigravity CLI",
+        "Grok Build CLI",
+        "AI-kodeagenter"
+      ],
+      "metaTitle": "Øktgjenoppretting i cmux"
+    },
+    "cmuxFinder": {
+      "metaTitle": "cmux Finder",
+      "metaDescription": "cmux v0.64+ inneholder en Finder-lignende filutforsker som forhåndsviser videoer, bilder, PDF-er og Markdown-filer i workspacet.",
+      "metaKeywords": [
+        "cmux Finder",
+        "cmux filutforsker",
+        "terminal filutforsker",
+        "forhåndsvis video i terminal",
+        "forhåndsvis skjermbilder i terminal",
+        "PDF-forhåndsvisning",
+        "Markdown-forhåndsvisning",
+        "AI-kodeagenter",
+        "Codex-demovideoer"
+      ]
+    },
+    "cmuxVault": {
+      "metaTitle": "Vi introduserer cmux Vault",
+      "metaDescription": "cmux v0.64+ legger til et Vault-panel for å søke i Codex-, Claude Code-, OpenCode- og Pi-økter og dra dem inn i workspacet.",
+      "metaKeywords": [
+        "cmux Vault",
+        "Codex-økter",
+        "Claude Code-økter",
+        "OpenCode-økter",
+        "Pi-økter",
+        "historikk for AI-kodeagenter",
+        "søk i agentøkter",
+        "gjenopprett kodeagentøkt",
+        "fulltekstsøk"
+      ]
+    },
+    "markdownViewer": {
+      "metaTitle": "En bedre Markdown-viser i cmux",
+      "metaDescription": "Åpne README.md med cmux open eller dra Markdown-filer fra høyre sidelinje inn i den forbedrede Markdown-viseren i cmux.",
+      "metaKeywords": [
+        "cmux Markdown-viser",
+        "cmux open README.md",
+        "Markdown-forhåndsvisning",
+        "README-viser",
+        "terminal Markdown-viser",
+        "forhåndsvisning av utviklerdokumentasjon"
+      ]
+    },
+    "unreadShortcuts": {
+      "metaTitle": "Snarveier for uleste workspaces i cmux",
+      "metaDescription": "Bruk Cmd+Control+U og Cmd+Option+U til å bla gjennom uleste cmux-workspaces uten å fjerne ulest-status før du svarer.",
+      "metaKeywords": [
+        "cmux ulest-snarveier",
+        "Cmd+Control+U",
+        "Cmd+Option+U",
+        "Cmd+Shift+U",
+        "kodeagent-varsler",
+        "terminalvarsler",
+        "AI-kodeagenter",
+        "workspace ulest"
+      ]
     }
   },
   "docs": {
@@ -304,6 +490,15 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "Undertrykk synlige fullføringsvarsler og statusendringer fra innebygde Codex- eller Claude-underagenter, samtidig som hendelsene deres beholdes i Feed-telemetri."
+        },
+        "app": {
+          "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
+          "warnBeforeQuit": "Eldre boolsk fallback for avslutningsbekreftelse. Bruk app.confirmQuit for nye konfigurasjoner.",
+          "warnBeforeClosingTabXButton": "Vis en bekreftelse før en fane lukkes med fanens lukkeknapp.",
+          "hideTabCloseButton": "Skjul lukkeknapper for faner i faneraden i ruten."
+        },
+        "terminal": {
+          "copyOnSelect": "Kopierer markert terminaltekst til systemutklippstavlen når markeringen bekreftes, inkludert ord- og linjemarkeringer fra dobbelt- og trippelklikk."
         }
       }
     },
@@ -782,10 +977,10 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "ingen",
-      "supportedNote": "Claude Code håndteres av cmux Claude-wrapperen når Claude-integrasjonen er aktivert i Settings. Rovo Dev godtar også rovo som setup-alias.",
+      "supportedNote": "Claude Code håndteres av cmux Claude-wrapperen når Claude-integrasjonen er aktivert i Settings. Antigravity godtar også agy som setup-alias, og Rovo Dev godtar rovo.",
       "manualTitle": "Manuell gjenoppretting",
       "manualDesc": "cmux gjenoppretter siste lagrede snapshot ved normal oppstart. Du kan også bruke forrige snapshot manuelt igjen:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "Slå av automatisk agent-gjenopptakelse",
       "disableDesc": "For å gjenopprette paneler uten å starte lagrede agent resume-kommandoer, slå av Settings > Terminal > Resume Agent Sessions on Reopen eller sett:",
       "disableNote": "Dette slår bare av agent resume-kommandoer. cmux gjenoppretter fortsatt layout, arbeidsmapper, scrollback og nettleserhistorikk.",
@@ -794,7 +989,9 @@
       "underHoodItemScrollback": "Terminal-scrollback lagres som begrenset tekst og spilles av via en midlertidig fil ved gjenoppretting. Dette er best effort fordi terminalapper kan tegne om eller tømme skjermen.",
       "underHoodItemHooks": "Agent hooks skriver ~/.cmuxterm/<agent>-hook-sessions.json med agent session-ID, cmux workspace-ID, surface-ID, cwd, prosess-ID når tilgjengelig og en sanert startkommando.",
       "underHoodItemResume": "Ved gjenoppretting bygger cmux først opp vinduer og paneler. Hvis automatisk agent-gjenopptakelse er aktivert, starter den en engangs shell-kommando som kjører agentens native resume-kommando med lagret session-ID.",
-      "underHoodMore": "Vanlige <configLink>konfigurasjonsdokumenter</configLink> dekker cmux.json. Sesjongjenoppretting holder app-layout separat fra Ghostty-terminalens renderingsinnstillinger."
+      "underHoodMore": "Vanlige <configLink>konfigurasjonsdokumenter</configLink> dekker cmux.json. Sesjongjenoppretting holder app-layout separat fra Ghostty-terminalens renderingsinnstillinger.",
+      "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     }
   },
   "legal": {
@@ -808,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "Nok en dag, nok et libghostty-basert prosjekt, denne gangen en macOS-terminal med vertikale faner, bedre organisering/varsler, innebygd/skriptbar nettleser spesifikt rettet mot folk som bruker mange terminalbaserte agent-arbeidsflyter.",
+    "steipete": "Jeg er sent ute, men cmux er flott. Nåværende oppdeling: Codex Mac-appen for kunnskapsarbeid, læring og lesing; cmux + Codex CLI for koding.",
     "schrockn": "Dette er nøyaktig produktet jeg har lett etter. Etter to timer i morges er jeg forelsket.",
     "egrefen": "Jeg har brukt dette hele helgen og det er fantastisk.",
     "max4c": "dette har vært favorittverktøyet mitt de siste to ukene",

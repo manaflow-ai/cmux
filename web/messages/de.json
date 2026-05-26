@@ -164,6 +164,84 @@
         "featureSocketApiDesc": "Programmatische Steuerung zum Erstellen von Tabs und Senden von Eingaben",
         "featureGpuLabel": "GPU-beschleunigt",
         "featureGpuDesc": "Angetrieben von libghostty für flüssiges Rendering"
+      },
+      "passkeyAuth": {
+        "title": "Passkey-Authentifizierung im cmux-Browser",
+        "summary": "Der integrierte cmux-Browser unterstützt Passkey-Authentifizierung und kann mit cmux browser import Cookies aus anderen Browsern importieren.",
+        "date": "22. Mai 2026",
+        "p1": "Der cmux-Browser unterstützt jetzt Passkey-Authentifizierung. Anmeldeabläufe mit Passkeys, WebAuthn, Touch ID oder Hardware-Sicherheitsschlüsseln können in einem cmux-Browser-Pane abgeschlossen werden.",
+        "p2": "Wenn du für dieselbe Website bereits einen anderen Browser nutzt, importiere kompatible Cookies einmalig:",
+        "p3": "Erfordert cmux v0.64+. Das hilft, wenn Claude Code, Codex, OpenCode, Gemini CLI oder ein anderer Agent eine authentifizierte lokale App testen muss, ohne cmux zu verlassen."
+      },
+      "taskManager": {
+        "title": "Task-Manager in cmux",
+        "summary": "Nutze cmux top oder den Task-Manager in der Befehlspalette, um CPU- und RAM-Nutzung deiner Coding-Agenten zu sehen.",
+        "date": "22. Mai 2026",
+        "p1": "cmux hat jetzt einen Task-Manager, mit dem du prüfen kannst, wie viel CPU und RAM deine Coding-Agenten und Terminalprozesse verbrauchen.",
+        "p2": "Öffne ihn über die CLI:",
+        "p3": "Oder drücke Cmd+Shift+P und wähle Task-Manager in der Befehlspalette.",
+        "p4": "Erfordert cmux v0.64.4+."
+      },
+      "sessionRestore": {
+        "seoP": "Wenn du nach einer Möglichkeit suchst, Claude Code-, OpenCode-, opencode-, Codex-, Gemini CLI-, Antigravity CLI-, Grok Build CLI-, Amp-, Cursor CLI-, Rovo Dev-, Copilot-, CodeBuddy-, Factory-, Qoder- oder Hermes Agent-Sitzungen nach einem Terminalabsturz wiederherzustellen, installiere cmux hooks und lass die Agent-Fortsetzung aktiviert.",
+        "summary": "Wie cmux Layouts wiederherstellt und Claude Code-, Codex-, OpenCode-, Gemini CLI-, Antigravity CLI-, Grok Build CLI- und andere Agent-Sitzungen fortsetzt.",
+        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory und Qoder können fortgesetzt werden, wenn cmux eine native Sitzungs-ID hat. Für die meisten Agenten installierst du die Integration mit <code>cmux hooks setup</code>.",
+        "title": "Sitzungswiederherstellung in cmux",
+        "date": "13. Mai 2026",
+        "p1": "Terminal-Workflows überstehen Unterbrechungen besser, wenn die App die Form deiner Arbeit rekonstruieren kann. cmux behandelt das Workspace-Layout jetzt als dauerhaften Zustand statt als etwas, das an einen einzelnen App-Prozess gebunden ist.",
+        "p2": "Die wichtige Grenze ist der Zustand laufender Prozesse. cmux stellt wieder her, was es besitzt und was unterstützte Tools über ihre eigenen Resume-APIs bereitstellen. Es erstellt keine Checkpoints beliebiger Terminalprozesse.",
+        "baselineTitle": "Was immer zurückkommt",
+        "baselineP": "Nach einem normalen Neustart stellt cmux den Sitzungs-Snapshot der App wieder her:",
+        "baselineItemLayout": "Fenster-, Workspace- und Pane-Layout",
+        "baselineItemCwd": "Arbeitsverzeichnisse",
+        "baselineItemScrollback": "Terminal-Scrollback, nach bestem Aufwand",
+        "baselineItemBrowser": "Browser-URL und Navigationsverlauf",
+        "agentTitle": "Agent-Sitzungen brauchen Hooks",
+        "agentP2": "Der Setup-Befehl installiert unterstützte Agenten, deren Binaries auf PATH liegen, und überspringt den Rest. Claude Code wird vom cmux Claude-Wrapper behandelt, wenn die Claude-Integration in Settings aktiviert ist.",
+        "implementationTitle": "So funktioniert es",
+        "implementationP1": "cmux schreibt unter Application Support einen JSON-Sitzungs-Snapshot mit Fensterbaum, Workspace-Metadaten, Pane-Layout, Terminal-cwd, Scrollback-Wiedergabedaten und Browser-Navigationszustand.",
+        "implementationP2": "Agent-Hooks schreiben Sitzungszuordnungen unter ~/.cmuxterm. Beim Wiederherstellen baut cmux zuerst die UI neu auf. Wenn automatisches Agent-Resume aktiviert ist, startet es jeden unterstützten Agenten mit dessen nativem Resume-Befehl und der gespeicherten Sitzungs-ID.",
+        "limitsTitle": "Was außerhalb des Umfangs bleibt",
+        "limitsP": "tmux, vim, Shells und nicht unterstützte Tools öffnen wieder als normale Terminals, sofern sie keine cmux-Integration haben, die einen sicheren nativen Resume-Befehl speichert. So bleibt Restore berechenbar und spielt keine veralteten Prompts oder Secrets erneut ab.",
+        "docsCta": "Lies die <link>Dokumentation zur Sitzungswiederherstellung</link> für Setup-Befehle, unterstützte Agenten und Fehlerbehebung."
+      },
+      "cmuxFinder": {
+        "title": "cmux Finder",
+        "summary": "cmux hat jetzt einen Dateiexplorer, der Videos, Bilder, PDFs und Markdown-Dateien anzeigt.",
+        "date": "22. Mai 2026",
+        "p1": "cmux hat jetzt einen Finder-artigen Dateiexplorer in der Seitenleiste.",
+        "p2": "Er zeigt Videos, Bilder, PDFs und Markdown-Dateien direkt in cmux an, damit du generierte Artefakte prüfen kannst, ohne den Workspace zu verlassen.",
+        "p3": "Ich nutze ihn vor allem für Demovideos und Screenshots, die Codex während des Testens von Änderungen aufnimmt.",
+        "p4": "Schalte Dateivorschauen mit Cmd+Shift+P um und wähle dann Enable Cmd-click File Previews oder Disable Cmd-click File Previews.",
+        "p5": "Erfordert cmux v0.64+."
+      },
+      "cmuxVault": {
+        "title": "cmux Vault vorgestellt",
+        "summary": "Durchsuche Codex-, Claude Code-, OpenCode- und Pi-Sitzungen im Vault-Bereich und ziehe sie in deinen Workspace.",
+        "date": "22. Mai 2026",
+        "p1": "cmux hat jetzt einen Vault-Bereich in der rechten Seitenleiste für alte Agent-Sitzungen.",
+        "p2": "Er indexiert Codex-, Claude Code-, OpenCode- und Pi-Sitzungen mit Volltextsuche über Transkripte.",
+        "p3": "Ziehe eine Sitzung aus Vault in einen Workspace, um sie dort wieder zu öffnen, wo du arbeitest.",
+        "p4": "Erfordert cmux v0.64+."
+      },
+      "markdownViewer": {
+        "title": "Ein besserer Markdown-Viewer in cmux",
+        "summary": "Öffne README.md mit cmux open oder ziehe Markdown-Dateien aus der rechten Seitenleiste hinein.",
+        "date": "22. Mai 2026",
+        "p1": "cmux hat einen besseren Markdown-Viewer für README-Dateien, Dokumentation und generierte Berichte.",
+        "p2": "Öffne eine Datei über die CLI:",
+        "p3": "Du kannst eine Markdown-Datei auch aus der rechten Seitenleiste in den Workspace ziehen.",
+        "p4": "Danke an <tobiLink>@tobi</tobiLink> für den Beitrag."
+      },
+      "unreadShortcuts": {
+        "title": "Shortcuts für ungelesene Workspaces in cmux",
+        "summary": "Cmd+Control+U wechselt durch ungelesene Workspaces, ohne sie als gelesen zu markieren, und Cmd+Option+U schaltet den Lesestatus um.",
+        "date": "22. Mai 2026",
+        "p1": "cmux hat zwei weitere Shortcuts zum Verwalten ungelesener Workspaces, wenn Agenten gleichzeitig fertig werden.",
+        "p2": "Cmd+Control+U markiert den aktuellen Workspace als ältesten ungelesenen Workspace und springt dann zum neuesten ungelesenen Workspace.",
+        "p3": "Dadurch wandert der aktuelle Workspace ans Ende des ungelesenen Zyklus, sodass du weiter durch ungelesene Arbeit wechseln kannst, ohne sie zu löschen.",
+        "p4": "Cmd+Option+U schaltet den aktuellen Workspace zwischen gelesen und ungelesen um.",
+        "p5": "Das ist nützlich, wenn du mit Cmd+Shift+U zu einem neuen ungelesenen Workspace springst, aber vor der Antwort den Kontext wechseln musst."
       }
     },
     "zenOfCmux": {
@@ -181,6 +259,114 @@
     "introducingCmux": {
       "metaTitle": "Wir stellen cmux vor",
       "metaDescription": "Warum wir cmux gebaut haben, ein neues Terminal für macOS."
+    },
+    "passkeyAuth": {
+      "metaTitle": "Passkey-Authentifizierung im cmux-Browser",
+      "metaDescription": "cmux v0.64+ unterstützt Passkey-Authentifizierung in Browser-Panes und kann mit cmux browser import Cookies aus anderen Browsern importieren.",
+      "metaKeywords": [
+        "cmux Browser Passkey-Authentifizierung",
+        "Passkey-Authentifizierung",
+        "WebAuthn",
+        "Touch ID",
+        "Cookie-Import",
+        "Browser-Cookies",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "Gemini CLI",
+        "AI-Coding-Agenten"
+      ]
+    },
+    "taskManager": {
+      "metaTitle": "Task-Manager in cmux",
+      "metaDescription": "cmux v0.64.4+ enthält einen Task-Manager zum Prüfen von CPU- und RAM-Nutzung durch Coding-Agenten mit cmux top oder der Befehlspalette.",
+      "metaKeywords": [
+        "cmux Task-Manager",
+        "cmux top",
+        "CPU-Nutzung von Coding-Agenten",
+        "RAM-Nutzung von Coding-Agenten",
+        "Terminal-Prozessmonitor",
+        "Claude Code CPU",
+        "Codex CPU",
+        "OpenCode CPU",
+        "AI-Coding-Agenten"
+      ]
+    },
+    "sessionRestore": {
+      "metaDescription": "So stellst du Claude Code-, Codex-, OpenCode-, Gemini CLI-, Antigravity CLI-, Grok Build CLI- und andere Coding-Agent-Sitzungen nach einem Neustart oder Terminalabsturz mit cmux wieder her.",
+      "metaKeywords": [
+        "cmux",
+        "Sitzungswiederherstellung",
+        "Terminal nach Absturz wiederherstellen",
+        "Terminalabsturz-Wiederherstellung",
+        "Terminal",
+        "macOS",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "opencode",
+        "Gemini CLI",
+        "Antigravity CLI",
+        "Grok Build CLI",
+        "AI-Coding-Agenten"
+      ],
+      "metaTitle": "Sitzungswiederherstellung in cmux"
+    },
+    "cmuxFinder": {
+      "metaTitle": "cmux Finder",
+      "metaDescription": "cmux v0.64+ enthält einen Finder-artigen Dateiexplorer, der Videos, Bilder, PDFs und Markdown-Dateien direkt im Workspace anzeigt.",
+      "metaKeywords": [
+        "cmux Finder",
+        "cmux Dateiexplorer",
+        "Terminal-Dateiexplorer",
+        "Video im Terminal anzeigen",
+        "Screenshots im Terminal anzeigen",
+        "PDF-Vorschau",
+        "Markdown-Vorschau",
+        "KI-Coding-Agenten",
+        "Codex-Demovideos"
+      ]
+    },
+    "cmuxVault": {
+      "metaTitle": "cmux Vault vorgestellt",
+      "metaDescription": "cmux v0.64+ ergänzt einen Vault-Bereich zum Durchsuchen von Codex-, Claude Code-, OpenCode- und Pi-Sitzungen, die du in den Workspace ziehen kannst.",
+      "metaKeywords": [
+        "cmux Vault",
+        "Codex-Sitzungen",
+        "Claude Code-Sitzungen",
+        "OpenCode-Sitzungen",
+        "Pi-Sitzungen",
+        "Verlauf von KI-Coding-Agenten",
+        "Agent-Sitzungen suchen",
+        "Coding-Agent-Sitzung wiederherstellen",
+        "Volltextsuche"
+      ]
+    },
+    "markdownViewer": {
+      "metaTitle": "Ein besserer Markdown-Viewer in cmux",
+      "metaDescription": "Öffne README.md mit cmux open oder ziehe Markdown-Dateien aus der rechten Seitenleiste in den verbesserten cmux Markdown-Viewer.",
+      "metaKeywords": [
+        "cmux Markdown-Viewer",
+        "cmux open README.md",
+        "Markdown-Vorschau",
+        "README-Viewer",
+        "Terminal-Markdown-Viewer",
+        "Vorschau für Entwicklerdokumentation"
+      ]
+    },
+    "unreadShortcuts": {
+      "metaTitle": "Shortcuts für ungelesene Workspaces in cmux",
+      "metaDescription": "Mit Cmd+Control+U und Cmd+Option+U kannst du durch ungelesene cmux-Workspaces wechseln, ohne ihren ungelesenen Zustand vor der Antwort zu löschen.",
+      "metaKeywords": [
+        "cmux Shortcuts für ungelesen",
+        "Cmd+Control+U",
+        "Cmd+Option+U",
+        "Cmd+Shift+U",
+        "Coding-Agent-Benachrichtigungen",
+        "Terminal-Benachrichtigungen",
+        "KI-Coding-Agenten",
+        "Workspace ungelesen"
+      ]
     }
   },
   "docs": {
@@ -304,6 +490,15 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "Unterdrücke sichtbare Abschlussbenachrichtigungen und Statusänderungen von verschachtelten Codex- oder Claude-Unteragenten, während ihre Ereignisse in der Feed-Telemetrie bleiben."
+        },
+        "app": {
+          "confirmQuit": "Steuert, wann cmux vor dem Beenden eine Bestätigung anfordert. DEV-Builds beenden sich unabhängig von dieser Einstellung immer sofort. Das ältere app.warnBeforeQuit wird weiterhin als boolescher Fallback akzeptiert.",
+          "warnBeforeQuit": "Älterer boolescher Fallback für die Beenden-Bestätigung. Verwenden Sie app.confirmQuit für neue Konfigurationen.",
+          "warnBeforeClosingTabXButton": "Vor dem Schließen eines Tabs über die Tab-Schließen-Schaltfläche eine Bestätigung anzeigen.",
+          "hideTabCloseButton": "Tab-Schließen-Schaltflächen in der Pane-Tableiste ausblenden."
+        },
+        "terminal": {
+          "copyOnSelect": "Kopiert ausgewählten Terminaltext in die Systemzwischenablage, sobald die Auswahl bestätigt wird, einschließlich Wort- und Zeilenauswahl per Doppel- und Dreifachklick."
         }
       }
     },
@@ -782,10 +977,10 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "Plugin-Event-Bus",
       "none": "keine",
-      "supportedNote": "Claude Code wird vom cmux Claude-Wrapper verarbeitet, wenn die Claude-Integration in Settings aktiviert ist. Rovo Dev akzeptiert auch rovo als Setup-Alias.",
+      "supportedNote": "Claude Code wird vom cmux Claude-Wrapper verarbeitet, wenn die Claude-Integration in Settings aktiviert ist. Antigravity akzeptiert auch agy als Setup-Alias, und Rovo Dev akzeptiert rovo.",
       "manualTitle": "Manuelle Wiederherstellung",
       "manualDesc": "cmux stellt beim normalen Start den zuletzt gespeicherten Snapshot wieder her. Sie können den vorherigen Snapshot auch manuell erneut anwenden:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "Automatische Agent-Wiederaufnahme deaktivieren",
       "disableDesc": "Um Paneele wiederherzustellen, ohne gespeicherte Agent-Wiederaufnahmebefehle zu starten, deaktivieren Sie Settings > Terminal > Resume Agent Sessions on Reopen oder setzen Sie:",
       "disableNote": "Dies deaktiviert nur Agent-Wiederaufnahmebefehle. cmux stellt Layout, Arbeitsverzeichnisse, Scrollback und Browserverlauf weiterhin wieder her.",
@@ -794,7 +989,9 @@
       "underHoodItemScrollback": "Terminal-Scrollback wird als begrenzter Text gespeichert und bei der Wiederherstellung über eine temporäre Datei wiedergegeben. Das ist best effort, weil Terminal-Apps ihren Bildschirm neu zeichnen oder löschen können.",
       "underHoodItemHooks": "Agent-Hooks schreiben ~/.cmuxterm/<agent>-hook-sessions.json mit Agent-Sitzungs-ID, cmux-Workspace-ID, Surface-ID, cwd, Prozess-ID falls verfügbar und einem bereinigten Startbefehl.",
       "underHoodItemResume": "Bei der Wiederherstellung baut cmux zuerst Fenster und Paneele neu auf. Wenn automatische Agent-Wiederaufnahme aktiviert ist, startet es einen einmaligen Shell-Befehl, der den nativen Wiederaufnahmebefehl des Agents mit der gespeicherten Sitzungs-ID ausführt.",
-      "underHoodMore": "Die reguläre <configLink>Konfigurationsdokumentation</configLink> behandelt cmux.json. Sitzungswiederherstellung hält App-Layout getrennt von Ghostty-Terminal-Rendering-Einstellungen."
+      "underHoodMore": "Die reguläre <configLink>Konfigurationsdokumentation</configLink> behandelt cmux.json. Sitzungswiederherstellung hält App-Layout getrennt von Ghostty-Terminal-Rendering-Einstellungen.",
+      "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     }
   },
   "legal": {
@@ -808,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "Und wieder ein libghostty-basiertes Projekt, diesmal ein macOS-Terminal mit vertikalen Tabs, besserer Organisation/Benachrichtigungen, eingebettetem/skriptfähigem Browser, speziell für Leute, die viele terminalbasierte Agenten-Workflows nutzen.",
+    "steipete": "Ich bin spät dran, aber cmux ist großartig. Aktuelle Aufteilung: Codex-Mac-App für Wissensarbeit, Lernen und Lesen; cmux + Codex CLI fürs Coding.",
     "schrockn": "Genau das Produkt, nach dem ich gesucht habe. Nach zwei Stunden heute Morgen bin ich verliebt.",
     "egrefen": "Ich habe das ganze Wochenende damit gearbeitet und es ist großartig.",
     "max4c": "Das ist mein Lieblingstool der letzten zwei Wochen",

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 private enum WorkspaceRemoteSSHOptionFilter {
@@ -58,6 +59,7 @@ nonisolated struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable 
     var port: Int?
     var identityFile: String?
     var sshOptions: [String]
+    var preserveAfterTerminalExit: Bool?
     var skipDaemonBootstrap: Bool?
 }
 
@@ -78,6 +80,198 @@ struct WorkspaceRemoteWebSocketDaemonEndpoint: Equatable {
     }
 }
 
+nonisolated enum SSHPTYAttachStartupCommandBuilder {
+    struct ForegroundAuth {
+        let destination: String
+        let port: Int?
+        let identityFile: String?
+        let sshOptions: [String]
+        let token: String
+    }
+
+    static func command(
+        sessionID: String? = nil,
+        foregroundAuth: ForegroundAuth? = nil,
+        requireExisting: Bool = true
+    ) -> String {
+        var lines = [
+            "cmux_ssh_attach_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
+            "if [ -z \"$cmux_ssh_attach_cli\" ] || [ ! -x \"$cmux_ssh_attach_cli\" ]; then cmux_ssh_attach_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
+            "if [ -z \"$cmux_ssh_attach_cli\" ]; then printf '%s\\n' '[cmux] bundled CLI not found for SSH PTY attach.' >&2; exit 127; fi",
+            "if [ -z \"${CMUX_SOCKET_PATH:-}\" ]; then printf '%s\\n' '[cmux] required configuration missing for SSH PTY attach.' >&2; exit 1; fi",
+            "if [ -z \"${CMUX_WORKSPACE_ID:-}\" ]; then printf '%s\\n' '[cmux] required workspace context missing for SSH PTY attach.' >&2; exit 1; fi",
+        ]
+        if let sessionID = normalized(sessionID) {
+            lines.append("cmux_ssh_attach_session_id=\(shellQuote(sessionID))")
+        } else {
+            lines += [
+                "if [ -z \"${CMUX_SURFACE_ID:-}\" ]; then printf '%s\\n' '[cmux] required terminal context missing for SSH PTY attach.' >&2; exit 1; fi",
+                "cmux_ssh_attach_session_id=\"ssh-$CMUX_WORKSPACE_ID-$CMUX_SURFACE_ID\"",
+            ]
+        }
+        if let foregroundAuth {
+            lines += foregroundAuthLines(foregroundAuth)
+        }
+        let requireExistingFlag = requireExisting ? " --require-existing" : ""
+        let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\""
+        lines += retryingAttachLines(command: attachCommand)
+        return lines.joined(separator: "\n")
+    }
+
+    private static func retryingAttachLines(command: String) -> [String] {
+        [
+            "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
+            "case \"$cmux_ssh_attach_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_limit=20 ;; esac",
+            "cmux_ssh_attach_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
+            "case \"$cmux_ssh_attach_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_delay=2 ;; esac",
+            "cmux_ssh_attach_retry=0",
+            "while :; do",
+            "  \(command)",
+            "  cmux_ssh_attach_status=$?",
+            "  case \"$cmux_ssh_attach_status\" in 254|255) ;; *) exit \"$cmux_ssh_attach_status\" ;; esac",
+            "  if [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
+            "  cmux_ssh_attach_retry=$((cmux_ssh_attach_retry + 1))",
+            "  if [ -t 2 ]; then printf '\\n\\033[33m[cmux] remote PTY bridge closed; reattaching (attempt %s/%s).\\033[0m\\n' \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\" >&2 || true; fi",
+            "  if [ \"$cmux_ssh_attach_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_attach_reconnect_delay\"; fi",
+            "done",
+        ]
+    }
+
+    private static func foregroundAuthLines(_ auth: ForegroundAuth) -> [String] {
+        let sshCommand = sshForegroundAuthCommand(auth)
+        let quotedToken = shellQuote(auth.token)
+        return [
+            "\(sshCommand)",
+            "cmux_ssh_auth_status=$?",
+            "if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then exit \"$cmux_ssh_auth_status\"; fi",
+            "cmux_ssh_auth_token=\(quotedToken)",
+            "cmux_ssh_auth_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"foreground_auth_token\\\":\\\"$cmux_ssh_auth_token\\\"}\"",
+            "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.foreground_auth_ready \"$cmux_ssh_auth_payload\" >/dev/null 2>&1 || true",
+            "unset cmux_ssh_auth_payload cmux_ssh_auth_status cmux_ssh_auth_token",
+        ]
+    }
+
+    private static func sshForegroundAuthCommand(_ auth: ForegroundAuth) -> String {
+        var arguments = ["ssh"]
+        let options = sshOptionsWithRestoreControlDefaults(auth.sshOptions)
+        if !hasSSHOptionKey(options, key: "ConnectTimeout") {
+            arguments += ["-o", "ConnectTimeout=6"]
+        }
+        if !hasSSHOptionKey(options, key: "ServerAliveInterval") {
+            arguments += ["-o", "ServerAliveInterval=20"]
+        }
+        if !hasSSHOptionKey(options, key: "ServerAliveCountMax") {
+            arguments += ["-o", "ServerAliveCountMax=2"]
+        }
+        if let port = auth.port {
+            arguments += ["-p", String(port)]
+        }
+        if let identityFile = normalized(auth.identityFile) {
+            arguments += ["-i", identityFile]
+        }
+        for option in options {
+            arguments += ["-o", option]
+        }
+        arguments += ["-T", auth.destination, "true"]
+        return arguments.map(shellQuote).joined(separator: " ")
+    }
+
+    static func sshOptionsWithRestoreControlDefaults(_ options: [String]) -> [String] {
+        var merged = options.compactMap(normalized)
+        let controlMaster = sshOptionValue(named: "ControlMaster", in: merged)
+        let controlMasterDisabled = sshOptionValueIsDisabled(controlMaster)
+        if controlMaster == nil {
+            merged.append("ControlMaster=auto")
+        }
+        if !controlMasterDisabled {
+            if !hasSSHOptionKey(merged, key: "ControlPersist") {
+                merged.append("ControlPersist=600")
+            }
+            if !hasSSHOptionKey(merged, key: "ControlPath") {
+                merged.append("ControlPath=/tmp/cmux-ssh-\(getuid())-%C")
+            }
+        }
+        return merged
+    }
+
+    static func sshOptionsSupportReusableForegroundAuth(_ options: [String]) -> Bool {
+        guard !hasSSHOptionKey(options, key: "LocalCommand"),
+              !hasSSHOptionKey(options, key: "PermitLocalCommand") else {
+            return false
+        }
+
+        guard let controlPath = sshOptionValue(named: "ControlPath", in: options),
+              !controlPath.isEmpty,
+              controlPath.lowercased() != "none" else {
+            return false
+        }
+
+        if sshOptionValueIsDisabled(sshOptionValue(named: "ControlMaster", in: options)) {
+            return false
+        }
+
+        return !sshOptionValueIsDisabled(
+            sshOptionValue(named: "ControlPersist", in: options),
+            zeroIsDisabled: false
+        )
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
+        let loweredKey = key.lowercased()
+        return options.contains { option in
+            option
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
+                .first
+                .map(String.init)?
+                .lowercased() == loweredKey
+        }
+    }
+
+    private static func sshOptionValue(named name: String, in options: [String]) -> String? {
+        let loweredName = name.lowercased()
+        for option in options {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if let equals = trimmed.firstIndex(of: "=") {
+                let key = String(trimmed[..<equals]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard key.lowercased() == loweredName else { continue }
+                let value = String(trimmed[trimmed.index(after: equals)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                return value.isEmpty ? nil : String(value)
+            }
+            let parts = trimmed.split(maxSplits: 1, whereSeparator: { $0.isWhitespace })
+            guard parts.first.map({ String($0).lowercased() }) == loweredName else { continue }
+            guard parts.count > 1 else { return nil }
+            let value = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : value
+        }
+        return nil
+    }
+
+    private static func sshOptionValueIsDisabled(_ rawValue: String?, zeroIsDisabled: Bool = true) -> Bool {
+        guard let normalized = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+            return false
+        }
+        return ["no", "false", "off"].contains(normalized) || (zeroIsDisabled && normalized == "0")
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
+        if value.range(of: safePattern, options: .regularExpression) != nil {
+            return value
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+}
+
 struct WorkspaceRemoteConfiguration: Equatable {
     let transport: WorkspaceRemoteTransport
     let destination: String
@@ -92,6 +286,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
     let terminalStartupCommand: String?
     let foregroundAuthToken: String?
     let daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint?
+    let preserveAfterTerminalExit: Bool
     /// True for cloud-VM remotes (Freestyle snapshots) where cmuxd-remote is pre-baked in
     /// the image and started via systemd. Skip the upload+exec bootstrap entirely and synthesize
     /// a `DaemonHello`. Reverse-relay still stays off, but SSH-backed VM workspaces can talk to
@@ -112,6 +307,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         terminalStartupCommand: String?,
         foregroundAuthToken: String? = nil,
         daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
+        preserveAfterTerminalExit: Bool = false,
         skipDaemonBootstrap: Bool = false
     ) {
         self.transport = transport
@@ -127,6 +323,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         self.terminalStartupCommand = terminalStartupCommand
         self.foregroundAuthToken = foregroundAuthToken
         self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
+        self.preserveAfterTerminalExit = preserveAfterTerminalExit
         self.skipDaemonBootstrap = skipDaemonBootstrap
     }
 
@@ -144,6 +341,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         let normalizedLocalProxyPort = localProxyPort.map(String.init) ?? ""
         let normalizedOptions = Self.proxyBrokerSSHOptions(sshOptions).joined(separator: "\u{1f}")
         let normalizedWebSocketDaemon = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
+        let normalizedRequiredCapabilities = preserveAfterTerminalExit ? "pty.session" : ""
         return [
             normalizedTransport,
             normalizedBootstrapMode,
@@ -153,6 +351,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
             normalizedOptions,
             normalizedLocalProxyPort,
             normalizedWebSocketDaemon,
+            normalizedRequiredCapabilities,
         ]
             .joined(separator: "\u{1e}")
     }
@@ -171,23 +370,46 @@ extension SessionRemoteWorkspaceSnapshot {
             (1...65535).contains(port) ? port : nil
         }
 
+        let normalizedOptions = Self.normalizedSSHOptions(sshOptions)
+        let optionsWithRestoreControlDefaults = SSHPTYAttachStartupCommandBuilder.sshOptionsWithRestoreControlDefaults(normalizedOptions)
+        let preservePTYSession =
+            preserveAfterTerminalExit == true &&
+            skipDaemonBootstrap != true &&
+            SSHPTYAttachStartupCommandBuilder.sshOptionsSupportReusableForegroundAuth(optionsWithRestoreControlDefaults)
+        let restoredSSHOptions = preservePTYSession ? optionsWithRestoreControlDefaults : normalizedOptions
+        let foregroundAuthToken = preservePTYSession ? UUID().uuidString.lowercased() : nil
+        let foregroundAuth = foregroundAuthToken.map {
+            SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
+                destination: normalizedDestination,
+                port: normalizedPort,
+                identityFile: Self.normalizedIdentityPath(identityFile),
+                sshOptions: restoredSSHOptions,
+                token: $0
+            )
+        }
         return WorkspaceRemoteConfiguration(
             transport: transport,
             destination: normalizedDestination,
             port: normalizedPort,
             identityFile: Self.normalizedIdentityPath(identityFile),
-            sshOptions: Self.normalizedSSHOptions(sshOptions),
+            sshOptions: restoredSSHOptions,
             localProxyPort: nil,
             relayPort: nil,
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,
-            terminalStartupCommand: sshReconnectCommand(
-                destination: normalizedDestination,
-                port: normalizedPort
-            ),
-            foregroundAuthToken: nil,
+            terminalStartupCommand: preservePTYSession
+                ? SSHPTYAttachStartupCommandBuilder.command(
+                    foregroundAuth: foregroundAuth,
+                    requireExisting: false
+                )
+                : sshReconnectCommand(
+                    destination: normalizedDestination,
+                    port: normalizedPort
+                ),
+            foregroundAuthToken: foregroundAuthToken,
             daemonWebSocketEndpoint: nil,
+            preserveAfterTerminalExit: preservePTYSession,
             skipDaemonBootstrap: skipDaemonBootstrap == true
         )
     }
@@ -247,6 +469,7 @@ extension WorkspaceRemoteConfiguration {
             port: port,
             identityFile: WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile),
             sshOptions: WorkspaceRemoteSSHOptionFilter.durableOptions(sshOptions),
+            preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
             skipDaemonBootstrap: skipDaemonBootstrap
         )
     }

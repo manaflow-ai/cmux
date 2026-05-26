@@ -30,9 +30,44 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertEqual(manager.tabs.map(\.id), [third.id, first.id, second.id])
         XCTAssertEqual(manager.selectedTabId, second.id)
         XCTAssertEqual(third.latestConversationMessage, "implement this now")
+        XCTAssertNotNil(third.latestSubmittedAt)
     }
 
-    func testPromptSubmitDoesNothingWhenIMessageModeDisabled() throws {
+    func testPromptSubmitReorderPublishesWorkspaceOrderEvent() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace(select: false, placementOverride: .end)
+        let third = manager.addWorkspace(select: false, placementOverride: .end)
+        CmuxEventBus.shared.resetForTesting()
+
+        let outcome = try XCTUnwrap(
+            manager.handlePromptSubmit(
+                workspaceId: third.id,
+                message: "ship it",
+                iMessageModeEnabled: true
+            )
+        )
+
+        XCTAssertTrue(outcome.reordered)
+        let events = CmuxEventBus.shared.retainedSnapshot()
+        XCTAssertEqual(
+            events.compactMap { $0["name"] as? String },
+            ["workspace.prompt.submitted", "workspace.reordered"]
+        )
+        let reorder = try XCTUnwrap(events.last)
+        XCTAssertEqual(reorder["workspace_id"] as? String, third.id.uuidString)
+        let payload = try XCTUnwrap(reorder["payload"] as? [String: Any])
+        XCTAssertEqual(
+            payload["workspace_ids"] as? [String],
+            [third.id.uuidString, first.id.uuidString, second.id.uuidString]
+        )
+        XCTAssertEqual(payload["moved_workspace_ids"] as? [String], [third.id.uuidString])
+    }
+
+    func testPromptSubmitRecordsMessageWithoutReorderingWhenIMessageModeDisabled() throws {
         let manager = TabManager()
         let first = manager.tabs[0]
         let second = manager.addWorkspace(select: false, placementOverride: .end)
@@ -46,11 +81,12 @@ final class WorkspacePromptSubmitTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(outcome.messageRecorded)
+        XCTAssertTrue(outcome.messageRecorded)
         XCTAssertFalse(outcome.reordered)
         XCTAssertEqual(outcome.index, 2)
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id])
-        XCTAssertNil(third.latestConversationMessage)
+        XCTAssertEqual(third.latestConversationMessage, "do not show")
+        XCTAssertNotNil(third.latestSubmittedAt)
     }
 
     func testAssistantFinalMessageRecordsMessageAndMovesWorkspaceToTopWhenIMessageModeEnabled() throws {
@@ -118,6 +154,26 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertEqual(outcome.index, 1)
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id])
         XCTAssertNil(second.latestConversationMessage)
+    }
+
+    func testBlankPromptSubmitDoesNotRecordTimestampOrPublishEvent() throws {
+        let manager = TabManager()
+        let second = manager.addWorkspace(select: false, placementOverride: .end)
+        let sequenceBeforeSubmit = CmuxEventBus.shared.latestSequence
+
+        let outcome = try XCTUnwrap(
+            manager.handlePromptSubmit(
+                workspaceId: second.id,
+                message: " \n ",
+                iMessageModeEnabled: false
+            )
+        )
+
+        XCTAssertFalse(outcome.messageRecorded)
+        XCTAssertFalse(outcome.reordered)
+        XCTAssertNil(second.latestConversationMessage)
+        XCTAssertNil(second.latestSubmittedAt)
+        XCTAssertEqual(CmuxEventBus.shared.latestSequence, sequenceBeforeSubmit)
     }
 
     func testFeedPromptSubmitEventExtractsToolInputMessage() throws {
@@ -203,6 +259,7 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertTrue(workspace.recordSubmittedMessage("keep this preview"))
         XCTAssertFalse(workspace.recordSubmittedMessage(" \n "))
         XCTAssertEqual(workspace.latestConversationMessage, "keep this preview")
+        XCTAssertNotNil(workspace.latestSubmittedAt)
     }
 
     func testIMessageModeUsesManagedSettingsKey() throws {
