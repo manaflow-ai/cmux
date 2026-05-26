@@ -685,6 +685,82 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(newRecord["agentLifecycle"] as? String, "running")
     }
 
+    func testGenericAgentIdleStopIsScopedToSurfaceWhenAnotherSurfaceRuns() throws {
+        let context = try makeClaudeHookContext(name: "codex-idle-current-surface")
+        defer { context.cleanup() }
+
+        let currentSessionId = "idle-current-surface-session"
+        let otherSessionId = "running-other-surface-session"
+        let otherSurfaceId = "44444444-4444-4444-4444-444444444444"
+        let now = Date().timeIntervalSince1970
+        let livePID = Int(ProcessInfo.processInfo.processIdentifier)
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                currentSessionId: [
+                    "sessionId": currentSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "pid": livePID,
+                    "runtimeStatus": "running",
+                    "activePromptDepth": 1,
+                    "activePromptTurnId": "current-turn",
+                    "activePromptTurnIds": ["current-turn"],
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+                otherSessionId: [
+                    "sessionId": otherSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": otherSurfaceId,
+                    "cwd": context.root.path,
+                    "pid": livePID,
+                    "runtimeStatus": "running",
+                    "activePromptDepth": 1,
+                    "activePromptTurnId": "other-turn",
+                    "activePromptTurnIds": ["other-turn"],
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: currentSessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let stopStart = context.state.commands.count
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(currentSessionId)","turn_id":"current-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"current done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+
+        let stopCommands = Array(context.state.commands.dropFirst(stopStart))
+        XCTAssertTrue(
+            stopCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle codex idle --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "The stopped surface should be marked idle, saw \(stopCommands)"
+        )
+        XCTAssertTrue(
+            stopCommands.contains {
+                $0.hasPrefix("set_status codex ")
+                    && $0.contains(" Idle ")
+                    && $0.contains("--tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "A running session on another surface must not block the stopped surface's Idle status, saw \(stopCommands)"
+        )
+    }
+
     func testCodexLegacyStopWithoutTurnIdPopsStoredTurnStack() throws {
         let context = try makeClaudeHookContext(name: "codex-legacy-stop-turn-stack")
         defer { context.cleanup() }
