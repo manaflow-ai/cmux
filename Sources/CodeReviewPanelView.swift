@@ -515,13 +515,13 @@ final class GitDiffReviewStore: ObservableObject {
                     try GitDiffReviewLoader.load(rootPath: rootPath)
                 }.value
                 try Task.checkCancellation()
-                await self?.completeLoad(snapshot, generation: currentGeneration)
+                self?.completeLoad(snapshot, generation: currentGeneration)
             } catch is CancellationError {
-                await self?.completeFailure(.cancelled, rootPath: rootPath, generation: currentGeneration)
+                self?.completeFailure(.cancelled, rootPath: rootPath, generation: currentGeneration)
             } catch let error as GitDiffReviewLoadError {
-                await self?.completeFailure(error, rootPath: rootPath, generation: currentGeneration)
+                self?.completeFailure(error, rootPath: rootPath, generation: currentGeneration)
             } catch {
-                await self?.completeFailure(.commandFailed(error.localizedDescription), rootPath: rootPath, generation: currentGeneration)
+                self?.completeFailure(.commandFailed(error.localizedDescription), rootPath: rootPath, generation: currentGeneration)
             }
         }
     }
@@ -843,8 +843,8 @@ private struct CodeReviewDiffLineView: View {
         switch line.kind {
         case .addition: return Color(nsColor: .systemGreen)
         case .deletion: return Color(nsColor: .systemRed)
-        case .note: return .secondary
-        case .context: return .tertiary
+        case .note: return Color(nsColor: .secondaryLabelColor)
+        case .context: return Color(nsColor: .tertiaryLabelColor)
         }
     }
 
@@ -852,7 +852,7 @@ private struct CodeReviewDiffLineView: View {
         switch line.kind {
         case .addition: return Color(nsColor: .systemGreen)
         case .deletion: return Color(nsColor: .systemRed)
-        case .note: return .secondary
+        case .note: return Color(nsColor: .secondaryLabelColor)
         case .context: return .primary
         }
     }
