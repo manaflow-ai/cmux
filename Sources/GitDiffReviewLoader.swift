@@ -17,7 +17,7 @@ nonisolated enum GitDiffReviewLoader {
         async let branch = gitBranchLabel(repositoryRoot: repositoryRoot)
         async let statusText = runGit(["-C", repositoryRoot, "status", "--porcelain=v1", "-z", "--untracked-files=all"])
         async let diffText = workingTreeDiff(repositoryRoot: repositoryRoot)
-        let loadedBranch = await branch
+        let loadedBranch = try await branch
         let loadedStatusText = try await statusText
         let loadedDiffText = try await diffText
 
@@ -29,15 +29,13 @@ nonisolated enum GitDiffReviewLoader {
         )
     }
 
-    private static func gitBranchLabel(repositoryRoot: String) async -> String {
-        let branch = try? await runGit(["-C", repositoryRoot, "branch", "--show-current"])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    private static func gitBranchLabel(repositoryRoot: String) async throws -> String {
+        let branch = try await optionalGitOutput(["-C", repositoryRoot, "branch", "--show-current"])
         if let branch, !branch.isEmpty {
             return branch
         }
 
-        let head = try? await runGit(["-C", repositoryRoot, "rev-parse", "--short", "HEAD"])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let head = try await optionalGitOutput(["-C", repositoryRoot, "rev-parse", "--short", "HEAD"])
         if let head, !head.isEmpty {
             return head
         }
@@ -46,12 +44,37 @@ nonisolated enum GitDiffReviewLoader {
     }
 
     private static func workingTreeDiff(repositoryRoot: String) async throws -> String {
-        let hasHead = (try? await runGit(["-C", repositoryRoot, "rev-parse", "--verify", "HEAD"])) != nil
+        let hasHead = try await hasGitHead(repositoryRoot: repositoryRoot)
         guard hasHead else {
             return try await runGit(["-C", repositoryRoot, "diff", "--no-ext-diff", "--no-color", "--find-renames", "--cached", "--"])
         }
 
         return try await runGit(["-C", repositoryRoot, "diff", "--no-ext-diff", "--no-color", "--find-renames", "HEAD", "--"])
+    }
+
+    private static func optionalGitOutput(_ arguments: [String]) async throws -> String? {
+        do {
+            return try await runGit(arguments).trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch GitDiffReviewLoadError.cancelled {
+            throw GitDiffReviewLoadError.cancelled
+        } catch is CancellationError {
+            throw GitDiffReviewLoadError.cancelled
+        } catch {
+            return nil
+        }
+    }
+
+    private static func hasGitHead(repositoryRoot: String) async throws -> Bool {
+        do {
+            _ = try await runGit(["-C", repositoryRoot, "rev-parse", "--verify", "HEAD"])
+            return true
+        } catch GitDiffReviewLoadError.cancelled {
+            throw GitDiffReviewLoadError.cancelled
+        } catch is CancellationError {
+            throw GitDiffReviewLoadError.cancelled
+        } catch {
+            return false
+        }
     }
 
     private static func runGit(_ arguments: [String]) async throws -> String {
