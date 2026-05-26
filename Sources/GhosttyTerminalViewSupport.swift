@@ -47,4 +47,8 @@ extension TerminalSurface {
     func debugInitialInputForTesting() -> String? {
         initialInput
     }
+
+    func debugTerminalSessionIdentityForTesting() -> TerminalSessionIdentity? {
+        terminalSessionIdentity
+    }
 }

@@ -162,6 +162,8 @@ final class TerminalPanel: Panel, ObservableObject {
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
+        terminalSessionIdentity: TerminalSessionIdentity? = nil,
+        allowDefaultTerminalSessionBackend: Bool = true,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace
@@ -175,6 +177,8 @@ final class TerminalPanel: Panel, ObservableObject {
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
+            terminalSessionIdentity: terminalSessionIdentity,
+            allowDefaultTerminalSessionBackend: allowDefaultTerminalSessionBackend,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement

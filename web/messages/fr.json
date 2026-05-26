@@ -498,7 +498,8 @@
           "hideTabCloseButton": "Masquer les boutons de fermeture d’onglet dans la barre d’onglets du volet."
         },
         "terminal": {
-          "copyOnSelect": "Copie le texte sélectionné dans le terminal dans le presse-papiers système lorsque la sélection est validée, y compris les sélections de mots et de lignes par double ou triple clic."
+          "copyOnSelect": "Copie le texte sélectionné dans le terminal dans le presse-papiers système lorsque la sélection est validée, y compris les sélections de mots et de lignes par double ou triple clic.",
+          "sessionBackend": "Choose how new local terminal surfaces are launched. native starts a normal Ghostty-backed shell. zellij launches each eligible terminal inside a stable zellij session so live processes can survive cmux quit and relaunch. The zellij CLI must be on PATH."
         }
       }
     },

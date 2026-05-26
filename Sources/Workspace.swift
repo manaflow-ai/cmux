@@ -550,6 +550,7 @@ extension Workspace {
                     )
                 },
                 resumeBinding: resumeBinding,
+                sessionIdentity: terminalPanel.surface.terminalSessionIdentity,
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: agentWasRunning
@@ -748,7 +749,8 @@ extension Workspace {
             from: anchorPanelId,
             orientation: placement.orientation,
             insertFirst: placement.insertFirst,
-            focus: false
+            focus: false,
+            allowDefaultTerminalSessionBackend: false
         ) else {
             return nil
         }
@@ -986,7 +988,11 @@ extension Workspace {
                 .first
 
             if anchorPanelId == nil {
-                anchorPanelId = newTerminalSurface(inPane: paneId, focus: false)?.id
+                anchorPanelId = newTerminalSurface(
+                    inPane: paneId,
+                    focus: false,
+                    allowDefaultTerminalSessionBackend: false
+                )?.id
             }
 
             guard let anchorPanelId,
@@ -994,7 +1000,8 @@ extension Workspace {
                     from: anchorPanelId,
                     orientation: split.orientation.splitOrientation,
                     insertFirst: false,
-                    focus: false
+                    focus: false,
+                    allowDefaultTerminalSessionBackend: false
                   ),
                   let secondPaneId = self.paneId(forPanelId: newSplitPanel.id) else {
                 leaves.append(
@@ -1099,9 +1106,11 @@ extension Workspace {
     private func createPanel(from snapshot: SessionPanelSnapshot, inPane paneId: PaneID) -> UUID? {
         switch snapshot.type {
         case .terminal:
-            let resumeBinding = snapshot.terminal?.resumeBinding
-            let restorableAgent = snapshot.terminal?.agent
-            let restoredHibernation = snapshot.terminal?.hibernation
+            let restoredSessionIdentity = snapshot.terminal?.sessionIdentity
+            let isZellijBackedRestore = restoredSessionIdentity?.backend == .zellij
+            let resumeBinding = isZellijBackedRestore ? nil : snapshot.terminal?.resumeBinding
+            let restorableAgent = isZellijBackedRestore ? nil : snapshot.terminal?.agent
+            let restoredHibernation = isZellijBackedRestore ? nil : snapshot.terminal?.hibernation
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
             // Only auto-resume if the agent was actively running when the snapshot was saved.
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
@@ -1125,7 +1134,7 @@ extension Workspace {
                 ?? snapshot.directory
                 ?? currentDirectory
             let localWorkingDirectory = remoteTerminalStartupCommand() == nil ? workingDirectory : nil
-            let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingInput == nil
+            let restorableTmuxStartCommand = !isZellijBackedRestore && restorableAgent == nil && restoredBindingInput == nil
                 ? Self.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                 : nil
             let restoredTmuxStartupScript = restorableTmuxStartCommand.flatMap {
@@ -1139,7 +1148,7 @@ extension Workspace {
                 restorableAgent: restorableAgent,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 resumeStartupInput: restoredBindingInput
-            )
+            ) && !isZellijBackedRestore
             let restoredAgentResumeInput = shouldAutoResumeAgent && restoredHibernation == nil
                 ? (restoredBindingInput == nil ? restorableAgent?.resumeStartupInput() : nil)
                 : nil
@@ -1185,6 +1194,8 @@ extension Workspace {
                 initialCommand: restoredRemotePTYAttachCommand ?? restoredTmuxStartupScript?.path,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredRemotePTYAttachCommand == nil ? restoredStartupInput : nil,
+                terminalSessionIdentity: restoredSessionIdentity,
+                allowDefaultTerminalSessionBackend: false,
                 startupEnvironment: replayEnvironment,
                 remotePTYSessionID: restoredRemotePTYSessionID
             ) else {
@@ -1446,7 +1457,11 @@ extension Workspace {
                 .first
 
             if anchorPanelId == nil {
-                anchorPanelId = newTerminalSurface(inPane: paneId, focus: false)?.id
+                anchorPanelId = newTerminalSurface(
+                    inPane: paneId,
+                    focus: false,
+                    allowDefaultTerminalSessionBackend: false
+                )?.id
             }
 
             guard let anchorPanelId,
@@ -1454,7 +1469,8 @@ extension Workspace {
                       from: anchorPanelId,
                       orientation: split.splitOrientation,
                       insertFirst: false,
-                      focus: false
+                      focus: false,
+                      allowDefaultTerminalSessionBackend: false
                   ),
                   let secondPaneId = self.paneId(forPanelId: newSplitPanel.id) else {
                 leaves.append((paneId: paneId, surfaces: []))
@@ -9866,7 +9882,9 @@ final class Workspace: Identifiable, ObservableObject {
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
-        initialTerminalEnvironment: [String: String] = [:], initialDetachedSurface: DetachedSurfaceTransfer? = nil
+        initialTerminalEnvironment: [String: String] = [:],
+        allowDefaultTerminalSessionBackend: Bool = true,
+        initialDetachedSurface: DetachedSurfaceTransfer? = nil
     ) {
         self.id = UUID()
         self.portOrdinal = portOrdinal
@@ -9941,6 +9959,7 @@ final class Workspace: Identifiable, ObservableObject {
                 portOrdinal: portOrdinal,
                 initialCommand: initialTerminalCommand,
                 initialInput: initialTerminalInput,
+                allowDefaultTerminalSessionBackend: allowDefaultTerminalSessionBackend,
                 initialEnvironmentOverrides: initialTerminalEnvironment
             )
             configureTerminalPanel(terminalPanel)
@@ -12660,6 +12679,10 @@ final class Workspace: Identifiable, ObservableObject {
                 sourceSurface: sourceSurface,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT
             )
+            TerminalSessionBackendSettings.sanitizeInheritedConfig(
+                &config,
+                sourceIdentity: surface.terminalSessionIdentity
+            )
             if let rootedFontPoints = resolvedTerminalInheritanceFontPoints(
                 for: terminalPanel,
                 sourceSurface: sourceSurface,
@@ -12702,6 +12725,8 @@ final class Workspace: Identifiable, ObservableObject {
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         startupEnvironment: [String: String] = [:],
+        terminalSessionIdentity: TerminalSessionIdentity? = nil,
+        allowDefaultTerminalSessionBackend: Bool = true,
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil
     ) -> TerminalPanel? {
@@ -12784,6 +12809,8 @@ final class Workspace: Identifiable, ObservableObject {
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
+            terminalSessionIdentity: terminalSessionIdentity,
+            allowDefaultTerminalSessionBackend: allowDefaultTerminalSessionBackend,
             additionalEnvironment: startupEnvironment
         )
         configureTerminalPanel(newPanel)
@@ -12893,6 +12920,8 @@ final class Workspace: Identifiable, ObservableObject {
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
+        terminalSessionIdentity: TerminalSessionIdentity? = nil,
+        allowDefaultTerminalSessionBackend: Bool = true,
         startupEnvironment: [String: String] = [:],
         remotePTYSessionID: String? = nil
     ) -> TerminalPanel? {
@@ -12924,6 +12953,8 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
+            terminalSessionIdentity: terminalSessionIdentity,
+            allowDefaultTerminalSessionBackend: allowDefaultTerminalSessionBackend,
             additionalEnvironment: startupEnvironment
         )
         configureTerminalPanel(newPanel)
@@ -17105,7 +17136,8 @@ extension Workspace: BonsplitDelegate {
                         workspaceId: id,
                         context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                         configTemplate: inheritedConfig,
-                        portOrdinal: portOrdinal
+                        portOrdinal: portOrdinal,
+                        allowDefaultTerminalSessionBackend: false
                     )
                     configureTerminalPanel(replacementPanel)
                     panels[replacementPanel.id] = replacementPanel
@@ -17137,7 +17169,11 @@ extension Workspace: BonsplitDelegate {
                         "fallback=createTerminalAndDropPlaceholders"
                     )
 #endif
-                    _ = newTerminalSurface(inPane: originalPane, focus: false)
+                    _ = newTerminalSurface(
+                        inPane: originalPane,
+                        focus: false,
+                        allowDefaultTerminalSessionBackend: false
+                    )
                     for tab in controller.tabs(inPane: originalPane) {
                         if panelIdFromSurfaceId(tab.id) == nil {
                             bonsplitController.closeTab(tab.id)

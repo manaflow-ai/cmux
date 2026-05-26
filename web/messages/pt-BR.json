@@ -498,7 +498,8 @@
           "hideTabCloseButton": "Ocultar os botões de fechar aba na barra de abas do painel."
         },
         "terminal": {
-          "copyOnSelect": "Copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada, incluindo seleções de palavras e linhas por clique duplo e triplo."
+          "copyOnSelect": "Copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada, incluindo seleções de palavras e linhas por clique duplo e triplo.",
+          "sessionBackend": "Choose how new local terminal surfaces are launched. native starts a normal Ghostty-backed shell. zellij launches each eligible terminal inside a stable zellij session so live processes can survive cmux quit and relaunch. The zellij CLI must be on PATH."
         }
       }
     },

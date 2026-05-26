@@ -599,7 +599,8 @@
           "hideTabCloseButton": "Hide tab close buttons in the pane tab bar."
         },
         "terminal": {
-          "copyOnSelect": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."
+          "copyOnSelect": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click.",
+          "sessionBackend": "Choose how new local terminal surfaces are launched. native starts a normal Ghostty-backed shell. zellij launches each eligible terminal inside a stable zellij session so live processes can survive cmux quit and relaunch. The zellij CLI must be on PATH."
         }
       }
     },

@@ -5300,6 +5300,8 @@ struct SettingsView: View {
     private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
     @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
     private var autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions
+    @AppStorage(TerminalSessionBackendSettings.backendKey)
+    private var terminalSessionBackend = TerminalSessionBackendSettings.defaultBackend.rawValue
     @AppStorage(AgentHibernationSettings.enabledKey)
     private var agentHibernationEnabled = AgentHibernationSettings.defaultEnabled
     @AppStorage(AgentHibernationSettings.idleSecondsKey)
@@ -5558,6 +5560,19 @@ struct SettingsView: View {
                 guard autoResumeAgentSessions != newValue else { return }
                 autoResumeAgentSessions = newValue
                 AgentSessionAutoResumeSettings.notifyDidChange()
+            }
+        )
+    }
+
+    private var selectedTerminalSessionBackend: TerminalSessionBackend {
+        TerminalSessionBackendSettings.backend(for: terminalSessionBackend)
+    }
+
+    private var terminalSessionBackendSelection: Binding<String> {
+        Binding(
+            get: { selectedTerminalSessionBackend.rawValue },
+            set: { newValue in
+                terminalSessionBackend = TerminalSessionBackendSettings.backend(for: newValue).rawValue
             }
         )
     }
@@ -6812,6 +6827,31 @@ struct SettingsView: View {
                                 .accessibilityLabel(
                                     String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen")
                                 )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.sessionBackend"),
+                            String(localized: "settings.terminal.sessionBackend", defaultValue: "Session Backend"),
+                            subtitle: selectedTerminalSessionBackend == .zellij
+                                ? String(localized: "settings.terminal.sessionBackend.subtitle.zellij", defaultValue: "New local terminals attach to a stable zellij session so live processes can survive app quit and relaunch. Requires zellij on PATH.")
+                                : String(localized: "settings.terminal.sessionBackend.subtitle.native", defaultValue: "New local terminals start as native Ghostty sessions managed by cmux."),
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            Picker("", selection: terminalSessionBackendSelection) {
+                                Text(String(localized: "settings.terminal.sessionBackend.native", defaultValue: "Native"))
+                                    .tag(TerminalSessionBackend.native.rawValue)
+                                Text(String(localized: "settings.terminal.sessionBackend.zellij", defaultValue: "Zellij"))
+                                    .tag(TerminalSessionBackend.zellij.rawValue)
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .controlSize(.small)
+                            .accessibilityIdentifier("SettingsTerminalSessionBackendPicker")
+                            .accessibilityLabel(
+                                String(localized: "settings.terminal.sessionBackend", defaultValue: "Session Backend")
+                            )
                         }
 
                         SettingsCardDivider()
@@ -8126,6 +8166,7 @@ struct SettingsView: View {
         if previousAutoResumeAgentSessions != autoResumeAgentSessions {
             AgentSessionAutoResumeSettings.notifyDidChange()
         }
+        terminalSessionBackend = TerminalSessionBackendSettings.defaultBackend.rawValue
         AgentHibernationSettings.reset()
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         iMessageMode = IMessageModeSettings.defaultValue

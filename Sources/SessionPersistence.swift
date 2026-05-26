@@ -1262,6 +1262,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var tmuxStartCommand: String?
     var hibernation: SessionAgentHibernationSnapshot?
     var resumeBinding: SurfaceResumeBindingSnapshot?
+    var sessionIdentity: TerminalSessionIdentity?
     var textBoxDraft: SessionTextBoxInputDraftSnapshot?
     var remotePTYSessionID: String?
     /// Whether the agent process was actively running when this snapshot was captured.
@@ -1275,6 +1276,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         tmuxStartCommand: String? = nil,
         hibernation: SessionAgentHibernationSnapshot? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
+        sessionIdentity: TerminalSessionIdentity? = nil,
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil
@@ -1285,6 +1287,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.tmuxStartCommand = tmuxStartCommand
         self.hibernation = hibernation
         self.resumeBinding = resumeBinding
+        self.sessionIdentity = sessionIdentity
         self.textBoxDraft = textBoxDraft
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning

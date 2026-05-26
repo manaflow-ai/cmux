@@ -68,6 +68,7 @@ const settingsFileExample = `{
   //   "showScrollBar": false,
   //   "copyOnSelect": true,
   //   "autoResumeAgentSessions": true,
+  //   "sessionBackend": "native",
   //   "agentHibernation": {
   //     "enabled": false,
   //     "idleSeconds": 3600,

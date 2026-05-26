@@ -5212,6 +5212,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     let initialCommand: String?
     let tmuxStartCommand: String?
     let initialInput: String?
+    let terminalSessionIdentity: TerminalSessionIdentity?
     private var nextRuntimeInitialInput: String?
     private let initialEnvironmentOverrides: [String: String]
     var requestedWorkingDirectory: String? { workingDirectory }
@@ -5358,6 +5359,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
+        terminalSessionIdentity: TerminalSessionIdentity? = nil,
+        allowDefaultTerminalSessionBackend: Bool = true,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace
@@ -5378,6 +5381,19 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.tmuxStartCommand = (trimmedTmuxStartCommand?.isEmpty == false) ? trimmedTmuxStartCommand : nil
         let trimmedInput = initialInput?.isEmpty == false ? initialInput : nil
         self.initialInput = trimmedInput
+        let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let inheritedInput = configTemplate?.initialInput
+        let hasExplicitStartup = self.initialCommand != nil
+            || self.tmuxStartCommand != nil
+            || trimmedInput != nil
+            || inheritedCommand?.isEmpty == false
+            || inheritedInput?.isEmpty == false
+        self.terminalSessionIdentity = TerminalSessionBackendSettings.resolvedIdentity(
+            explicit: terminalSessionIdentity,
+            defaultName: TerminalSessionBackendSettings.defaultSessionName(workspaceId: tabId, surfaceId: id),
+            hasExplicitStartup: hasExplicitStartup,
+            allowDefaultBackend: allowDefaultTerminalSessionBackend
+        )
         self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(base: [:], overrides: initialEnvironmentOverrides)
         self.additionalEnvironment = Self.mergedNormalizedEnvironment(base: [:], overrides: additionalEnvironment)
         self.focusPlacement = focusPlacement
@@ -5390,8 +5406,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         TerminalSurfaceRegistry.shared.register(self)
         self.hostedView.attachSurface(self)
 
-        let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let inheritedInput = configTemplate?.initialInput
         let hasStartupWork = self.initialCommand != nil
             || self.tmuxStartCommand != nil
             || trimmedInput != nil
@@ -6305,7 +6319,19 @@ final class TerminalSurface: Identifiable, ObservableObject {
             if let initialCommand, !initialCommand.isEmpty {
                 return initialCommand
             }
-            return baseConfig.command
+            let trimmedBaseCommand = baseConfig.command?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let trimmedBaseCommand, !trimmedBaseCommand.isEmpty {
+                return trimmedBaseCommand
+            }
+            if let terminalSessionIdentity,
+               let command = TerminalSessionBackendSettings.zellijAttachCommand(
+                   identity: terminalSessionIdentity,
+                   workingDirectory: resolvedWorkingDirectory
+               ) {
+                return command
+            }
+            return nil
         }()
         let runtimeInitialInput = nextRuntimeInitialInput
         let resolvedInitialInput: String? = {

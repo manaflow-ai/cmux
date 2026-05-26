@@ -498,7 +498,8 @@
           "hideTabCloseButton": "Skjul fanernes luk-knapper i rudens fanelinje."
         },
         "terminal": {
-          "copyOnSelect": "Kopierer markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes, inklusive ord- og linjemarkeringer fra dobbelt- og tredobbeltklik."
+          "copyOnSelect": "Kopierer markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes, inklusive ord- og linjemarkeringer fra dobbelt- og tredobbeltklik.",
+          "sessionBackend": "Choose how new local terminal surfaces are launched. native starts a normal Ghostty-backed shell. zellij launches each eligible terminal inside a stable zellij session so live processes can survive cmux quit and relaunch. The zellij CLI must be on PATH."
         }
       }
     },

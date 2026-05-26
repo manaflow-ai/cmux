@@ -191,6 +191,131 @@ enum TerminalManagedGhosttySettings {
     }
 }
 
+enum TerminalSessionBackend: String, Codable, Sendable, CaseIterable, Identifiable {
+    case native
+    case zellij
+
+    var id: String { rawValue }
+}
+
+struct TerminalSessionIdentity: Codable, Sendable, Equatable {
+    var backend: TerminalSessionBackend
+    var name: String
+}
+
+enum TerminalSessionBackendSettings {
+    static let backendKey = "terminal.sessionBackend"
+    static let defaultBackend: TerminalSessionBackend = .native
+
+    static func backend(for rawValue: String?) -> TerminalSessionBackend {
+        TerminalSessionBackend(rawValue: rawValue ?? "") ?? defaultBackend
+    }
+
+    static func backend(defaults: UserDefaults = .standard) -> TerminalSessionBackend {
+        backend(for: defaults.string(forKey: backendKey))
+    }
+
+    static func setBackend(_ backend: TerminalSessionBackend, defaults: UserDefaults = .standard) {
+        defaults.set(backend.rawValue, forKey: backendKey)
+    }
+
+    @discardableResult
+    static func reset(defaults: UserDefaults = .standard) -> Bool {
+        let previous = backend(defaults: defaults)
+        defaults.removeObject(forKey: backendKey)
+        return previous != backend(defaults: defaults)
+    }
+
+    static func defaultSessionName(workspaceId: UUID, surfaceId: UUID) -> String {
+        "cmux-\(workspaceId.uuidString.lowercased())-\(surfaceId.uuidString.lowercased())"
+    }
+
+    static func resolvedIdentity(
+        explicit identity: TerminalSessionIdentity?,
+        defaultName: String,
+        hasExplicitStartup: Bool,
+        allowDefaultBackend: Bool = true,
+        defaults: UserDefaults = .standard,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> TerminalSessionIdentity? {
+        if let identity {
+            return normalizedIdentity(identity)
+        }
+
+        guard allowDefaultBackend else { return nil }
+
+        if let zellijEnvironment = environment["ZELLIJ"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !zellijEnvironment.isEmpty {
+            return nil
+        }
+
+        guard backend(defaults: defaults) == .zellij else { return nil }
+        guard !hasExplicitStartup else { return nil }
+        return TerminalSessionIdentity(backend: .zellij, name: defaultName)
+    }
+
+    static func zellijAttachCommand(identity: TerminalSessionIdentity, workingDirectory: String?) -> String? {
+        guard identity.backend == .zellij else { return nil }
+        let sessionName = identity.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sessionName.isEmpty else { return nil }
+
+        var args = [
+            "zellij",
+            "attach",
+            "--create",
+            "--force-run-commands",
+            sessionName,
+            "options",
+            "--on-force-close",
+            "detach",
+            "--session-serialization",
+            "true",
+            "--pane-viewport-serialization",
+            "true",
+            "--scrollback-lines-to-serialize",
+            "0",
+            "--serialization-interval",
+            "60",
+            "--support-kitty-keyboard-protocol",
+            "true",
+        ]
+
+        if let workingDirectory = normalizedString(workingDirectory) {
+            args.append(contentsOf: ["--default-cwd", workingDirectory])
+        }
+
+        return "exec " + args.map(shellSingleQuoted).joined(separator: " ")
+    }
+
+    static func sanitizeInheritedConfig(
+        _ config: inout CmuxSurfaceConfigTemplate,
+        sourceIdentity: TerminalSessionIdentity?
+    ) {
+        guard sourceIdentity?.backend == .zellij else { return }
+        config.command = nil
+        config.initialInput = nil
+        config.waitAfterCommand = false
+    }
+
+    private static func normalizedIdentity(_ identity: TerminalSessionIdentity) -> TerminalSessionIdentity? {
+        guard identity.backend != .native else { return nil }
+        guard let name = normalizedString(identity.name) else { return nil }
+        return TerminalSessionIdentity(backend: identity.backend, name: name)
+    }
+
+    private static func normalizedString(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+}
+
 enum AgentSessionAutoResumeSettings {
     static let autoResumeAgentSessionsKey = "terminal.autoResumeAgentSessions"
     static let defaultAutoResumeAgentSessions = true

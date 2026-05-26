@@ -7,6 +7,155 @@ import XCTest
 #endif
 
 final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
+    func testTerminalSessionBackendDefaultsToNative() {
+        let suiteName = "cmux.tests.session-backend.default.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(TerminalSessionBackendSettings.backend(defaults: defaults), .native)
+    }
+
+    func testTerminalSessionBackendResolvesZellijForCleanLocalTerminal() throws {
+        let suiteName = "cmux.tests.session-backend.zellij.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        TerminalSessionBackendSettings.setBackend(.zellij, defaults: defaults)
+        let identity = try XCTUnwrap(
+            TerminalSessionBackendSettings.resolvedIdentity(
+                explicit: nil,
+                defaultName: "cmux-workspace-surface",
+                hasExplicitStartup: false,
+                defaults: defaults,
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(identity.backend, .zellij)
+        XCTAssertEqual(identity.name, "cmux-workspace-surface")
+    }
+
+    func testTerminalSessionBackendSkipsZellijForExplicitStartupAndNestedZellij() {
+        let suiteName = "cmux.tests.session-backend.skip.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        TerminalSessionBackendSettings.setBackend(.zellij, defaults: defaults)
+
+        XCTAssertNil(
+            TerminalSessionBackendSettings.resolvedIdentity(
+                explicit: nil,
+                defaultName: "cmux-explicit",
+                hasExplicitStartup: true,
+                defaults: defaults,
+                environment: [:]
+            )
+        )
+        XCTAssertNil(
+            TerminalSessionBackendSettings.resolvedIdentity(
+                explicit: nil,
+                defaultName: "cmux-nested",
+                hasExplicitStartup: false,
+                defaults: defaults,
+                environment: ["ZELLIJ": "1"]
+            )
+        )
+        let explicitIdentity = TerminalSessionIdentity(backend: .zellij, name: "cmux-restored")
+        XCTAssertEqual(
+            TerminalSessionBackendSettings.resolvedIdentity(
+                explicit: explicitIdentity,
+                defaultName: "cmux-nested",
+                hasExplicitStartup: false,
+                defaults: defaults,
+                environment: ["ZELLIJ": "1"]
+            ),
+            explicitIdentity
+        )
+    }
+
+    func testTerminalSessionBackendSkipsZellijWhenDefaultBackendDisabled() {
+        let suiteName = "cmux.tests.session-backend.internal-scaffold.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        TerminalSessionBackendSettings.setBackend(.zellij, defaults: defaults)
+
+        XCTAssertNil(
+            TerminalSessionBackendSettings.resolvedIdentity(
+                explicit: nil,
+                defaultName: "cmux-internal-scaffold",
+                hasExplicitStartup: false,
+                allowDefaultBackend: false,
+                defaults: defaults,
+                environment: [:]
+            )
+        )
+
+        let explicitIdentity = TerminalSessionIdentity(backend: .zellij, name: "cmux-restored")
+        XCTAssertEqual(
+            TerminalSessionBackendSettings.resolvedIdentity(
+                explicit: explicitIdentity,
+                defaultName: "cmux-internal-scaffold",
+                hasExplicitStartup: false,
+                allowDefaultBackend: false,
+                defaults: defaults,
+                environment: [:]
+            ),
+            explicitIdentity
+        )
+    }
+
+    func testZellijAttachCommandUsesStableSessionAndPreservationOptions() throws {
+        let command = try XCTUnwrap(
+            TerminalSessionBackendSettings.zellijAttachCommand(
+                identity: TerminalSessionIdentity(backend: .zellij, name: "cmux pane's session"),
+                workingDirectory: "/tmp/cmux repo"
+            )
+        )
+
+        XCTAssertEqual(
+            command,
+            "exec 'zellij' 'attach' '--create' '--force-run-commands' 'cmux pane'\"'\"'s session' 'options' '--on-force-close' 'detach' '--session-serialization' 'true' '--pane-viewport-serialization' 'true' '--scrollback-lines-to-serialize' '0' '--serialization-interval' '60' '--support-kitty-keyboard-protocol' 'true' '--default-cwd' '/tmp/cmux repo'"
+        )
+    }
+
+    func testZellijInheritedConfigScrubsGeneratedStartup() {
+        var config = CmuxSurfaceConfigTemplate()
+        config.fontSize = 18
+        config.workingDirectory = "/tmp/cmux"
+        config.command = "exec 'zellij' 'attach' '--create' 'cmux-session'"
+        config.initialInput = "echo stale\n"
+        config.waitAfterCommand = true
+        config.environmentVariables = ["CMUX_KEEP": "1"]
+
+        TerminalSessionBackendSettings.sanitizeInheritedConfig(
+            &config,
+            sourceIdentity: TerminalSessionIdentity(backend: .zellij, name: "cmux-session")
+        )
+
+        XCTAssertEqual(config.fontSize, 18)
+        XCTAssertEqual(config.workingDirectory, "/tmp/cmux")
+        XCTAssertEqual(config.environmentVariables, ["CMUX_KEEP": "1"])
+        XCTAssertNil(config.command)
+        XCTAssertNil(config.initialInput)
+        XCTAssertFalse(config.waitAfterCommand)
+    }
+
+    @MainActor
+    func testTerminalSurfaceStoresExplicitZellijSessionIdentity() throws {
+        let workspaceId = UUID()
+        let identity = TerminalSessionIdentity(backend: .zellij, name: "cmux-\(workspaceId.uuidString)")
+        let surface = TerminalSurface(
+            tabId: workspaceId,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            terminalSessionIdentity: identity
+        )
+        defer { TerminalSurfaceRegistry.shared.unregister(surface) }
+
+        XCTAssertEqual(surface.debugTerminalSessionIdentityForTesting(), identity)
+    }
+
     @MainActor
     func testTerminalSurfaceStartupEnvironmentIncludesCmuxContextValues() throws {
         let workspaceId = UUID()

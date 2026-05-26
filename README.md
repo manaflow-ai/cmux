@@ -256,6 +256,13 @@ state:
 cmux does not checkpoint arbitrary live process state. tmux, vim, shells, and
 unsupported terminal apps reopen as normal terminals.
 
+For users who want process preservation for ordinary local terminals, cmux can
+launch new terminals inside stable zellij sessions. Set **Settings > Terminal >
+Session Backend** to `Zellij` or set `"sessionBackend": "zellij"` under
+`"terminal"` in `~/.config/cmux/cmux.json`. Eligible new terminals then attach
+to the same zellij session after cmux quits and relaunches. This requires the
+`zellij` CLI on `PATH`.
+
 Supported agent sessions can resume when hooks have saved a native session ID.
 Install hooks after installing the agent CLI so its binary is on `PATH`:
 
