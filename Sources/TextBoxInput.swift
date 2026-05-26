@@ -3633,7 +3633,7 @@ struct TextBoxInputContainer: View {
     }
 }
 
-private struct TextBoxInputView: NSViewRepresentable {
+struct TextBoxInputView: NSViewRepresentable {
     @Binding var text: String
     @Binding var attachments: [TextBoxAttachment]
     @Binding var textViewHeight: CGFloat
