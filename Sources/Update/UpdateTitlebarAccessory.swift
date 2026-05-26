@@ -2164,11 +2164,11 @@ private struct NotificationsPopoverView: View {
         min(NotificationsPopoverMetrics.maxHeight, max(NotificationsPopoverMetrics.minHeight, CGFloat(savedHeight)))
     }
 
+    // Invisible bottom-right corner drag region. NSPopover has no native resize chrome, so
+    // this mimics how AppKit windows resize: hit zone in the corner, cursor changes on hover.
     private var resizeHandle: some View {
-        Image(systemName: "arrow.down.right")
-            .font(.system(size: 9, weight: .semibold))
-            .foregroundColor(.secondary.opacity(0.55))
-            .frame(width: 18, height: 18)
+        Color.clear
+            .frame(width: 16, height: 16)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture()
@@ -2185,15 +2185,9 @@ private struct NotificationsPopoverView: View {
                         dragStartSize = .zero
                     }
             )
-            .onHover { hovering in
-                if hovering {
-                    NSCursor.crosshair.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
-            .padding(4)
-            .accessibilityLabel(String(localized: "notifications.resize", defaultValue: "Resize notifications"))
+            .background(
+                ResizeCursorRepresentable()
+            )
     }
 
     private var header: some View {
@@ -2370,105 +2364,52 @@ private struct NotificationPopoverRow: View {
     let onClear: () -> Void
     let onToggleRead: () -> Void
 
-    @State private var dragOffset: CGFloat = 0
     @State private var isHovering: Bool = false
 
-    private static let dismissThreshold: CGFloat = 80
     private static let rowHeight: CGFloat = 56
 
     var body: some View {
-        ZStack {
-            dismissBackground
-            rowContent
-                .background(
-                    Color.primary.opacity(isHovering ? 0.11 : 0)
-                )
-                .offset(x: dragOffset)
-                .gesture(
-                    DragGesture(minimumDistance: 6)
-                        .onChanged { value in
-                            // Only follow horizontal drags; ignore mostly-vertical drags.
-                            if abs(value.translation.width) > abs(value.translation.height) {
-                                dragOffset = value.translation.width
-                            }
-                        }
-                        .onEnded { value in
-                            if abs(value.translation.width) > Self.dismissThreshold {
-                                let direction: CGFloat = value.translation.width > 0 ? 1 : -1
-                                withAnimation(.easeOut(duration: 0.18)) {
-                                    dragOffset = direction * 600
-                                }
-                                onClear()
-                            } else {
-                                withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.85)) {
-                                    dragOffset = 0
-                                }
-                            }
-                        }
-                )
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // Hover detection runs through an AppKit NSTrackingArea (HoverTrackingRepresentable)
-        // because SwiftUI's `.onHover` / `.onContinuousHover` arbitrate with `.onTapGesture`
-        // on the same node and miss enter/exit events right after the popover opens and when
-        // the pointer crosses between LazyVStack rows.
-        .background(
-            HoverTrackingRepresentable { hovering in
-                if isHovering != hovering { isHovering = hovering }
-            }
-        )
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onOpen()
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("NotificationPopoverRow.\(notification.id.uuidString)")
-        // XCUITest's `.click()` is not always reliable for SwiftUI button-like rows hosted in an
-        // `NSPopover`. Provide an explicit accessibility action so AXPress always routes to onOpen.
-        .accessibilityAction { onOpen() }
-        .contextMenu {
-            Button(String(localized: "notifications.open", defaultValue: "Open")) {
+        rowContent
+            .background(
+                Color.primary.opacity(isHovering ? 0.11 : 0)
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // Hover detection runs through an AppKit NSTrackingArea (HoverTrackingRepresentable)
+            // because SwiftUI's `.onHover` / `.onContinuousHover` arbitrate with `.onTapGesture`
+            // on the same node and miss enter/exit events right after the popover opens and when
+            // the pointer crosses between LazyVStack rows.
+            .background(
+                HoverTrackingRepresentable { hovering in
+                    if isHovering != hovering { isHovering = hovering }
+                }
+            )
+            .contentShape(Rectangle())
+            .onTapGesture {
                 onOpen()
             }
-            if notification.isRead {
-                Button(String(localized: "notifications.markAsUnread", defaultValue: "Mark as Unread")) {
-                    onToggleRead()
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("NotificationPopoverRow.\(notification.id.uuidString)")
+            // XCUITest's `.click()` is not always reliable for SwiftUI button-like rows hosted in an
+            // `NSPopover`. Provide an explicit accessibility action so AXPress always routes to onOpen.
+            .accessibilityAction { onOpen() }
+            .contextMenu {
+                Button(String(localized: "notifications.open", defaultValue: "Open")) {
+                    onOpen()
                 }
-            } else {
-                Button(String(localized: "notifications.markAsRead", defaultValue: "Mark as Read")) {
-                    onToggleRead()
+                if notification.isRead {
+                    Button(String(localized: "notifications.markAsUnread", defaultValue: "Mark as Unread")) {
+                        onToggleRead()
+                    }
+                } else {
+                    Button(String(localized: "notifications.markAsRead", defaultValue: "Mark as Read")) {
+                        onToggleRead()
+                    }
+                }
+                Divider()
+                Button(String(localized: "notifications.dismiss", defaultValue: "Dismiss"), role: .destructive) {
+                    onClear()
                 }
             }
-            Divider()
-            Button(String(localized: "notifications.dismiss", defaultValue: "Dismiss"), role: .destructive) {
-                withAnimation(.easeOut(duration: 0.18)) {
-                    dragOffset = -600
-                }
-                onClear()
-            }
-        }
-    }
-
-    private var dismissBackground: some View {
-        HStack {
-            if dragOffset > 0 {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white)
-                    .padding(.leading, 18)
-                Spacer()
-            } else if dragOffset < 0 {
-                Spacer()
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white)
-                    .padding(.trailing, 18)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            Color.red.opacity(min(1.0, abs(dragOffset) / Self.dismissThreshold) * 0.7)
-        )
     }
 
     private var rowContent: some View {
@@ -2522,12 +2463,7 @@ private struct NotificationPopoverRow: View {
     }
 
     private var clearButton: some View {
-        Button(action: {
-            withAnimation(.easeOut(duration: 0.18)) {
-                dragOffset = -600
-            }
-            onClear()
-        }) {
+        Button(action: onClear) {
             ZStack {
                 Circle()
                     .fill(Color.primary.opacity(0.1))
@@ -2539,6 +2475,24 @@ private struct NotificationPopoverRow: View {
         }
         .buttonStyle(.plain)
     }
+}
+
+private struct ResizeCursorRepresentable: NSViewRepresentable {
+    func makeNSView(context: Context) -> ResizeCursorNSView {
+        ResizeCursorNSView()
+    }
+    func updateNSView(_ nsView: ResizeCursorNSView, context: Context) {}
+}
+
+private final class ResizeCursorNSView: NSView {
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        // macOS lacks a built-in diagonal resize cursor as a public API; resizeLeftRight is
+        // the closest standard cursor and matches what AppKit uses on the bottom edge.
+        addCursorRect(bounds, cursor: NSCursor.resizeLeftRight)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 private struct HoverTrackingRepresentable: NSViewRepresentable {
