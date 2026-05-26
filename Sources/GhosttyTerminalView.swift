@@ -1688,12 +1688,6 @@ class GhosttyApp {
         subsystem: releaseBundleIdentifier,
         category: "ghostty.initialization"
     )
-    // SAFETY: Ghostty C callbacks can run while GhosttyApp.shared is still initializing.
-    // cmux owns one process-lifetime GhosttyApp, so the registry avoids singleton re-entry
-    // without adding a teardown path for a ghostty_app_t that is never freed/recreated.
-    private static let appRegistryLock = NSLock()
-    private static var appRegistry: [UInt: GhosttyApp] = [:]
-    private static var initializingRuntimeApp: GhosttyApp?
     private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -1702,6 +1696,7 @@ class GhosttyApp {
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
+    private let runtimeAppInitializationLock = OSAllocatedUnfairLock(initialState: false)
     /// Coalesce wakeup → tick dispatches.  The I/O thread may fire wakeup_cb
     /// thousands of times per second during bulk output.  We only need one
     /// pending tick on the main queue at any time.
@@ -2094,7 +2089,7 @@ class GhosttyApp {
             GhosttyApp.runtimeApp(from: userdata)?.scheduleTick()
         }
         runtimeConfig.action_cb = { app, target, action in
-            guard let runtimeApp = GhosttyApp.runtimeAppForActionCallback(app) else { return false }
+            guard let runtimeApp = GhosttyApp.runtimeApp(fromApp: app) else { return false }
             return runtimeApp.handleAction(target: target, action: action)
         }
         // Some GhosttyKit builds import this callback as returning `Void` in Swift even
@@ -2184,14 +2179,14 @@ class GhosttyApp {
             }
         }
 
-        // Create app
-        Self.setInitializingRuntimeApp(self)
-        defer { Self.setInitializingRuntimeApp(nil) }
+        runtimeAppInitializationLock.withLock { $0 = true }
+        defer {
+            runtimeAppInitializationLock.withLock { $0 = false }
+        }
 
         if let created = ghostty_app_new(&runtimeConfig, primaryConfig) {
             self.app = created
             self.config = primaryConfig
-            Self.registerRuntimeApp(self, for: created)
         } else {
             #if DEBUG
             Self.initLog("ghostty_app_new(primary) failed; attempting fallback config")
@@ -2263,7 +2258,6 @@ class GhosttyApp {
 
             self.app = created
             self.config = fallbackConfig
-            Self.registerRuntimeApp(self, for: created)
         }
 
         // Notify observers that a usable config is available (initial load).
@@ -4221,37 +4215,14 @@ class GhosttyApp {
         return Unmanaged<GhosttyApp>.fromOpaque(userdata).takeUnretainedValue()
     }
 
-    private static func registerRuntimeApp(_ runtimeApp: GhosttyApp, for app: ghostty_app_t) {
-        let key = UInt(bitPattern: app)
-        appRegistryLock.lock()
-        appRegistry[key] = runtimeApp
-        appRegistryLock.unlock()
-    }
-
-    private static func setInitializingRuntimeApp(_ runtimeApp: GhosttyApp?) {
-        appRegistryLock.lock()
-        initializingRuntimeApp = runtimeApp
-        appRegistryLock.unlock()
-    }
-
-    private static func runtimeApp(for app: ghostty_app_t?) -> GhosttyApp? {
+    private static func runtimeApp(fromApp app: ghostty_app_t?) -> GhosttyApp? {
         guard let app else { return nil }
-        let key = UInt(bitPattern: app)
-        appRegistryLock.lock()
-        defer { appRegistryLock.unlock() }
-        return appRegistry[key]
+        guard let userdata = ghostty_app_userdata(app) else { return nil }
+        return runtimeApp(from: userdata)
     }
 
-    private static func runtimeAppForActionCallback(_ app: ghostty_app_t?) -> GhosttyApp? {
-        appRegistryLock.lock()
-        defer { appRegistryLock.unlock() }
-        if let app {
-            let key = UInt(bitPattern: app)
-            if let registered = appRegistry[key] {
-                return registered
-            }
-        }
-        return initializingRuntimeApp
+    private var shouldReloadSettingsFileForAppAction: Bool {
+        runtimeAppInitializationLock.withLock { !$0 }
     }
 
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
@@ -4301,6 +4272,7 @@ class GhosttyApp {
 
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG {
                 let soft = action.action.reload_config.soft
+                let reloadSettingsFromFile = shouldReloadSettingsFileForAppAction
                 logThemeAction("reload request target=app soft=\(soft)")
                 performOnMain {
                     guard self.shouldProcessGhosttyReloadAction(
@@ -4309,7 +4281,14 @@ class GhosttyApp {
                     ) else {
                         return
                     }
-                    self.reloadConfiguration(soft: soft, source: "action.reload_config.app")
+                    // libghostty may request a reload while ghostty_app_new is still
+                    // constructing the runtime. Startup already loaded the cmux settings
+                    // file, so avoid recursively re-entering that settings load path.
+                    self.reloadConfiguration(
+                        soft: soft,
+                        source: "action.reload_config.app",
+                        reloadSettingsFromFile: reloadSettingsFromFile
+                    )
                 }
                 return true
             }
@@ -6127,6 +6106,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         var env = baseConfig.environmentVariables
+        let resolvedCommandForStartup = initialCommand
+            ?? baseConfig.command?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         var protectedStartupEnvironmentKeys: Set<String> = []
         Self.applyManagedTerminalIdentityEnvironment(
@@ -6240,6 +6221,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
                     }
                 }
 
+                if resolvedCommandForStartup?.isEmpty != false,
+                   surfaceContext != GHOSTTY_SURFACE_CONTEXT_SPLIT {
+                    setManagedEnvironmentValue("CMUX_ZSH_SOURCE_LOGIN_PROFILE", "1")
+                }
                 setManagedEnvironmentValue("ZDOTDIR", integrationDir)
             } else if shellName == "bash" {
                 if GhosttyApp.shared.userGhosttyShellIntegrationMode != "none" {
