@@ -6260,6 +6260,13 @@ class TerminalController {
             )
         }
         let skipDaemonBootstrap = v2Bool(params, "skip_daemon_bootstrap") ?? false
+        if persistentDaemonSlot != nil, !preserveAfterTerminalExit {
+            return .err(
+                code: "invalid_params",
+                message: "preserve_after_terminal_exit is required when persistent_daemon_slot is set",
+                data: nil
+            )
+        }
         if preserveAfterTerminalExit,
            transport == .ssh,
            !skipDaemonBootstrap,

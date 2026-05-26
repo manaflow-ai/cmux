@@ -331,7 +331,9 @@ struct WorkspaceRemoteConfiguration: Equatable {
         self.foregroundAuthToken = foregroundAuthToken
         self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
         self.preserveAfterTerminalExit = preserveAfterTerminalExit
-        self.persistentDaemonSlot = WorkspaceRemoteSSHOptionFilter.normalizedOptional(persistentDaemonSlot)
+        self.persistentDaemonSlot = preserveAfterTerminalExit
+            ? WorkspaceRemoteSSHOptionFilter.normalizedOptional(persistentDaemonSlot)
+            : nil
         self.skipDaemonBootstrap = skipDaemonBootstrap
     }
 
