@@ -7907,68 +7907,99 @@ struct ContentView: View {
             return false
         }
 
-        let cwd = configuredActionBaseCwd()
-        let socketPath = SocketControlSettings.socketPath()
-        let process = Process()
-        process.executableURL = cliURL
-        var arguments = [
-            "--socket", socketPath,
-            "diff",
-            "--unstaged",
-            "--cwd", cwd,
-            "--workspace", workspace.id.uuidString,
-            "--focus", "true",
-        ]
-        if let panelId = workspace.focusedPanelId {
-            arguments.append(contentsOf: ["--surface", panelId.uuidString])
-        }
-        process.arguments = arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
-        environment["CMUX_WORKSPACE_ID"] = workspace.id.uuidString
-        if let panelId = workspace.focusedPanelId {
-            environment["CMUX_SURFACE_ID"] = panelId.uuidString
-        }
-        environment.removeValue(forKey: "CMUX_SOCKET")
-        process.environment = environment
-        process.standardInput = FileHandle.nullDevice
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        process.terminationHandler = { terminatedProcess in
-            guard terminatedProcess.terminationStatus != 0 else { return }
-            let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let detail = [stderr, stdout]
-                .compactMap { value -> String? in
-                    guard let value, !value.isEmpty else { return nil }
-                    return String(value.prefix(240))
-                }
-                .first ?? "status=\(terminatedProcess.terminationStatus)"
-            DispatchQueue.main.async {
-#if DEBUG
-                cmuxDebugLog("commandPalette.openDiffViewer exited status=\(terminatedProcess.terminationStatus) detail=\(detail)")
-#endif
-                NSSound.beep()
-            }
-        }
+        return CommandPaletteDiffViewerLauncher.shared.start(
+            cliURL: cliURL,
+            socketPath: SocketControlSettings.socketPath(),
+            cwd: configuredActionBaseCwd(),
+            workspaceId: workspace.id,
+            surfaceId: workspace.focusedPanelId
+        )
+    }
 
-        do {
-            try process.run()
+    @MainActor
+    private final class CommandPaletteDiffViewerLauncher {
+        static let shared = CommandPaletteDiffViewerLauncher()
+
+        private var processes: [Int32: Process] = [:]
+
+        private init() {}
+
+        @discardableResult
+        func start(
+            cliURL: URL,
+            socketPath: String,
+            cwd: String,
+            workspaceId: UUID,
+            surfaceId: UUID?
+        ) -> Bool {
+            let process = Process()
+            process.executableURL = cliURL
+            var arguments = [
+                "--socket", socketPath,
+                "diff",
+                "--unstaged",
+                "--cwd", cwd,
+                "--workspace", workspaceId.uuidString,
+                "--focus", "true",
+            ]
+            if let surfaceId {
+                arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
+            }
+            process.arguments = arguments
+            process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
+            var environment = ProcessInfo.processInfo.environment
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
+            environment["CMUX_WORKSPACE_ID"] = workspaceId.uuidString
+            if let surfaceId {
+                environment["CMUX_SURFACE_ID"] = surfaceId.uuidString
+            }
+            environment.removeValue(forKey: "CMUX_SOCKET")
+            process.environment = environment
+            process.standardInput = FileHandle.nullDevice
+
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
+            let outputCollector = ProcessOutputCollector(stdout: stdoutPipe, stderr: stderrPipe)
+            outputCollector.start()
+            process.terminationHandler = { terminatedProcess in
+                let output = outputCollector.finish()
+                let processIdentifier = terminatedProcess.processIdentifier
+                let terminationStatus = terminatedProcess.terminationStatus
+                Task { @MainActor in
+                    Self.shared.processes.removeValue(forKey: processIdentifier)
+                    guard terminationStatus != 0 else { return }
+                    let detail = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let limitedDetail = detail.isEmpty
+                        ? "status=\(terminationStatus)"
+                        : String(detail.prefix(240))
 #if DEBUG
-            cmuxDebugLog("commandPalette.openDiffViewer pid=\(process.processIdentifier) cwd=\(cwd)")
+                    cmuxDebugLog("commandPalette.openDiffViewer exited status=\(terminationStatus) detail=\(limitedDetail)")
 #endif
-            return true
-        } catch {
+                    NSSound.beep()
+                }
+            }
+
+            do {
+                try process.run()
+                let processIdentifier = process.processIdentifier
+                processes[processIdentifier] = process
+                if !process.isRunning {
+                    processes.removeValue(forKey: processIdentifier)
+                }
 #if DEBUG
-            cmuxDebugLog("commandPalette.openDiffViewer failed cwd=\(cwd) error=\(error.localizedDescription)")
+                cmuxDebugLog("commandPalette.openDiffViewer pid=\(process.processIdentifier) cwd=\(cwd)")
 #endif
-            return false
+                return true
+            } catch {
+                outputCollector.cancel()
+#if DEBUG
+                cmuxDebugLog("commandPalette.openDiffViewer failed cwd=\(cwd) error=\(error.localizedDescription)")
+#endif
+                return false
+            }
         }
     }
 
