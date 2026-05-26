@@ -517,7 +517,7 @@ extension Workspace {
             ) && Self.shouldReplaySessionScrollback(
                 restorableAgent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
-                resumeStartupInput: resumeStartupInput
+                hasResumeStartupWork: resumeStartupInput != nil
             )
 #if DEBUG
             let allowDebugFallbackScrollback = debugSessionSnapshotScrollbackFallbackPanelIds.contains(panelId)
@@ -785,12 +785,12 @@ extension Workspace {
     nonisolated static func shouldReplaySessionScrollback(
         restorableAgent: SessionRestorableAgentSnapshot?,
         tmuxStartCommand: String? = nil,
-        resumeStartupInput: String? = nil
+        hasResumeStartupWork: Bool = false
     ) -> Bool {
         // Agent restores relaunch from the provider's session ID. Replaying the
-        // old TUI scrollback can print stale launch commands and race the resume input.
+        // old TUI scrollback can print stale launch commands and race resume startup work.
         // OMX HUD panes restore from their tmux start command for the same reason.
-        restorableAgent == nil && restorableTmuxStartCommand(tmuxStartCommand) == nil && resumeStartupInput == nil
+        restorableAgent == nil && restorableTmuxStartCommand(tmuxStartCommand) == nil && !hasResumeStartupWork
     }
 
     nonisolated static func shouldAutoConnectRestoredRemote(
@@ -805,12 +805,22 @@ extension Workspace {
         return !snapshot.panels.contains { $0.terminal != nil }
     }
 
-    nonisolated struct SurfaceResumeStartupLaunch {
-        var initialCommand: String?
-        var initialInput: String?
+    nonisolated enum SurfaceResumeStartupLaunch {
+        case command(String)
+        case input(String)
 
-        var hasStartupWork: Bool {
-            initialCommand != nil || initialInput != nil
+        var initialCommand: String? {
+            if case .command(let command) = self {
+                return command
+            }
+            return nil
+        }
+
+        var initialInput: String? {
+            if case .input(let input) = self {
+                return input
+            }
+            return nil
         }
     }
 
@@ -859,14 +869,14 @@ extension Workspace {
                fileManager: fileManager,
                temporaryDirectory: temporaryDirectory
            ) {
-            return SurfaceResumeStartupLaunch(initialCommand: command, initialInput: nil)
+            return .command(command)
         }
         guard let input = effectiveBinding.startupInputWithLauncherScript(
             allowLauncherScript: allowLauncherScript
         ) else {
             return nil
         }
-        return SurfaceResumeStartupLaunch(initialCommand: nil, initialInput: input)
+        return .input(input)
     }
 
     nonisolated private static func approvedSurfaceResumeBinding(
@@ -1201,7 +1211,7 @@ extension Workspace {
             let shouldReplayScrollback = Self.shouldReplaySessionScrollback(
                 restorableAgent: restorableAgent,
                 tmuxStartCommand: restoredTmuxStartCommand,
-                resumeStartupInput: restoredBindingLaunch?.hasStartupWork == true ? "" : nil
+                hasResumeStartupWork: restoredBindingLaunch != nil
             )
             let restoredAgentResumeCommand = shouldAutoResumeAgent && restoredHibernation == nil
                 ? (restoredBindingLaunch == nil ? restorableAgent?.resumeStartupCommand() : nil)
@@ -1221,7 +1231,7 @@ extension Workspace {
                 : nil
             let restoredAgentWillRunStartupLaunch = restorableAgent != nil && (
                 restoredAgentResumeCommand != nil ||
-                (restoredBindingLaunch?.hasStartupWork == true && resumeBinding?.isAgentHookBinding == true)
+                (restoredBindingLaunch != nil && resumeBinding?.isAgentHookBinding == true)
             )
 #if DEBUG
             if let restorableAgent {
@@ -1240,7 +1250,7 @@ extension Workspace {
                 cmuxDebugLog(
                     "session.restore.surfaceResume panel=\(snapshot.id.uuidString.prefix(5)) " +
                     "kind=\(resumeBinding.kind ?? "unknown") source=\(resumeBinding.source ?? "unknown") " +
-                    "hasLaunch=\(restoredBindingLaunch?.hasStartupWork == true ? 1 : 0) " +
+                    "hasLaunch=\(restoredBindingLaunch == nil ? 0 : 1) " +
                     "replayScrollback=\(shouldReplayScrollback ? 1 : 0)"
                 )
             }
