@@ -941,6 +941,8 @@
               "toggleTerminalCopyMode",
               "focusTextBoxInput",
               "attachTextBoxFile",
+              "nextPane",
+              "prevPane",
               "focusLeft",
               "focusRight",
               "focusUp",

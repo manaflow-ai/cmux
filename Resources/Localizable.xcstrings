@@ -24627,6 +24627,40 @@
         }
       }
     },
+    "command.nextPane.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane Navigation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインナビゲーション"
+          }
+        }
+      }
+    },
+    "command.nextPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のペイン"
+          }
+        }
+      }
+    },
     "command.nextTabInPane.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -26012,6 +26046,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Закріпити робочу область"
+          }
+        }
+      }
+    },
+    "command.previousPane.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane Navigation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインナビゲーション"
+          }
+        }
+      }
+    },
+    "command.previousPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のペイン"
           }
         }
       }
@@ -49329,6 +49397,23 @@
         }
       }
     },
+    "menu.view.nextPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のペイン"
+          }
+        }
+      }
+    },
     "menu.view.nextSurface": {
       "extractionState": "manual",
       "localizations": {
@@ -49563,6 +49648,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Наступна робоча область"
+          }
+        }
+      }
+    },
+    "menu.view.previousPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のペイン"
           }
         }
       }
@@ -87668,6 +87770,23 @@
         }
       }
     },
+    "shortcut.nextPane.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のペイン"
+          }
+        }
+      }
+    },
     "shortcut.nextSurface.label": {
       "extractionState": "manual",
       "localizations": {
@@ -88679,6 +88798,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "音量を上げる"
+          }
+        }
+      }
+    },
+    "shortcut.previousPane.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のペイン"
           }
         }
       }

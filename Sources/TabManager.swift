@@ -7339,6 +7339,18 @@ class TabManager: ObservableObject {
         tab.moveFocus(direction: direction)
     }
 
+    /// Move focus to the next pane in split-tree order.
+    @discardableResult
+    func focusNextPane() -> Bool {
+        selectedWorkspace?.focusNextPane() ?? false
+    }
+
+    /// Move focus to the previous pane in split-tree order.
+    @discardableResult
+    func focusPreviousPane() -> Bool {
+        selectedWorkspace?.focusPreviousPane() ?? false
+    }
+
     // MARK: - Recent Tab History Navigation
 
     private func recordTabInHistory(_ tabId: UUID) {
