@@ -4,7 +4,7 @@ enum TextBoxInputChromeBackgroundStyle: Equatable {
 }
 
 enum TextBoxInputChromeBackgroundPolicy {
-    static func style(glassEffectAvailable: Bool) -> TextBoxInputChromeBackgroundStyle {
-        glassEffectAvailable ? .swiftUIGlass : .materialFallback
+    static func style(glassEffectAvailable _: Bool) -> TextBoxInputChromeBackgroundStyle {
+        .materialFallback
     }
 }
