@@ -1255,8 +1255,6 @@ extension Workspace {
                 restoredAgentResumeLaunch?.initialInput != nil ||
                 (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
             )
-            let restoredAgentWillRunStartupLaunch =
-                restoredAgentWillRunStartupCommand || restoredAgentWillRunStartupInput
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
