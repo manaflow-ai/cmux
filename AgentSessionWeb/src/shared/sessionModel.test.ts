@@ -192,11 +192,35 @@ test("stop preserves running session until provider exit arrives", () => {
     status: "running" as const,
     runningSessionId: "session-1",
   };
-  const stopping = reduceSession(running, { type: "stopping" });
+  const stopping = reduceSession(running, { type: "stopping", sessionId: "session-1" });
 
   expect(stopping.status).toBe("stopping");
   expect(stopping.runningSessionId).toBe("session-1");
+  expect(stopping.requestedStopSessionId).toBe("session-1");
   expect(statusLabel(stopping)).toBe("Stopping");
+});
+
+test("requested stop exits return to idle even with signal status", () => {
+  const stopping = {
+    ...reduceSession(initialState("react"), { type: "context", context }),
+    status: "stopping" as const,
+    runningSessionId: "session-1",
+    requestedStopSessionId: "session-1",
+  };
+  const state = reduceSession(stopping, {
+    type: "event",
+    event: {
+      type: "provider.exit",
+      providerId: "codex",
+      sessionId: "session-1",
+      status: 15,
+    },
+  });
+
+  expect(state.status).toBe("idle");
+  expect(state.runningSessionId).toBeUndefined();
+  expect(state.requestedStopSessionId).toBeUndefined();
+  expect(state.log.at(-1)?.text).toBe("Stopped");
 });
 
 test("failed calls with an active session keep stop available", () => {

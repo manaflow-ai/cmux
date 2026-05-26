@@ -39,10 +39,11 @@ enum AgentSessionProviderID: String, CaseIterable, Codable, Identifiable, Sendab
                 "--output-format", "stream-json",
                 "--input-format", "stream-json",
                 "--permission-prompt-tool", "stdio",
-                "--include-partial-messages"
+                "--include-partial-messages",
+                "--verbose"
             ]
         case .opencode:
-            return ["serve", "--hostname", "127.0.0.1", "--port", "0"]
+            return ["serve", "--hostname", "127.0.0.1", "--port", "0", "--print-logs"]
         }
     }
 

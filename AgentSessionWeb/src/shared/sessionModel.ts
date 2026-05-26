@@ -18,6 +18,7 @@ export type SessionState = {
   input: string;
   log: LogEntry[];
   autoStartAttemptedProviderIds: ProviderId[];
+  requestedStopSessionId?: string;
 };
 
 export type Action =
@@ -27,7 +28,7 @@ export type Action =
   | { type: "setInput"; input: string }
   | { type: "autoStartAttempted"; providerId: ProviderId }
   | { type: "starting" }
-  | { type: "stopping" }
+  | { type: "stopping"; sessionId: string }
   | { type: "failed"; message: string }
   | { type: "stopped" }
   | { type: "event"; event: AgentEvent }
@@ -73,7 +74,12 @@ export function reduceSession(state: SessionState, action: Action): SessionState
     case "starting":
       return { ...state, status: "starting", log: appendLog(state, "info", copyText(state, "startingStatus", "Starting")) };
     case "stopping":
-      return { ...state, status: "stopping", log: appendLog(state, "info", copyText(state, "stoppingStatus", "Stopping")) };
+      return {
+        ...state,
+        status: "stopping",
+        requestedStopSessionId: action.sessionId,
+        log: appendLog(state, "info", copyText(state, "stoppingStatus", "Stopping")),
+      };
     case "failed":
       return { ...state, status: "failed", log: appendLog(state, "error", action.message) };
     case "stopped":
@@ -159,7 +165,7 @@ export async function stopProvider(state: SessionState, dispatch: (action: Actio
   if (!state.runningSessionId || state.status === "stopping") {
     return;
   }
-  dispatch({ type: "stopping" });
+  dispatch({ type: "stopping", sessionId: state.runningSessionId });
   try {
     await callNative("provider.stop", {
       sessionId: state.runningSessionId,
@@ -211,6 +217,7 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
       return {
         ...state,
         runningSessionId: event.sessionId,
+        requestedStopSessionId: undefined,
         status: "running",
         log: appendLog(state, "info", copyText(state, "providerStarted", "Provider started")),
       };
@@ -226,9 +233,19 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
       if (event.sessionId !== state.runningSessionId) {
         return state;
       }
+      if (event.sessionId === state.requestedStopSessionId) {
+        return {
+          ...state,
+          runningSessionId: undefined,
+          requestedStopSessionId: undefined,
+          status: "idle",
+          log: appendLog(state, "info", copyText(state, "stopped", "Stopped")),
+        };
+      }
       return {
         ...state,
         runningSessionId: undefined,
+        requestedStopSessionId: undefined,
         status: event.status === 0 ? "idle" : "failed",
         log: appendLog(
           state,

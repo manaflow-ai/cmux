@@ -156,16 +156,18 @@ _cmux_now() {
     print -r -- "${EPOCHSECONDS:-$SECONDS}"
 }
 
+typeset -g _CMUX_CLAUDE_WRAPPER=""
 typeset -g _CMUX_GROK_WRAPPER=""
 _cmux_install_cli_wrapper() {
     local command_name="$1"
     local wrapper_variable="$2"
+    local wrapper_file="${3:-$command_name}"
     local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
     [[ -n "$integration_dir" ]] || return 0
 
     integration_dir="${integration_dir%/}"
     local bundle_dir="${integration_dir%/shell-integration}"
-    local wrapper_path="$bundle_dir/bin/$command_name"
+    local wrapper_path="$bundle_dir/bin/$wrapper_file"
     [[ -x "$wrapper_path" ]] || return 0
 
     # Keep the bundled wrapper ahead of later PATH mutations. Install it
@@ -174,6 +176,7 @@ _cmux_install_cli_wrapper() {
     builtin unalias "$command_name" >/dev/null 2>&1 || true
     eval "$command_name() { \"\${$wrapper_variable}\" \"\$@\"; }"
 }
+_cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
 
 _cmux_normalize_claude_config_dir() {

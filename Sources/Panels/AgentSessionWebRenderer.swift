@@ -516,7 +516,7 @@ extension AgentSessionWebRenderer {
                     "arguments": plan.arguments
                 ] as [String: Any]
             case "provider.writeLine":
-                try processStore.writeLine(
+                try await processStore.writeLine(
                     sessionId: request.requiredString("sessionId"),
                     text: request.requiredString("text")
                 )
@@ -594,6 +594,8 @@ private enum AgentSessionBridgeError: LocalizedError {
     case unsupportedMethod(String)
     case sessionNotFound(String)
     case sessionAlreadyRunning
+    case providerNotReady(String)
+    case unsupportedTransport(String)
 
     var errorDescription: String? {
         switch self {
@@ -628,6 +630,18 @@ private enum AgentSessionBridgeError: LocalizedError {
                 localized: "agentSession.bridge.error.sessionAlreadyRunning",
                 defaultValue: "An agent session is already running."
             )
+        case .providerNotReady(let provider):
+            let format = String(
+                localized: "agentSession.bridge.error.providerNotReady",
+                defaultValue: "%@ is not ready yet."
+            )
+            return String(format: format, provider)
+        case .unsupportedTransport(let transport):
+            let format = String(
+                localized: "agentSession.bridge.error.unsupportedTransport",
+                defaultValue: "Agent transport is not supported: %@"
+            )
+            return String(format: format, transport)
         }
     }
 }
@@ -935,6 +949,9 @@ private final class AgentSessionProcessStore {
         let running = RunningSession(
             sessionId: sessionId,
             providerID: plan.provider,
+            executablePath: plan.executableURL.path,
+            arguments: plan.arguments,
+            workingDirectory: workingDirectory,
             process: process,
             stdin: stdin
         )
@@ -981,28 +998,28 @@ private final class AgentSessionProcessStore {
             throw error
         }
 
-        eventSink?([
-            "type": "provider.started",
-            "sessionId": sessionId,
-            "providerId": plan.provider.rawValue,
-            "executablePath": plan.executableURL.path,
-            "arguments": plan.arguments
-        ])
+        if plan.provider != .opencode {
+            emitStarted(session: running)
+        }
         return StartedSession(sessionId: sessionId)
     }
 
-    func writeLine(sessionId: String, text: String) throws {
+    func writeLine(sessionId: String, text: String) async throws {
         guard let session = sessions[sessionId] else {
             throw AgentSessionBridgeError.sessionNotFound(sessionId)
         }
-        if let codexAppServerSession = session.codexAppServerSession {
-            try codexAppServerSession.submit(text)
-            return
-        }
 
-        let payload = text.hasSuffix("\n") ? text : text + "\n"
-        guard let data = payload.data(using: .utf8) else { return }
-        try session.stdin.fileHandleForWriting.write(contentsOf: data)
+        switch session.providerID {
+        case .codex:
+            guard let codexAppServerSession = session.codexAppServerSession else {
+                throw AgentSessionBridgeError.providerNotReady(session.providerID.displayName)
+            }
+            try codexAppServerSession.submit(text)
+        case .claude:
+            try writeClaudeStreamJSON(text, to: session.stdin)
+        case .opencode:
+            try await postOpenCodePrompt(text, session: session)
+        }
     }
 
     func stop(sessionId: String) throws {
@@ -1022,29 +1039,166 @@ private final class AgentSessionProcessStore {
     private func installReadHandler(_ fileHandle: FileHandle, sessionId: String, stream: String) {
         fileHandle.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            guard !data.isEmpty else {
-                handle.readabilityHandler = nil
-                return
-            }
-            let text = String(data: data, encoding: .utf8) ?? ""
             Task { @MainActor in
                 guard let self,
                       let session = self.sessions[sessionId] else {
                     return
                 }
-                if stream == "stdout",
-                   let codexAppServerSession = session.codexAppServerSession {
-                    codexAppServerSession.consumeStdout(text)
-                } else {
-                    self.emitOutput(
-                        sessionId: sessionId,
-                        providerID: session.providerID,
-                        stream: stream,
-                        text: text
-                    )
+                if data.isEmpty {
+                    handle.readabilityHandler = nil
+                    for text in session.flushBufferedOutput(stream: stream) {
+                        self.handleOutputLine(text, session: session, stream: stream)
+                    }
+                    return
+                }
+                for text in session.appendOutputData(data, stream: stream) {
+                    self.handleOutputLine(text, session: session, stream: stream)
                 }
             }
         }
+    }
+
+    private func handleOutputLine(_ text: String, session: RunningSession, stream: String) {
+        if session.providerID == .opencode,
+           session.openCodeBaseURL == nil,
+           let baseURL = openCodeServerURL(from: text) {
+            session.openCodeBaseURL = baseURL
+            createOpenCodeSession(session)
+        }
+
+        if stream == "stdout",
+           let codexAppServerSession = session.codexAppServerSession {
+            codexAppServerSession.consumeStdout(text)
+            return
+        }
+
+        emitOutput(
+            sessionId: session.sessionId,
+            providerID: session.providerID,
+            stream: stream,
+            text: text
+        )
+    }
+
+    private func openCodeServerURL(from text: String) -> URL? {
+        let marker = "opencode server listening on "
+        guard let range = text.range(of: marker) else { return nil }
+        let rawURL = text[range.upperBound...]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: " ")
+            .first
+            .map(String.init)
+        return rawURL.flatMap(URL.init(string:))
+    }
+
+    private func createOpenCodeSession(_ session: RunningSession) {
+        guard !session.isOpenCodeSessionCreateInFlight,
+              session.openCodeSessionID == nil,
+              let baseURL = session.openCodeBaseURL else {
+            return
+        }
+        session.isOpenCodeSessionCreateInFlight = true
+        Task { @MainActor in
+            do {
+                let response = try await self.postJSON(
+                    to: self.openCodeURL(baseURL: baseURL, path: "session", workingDirectory: session.workingDirectory),
+                    body: [:]
+                )
+                guard let id = response["id"] as? String, !id.isEmpty else {
+                    throw AgentSessionBridgeError.providerNotReady(session.providerID.displayName)
+                }
+                guard self.sessions[session.sessionId] === session else { return }
+                session.openCodeSessionID = id
+                session.isOpenCodeSessionCreateInFlight = false
+                self.emitStarted(session: session)
+            } catch {
+                session.isOpenCodeSessionCreateInFlight = false
+                self.emitOutput(
+                    sessionId: session.sessionId,
+                    providerID: session.providerID,
+                    stream: "stderr",
+                    text: "\(error.localizedDescription)\n"
+                )
+            }
+        }
+    }
+
+    private func postOpenCodePrompt(_ text: String, session: RunningSession) async throws {
+        guard let baseURL = session.openCodeBaseURL,
+              let openCodeSessionID = session.openCodeSessionID else {
+            throw AgentSessionBridgeError.providerNotReady(session.providerID.displayName)
+        }
+        let url = openCodeURL(
+            baseURL: baseURL,
+            path: "session/\(openCodeSessionID)/prompt_async",
+            workingDirectory: session.workingDirectory
+        )
+        _ = try await postJSON(
+            to: url,
+            body: [
+                "parts": [
+                    [
+                        "type": "text",
+                        "text": text
+                    ]
+                ]
+            ]
+        )
+    }
+
+    private func openCodeURL(baseURL: URL, path: String, workingDirectory: String?) -> URL {
+        let url = path.split(separator: "/").reduce(baseURL) { partialURL, component in
+            partialURL.appendingPathComponent(String(component))
+        }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        if let workingDirectory {
+            components?.queryItems = [URLQueryItem(name: "directory", value: workingDirectory)]
+        }
+        return components?.url ?? url
+    }
+
+    private func postJSON(to url: URL, body: [String: Any]) async throws -> [String: Any] {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(statusCode) else {
+            throw AgentSessionBridgeError.providerNotReady("OpenCode")
+        }
+        guard !data.isEmpty else { return [:] }
+        let decoded = try JSONSerialization.jsonObject(with: data, options: [])
+        return decoded as? [String: Any] ?? [:]
+    }
+
+    private func writeClaudeStreamJSON(_ text: String, to stdin: Pipe) throws {
+        let message: [String: Any] = [
+            "type": "user",
+            "message": [
+                "role": "user",
+                "content": [
+                    [
+                        "type": "text",
+                        "text": text
+                    ]
+                ]
+            ]
+        ]
+        var data = try JSONSerialization.data(withJSONObject: message, options: [])
+        data.append(0x0A)
+        try stdin.fileHandleForWriting.write(contentsOf: data)
+    }
+
+    private func emitStarted(session: RunningSession) {
+        eventSink?([
+            "type": "provider.started",
+            "sessionId": session.sessionId,
+            "providerId": session.providerID.rawValue,
+            "executablePath": session.executablePath,
+            "arguments": session.arguments
+        ])
     }
 
     private func emitOutput(
@@ -1065,20 +1219,66 @@ private final class AgentSessionProcessStore {
     private final class RunningSession {
         let sessionId: String
         let providerID: AgentSessionProviderID
+        let executablePath: String
+        let arguments: [String]
+        let workingDirectory: String?
         let process: Process
         let stdin: Pipe
         var codexAppServerSession: CodexAppServerSession?
+        var openCodeBaseURL: URL?
+        var openCodeSessionID: String?
+        var isOpenCodeSessionCreateInFlight = false
+        private var stdoutBuffer = Data()
+        private var stderrBuffer = Data()
 
         init(
             sessionId: String,
             providerID: AgentSessionProviderID,
+            executablePath: String,
+            arguments: [String],
+            workingDirectory: String?,
             process: Process,
             stdin: Pipe
         ) {
             self.sessionId = sessionId
             self.providerID = providerID
+            self.executablePath = executablePath
+            self.arguments = arguments
+            self.workingDirectory = workingDirectory
             self.process = process
             self.stdin = stdin
+        }
+
+        func appendOutputData(_ data: Data, stream: String) -> [String] {
+            if stream == "stdout" {
+                return Self.appendOutputData(data, buffer: &stdoutBuffer)
+            }
+            return Self.appendOutputData(data, buffer: &stderrBuffer)
+        }
+
+        func flushBufferedOutput(stream: String) -> [String] {
+            if stream == "stdout" {
+                return Self.flushBufferedOutput(buffer: &stdoutBuffer)
+            }
+            return Self.flushBufferedOutput(buffer: &stderrBuffer)
+        }
+
+        private static func appendOutputData(_ data: Data, buffer: inout Data) -> [String] {
+            buffer.append(data)
+            var lines: [String] = []
+            while let newlineIndex = buffer.firstIndex(of: 0x0A) {
+                let lineData = buffer[..<newlineIndex]
+                buffer.removeSubrange(...newlineIndex)
+                lines.append(String(decoding: lineData, as: UTF8.self) + "\n")
+            }
+            return lines
+        }
+
+        private static func flushBufferedOutput(buffer: inout Data) -> [String] {
+            guard !buffer.isEmpty else { return [] }
+            let text = String(decoding: buffer, as: UTF8.self)
+            buffer.removeAll()
+            return [text]
         }
     }
 }
