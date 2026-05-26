@@ -8140,18 +8140,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeVisualActive = false
         keyboardCopyModeActive = active
         if active, let surface {
-            keyboardCopyModeViewportRow = keyboardCopyModeSelectionAnchor(surface: surface)?.row
-            _ = ghostty_surface_clear_selection_compat(surface)
-            if keyboardCopyModeViewportRow == nil {
-                keyboardCopyModeViewportRow = keyboardCopyModeImeViewportRow(surface: surface)
-            }
-            // Create a 1-cell selection at the terminal cursor to serve as a
-            // visible cursor indicator in copy mode.
-            _ = ghostty_surface_select_cursor_cell_compat(surface)
+            resetKeyboardCopyModeCursorSelection(surface: surface)
         } else {
             keyboardCopyModeViewportRow = nil
         }
         terminalSurface?.setKeyboardCopyModeActive(active)
+    }
+
+    private func resetKeyboardCopyModeCursorSelection(surface: ghostty_surface_t) {
+        _ = ghostty_surface_clear_selection_compat(surface)
+        if let anchor = keyboardCopyModeSelectionAnchor(surface: surface) {
+            keyboardCopyModeViewportRow = anchor.row
+        } else {
+            keyboardCopyModeViewportRow = keyboardCopyModeImeViewportRow(surface: surface)
+            // Create a 1-cell selection at the terminal cursor to serve as a
+            // visible cursor indicator in copy mode.
+            _ = ghostty_surface_select_cursor_cell_compat(surface)
+        }
     }
 
     private func performBindingAction(_ action: String, repeatCount: Int) {
@@ -8282,9 +8287,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyboardCopyModeVisualActive = true
         case .clearSelection:
             keyboardCopyModeVisualActive = false
-            _ = ghostty_surface_clear_selection_compat(surface)
-            // Re-create 1-cell cursor at terminal cursor position.
-            _ = ghostty_surface_select_cursor_cell_compat(surface)
+            resetKeyboardCopyModeCursorSelection(surface: surface)
         case .copyAndExit:
             _ = performBindingAction("copy_to_clipboard")
             _ = ghostty_surface_clear_selection_compat(surface)
@@ -8860,7 +8863,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if !keyboardCopyModeActive {
             setKeyboardCopyModeActive(true)
         } else if !keyboardCopyModeVisualActive {
-            _ = ghostty_surface_select_cursor_cell_compat(surface)
+            resetKeyboardCopyModeCursorSelection(surface: surface)
         }
         keyboardCopyModeVisualActive = true
         performBindingAction("adjust_selection:\(move.rawValue)", repeatCount: 1)
