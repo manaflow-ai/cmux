@@ -3808,8 +3808,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sessionRecoverySnapshotMutationDepth += 1
         defer {
             sessionRecoverySnapshotMutationDepth -= 1
-            guard sessionRecoverySnapshotMutationDepth == 0 else { return }
-            flushDeferredSessionRecoverySnapshotSave()
+            if sessionRecoverySnapshotMutationDepth == 0 {
+                flushDeferredSessionRecoverySnapshotSave()
+            }
         }
         return try mutation()
     }
