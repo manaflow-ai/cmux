@@ -495,19 +495,24 @@ final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
 
 final class FocusFlashPatternTests: XCTestCase {
     func testPanelOverlayRingRadiusTracksInsetWindowCornerRadius() {
+        let radiusBeyondInset: CGFloat = 10
+        let windowRadiusLargerThanInset = PanelOverlayRingMetrics.inset + radiusBeyondInset
         XCTAssertEqual(
-            PanelOverlayRingMetrics.cornerRadius(forWindowCornerRadius: 12),
-            10,
+            PanelOverlayRingMetrics.cornerRadius(forWindowCornerRadius: windowRadiusLargerThanInset),
+            radiusBeyondInset,
             accuracy: 0.0001
         )
+
+        let windowRadiusEqualToInset = PanelOverlayRingMetrics.inset
         XCTAssertEqual(
-            PanelOverlayRingMetrics.cornerRadius(forWindowCornerRadius: 2),
+            PanelOverlayRingMetrics.cornerRadius(forWindowCornerRadius: windowRadiusEqualToInset),
             0,
             accuracy: 0.0001
         )
+
         XCTAssertEqual(
             PanelOverlayRingMetrics.cornerRadius(forWindowCornerRadius: nil),
-            6,
+            PanelOverlayRingMetrics.cornerRadius,
             accuracy: 0.0001
         )
     }
