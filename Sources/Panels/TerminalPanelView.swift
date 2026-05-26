@@ -20,9 +20,43 @@ struct TerminalPanelView: View {
     let hasUnreadNotification: Bool
     let terminalAgentContext: String
     let onFocus: () -> Void
+    let onResumeAgentHibernation: () -> Void
+    let onAutoResumeAgentHibernation: () -> Void
     let onTriggerFlash: () -> Void
 
     var body: some View {
+        if let hibernationState = panel.agentHibernationState {
+            hibernationBody(hibernationState)
+        } else {
+            terminalBody
+        }
+    }
+
+    @ViewBuilder
+    private func hibernationBody(_ hibernationState: AgentHibernationPanelState) -> some View {
+        if isVisibleInUI {
+            Color(nsColor: appearance.contentBackgroundColor)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .id("hibernated-resuming-\(panel.id.uuidString)")
+                .onAppear {
+                    onAutoResumeAgentHibernation()
+                }
+        } else {
+            AgentHibernationPlaceholderView(
+                state: hibernationState,
+                appearance: appearance,
+                onResume: onResumeAgentHibernation
+            )
+            .id("hibernated-\(panel.id.uuidString)")
+            .onChange(of: isVisibleInUI) { _, visible in
+                if visible {
+                    onAutoResumeAgentHibernation()
+                }
+            }
+        }
+    }
+
+    private var terminalBody: some View {
         VStack(spacing: 0) {
             // Layering contract: terminal find UI is mounted in GhosttySurfaceScrollView (AppKit portal layer)
             // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
@@ -90,6 +124,49 @@ struct TerminalPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             terminalFontSize = GhosttyConfig.load().fontSize
         }
+    }
+}
+
+private struct AgentHibernationPlaceholderView: View {
+    let state: AgentHibernationPanelState
+    let appearance: PanelAppearance
+    let onResume: () -> Void
+
+    private var lastActivityText: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: state.lastActivityAt, relativeTo: Date())
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "pause.circle")
+                .font(.system(size: 34, weight: .regular))
+                .foregroundStyle(.secondary)
+            VStack(spacing: 4) {
+                Text(String(localized: "terminal.agentHibernation.title", defaultValue: "Agent hibernated"))
+                    .font(.headline)
+                Text(state.agentDisplayName)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text(
+                    String.localizedStringWithFormat(
+                        String(localized: "terminal.agentHibernation.lastActivity", defaultValue: "Last activity %@"),
+                        lastActivityText
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            }
+            Button(String(localized: "terminal.agentHibernation.resume", defaultValue: "Resume")) {
+                onResume()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .accessibilityIdentifier("AgentHibernationResumeButton")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: appearance.contentBackgroundColor))
     }
 }
 
