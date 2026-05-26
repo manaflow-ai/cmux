@@ -893,15 +893,15 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
         XCTAssertTrue(workspace.manualUnreadPanelIds.contains(leftPanelId))
         XCTAssertFalse(workspace.manualUnreadPanelIds.contains(rightPanel.id))
-        XCTAssertTrue(workspace.bonsplitController.tab(leftTabId)?.showsNotificationBadge ?? false)
-        XCTAssertFalse(workspace.bonsplitController.tab(rightTabId)?.showsNotificationBadge ?? true)
+        XCTAssertTrue(workspace.layoutController.tab(leftTabId)?.showsNotificationBadge ?? false)
+        XCTAssertFalse(workspace.layoutController.tab(rightTabId)?.showsNotificationBadge ?? true)
 
         workspace.focusPanel(rightPanel.id)
 
         XCTAssertTrue(workspace.manualUnreadPanelIds.contains(leftPanelId))
         XCTAssertFalse(workspace.manualUnreadPanelIds.contains(rightPanel.id))
-        XCTAssertTrue(workspace.bonsplitController.tab(leftTabId)?.showsNotificationBadge ?? false)
-        XCTAssertFalse(workspace.bonsplitController.tab(rightTabId)?.showsNotificationBadge ?? true)
+        XCTAssertTrue(workspace.layoutController.tab(leftTabId)?.showsNotificationBadge ?? false)
+        XCTAssertFalse(workspace.layoutController.tab(rightTabId)?.showsNotificationBadge ?? true)
     }
 
     func testMarkOldestUnreadAndJumpNextExcludesNewManualWorkspaceUnread() throws {
@@ -1079,7 +1079,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = true
         defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
-        defaults.set(TmuxOverlayExperimentTarget.bonsplitPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
+        defaults.set(TmuxOverlayExperimentTarget.workspaceLayoutPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
         let windowId = appDelegate.createMainWindow(shouldActivate: false)
 
         defer {
@@ -1138,7 +1138,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = true
         defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
-        defaults.set(TmuxOverlayExperimentTarget.bonsplitPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
+        defaults.set(TmuxOverlayExperimentTarget.workspaceLayoutPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
         let windowId = appDelegate.createMainWindow(shouldActivate: false)
 
         defer {
