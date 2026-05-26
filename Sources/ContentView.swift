@@ -2390,7 +2390,7 @@ struct ContentView: View {
         let activePageId = workspace.activePageId
         let canCloseOthers = pages.count > 1
 
-        ScrollView(.horizontal, showsIndicators: false) {
+        return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {
                 ForEach(pages) { page in
                     let pageId = page.id
