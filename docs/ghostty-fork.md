@@ -13,7 +13,7 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `bf50ce410`, based on `176bd550f`, with the
+Current cmux pinned fork head: `e61ebe797`, based on `176bd550f`, with the
 manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
 the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, the URL/path
 regex bound for spaced file paths followed by prose, and the read-only tmux control-mode
@@ -25,7 +25,7 @@ It also supports Ctrl-N and Ctrl-P in the cmux theme picker, and emits structure
 tmux control-mode enter, exit, topology, and pane output actions to embedded runtimes.
 GTK app runtime builds treat those embedder-only tmux actions as unsupported no-ops.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-bf50ce41053c2246dec1aa4d2bfdb4084dfda7f6-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e61ebe7972e38a8065062aaf6bfffaf9cb57d3b4-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -220,6 +220,7 @@ tend to conflict together during rebases.
 - Commits:
   - `ed123a8c0` (Expose tmux control-mode embedder events)
   - `bf50ce410` (Handle tmux control action in GTK apprt)
+  - `e61ebe797` (Redact tmux pane output in action logs)
 - Files:
   - `include/ghostty.h`
   - `src/Surface.zig`
@@ -234,11 +235,12 @@ tend to conflict together during rebases.
   - Emits embedded runtime actions when tmux control mode enters, exits, reports window topology, or produces pane output.
   - Serializes read-only window layout and pane IDs as JSON without adding native pane virtualization.
   - Handles the new embedder-only action in the GTK app runtime as an unsupported no-op.
+  - Redacts pane output bytes from formatted viewer actions so info logs never include raw terminal text.
   - Leaves terminal rendering ownership unchanged while cmux observes topology and pane text.
 
 The current cmux pin is the head listed above. It is reachable from
 `manaflow-ai/ghostty` through branch `issue-560-tmux-control-bridge`.
-Published `xcframework-bf50ce41053c2246dec1aa4d2bfdb4084dfda7f6-crashsubdir-cmux-crash-v1`
+Published `xcframework-e61ebe7972e38a8065062aaf6bfffaf9cb57d3b4-crashsubdir-cmux-crash-v1`
 and pinned its archive checksum in `scripts/ghosttykit-checksums.txt`. The
 release and checksum pin must be regenerated whenever this commit changes, even
 for comment-only amends, because the release tag is keyed by the Ghostty commit
