@@ -11007,10 +11007,12 @@ final class GhosttySurfaceScrollView: NSView {
     /// or preserve a specific review row across output, layout, and portal visibility.
     private var scrollViewportAnchor: ScrollViewportAnchor = .tail
     private var pendingVisibilityRestoreAnchor: ScrollViewportAnchor?
+    private var pendingVisibilityRestoreSynchronizationsRemaining = 0
     private var pendingExplicitWheelScroll = false
     private var allowExplicitScrollbarSync = false
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
+    private static let maxPendingVisibilityRestoreSynchronizations = 3
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
     private var lastRequestedPortalOcclusionVisible: Bool?
@@ -13931,26 +13933,32 @@ final class GhosttySurfaceScrollView: NSView {
         guard surfaceView.isVisibleInUI, !isHidden else { return }
         if pendingVisibilityRestoreAnchor != nil {
             guard replacingPendingRestore else { return }
-            pendingVisibilityRestoreAnchor = nil
+            clearPendingVisibilityRestore()
         }
         guard let anchor = viewportAnchor(visibleRect: visibleRect) else { return }
         scrollViewportAnchor = anchor
+    }
+
+    private func clearPendingVisibilityRestore() {
+        pendingVisibilityRestoreAnchor = nil
+        pendingVisibilityRestoreSynchronizationsRemaining = 0
     }
 
     private func captureViewportAnchorBeforeHiding() {
         if let anchor = viewportAnchor() {
             scrollViewportAnchor = anchor
         }
-        pendingVisibilityRestoreAnchor = nil
+        clearPendingVisibilityRestore()
     }
 
     private func prepareVisibilityRestore() {
         switch scrollViewportAnchor {
         case .tail:
-            pendingVisibilityRestoreAnchor = nil
+            clearPendingVisibilityRestore()
         case .row(let row):
             let anchor = ScrollViewportAnchor.row(row)
             pendingVisibilityRestoreAnchor = anchor
+            pendingVisibilityRestoreSynchronizationsRemaining = Self.maxPendingVisibilityRestoreSynchronizations
             _ = applyLocalViewportAnchor(anchor)
             lastSentRow = row
             _ = surfaceView.performBindingAction("scroll_to_row:\(row)")
@@ -14010,6 +14018,14 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    private func consumePendingVisibilityRestoreSynchronization() {
+        guard pendingVisibilityRestoreAnchor != nil else { return }
+        pendingVisibilityRestoreSynchronizationsRemaining -= 1
+        if pendingVisibilityRestoreSynchronizationsRemaining <= 0 {
+            clearPendingVisibilityRestore()
+        }
+    }
+
     private func synchronizeScrollView() {
         var didChangeGeometry = false
         let targetDocumentHeight = documentHeight()
@@ -14020,15 +14036,19 @@ final class GhosttySurfaceScrollView: NSView {
 
         if !isLiveScrolling {
             let cellHeight = surfaceView.cellSize.height
+            var shouldConsumePendingRestoreSynchronization = false
             if let pendingVisibilityRestoreAnchor,
                applyLocalViewportAnchor(pendingVisibilityRestoreAnchor, documentHeight: targetDocumentHeight) {
                 didChangeGeometry = true
+                shouldConsumePendingRestoreSynchronization = true
+            } else if pendingVisibilityRestoreAnchor != nil {
+                shouldConsumePendingRestoreSynchronization = true
             }
 
             if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
                 if let pendingVisibilityRestoreAnchor,
                    pendingRestoreMatches(pendingVisibilityRestoreAnchor, scrollbar: scrollbar) {
-                    self.pendingVisibilityRestoreAnchor = nil
+                    clearPendingVisibilityRestore()
                 }
                 let offsetY =
                     CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
@@ -14041,7 +14061,7 @@ final class GhosttySurfaceScrollView: NSView {
                 let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
                 let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
 
-                if isAtBottom {
+                if isAtBottom, pendingVisibilityRestoreAnchor == nil {
                     scrollViewportAnchor = .tail
                 }
 
@@ -14059,6 +14079,10 @@ final class GhosttySurfaceScrollView: NSView {
                     didChangeGeometry = true
                 }
                 lastSentRow = Int(scrollbar.offset)
+            }
+
+            if shouldConsumePendingRestoreSynchronization {
+                consumePendingVisibilityRestoreSynchronization()
             }
         }
 
@@ -14091,14 +14115,14 @@ final class GhosttySurfaceScrollView: NSView {
         let wasVisible = scrollView.hasVerticalScroller
         if pendingExplicitWheelScroll {
             scrollViewportAnchor = viewportAnchor(for: scrollbar)
-            pendingVisibilityRestoreAnchor = nil
+            clearPendingVisibilityRestore()
             allowExplicitScrollbarSync = true
             pendingExplicitWheelScroll = false
         }
         surfaceView.scrollbar = scrollbar
         if let pendingVisibilityRestoreAnchor,
            pendingRestoreMatches(pendingVisibilityRestoreAnchor, scrollbar: scrollbar) {
-            self.pendingVisibilityRestoreAnchor = nil
+            clearPendingVisibilityRestore()
         }
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
