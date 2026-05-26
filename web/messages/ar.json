@@ -164,6 +164,84 @@
         "featureSocketApiDesc": "تحكم برمجي لإنشاء علامات التبويب وإرسال المدخلات",
         "featureGpuLabel": "مُسرّع بالـ GPU",
         "featureGpuDesc": "مدعوم بـ libghostty لعرض سلس"
+      },
+      "passkeyAuth": {
+        "title": "مصادقة مفاتيح المرور في متصفح cmux",
+        "summary": "يدعم متصفح cmux المدمج مصادقة مفاتيح المرور ويمكنه استيراد ملفات تعريف الارتباط من متصفحات أخرى باستخدام cmux browser import.",
+        "date": "22 مايو 2026",
+        "p1": "يدعم متصفح cmux الآن مصادقة مفاتيح المرور. يمكن إكمال مسارات تسجيل الدخول التي تعتمد على مفاتيح المرور أو WebAuthn أو Touch ID أو مفاتيح الأمان المادية داخل لوحة متصفح cmux.",
+        "p2": "إذا كنت تستخدم متصفحًا آخر للموقع نفسه، فاستورد ملفات تعريف الارتباط المتوافقة مرة واحدة:",
+        "p3": "يتطلب cmux v0.64+. يساعد ذلك عندما يحتاج Claude Code أو Codex أو OpenCode أو Gemini CLI أو وكيل آخر إلى اختبار تطبيق محلي يتطلب تسجيل الدخول من داخل cmux."
+      },
+      "taskManager": {
+        "title": "مدير المهام في cmux",
+        "summary": "استخدم cmux top أو مدير المهام من لوحة الأوامر لمعرفة استهلاك المعالج والذاكرة لوكلاء البرمجة لديك.",
+        "date": "22 مايو 2026",
+        "p1": "أصبح لدى cmux الآن مدير مهام لفحص مقدار استهلاك المعالج والذاكرة من وكلاء البرمجة وعمليات الطرفية.",
+        "p2": "افتحه من واجهة سطر الأوامر:",
+        "p3": "أو اضغط Cmd+Shift+P واختر مدير المهام من لوحة الأوامر.",
+        "p4": "يتطلب cmux v0.64.4+."
+      },
+      "sessionRestore": {
+        "seoP": "إذا كنت تبحث عن طريقة لاستعادة جلسات Claude Code أو OpenCode أو opencode أو Codex أو Gemini CLI أو Antigravity CLI أو Grok Build CLI أو Amp أو Cursor CLI أو Rovo Dev أو Copilot أو CodeBuddy أو Factory أو Qoder أو Hermes Agent بعد تعطل الطرفية، فثبّت cmux hooks وأبق استئناف الوكلاء مفعّلًا.",
+        "summary": "كيف يستعيد cmux التخطيطات ويستأنف جلسات Claude Code وCodex وOpenCode وGemini CLI وAntigravity CLI وGrok Build CLI ووكلاء آخرين.",
+        "agentP": "يمكن استئناف Claude Code وCodex وGrok Build CLI وOpenCode وPi وAmp وCursor CLI وGemini CLI وAntigravity CLI وRovo Dev وHermes Agent وCopilot وCodeBuddy وFactory وQoder عندما يملك cmux معرّف جلسة أصليًا. لمعظم الوكلاء، ثبّت التكامل باستخدام <code>cmux hooks setup</code>.",
+        "title": "استعادة الجلسات في cmux",
+        "date": "13 مايو 2026",
+        "p1": "تتحمل تدفقات عمل الطرفية الانقطاعات بشكل أفضل عندما يستطيع التطبيق إعادة بناء شكل عملك. يتعامل cmux الآن مع تخطيط مساحة العمل كحالة دائمة، وليس كشيء مرتبط بعملية تطبيق واحدة.",
+        "p2": "الحد المهم هو حالة العمليات الحية. يستعيد cmux ما يملكه وما تعرضه الأدوات المدعومة عبر واجهات resume الخاصة بها. لا ينشئ checkpoints لعمليات طرفية عشوائية.",
+        "baselineTitle": "ما يعود دائمًا",
+        "baselineP": "بعد إعادة تشغيل عادية، يستعيد cmux لقطة جلسة على مستوى التطبيق:",
+        "baselineItemLayout": "تخطيط النوافذ ومساحات العمل والألواح",
+        "baselineItemCwd": "مجلدات العمل",
+        "baselineItemScrollback": "سجل تمرير الطرفية، بأفضل جهد",
+        "baselineItemBrowser": "عنوان URL للمتصفح وسجل التنقل",
+        "agentTitle": "جلسات الوكلاء تحتاج إلى hooks",
+        "agentP2": "يثبت أمر setup الوكلاء المدعومين الذين توجد ملفاتهم التنفيذية على PATH ويتجاوز الباقي. يتعامل wrapper cmux Claude مع Claude Code عندما يكون تكامل Claude مفعلاً في Settings.",
+        "implementationTitle": "كيف يعمل",
+        "implementationP1": "يكتب cmux لقطة جلسة JSON ضمن Application Support تحتوي شجرة النوافذ وبيانات مساحة العمل وتخطيط الألواح وcwd للطرفية وبيانات إعادة تشغيل scrollback وحالة تنقل المتصفح.",
+        "implementationP2": "تكتب agent hooks خرائط الجلسات في ~/.cmuxterm. عند الاستعادة، يعيد cmux بناء الواجهة أولاً. إذا كان استئناف الوكلاء التلقائي مفعلاً، يشغل كل وكيل مدعوم بأمر resume الأصلي ومعرف الجلسة المحفوظ.",
+        "limitsTitle": "ما يبقى خارج النطاق",
+        "limitsP": "يعاد فتح tmux وvim وshells والأدوات غير المدعومة كطرفيات عادية ما لم يكن لديها تكامل cmux يسجل أمر resume أصليًا آمنًا. هذا يجعل الاستعادة متوقعة ويتجنب إعادة تشغيل prompts أو secrets قديمة.",
+        "docsCta": "اقرأ <link>وثائق استعادة الجلسات</link> لأوامر setup والوكلاء المدعومين واستكشاف الأخطاء."
+      },
+      "cmuxFinder": {
+        "title": "cmux Finder",
+        "summary": "أصبح لدى cmux مستكشف ملفات يعاين الفيديوهات والصور وملفات PDF وMarkdown.",
+        "date": "22 مايو 2026",
+        "p1": "أصبح لدى cmux مستكشف ملفات بأسلوب Finder في الشريط الجانبي.",
+        "p2": "يعرض الفيديوهات والصور وملفات PDF وMarkdown داخل cmux حتى تتمكن من فحص المخرجات دون مغادرة مساحة العمل.",
+        "p3": "أستخدمه غالبًا لمعاينة فيديوهات العرض ولقطات الشاشة التي يسجلها Codex أثناء اختبار التغييرات.",
+        "p4": "بدل معاينات الملفات من Cmd+Shift+P ثم اختر Enable Cmd-click File Previews أو Disable Cmd-click File Previews.",
+        "p5": "يتطلب cmux v0.64+."
+      },
+      "cmuxVault": {
+        "title": "تقديم cmux Vault",
+        "summary": "ابحث في جلسات Codex وClaude Code وOpenCode وPi من لوحة Vault واسحبها إلى مساحة العمل.",
+        "date": "22 مايو 2026",
+        "p1": "أصبح لدى cmux لوحة Vault في الشريط الجانبي الأيمن للجلسات القديمة للوكلاء.",
+        "p2": "تفهرس جلسات Codex وClaude Code وOpenCode وPi مع بحث نص كامل في النصوص.",
+        "p3": "اسحب جلسة من Vault إلى مساحة عمل لإعادة فتحها حيث تعمل.",
+        "p4": "يتطلب cmux v0.64+."
+      },
+      "markdownViewer": {
+        "title": "عارض Markdown أفضل في cmux",
+        "summary": "افتح README.md باستخدام cmux open أو اسحب ملفات Markdown من الشريط الجانبي الأيمن.",
+        "date": "22 مايو 2026",
+        "p1": "يحتوي cmux على عارض Markdown أفضل لملفات README والوثائق والتقارير المولدة.",
+        "p2": "افتح ملفًا من CLI:",
+        "p3": "يمكنك أيضًا سحب ملف Markdown من الشريط الجانبي الأيمن إلى مساحة العمل.",
+        "p4": "شكرًا لـ <tobiLink>@tobi</tobiLink> على المساهمة."
+      },
+      "unreadShortcuts": {
+        "title": "اختصارات مساحات العمل غير المقروءة في cmux",
+        "summary": "ينتقل Cmd+Control+U بين المساحات غير المقروءة مع إبقائها كذلك، ويبدل Cmd+Option+U حالة القراءة.",
+        "date": "22 مايو 2026",
+        "p1": "أضاف cmux اختصارين لإدارة مساحات العمل غير المقروءة عندما تنتهي عدة وكلاء في الوقت نفسه.",
+        "p2": "يميز Cmd+Control+U مساحة العمل الحالية كأقدم مساحة غير مقروءة ثم ينتقل إلى أحدث مساحة غير مقروءة.",
+        "p3": "هذا يرسل مساحة العمل الحالية إلى نهاية دورة غير المقروء حتى تستطيع المتابعة دون مسح الحالة.",
+        "p4": "يبدل Cmd+Option+U مساحة العمل الحالية بين مقروءة وغير مقروءة.",
+        "p5": "هذا مفيد عندما تنتقل إلى مساحة غير مقروءة عبر Cmd+Shift+U وتحتاج إلى تغيير السياق قبل الرد."
       }
     },
     "zenOfCmux": {
@@ -181,6 +259,114 @@
     "introducingCmux": {
       "metaTitle": "تقديم cmux",
       "metaDescription": "لماذا بنينا cmux، محطة طرفية جديدة لنظام macOS."
+    },
+    "passkeyAuth": {
+      "metaTitle": "مصادقة مفاتيح المرور في متصفح cmux",
+      "metaDescription": "يدعم cmux v0.64+ مصادقة مفاتيح المرور في لوحات المتصفح ويمكنه استيراد ملفات تعريف الارتباط من متصفحات أخرى باستخدام cmux browser import.",
+      "metaKeywords": [
+        "مصادقة مفاتيح المرور في متصفح cmux",
+        "مصادقة مفاتيح المرور",
+        "WebAuthn",
+        "Touch ID",
+        "استيراد ملفات تعريف الارتباط",
+        "ملفات تعريف ارتباط المتصفح",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "Gemini CLI",
+        "وكلاء البرمجة بالذكاء الاصطناعي"
+      ]
+    },
+    "taskManager": {
+      "metaTitle": "مدير المهام في cmux",
+      "metaDescription": "يتضمن cmux v0.64.4+ مدير مهام لفحص استهلاك المعالج والذاكرة من وكلاء البرمجة باستخدام cmux top أو لوحة الأوامر.",
+      "metaKeywords": [
+        "مدير مهام cmux",
+        "cmux top",
+        "استهلاك المعالج لوكلاء البرمجة",
+        "استهلاك الذاكرة لوكلاء البرمجة",
+        "مراقبة عمليات الطرفية",
+        "معالج Claude Code",
+        "معالج Codex",
+        "معالج OpenCode",
+        "وكلاء البرمجة بالذكاء الاصطناعي"
+      ]
+    },
+    "sessionRestore": {
+      "metaDescription": "كيفية استعادة جلسات Claude Code وCodex وOpenCode وGemini CLI وAntigravity CLI وGrok Build CLI ووكلاء البرمجة الآخرين بعد إعادة التشغيل أو تعطل الطرفية باستخدام cmux.",
+      "metaKeywords": [
+        "cmux",
+        "استعادة الجلسة",
+        "استعادة الطرفية بعد التعطل",
+        "استرداد تعطل الطرفية",
+        "الطرفية",
+        "macOS",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "opencode",
+        "Gemini CLI",
+        "Antigravity CLI",
+        "Grok Build CLI",
+        "وكلاء البرمجة بالذكاء الاصطناعي"
+      ],
+      "metaTitle": "استعادة الجلسات في cmux"
+    },
+    "cmuxFinder": {
+      "metaTitle": "cmux Finder",
+      "metaDescription": "يتضمن cmux v0.64+ مستكشف ملفات بأسلوب Finder يعرض الفيديوهات والصور وملفات PDF وMarkdown داخل مساحة العمل.",
+      "metaKeywords": [
+        "cmux Finder",
+        "مستكشف ملفات cmux",
+        "مستكشف ملفات في الطرفية",
+        "معاينة فيديو في الطرفية",
+        "معاينة لقطات شاشة في الطرفية",
+        "معاينة PDF",
+        "معاينة Markdown",
+        "وكلاء برمجة بالذكاء الاصطناعي",
+        "فيديوهات Codex التجريبية"
+      ]
+    },
+    "cmuxVault": {
+      "metaTitle": "تقديم cmux Vault",
+      "metaDescription": "يضيف cmux v0.64+ لوحة Vault للبحث في جلسات Codex وClaude Code وOpenCode وPi ثم سحبها إلى مساحة العمل.",
+      "metaKeywords": [
+        "cmux Vault",
+        "جلسات Codex",
+        "جلسات Claude Code",
+        "جلسات OpenCode",
+        "جلسات Pi",
+        "تاريخ وكلاء البرمجة بالذكاء الاصطناعي",
+        "بحث جلسات الوكلاء",
+        "استعادة جلسة وكيل برمجة",
+        "بحث نص كامل"
+      ]
+    },
+    "markdownViewer": {
+      "metaTitle": "عارض Markdown أفضل في cmux",
+      "metaDescription": "افتح README.md باستخدام cmux open أو اسحب ملفات Markdown من الشريط الجانبي الأيمن إلى عارض Markdown المحسن في cmux.",
+      "metaKeywords": [
+        "عارض Markdown في cmux",
+        "cmux open README.md",
+        "معاينة Markdown",
+        "عارض README",
+        "عارض Markdown في الطرفية",
+        "معاينة وثائق المطورين"
+      ]
+    },
+    "unreadShortcuts": {
+      "metaTitle": "اختصارات مساحات العمل غير المقروءة في cmux",
+      "metaDescription": "استخدم Cmd+Control+U وCmd+Option+U للتنقل بين مساحات عمل cmux غير المقروءة دون مسح الحالة قبل الرد.",
+      "metaKeywords": [
+        "اختصارات غير المقروء في cmux",
+        "Cmd+Control+U",
+        "Cmd+Option+U",
+        "Cmd+Shift+U",
+        "إشعارات وكلاء البرمجة",
+        "إشعارات الطرفية",
+        "وكلاء برمجة بالذكاء الاصطناعي",
+        "مساحة عمل غير مقروءة"
+      ]
     }
   },
   "docs": {
@@ -304,6 +490,15 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "قم بإخفاء إشعارات الإكمال المرئية وتغييرات الحالة من وكلاء Codex أو Claude الفرعيين المتداخلين مع إبقاء أحداثهم في قياسات Feed."
+        },
+        "app": {
+          "confirmQuit": "يتحكم في وقت طلب cmux التأكيد قبل الإنهاء. تنتهي إصدارات DEV فوراً دائماً بغض النظر عن هذا الإعداد. يظل app.warnBeforeQuit القديم مقبولاً كخيار احتياطي منطقي.",
+          "warnBeforeQuit": "خيار منطقي قديم احتياطي لتأكيد الإنهاء. استخدم app.confirmQuit للإعدادات الجديدة.",
+          "warnBeforeClosingTabXButton": "اعرض تأكيدًا قبل إغلاق تبويب بزر إغلاق التبويب.",
+          "hideTabCloseButton": "أخفِ أزرار إغلاق التبويبات في شريط تبويبات الجزء."
+        },
+        "terminal": {
+          "copyOnSelect": "ينسخ نص الطرفية المحدد إلى حافظة النظام عند تثبيت التحديد، بما في ذلك تحديد الكلمات والأسطر بالنقر المزدوج والثلاثي."
         }
       }
     },
@@ -782,10 +977,10 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "حافلة أحداث plugin",
       "none": "لا يوجد",
-      "supportedNote": "يتعامل cmux Claude wrapper مع Claude Code عندما يكون تكامل Claude مفعّلًا في الإعدادات. يقبل Rovo Dev أيضًا rovo كاسم إعداد مستعار.",
+      "supportedNote": "يتعامل cmux Claude wrapper مع Claude Code عندما يكون تكامل Claude مفعّلًا في الإعدادات. يقبل Antigravity أيضًا agy كاسم إعداد مستعار، ويقبل Rovo Dev rovo.",
       "manualTitle": "استعادة يدوية",
       "manualDesc": "يستعيد cmux آخر snapshot محفوظ عند التشغيل العادي. يمكنك أيضًا إعادة تطبيق snapshot السابقة يدويًا:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "تعطيل الاستئناف التلقائي للوكلاء",
       "disableDesc": "لاستعادة اللوحات من دون تشغيل أوامر استئناف الوكلاء المحفوظة، أوقف Settings > Terminal > Resume Agent Sessions on Reopen أو اضبط:",
       "disableNote": "يعطّل هذا أوامر استئناف الوكلاء فقط. يستمر cmux في استعادة التخطيط ومجلدات العمل والتمرير الخلفي وسجل المتصفح.",
@@ -794,7 +989,9 @@
       "underHoodItemScrollback": "يُحفظ تمرير الطرفية الخلفي كنص محدود ويعاد تشغيله عبر ملف مؤقت عند الاستعادة. هذا بأفضل جهد لأن تطبيقات الطرفية يمكنها إعادة رسم الشاشة أو مسحها.",
       "underHoodItemHooks": "تكتب agent hooks الملف ~/.cmuxterm/<agent>-hook-sessions.json وفيه معرف جلسة الوكيل، ومعرف مساحة عمل cmux، ومعرف surface، وcwd، ومعرف العملية عند توفره، وأمر تشغيل منظف.",
       "underHoodItemResume": "عند الاستعادة، يعيد cmux بناء النوافذ واللوحات أولًا. إذا كان استئناف الوكلاء التلقائي مفعّلًا، يشغّل أمر shell لمرة واحدة ينفذ أمر الاستئناف الأصلي للوكيل مع معرف الجلسة المحفوظ.",
-      "underHoodMore": "تغطي <configLink>وثائق الإعداد</configLink> العادية cmux.json. تبقي استعادة الجلسة تخطيط التطبيق منفصلًا عن إعدادات عرض طرفية Ghostty."
+      "underHoodMore": "تغطي <configLink>وثائق الإعداد</configLink> العادية cmux.json. تبقي استعادة الجلسة تخطيط التطبيق منفصلًا عن إعدادات عرض طرفية Ghostty.",
+      "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     }
   },
   "legal": {
@@ -808,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "يوم آخر ومشروع آخر مبني على libghostty، هذه المرة طرفية macOS مع علامات تبويب عمودية، تنظيم/إشعارات أفضل، متصفح مدمج/قابل للبرمجة موجه خصيصاً للأشخاص الذين يستخدمون الكثير من سير العمل الوكيلية في الطرفية.",
+    "steipete": "تأخرت عن الحضور، لكن cmux رائع. التقسيم الحالي: تطبيق Codex على Mac للعمل المعرفي والتعلم والقراءة؛ cmux + Codex CLI للبرمجة.",
     "schrockn": "هذا بالضبط المنتج الذي كنت أبحث عنه. بعد ساعتين هذا الصباح أصبحت مغرماً به.",
     "egrefen": "استخدمته طوال عطلة نهاية الأسبوع وهو مذهل.",
     "max4c": "كانت هذه أداتي المفضلة خلال الأسبوعين الماضيين",

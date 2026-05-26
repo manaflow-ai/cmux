@@ -164,6 +164,84 @@
         "featureSocketApiDesc": "programska kontrola za kreiranje tabova i slanje unosa",
         "featureGpuLabel": "GPU-ubrzano",
         "featureGpuDesc": "pokreće libghostty za glatko renderiranje"
+      },
+      "passkeyAuth": {
+        "title": "Passkey autentifikacija u cmux pregledniku",
+        "summary": "Ugrađeni cmux preglednik podržava passkey autentifikaciju i može uvesti kolačiće iz drugih preglednika pomoću cmux browser import.",
+        "date": "22. maj 2026.",
+        "p1": "cmux preglednik sada podržava passkey autentifikaciju. Prijave koje zavise od passkey ključeva, WebAuthn-a, Touch ID-a ili hardverskih sigurnosnih ključeva mogu se završiti u cmux pregledničkom panelu.",
+        "p2": "Ako za isti sajt već koristite drugi preglednik, jednom uvezite kompatibilne kolačiće:",
+        "p3": "Zahtijeva cmux v0.64+. Ovo pomaže kada Claude Code, Codex, OpenCode, Gemini CLI ili drugi agent treba testirati lokalnu aplikaciju s prijavom bez napuštanja cmux-a."
+      },
+      "taskManager": {
+        "title": "Upravitelj zadataka u cmux-u",
+        "summary": "Koristite cmux top ili Upravitelj zadataka iz komandne palete da vidite CPU i RAM potrošnju svojih koderskih agenata.",
+        "date": "22. maj 2026.",
+        "p1": "cmux sada ima upravitelj zadataka za provjeru koliko CPU-a i RAM-a koriste vaši koderski agenti i terminalski procesi.",
+        "p2": "Otvorite ga iz CLI-ja:",
+        "p3": "Ili pritisnite Cmd+Shift+P i odaberite Upravitelj zadataka iz komandne palete.",
+        "p4": "Zahtijeva cmux v0.64.4+."
+      },
+      "sessionRestore": {
+        "seoP": "Ako tražite kako obnoviti sesije Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder ili Hermes Agent nakon pada terminala, instalirajte cmux hooks i ostavite nastavak agenata uključenim.",
+        "summary": "Kako cmux obnavlja rasporede i nastavlja sesije Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI i drugih agenata.",
+        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory i Qoder mogu nastaviti rad kada cmux ima izvorni ID sesije. Za većinu agenata instalirajte integraciju pomoću <code>cmux hooks setup</code>.",
+        "title": "Vraćanje sesije u cmuxu",
+        "date": "13. maj 2026.",
+        "p1": "Terminalski tokovi rada bolje podnose prekide kada aplikacija može ponovo sastaviti oblik vašeg rada. cmux sada tretira raspored workspacea kao trajno stanje, a ne kao nešto vezano za jedan proces aplikacije.",
+        "p2": "Važna granica je stanje živog procesa. cmux vraća ono što posjeduje i ono što podržani alati izlažu kroz svoje resume API-je. Ne pravi checkpoint proizvoljnih terminalskih procesa.",
+        "baselineTitle": "Šta se uvijek vraća",
+        "baselineP": "Nakon normalnog ponovnog pokretanja, cmux vraća snapshot sesije na nivou aplikacije:",
+        "baselineItemLayout": "Raspored prozora, workspacea i panela",
+        "baselineItemCwd": "Radni direktoriji",
+        "baselineItemScrollback": "Terminalski scrollback, najbolje moguće",
+        "baselineItemBrowser": "URL preglednika i historija navigacije",
+        "agentTitle": "Sesije agenata trebaju hooks",
+        "agentP2": "Setup komanda instalira podržane agente čiji su binarni fajlovi na PATH-u i preskače ostale. Claude Code obrađuje cmux Claude wrapper kada je Claude integracija uključena u Settings.",
+        "implementationTitle": "Kako radi",
+        "implementationP1": "cmux zapisuje JSON snapshot sesije u Application Support sa stablom prozora, metapodacima workspacea, rasporedom panela, terminalskim cwd, podacima za replay scrollbacka i stanjem navigacije preglednika.",
+        "implementationP2": "Agent hooks zapisuju mapiranja sesija u ~/.cmuxterm. Pri vraćanju cmux prvo ponovo gradi UI. Ako je automatski resume agenata uključen, pokreće svakog podržanog agenta njegovom nativnom resume komandom i sačuvanim ID-jem sesije.",
+        "limitsTitle": "Šta ostaje izvan opsega",
+        "limitsP": "tmux, vim, shellovi i nepodržani alati ponovo se otvaraju kao obični terminali osim ako imaju cmux integraciju koja bilježi sigurnu nativnu resume komandu. To vraćanje čini predvidljivim i izbjegava ponavljanje zastarjelih promptova ili tajni.",
+        "docsCta": "Pročitajte <link>dokumentaciju za vraćanje sesije</link> za setup komande, podržane agente i rješavanje problema."
+      },
+      "cmuxFinder": {
+        "title": "cmux Finder",
+        "summary": "cmux sada ima file explorer koji prikazuje video, slike, PDF-ove i Markdown fajlove.",
+        "date": "22. maj 2026.",
+        "p1": "cmux sada ima file explorer u stilu Findera u sidebaru.",
+        "p2": "Prikazuje video, slike, PDF-ove i Markdown fajlove unutar cmuxa, tako da možete pregledati generisane artefakte bez napuštanja workspacea.",
+        "p3": "Najviše ga koristim za demo videozapise i screenshotove koje Codex snima dok testira promjene.",
+        "p4": "Prebacite preglede fajlova preko Cmd+Shift+P, zatim odaberite Enable Cmd-click File Previews ili Disable Cmd-click File Previews.",
+        "p5": "Zahtijeva cmux v0.64+."
+      },
+      "cmuxVault": {
+        "title": "Predstavljamo cmux Vault",
+        "summary": "Pretražujte Codex, Claude Code, OpenCode i Pi sesije iz Vault panela i prevucite ih u workspace.",
+        "date": "22. maj 2026.",
+        "p1": "cmux sada ima Vault panel u desnom sidebaru za stare sesije agenata.",
+        "p2": "Indeksira Codex, Claude Code, OpenCode i Pi sesije, uz pretragu punog teksta kroz transkripte.",
+        "p3": "Prevucite sesiju iz Vaulta u workspace da je ponovo otvorite tamo gdje radite.",
+        "p4": "Zahtijeva cmux v0.64+."
+      },
+      "markdownViewer": {
+        "title": "Bolji Markdown preglednik u cmuxu",
+        "summary": "Otvorite README.md uz cmux open ili prevucite Markdown fajlove iz desnog sidebara.",
+        "date": "22. maj 2026.",
+        "p1": "cmux ima bolji Markdown preglednik za README fajlove, dokumentaciju i generisane izvještaje.",
+        "p2": "Otvorite fajl iz CLI-ja:",
+        "p3": "Možete i prevući Markdown fajl iz desnog sidebara u workspace.",
+        "p4": "Hvala <tobiLink>@tobi</tobiLink> na doprinosu."
+      },
+      "unreadShortcuts": {
+        "title": "Prečice za nepročitane workspacee u cmuxu",
+        "summary": "Cmd+Control+U prolazi kroz nepročitane workspacee i zadržava ih nepročitanim, a Cmd+Option+U mijenja status čitanja.",
+        "date": "22. maj 2026.",
+        "p1": "cmux ima još dvije prečice za upravljanje nepročitanim workspaceima kada agenti završe u isto vrijeme.",
+        "p2": "Cmd+Control+U označava trenutni workspace kao najstariji nepročitani, zatim prelazi na najnoviji nepročitani workspace.",
+        "p3": "To šalje trenutni workspace na kraj nepročitanog ciklusa, pa možete nastaviti prolaziti kroz nepročitani rad bez brisanja statusa.",
+        "p4": "Cmd+Option+U mijenja trenutni workspace između pročitanog i nepročitanog.",
+        "p5": "Korisno je kada skočite na novi nepročitani workspace preko Cmd+Shift+U, ali želite promijeniti kontekst prije odgovora."
       }
     },
     "zenOfCmux": {
@@ -181,6 +259,114 @@
     "introducingCmux": {
       "metaTitle": "Predstavljamo cmux",
       "metaDescription": "Zašto smo napravili cmux, novi terminal za macOS."
+    },
+    "passkeyAuth": {
+      "metaTitle": "Passkey autentifikacija u cmux pregledniku",
+      "metaDescription": "cmux v0.64+ podržava passkey autentifikaciju u pregledničkim panelima i može uvesti kolačiće iz drugih preglednika pomoću cmux browser import.",
+      "metaKeywords": [
+        "passkey autentifikacija u cmux pregledniku",
+        "passkey autentifikacija",
+        "WebAuthn",
+        "Touch ID",
+        "uvoz kolačića",
+        "kolačići preglednika",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "Gemini CLI",
+        "AI koderski agenti"
+      ]
+    },
+    "taskManager": {
+      "metaTitle": "Upravitelj zadataka u cmux-u",
+      "metaDescription": "cmux v0.64.4+ uključuje upravitelj zadataka za provjeru CPU i RAM potrošnje koderskih agenata pomoću cmux top ili komandne palete.",
+      "metaKeywords": [
+        "cmux upravitelj zadataka",
+        "cmux top",
+        "CPU potrošnja koderskih agenata",
+        "RAM potrošnja koderskih agenata",
+        "nadzor terminalskih procesa",
+        "Claude Code CPU",
+        "Codex CPU",
+        "OpenCode CPU",
+        "AI koderski agenti"
+      ]
+    },
+    "sessionRestore": {
+      "metaDescription": "Kako pomoću cmux-a obnoviti sesije Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI i drugih koderskih agenata nakon ponovnog pokretanja ili pada terminala.",
+      "metaKeywords": [
+        "cmux",
+        "obnova sesije",
+        "obnova terminala nakon pada",
+        "oporavak terminala nakon pada",
+        "terminal",
+        "macOS",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "opencode",
+        "Gemini CLI",
+        "Antigravity CLI",
+        "Grok Build CLI",
+        "AI koderski agenti"
+      ],
+      "metaTitle": "Vraćanje sesije u cmuxu"
+    },
+    "cmuxFinder": {
+      "metaTitle": "cmux Finder",
+      "metaDescription": "cmux v0.64+ uključuje file explorer u stilu Findera koji prikazuje video, slike, PDF-ove i Markdown fajlove unutar vašeg workspacea.",
+      "metaKeywords": [
+        "cmux Finder",
+        "cmux file explorer",
+        "terminalski file explorer",
+        "pregled videa u terminalu",
+        "pregled screenshotova u terminalu",
+        "PDF pregled",
+        "Markdown pregled",
+        "AI agenti za kodiranje",
+        "Codex demo videozapisi"
+      ]
+    },
+    "cmuxVault": {
+      "metaTitle": "Predstavljamo cmux Vault",
+      "metaDescription": "cmux v0.64+ dodaje Vault panel za pretraživanje Codex, Claude Code, OpenCode i Pi sesija i njihovo prevlačenje u workspace.",
+      "metaKeywords": [
+        "cmux Vault",
+        "Codex sesije",
+        "Claude Code sesije",
+        "OpenCode sesije",
+        "Pi sesije",
+        "historija AI agenata za kodiranje",
+        "pretraga sesija agenata",
+        "vrati sesiju coding agenta",
+        "pretraga punog teksta"
+      ]
+    },
+    "markdownViewer": {
+      "metaTitle": "Bolji Markdown preglednik u cmuxu",
+      "metaDescription": "Otvorite README.md uz cmux open ili prevucite Markdown fajlove iz desnog sidebara u poboljšani cmux Markdown preglednik.",
+      "metaKeywords": [
+        "cmux Markdown preglednik",
+        "cmux open README.md",
+        "Markdown pregled",
+        "README preglednik",
+        "terminalski Markdown preglednik",
+        "pregled developerske dokumentacije"
+      ]
+    },
+    "unreadShortcuts": {
+      "metaTitle": "Prečice za nepročitane workspacee u cmuxu",
+      "metaDescription": "Koristite Cmd+Control+U i Cmd+Option+U za prolazak kroz nepročitane cmux workspacee bez brisanja statusa prije odgovora.",
+      "metaKeywords": [
+        "cmux nepročitane prečice",
+        "Cmd+Control+U",
+        "Cmd+Option+U",
+        "Cmd+Shift+U",
+        "obavještenja agenata za kodiranje",
+        "terminalska obavještenja",
+        "AI agenti za kodiranje",
+        "workspace nepročitan"
+      ]
     }
   },
   "docs": {
@@ -304,6 +490,15 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "Sakrij vidljiva obavještenja o završetku i promjene statusa od ugniježđenih Codex ili Claude podagenata, uz zadržavanje njihovih događaja u Feed telemetriji."
+        },
+        "app": {
+          "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
+          "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",
+          "warnBeforeClosingTabXButton": "Prikaži potvrdu prije zatvaranja taba dugmetom za zatvaranje taba.",
+          "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna."
+        },
+        "terminal": {
+          "copyOnSelect": "Kopira odabrani tekst iz terminala u sistemski međuspremnik kada se odabir potvrdi, uključujući riječi i redove odabrane dvoklikom ili troklikom."
         }
       }
     },
@@ -782,10 +977,10 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "nema",
-      "supportedNote": "Claude Code obrađuje cmux Claude wrapper kada je Claude integracija uključena u Settings. Rovo Dev prihvata i rovo kao setup alias.",
+      "supportedNote": "Claude Code obrađuje cmux Claude wrapper kada je Claude integracija uključena u Settings. Antigravity prihvata i agy kao setup alias, a Rovo Dev prihvata rovo.",
       "manualTitle": "Ručna obnova",
       "manualDesc": "cmux pri normalnom pokretanju obnavlja zadnji sačuvani snapshot. Prethodni snapshot možeš ponovno primijeniti i ručno:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "Isključi automatski nastavak agenata",
       "disableDesc": "Za obnovu paneova bez pokretanja sačuvanih agent resume komandi, isključi Settings > Terminal > Resume Agent Sessions on Reopen ili postavi:",
       "disableNote": "Ovo isključuje samo agent resume komande. cmux i dalje obnavlja layout, radne direktorije, scrollback i historiju browsera.",
@@ -794,7 +989,9 @@
       "underHoodItemScrollback": "Terminalski scrollback čuva se kao ograničen tekst i pri obnovi se replaya kroz privremenu datoteku. Ovo je best effort jer terminalske aplikacije mogu ponovo nacrtati ili obrisati ekran.",
       "underHoodItemHooks": "Agent hooks pišu ~/.cmuxterm/<agent>-hook-sessions.json s agent session ID-jem, cmux workspace ID-jem, surface ID-jem, cwd, PID-om kada je dostupan i sanitizovanom launch komandom.",
       "underHoodItemResume": "Pri obnovi cmux prvo rekonstruira prozore i paneove. Ako je automatski nastavak agenata uključen, pokreće jednokratnu shell komandu koja izvršava nativnu resume komandu agenta sa sačuvanim session ID-jem.",
-      "underHoodMore": "Redovna <configLink>dokumentacija konfiguracije</configLink> pokriva cmux.json. Obnova sesije drži layout aplikacije odvojen od Ghostty terminal rendering postavki."
+      "underHoodMore": "Redovna <configLink>dokumentacija konfiguracije</configLink> pokriva cmux.json. Obnova sesije drži layout aplikacije odvojen od Ghostty terminal rendering postavki.",
+      "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     }
   },
   "legal": {
@@ -808,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "Još jedan dan, još jedan projekat baziran na libghostty-ju, ovaj put macOS terminal sa vertikalnim tabovima, boljom organizacijom/notifikacijama, ugrađenim/skriptabilnim preglednikom specifično usmjeren na ljude koji koriste mnogo terminalskih agentskih tokova rada.",
+    "steipete": "Kasnim na zabavu, ali cmux je sjajan. Trenutna podjela: Codex Mac aplikacija za rad sa znanjem, učenje i čitanje; cmux + Codex CLI za kodiranje.",
     "schrockn": "Ovo je tačno proizvod koji sam tražio. Nakon dva sata jutros sam zaljubljen.",
     "egrefen": "Koristio sam ovo cijeli vikend i nevjerovatno je.",
     "max4c": "ovo je bio moj omiljeni alat posljednje dvije sedmice",
