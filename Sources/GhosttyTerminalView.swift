@@ -8162,6 +8162,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return performBindingAction("copy_to_clipboard")
     }
 
+    private func noteExplicitScrollIntent() {
+        terminalSurface?.hostedView.noteExplicitScrollIntent()
+    }
+
     private func handleKeyboardCopyModeIfNeeded(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
         guard keyboardCopyModeActive else { return false }
 
@@ -8209,30 +8213,38 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = ghostty_surface_clear_selection_compat(surface)
             setKeyboardCopyModeActive(false)
         case let .scrollLines(delta):
+            noteExplicitScrollIntent()
             _ = performBindingAction("scroll_page_lines:\(delta * count)")
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case let .scrollPage(delta):
+            noteExplicitScrollIntent()
             performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: count)
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case let .scrollHalfPage(delta):
+            noteExplicitScrollIntent()
             let fraction = delta > 0 ? 0.5 : -0.5
             performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: count)
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .scrollToTop:
+            noteExplicitScrollIntent()
             keyboardCopyModeViewportRow = 0
             _ = performBindingAction("scroll_to_top")
         case .scrollToBottom:
+            noteExplicitScrollIntent()
             keyboardCopyModeViewportRow = max(Int(ghostty_surface_size(surface).rows) - 1, 0)
             _ = performBindingAction("scroll_to_bottom")
         case let .jumpToPrompt(delta):
+            noteExplicitScrollIntent()
             _ = performBindingAction("jump_to_prompt:\(delta * count)")
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .startSearch:
             _ = performBindingAction("start_search")
         case .searchNext:
+            noteExplicitScrollIntent()
             performBindingAction("navigate_search:next", repeatCount: count)
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .searchPrevious:
+            noteExplicitScrollIntent()
             performBindingAction("navigate_search:previous", repeatCount: count)
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case let .adjustSelection(direction):
@@ -10866,6 +10878,10 @@ struct GhosttyScrollbar {
     let offset: UInt64
     let len: UInt64
 
+    var isAtBottom: Bool {
+        offset >= total || len >= total - offset
+    }
+
     init(c: ghostty_action_scrollbar_s) {
         total = c.total
         offset = c.offset
@@ -10999,12 +11015,12 @@ final class GhosttySurfaceScrollView: NSView {
     private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
     private var lastSentRow: Int?
-    /// Tracks whether the user has scrolled away from the bottom to review scrollback.
-    /// When true, auto-scroll should be suspended to prevent the "doomscroll" bug
-    /// where the terminal fights the user's scroll position.
-    private var userScrolledAwayFromBottom = false
-    private var pendingExplicitWheelScroll = false
-    private var allowExplicitScrollbarSync = false
+    private enum ScrollbackViewportIntent {
+        case followOutput
+        case reviewingScrollback
+        case awaitingExplicitScrollPacket
+    }
+    private var scrollbackViewportIntent: ScrollbackViewportIntent = .followOutput
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
@@ -11437,7 +11453,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.isLiveScrolling = false
-            // Final scroll position check to update userScrolledAwayFromBottom state
+            // Final scroll position check to update the follow/review intent.
             self?.handleLiveScroll()
         })
 
@@ -11480,7 +11496,7 @@ final class GhosttySurfaceScrollView: NSView {
             object: surfaceView,
             queue: .main
         ) { [weak self] _ in
-            self?.pendingExplicitWheelScroll = true
+            self?.noteExplicitScrollIntent()
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -11629,7 +11645,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     @discardableResult
-    private func synchronizeGeometryAndContent() -> Bool {
+    private func synchronizeGeometryAndContent(allowExplicitScrollbarSync: Bool = false) -> Bool {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -11685,7 +11701,7 @@ final class GhosttySurfaceScrollView: NSView {
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
         updateFlashAppearance(style: lastFlashStyle)
-        synchronizeScrollView()
+        synchronizeScrollView(allowExplicitScrollbarSync: allowExplicitScrollbarSync)
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
         return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
@@ -13879,7 +13895,11 @@ final class GhosttySurfaceScrollView: NSView {
         layer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
-    private func synchronizeScrollView() {
+    func noteExplicitScrollIntent() {
+        scrollbackViewportIntent = .awaitingExplicitScrollPacket
+    }
+
+    private func synchronizeScrollView(allowExplicitScrollbarSync: Bool = false) {
         var didChangeGeometry = false
         let targetDocumentHeight = documentHeight()
         if abs(documentView.frame.height - targetDocumentHeight) > 0.5 {
@@ -13894,22 +13914,16 @@ final class GhosttySurfaceScrollView: NSView {
                     CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
                 let targetOrigin = CGPoint(x: 0, y: offsetY)
 
-                // Check if we're currently at the bottom (with threshold for float drift)
                 let currentOrigin = scrollView.contentView.bounds.origin
-                let documentHeight = documentView.frame.height
-                let viewportHeight = scrollView.contentView.bounds.height
-                let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
-                let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
 
-                // Update userScrolledAwayFromBottom based on current position
-                if isAtBottom {
-                    userScrolledAwayFromBottom = false
-                }
-
-                // Passive bottom packets should not override an explicit scrollback review,
-                // but the first scrollbar packet caused by the user's own wheel input should
-                // still move the viewport to the requested scrollback position.
-                let shouldAutoScroll = !userScrolledAwayFromBottom || allowExplicitScrollbarSync
+                // While reviewing scrollback, still honor non-bottom scrollbar packets so
+                // streaming output and resize changes preserve the same visible terminal rows.
+                // Suppress only passive bottom packets that would resume follow mode without
+                // an explicit user scroll request.
+                let shouldAutoScroll =
+                    allowExplicitScrollbarSync ||
+                    scrollbackViewportIntent == .followOutput ||
+                    !scrollbar.isAtBottom
 
                 if shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
                     scrollView.contentView.scroll(to: targetOrigin)
@@ -13918,8 +13932,6 @@ final class GhosttySurfaceScrollView: NSView {
                 lastSentRow = Int(scrollbar.offset)
             }
         }
-
-        allowExplicitScrollbarSync = false
 
         if didChangeGeometry {
             scrollView.reflectScrolledClipView(scrollView.contentView)
@@ -13940,9 +13952,9 @@ final class GhosttySurfaceScrollView: NSView {
 
         // Track if user has scrolled away from bottom to review scrollback
         if scrollOffset > Self.scrollToBottomThreshold {
-            userScrolledAwayFromBottom = true
+            scrollbackViewportIntent = .reviewingScrollback
         } else if scrollOffset <= 0 {
-            userScrolledAwayFromBottom = false
+            scrollbackViewportIntent = .followOutput
         }
 
         let row = Int(scrollOffset / cellHeight)
@@ -13957,18 +13969,17 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         let wasVisible = scrollView.hasVerticalScroller
-        if pendingExplicitWheelScroll {
-            userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
-            allowExplicitScrollbarSync = true
-            pendingExplicitWheelScroll = false
+        let allowExplicitScrollbarSync = scrollbackViewportIntent == .awaitingExplicitScrollPacket
+        if allowExplicitScrollbarSync || !scrollbar.isAtBottom {
+            scrollbackViewportIntent = scrollbar.isAtBottom ? .followOutput : .reviewingScrollback
         }
         surfaceView.scrollbar = scrollbar
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
-            _ = synchronizeGeometryAndContent()
+            _ = synchronizeGeometryAndContent(allowExplicitScrollbarSync: allowExplicitScrollbarSync)
             return
         }
-        synchronizeScrollView()
+        synchronizeScrollView(allowExplicitScrollbarSync: allowExplicitScrollbarSync)
     }
 
     @discardableResult
