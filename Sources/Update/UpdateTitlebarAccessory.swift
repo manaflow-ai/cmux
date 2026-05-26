@@ -2166,13 +2166,20 @@ private struct NotificationsPopoverView: View {
     // handle) stays reachable on small displays even if saved defaults came from a larger one.
     private static let screenMargin: CGFloat = 80
 
+    // The popover doesn't take key, so its host (anchor) window remains key. Use that window's
+    // screen so multi-monitor setups clamp against the display where the popover actually
+    // appears, not whatever NSScreen.main happens to point at.
+    private var popoverScreen: NSScreen? {
+        NSApp.keyWindow?.screen ?? NSScreen.main
+    }
+
     private var screenMaxWidth: CGFloat {
-        let screenWidth = NSScreen.main?.visibleFrame.width ?? NotificationsPopoverMetrics.maxWidth
+        let screenWidth = popoverScreen?.visibleFrame.width ?? NotificationsPopoverMetrics.maxWidth
         return max(NotificationsPopoverMetrics.minWidth, screenWidth - Self.screenMargin)
     }
 
     private var screenMaxHeight: CGFloat {
-        let screenHeight = NSScreen.main?.visibleFrame.height ?? NotificationsPopoverMetrics.maxHeight
+        let screenHeight = popoverScreen?.visibleFrame.height ?? NotificationsPopoverMetrics.maxHeight
         return max(NotificationsPopoverMetrics.minHeight, screenHeight - Self.screenMargin)
     }
 
@@ -2652,14 +2659,16 @@ private final class HoverTrackingNSView: NSView {
 
         // Sync current pointer state in case the pointer is already inside when the tracking
         // area is (re)installed — happens on first popover open or after layout changes.
+        // updateTrackingAreas runs on the main thread, so dispatch synchronously; deferring
+        // creates a race where mouseExited can fire before the queued sync-onChange(true) runs,
+        // leaving the row stuck in the hovered state.
         if let window, window.isVisible {
             let mouseInWindow = window.mouseLocationOutsideOfEventStream
             let mouseInView = convert(mouseInWindow, from: nil)
             let nowInside = bounds.contains(mouseInView)
             if nowInside != isInside {
                 isInside = nowInside
-                let captured = onChange
-                DispatchQueue.main.async { captured(nowInside) }
+                onChange(nowInside)
             }
         }
     }
