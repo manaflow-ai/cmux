@@ -3,6 +3,31 @@ import Combine
 import AppKit
 import Bonsplit
 
+struct AgentHibernationPanelState {
+    let agent: SessionRestorableAgentSnapshot
+    let hibernatedAt: Date
+    let lastActivityAt: Date
+
+    var agentDisplayName: String {
+        agent.agentDisplayName
+    }
+}
+
+enum AgentHibernationResumePreparation: Equatable {
+    case unavailable
+    case resumed(queuedStartupInput: Bool)
+
+    var didResume: Bool {
+        if case .resumed = self { return true }
+        return false
+    }
+
+    var queuedStartupInput: Bool {
+        if case .resumed(let queuedStartupInput) = self { return queuedStartupInput }
+        return false
+    }
+}
+
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
 @MainActor
@@ -72,7 +97,10 @@ final class TerminalPanel: Panel, ObservableObject {
     /// (hostedView.window == nil) until the user switches workspaces.
     @Published var viewReattachToken: UInt64 = 0
 
+    @Published private(set) var agentHibernationState: AgentHibernationPanelState?
+
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
+    var onRequestAgentHibernationResume: ((Bool) -> Bool)?
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -94,6 +122,10 @@ final class TerminalPanel: Panel, ObservableObject {
         // We still honor `needsConfirmClose()` when actually closing a panel; we just don't
         // surface it as a tab-level dirty indicator.
         false
+    }
+
+    var isAgentHibernated: Bool {
+        agentHibernationState != nil
     }
 
     /// The hosted NSView for embedding in SwiftUI
@@ -470,6 +502,10 @@ final class TerminalPanel: Panel, ObservableObject {
 #endif
 
     func focus() {
+        if isAgentHibernated {
+            _ = requestAgentHibernationResume(focus: true)
+            return
+        }
         focusTerminalSurface(respectForeignFirstResponder: true)
     }
 
@@ -562,6 +598,37 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.teardownSurface()
     }
 
+    func enterAgentHibernation(
+        agent: SessionRestorableAgentSnapshot,
+        lastActivityAt: Date,
+        hibernatedAt: Date = Date()
+    ) {
+        agentHibernationState = AgentHibernationPanelState(
+            agent: agent,
+            hibernatedAt: hibernatedAt,
+            lastActivityAt: lastActivityAt
+        )
+        unfocus()
+        searchState = nil
+        hostedView.setVisibleInUI(false)
+        TerminalWindowPortalRegistry.detach(hostedView: hostedView)
+        surface.suspendRuntimeSurfaceForAgentHibernation(reason: "agentHibernation")
+        requestViewReattach()
+    }
+
+    @discardableResult
+    func prepareAgentHibernationResume() -> AgentHibernationResumePreparation {
+        guard let state = agentHibernationState else {
+            return .unavailable
+        }
+        let resumeStartupInput = state.agent.resumeStartupInput()
+        agentHibernationState = nil
+        surface.prepareAgentHibernationResume(initialInput: resumeStartupInput)
+        requestViewReattach()
+        surface.requestBackgroundSurfaceStartIfNeeded()
+        return .resumed(queuedStartupInput: resumeStartupInput != nil)
+    }
+
     func requestViewReattach() {
         viewReattachToken &+= 1
     }
@@ -569,15 +636,53 @@ final class TerminalPanel: Panel, ObservableObject {
     // MARK: - Terminal-specific methods
 
     func sendText(_ text: String) {
+        resumeForExplicitInputIfNeeded()
         surface.sendText(text)
     }
 
     func sendInput(_ text: String) {
-        surface.sendInput(text)
+        _ = sendInputResult(text)
+    }
+
+    @discardableResult
+    func sendInputResult(_ text: String) -> TerminalSurface.InputSendResult {
+        resumeForExplicitInputIfNeeded()
+        return surface.sendInputResult(text)
+    }
+
+    @discardableResult
+    func sendNamedKeyResult(_ keyName: String) -> TerminalSurface.NamedKeySendResult {
+        resumeForExplicitInputIfNeeded()
+        return surface.sendNamedKey(keyName)
+    }
+
+    @discardableResult
+    func sendNamedKey(_ keyName: String) -> Bool {
+        switch sendNamedKeyResult(keyName) {
+        case .sent, .queued:
+            return true
+        case .unknownKey, .inputQueueFull, .surfaceUnavailable, .processExited:
+            return false
+        }
     }
 
     func performBindingAction(_ action: String) -> Bool {
-        surface.performBindingAction(action)
+        guard !isAgentHibernated else { return false }
+        return surface.performBindingAction(action)
+    }
+
+    private func resumeForExplicitInputIfNeeded() {
+        guard isAgentHibernated else { return }
+        _ = requestAgentHibernationResume(focus: false)
+    }
+
+    @discardableResult
+    private func requestAgentHibernationResume(focus: Bool) -> Bool {
+        guard isAgentHibernated else { return false }
+        if let onRequestAgentHibernationResume {
+            return onRequestAgentHibernationResume(focus)
+        }
+        return prepareAgentHibernationResume().didResume
     }
 
     func hasSelection() -> Bool {
@@ -618,6 +723,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
+        guard !isAgentHibernated else { return .panel }
         if textBoxOwnsResponder(window?.firstResponder) {
             return .terminal(.textBoxInput)
         }
@@ -625,6 +731,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func preferredFocusIntentForActivation() -> PanelFocusIntent {
+        guard !isAgentHibernated else { return .panel }
         if isTextBoxActive, textBoxInputFocusIntent == .textBox {
             return .terminal(.textBoxInput)
         }
@@ -632,6 +739,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func prepareFocusIntentForActivation(_ intent: PanelFocusIntent) {
+        guard !isAgentHibernated else { return }
         guard case .terminal(let target) = intent else { return }
         switch target {
         case .surface, .findField:
@@ -649,6 +757,9 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @discardableResult
     func restoreFocusIntent(_ intent: PanelFocusIntent) -> Bool {
+        if isAgentHibernated {
+            return requestAgentHibernationResume(focus: true)
+        }
         switch intent {
         case .panel:
             focus()
@@ -668,6 +779,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
+        guard !isAgentHibernated else { return nil }
         _ = window
         if textBoxOwnsResponder(responder) {
             return .terminal(.textBoxInput)
@@ -678,6 +790,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @discardableResult
     func yieldFocusIntent(_ intent: PanelFocusIntent, in window: NSWindow) -> Bool {
+        guard !isAgentHibernated else { return false }
         guard case .terminal(let target) = intent else { return false }
         if target == .textBoxInput {
             guard let firstResponder = window.firstResponder,
