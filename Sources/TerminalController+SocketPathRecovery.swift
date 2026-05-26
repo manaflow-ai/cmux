@@ -163,12 +163,7 @@ extension TerminalController {
         guard pathStatus.shouldAttemptListenerRecovery else {
             return
         }
-        if case .socketFileChanged = pathStatus {
-            let configuredPath = SocketControlSettings.socketPath()
-            recoveryPath = configuredPath != snapshot.socketPath ? configuredPath : snapshot.socketPath
-        } else {
-            recoveryPath = snapshot.socketPath
-        }
+        recoveryPath = snapshot.socketPath
         if case .notSocket = pathStatus {
             shouldUnlinkNonSocketReplacement = true
             nonSocketReplacementIdentity = SocketPathProbe.fileIdentity(path: snapshot.socketPath)
