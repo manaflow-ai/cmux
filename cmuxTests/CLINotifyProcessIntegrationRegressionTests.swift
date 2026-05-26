@@ -188,6 +188,59 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeIdlePromptNotificationAfterStopDoesNotMarkNeedsInput() throws {
+        let context = try makeClaudeHookContext(name: "claude-idle-prompt-after-stop")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-idle-prompt-session"
+        let start = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"finish the task"}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let stop = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "stop"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"finished"}"#
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+
+        let idlePromptStart = context.state.commands.count
+        let idlePrompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","notification_type":"idle_prompt","message":"Claude needs your input"}"#
+        )
+        XCTAssertFalse(idlePrompt.timedOut, idlePrompt.stderr)
+        XCTAssertEqual(idlePrompt.status, 0, idlePrompt.stderr)
+        XCTAssertEqual(idlePrompt.stdout, "OK\n")
+
+        let idlePromptCommands = Array(context.state.commands.dropFirst(idlePromptStart))
+        XCTAssertFalse(
+            idlePromptCommands.contains {
+                $0.hasPrefix("set_status claude_code Needs input ")
+                    && $0.contains("--tab=\(context.workspaceId)")
+            },
+            "Idle prompt notifications after a stopped turn must not relight Needs input, saw \(idlePromptCommands)"
+        )
+        XCTAssertFalse(
+            idlePromptCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Idle prompt notifications after a stopped turn must not fire a user-facing alert, saw \(idlePromptCommands)"
+        )
+    }
+
     func testClaudePromptSubmitResumeBindingPersistsAuthSelectionMarkersWithoutValues() throws {
         let context = try makeClaudeHookContext(name: "claude-resume-env-redaction")
         defer { context.cleanup() }
