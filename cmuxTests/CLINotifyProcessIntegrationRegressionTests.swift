@@ -3475,6 +3475,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                                                     "ref": "surface:4",
                                                     "index": 0,
                                                     "type": "terminal",
+                                                    "selected": true,
                                                     "title": "agent shell",
                                                     "tty": "/dev/ttys123",
                                                 ],
@@ -3515,6 +3516,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertTrue(result.stdout.contains("* surface:4"), result.stdout)
         XCTAssertTrue(result.stdout.contains("surface:4"), result.stdout)
         XCTAssertTrue(result.stdout.contains("terminal"), result.stdout)
         XCTAssertTrue(result.stdout.contains("window=window:1"), result.stdout)

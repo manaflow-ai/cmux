@@ -12387,7 +12387,7 @@ struct CMUXCLI {
             """
         case "list-surfaces":
             return String(localized: "cli.help.listSurfaces", defaultValue: """
-            Usage: cmux list-surfaces [--workspace <id|ref|index>] [--window <id|ref|index>] [--all]
+            Usage: cmux list-surfaces [--workspace <id|ref|index>] [--window <id|ref|index>] [--all] [--json]
 
             List cmux surfaces across windows, workspaces, and panes.
             By default, lists every window so this works from an SSH shell outside cmux.
@@ -12404,7 +12404,7 @@ struct CMUXCLI {
             """)
         case "list-terminals":
             return String(localized: "cli.help.listTerminals", defaultValue: """
-            Usage: cmux list-terminals [--workspace <id|ref|index>] [--window <id|ref|index>] [--all]
+            Usage: cmux list-terminals [--workspace <id|ref|index>] [--window <id|ref|index>] [--all] [--json]
 
             List terminal surfaces across windows, workspaces, and panes.
             By default, lists every window so this works from an SSH shell outside cmux.
@@ -14082,6 +14082,11 @@ struct CMUXCLI {
                         copyTreeListValue(into: &row, key: "window_index", from: window["index"])
                         copyTreeListValue(into: &row, key: "window_key", from: window["key"])
                         copyTreeListValue(into: &row, key: "pane_focused", from: pane["focused"])
+                        copyTreeListValue(
+                            into: &row,
+                            key: "active",
+                            from: surface["selected"] ?? surface["focused"] ?? pane["focused"]
+                        )
                         result.append(row)
                     }
                 }
@@ -30078,8 +30083,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           new-split <left|right|up|down> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--panel <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
           list-panes [--workspace <id|ref|index>] [--window <id|ref|index>]
           list-pane-surfaces [--workspace <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>]
-          list-surfaces [--workspace <id|ref|index>] [--window <id|ref|index>] [--all]
-          list-terminals [--workspace <id|ref|index>] [--window <id|ref|index>] [--all]
+          list-surfaces [--workspace <id|ref|index>] [--window <id|ref|index>] [--all] [--json]
+          list-terminals [--workspace <id|ref|index>] [--window <id|ref|index>] [--all] [--json]
           tree [--all] [--workspace <id|ref|index>] [--window <id|ref|index>]
           top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           memory [--all] [--workspace <id|ref|index>] [--groups <count>]
