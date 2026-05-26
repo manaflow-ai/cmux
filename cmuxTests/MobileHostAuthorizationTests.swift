@@ -635,6 +635,38 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(service.debugTrackedClientIDsForTesting(connectionID: connectionID))
     }
 
+    func testMobileHostConnectionCloseClearsOnlyThatClientViewportReport() {
+        let service = MobileHostService.shared
+        let terminalController = TerminalController.shared
+        let connectionID = UUID()
+        let surfaceID = UUID()
+
+        service.debugResetMobileLifecycleStateForTesting()
+        terminalController.debugResetMobileViewportReportsForTesting()
+        terminalController.debugSetMobileViewportReportForTesting(
+            surfaceID: surfaceID,
+            clientID: "ios-client",
+            columns: 54,
+            rows: 42
+        )
+        terminalController.debugSetMobileViewportReportForTesting(
+            surfaceID: surfaceID,
+            clientID: "ipad-client",
+            columns: 84,
+            rows: 15
+        )
+        service.debugRecordClientIDForTesting("ios-client", connectionID: connectionID)
+
+        service.debugRemoveConnectionForTesting(id: connectionID)
+
+        XCTAssertEqual(
+            terminalController.debugMobileViewportReportClientIDsForTesting(surfaceID: surfaceID),
+            Set(["ipad-client"])
+        )
+
+        terminalController.debugResetMobileViewportReportsForTesting()
+    }
+
     func testMobileHostIgnoresStaleListenerStateCallbacks() {
         let service = MobileHostService.shared
         let currentGeneration = UUID()

@@ -21316,6 +21316,35 @@ class TerminalController {
         }
     }
 
+    #if DEBUG
+    func debugResetMobileViewportReportsForTesting() {
+        clearAllMobileViewportReports(reason: "mobile.viewport.testReset")
+    }
+
+    func debugSetMobileViewportReportForTesting(
+        surfaceID: UUID,
+        clientID: String,
+        columns: Int,
+        rows: Int,
+        updatedAt: Date = Date()
+    ) {
+        var reports = mobileViewportReportsBySurfaceID[surfaceID] ?? [:]
+        reports[clientID] = MobileViewportReport(
+            columns: columns,
+            rows: rows,
+            updatedAt: updatedAt
+        )
+        mobileViewportReportsBySurfaceID[surfaceID] = reports
+    }
+
+    func debugMobileViewportReportClientIDsForTesting(surfaceID: UUID) -> Set<String>? {
+        guard let reports = mobileViewportReportsBySurfaceID[surfaceID] else {
+            return nil
+        }
+        return Set(reports.keys)
+    }
+    #endif
+
     private func terminalPanel(surfaceID: UUID) -> TerminalPanel? {
         guard let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceID),
               let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
