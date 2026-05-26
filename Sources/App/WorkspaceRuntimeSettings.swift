@@ -234,6 +234,129 @@ enum AgentSessionAutoResumeSettings {
     }
 }
 
+enum AgentHibernationSettings {
+    struct Values: Equatable, Sendable {
+        var enabled: Bool
+        var idleSeconds: TimeInterval
+        var maxLiveTerminals: Int
+        var confirmationSeconds: TimeInterval
+    }
+
+    static let enabledKey = "terminal.agentHibernation.enabled"
+    static let idleSecondsKey = "terminal.agentHibernation.idleSeconds"
+    static let maxLiveTerminalsKey = "terminal.agentHibernation.maxLiveTerminals"
+    static let confirmationSecondsKey = "terminal.agentHibernation.confirmationSeconds"
+
+    static let defaultEnabled = false
+    static let defaultIdleSeconds: TimeInterval = 60 * 60
+    static let defaultMaxLiveTerminals = 12
+    static let defaultConfirmationSeconds: TimeInterval = 60
+    static let didChangeNotification = Notification.Name("cmux.agentHibernationSettingsDidChange")
+
+    static func values(defaults: UserDefaults = .standard) -> Values {
+        Values(
+            enabled: isEnabled(defaults: defaults),
+            idleSeconds: idleSeconds(defaults: defaults),
+            maxLiveTerminals: maxLiveTerminals(defaults: defaults),
+            confirmationSeconds: confirmationSeconds(defaults: defaults)
+        )
+    }
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: enabledKey) != nil else { return defaultEnabled }
+        return defaults.bool(forKey: enabledKey)
+    }
+
+    static func idleSeconds(defaults: UserDefaults = .standard) -> TimeInterval {
+        guard defaults.object(forKey: idleSecondsKey) != nil else { return defaultIdleSeconds }
+        return sanitizedIdleSeconds(defaults.double(forKey: idleSecondsKey))
+    }
+
+    static func maxLiveTerminals(defaults: UserDefaults = .standard) -> Int {
+        guard defaults.object(forKey: maxLiveTerminalsKey) != nil else { return defaultMaxLiveTerminals }
+        return sanitizedMaxLiveTerminals(defaults.integer(forKey: maxLiveTerminalsKey))
+    }
+
+    static func confirmationSeconds(defaults: UserDefaults = .standard) -> TimeInterval {
+        guard defaults.object(forKey: confirmationSecondsKey) != nil else { return defaultConfirmationSeconds }
+        return sanitizedConfirmationSeconds(defaults.double(forKey: confirmationSecondsKey))
+    }
+
+    static func sanitizedIdleSeconds(_ value: TimeInterval) -> TimeInterval {
+        guard value.isFinite else { return defaultIdleSeconds }
+        return min(max(value.rounded(), 5), 7 * 24 * 60 * 60)
+    }
+
+    static func sanitizedMaxLiveTerminals(_ value: Int) -> Int {
+        min(max(value, 1), 256)
+    }
+
+    static func sanitizedConfirmationSeconds(_ value: TimeInterval) -> TimeInterval {
+        guard value.isFinite else { return defaultConfirmationSeconds }
+        return min(max(value.rounded(), 5), 60 * 60)
+    }
+
+    static func setValues(
+        enabled: Bool? = nil,
+        idleSeconds: TimeInterval? = nil,
+        maxLiveTerminals: Int? = nil,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let oldValues = values(defaults: defaults)
+        if let enabled {
+            defaults.set(enabled, forKey: enabledKey)
+        }
+        if let idleSeconds {
+            defaults.set(sanitizedIdleSeconds(idleSeconds), forKey: idleSecondsKey)
+        }
+        if let maxLiveTerminals {
+            defaults.set(sanitizedMaxLiveTerminals(maxLiveTerminals), forKey: maxLiveTerminalsKey)
+        }
+        if oldValues != values(defaults: defaults) {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+    }
+
+    @discardableResult
+    static func reset(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        let oldValues = values(defaults: defaults)
+        defaults.removeObject(forKey: enabledKey)
+        defaults.removeObject(forKey: idleSecondsKey)
+        defaults.removeObject(forKey: maxLiveTerminalsKey)
+        defaults.removeObject(forKey: confirmationSecondsKey)
+        let didChange = oldValues != values(defaults: defaults)
+        if didChange {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+        return didChange
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
+enum AgentHibernationTrackingGate {
+    private static let lock = NSLock()
+    private static var enabled = AgentHibernationSettings.isEnabled()
+
+    static func isEnabled() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return enabled
+    }
+
+    static func setEnabled(_ nextEnabled: Bool) {
+        lock.lock()
+        enabled = nextEnabled
+        lock.unlock()
+    }
+}
+
 enum RightSidebarBetaFeatureSettings {
     static let dockEnabledKey = "rightSidebar.beta.dock.enabled"
 
