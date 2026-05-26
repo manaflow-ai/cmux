@@ -35,7 +35,8 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 XCTAssertTrue(contribution.enablement(context))
             }
 
-            XCTAssertEqual(contributions.count, 4)
+            XCTAssertEqual(contributions.count, 5)
+            XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.codeReview)])
             XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
         }

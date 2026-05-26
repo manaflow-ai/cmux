@@ -122,6 +122,8 @@ extension ContentView {
             return "palette.showRightSidebarFiles"
         case .find:
             return "palette.showRightSidebarFind"
+        case .codeReview:
+            return "palette.showRightSidebarCodeReview"
         case .sessions:
             return "palette.showRightSidebarSessions"
         case .feed:
@@ -147,6 +149,8 @@ extension ContentView {
             return "palette.openFilesPane"
         case .find:
             return "palette.openFindPane"
+        case .codeReview:
+            return "palette.openCodeReviewPane"
         case .sessions:
             return "palette.openVaultPane"
         case .feed, .dock:
@@ -160,6 +164,8 @@ extension ContentView {
             return String(localized: "command.openFilesPane.title", defaultValue: "Open Files as Pane")
         case .find:
             return String(localized: "command.openFindPane.title", defaultValue: "Open Find as Pane")
+        case .codeReview:
+            return String(localized: "command.openCodeReviewPane.title", defaultValue: "Open Code Review as Pane")
         case .sessions:
             return String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane")
         case .feed, .dock:

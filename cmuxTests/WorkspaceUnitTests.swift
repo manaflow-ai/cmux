@@ -414,6 +414,11 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
             XCTAssertFalse(KeyboardShortcutSettings.publicShortcutActions.contains(action))
             XCTAssertFalse(KeyboardShortcutSettings.settingsVisibleActions.contains(action))
         }
+
+        XCTAssertTrue(KeyboardShortcutSettings.Action.switchRightSidebarToCodeReview.defaultShortcut.isUnbound)
+        XCTAssertTrue(KeyboardShortcutSettings.Action.switchRightSidebarToCodeReview.isPublicShortcutAction)
+        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.switchRightSidebarToCodeReview))
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.switchRightSidebarToCodeReview))
     }
 
     func testSettingsVisibleShortcutActionsIncludeRemappableExampleShortcuts() {
@@ -422,6 +427,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertTrue(visibleActions.contains(.toggleRightSidebar))
         XCTAssertTrue(visibleActions.contains(.focusRightSidebar))
         XCTAssertTrue(visibleActions.contains(.findInDirectory))
+        XCTAssertTrue(visibleActions.contains(.switchRightSidebarToCodeReview))
         XCTAssertTrue(visibleActions.contains(.toggleUnread))
         XCTAssertTrue(visibleActions.contains(.markOldestUnreadAndJumpNext))
         XCTAssertFalse(visibleActions.contains(.showHideAllWindows))
@@ -457,6 +463,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
             .focusRightSidebar,
             .toggleRightSidebar,
             .findInDirectory,
+            .switchRightSidebarToCodeReview,
         ]
 
         guard let startIndex = visibleActions.firstIndex(of: .focusRightSidebar) else {
@@ -968,6 +975,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 "focusRightSidebar": "cmd+opt+shift+e",
                 "switchRightSidebarToFiles": "ctrl+4",
                 "switchRightSidebarToFind": "ctrl+5",
+                "switchRightSidebarToCodeReview": "ctrl+9",
                 "switchRightSidebarToSessions": "ctrl+6",
                 "switchRightSidebarToFeed": "ctrl+7",
                 "switchRightSidebarToDock": "ctrl+8"
@@ -994,6 +1002,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(
             store.override(for: .switchRightSidebarToFind),
             StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
+        )
+        XCTAssertEqual(
+            store.override(for: .switchRightSidebarToCodeReview),
+            StoredShortcut(key: "9", command: false, shift: false, option: false, control: true)
         )
         XCTAssertEqual(
             store.override(for: .switchRightSidebarToSessions),
