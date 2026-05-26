@@ -6933,30 +6933,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return openDefaultCodeEditor()
         }
 
+        guard let panelId = openDefaultCodeEditor() else {
+            NSSound.beep()
+            return nil
+        }
+
         VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
             guard let serveWebURL,
                   let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
                       baseWebUIURL: serveWebURL,
                       directoryPath: directoryPath
                   ) else {
-                if openDefaultCodeEditor() == nil {
-                    NSSound.beep()
-                }
                 return
             }
 
-            guard targetTabManager.openCodeEditor(
-                inWorkspace: targetWorkspaceId,
-                url: openFolderURL,
-                preferSplitRight: preferSplitRight,
-                insertAtEnd: insertAtEnd
-            ) != nil else {
-                NSSound.beep()
-                return
-            }
+            targetTabManager.browserPanel(tabId: targetWorkspaceId, panelId: panelId)?
+                .navigate(to: openFolderURL)
         }
 
-        return nil
+        return panelId
     }
 
     func showOpenFolderInInlineVSCodePanel(tabManager preferredTabManager: TabManager? = nil) {
