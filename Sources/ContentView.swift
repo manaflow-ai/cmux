@@ -10017,6 +10017,9 @@ struct VerticalTabsSidebar: View {
             dragFailsafeMonitor.stop()
             dragState.draggedTabId = nil
             dragState.dropIndicator = nil
+            // Clear the simulator flag too so a re-mounted sidebar doesn't
+            // inherit a stale bypass and skip the real-drag failsafe monitor.
+            dragState.isSimulated = false
             #if DEBUG
             SidebarDragStateRegistry.unregister(windowId: windowId)
             #endif

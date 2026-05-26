@@ -15759,7 +15759,12 @@ class TerminalController {
         guard !pathIndices.isEmpty else {
             return .err(code: "invalid_params", message: "Empty drag path", data: nil)
         }
-        let steps = max(1, min(requestedSteps ?? pathIndices.count, pathIndices.count))
+        // Allow requestedSteps > pathIndices.count: profiling at high tick
+        // rates (e.g. 60Hz over a short row span) is a documented use case.
+        // The resampling formula picks the same indicator value multiple
+        // times in that regime, which is exactly the SwiftUI invalidation
+        // load the skill measures.
+        let steps = max(1, requestedSteps ?? pathIndices.count)
         let stepIndices: [Int] = (0..<steps).map { stepNumber in
             let position = Int(round(Double(stepNumber) * Double(pathIndices.count - 1) / Double(max(1, steps - 1))))
             return pathIndices[max(0, min(pathIndices.count - 1, position))]
@@ -15767,21 +15772,37 @@ class TerminalController {
         let stepIntervalMs = max(1, durationMs / steps)
         let edge: SidebarDropEdge = fromIndex < toIndex ? .bottom : .top
 
-        v2MainSync {
-            guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return }
+        // Start the drag. If the sidebar has already unregistered, fail loud
+        // instead of silently sleeping through a no-op simulation.
+        let startedOK: Bool = v2MainSync {
+            guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
             // Mark the drag as simulator-driven so VerticalTabsSidebar skips
             // starting SidebarDragFailsafeMonitor — it would otherwise post
             // mouse_up_failsafe immediately because no real mouse is pressed.
             dragState.isSimulated = true
             dragState.draggedTabId = fromTabId
             dragState.dropIndicator = nil
+            return true
+        }
+        guard startedOK else {
+            return .err(
+                code: "not_found",
+                message: "Sidebar unregistered before simulation could start",
+                data: ["window_id": windowId.uuidString]
+            )
         }
 
+        var aborted = false
         for tabIndex in stepIndices {
             let targetTabId = tabIds[tabIndex]
-            v2MainSync {
-                guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return }
+            let tickOK: Bool = v2MainSync {
+                guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
                 dragState.dropIndicator = SidebarDropIndicator(tabId: targetTabId, edge: edge)
+                return true
+            }
+            if !tickOK {
+                aborted = true
+                break
             }
             if stepIntervalMs > 0 {
                 Thread.sleep(forTimeInterval: TimeInterval(stepIntervalMs) / 1000.0)
@@ -15793,6 +15814,14 @@ class TerminalController {
             dragState.draggedTabId = nil
             dragState.dropIndicator = nil
             dragState.isSimulated = false
+        }
+
+        if aborted {
+            return .err(
+                code: "aborted",
+                message: "Sidebar unregistered mid-simulation",
+                data: ["window_id": windowId.uuidString]
+            )
         }
 
         return .ok([
