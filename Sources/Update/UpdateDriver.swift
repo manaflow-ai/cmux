@@ -1,5 +1,5 @@
 import Cocoa
-import Sparkle
+@preconcurrency import Sparkle
 
 /// SPUUserDriver that updates the view model for custom update UI.
 class UpdateDriver: NSObject, SPUUserDriver, @unchecked Sendable {
@@ -17,7 +17,10 @@ class UpdateDriver: NSObject, SPUUserDriver, @unchecked Sendable {
         viewModel: UpdateViewModel,
         hostBundle _: Bundle,
         terminalSessionSummaryProvider: @escaping () -> UpdateInstallGate.TerminalSessionSummary = {
-            AppDelegate.shared?.terminalSessionSummaryForUpdateInstall() ?? .empty
+            guard Thread.isMainThread else { return .empty }
+            return MainActor.assumeIsolated {
+                AppDelegate.shared?.terminalSessionSummaryForUpdateInstall() ?? .empty
+            }
         },
         terminalTerminationConfirmation: @escaping (UpdateInstallGate.TerminalSessionSummary) -> Bool = {
             UpdateDriver.confirmTerminalTerminationForUpdate(summary: $0)
