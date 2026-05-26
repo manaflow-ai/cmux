@@ -1440,7 +1440,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         panelSnapshot.rightSidebarTool = nil
         snapshot.customTitle = "Broken Workspace"
         snapshot.panels = [panelSnapshot]
-        snapshot.layout = .pane(SessionPaneLayoutSnapshot(
+        snapshot.layout = .pane(SessionPanePaneLayoutSnapshot(
             panelIds: [panelSnapshot.id],
             selectedPanelId: panelSnapshot.id
         ))
