@@ -489,7 +489,7 @@
       "metaTitle": "Yapılandırma",
       "schemaDescriptions": {
         "browser": {
-          "engine": "Browser engine/runtime for browser commands and link interception. webkit runs inside cmux; systemDefault opens in the macOS default browser."
+          "engine": "Tarayıcı komutları ve bağlantı yakalama için tarayıcı motoru/çalışma zamanı. webkit cmux içinde çalışır; systemDefault macOS varsayılan tarayıcısında açar."
         },
         "automation": {
           "suppressSubagentNotifications": "İç içe Codex veya Claude alt ajanlarından gelen görünür tamamlanma bildirimlerini ve durum değişikliklerini gizler, olaylarını Feed telemetrisinde tutar."

@@ -489,7 +489,7 @@
       "exampleConfig": "Приклад конфігурації",
       "schemaDescriptions": {
         "browser": {
-          "engine": "Browser engine/runtime for browser commands and link interception. webkit runs inside cmux; systemDefault opens in the macOS default browser."
+          "engine": "Рушій/середовище виконання браузера для браузерних команд і перехоплення посилань. webkit працює всередині cmux; systemDefault відкриває у стандартному браузері macOS."
         },
         "automation": {
           "suppressSubagentNotifications": "Приховує видимі сповіщення про завершення та зміни статусу від вкладених дочірніх агентів Codex або Claude, зберігаючи їхні події в телеметрії Feed."

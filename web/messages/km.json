@@ -489,7 +489,7 @@
       "metaTitle": "ការកំណត់រចនាសម្ព័ន្ធ",
       "schemaDescriptions": {
         "browser": {
-          "engine": "Browser engine/runtime for browser commands and link interception. webkit runs inside cmux; systemDefault opens in the macOS default browser."
+          "engine": "ម៉ាស៊ីន/Runtime របស់កម្មវិធីរុករក សម្រាប់ពាក្យបញ្ជាកម្មវិធីរុករក និងការចាប់យកតំណ។ webkit ដំណើរការនៅក្នុង cmux; systemDefault បើកក្នុងកម្មវិធីរុករកលំនាំដើមរបស់ macOS។"
         },
         "automation": {
           "suppressSubagentNotifications": "បិទការជូនដំណឹងបញ្ចប់ដែលបង្ហាញ និងការផ្លាស់ប្តូរស្ថានភាពពីភ្នាក់ងារកូន Codex ឬ Claude ដែលបានបង្កប់ ខណៈពេលរក្សាព្រឹត្តិការណ៍របស់វានៅក្នុងទេលេមេទ្រី Feed។"

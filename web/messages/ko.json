@@ -489,7 +489,7 @@
       "metaTitle": "설정",
       "schemaDescriptions": {
         "browser": {
-          "engine": "Browser engine/runtime for browser commands and link interception. webkit runs inside cmux; systemDefault opens in the macOS default browser."
+          "engine": "브라우저 명령과 링크 가로채기에 사용하는 브라우저 엔진/런타임입니다. webkit은 cmux 내부에서 실행되고 systemDefault는 macOS 기본 브라우저에서 엽니다."
         },
         "automation": {
           "suppressSubagentNotifications": "중첩된 Codex 또는 Claude 하위 에이전트의 표시되는 완료 알림과 상태 변경을 억제하면서 해당 이벤트는 Feed 텔레메트리에 유지합니다."

@@ -489,7 +489,7 @@
       "metaTitle": "配置",
       "schemaDescriptions": {
         "browser": {
-          "engine": "Browser engine/runtime for browser commands and link interception. webkit runs inside cmux; systemDefault opens in the macOS default browser."
+          "engine": "浏览器命令和链接拦截所用的浏览器引擎/运行时。webkit 在 cmux 内运行；systemDefault 在 macOS 默认浏览器中打开。"
         },
         "automation": {
           "suppressSubagentNotifications": "隐藏嵌套 Codex 或 Claude 子代理的可见完成通知和状态变更，同时将其事件保留在 Feed 遥测中。"

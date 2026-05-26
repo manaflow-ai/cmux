@@ -489,7 +489,7 @@
       "metaTitle": "Konfigurasjon",
       "schemaDescriptions": {
         "browser": {
-          "engine": "Browser engine/runtime for browser commands and link interception. webkit runs inside cmux; systemDefault opens in the macOS default browser."
+          "engine": "Nettlesermotor/kjøretid for nettleserkommandoer og lenkeavskjæring. webkit kjører inne i cmux; systemDefault åpner i macOS-standardnettleseren."
         },
         "automation": {
           "suppressSubagentNotifications": "Undertrykk synlige fullføringsvarsler og statusendringer fra innebygde Codex- eller Claude-underagenter, samtidig som hendelsene deres beholdes i Feed-telemetri."

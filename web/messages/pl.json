@@ -489,7 +489,7 @@
       "metaTitle": "Konfiguracja",
       "schemaDescriptions": {
         "browser": {
-          "engine": "Browser engine/runtime for browser commands and link interception. webkit runs inside cmux; systemDefault opens in the macOS default browser."
+          "engine": "Silnik/środowisko uruchomieniowe przeglądarki dla poleceń przeglądarki i przechwytywania linków. webkit działa wewnątrz cmux; systemDefault otwiera w domyślnej przeglądarce macOS."
         },
         "automation": {
           "suppressSubagentNotifications": "Ukrywa widoczne powiadomienia o zakończeniu i zmiany statusu zagnieżdżonych agentów podrzędnych Codex lub Claude, zachowując ich zdarzenia w telemetrii Feed."

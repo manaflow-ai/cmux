@@ -489,7 +489,7 @@
       "metaTitle": "الإعدادات",
       "schemaDescriptions": {
         "browser": {
-          "engine": "Browser engine/runtime for browser commands and link interception. webkit runs inside cmux; systemDefault opens in the macOS default browser."
+          "engine": "محرك/بيئة تشغيل المتصفح لأوامر المتصفح واعتراض الروابط. يعمل webkit داخل cmux؛ ويفتح systemDefault في متصفح macOS الافتراضي."
         },
         "automation": {
           "suppressSubagentNotifications": "قم بإخفاء إشعارات الإكمال المرئية وتغييرات الحالة من وكلاء Codex أو Claude الفرعيين المتداخلين مع إبقاء أحداثهم في قياسات Feed."
