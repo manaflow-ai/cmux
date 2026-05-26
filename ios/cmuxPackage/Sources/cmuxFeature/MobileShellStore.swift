@@ -1145,21 +1145,21 @@ public final class CMUXMobileShellStore {
         let hasAttachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
 
         var requests: [WorkspaceListRequest] = []
-        if !scopedParams.isEmpty {
-            requests.append(
-                WorkspaceListRequest(
-                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: scopedParams),
-                    isScoped: !scopedParams.isEmpty,
-                    preferActiveTicketTarget: true
-                )
-            )
-        }
-
         if hasAttachToken {
             requests.append(
                 WorkspaceListRequest(
                     data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
                     isScoped: false,
+                    preferActiveTicketTarget: true
+                )
+            )
+        }
+
+        if !scopedParams.isEmpty {
+            requests.append(
+                WorkspaceListRequest(
+                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: scopedParams),
+                    isScoped: !scopedParams.isEmpty,
                     preferActiveTicketTarget: true
                 )
             )
@@ -1449,7 +1449,13 @@ public final class CMUXMobileShellStore {
             let response = try MobileSyncTerminalSnapshotResponse.decode(resultData)
             guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
             let responseTerminalID = MobileTerminalPreview.ID(rawValue: response.surfaceID ?? terminalID)
-            if shouldDeferLowerFidelityTerminalSnapshot(
+            let terminalSnapshot = terminalSnapshotByReusingStylesIfNeeded(
+                workspaceID: workspace.id,
+                terminalID: responseTerminalID,
+                snapshot: response.snapshot,
+                fidelity: response.fidelity
+            )
+            if !terminalSnapshot.reusedStyles && shouldDeferLowerFidelityTerminalSnapshot(
                 workspaceID: workspace.id,
                 terminalID: responseTerminalID,
                 snapshot: response.snapshot,
@@ -1458,16 +1464,23 @@ public final class CMUXMobileShellStore {
                 scheduleSelectedTerminalSnapshotRefresh()
                 return
             }
-            clearLowerFidelityDeferralIfSnapshotHasStyledCells(
-                workspaceID: workspace.id,
-                terminalID: responseTerminalID,
-                snapshot: response.snapshot,
-                fidelity: response.fidelity
-            )
+            if terminalSnapshot.reusedStyles {
+                scheduleStyledSnapshotRefreshAfterPlainTextFallback(
+                    workspaceID: workspace.id,
+                    terminalID: responseTerminalID
+                )
+            } else {
+                clearLowerFidelityDeferralIfSnapshotHasStyledCells(
+                    workspaceID: workspace.id,
+                    terminalID: responseTerminalID,
+                    snapshot: response.snapshot,
+                    fidelity: response.fidelity
+                )
+            }
             replaceTerminalSnapshot(
                 workspaceID: workspace.id,
                 terminalID: responseTerminalID,
-                snapshot: response.snapshot,
+                snapshot: terminalSnapshot.snapshot,
                 isReady: true,
                 viewportFit: response.viewportFit
             )
@@ -1905,6 +1918,60 @@ public final class CMUXMobileShellStore {
         )
         mobileShellLog.info("deferred lower fidelity terminal snapshot workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private) remaining=\(remainingRefreshes, privacy: .public)")
         return true
+    }
+
+    private func terminalSnapshotByReusingStylesIfNeeded(
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID,
+        snapshot: MobileTerminalGhosttySnapshot,
+        fidelity: String?
+    ) -> (snapshot: MobileTerminalGhosttySnapshot, reusedStyles: Bool) {
+        guard fidelity == "plain_text",
+              !snapshot.hasExplicitCellStyles,
+              let previousSnapshot = terminalSnapshot(workspaceID: workspaceID, terminalID: terminalID),
+              previousSnapshot.hasExplicitCellStyles else {
+            return (snapshot, false)
+        }
+
+        let styledSnapshot = snapshot.reusingExplicitCellStyles(from: previousSnapshot)
+        return (styledSnapshot, styledSnapshot != snapshot)
+    }
+
+    private func terminalSnapshot(
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) -> MobileTerminalGhosttySnapshot? {
+        guard let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }),
+              let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }) else {
+            return nil
+        }
+        return workspaces[workspaceIndex].terminals[terminalIndex].snapshot
+    }
+
+    private func scheduleStyledSnapshotRefreshAfterPlainTextFallback(
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) {
+        let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
+        let lowerFidelityRemainingRefreshes = max(0, (lowerFidelityDeferralRefreshesByTerminalKey[key] ?? 0) - 1)
+        let viewportRemainingRefreshes = max(0, (viewportSettlingRefreshesByTerminalKey[key] ?? 0) - 1)
+        if lowerFidelityRemainingRefreshes > 0 {
+            lowerFidelityDeferralRefreshesByTerminalKey[key] = lowerFidelityRemainingRefreshes
+        } else {
+            lowerFidelityDeferralRefreshesByTerminalKey[key] = nil
+        }
+        if viewportRemainingRefreshes > 0 {
+            viewportSettlingRefreshesByTerminalKey[key] = viewportRemainingRefreshes
+        } else {
+            viewportSettlingRefreshesByTerminalKey[key] = nil
+        }
+
+        let remainingRefreshes = max(lowerFidelityRemainingRefreshes, viewportRemainingRefreshes)
+        guard remainingRefreshes > 0 else {
+            return
+        }
+        mobileShellLog.info("accepted style-preserved lower fidelity terminal snapshot workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private) remaining=\(remainingRefreshes, privacy: .public)")
+        scheduleSelectedTerminalSnapshotRefresh()
     }
 
     private func clearLowerFidelityDeferralIfSnapshotHasStyledCells(
@@ -2542,20 +2609,6 @@ private struct MobileSyncTerminalSnapshotResponse: Decodable, Sendable {
         let response = try decoder.decode(Self.self, from: data)
         try response.snapshot.validate()
         return response
-    }
-}
-
-private extension MobileTerminalGhosttySnapshot {
-    var hasExplicitCellStyles: Bool {
-        visibleRows.contains { row in
-            row.cells.contains { cell in
-                cell.style != MobileTerminalGhosttyCellStyle()
-            }
-        } || scrollbackRows.contains { row in
-            row.cells.contains { cell in
-                cell.style != MobileTerminalGhosttyCellStyle()
-            }
-        }
     }
 }
 

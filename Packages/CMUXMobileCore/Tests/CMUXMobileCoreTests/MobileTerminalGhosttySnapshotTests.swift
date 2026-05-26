@@ -34,6 +34,51 @@ import Testing
     #expect(decoded.streamOffset == 42)
 }
 
+@Test func plainTextSnapshotReusesMatchingExplicitCellStylesFromPreviousSnapshot() throws {
+    let previous = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-build",
+        columns: 16,
+        rows: 2,
+        scrollbackText: nil,
+        viewportText: "\u{001B}[38;2;204;102;102mred prompt\u{001B}[0m"
+    )
+    let plainTextRefresh = try MobileTerminalGhosttySnapshot.fixture(
+        terminalID: "terminal-build",
+        columns: 16,
+        rows: 2,
+        visibleLines: ["red prompt x"]
+    )
+
+    let refreshed = plainTextRefresh.reusingExplicitCellStyles(from: previous)
+
+    #expect(refreshed.renderedVisibleLines.first == "red prompt x")
+    #expect(refreshed.visibleRows[0].cells[0].style.foreground == MobileTerminalGhosttyColor(red: 204, green: 102, blue: 102))
+    #expect(refreshed.visibleRows[0].cells[9].style.foreground == MobileTerminalGhosttyColor(red: 204, green: 102, blue: 102))
+    #expect(refreshed.visibleRows[0].cells[10].style == MobileTerminalGhosttyCellStyle())
+    #expect(refreshed.hasExplicitCellStyles)
+}
+
+@Test func plainTextSnapshotDoesNotReuseExplicitCellStylesForDifferentText() throws {
+    let previous = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-build",
+        columns: 16,
+        rows: 2,
+        scrollbackText: nil,
+        viewportText: "\u{001B}[38;2;204;102;102mred prompt\u{001B}[0m"
+    )
+    let plainTextRefresh = try MobileTerminalGhosttySnapshot.fixture(
+        terminalID: "terminal-build",
+        columns: 16,
+        rows: 2,
+        visibleLines: ["plain prompt x"]
+    )
+
+    let refreshed = plainTextRefresh.reusingExplicitCellStyles(from: previous)
+
+    #expect(refreshed.renderedVisibleLines.first == "plain prompt x")
+    #expect(!refreshed.hasExplicitCellStyles)
+}
+
 @Test func snapshotPreservesAlternateScreenTUIState() throws {
     let modes = MobileTerminalGhosttyModes(
         bracketedPaste: true,

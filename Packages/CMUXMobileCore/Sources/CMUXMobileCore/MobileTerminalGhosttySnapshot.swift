@@ -307,6 +307,28 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         visibleRows.map(\.trimmedPlainText)
     }
 
+    public var hasExplicitCellStyles: Bool {
+        Self.rowsHaveExplicitCellStyles(visibleRows) || Self.rowsHaveExplicitCellStyles(scrollbackRows)
+    }
+
+    public func reusingExplicitCellStyles(from previous: MobileTerminalGhosttySnapshot) -> MobileTerminalGhosttySnapshot {
+        guard terminalID == previous.terminalID,
+              gridSize == previous.gridSize else {
+            return self
+        }
+
+        var snapshot = self
+        snapshot.visibleRows = Self.rowsByReusingExplicitCellStyles(
+            visibleRows,
+            previousRows: previous.visibleRows
+        )
+        snapshot.scrollbackRows = Self.rowsByReusingExplicitCellStyles(
+            scrollbackRows,
+            previousRows: previous.scrollbackRows
+        )
+        return snapshot
+    }
+
     public static func fixture(
         terminalID: String,
         columns: Int = 32,
@@ -402,6 +424,62 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
     private enum RowKind {
         case scrollback
         case visible
+    }
+
+    private static func rowsHaveExplicitCellStyles(_ rows: [MobileTerminalGhosttyRow]) -> Bool {
+        rows.contains { row in
+            row.cells.contains { cell in
+                cell.style != MobileTerminalGhosttyCellStyle()
+            }
+        }
+    }
+
+    private static func rowsByReusingExplicitCellStyles(
+        _ rows: [MobileTerminalGhosttyRow],
+        previousRows: [MobileTerminalGhosttyRow]
+    ) -> [MobileTerminalGhosttyRow] {
+        guard rows.count == previousRows.count else {
+            return rows
+        }
+
+        return rows.indices.map { rowIndex in
+            let row = rows[rowIndex]
+            let previousRow = previousRows[rowIndex]
+            guard row.cells.count == previousRow.cells.count else {
+                return row
+            }
+            guard shouldReuseExplicitCellStyles(in: row, previousRow: previousRow) else {
+                return row
+            }
+
+            var cells = row.cells
+            for cellIndex in cells.indices {
+                let previousCell = previousRow.cells[cellIndex]
+                guard cells[cellIndex].style == MobileTerminalGhosttyCellStyle(),
+                      previousCell.style != MobileTerminalGhosttyCellStyle(),
+                      cells[cellIndex].text == previousCell.text,
+                      cells[cellIndex].width == previousCell.width else {
+                    continue
+                }
+                cells[cellIndex].style = previousCell.style
+                if cells[cellIndex].hyperlinkURI == nil, !cells[cellIndex].text.isEmpty {
+                    cells[cellIndex].hyperlinkURI = previousCell.hyperlinkURI
+                }
+            }
+            return MobileTerminalGhosttyRow(cells: cells, isWrapped: row.isWrapped)
+        }
+    }
+
+    private static func shouldReuseExplicitCellStyles(
+        in row: MobileTerminalGhosttyRow,
+        previousRow: MobileTerminalGhosttyRow
+    ) -> Bool {
+        let text = row.trimmedPlainText
+        let previousText = previousRow.trimmedPlainText
+        if text.isEmpty || previousText.isEmpty {
+            return text == previousText
+        }
+        return text.hasPrefix(previousText) || previousText.hasPrefix(text)
     }
 
     private func validateRows(_ rows: [MobileTerminalGhosttyRow], kind: RowKind) throws {
