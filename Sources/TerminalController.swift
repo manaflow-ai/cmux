@@ -9142,10 +9142,11 @@ class TerminalController {
                 return
             }
             let surfaceId: UUID?
-            if params["surface_id"] != nil {
-                surfaceId = v2UUID(params, "surface_id")
+            let rawSurface = params["surface_id"] ?? params["surface_ref"] ?? params["surface"]
+            if rawSurface != nil {
+                surfaceId = v2UUIDAny(rawSurface)
                 guard surfaceId != nil else {
-                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id/surface_ref/surface", data: nil)
                     return
                 }
             } else {
@@ -9208,10 +9209,11 @@ class TerminalController {
                 return
             }
             let surfaceId: UUID?
-            if params["surface_id"] != nil {
-                surfaceId = v2UUID(params, "surface_id")
+            let rawSurface = params["surface_id"] ?? params["surface_ref"] ?? params["surface"]
+            if rawSurface != nil {
+                surfaceId = v2UUIDAny(rawSurface)
                 guard surfaceId != nil else {
-                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id/surface_ref/surface", data: nil)
                     return
                 }
             } else {
@@ -9261,10 +9263,11 @@ class TerminalController {
                 return
             }
             let surfaceId: UUID?
-            if params["surface_id"] != nil {
-                surfaceId = v2UUID(params, "surface_id")
+            let rawSurface = params["surface_id"] ?? params["surface_ref"] ?? params["surface"]
+            if rawSurface != nil {
+                surfaceId = v2UUIDAny(rawSurface)
                 guard surfaceId != nil else {
-                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id/surface_ref/surface", data: nil)
                     return
                 }
             } else {
@@ -9321,10 +9324,11 @@ class TerminalController {
             }
 
             let surfaceId: UUID?
-            if params["surface_id"] != nil {
-                surfaceId = v2UUID(params, "surface_id")
+            let rawSurface = params["surface_id"] ?? params["surface_ref"] ?? params["surface"]
+            if rawSurface != nil {
+                surfaceId = v2UUIDAny(rawSurface)
                 guard surfaceId != nil else {
-                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id/surface_ref/surface", data: nil)
                     return
                 }
             } else {
