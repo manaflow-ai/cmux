@@ -118716,110 +118716,110 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] 请从边栏重新连接此工作区，或再次运行原始 cmux 远程命令。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] 請從側邊欄重新連接此工作區，或再次執行原始 cmux 遠端命令。"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] 사이드바에서 이 워크스페이스를 다시 연결하거나 원래 cmux 원격 명령을 다시 실행하세요."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] Verbinde diesen Arbeitsbereich über die Seitenleiste erneut oder führe den ursprünglichen cmux-Remote-Befehl noch einmal aus."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] Vuelve a conectar este espacio de trabajo desde la barra lateral o ejecuta de nuevo el comando remoto original de cmux."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] Reconnectez cet espace de travail depuis la barre latérale ou relancez la commande distante cmux d'origine."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] Riconnetti questo spazio di lavoro dalla barra laterale oppure esegui di nuovo il comando remoto cmux originale."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] Genopret forbindelsen til dette arbejdsområde fra sidepanelet, eller kør den oprindelige cmux-fjernkommando igen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] Połącz ponownie ten obszar roboczy z paska bocznego albo ponownie uruchom oryginalne polecenie zdalne cmux."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] Повторно подключите это рабочее пространство из боковой панели или снова выполните исходную удаленную команду cmux."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] Ponovo povežite ovaj radni prostor iz bočne trake ili ponovo pokrenite originalnu cmux udaljenu naredbu."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] أعد توصيل مساحة العمل هذه من الشريط الجانبي أو شغّل أمر cmux البعيد الأصلي مرة أخرى."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] Koble til dette arbeidsområdet på nytt fra sidefeltet, eller kjør den opprinnelige cmux-fjernkommandoen på nytt."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] Reconecte este espaço de trabalho pela barra lateral ou execute novamente o comando remoto original do cmux."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] เชื่อมต่อพื้นที่ทำงานนี้ใหม่จากแถบด้านข้าง หรือเรียกใช้คำสั่งรีโมต cmux เดิมอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] Bu çalışma alanını kenar çubuğundan yeniden bağlayın veya özgün cmux uzak komutunu tekrar çalıştırın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] Повторно підключіть цей робочий простір із бічної панелі або ще раз запустіть початкову віддалену команду cmux."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "new",
-            "value": "[cmux] Reconnect this workspace from the sidebar or by running the original cmux remote command again."
+            "state": "translated",
+            "value": "[cmux] ភ្ជាប់កន្លែងធ្វើការនេះឡើងវិញពីរបារចំហៀង ឬដំណើរការពាក្យបញ្ជា cmux ពីចម្ងាយដើមម្តងទៀត។"
           }
         }
       }
