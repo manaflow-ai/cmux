@@ -939,7 +939,8 @@ enum SystemWideHotkeySettings {
         }
 
         let previousImportedShortcut = decodedShortcut(forKey: ghosttyImportedShortcutKey, defaults: defaults)
-        if !isManagedBySettingsFile() {
+        let shortcutIsManagedBySettingsFile = Self.isManagedBySettingsFile()
+        if !shortcutIsManagedBySettingsFile {
             let currentShortcut = storedShortcut(defaults: defaults)
             if currentShortcut == nil || currentShortcut == previousImportedShortcut {
                 store(normalizedShortcut, forKey: action.defaultsKey, defaults: defaults)
@@ -949,7 +950,8 @@ enum SystemWideHotkeySettings {
 
         let currentEnabled = defaults.object(forKey: enabledKey) as? Bool
         let previousImportedEnabled = defaults.object(forKey: ghosttyImportedEnabledKey) as? Bool
-        if currentEnabled == nil || currentEnabled == previousImportedEnabled {
+        if !shortcutIsManagedBySettingsFile,
+           currentEnabled == nil || currentEnabled == previousImportedEnabled {
             defaults.set(true, forKey: enabledKey)
             defaults.set(true, forKey: ghosttyImportedEnabledKey)
         }

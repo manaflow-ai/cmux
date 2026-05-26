@@ -691,11 +691,13 @@ final class QuickTerminalController {
     }
 
     private func shouldHide(_ window: NSWindow) -> Bool {
-        NSApp.isActive &&
-            window.isVisible &&
+        isShown(window)
+    }
+
+    private func isShown(_ window: NSWindow) -> Bool {
+        window.isVisible &&
             !window.isMiniaturized &&
-            window.alphaValue > 0.001 &&
-            window.isKeyWindow
+            window.alphaValue > 0.001
     }
 
     private func quickTerminalWindow(
@@ -748,8 +750,14 @@ final class QuickTerminalController {
         configuration: QuickTerminalConfiguration,
         appDelegate: AppDelegate
     ) {
-        isAnimating = true
         configure(window)
+        if isShown(window) {
+            window.setSoftHiddenForVisibilityController(false)
+            _ = appDelegate.focusQuickTerminalWindow(window)
+            return
+        }
+
+        isAnimating = true
         window.setFrame(placement.hiddenFrame, display: false)
         window.setSoftHiddenForVisibilityController(false)
         _ = appDelegate.focusQuickTerminalWindow(window)

@@ -1551,6 +1551,38 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(SystemWideHotkeySettings.shortcut(), userShortcut)
     }
 
+    func testSystemWideHotkeyGhosttyImportDoesNotEnableManagedShortcut() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "showHideAllWindows": "ctrl+h"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        let ghosttyShortcut = StoredShortcut(key: "`", command: true, shift: false, option: false, control: false)
+        SystemWideHotkeySettings.applyGhosttyQuickTerminalShortcutIfAvailable(ghosttyShortcut)
+
+        XCTAssertFalse(SystemWideHotkeySettings.isEnabled())
+        XCTAssertEqual(
+            SystemWideHotkeySettings.shortcut(),
+            StoredShortcut(key: "h", command: false, shift: false, option: false, control: true)
+        )
+        XCTAssertNil(UserDefaults.standard.object(forKey: SystemWideHotkeySettings.ghosttyImportedEnabledKey))
+    }
+
     func testBootstrapCreatesCommentedTemplateWhenPrimaryAndFallbackAreMissing() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }

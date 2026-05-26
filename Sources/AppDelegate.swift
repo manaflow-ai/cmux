@@ -4084,6 +4084,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         var merged = windows
         if merged.count >= SessionPersistencePolicy.maxWindowsPerSnapshot {
+            // Keep pendingQuickTerminalSnapshot marked isQuickTerminal in merged by evicting the last regular window.
             merged.removeLast()
         }
         merged.append(pendingQuickTerminalSnapshot)
@@ -15038,11 +15039,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isQuickTerminalWindow(_ window: NSWindow) -> Bool {
-        if mainWindowContexts[ObjectIdentifier(window)]?.isQuickTerminal == true {
-            return true
-        }
-        guard let raw = window.identifier?.rawValue else { return false }
-        return raw == "cmux.quickTerminal"
+        mainWindowContexts[ObjectIdentifier(window)]?.isQuickTerminal == true
     }
 
     private func workspaceForMainActor(tabId: UUID) -> Workspace? {
