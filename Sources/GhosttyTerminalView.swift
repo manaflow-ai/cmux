@@ -4431,9 +4431,7 @@ class GhosttyApp {
                 event = nil
             }
             guard let event else { return true }
-            Task { @MainActor in
-                terminalSurface.applyTmuxControlEvent(event)
-            }
+            terminalSurface.enqueueTmuxControlEvent(event)
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
             guard let tabId = surfaceView.tabId,
@@ -5297,12 +5295,70 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var portalLifecycleState: PortalLifecycleState = .live
     private var portalLifecycleGeneration: UInt64 = 1
     private var activePortalHostLease: PortalHostLease?
+    private static let maxCoalescedTmuxControlPaneOutputBytes = 65_536
+    private let tmuxControlPendingLock = NSLock()
+    private var pendingTmuxControlEvents: [TmuxControlEvent] = []
+    private var tmuxControlFlushScheduled = false
     @Published private(set) var tmuxControlState = TmuxControlState()
+
+    func enqueueTmuxControlEvent(_ event: TmuxControlEvent) {
+        let shouldSchedule: Bool
+        tmuxControlPendingLock.lock()
+        appendPendingTmuxControlEventLocked(event)
+        if tmuxControlFlushScheduled {
+            shouldSchedule = false
+        } else {
+            tmuxControlFlushScheduled = true
+            shouldSchedule = true
+        }
+        tmuxControlPendingLock.unlock()
+
+        guard shouldSchedule else { return }
+        Task { @MainActor [weak self] in
+            self?.flushPendingTmuxControlEvents()
+        }
+    }
+
+    private func appendPendingTmuxControlEventLocked(_ event: TmuxControlEvent) {
+        if case .paneOutput(let paneId, let data) = event,
+           let lastIndex = pendingTmuxControlEvents.indices.last,
+           case .paneOutput(let lastPaneId, let existingData) = pendingTmuxControlEvents[lastIndex],
+           paneId == lastPaneId {
+            var combined = existingData
+            combined.append(data)
+            if combined.count > Self.maxCoalescedTmuxControlPaneOutputBytes {
+                combined = Data(combined.suffix(Self.maxCoalescedTmuxControlPaneOutputBytes))
+            }
+            pendingTmuxControlEvents[lastIndex] = .paneOutput(paneId: paneId, data: combined)
+            return
+        }
+
+        pendingTmuxControlEvents.append(event)
+    }
+
+    @MainActor
+    private func flushPendingTmuxControlEvents() {
+        tmuxControlPendingLock.lock()
+        let events = pendingTmuxControlEvents
+        pendingTmuxControlEvents.removeAll(keepingCapacity: true)
+        tmuxControlFlushScheduled = false
+        tmuxControlPendingLock.unlock()
+
+        applyTmuxControlEvents(events)
+    }
 
     @MainActor
     func applyTmuxControlEvent(_ event: TmuxControlEvent) {
+        applyTmuxControlEvents([event])
+    }
+
+    @MainActor
+    private func applyTmuxControlEvents(_ events: [TmuxControlEvent]) {
+        guard !events.isEmpty else { return }
         var next = tmuxControlState
-        next.apply(event)
+        for event in events {
+            next.apply(event)
+        }
         guard next != tmuxControlState else { return }
         tmuxControlState = next
 #if DEBUG
