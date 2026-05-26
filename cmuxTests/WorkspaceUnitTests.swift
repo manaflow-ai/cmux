@@ -698,16 +698,37 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertNil(ShortcutStroke.parseConfig("cmd+f21"))
     }
 
+    func testShortcutConfigParsingAcceptsGhosttyQuickTerminalAliases() {
+        let stroke = ShortcutStroke.parseConfig("super+grave_accent")
+
+        XCTAssertEqual(stroke?.key, "`")
+        XCTAssertEqual(stroke?.command, true)
+    }
+
+    func testGhosttyGlobalQuickTerminalKeybindParsesShortcut() {
+        let shortcut = StoredShortcut.parseGhosttyGlobalKeybind(
+            "global:cmd+grave_accent=toggle_quick_terminal",
+            action: "toggle_quick_terminal"
+        )
+
+        XCTAssertEqual(
+            shortcut,
+            StoredShortcut(key: "`", command: true, shift: false, option: false, control: false)
+        )
+    }
+
     override func setUp() {
         super.setUp()
         originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         KeyboardShortcutSettings.resetAll()
+        SystemWideHotkeySettings.reset()
     }
 
     override func tearDown() {
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppIconSettings.resetLiveEnvironmentProviderForTesting()
         KeyboardShortcutSettings.resetAll()
+        SystemWideHotkeySettings.reset()
         super.tearDown()
     }
 
@@ -1230,6 +1251,25 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let storedShortcut = try XCTUnwrap(try? JSONDecoder().decode(StoredShortcut.self, from: migratedData))
         XCTAssertEqual(storedShortcut, invalidShortcut)
         XCTAssertNil(storedShortcut.carbonHotKeyRegistration)
+    }
+
+    func testSystemWideHotkeyImportsGhosttyQuickTerminalShortcutWhenUnset() {
+        let ghosttyShortcut = StoredShortcut(key: "`", command: true, shift: false, option: false, control: false)
+
+        SystemWideHotkeySettings.applyGhosttyQuickTerminalShortcutIfAvailable(ghosttyShortcut)
+
+        XCTAssertTrue(SystemWideHotkeySettings.isEnabled())
+        XCTAssertEqual(SystemWideHotkeySettings.shortcut(), ghosttyShortcut)
+    }
+
+    func testSystemWideHotkeyGhosttyImportDoesNotReplaceUserShortcut() {
+        let userShortcut = StoredShortcut(key: "h", command: false, shift: false, option: true, control: true)
+        let ghosttyShortcut = StoredShortcut(key: "`", command: true, shift: false, option: false, control: false)
+        SystemWideHotkeySettings.setShortcut(userShortcut)
+
+        SystemWideHotkeySettings.applyGhosttyQuickTerminalShortcutIfAvailable(ghosttyShortcut)
+
+        XCTAssertEqual(SystemWideHotkeySettings.shortcut(), userShortcut)
     }
 
     func testBootstrapCreatesCommentedTemplateWhenPrimaryAndFallbackAreMissing() throws {

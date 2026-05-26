@@ -143,7 +143,7 @@ enum KeyboardShortcutSettings {
             switch self {
             case .openSettings: return String(localized: "menu.app.settings", defaultValue: "Settings…")
             case .reloadConfiguration: return String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration")
-            case .showHideAllWindows: return String(localized: "settings.globalHotkey.shortcut", defaultValue: "Show/Hide All Windows")
+            case .showHideAllWindows: return String(localized: "settings.globalHotkey.shortcut", defaultValue: "Toggle Quick Terminal")
             case .newWindow: return String(localized: "shortcut.newWindow.label", defaultValue: "New Window")
             case .closeWindow: return String(localized: "shortcut.closeWindow.label", defaultValue: "Close Window")
             case .toggleFullScreen: return String(localized: "command.toggleFullScreen.title", defaultValue: "Toggle Full Screen")
@@ -235,11 +235,7 @@ enum KeyboardShortcutSettings {
             case .reloadConfiguration:
                 return StoredShortcut(key: ",", command: true, shift: true, option: false, control: false)
             case .showHideAllWindows:
-                // Avoid AppKit-reserved keystrokes such as Cmd+. (modal
-                // cancel). Default to Ctrl+Option+Cmd+. so the global hotkey
-                // does not collide with the standard cancel keystroke that
-                // NSAlert/NSOpenPanel use.
-                return StoredShortcut(key: ".", command: true, shift: false, option: true, control: true)
+                return StoredShortcut(key: "`", command: false, shift: false, option: false, control: true)
             case .newWindow:
                 return StoredShortcut(key: "n", command: true, shift: true, option: false, control: false)
             case .closeWindow:
@@ -844,6 +840,8 @@ enum KeyboardShortcutSettings {
 enum SystemWideHotkeySettings {
     static let enabledKey = "systemWideHotkey.enabled"
     static let legacyShortcutKey = "systemWideHotkey.shortcut"
+    static let ghosttyImportedShortcutKey = "systemWideHotkey.ghosttyImportedShortcut"
+    static let ghosttyImportedEnabledKey = "systemWideHotkey.ghosttyImportedEnabled"
     static let defaultEnabled = false
     static let action: KeyboardShortcutSettings.Action = .showHideAllWindows
 
@@ -870,6 +868,33 @@ enum SystemWideHotkeySettings {
         KeyboardShortcutSettings.setShortcut(shortcut, for: action)
     }
 
+    static func applyGhosttyQuickTerminalShortcutIfAvailable(
+        _ shortcut: StoredShortcut?,
+        defaults: UserDefaults = .standard
+    ) {
+        migrateLegacyShortcutIfNeeded(defaults: defaults)
+        guard let shortcut,
+              let normalizedShortcut = normalizedRecordedShortcut(shortcut) else {
+            return
+        }
+
+        let previousImportedShortcut = decodedShortcut(forKey: ghosttyImportedShortcutKey, defaults: defaults)
+        if !isManagedBySettingsFile() {
+            let currentShortcut = storedShortcut(defaults: defaults)
+            if currentShortcut == nil || currentShortcut == previousImportedShortcut {
+                store(normalizedShortcut, forKey: action.defaultsKey, defaults: defaults)
+                store(normalizedShortcut, forKey: ghosttyImportedShortcutKey, defaults: defaults)
+            }
+        }
+
+        let currentEnabled = defaults.object(forKey: enabledKey) as? Bool
+        let previousImportedEnabled = defaults.object(forKey: ghosttyImportedEnabledKey) as? Bool
+        if currentEnabled == nil || currentEnabled == previousImportedEnabled {
+            defaults.set(true, forKey: enabledKey)
+            defaults.set(true, forKey: ghosttyImportedEnabledKey)
+        }
+    }
+
     static func normalizedRecordedShortcutResult(
         _ shortcut: StoredShortcut
     ) -> KeyboardShortcutSettings.RecordedShortcutResolution {
@@ -887,6 +912,8 @@ enum SystemWideHotkeySettings {
     static func reset(defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: enabledKey)
         defaults.removeObject(forKey: legacyShortcutKey)
+        defaults.removeObject(forKey: ghosttyImportedShortcutKey)
+        defaults.removeObject(forKey: ghosttyImportedEnabledKey)
         defaults.removeObject(forKey: action.defaultsKey)
     }
 
@@ -911,6 +938,16 @@ enum SystemWideHotkeySettings {
             return KeyboardShortcutSettings.settingsFileStore.override(for: action)
         }
         return shortcut
+    }
+
+    private static func decodedShortcut(forKey key: String, defaults: UserDefaults) -> StoredShortcut? {
+        guard let data = defaults.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(StoredShortcut.self, from: data)
+    }
+
+    private static func store(_ shortcut: StoredShortcut, forKey key: String, defaults: UserDefaults) {
+        guard let data = try? JSONEncoder().encode(shortcut) else { return }
+        defaults.set(data, forKey: key)
     }
 }
 
@@ -1109,14 +1146,14 @@ final class SystemWideHotkeyController {
 #endif
 
         Task { @MainActor [weak self] in
-            self?.toggleApplicationVisibility()
+            self?.toggleQuickTerminal()
         }
         return OSStatus(noErr)
     }
 
     @MainActor
-    private func toggleApplicationVisibility() {
-        AppDelegate.shared?.toggleApplicationVisibilityFromGlobalHotkey()
+    private func toggleQuickTerminal() {
+        AppDelegate.shared?.toggleQuickTerminalFromGlobalHotkey()
     }
 
     @MainActor
@@ -2031,7 +2068,7 @@ extension ShortcutStroke {
 
         for modifier in parts.dropLast() {
             switch modifier.lowercased() {
-            case "cmd", "command", "⌘":
+            case "cmd", "command", "super", "⌘":
                 command = true
             case "shift", "⇧":
                 shift = true
@@ -2108,7 +2145,7 @@ extension ShortcutStroke {
             return ";"
         case "quote", "apostrophe":
             return "'"
-        case "backtick", "grave":
+        case "backtick", "grave", "grave_accent", "backquote":
             return "`"
         case "minus", "hyphen":
             return "-"
@@ -2166,6 +2203,22 @@ extension StoredShortcut {
         guard !firstStroke.modifierFlags.isEmpty || firstStroke.key == "space" else { return nil }
         let secondStroke = parsedStrokes.count == 2 ? parsedStrokes[1] : nil
         return StoredShortcut(first: firstStroke, second: secondStroke)
+    }
+
+    static func parseGhosttyGlobalKeybind(_ rawValue: String, action expectedAction: String) -> StoredShortcut? {
+        let assignment = rawValue.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard assignment.count == 2,
+              assignment[1] == expectedAction else {
+            return nil
+        }
+
+        let prefix = "global:"
+        let trigger = assignment[0]
+        guard trigger.lowercased().hasPrefix(prefix) else { return nil }
+
+        let shortcutText = String(trigger.dropFirst(prefix.count))
+        return parseConfig(shortcutText)
     }
 
     var configIdentifier: String {

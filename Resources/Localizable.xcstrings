@@ -69494,25 +69494,48 @@
         }
       }
     },
+    "quickTerminal.windowTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クイックターミナル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "퀵 터미널"
+          }
+        }
+      }
+    },
     "settings.globalHotkey.enable": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enable System-Wide Hotkey"
+            "value": "Enable Quick Terminal Hotkey"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "システム全体のホットキーを有効にする"
+            "value": "クイックターミナルのホットキーを有効にする"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "시스템 전체 단축키 활성화"
+            "value": "퀵 터미널 단축키 활성화"
           }
         }
       }
@@ -69523,19 +69546,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turn this on to show or hide all cmux windows from any app."
+            "value": "Turn this on to summon Quick Terminal from any app."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "どのアプリからでも cmux のすべてのウィンドウを表示または非表示にするにはオンにします。"
+            "value": "どのアプリからでもクイックターミナルを呼び出せるようにします。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 옵션을 켜면 어떤 앱에서든 모든 cmux 윈도우를 표시하거나 숨길 수 있습니다."
+            "value": "이 옵션을 켜면 어떤 앱에서든 퀵 터미널을 불러올 수 있습니다."
           }
         }
       }
@@ -69546,19 +69569,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press the shortcut from any app to show or hide all cmux windows."
+            "value": "Press the shortcut from any app to show or hide Quick Terminal."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "どのアプリからでもこのショートカットで cmux のすべてのウィンドウを表示または非表示にできます。"
+            "value": "どのアプリからでもこのショートカットでクイックターミナルを表示または非表示にできます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "어떤 앱에서든 단축키를 눌러 모든 cmux 윈도우를 표시하거나 숨깁니다."
+            "value": "어떤 앱에서든 단축키를 눌러 퀵 터미널을 표시하거나 숨깁니다."
           }
         }
       }
@@ -69569,19 +69592,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use Command, Option, or Control with another key. No extra macOS permission is required."
+            "value": "Quick Terminal slides from the active screen edge and keeps its session running while hidden."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command、Option、または Control と別のキーを組み合わせてください。追加の macOS 権限は不要です。"
+            "value": "クイックターミナルはアクティブな画面端からスライドし、隠れている間もセッションを維持します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command, Option 또는 Control과 다른 키를 함께 사용하세요. 추가 macOS 권한이 필요하지 않습니다."
+            "value": "퀵 터미널은 활성 화면 가장자리에서 내려오며 숨겨진 동안에도 세션을 유지합니다."
           }
         }
       }
@@ -69592,19 +69615,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show/Hide All Windows"
+            "value": "Toggle Quick Terminal"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべてのウィンドウを表示/非表示"
+            "value": "クイックターミナルを切り替え"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모든 윈도우 표시/숨기기"
+            "value": "퀵 터미널 전환"
           }
         }
       }

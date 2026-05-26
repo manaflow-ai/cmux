@@ -392,6 +392,32 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         XCTAssertEqual(activationCount, 0)
     }
 
+    func testQuickTerminalPlacementUsesTopScreenBand() {
+        let placement = QuickTerminalPlacement.placement(
+            forVisibleFrame: NSRect(x: 0, y: 0, width: 1000, height: 800)
+        )
+
+        XCTAssertEqual(placement.visibleFrame.origin.x, 60, accuracy: 0.001)
+        XCTAssertEqual(placement.visibleFrame.origin.y, 368, accuracy: 0.001)
+        XCTAssertEqual(placement.visibleFrame.width, 880, accuracy: 0.001)
+        XCTAssertEqual(placement.visibleFrame.height, 420, accuracy: 0.001)
+        XCTAssertEqual(placement.hiddenFrame.origin.x, placement.visibleFrame.origin.x, accuracy: 0.001)
+        XCTAssertEqual(placement.hiddenFrame.origin.y, 812, accuracy: 0.001)
+    }
+
+    func testQuickTerminalPlacementClampsToSmallScreen() {
+        let placement = QuickTerminalPlacement.placement(
+            forVisibleFrame: NSRect(x: 10, y: 20, width: 500, height: 300)
+        )
+
+        XCTAssertEqual(placement.visibleFrame.origin.x, 42, accuracy: 0.001)
+        XCTAssertEqual(placement.visibleFrame.origin.y, 20, accuracy: 0.001)
+        XCTAssertEqual(placement.visibleFrame.width, 436, accuracy: 0.001)
+        XCTAssertEqual(placement.visibleFrame.height, 292, accuracy: 0.001)
+        XCTAssertEqual(placement.hiddenFrame.origin.x, placement.visibleFrame.origin.x, accuracy: 0.001)
+        XCTAssertEqual(placement.hiddenFrame.origin.y, 328, accuracy: 0.001)
+    }
+
     private func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 120, height: 80),
