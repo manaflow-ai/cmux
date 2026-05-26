@@ -1415,8 +1415,9 @@ final class AccessibilityInsertTextRegressionTests: XCTestCase {
         }
 
         view.insertText("\u{1B}[A", replacementRange: NSRange(location: NSNotFound, length: 0))
+        view.insertText("\u{9B}A", replacementRange: NSRange(location: NSNotFound, length: 0))
 
-        XCTAssertEqual(rawText, [Data("\u{1B}[A".utf8)])
+        XCTAssertEqual(rawText, [Data("\u{1B}[A".utf8), Data("\u{9B}A".utf8)])
         XCTAssertEqual(pressedText, [], "Automation escape payloads should bypass key-event text encoding")
         XCTAssertEqual(pressedKeycodes, [], "Automation escape payloads should preserve ESC as raw PTY bytes, not Escape key events")
     }

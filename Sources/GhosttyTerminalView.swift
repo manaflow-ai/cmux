@@ -14107,6 +14107,13 @@ extension GhosttyNSView: NSTextInputClient {
         guard let surface = surface else { return }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
+        defer {
+            CmuxTypingTiming.logDuration(
+                path: "terminal.sendTextToSurface",
+                startedAt: typingTimingStart,
+                extra: "textBytes=\(chars.utf8.count)"
+            )
+        }
 #endif
 #if DEBUG
         cmuxWriteChildExitProbe(
@@ -14184,13 +14191,6 @@ extension GhosttyNSView: NSTextInputClient {
             }
         }
         flushBufferedText()
-#if DEBUG
-        CmuxTypingTiming.logDuration(
-            path: "terminal.sendTextToSurface",
-            startedAt: typingTimingStart,
-            extra: "textBytes=\(chars.utf8.count)"
-        )
-#endif
     }
 
     private static func shouldSendAsRawTextPayload(_ text: String) -> Bool {
@@ -14204,7 +14204,9 @@ extension GhosttyNSView: NSTextInputClient {
         Self.debugGhosttySurfaceTextObserver?(data)
 #endif
         data.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+                return
+            }
             ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
         }
     }
