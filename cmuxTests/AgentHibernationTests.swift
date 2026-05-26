@@ -218,7 +218,7 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertNotEqual(first, restarted)
     }
 
-    func testFirstTailSamplePreservesKnownIdleActivity() {
+    func testFirstTailSampleStartsObservedStabilityWindow() {
         XCTAssertEqual(
             AgentHibernationController.tailFingerprintStableSince(
                 previousFingerprint: nil,
@@ -227,7 +227,7 @@ final class AgentHibernationTests: XCTestCase {
                 lastActivityAt: 100,
                 now: 500
             ),
-            100
+            500
         )
         XCTAssertEqual(
             AgentHibernationController.tailFingerprintStableSince(

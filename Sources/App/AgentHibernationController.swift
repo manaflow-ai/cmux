@@ -350,7 +350,7 @@ final class AgentHibernationController {
         if previousFingerprint == currentFingerprint {
             return previousStableSince ?? lastActivityAt
         }
-        return previousFingerprint == nil ? lastActivityAt : now
+        return now
     }
 
     private nonisolated static func processIdentityFingerprint(_ processIDs: Set<Int>) -> String {
