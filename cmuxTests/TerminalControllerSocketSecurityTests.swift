@@ -240,6 +240,42 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(workerError["code"] as? String, "not_found")
     }
 
+    func testHeartbeatMethodsSupportInProcessAndSocketDispatch() async throws {
+        let socketPath = makeSocketPath("heartbeat-worker")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        for method in ["system.ping", "system.capabilities"] {
+            let requestLine = try makeV2RequestLine(method: method, params: [:])
+            let mainEnvelope = try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+            XCTAssertEqual(mainEnvelope["ok"] as? Bool, true, method)
+            try assertHeartbeatResult(method: method, envelope: mainEnvelope)
+
+            let workerEnvelope = try await sendV2RequestAsync(method: method, params: [:], to: socketPath)
+            XCTAssertEqual(workerEnvelope["ok"] as? Bool, true, method)
+            try assertHeartbeatResult(method: method, envelope: workerEnvelope)
+        }
+    }
+
+    private func assertHeartbeatResult(method: String, envelope: [String: Any], file: StaticString = #filePath, line: UInt = #line) throws {
+        let result = try XCTUnwrap(envelope["result"] as? [String: Any], method, file: file, line: line)
+        switch method {
+        case "system.ping":
+            XCTAssertEqual(result["pong"] as? Bool, true, file: file, line: line)
+        case "system.capabilities":
+            let methods = try XCTUnwrap(result["methods"] as? [String], method, file: file, line: line)
+            XCTAssertTrue(methods.contains("system.ping"), file: file, line: line)
+            XCTAssertTrue(methods.contains("system.capabilities"), file: file, line: line)
+        default:
+            XCTFail("Unexpected heartbeat method \(method)", file: file, line: line)
+        }
+    }
+
     func testRemotePTYBridgeWaitForReadyRunsOnSocketWorker() async throws {
         let socketPath = makeSocketPath("pty-bridge-worker")
         let tabManager = TabManager()
