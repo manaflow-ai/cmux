@@ -147,6 +147,49 @@ private func runGit(
 }
 
 @MainActor
+final class TabManagerWorkspaceGroupTests: XCTestCase {
+    func testWorkspaceGroupsCreateMoveUngroupAndPruneClosedWorkspaces() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let first = try XCTUnwrap(manager.selectedWorkspace)
+        let second = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let third = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+
+        let group = manager.createWorkspaceGroup(
+            title: " Project ",
+            workspaceIds: [third.id, first.id],
+            isCollapsed: true
+        )
+
+        XCTAssertEqual(manager.workspaceGroups.count, 1)
+        XCTAssertEqual(manager.workspaceGroups[0].id, group.id)
+        XCTAssertEqual(manager.workspaceGroups[0].title, "Project")
+        XCTAssertTrue(manager.workspaceGroups[0].isCollapsed)
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id, third.id])
+        XCTAssertEqual(manager.workspaceGroupId(containing: first.id), group.id)
+        XCTAssertEqual(manager.workspaceGroupId(containing: third.id), group.id)
+
+        XCTAssertTrue(manager.toggleWorkspaceGroupCollapsed(id: group.id))
+        XCTAssertFalse(manager.workspaceGroups[0].isCollapsed)
+
+        manager.moveWorkspace(second.id, toGroup: group.id)
+
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id, second.id, third.id])
+
+        manager.moveWorkspace(first.id, toGroup: nil)
+
+        XCTAssertNil(manager.workspaceGroupId(containing: first.id))
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [second.id, third.id])
+
+        manager.closeWorkspace(third)
+
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [second.id])
+
+        XCTAssertTrue(manager.deleteWorkspaceGroup(id: group.id))
+        XCTAssertTrue(manager.workspaceGroups.isEmpty)
+    }
+}
+
+@MainActor
 final class TabManagerChildExitCloseTests: XCTestCase {
     func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
         let manager = TabManager()

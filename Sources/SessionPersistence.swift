@@ -1539,9 +1539,58 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var remote: SessionRemoteWorkspaceSnapshot?
 }
 
+struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
+    var id: UUID
+    var title: String
+    var isCollapsed: Bool
+    var workspaceIndexes: [Int]
+    var workspaceIds: [UUID]? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case isCollapsed
+        case workspaceIndexes
+        case workspaceIds
+    }
+
+    init(
+        id: UUID,
+        title: String,
+        isCollapsed: Bool,
+        workspaceIndexes: [Int],
+        workspaceIds: [UUID]? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.isCollapsed = isCollapsed
+        self.workspaceIndexes = workspaceIndexes
+        self.workspaceIds = workspaceIds
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        isCollapsed = try container.decode(Bool.self, forKey: .isCollapsed)
+        workspaceIndexes = try container.decodeIfPresent([Int].self, forKey: .workspaceIndexes) ?? []
+        workspaceIds = try container.decodeIfPresent([UUID].self, forKey: .workspaceIds)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(isCollapsed, forKey: .isCollapsed)
+        try container.encode(workspaceIndexes, forKey: .workspaceIndexes)
+        try container.encodeIfPresent(workspaceIds, forKey: .workspaceIds)
+    }
+}
+
 struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
+    var workspaceGroups: [SessionWorkspaceGroupSnapshot]? = nil
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {
