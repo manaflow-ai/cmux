@@ -13,6 +13,54 @@ import UserNotifications
 @testable import cmux
 #endif
 
+final class TerminalSurfaceResizePolicyTests: XCTestCase {
+    func testPixelOnlyResizeWithinExistingGridIsCoalesced() {
+        XCTAssertFalse(
+            TerminalSurface.shouldApplySurfacePixelSizeChangeForTesting(
+                currentColumns: 80,
+                currentRows: 24,
+                currentCellWidthPx: 10,
+                currentCellHeightPx: 20,
+                targetWidthPx: 805,
+                targetHeightPx: 485,
+                forcePixelOnlyResize: false,
+                hasAppliedPixelSize: true
+            ),
+            "Pixel-only resize churn inside the same terminal grid should not be forwarded to Ghostty as a PTY resize"
+        )
+    }
+
+    func testResizeAppliesWhenGridChangesOrSettles() {
+        XCTAssertTrue(
+            TerminalSurface.shouldApplySurfacePixelSizeChangeForTesting(
+                currentColumns: 80,
+                currentRows: 24,
+                currentCellWidthPx: 10,
+                currentCellHeightPx: 20,
+                targetWidthPx: 810,
+                targetHeightPx: 485,
+                forcePixelOnlyResize: false,
+                hasAppliedPixelSize: true
+            ),
+            "A resize that changes the terminal grid must still be forwarded"
+        )
+
+        XCTAssertTrue(
+            TerminalSurface.shouldApplySurfacePixelSizeChangeForTesting(
+                currentColumns: 80,
+                currentRows: 24,
+                currentCellWidthPx: 10,
+                currentCellHeightPx: 20,
+                targetWidthPx: 805,
+                targetHeightPx: 485,
+                forcePixelOnlyResize: true,
+                hasAppliedPixelSize: true
+            ),
+            "The final settled geometry should be forwarded even when only the backing pixel size changed"
+        )
+    }
+}
+
 @MainActor
 final class GhosttyPasteboardHelperTests: XCTestCase {
     private func make1x1PNG(color: NSColor) throws -> Data {
