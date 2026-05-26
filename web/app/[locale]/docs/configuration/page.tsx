@@ -69,6 +69,11 @@ const settingsFileExample = `{
   //   "copyOnSelect": true,
   //   "autoResumeAgentSessions": true,
   //   "regexHighlights": ["#FFE06680\\tERROR", "#FF6B6B80\\tpanic|fatal"],
+  //   "agentHibernation": {
+  //     "enabled": false,
+  //     "idleSeconds": 3600,
+  //     "maxLiveTerminals": 12
+  //   },
   //   "textBoxMaxLines": 10
   // },
 

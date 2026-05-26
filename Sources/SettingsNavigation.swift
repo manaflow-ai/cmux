@@ -86,7 +86,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .app:
             return "\(title) appearance language workspace notifications menu bar telemetry"
         case .terminal:
-            return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev commands approvals prefixes toggle"
+            return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
         case .workspaceColors:
             return "\(title) palette tabs"
         case .sidebarAppearance:
@@ -334,11 +334,14 @@ enum SettingsSearchIndex {
         setting(.terminal, "copy-on-select", String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), "terminal.copyOnSelect clipboard selection mouse double click triple click"),
         setting(.terminal, "agent-auto-resume", String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
         setting(.terminal, "regex-highlights", String(localized: "settings.terminal.regexHighlights", defaultValue: "Automatic Text Highlights"), "terminal.regexHighlights regex regular expression highlight alert error warning terminal text"),
+        setting(.terminal, "agent-hibernation", String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"), "terminal.agentHibernation idle hibernate suspend background agents claude code codex opencode live terminals"),
         setting(.terminal, "resume-commands", String(localized: "settings.terminal.resumeCommands", defaultValue: "Resume Commands"), "surface resume command approvals prefixes auto restore prompt manual tmux hibernation"),
         setting(.sidebarAppearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebar material transparency"),
         setting(.sidebarAppearance, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),
         setting(.sidebarAppearance, "show-workspace-description", String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"), "workspace description notes markdown"),
         setting(.sidebarAppearance, "sidebar-branch-layout", String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"), "branch directory vertical inline"),
+        setting(.sidebarAppearance, "stack-branch-directory", String(localized: "settings.app.stackBranchDirectory", defaultValue: "Stack Branch and Directory"), "branch directory cwd path stack two rows separate lines"),
+        setting(.sidebarAppearance, "path-last-segment-only", String(localized: "settings.app.pathLastSegmentOnly", defaultValue: "Truncate Path From Start"), "cwd path directory truncate last segment basename viewport"),
         setting(.sidebarAppearance, "show-notification-message", String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"), "workspace latest notification"),
         setting(.sidebarAppearance, "show-branch-directory", String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"), "git cwd path"),
         setting(.sidebarAppearance, "show-pull-requests", String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"), "review pr mr link"),
@@ -433,6 +436,8 @@ enum SettingsSearchIndex {
         "sidebar.hideAllDetails": settingID(for: .sidebarAppearance, idSuffix: "hide-sidebar-details"),
         "sidebar.showWorkspaceDescription": settingID(for: .sidebarAppearance, idSuffix: "show-workspace-description"),
         "sidebar.branchLayout": settingID(for: .sidebarAppearance, idSuffix: "sidebar-branch-layout"),
+        "sidebar.stackBranchDirectory": settingID(for: .sidebarAppearance, idSuffix: "stack-branch-directory"),
+        "sidebar.pathLastSegmentOnly": settingID(for: .sidebarAppearance, idSuffix: "path-last-segment-only"),
         "sidebar.showNotificationMessage": settingID(for: .sidebarAppearance, idSuffix: "show-notification-message"),
         "sidebar.showBranchDirectory": settingID(for: .sidebarAppearance, idSuffix: "show-branch-directory"),
         "sidebar.showPullRequests": settingID(for: .sidebarAppearance, idSuffix: "show-pull-requests"),
@@ -450,6 +455,9 @@ enum SettingsSearchIndex {
         "terminal.copyOnSelect": settingID(for: .terminal, idSuffix: "copy-on-select"),
         "terminal.autoResumeAgentSessions": settingID(for: .terminal, idSuffix: "agent-auto-resume"),
         "terminal.regexHighlights": settingID(for: .terminal, idSuffix: "regex-highlights"),
+        "terminal.agentHibernation.enabled": settingID(for: .terminal, idSuffix: "agent-hibernation"),
+        "terminal.agentHibernation.idleSeconds": settingID(for: .terminal, idSuffix: "agent-hibernation"),
+        "terminal.agentHibernation.maxLiveTerminals": settingID(for: .terminal, idSuffix: "agent-hibernation"),
         "workspaceColors.indicatorStyle": settingID(for: .workspaceColors, idSuffix: "indicator"),
         "workspaceColors.selectionColor": settingID(for: .workspaceColors, idSuffix: "selection"),
         "workspaceColors.notificationBadgeColor": settingID(for: .workspaceColors, idSuffix: "badge"),
