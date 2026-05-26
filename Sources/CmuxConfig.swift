@@ -13,11 +13,12 @@ struct CmuxConfigFile: Codable, Sendable {
     var notifications: CmuxNotificationConfigDefinition?
     var newWorkspaceCommand: String?
     var surfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
+    var promptSnippets: [CmuxPromptSnippetDefinition]
     var commands: [CmuxCommandDefinition]
     var vault: CmuxVaultConfigDefinition?
 
     private enum CodingKeys: String, CodingKey {
-        case actions, ui, notifications, newWorkspaceCommand, surfaceTabBarButtons, commands, vault
+        case actions, ui, notifications, newWorkspaceCommand, surfaceTabBarButtons, promptSnippets, commands, vault
     }
 
     init(
@@ -26,6 +27,7 @@ struct CmuxConfigFile: Codable, Sendable {
         notifications: CmuxNotificationConfigDefinition? = nil,
         newWorkspaceCommand: String? = nil,
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
+        promptSnippets: [CmuxPromptSnippetDefinition] = [],
         commands: [CmuxCommandDefinition] = [],
         vault: CmuxVaultConfigDefinition? = nil
     ) {
@@ -34,6 +36,7 @@ struct CmuxConfigFile: Codable, Sendable {
         self.notifications = notifications
         self.newWorkspaceCommand = newWorkspaceCommand
         self.surfaceTabBarButtons = surfaceTabBarButtons
+        self.promptSnippets = promptSnippets
         self.commands = commands
         self.vault = vault
     }
@@ -81,6 +84,7 @@ struct CmuxConfigFile: Codable, Sendable {
         } else {
             surfaceTabBarButtons = nil
         }
+        promptSnippets = try container.decodeIfPresent([CmuxPromptSnippetDefinition].self, forKey: .promptSnippets) ?? []
         commands = try container.decodeIfPresent([CmuxCommandDefinition].self, forKey: .commands) ?? []
         vault = try container.decodeIfPresent(CmuxVaultConfigDefinition.self, forKey: .vault)
     }
@@ -1780,6 +1784,7 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
         case newWorkspaceActionNotFound
         case newWorkspaceCommandNotFound
         case newWorkspaceCommandRequiresWorkspace
+        case promptSnippetDuplicateID
         case schemaError
     }
 
@@ -1821,6 +1826,8 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
             return "\(settingName) '\(commandName ?? "")' does not match any loaded command"
         case .newWorkspaceCommandRequiresWorkspace:
             return "\(settingName) '\(commandName ?? "")' must reference a workspace command"
+        case .promptSnippetDuplicateID:
+            return "\(settingName) ignored duplicate prompt snippet id '\(commandName ?? "")'"
         case .schemaError:
             return "\(settingName) has a schema error: \(message ?? "unknown error")"
         }
@@ -1836,6 +1843,7 @@ final class CmuxConfigStore: ObservableObject {
 
     @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
     @Published private(set) var loadedActions: [CmuxResolvedConfigAction] = []
+    @Published private(set) var loadedPromptSnippets: [CmuxResolvedPromptSnippet] = []
     @Published private(set) var newWorkspaceCommandName: String?
     @Published private(set) var newWorkspaceActionID: String?
     @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
@@ -1878,6 +1886,11 @@ final class CmuxConfigStore: ObservableObject {
 
     private struct ResolvedContextMenuItems {
         let items: [CmuxResolvedConfigContextMenuItem]
+        let issues: [CmuxConfigIssue]
+    }
+
+    private struct ResolvedPromptSnippets {
+        let snippets: [CmuxResolvedPromptSnippet]
         let issues: [CmuxConfigIssue]
     }
 
@@ -2121,6 +2134,12 @@ final class CmuxConfigStore: ObservableObject {
         }
         let localActions = localConfig.map { actionEntries(from: $0.actions, sourcePath: localPath) } ?? [:]
         let globalActions = globalConfig.map { actionEntries(from: $0.actions, sourcePath: globalConfigPath) } ?? [:]
+        let resolvedPromptSnippets = resolvedPromptSnippets(
+            localDefinitions: localConfig?.promptSnippets ?? [],
+            localSourcePath: localPath,
+            globalDefinitions: globalConfig?.promptSnippets ?? [],
+            globalSourcePath: globalConfigPath
+        )
 
         // Local config takes precedence
         if let localConfig {
@@ -2240,6 +2259,7 @@ final class CmuxConfigStore: ObservableObject {
 
         loadedCommands = commands
         loadedActions = resolvedActions
+        loadedPromptSnippets = resolvedPromptSnippets.snippets
         commandSourcePaths = sourcePaths
         actionLookup = resolvedActionLookup
         newWorkspaceActionID = configuredNewWorkspaceActionID
@@ -2256,6 +2276,7 @@ final class CmuxConfigStore: ObservableObject {
         if let issue = resolvedNewWorkspaceAction.issue {
             issues.append(issue)
         }
+        issues.append(contentsOf: resolvedPromptSnippets.issues)
         issues.append(contentsOf: resolvedNewWorkspaceContextMenuItems.issues)
         configurationIssues = issues
         if fileWatchingEnabled {
@@ -2356,15 +2377,50 @@ final class CmuxConfigStore: ObservableObject {
         fallback.merging(primary) { _, primary in primary }
     }
 
+    private func resolvedPromptSnippets(
+        localDefinitions: [CmuxPromptSnippetDefinition],
+        localSourcePath: String?,
+        globalDefinitions: [CmuxPromptSnippetDefinition],
+        globalSourcePath: String
+    ) -> ResolvedPromptSnippets {
+        var snippets: [CmuxResolvedPromptSnippet] = []
+        var issues: [CmuxConfigIssue] = []
+
+        struct SeenSnippet {
+            let idWasGenerated: Bool
+            let sourcePath: String?
+        }
+
+        var seenByID: [String: SeenSnippet] = [:]
+
+        func append(_ definitions: [CmuxPromptSnippetDefinition], sourcePath: String?) {
+            for (index, definition) in definitions.enumerated() {
+                if let existing = seenByID[definition.id] {
+                    if existing.sourcePath == sourcePath || existing.idWasGenerated || definition.idWasGenerated {
+                        issues.append(CmuxConfigIssue(
+                            kind: .promptSnippetDuplicateID,
+                            settingName: "promptSnippets[\(index)]",
+                            commandName: definition.id,
+                            sourcePath: sourcePath
+                        ))
+                    }
+                    continue
+                }
+                seenByID[definition.id] = SeenSnippet(
+                    idWasGenerated: definition.idWasGenerated,
+                    sourcePath: sourcePath
+                )
+                snippets.append(CmuxResolvedPromptSnippet(definition: definition, sourcePath: sourcePath))
+            }
+        }
+
+        append(localDefinitions, sourcePath: localSourcePath)
+        append(globalDefinitions, sourcePath: globalSourcePath)
+        return ResolvedPromptSnippets(snippets: snippets, issues: issues)
+    }
+
     private func sanitizeConfigText(_ text: String) -> String {
-        let dangerous: Set<Unicode.Scalar> = [
-            "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
-            "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
-            "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
-            "\u{FEFF}",
-        ]
-        let filtered = String(text.unicodeScalars.filter { !dangerous.contains($0) })
-        return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
+        CmuxUnicodeSanitizer.trimmed(text)
     }
 
     private func sanitizeConfigText(_ text: String, fallback: String) -> String {

@@ -85,6 +85,213 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.commands.map(\.name), ["Build", "Test", "Lint"])
     }
 
+    func testDecodePromptSnippetsSupportsAliasesAndPreservesPromptText() throws {
+        let json = """
+        {
+          "promptSnippets": [
+            {
+              "id": " review-template ",
+              "name": " Code Review ",
+              "prompt": "\\u202E\\nReview this change for correctness and missing tests.\\u200B\\n",
+              "description": " Review checklist ",
+              "keywords": ["review", "tests", " review ", ""]
+            },
+            {
+              "title": "Bug Report",
+              "text": "Summarize repro steps, observed behavior, and expected behavior."
+            }
+          ]
+        }
+        """
+        let config = try decode(json)
+
+        XCTAssertEqual(config.promptSnippets.count, 2)
+        XCTAssertEqual(config.promptSnippets[0].id, "review-template")
+        XCTAssertEqual(config.promptSnippets[0].title, "Code Review")
+        XCTAssertEqual(config.promptSnippets[0].text, "\nReview this change for correctness and missing tests.\n")
+        XCTAssertEqual(config.promptSnippets[0].description, "Review checklist")
+        XCTAssertEqual(config.promptSnippets[0].keywords, ["review", "tests"])
+        XCTAssertEqual(config.promptSnippets[1].id, "bug-report")
+    }
+
+    func testDecodePromptSnippetRequiresPromptText() {
+        let json = """
+        {
+          "promptSnippets": [
+            { "title": "Empty", "text": " \\u202E\\u200B  " }
+          ]
+        }
+        """
+
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testPromptSnippetInitializerSanitizesTextDangerousScalars() {
+        let snippet = CmuxPromptSnippetDefinition(
+            title: "Prompt",
+            text: "\u{202E}\nKeep the prompt spacing.\u{200B}\n"
+        )
+
+        XCTAssertEqual(snippet.text, "\nKeep the prompt spacing.\n")
+    }
+
+    func testPromptSnippetCommandPaletteCommandIDEscapesConfiguredID() {
+        let snippet = CmuxResolvedPromptSnippet(
+            definition: CmuxPromptSnippetDefinition(
+                id: "review template\n100%/日本語",
+                title: "Prompt",
+                text: "Prompt text"
+            ),
+            sourcePath: nil
+        )
+        let slashSnippet = CmuxResolvedPromptSnippet(
+            definition: CmuxPromptSnippetDefinition(
+                id: "review/template",
+                title: "Slash",
+                text: "Prompt text"
+            ),
+            sourcePath: nil
+        )
+        let encodedSlashSnippet = CmuxResolvedPromptSnippet(
+            definition: CmuxPromptSnippetDefinition(
+                id: "review%2Ftemplate",
+                title: "Encoded Slash",
+                text: "Prompt text"
+            ),
+            sourcePath: nil
+        )
+
+        XCTAssertEqual(
+            snippet.commandPaletteCommandID,
+            "palette.promptSnippet.review%20template%0A100%25%2F%E6%97%A5%E6%9C%AC%E8%AA%9E"
+        )
+        XCTAssertEqual(slashSnippet.commandPaletteCommandID, "palette.promptSnippet.review%2Ftemplate")
+        XCTAssertEqual(encodedSlashSnippet.commandPaletteCommandID, "palette.promptSnippet.review%252Ftemplate")
+        XCTAssertNotEqual(slashSnippet.commandPaletteCommandID, encodedSlashSnippet.commandPaletteCommandID)
+    }
+
+    @MainActor
+    func testPromptSnippetsMergeLocalBeforeGlobalById() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-prompt-snippets-\(UUID().uuidString)", isDirectory: true)
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let localDirectory = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: localDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let localConfigURL = localDirectory.appendingPathComponent("cmux.json")
+        let globalJSON = """
+        {
+          "promptSnippets": [
+            { "id": "review", "title": "Global Review", "text": "global review prompt" },
+            { "id": "explain", "title": "Explain", "text": "explain this code" }
+          ]
+        }
+        """
+        let localJSON = """
+        {
+          "promptSnippets": [
+            { "id": "review", "title": "Local Review", "text": "local review prompt" }
+          ]
+        }
+        """
+        try globalJSON.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try localJSON.write(to: localConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: localConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.loadedPromptSnippets.map(\.id), ["review", "explain"])
+        XCTAssertEqual(store.loadedPromptSnippets.map(\.title), ["Local Review", "Explain"])
+        XCTAssertEqual(store.loadedPromptSnippets.map(\.text), ["local review prompt", "explain this code"])
+        XCTAssertEqual(store.loadedPromptSnippets.map(\.sourcePath), [localConfigURL.path, globalConfigURL.path])
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testPromptSnippetsReportGeneratedIDCollision() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-prompt-snippets-\(UUID().uuidString)", isDirectory: true)
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let localDirectory = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: localDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let localConfigURL = localDirectory.appendingPathComponent("cmux.json")
+        let globalJSON = """
+        {
+          "promptSnippets": [
+            { "title": "code  review", "text": "global generated review prompt" },
+            { "title": "Explain", "text": "explain this code" }
+          ]
+        }
+        """
+        let localJSON = """
+        {
+          "promptSnippets": [
+            { "title": "Code Review", "text": "local generated review prompt" }
+          ]
+        }
+        """
+        try globalJSON.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try localJSON.write(to: localConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: localConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.loadedPromptSnippets.map(\.id), ["code-review", "explain"])
+        XCTAssertEqual(store.loadedPromptSnippets.map(\.title), ["Code Review", "Explain"])
+        XCTAssertEqual(store.loadedPromptSnippets.map(\.text), ["local generated review prompt", "explain this code"])
+        let issue = try XCTUnwrap(store.configurationIssues.first)
+        XCTAssertEqual(issue.kind, .promptSnippetDuplicateID)
+        XCTAssertEqual(issue.settingName, "promptSnippets[0]")
+        XCTAssertEqual(issue.commandName, "code-review")
+        XCTAssertEqual(issue.sourcePath, globalConfigURL.path)
+    }
+
+    @MainActor
+    func testPromptSnippetsReportIntraFileExplicitIDCollision() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-prompt-snippets-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let json = """
+        {
+          "promptSnippets": [
+            { "id": "review", "title": "Review", "text": "first review prompt" },
+            { "id": "review", "title": "Review Again", "text": "second review prompt" },
+            { "id": "explain", "title": "Explain", "text": "explain this code" }
+          ]
+        }
+        """
+        try json.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
+        store.loadAll()
+
+        XCTAssertEqual(store.loadedPromptSnippets.map(\.id), ["review", "explain"])
+        XCTAssertEqual(store.loadedPromptSnippets.map(\.title), ["Review", "Explain"])
+        let issue = try XCTUnwrap(store.configurationIssues.first)
+        XCTAssertEqual(issue.kind, .promptSnippetDuplicateID)
+        XCTAssertEqual(issue.settingName, "promptSnippets[1]")
+        XCTAssertEqual(issue.commandName, "review")
+        XCTAssertEqual(issue.sourcePath, configURL.path)
+    }
+
     func testDecodeNewWorkspaceCommand() throws {
         let json = """
         {
