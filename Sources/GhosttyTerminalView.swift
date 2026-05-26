@@ -6771,6 +6771,18 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return liveSurfaceForGhosttyAccess(reason: reason)
     }
 
+    @MainActor
+    func liveSurfaceForSocketRead(reason: String) -> ghostty_surface_t? {
+        if let liveSurface = liveSurfaceForGhosttyAccess(reason: reason) {
+            return liveSurface
+        }
+        guard surface == nil, allowsRuntimeSurfaceCreation() else {
+            return nil
+        }
+        startRuntimeUsingHeadlessWindowIfNeeded(reason: reason)
+        return liveSurfaceForGhosttyAccess(reason: reason)
+    }
+
     // Socket/API operations are an explicit runtime demand: they must be able to
     // start a terminal in a background workspace without selecting that workspace.
     // When there is no real window yet, bootstrap Ghostty in a hidden window and
