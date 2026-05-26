@@ -6928,8 +6928,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let directoryPath = targetWorkspace.currentDirectory
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let directoryPath,
-              !directoryPath.isEmpty,
+        guard !directoryPath.isEmpty,
               let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
             return openDefaultCodeEditor()
         }
