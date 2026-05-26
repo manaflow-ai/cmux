@@ -194,6 +194,55 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteWorkspaceAutoResumeKeepsRemoteStartupCommand() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let source = Workspace()
+            let remoteCommand = "ssh cmux-macmini"
+            source.configureRemoteConnection(
+                WorkspaceRemoteConfiguration(
+                    destination: "cmux-macmini",
+                    port: nil,
+                    identityFile: nil,
+                    sshOptions: [],
+                    localProxyPort: nil,
+                    relayPort: 64000,
+                    relayID: "relay-auto-resume-remote",
+                    relayToken: String(repeating: "a", count: 64),
+                    localSocketPath: "/tmp/cmux-auto-resume-remote.sock",
+                    terminalStartupCommand: remoteCommand
+                ),
+                autoConnect: false
+            )
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let sourceIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "codex-remote-running-session"
+            )
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+            let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+            let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
+
+            XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), remoteCommand)
+            XCTAssertTrue(restoredInput.hasInitialInput)
+            XCTAssertGreaterThan(restoredInput.byteCount, 0)
+            let input = try XCTUnwrap(restoredPanel.surface.initialInput)
+            XCTAssertTrue(input.contains("'resume'"), input)
+            XCTAssertTrue(input.contains("codex-remote-running-session"), input)
+            XCTAssertFalse(input.contains("cmux-agent-resume"), input)
+            XCTAssertNil(restoredPanel.requestedWorkingDirectory)
+        }
+    }
+
+    @MainActor
     func testUnknownAgentShellStatePreservesLegacyAutoResumeBehavior() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
