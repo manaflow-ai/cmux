@@ -4469,15 +4469,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if destinationWorkspace.id == sourceWorkspace.id {
             if let splitTarget {
-                guard let sourceTabId = sourceWorkspace.surfaceIdFromPanelId(panelId),
-                      let sourceController = sourceWorkspace.bonsplitController(containingSurfaceId: sourceTabId),
-                      sourceController === destinationController,
-                      sourceController.splitPane(
-                        resolvedTargetPane,
-                        orientation: splitTarget.orientation,
-                        movingTab: sourceTabId,
-                        insertFirst: splitTarget.insertFirst
-                      ) != nil else {
+                guard sourceWorkspace.splitSurface(
+                    panelId: panelId,
+                    targetPane: resolvedTargetPane,
+                    orientation: splitTarget.orientation,
+                    insertFirst: splitTarget.insertFirst,
+                    focus: focus
+                ) else {
 #if DEBUG
                     cmuxDebugLog(
                         "surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=sameWorkspaceSplitFailed " +

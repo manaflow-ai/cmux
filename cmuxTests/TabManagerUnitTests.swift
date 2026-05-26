@@ -2399,6 +2399,68 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         )
     }
 
+    func testClosingLastSurfaceInHiddenTopLevelTabKeepsVisibleTopLevelTabSelected() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+        let firstLayoutController = workspace.bonsplitController
+
+        manager.newSurface()
+        let hiddenPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let hiddenLayoutController = workspace.bonsplitController
+        let hiddenLayoutPane = try XCTUnwrap(hiddenLayoutController.allPaneIds.first)
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: firstTopTabId, reassertAppKitFocus: false))
+        XCTAssertTrue(workspace.closePanel(hiddenPanelId, force: true))
+
+        XCTAssertEqual(
+            workspace.selectedTopLevelTabId,
+            firstTopTabId,
+            "Expected a hidden top tab child exit not to switch the visible top tab"
+        )
+        XCTAssertTrue(
+            workspace.bonsplitController === firstLayoutController,
+            "Expected the selected layout controller to remain visible"
+        )
+        XCTAssertFalse(
+            hiddenLayoutController.tabs(inPane: hiddenLayoutPane).isEmpty,
+            "Expected the hidden layout to get its replacement terminal without becoming selected"
+        )
+    }
+
+    func testMoveSurfaceBetweenTopLevelTabControllersUsesDestinationController() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let firstLayoutController = workspace.bonsplitController
+        let firstLayoutPane = try XCTUnwrap(firstLayoutController.allPaneIds.first)
+
+        manager.newSurface()
+        let secondLayoutController = workspace.bonsplitController
+        let secondPaneId = try XCTUnwrap(secondLayoutController.focusedPaneId ?? secondLayoutController.allPaneIds.first)
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: firstTopTabId, reassertAppKitFocus: false))
+        XCTAssertTrue(
+            workspace.moveSurface(panelId: firstPanelId, toPane: secondPaneId, focus: false),
+            "Expected same-workspace moves across top-tab controllers to detach and attach"
+        )
+
+        XCTAssertEqual(
+            workspace.selectedTopLevelTabId,
+            firstTopTabId,
+            "Expected a non-focus move into another top tab not to switch the visible top tab"
+        )
+        XCTAssertTrue(
+            workspace.bonsplitController(containingPanelId: firstPanelId) === secondLayoutController,
+            "Expected the moved surface to be owned by the destination top tab controller"
+        )
+        XCTAssertFalse(
+            firstLayoutController.tabs(inPane: firstLayoutPane).isEmpty,
+            "Expected moving the last panel out of a top tab to leave a replacement terminal behind"
+        )
+    }
+
     func testOpenBrowserInsertAtEndPlacesNewBrowserAtPaneEnd() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
