@@ -6649,11 +6649,9 @@ struct CMUXCLI {
             if sshOptions.skipDaemonBootstrap {
                 configureParams["skip_daemon_bootstrap"] = true
             }
-            if usesPersistentSSHPTY {
+            if let persistentDaemonSlot {
                 configureParams["preserve_after_terminal_exit"] = true
-                if let persistentDaemonSlot {
-                    configureParams["persistent_daemon_slot"] = persistentDaemonSlot
-                }
+                configureParams["persistent_daemon_slot"] = persistentDaemonSlot
             }
 
             cliDebugLog(

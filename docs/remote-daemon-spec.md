@@ -40,7 +40,7 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 - `DONE` `workspace.remote.configure.local_proxy_port` exists as an internal deterministic test hook for bind-conflict regression coverage.
 - `DONE` bootstrap/probe failures surface actionable details.
 - `DONE` bootstrap installs `~/.cmux/bin/cmux` wrapper (also tries `/usr/local/bin/cmux`) so `cmux` is available in PATH on the remote.
-- `DONE` normal `cmux ssh` launches `cmuxd-remote serve --stdio --persistent --slot <slot>`, where the stdio process proxies to a long-lived authenticated daemon under `~/.cmux/daemon/<slot>/`.
+- `DONE` normal `cmux ssh` launches `cmuxd-remote serve --stdio --persistent --slot <slot>`, where the stdio process proxies to a long-lived authenticated daemon with slot credentials under `~/.cmux/daemon/<slot>/` and a short per-user socket path under `/tmp/cmuxd-remote-<uid>/`.
 - `DONE` persistent daemon slots advertise `pty.session.persistent_daemon`; cmux requires that capability before preserving a saved remote PTY session ID across app relaunch.
 
 ### 3.5 CLI Relay (Running cmux Commands From Remote)
@@ -184,6 +184,9 @@ Recompute effective size on:
 | RZ-002 | grow one attachment, PTY stays bounded by smallest | DONE |
 | RZ-003 | detach all attachments, keep last-known PTY size | DONE |
 | RZ-004 | reattach existing session, recompute effective size from active attachments | DONE |
+| RZ-005 | detach smallest, PTY expands to next smallest | DONE |
+| RZ-006 | reconnect preserves session + applies recomputed size | DONE |
+| RZ-007 | daemon stdio RPC round-trip enforces resize semantics end-to-end | DONE |
 
 ### 7.5 Detachable SSH PTY
 
@@ -195,9 +198,6 @@ Recompute effective size on:
 | DP-004 | `cmux ssh-session-attach` reattaches to the same remote shell PID and env | IN PROGRESS |
 | DP-005 | app relaunch restores saved remote PTY session IDs only when the snapshot has a persistent daemon slot | IN PROGRESS |
 | DP-006 | `cmux ssh-session-cleanup` terminates persisted PTY sessions explicitly | DONE |
-| RZ-003 | detach smallest, PTY expands to next smallest | DONE |
-| RZ-004 | reconnect preserves session + applies recomputed size | DONE |
-| RZ-005 | daemon stdio RPC round-trip enforces resize semantics end-to-end | DONE |
 
 ## 8. Removal Checklist (Port Mirroring)
 

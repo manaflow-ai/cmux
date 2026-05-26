@@ -372,7 +372,10 @@ struct WorkspaceRemoteConfiguration: Equatable {
 }
 
 extension SessionRemoteWorkspaceSnapshot {
-    func workspaceConfiguration(localSocketPath: String? = nil) -> WorkspaceRemoteConfiguration? {
+    func workspaceConfiguration(
+        localSocketPath: String? = nil,
+        allowPersistentPTYRestore: Bool = true
+    ) -> WorkspaceRemoteConfiguration? {
         guard transport == .ssh else { return nil }
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedDestination.isEmpty else { return nil }
@@ -387,6 +390,7 @@ extension SessionRemoteWorkspaceSnapshot {
             (1...65535).contains(port) ? port : nil
         }
         let preservePTYSession =
+            allowPersistentPTYRestore &&
             preserveAfterTerminalExit == true &&
             skipDaemonBootstrap != true &&
             normalizedPersistentDaemonSlot != nil &&

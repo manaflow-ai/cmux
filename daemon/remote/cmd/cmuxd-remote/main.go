@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -301,7 +303,10 @@ type persistentDaemonPaths struct {
 	lockFile  string
 }
 
-const persistentDaemonAuthMethod = "daemon.auth"
+const (
+	persistentDaemonAuthMethod = "daemon.auth"
+	persistentDaemonReadyFDEnv = "CMUX_REMOTE_DAEMON_READY_FD"
+)
 
 func persistentDaemonPathsForSlot(rawSlot string) (persistentDaemonPaths, error) {
 	slot, err := validatePersistentDaemonSlot(rawSlot)
@@ -317,14 +322,24 @@ func persistentDaemonPathsForSlot(rawSlot string) (persistentDaemonPaths, error)
 		rootBase = filepath.Join(home, ".cmux", "daemon")
 	}
 	root := filepath.Join(rootBase, slot)
+	socketPath := persistentDaemonSocketPath(root, slot)
 	return persistentDaemonPaths{
 		slot:      slot,
 		root:      root,
-		socket:    filepath.Join(root, "rpc.sock"),
+		socket:    socketPath,
 		tokenFile: filepath.Join(root, "auth.token"),
 		logFile:   filepath.Join(root, "daemon.log"),
 		lockFile:  filepath.Join(root, "daemon.lock"),
 	}, nil
+}
+
+func persistentDaemonSocketPath(root string, slot string) string {
+	socketBase := strings.TrimSpace(os.Getenv("CMUX_REMOTE_DAEMON_SOCKET_DIR"))
+	if socketBase == "" {
+		socketBase = filepath.Join("/tmp", fmt.Sprintf("cmuxd-remote-%d", os.Getuid()))
+	}
+	digest := sha256.Sum256([]byte(root + "\x00" + slot))
+	return filepath.Join(socketBase, "cmuxd-"+hex.EncodeToString(digest[:8])+".sock")
 }
 
 func validatePersistentDaemonSlot(rawSlot string) (string, error) {
@@ -353,7 +368,14 @@ func ensurePersistentDaemonDirectory(paths persistentDaemonPaths) error {
 	if err := os.MkdirAll(paths.root, 0o700); err != nil {
 		return err
 	}
-	return os.Chmod(paths.root, 0o700)
+	if err := os.Chmod(paths.root, 0o700); err != nil {
+		return err
+	}
+	socketDir := filepath.Dir(paths.socket)
+	if err := os.MkdirAll(socketDir, 0o700); err != nil {
+		return err
+	}
+	return os.Chmod(socketDir, 0o700)
 }
 
 func persistentDaemonToken(paths persistentDaemonPaths) (string, error) {
@@ -380,24 +402,31 @@ func persistentDaemonToken(paths persistentDaemonPaths) (string, error) {
 	}
 	token := hex.EncodeToString(raw)
 
-	file, err := os.OpenFile(paths.tokenFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, os.ErrExist) {
-		return readExisting()
-	}
+	tmpPath := filepath.Join(filepath.Dir(paths.tokenFile), fmt.Sprintf(".auth.token.%d.%d.tmp", os.Getpid(), time.Now().UnixNano()))
+	file, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return "", err
 	}
-	writeOK := false
+	closeOK := false
 	defer func() {
-		_ = file.Close()
-		if !writeOK {
-			_ = os.Remove(paths.tokenFile)
+		if !closeOK {
+			_ = file.Close()
 		}
+		_ = os.Remove(tmpPath)
 	}()
 	if _, err := file.WriteString(token + "\n"); err != nil {
 		return "", err
 	}
-	writeOK = true
+	if err := file.Close(); err != nil {
+		return "", err
+	}
+	closeOK = true
+	if err := os.Link(tmpPath, paths.tokenFile); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return readExisting()
+		}
+		return "", err
+	}
 	return token, nil
 }
 
@@ -448,8 +477,11 @@ func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, st
 	if conn, err := dialPersistentDaemon(paths.socket, token); err == nil {
 		_ = conn.Close()
 		return nil
+	} else if shouldRemovePersistentSocketAfterDialError(err) {
+		_ = os.Remove(paths.socket)
+	} else {
+		return err
 	}
-	_ = os.Remove(paths.socket)
 
 	executable, err := os.Executable()
 	if err != nil {
@@ -461,35 +493,77 @@ func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, st
 	}
 	defer logFile.Close()
 
+	readyReader, readyWriter, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	defer readyReader.Close()
+	defer readyWriter.Close()
+
 	cmd := exec.Command(executable, "serve", "--persistent-server", "--slot", paths.slot)
 	cmd.Stdin = nil
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), persistentDaemonReadyFDEnv+"=3")
+	cmd.ExtraFiles = []*os.File{readyWriter}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	_ = readyWriter.Close()
 	_ = cmd.Process.Release()
 
-	deadline := time.Now().Add(5 * time.Second)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		conn, dialErr := dialPersistentDaemon(paths.socket, token)
-		if dialErr == nil {
+	if err := waitPersistentDaemonReady(readyReader, paths.logFile); err != nil {
+		if conn, dialErr := dialPersistentDaemon(paths.socket, token); dialErr == nil {
 			_ = conn.Close()
 			return nil
 		}
-		lastErr = dialErr
-		time.Sleep(50 * time.Millisecond)
+		if stderr != nil {
+			_, _ = fmt.Fprintf(stderr, "persistent daemon log: %s\n", paths.logFile)
+		}
+		return err
 	}
-	if stderr != nil && lastErr != nil {
+
+	conn, err := dialPersistentDaemon(paths.socket, token)
+	if err == nil {
+		_ = conn.Close()
+		return nil
+	}
+	if stderr != nil {
 		_, _ = fmt.Fprintf(stderr, "persistent daemon log: %s\n", paths.logFile)
 	}
-	if lastErr == nil {
-		lastErr = errors.New("persistent daemon did not become ready")
+	return err
+}
+
+func shouldRemovePersistentSocketAfterDialError(err error) bool {
+	return errors.Is(err, os.ErrNotExist) ||
+		errors.Is(err, syscall.ENOENT) ||
+		errors.Is(err, syscall.ECONNREFUSED)
+}
+
+func waitPersistentDaemonReady(reader *os.File, logFile string) error {
+	done := make(chan error, 1)
+	go func() {
+		line, err := bufio.NewReader(reader).ReadString('\n')
+		if err != nil {
+			done <- fmt.Errorf("persistent daemon exited before readiness signal; log: %s: %w", logFile, err)
+			return
+		}
+		if strings.TrimSpace(line) != "ready" {
+			done <- fmt.Errorf("persistent daemon sent unexpected readiness signal %q; log: %s", strings.TrimSpace(line), logFile)
+			return
+		}
+		done <- nil
+	}()
+
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-timer.C:
+		return fmt.Errorf("persistent daemon did not become ready; log: %s", logFile)
 	}
-	return lastErr
 }
 
 func runPersistentDaemonServer(slot string, stderr io.Writer) error {
@@ -523,7 +597,25 @@ func runPersistentDaemonServer(slot string, stderr io.Writer) error {
 	defer os.Remove(paths.socket)
 	_ = os.Chmod(paths.socket, 0o600)
 
+	signalPersistentDaemonReady()
 	return servePersistentDaemon(listener, token, stderr)
+}
+
+func signalPersistentDaemonReady() {
+	rawFD := strings.TrimSpace(os.Getenv(persistentDaemonReadyFDEnv))
+	if rawFD == "" {
+		return
+	}
+	fd, err := strconv.Atoi(rawFD)
+	if err != nil || fd < 3 {
+		return
+	}
+	file := os.NewFile(uintptr(fd), "cmux-persistent-daemon-ready")
+	if file == nil {
+		return
+	}
+	_, _ = file.WriteString("ready\n")
+	_ = file.Close()
 }
 
 func servePersistentDaemon(listener net.Listener, token string, stderr io.Writer) error {
@@ -598,7 +690,8 @@ func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWr
 		return false
 	}
 	provided, _ := getStringParam(req.Params, "token")
-	if strings.TrimSpace(provided) == "" || strings.TrimSpace(provided) != token {
+	provided = strings.TrimSpace(provided)
+	if provided == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(token)) != 1 {
 		_ = writer.writeResponse(rpcResponse{
 			ID: req.ID,
 			OK: false,

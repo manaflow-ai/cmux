@@ -13,9 +13,10 @@ Go remote daemon for `cmux ssh` bootstrap, capability negotiation, and remote pr
 `serve --ws` is explicit opt-in for cloud VM images only. The normal `cmux ssh`
 code path uses `serve --stdio --persistent --slot <slot>` over an SSH exec
 channel. That stdio process is only a proxy to an authenticated per-slot daemon
-under `~/.cmux/daemon/<slot>/`, so remote PTY sessions can survive local surface
-close, local reconnect, and app relaunch. The persistent server never opens a
-public listener; it accepts only the slot-local Unix socket and token.
+with credentials and logs under `~/.cmux/daemon/<slot>/`, so remote PTY sessions
+can survive local surface close, local reconnect, and app relaunch. The persistent
+server never opens a public listener; it accepts only a per-user Unix socket under
+`/tmp/cmuxd-remote-<uid>/` and the slot token.
 
 When invoked as `cmux` (via wrapper/symlink installed during bootstrap), the binary auto-dispatches to the `cli` subcommand. This is busybox-style argv[0] detection.
 
@@ -55,7 +56,7 @@ slot name is generated locally, validated as `[A-Za-z0-9._-]{1,128}`, and sent
 to the remote daemon bootstrap as `--slot`.
 
 Remote slot files:
-1. `~/.cmux/daemon/<slot>/rpc.sock` authenticated Unix socket for stdio proxies.
+1. `/tmp/cmuxd-remote-<uid>/cmuxd-<slot-hash>.sock` authenticated Unix socket for stdio proxies.
 2. `~/.cmux/daemon/<slot>/auth.token` random 32-byte hex token, mode `0600`.
 3. `~/.cmux/daemon/<slot>/daemon.lock` single-owner lock.
 4. `~/.cmux/daemon/<slot>/daemon.log` startup and crash diagnostics.

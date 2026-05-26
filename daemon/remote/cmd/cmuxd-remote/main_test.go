@@ -50,7 +50,14 @@ func (b *notifyingBuffer) String() string {
 
 func startPersistentDaemonForTest(t *testing.T, token string) (string, func()) {
 	t.Helper()
-	socketPath := filepath.Join(t.TempDir(), "rpc.sock")
+	socketDir, err := os.MkdirTemp("/tmp", "cmuxd-remote-test-*")
+	if err != nil {
+		t.Fatalf("create short socket dir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(socketDir)
+	})
+	socketPath := filepath.Join(socketDir, "rpc.sock")
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatalf("listen unix: %v", err)
@@ -299,6 +306,27 @@ func TestPersistentDaemonRejectsInvalidSlot(t *testing.T) {
 		if _, err := persistentDaemonPathsForSlot(slot); err == nil {
 			t.Fatalf("persistentDaemonPathsForSlot(%q) succeeded, want error", slot)
 		}
+	}
+}
+
+func TestPersistentDaemonPathsUseShortSocketPath(t *testing.T) {
+	rootBase := filepath.Join(
+		t.TempDir(),
+		strings.Repeat("long-path-segment-", 4),
+		"daemon-root",
+	)
+	t.Setenv("CMUX_REMOTE_DAEMON_ROOT", rootBase)
+	t.Setenv("CMUX_REMOTE_DAEMON_SOCKET_DIR", "")
+
+	paths, err := persistentDaemonPathsForSlot(strings.Repeat("a", 128))
+	if err != nil {
+		t.Fatalf("persistentDaemonPathsForSlot returned error: %v", err)
+	}
+	if strings.HasPrefix(paths.socket, paths.root) {
+		t.Fatalf("socket path should not live under long daemon root: socket=%q root=%q", paths.socket, paths.root)
+	}
+	if len(paths.socket) >= 100 {
+		t.Fatalf("socket path length = %d, want < 100: %q", len(paths.socket), paths.socket)
 	}
 }
 
