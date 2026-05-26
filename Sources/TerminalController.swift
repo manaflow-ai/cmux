@@ -8089,16 +8089,20 @@ class TerminalController {
             )
         }
 
+        var pageFound = false
         var moved = false
         var newIndex: Int?
         v2MainSync {
             guard let currentIndex = workspace.pageIndex(pageId: pageId) else { return }
+            pageFound = true
             if let index {
                 moved = workspace.movePage(pageId: pageId, toIndex: index)
-            } else if let beforeId, let beforeIndex = workspace.pageIndex(pageId: beforeId) {
+            } else if let beforeId {
+                guard let beforeIndex = workspace.pageIndex(pageId: beforeId) else { return }
                 let targetIndex = currentIndex < beforeIndex ? beforeIndex - 1 : beforeIndex
                 moved = workspace.movePage(pageId: pageId, toIndex: targetIndex)
-            } else if let afterId, let afterIndex = workspace.pageIndex(pageId: afterId) {
+            } else if let afterId {
+                guard let afterIndex = workspace.pageIndex(pageId: afterId) else { return }
                 let targetIndex = currentIndex < afterIndex + 1 ? afterIndex : afterIndex + 1
                 moved = workspace.movePage(pageId: pageId, toIndex: targetIndex)
             }
@@ -8106,6 +8110,20 @@ class TerminalController {
         }
 
         guard moved else {
+            if pageFound, let beforeId {
+                return .err(code: "not_found", message: "Anchor page (before_page_id) not found", data: [
+                    "before_page_id": beforeId.uuidString,
+                    "page_id": pageId.uuidString,
+                    "page_ref": v2Ref(kind: .page, uuid: pageId)
+                ])
+            }
+            if pageFound, let afterId {
+                return .err(code: "not_found", message: "Anchor page (after_page_id) not found", data: [
+                    "after_page_id": afterId.uuidString,
+                    "page_id": pageId.uuidString,
+                    "page_ref": v2Ref(kind: .page, uuid: pageId)
+                ])
+            }
             return .err(code: "not_found", message: "Page not found", data: [
                 "page_id": pageId.uuidString,
                 "page_ref": v2Ref(kind: .page, uuid: pageId)

@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -70,6 +70,16 @@ def _page_titles_and_selected(payload: Dict) -> Tuple[List[str], List[str]]:
     titles = [str(page.get("title") or "") for page in pages]
     selected = [str(page.get("title") or "") for page in pages if bool(page.get("selected"))]
     return titles, selected
+
+
+def _page_refs_by_title(payload: Dict) -> Dict[str, str]:
+    refs: Dict[str, str] = {}
+    for page in payload.get("pages") or []:
+        title = str(page.get("title") or "")
+        ref = str(page.get("page_ref") or "")
+        if title and ref:
+            refs[title] = ref
+    return refs
 
 
 def _workspace_node(tree: Dict, workspace_id: str) -> Dict:
@@ -191,6 +201,12 @@ def main() -> int:
                 f"system.tree selected page did not mirror active duplicated page: {workspace}",
             )
 
+            after_socket_reorder_list = _run_cli_json(cli, ["list-pages", "--workspace", workspace_id])
+            after_socket_reorder_refs = _page_refs_by_title(after_socket_reorder_list)
+            duplicate_page_ref = after_socket_reorder_refs.get("database", duplicate_page_ref)
+            first_page_ref = after_socket_reorder_refs.get("agents", first_page_ref)
+            second_page_ref = after_socket_reorder_refs.get("editor", second_page_ref)
+
             after_reordered = _run_cli_json(
                 cli,
                 [
@@ -213,6 +229,10 @@ def main() -> int:
                 after_titles == ["database", "editor", "agents"],
                 f"reorder-page --after should preserve the anchor-before-page order: {after_list}",
             )
+            after_refs = _page_refs_by_title(after_list)
+            duplicate_page_ref = after_refs.get("database", duplicate_page_ref)
+            first_page_ref = after_refs.get("agents", first_page_ref)
+            second_page_ref = after_refs.get("editor", second_page_ref)
 
             restored_reorder = _run_cli_json(
                 cli,
@@ -236,6 +256,8 @@ def main() -> int:
                 restored_titles == ["database", "agents", "editor"],
                 f"reorder-page --after should restore the expected final order: {restored_list}",
             )
+            restored_refs = _page_refs_by_title(restored_list)
+            duplicate_page_ref = restored_refs.get("database", duplicate_page_ref)
 
             last_page = c._call("page.last", {"workspace_id": workspace_id}) or {}
             _must(str(last_page.get("page_id") or "") == second_page_id, f"page.last should select editor: {last_page}")

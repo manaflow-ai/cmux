@@ -800,6 +800,11 @@ struct cmuxApp: App {
                 }
                 workspace.closePage(pageId)
             }
+            .disabled({
+                guard let workspace = activeTabManager.selectedWorkspace,
+                      let pageId = workspace.activePage?.id else { return true }
+                return !workspace.canClosePage(pageId)
+            }())
 
             splitCommandButton(title: String(localized: "menu.view.nextPage", defaultValue: "Next Page"), shortcut: menuShortcut(for: .nextPage)) {
                 activeTabManager.selectedWorkspace?.selectNextPage()
@@ -986,7 +991,7 @@ struct cmuxApp: App {
         case 9: action = .selectLastPage
         default: action = nil
         }
-        return action.map { KeyboardShortcutSettings.shortcut(for: $0) }
+        return action.map { KeyboardShortcutSettings.menuShortcut(for: $0) }
     }
 
     private var notificationMenuSnapshot: NotificationMenuSnapshot {

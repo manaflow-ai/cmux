@@ -2386,10 +2386,26 @@ struct ContentView: View {
     }
 
     private func titlebarPageStrip(workspace: Workspace, textColor: Color) -> some View {
+        let pages = workspace.pages
+        let activePageId = workspace.activePageId
+        let canCloseOthers = pages.count > 1
+
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {
-                ForEach(workspace.pages) { page in
-                    titlebarPageButton(page: page, workspace: workspace, textColor: textColor)
+                ForEach(pages) { page in
+                    let pageId = page.id
+                    titlebarPageButton(
+                        title: page.title,
+                        isActive: pageId == activePageId,
+                        canClose: workspace.canClosePage(pageId),
+                        canCloseOthers: canCloseOthers,
+                        textColor: textColor,
+                        selectAction: { workspace.selectPage(pageId) },
+                        renameAction: { workspace.promptRenamePage(pageId: pageId) },
+                        duplicateAction: { _ = workspace.duplicatePage(sourcePageId: pageId, select: true) },
+                        closeOthersAction: { workspace.closeOtherPages(keeping: pageId) },
+                        closeAction: { workspace.closePage(pageId) }
+                    )
                 }
 
                 Button {
@@ -2409,13 +2425,23 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func titlebarPageButton(page: WorkspacePage, workspace: Workspace, textColor: Color) -> some View {
-        let isActive = page.id == workspace.activePageId
-        return Button {
-            workspace.selectPage(page.id)
+    private func titlebarPageButton(
+        title: String,
+        isActive: Bool,
+        canClose: Bool,
+        canCloseOthers: Bool,
+        textColor: Color,
+        selectAction: @escaping () -> Void,
+        renameAction: @escaping () -> Void,
+        duplicateAction: @escaping () -> Void,
+        closeOthersAction: @escaping () -> Void,
+        closeAction: @escaping () -> Void
+    ) -> some View {
+        Button {
+            selectAction()
         } label: {
             HStack(spacing: 4) {
-                Text(page.title)
+                Text(title)
                     .font(.system(size: 12, weight: isActive ? .semibold : .regular))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -2434,23 +2460,23 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .foregroundColor(isActive ? textColor : textColor.opacity(0.72))
-        .help(page.title)
+        .help(title)
         .contextMenu {
             Button(String(localized: "workspace.page.context.rename", defaultValue: "Rename Page…")) {
-                workspace.promptRenamePage(pageId: page.id)
+                renameAction()
             }
             Button(String(localized: "workspace.page.context.duplicate", defaultValue: "Duplicate Page")) {
-                _ = workspace.duplicatePage(sourcePageId: page.id, select: true)
+                duplicateAction()
             }
             Divider()
             Button(String(localized: "workspace.page.context.closeOthers", defaultValue: "Close Other Pages")) {
-                workspace.closeOtherPages(keeping: page.id)
+                closeOthersAction()
             }
-            .disabled(workspace.pages.count <= 1)
+            .disabled(!canCloseOthers)
             Button(String(localized: "workspace.page.context.close", defaultValue: "Close Page")) {
-                workspace.closePage(page.id)
+                closeAction()
             }
-            .disabled(!workspace.canClosePage(page.id))
+            .disabled(!canClose)
         }
     }
 

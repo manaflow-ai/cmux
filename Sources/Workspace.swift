@@ -216,7 +216,8 @@ extension Workspace {
         )
     }
 
-    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
+    @discardableResult
+    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) -> [UUID: UUID] {
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration()
         if let restoredRemoteConfiguration {
             let shouldAutoConnect = Self.shouldAutoConnectRestoredRemote(
@@ -304,6 +305,7 @@ extension Workspace {
         }
         AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
         syncUnreadBadgeStateForAllPanels()
+        return activeOldToNewPanelIds
     }
 
     private func currentPageSessionStateSnapshot(
@@ -10382,7 +10384,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         return (
-            paneCount: pageCount(in: snapshot.layout),
+            paneCount: splitPaneLeafCount(in: snapshot.layout),
             surfaceCount: snapshot.panels.count
         )
     }
@@ -10577,12 +10579,12 @@ final class Workspace: Identifiable, ObservableObject {
         return trimmed
     }
 
-    private func pageCount(in layout: SessionWorkspaceLayoutSnapshot) -> Int {
+    private func splitPaneLeafCount(in layout: SessionWorkspaceLayoutSnapshot) -> Int {
         switch layout {
         case .pane:
             return 1
         case .split(let split):
-            return pageCount(in: split.first) + pageCount(in: split.second)
+            return splitPaneLeafCount(in: split.first) + splitPaneLeafCount(in: split.second)
         }
     }
 
