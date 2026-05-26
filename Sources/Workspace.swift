@@ -10264,7 +10264,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func configureTerminalPanel(_ terminalPanel: TerminalPanel) {
         if TerminalTextBoxInputSettings.focusOnNewTerminals() {
-            terminalPanel.focusTextBoxInputWhenAvailable()
+            terminalPanel.preferTextBoxInputWhenActivated()
         } else if TerminalTextBoxInputSettings.showOnNewTerminals() {
             terminalPanel.showTextBoxInputWhenAvailable()
         }
