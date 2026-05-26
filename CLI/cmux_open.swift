@@ -455,12 +455,11 @@ extension CMUXCLI {
         var darkTheme: DiffViewerTheme
 
         var lineHeight: Double {
-            let scaled = max(fontSize + 4, fontSize * 20.0 / 13.0)
-            return (scaled * 100).rounded() / 100
+            20
         }
 
         var diffHeaderHeight: Double {
-            ((lineHeight + 24) * 100).rounded() / 100
+            44
         }
 
         var jsonObject: [String: Any] {
@@ -3050,7 +3049,7 @@ extension CMUXCLI {
               place-items: center;
               background: Canvas;
               color: CanvasText;
-              font: 13px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+              font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
             }
             main {
               display: grid;
@@ -3223,9 +3222,10 @@ extension CMUXCLI {
               --cmux-diff-fg-dark: #fff;
               --cmux-diff-selection-bg-light: #abd8ff;
               --cmux-diff-selection-bg-dark: #3f638b;
-              --cmux-diff-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+              --cmux-diff-ui-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+              --cmux-diff-code-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
               --cmux-diff-font-size: 10px;
-              --cmux-diff-line-height: 15.38px;
+              --cmux-diff-line-height: 20px;
               --cmux-diff-bg: var(--cmux-diff-bg-light);
               --cmux-diff-fg: var(--cmux-diff-fg-light);
               --cmux-diff-border: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
@@ -3259,8 +3259,8 @@ extension CMUXCLI {
               display: flex;
               flex-direction: column;
               overflow: hidden;
-              font-family: var(--cmux-diff-font-family);
-              font-size: var(--cmux-diff-font-size);
+              font-family: var(--cmux-diff-ui-font-family);
+              font-size: 13px;
               line-height: var(--cmux-diff-line-height);
             }
             #app {
@@ -3562,8 +3562,8 @@ extension CMUXCLI {
               --trees-selected-focused-border-color-override: color-mix(in lab, var(--cmux-diff-accent) 70%, transparent);
               --trees-border-color-override: var(--cmux-diff-border);
               --trees-focus-ring-color-override: color-mix(in lab, var(--cmux-diff-accent) 72%, transparent);
-              --trees-font-family-override: var(--cmux-diff-font-family);
-              --trees-font-size-override: var(--cmux-diff-font-size);
+              --trees-font-family-override: var(--cmux-diff-ui-font-family);
+              --trees-font-size-override: 13px;
               --trees-font-weight-semibold-override: 500;
               --trees-density-override: 0.82;
               --trees-item-padding-x-override: 7px;
@@ -3644,8 +3644,8 @@ extension CMUXCLI {
               color: light-dark(#b42318, #ff8a80);
             }
             #viewer {
-              --diffs-font-family: var(--cmux-diff-font-family);
-              --diffs-header-font-family: var(--cmux-diff-font-family);
+              --diffs-font-family: var(--cmux-diff-code-font-family);
+              --diffs-header-font-family: var(--cmux-diff-ui-font-family);
               --diffs-font-size: var(--cmux-diff-font-size);
               --diffs-line-height: var(--cmux-diff-line-height);
               --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
@@ -3654,7 +3654,14 @@ extension CMUXCLI {
               margin-right: var(--cmux-diff-files-width);
               min-height: 0;
               min-width: 0;
-              overflow: auto;
+              position: relative;
+              overflow-y: auto;
+              overflow-x: clip;
+              overscroll-behavior: contain;
+              contain: strict;
+              overflow-anchor: none;
+              will-change: scroll-position;
+              border-bottom: 1px solid var(--cmux-diff-border);
               background: inherit;
             }
             body[data-files-hidden="true"] #viewer {
@@ -3671,16 +3678,19 @@ extension CMUXCLI {
               }
             }
             #viewer diffs-container {
-              --diffs-font-family: var(--cmux-diff-font-family);
-              --diffs-header-font-family: var(--cmux-diff-font-family);
+              --diffs-font-family: var(--cmux-diff-code-font-family);
+              --diffs-header-font-family: var(--cmux-diff-ui-font-family);
               --diffs-font-size: var(--cmux-diff-font-size);
               --diffs-line-height: var(--cmux-diff-line-height);
               --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
+              overflow: clip;
+              contain: layout paint style;
+              box-shadow: 0 -1px 0 var(--cmux-diff-border), 0 1px 0 var(--cmux-diff-border);
             }
             #status {
               padding: 16px;
-              font-family: var(--cmux-diff-font-family);
-              font-size: var(--cmux-diff-font-size);
+              font-family: var(--cmux-diff-ui-font-family);
+              font-size: 13px;
               line-height: var(--cmux-diff-line-height);
               color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
             }
@@ -3769,6 +3779,7 @@ extension CMUXCLI {
             let diffItems = [];
             let activeFileId = "";
             let activeTreePath = "";
+            let activeFileScrollFrame = { value: 0 };
             let suppressTreeSelectionChange = false;
             let itemIdByTreePath = new Map();
             let treePathByItemId = new Map();
@@ -3829,7 +3840,7 @@ extension CMUXCLI {
               codeView.setItems(diffItems);
               codeView.render(true);
               status.remove();
-              codeView.subscribeToScroll(updateActiveFileFromScroll);
+              codeView.subscribeToScroll(scheduleActiveFileFromScroll);
               updateActiveFile(diffItems[0]?.id ?? "");
               window.__cmuxDiffViewer = { codeView, items: diffItems, state: appState };
             }
@@ -3842,7 +3853,7 @@ extension CMUXCLI {
               rootStyle.setProperty("--cmux-diff-fg-dark", appearance.themes.dark.foreground);
               rootStyle.setProperty("--cmux-diff-selection-bg-light", appearance.themes.light.selectionBackground);
               rootStyle.setProperty("--cmux-diff-selection-bg-dark", appearance.themes.dark.selectionBackground);
-              rootStyle.setProperty("--cmux-diff-font-family", cssFontFamily(appearance.fontFamily));
+              rootStyle.setProperty("--cmux-diff-code-font-family", cssFontFamily(appearance.fontFamily));
               rootStyle.setProperty("--cmux-diff-font-size", `${appearance.fontSize}px`);
               rootStyle.setProperty("--cmux-diff-line-height", `${appearance.lineHeight}px`);
             }
@@ -3888,16 +3899,29 @@ extension CMUXCLI {
                 expandUnchanged: appState.expandUnchanged,
                 disableBackground: !appState.showBackgrounds,
                 disableLineNumbers: !appState.lineNumbers,
+                lineHoverHighlight: "number",
+                enableLineSelection: true,
+                enableGutterUtility: true,
                 lineDiffType: appState.wordDiffs ? "word" : "none",
-                itemMetrics: {
-                  lineHeight: payload.appearance.lineHeight,
-                  diffHeaderHeight: payload.appearance.diffHeaderHeight,
-                  spacing: 8,
-                },
                 stickyHeaders: true,
+                unsafeCSS: codeViewUnsafeCSS(),
                 theme: payload.appearance.theme,
                 themeType: "system",
               };
+            }
+
+            function codeViewUnsafeCSS() {
+              return `
+                [data-diffs-header=default],
+                [data-diffs-header=default] [data-additions-count],
+                [data-diffs-header=default] [data-deletions-count],
+                [data-separator-wrapper],
+                [data-separator-content],
+                [data-unmodified-lines],
+                [data-expand-button] {
+                  font-family: var(--diffs-header-font-family, var(--diffs-header-font-fallback));
+                }
+              `;
             }
 
             function applyCodeViewOptions() {
@@ -4384,8 +4408,17 @@ extension CMUXCLI {
                 return;
               }
               codeView.scrollTo({ type: "item", id: itemId, align: "start", behavior: "smooth-auto" });
-              codeView.render(true);
               updateActiveFile(itemId);
+            }
+
+            function scheduleActiveFileFromScroll() {
+              if (activeFileScrollFrame.value !== 0) {
+                return;
+              }
+              activeFileScrollFrame.value = window.requestAnimationFrame(() => {
+                activeFileScrollFrame.value = 0;
+                updateActiveFileFromScroll();
+              });
             }
 
             function updateActiveFileFromScroll() {
@@ -4393,19 +4426,41 @@ extension CMUXCLI {
                 return;
               }
               const scrollTop = viewerElement.scrollTop + 8;
+              const current = activeItemIdForScrollTop(scrollTop);
+              updateActiveFile(current);
+            }
+
+            function activeItemIdForScrollTop(scrollTop) {
+              let current = diffItems[0].id;
+              let low = 0;
+              let high = diffItems.length - 1;
+              while (low <= high) {
+                const mid = (low + high) >> 1;
+                const top = codeView.getTopForItem(diffItems[mid].id);
+                if (typeof top !== "number") {
+                  return activeItemIdForScrollTopLinear(scrollTop);
+                }
+                if (top <= scrollTop) {
+                  current = diffItems[mid].id;
+                  low = mid + 1;
+                } else {
+                  high = mid - 1;
+                }
+              }
+              return current;
+            }
+
+            function activeItemIdForScrollTopLinear(scrollTop) {
               let current = diffItems[0].id;
               for (const item of diffItems) {
                 const top = codeView.getTopForItem(item.id);
-                if (typeof top !== "number") {
-                  continue;
-                }
-                if (top <= scrollTop) {
+                if (typeof top === "number" && top <= scrollTop) {
                   current = item.id;
-                } else {
+                } else if (typeof top === "number") {
                   break;
                 }
               }
-              updateActiveFile(current);
+              return current;
             }
 
             function updateActiveFile(itemId) {
@@ -4436,7 +4491,6 @@ extension CMUXCLI {
                   fileTree.getItem(activeTreePath)?.deselect();
                 }
                 fileTree.getItem(nextPath)?.select();
-                fileTree.focusPath(nextPath);
                 fileTree.scrollToPath(nextPath, { focus: false, offset: "nearest" });
                 activeTreePath = nextPath;
               } finally {
