@@ -3427,6 +3427,236 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ])
     }
 
+    func testListTerminalsFlattensAllWindowsAndFiltersNonTerminals() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("listterm")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "system.tree")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["all_windows"] as? Bool, true)
+            XCTAssertNil(params["workspace_id"])
+            XCTAssertNil(params["window_id"])
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "windows": [
+                        [
+                            "id": "11111111-1111-1111-1111-111111111111",
+                            "ref": "window:1",
+                            "index": 0,
+                            "workspaces": [
+                                [
+                                    "id": "22222222-2222-2222-2222-222222222222",
+                                    "ref": "workspace:2",
+                                    "index": 1,
+                                    "title": "Ops",
+                                    "panes": [
+                                        [
+                                            "id": "33333333-3333-3333-3333-333333333333",
+                                            "ref": "pane:3",
+                                            "index": 0,
+                                            "focused": true,
+                                            "surfaces": [
+                                                [
+                                                    "id": "44444444-4444-4444-4444-444444444444",
+                                                    "ref": "surface:4",
+                                                    "index": 0,
+                                                    "type": "terminal",
+                                                    "selected": true,
+                                                    "title": "agent shell",
+                                                    "tty": "/dev/ttys123",
+                                                ],
+                                                [
+                                                    "id": "55555555-5555-5555-5555-555555555555",
+                                                    "ref": "surface:5",
+                                                    "index": 1,
+                                                    "type": "browser",
+                                                    "title": "Docs",
+                                                    "url": "https://example.test",
+                                                ],
+                                                [
+                                                    "id": "66666666-6666-6666-6666-666666666666",
+                                                    "ref": "surface:6",
+                                                    "index": 2,
+                                                    "type": "terminal",
+                                                    "title": "other shell",
+                                                    "tty": "/dev/ttys456",
+                                                ],
+                                            ],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["list-terminals"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertTrue(result.stdout.contains("* surface:4"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("* surface:6"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("surface:4"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("surface:6"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("terminal"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("window=window:1"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("workspace=workspace:2"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("pane=pane:3"), result.stdout)
+        XCTAssertTrue(result.stdout.contains(#""agent shell""#), result.stdout)
+        XCTAssertTrue(result.stdout.contains("tty=/dev/ttys123"), result.stdout)
+        XCTAssertTrue(result.stdout.contains(#""other shell""#), result.stdout)
+        XCTAssertTrue(result.stdout.contains("tty=/dev/ttys456"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("surface:5"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("Docs"), result.stdout)
+        XCTAssertEqual(
+            state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.tree"]
+        )
+    }
+
+    func testListSurfacesUsesWorkspaceScopeAndIncludesBrowsers() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("listsurf")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "system.tree")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["all_windows"] as? Bool, false)
+            XCTAssertEqual(params["workspace_id"] as? String, "workspace:2")
+            XCTAssertNil(params["window_id"])
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "windows": [
+                        [
+                            "id": "11111111-1111-1111-1111-111111111111",
+                            "ref": "window:1",
+                            "index": 0,
+                            "workspaces": [
+                                [
+                                    "id": "22222222-2222-2222-2222-222222222222",
+                                    "ref": "workspace:2",
+                                    "index": 1,
+                                    "title": "Docs",
+                                    "panes": [
+                                        [
+                                            "id": "33333333-3333-3333-3333-333333333333",
+                                            "ref": "pane:3",
+                                            "index": 0,
+                                            "surfaces": [
+                                                [
+                                                    "id": "55555555-5555-5555-5555-555555555555",
+                                                    "ref": "surface:5",
+                                                    "index": 1,
+                                                    "type": "browser",
+                                                    "title": "Docs",
+                                                    "url": "https://example.test",
+                                                ],
+                                            ],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["list-surfaces", "--workspace", "workspace:2"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertTrue(result.stdout.contains("surface:5"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("browser"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("window=window:1"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("workspace=workspace:2"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("pane=pane:3"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("https://example.test"), result.stdout)
+    }
+
+    func testListSurfacesRejectsWorkspaceWithAll() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = makeSocketPath("nosocket")
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["list-surfaces", "--workspace", "workspace:2", "--all"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1)
+        XCTAssertTrue(
+            result.stderr.contains("list-surfaces: --workspace cannot be combined with --all"),
+            result.stderr
+        )
+    }
+
     func testSSHSessionListAllWorkspacesReportsQueryErrors() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshlist")

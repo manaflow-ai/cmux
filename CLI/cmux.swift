@@ -3739,6 +3739,26 @@ struct CMUXCLI {
                 }
             }
 
+        case "list-surfaces":
+            try runListSurfacesCommand(
+                commandName: command,
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                terminalOnly: false
+            )
+
+        case "list-terminals":
+            try runListSurfacesCommand(
+                commandName: command,
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                terminalOnly: true
+            )
+
         case "tree":
             try runTreeCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
@@ -12453,6 +12473,40 @@ struct CMUXCLI {
               cmux list-pane-surfaces
               cmux list-pane-surfaces --workspace workspace:2 --pane pane:1
             """
+        case "list-surfaces":
+            return String(localized: "cli.help.listSurfaces", defaultValue: """
+            Usage: cmux list-surfaces [--workspace <id|ref|index>] [--window <id|ref|index>] [--all] [--json]
+
+            List cmux surfaces across windows, workspaces, and panes.
+            By default, lists every window so this works from an SSH shell outside cmux.
+
+            Flags:
+              --workspace <id|ref|index>   Restrict to one workspace
+              --window <id|ref|index>      Restrict to one window
+              --all                        List all windows (default when no window/workspace is specified)
+              --json                       Structured JSON output
+
+            Example:
+              cmux list-surfaces
+              cmux list-surfaces --workspace workspace:2
+            """)
+        case "list-terminals":
+            return String(localized: "cli.help.listTerminals", defaultValue: """
+            Usage: cmux list-terminals [--workspace <id|ref|index>] [--window <id|ref|index>] [--all] [--json]
+
+            List terminal surfaces across windows, workspaces, and panes.
+            By default, lists every window so this works from an SSH shell outside cmux.
+
+            Flags:
+              --workspace <id|ref|index>   Restrict to one workspace
+              --window <id|ref|index>      Restrict to one window
+              --all                        List all windows (default when no window/workspace is specified)
+              --json                       Structured JSON output
+
+            Example:
+              cmux list-terminals
+              cmux list-terminals --workspace workspace:2
+            """)
         case "tree":
             return """
             Usage: cmux tree [flags]
@@ -13932,7 +13986,7 @@ struct CMUXCLI {
         return parts.joined(separator: " ")
     }
 
-    private struct TreeCommandOptions {
+    struct TreeCommandOptions {
         let includeAllWindows: Bool
         let workspaceHandle: String?
         let windowHandle: String?
@@ -14177,7 +14231,7 @@ struct CMUXCLI {
         }
     }
 
-    private func buildTreePayload(
+    func buildTreePayload(
         options: TreeCommandOptions,
         client: SocketClient
     ) throws -> [String: Any] {
@@ -29889,6 +29943,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           new-split <left|right|up|down> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--panel <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
           list-panes [--workspace <id|ref|index>] [--window <id|ref|index>]
           list-pane-surfaces [--workspace <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>]
+          list-surfaces [--workspace <id|ref|index>] [--window <id|ref|index>] [--all] [--json]
+          list-terminals [--workspace <id|ref|index>] [--window <id|ref|index>] [--all] [--json]
           tree [--all] [--workspace <id|ref|index>] [--window <id|ref|index>]
           top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           memory [--all] [--workspace <id|ref|index>] [--groups <count>]
