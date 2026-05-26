@@ -89,6 +89,19 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         let secondPanel = try XCTUnwrap(
             workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
         )
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Needs input",
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            priority: 100
+        )
+        workspace.recordAgentPID(
+            key: "claude_code.session-clear-command",
+            pid: pid_t(12345),
+            panelId: firstPanelId,
+            refreshPorts: false
+        )
 
         TerminalMutationBus.shared.enqueueNotification(
             tabId: workspace.id,
@@ -119,6 +132,8 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: secondPanel.id))
         XCTAssertEqual(store.notifications.count, 1)
         XCTAssertEqual(store.notifications.first?.surfaceId, secondPanel.id)
+        XCTAssertEqual(workspace.statusEntries["claude_code"]?.value, "Idle")
+        XCTAssertEqual(workspace.statusEntries["claude_code"]?.icon, "pause.circle.fill")
     }
 
     func testMarkingClaudeNeedsInputNotificationReadDemotesSidebarStatusToIdle() throws {
