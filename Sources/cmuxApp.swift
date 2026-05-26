@@ -5336,8 +5336,20 @@ struct SettingsView: View {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
     }
 
+    private var workspaceWorkingDirectoryInheritanceEnabled: Bool {
+        WorkspaceWorkingDirectoryInheritanceSettings.isEnabled()
+    }
+
+    private var workspaceWorkingDirectoryInheritanceBinding: Binding<Bool> {
+        Binding {
+            WorkspaceWorkingDirectoryInheritanceSettings.isEnabled()
+        } set: { newValue in
+            workspaceInheritWorkingDirectory = newValue
+        }
+    }
+
     private var workspaceWorkingDirectoryInheritanceSubtitle: String {
-        if workspaceInheritWorkingDirectory {
+        if workspaceWorkingDirectoryInheritanceEnabled {
             return String(
                 localized: "settings.app.workspaceInheritWorkingDirectory.subtitleOn",
                 defaultValue: "New workspaces start in the focused workspace's working directory."
@@ -6210,7 +6222,7 @@ struct SettingsView: View {
                             ),
                             subtitle: workspaceWorkingDirectoryInheritanceSubtitle
                         ) {
-                            Toggle("", isOn: $workspaceInheritWorkingDirectory)
+                            Toggle("", isOn: workspaceWorkingDirectoryInheritanceBinding)
                                 .labelsHidden()
                                 .controlSize(.small)
                                 .accessibilityIdentifier("SettingsWorkspaceInheritWorkingDirectoryToggle")
@@ -7980,9 +7992,9 @@ struct SettingsView: View {
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
-        workspaceInheritWorkingDirectory = WorkspaceWorkingDirectoryInheritanceSettings.defaultValue
         workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
         let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: WorkspaceWorkingDirectoryInheritanceSettings.key)
         defaults.removeObject(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.modeKey)
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyTitlebarControlsVisibilityModeKey)
