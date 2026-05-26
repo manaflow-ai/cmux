@@ -8092,6 +8092,7 @@ class TerminalController {
         var pageFound = false
         var moved = false
         var newIndex: Int?
+        var payload: [String: Any]?
         v2MainSync {
             guard let currentIndex = workspace.pageIndex(pageId: pageId) else { return }
             pageFound = true
@@ -8107,6 +8108,9 @@ class TerminalController {
                 moved = workspace.movePage(pageId: pageId, toIndex: targetIndex)
             }
             newIndex = workspace.pageIndex(pageId: pageId)
+            guard moved else { return }
+            payload = v2PageResultPayload(tabManager: tabManager, workspace: workspace, pageId: pageId)
+            payload?["index"] = v2OrNull(newIndex)
         }
 
         guard moved else {
@@ -8135,9 +8139,13 @@ class TerminalController {
                 "page_ref": v2Ref(kind: .page, uuid: pageId)
             ])
         }
-
-        var payload = v2PageResultPayload(tabManager: tabManager, workspace: workspace, pageId: pageId)
-        payload["index"] = v2OrNull(newIndex)
+        guard let payload else {
+            return .err(code: "internal_error", message: "Failed to build page result", data: [
+                "page_id": pageId.uuidString,
+                "page_ref": v2Ref(kind: .page, uuid: pageId),
+                "index": v2OrNull(newIndex)
+            ])
+        }
         return .ok(payload)
     }
 
@@ -8156,10 +8164,12 @@ class TerminalController {
         }
 
         var found = false
+        var payload: [String: Any]?
         v2MainSync {
             guard workspace.pageIndex(pageId: pageId) != nil else { return }
             workspace.setPageTitle(pageId: pageId, title: title)
             found = true
+            payload = v2PageResultPayload(tabManager: tabManager, workspace: workspace, pageId: pageId)
         }
 
         guard found else {
@@ -8168,7 +8178,13 @@ class TerminalController {
                 "page_ref": v2Ref(kind: .page, uuid: pageId)
             ])
         }
-        return .ok(v2PageResultPayload(tabManager: tabManager, workspace: workspace, pageId: pageId))
+        guard let payload else {
+            return .err(code: "internal_error", message: "Failed to build page result", data: [
+                "page_id": pageId.uuidString,
+                "page_ref": v2Ref(kind: .page, uuid: pageId)
+            ])
+        }
+        return .ok(payload)
     }
 
     private func v2PageNext(params: [String: Any]) -> V2CallResult {
