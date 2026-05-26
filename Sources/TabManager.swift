@@ -1139,8 +1139,10 @@ class TabManager: ObservableObject {
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
+    @MainActor
     private(set) static var nextPortOrdinal: Int = 0
 
+    @MainActor
     static func allocatePortOrdinal() -> Int {
         let ordinal = nextPortOrdinal
         nextPortOrdinal += 1
