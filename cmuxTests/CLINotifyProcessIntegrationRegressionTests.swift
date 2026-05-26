@@ -693,17 +693,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let otherSessionId = "running-other-surface-session"
         let otherSurfaceId = "44444444-4444-4444-4444-444444444444"
         let now = Date().timeIntervalSince1970
-        let liveProcess = Process()
-        liveProcess.executableURL = URL(fileURLWithPath: "/bin/sleep")
-        liveProcess.arguments = ["60"]
-        try liveProcess.run()
-        defer {
-            if liveProcess.isRunning {
-                liveProcess.terminate()
-                liveProcess.waitUntilExit()
-            }
-        }
-        let livePID = Int(liveProcess.processIdentifier)
+        let livePID = 1
         let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
         let store: [String: Any] = [
             "version": 1,
