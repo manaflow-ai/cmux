@@ -493,7 +493,9 @@
         },
         "app": {
           "confirmQuit": "控制 cmux 在退出前何时请求确认。无论此设置如何，DEV 构建都会立即退出。旧的 app.warnBeforeQuit 仍作为布尔回退值接受。",
-          "warnBeforeQuit": "用于退出确认的旧布尔回退值。新配置请使用 app.confirmQuit。"
+          "warnBeforeQuit": "用于退出确认的旧布尔回退值。新配置请使用 app.confirmQuit。",
+          "warnBeforeClosingTabXButton": "使用标签关闭按钮关闭标签前显示确认。",
+          "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。"
         },
         "terminal": {
           "copyOnSelect": "确认选择后，将所选终端文本复制到系统剪贴板，包括通过双击和三击选择的单词和整行。"
@@ -978,7 +980,7 @@
       "supportedNote": "启用 Claude 集成时，Claude Code 由 cmux Claude wrapper 处理。Antigravity 也接受 agy 作为 setup 别名，Rovo Dev 接受 rovo。",
       "manualTitle": "手动恢复",
       "manualDesc": "cmux 正常启动时会恢复最后保存的 snapshot。你也可以手动重新应用上一个 snapshot：",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "关闭 agent 自动恢复",
       "disableDesc": "如需只恢复 pane 而不启动保存的 agent resume 命令，请关闭 Settings > Terminal > Resume Agent Sessions on Reopen 或设置：",
       "disableNote": "这只会关闭 agent resume 命令。cmux 仍会恢复布局、工作目录、scrollback 和浏览器历史。",
@@ -1003,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "又一个基于 libghostty 的项目，这次是一个带垂直标签页、更好的组织/通知、内置可编程浏览器的 macOS 终端，专门面向大量使用终端 agent 工作流的用户。",
+    "steipete": "来晚了，但 cmux 很棒。当前分工：Codex Mac 应用用于知识工作、学习和阅读；cmux + Codex CLI 用于编码。",
     "schrockn": "这正是我一直在找的产品。用了两小时就爱上了。",
     "egrefen": "整个周末都在用，太棒了。",
     "max4c": "过去两周最喜欢的工具",

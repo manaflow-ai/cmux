@@ -493,7 +493,9 @@
         },
         "app": {
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
-          "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit."
+          "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",
+          "warnBeforeClosingTabXButton": "Prikaži potvrdu prije zatvaranja taba dugmetom za zatvaranje taba.",
+          "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna."
         },
         "terminal": {
           "copyOnSelect": "Kopira odabrani tekst iz terminala u sistemski međuspremnik kada se odabir potvrdi, uključujući riječi i redove odabrane dvoklikom ili troklikom."
@@ -978,7 +980,7 @@
       "supportedNote": "Claude Code obrađuje cmux Claude wrapper kada je Claude integracija uključena u Settings. Antigravity prihvata i agy kao setup alias, a Rovo Dev prihvata rovo.",
       "manualTitle": "Ručna obnova",
       "manualDesc": "cmux pri normalnom pokretanju obnavlja zadnji sačuvani snapshot. Prethodni snapshot možeš ponovno primijeniti i ručno:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "Isključi automatski nastavak agenata",
       "disableDesc": "Za obnovu paneova bez pokretanja sačuvanih agent resume komandi, isključi Settings > Terminal > Resume Agent Sessions on Reopen ili postavi:",
       "disableNote": "Ovo isključuje samo agent resume komande. cmux i dalje obnavlja layout, radne direktorije, scrollback i historiju browsera.",
@@ -1003,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "Još jedan dan, još jedan projekat baziran na libghostty-ju, ovaj put macOS terminal sa vertikalnim tabovima, boljom organizacijom/notifikacijama, ugrađenim/skriptabilnim preglednikom specifično usmjeren na ljude koji koriste mnogo terminalskih agentskih tokova rada.",
+    "steipete": "Kasnim na zabavu, ali cmux je sjajan. Trenutna podjela: Codex Mac aplikacija za rad sa znanjem, učenje i čitanje; cmux + Codex CLI za kodiranje.",
     "schrockn": "Ovo je tačno proizvod koji sam tražio. Nakon dva sata jutros sam zaljubljen.",
     "egrefen": "Koristio sam ovo cijeli vikend i nevjerovatno je.",
     "max4c": "ovo je bio moj omiljeni alat posljednje dvije sedmice",

@@ -8,6 +8,9 @@ func cmuxCloseFocusedTerminalFindForEscape(event: NSEvent, appDelegate: AppDeleg
         ?? (event.windowNumber > 0 ? NSApp.window(withWindowNumber: event.windowNumber) : nil)
         ?? NSApp.keyWindow
         ?? NSApp.mainWindow
+    if shortcutWindow?.firstResponder is TextBoxInputTextView {
+        return false
+    }
     let terminalFindFieldOwnsResponder = cmuxFindTextFieldOwner(for: shortcutWindow?.firstResponder)?
         .identifier?.rawValue == "TerminalFindSearchTextField"
     let targetTabManager = appDelegate.synchronizeActiveMainWindowContext(preferredWindow: shortcutWindow)
