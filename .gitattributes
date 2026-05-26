@@ -1,1 +1,1 @@
-Resources/markdown-viewer/diff-viewer/*.mjs -whitespace
+Resources/markdown-viewer/diff-viewer/**/*.mjs -whitespace

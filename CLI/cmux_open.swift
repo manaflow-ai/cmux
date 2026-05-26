@@ -1671,6 +1671,12 @@ extension CMUXCLI {
             .appendingPathComponent("agent-turn-diff-baseline-snapshots", isDirectory: true)
     }
 
+    private func agentTurnDiffBaselineSnapshotStagingRootURL(storePath: String) -> URL {
+        URL(fileURLWithPath: NSString(string: storePath).expandingTildeInPath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("agent-turn-diff-baseline-snapshots-staging", isDirectory: true)
+    }
+
     private func agentTurnDiffBaselineSnapshotDirectoryURL(
         snapshotId: String,
         storePath: String
@@ -1679,6 +1685,17 @@ extension CMUXCLI {
             return nil
         }
         return agentTurnDiffBaselineSnapshotRootURL(storePath: storePath)
+            .appendingPathComponent(snapshotId, isDirectory: true)
+    }
+
+    private func agentTurnDiffBaselineStagedSnapshotDirectoryURL(
+        snapshotId: String,
+        storePath: String
+    ) -> URL? {
+        guard snapshotId.range(of: #"^[A-Fa-f0-9-]{36}$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        return agentTurnDiffBaselineSnapshotStagingRootURL(storePath: storePath)
             .appendingPathComponent(snapshotId, isDirectory: true)
     }
 
@@ -1724,7 +1741,7 @@ extension CMUXCLI {
             return (nil, [:])
         }
         let snapshotId = UUID().uuidString
-        guard let snapshotDirectory = agentTurnDiffBaselineSnapshotDirectoryURL(
+        guard let snapshotDirectory = agentTurnDiffBaselineStagedSnapshotDirectoryURL(
             snapshotId: snapshotId,
             storePath: storePath
         ) else {
@@ -1774,6 +1791,44 @@ extension CMUXCLI {
         return (snapshotId, hashes)
     }
 
+    private func publishAgentTurnDiffBaselineSnapshot(snapshotId: String, storePath: String) throws {
+        guard let stagedDirectory = agentTurnDiffBaselineStagedSnapshotDirectoryURL(
+            snapshotId: snapshotId,
+            storePath: storePath
+        ), let snapshotDirectory = agentTurnDiffBaselineSnapshotDirectoryURL(
+            snapshotId: snapshotId,
+            storePath: storePath
+        ) else {
+            return
+        }
+        guard FileManager.default.fileExists(atPath: stagedDirectory.path) else {
+            return
+        }
+        try FileManager.default.createDirectory(
+            at: snapshotDirectory.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if FileManager.default.fileExists(atPath: snapshotDirectory.path) {
+            try FileManager.default.removeItem(at: snapshotDirectory)
+        }
+        try FileManager.default.moveItem(at: stagedDirectory, to: snapshotDirectory)
+    }
+
+    private func removeAgentTurnDiffBaselineSnapshot(snapshotId: String, storePath: String) {
+        if let snapshotDirectory = agentTurnDiffBaselineSnapshotDirectoryURL(
+            snapshotId: snapshotId,
+            storePath: storePath
+        ) {
+            try? FileManager.default.removeItem(at: snapshotDirectory)
+        }
+        if let stagedDirectory = agentTurnDiffBaselineStagedSnapshotDirectoryURL(
+            snapshotId: snapshotId,
+            storePath: storePath
+        ) {
+            try? FileManager.default.removeItem(at: stagedDirectory)
+        }
+    }
+
     private func joinedGitDiffPatches(_ patches: [String]) -> String {
         let trimmed = patches.map { $0.trimmingCharacters(in: .newlines) }.filter { !$0.isEmpty }
         guard !trimmed.isEmpty else { return "" }
@@ -1816,10 +1871,12 @@ extension CMUXCLI {
             untrackedSnapshotId: untrackedSnapshot.snapshotId,
             capturedAt: Date().timeIntervalSince1970
         )
-        var removedRecords: [CMUXAgentTurnDiffBaselineRecord] = []
-        var retainedRecords: [CMUXAgentTurnDiffBaselineRecord] = []
         do {
-            try updateAgentTurnDiffBaselineStore(path: storePath) { store in
+            var removedRecords: [CMUXAgentTurnDiffBaselineRecord] = []
+            try updateAgentTurnDiffBaselineStore(path: storePath, update: { store in
+                if let snapshotId = untrackedSnapshot.snapshotId {
+                    try publishAgentTurnDiffBaselineSnapshot(snapshotId: snapshotId, storePath: storePath)
+                }
                 let previousRecords = store.records
                 store.records.removeAll { existing in
                     guard standardizedDiffSourcePath(existing.repoRoot) == repoRoot,
@@ -1835,26 +1892,22 @@ extension CMUXCLI {
                 }
                 store.records.append(record)
                 pruneAgentTurnDiffBaselineStore(&store)
-                retainedRecords = store.records
                 removedRecords = previousRecords.filter { previous in
                     !store.records.contains { agentTurnDiffBaselineRecordEquals($0, previous) }
                 }
-            }
+            }, afterWrite: { store in
+                pruneAgentTurnDiffBaselineArtifacts(
+                    storePath: storePath,
+                    removedRecords: removedRecords,
+                    retainedRecords: store.records
+                )
+            })
         } catch {
-            if let snapshotId = untrackedSnapshot.snapshotId,
-               let snapshotDirectory = agentTurnDiffBaselineSnapshotDirectoryURL(
-                snapshotId: snapshotId,
-                storePath: storePath
-               ) {
-                try? FileManager.default.removeItem(at: snapshotDirectory)
+            if let snapshotId = untrackedSnapshot.snapshotId {
+                removeAgentTurnDiffBaselineSnapshot(snapshotId: snapshotId, storePath: storePath)
             }
             throw error
         }
-        pruneAgentTurnDiffBaselineArtifacts(
-            storePath: storePath,
-            removedRecords: removedRecords,
-            retainedRecords: retainedRecords
-        )
     }
 
     private func agentTurnDiffBaselineCommit(in repoRoot: String) throws -> String {
@@ -1912,7 +1965,8 @@ extension CMUXCLI {
 
     private func updateAgentTurnDiffBaselineStore(
         path: String,
-        update: (inout CMUXAgentTurnDiffBaselineStore) throws -> Void
+        update: (inout CMUXAgentTurnDiffBaselineStore) throws -> Void,
+        afterWrite: ((CMUXAgentTurnDiffBaselineStore) -> Void)? = nil
     ) throws {
         let expandedPath = NSString(string: path).expandingTildeInPath
         let url = URL(fileURLWithPath: expandedPath)
@@ -1935,6 +1989,7 @@ extension CMUXCLI {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(store).write(to: url, options: .atomic)
+        afterWrite?(store)
     }
 
     private func pruneAgentTurnDiffBaselineStore(_ store: inout CMUXAgentTurnDiffBaselineStore) {
@@ -3550,7 +3605,14 @@ extension CMUXCLI {
               gap: 6px;
               min-width: 0;
             }
-            #file-search-toggle {
+            #files-header-actions {
+              display: inline-flex;
+              align-items: center;
+              gap: 2px;
+              flex: 0 0 auto;
+            }
+            #file-search-toggle,
+            #file-collapse-toggle {
               width: 24px;
               height: 24px;
               flex: 0 0 auto;
@@ -3564,11 +3626,13 @@ extension CMUXCLI {
               padding: 0;
             }
             #file-search-toggle:hover,
-            #file-search-toggle[aria-pressed="true"] {
+            #file-search-toggle[aria-pressed="true"],
+            #file-collapse-toggle:hover {
               background: var(--cmux-diff-hover-bg);
               color: var(--cmux-diff-fg);
             }
-            #file-search-toggle svg {
+            #file-search-toggle svg,
+            #file-collapse-toggle svg {
               width: 15px;
               height: 15px;
               fill: none;
@@ -3754,7 +3818,10 @@ extension CMUXCLI {
               <aside id="files-sidebar" aria-label="\(changedFilesLabel)">
                 <div id="files-header">
                   <span id="files-title"><span>\(filesLabel)</span><span id="files-count"></span></span>
-                  <button id="file-search-toggle" type="button" title="\(showFileSearchLabel)" aria-label="\(showFileSearchLabel)" aria-pressed="false"></button>
+                  <span id="files-header-actions">
+                    <button id="file-search-toggle" type="button" title="\(showFileSearchLabel)" aria-label="\(showFileSearchLabel)" aria-pressed="false"></button>
+                    <button id="file-collapse-toggle" type="button" title="\(hideFilesLabel)" aria-label="\(hideFilesLabel)"></button>
+                  </span>
                 </div>
                 <div id="file-list"></div>
                 <div id="files-footer" aria-label="\(diffStatsLabel)">
@@ -3789,6 +3856,7 @@ extension CMUXCLI {
             const fileList = document.getElementById("file-list");
             const filesCount = document.getElementById("files-count");
             const fileSearchToggle = document.getElementById("file-search-toggle");
+            const fileCollapseToggle = document.getElementById("file-collapse-toggle");
             const statsFiles = document.getElementById("stats-files");
             const statsAdded = document.getElementById("stats-added");
             const statsDeleted = document.getElementById("stats-deleted");
@@ -3874,6 +3942,7 @@ extension CMUXCLI {
             async function streamPatchIntoCodeView({ parsePatchFiles, processFile, treesModule }) {
               const pendingItems = [];
               const flushState = { frame: 0 };
+              const navigationRefreshState = { timeout: 0, treesModule: null };
               let nextFileIndex = 0;
               let firstRender = true;
 
@@ -3893,7 +3962,7 @@ extension CMUXCLI {
                   return;
                 }
                 pendingItems.push(makeItem(fileDiff));
-                if (pendingItems.length >= 32) {
+                if (pendingItems.length >= 128) {
                   flushPendingItems();
                 } else {
                   schedulePendingItemFlush();
@@ -3918,9 +3987,7 @@ extension CMUXCLI {
                 const hadItems = diffItems.length > 0;
                 diffItems.push(...batch);
                 codeView.addItems(batch);
-                refreshFileExplorer(diffItems, treesModule);
-                setupJumpSelector(diffItems);
-                updateToolbarState();
+                scheduleNavigationRefresh(treesModule);
                 if (firstRender) {
                   firstRender = false;
                   status.remove();
@@ -3929,6 +3996,27 @@ extension CMUXCLI {
                   updateActiveFile(diffItems[0]?.id ?? "");
                 }
                 window.__cmuxDiffViewer.items = diffItems;
+              }
+
+              function scheduleNavigationRefresh(treesModule) {
+                navigationRefreshState.treesModule = treesModule;
+                if (navigationRefreshState.timeout !== 0) {
+                  return;
+                }
+                navigationRefreshState.timeout = window.setTimeout(() => {
+                  navigationRefreshState.timeout = 0;
+                  refreshNavigation(navigationRefreshState.treesModule);
+                }, 120);
+              }
+
+              function refreshNavigation(treesModule) {
+                if (navigationRefreshState.timeout !== 0) {
+                  window.clearTimeout(navigationRefreshState.timeout);
+                  navigationRefreshState.timeout = 0;
+                }
+                refreshFileExplorer(diffItems, treesModule);
+                setupJumpSelector(diffItems);
+                updateToolbarState();
               }
 
               const response = await fetch(payload.patchURL, { cache: "no-store" });
@@ -3940,6 +4028,7 @@ extension CMUXCLI {
                 const text = await response.text();
                 appendParsedPatchText(text, parsePatchFiles, enqueueFileDiff);
                 flushPendingItems();
+                refreshNavigation(treesModule);
                 return;
               }
 
@@ -4012,6 +4101,7 @@ extension CMUXCLI {
                 appendParsedPatchText(fallbackPrefix + buffer, parsePatchFiles, enqueueFileDiff);
               }
               flushPendingItems();
+              refreshNavigation(treesModule);
             }
 
             function appendParsedPatchText(patchText, parsePatchFiles, enqueueFileDiff) {
@@ -4056,6 +4146,7 @@ extension CMUXCLI {
             function setupToolbar() {
               filesToggle.innerHTML = icon("files");
               fileSearchToggle.innerHTML = icon("search");
+              fileCollapseToggle.innerHTML = icon("sidebarCollapse");
               layoutToggle.innerHTML = icon(appState.layout);
               optionsButton.innerHTML = icon("dots");
               if (typeof payload.externalURL === "string" && payload.externalURL.length > 0) {
@@ -4064,6 +4155,7 @@ extension CMUXCLI {
                 externalLink.hidden = false;
               }
               filesToggle.addEventListener("click", () => setFilesVisible(!appState.filesVisible));
+              fileCollapseToggle.addEventListener("click", () => setFilesVisible(false));
               fileSearchToggle.addEventListener("click", () => setFileSearchOpen(!appState.fileSearchOpen));
               layoutToggle.addEventListener("click", () => setLayout(appState.layout === "split" ? "unified" : "split"));
               optionsButton.addEventListener("click", () => setOptionsMenuOpen(optionsMenu.hidden));
@@ -4170,6 +4262,8 @@ extension CMUXCLI {
               filesToggle.setAttribute("aria-pressed", String(appState.filesVisible));
               filesToggle.title = appState.filesVisible ? label("hideFiles") : label("showFiles");
               filesToggle.setAttribute("aria-label", filesToggle.title);
+              fileCollapseToggle.title = label("hideFiles");
+              fileCollapseToggle.setAttribute("aria-label", fileCollapseToggle.title);
               layoutToggle.innerHTML = icon(appState.layout);
               layoutToggle.title = appState.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff");
               layoutToggle.setAttribute("aria-label", layoutToggle.title);
@@ -4201,6 +4295,7 @@ extension CMUXCLI {
                 } },
                 { label: appState.collapsed ? label("expandAllDiffs") : label("collapseAllDiffs"), icon: "collapse", checked: appState.collapsed, action: () => setCollapsed(!appState.collapsed) },
                 "separator",
+                { label: appState.filesVisible ? label("hideFiles") : label("showFiles"), icon: "files", checked: appState.filesVisible, action: () => setFilesVisible(!appState.filesVisible) },
                 { label: appState.expandUnchanged ? label("collapseUnchangedContext") : label("expandUnchangedContext"), icon: "document", checked: appState.expandUnchanged, action: () => {
                   appState.expandUnchanged = !appState.expandUnchanged;
                   applyCodeViewOptions();
@@ -4787,6 +4882,7 @@ extension CMUXCLI {
                 numbers: '<path d="M5 5h2v10"/><path d="M4 15h4"/><path d="M11 6.5a2 2 0 1 1 3.2 1.6L11 12h4"/><path d="M11 15h4"/>',
                 refresh: '<path d="M16 8a6 6 0 0 0-10.3-3.7L4 6"/><path d="M4 3v3h3"/><path d="M4 12a6 6 0 0 0 10.3 3.7L16 14"/><path d="M16 17v-3h-3"/>',
                 search: '<circle cx="8.5" cy="8.5" r="4.5"/><path d="m12 12 4 4"/>',
+                sidebarCollapse: '<rect x="3.5" y="4" width="13" height="12" rx="2"/><path d="M12 4v12"/><path d="m8 8-2 2 2 2"/>',
                 split: '<rect x="3" y="4" width="14" height="12" rx="2"/><path d="M10 4v12" data-accent="true"/><path d="M6 8h2"/><path d="M6 12h2"/><path d="M12 8h2"/><path d="M12 12h2"/>',
                 unified: '<rect x="4" y="3.5" width="12" height="13" rx="2"/><path d="M7 7h6"/><path d="M7 10h6" data-accent="true"/><path d="M7 13h6"/>',
                 word: '<path d="M3 6h14"/><path d="M3 10h8"/><path d="M3 14h11"/><path d="M14 10h3"/>',
@@ -4880,25 +4976,27 @@ extension CMUXCLI {
             .appendingPathComponent(assetDirectoryName, isDirectory: true)
         try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
 
-        try copyDiffViewerAsset(named: "diffs.mjs", from: sourceDirectory, to: targetDirectory)
-        try copyDiffViewerAsset(named: "trees.mjs", from: sourceDirectory, to: targetDirectory)
+        let assetPaths = try diffViewerBundledAssetRelativePaths(in: sourceDirectory)
+        guard assetPaths.contains("diffs.mjs"), assetPaths.contains("trees.mjs") else {
+            throw CLIError(message: "Bundled diff viewer entry assets not found")
+        }
+        for assetPath in assetPaths {
+            try copyDiffViewerAsset(relativePath: assetPath, from: sourceDirectory, to: targetDirectory)
+        }
 
         return DiffViewerAssets(
             diffsModuleURL: "./assets/\(assetDirectoryName)/diffs.mjs",
             treesModuleURL: "./assets/\(assetDirectoryName)/trees.mjs",
-            files: [
-                targetDirectory.appendingPathComponent("diffs.mjs", isDirectory: false),
-                targetDirectory.appendingPathComponent("trees.mjs", isDirectory: false)
-            ]
+            files: assetPaths.map { targetDirectory.appendingPathComponent($0, isDirectory: false) }
         )
     }
 
-    private func copyDiffViewerAsset(named fileName: String, from sourceDirectory: URL, to targetDirectory: URL) throws {
+    private func copyDiffViewerAsset(relativePath: String, from sourceDirectory: URL, to targetDirectory: URL) throws {
         let fileManager = FileManager.default
-        let sourceURL = sourceDirectory.appendingPathComponent(fileName, isDirectory: false)
-        let targetURL = targetDirectory.appendingPathComponent(fileName, isDirectory: false)
+        let sourceURL = sourceDirectory.appendingPathComponent(relativePath, isDirectory: false)
+        let targetURL = targetDirectory.appendingPathComponent(relativePath, isDirectory: false)
         guard fileManager.fileExists(atPath: sourceURL.path) else {
-            throw CLIError(message: "Bundled diff viewer asset not found: \(fileName)")
+            throw CLIError(message: "Bundled diff viewer asset not found: \(relativePath)")
         }
 
         let sourceValues = try sourceURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
@@ -4906,8 +5004,12 @@ extension CMUXCLI {
             return
         }
 
-        let temporaryURL = targetDirectory.appendingPathComponent(
-            ".\(fileName).\(UUID().uuidString).tmp",
+        try fileManager.createDirectory(
+            at: targetURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let temporaryURL = targetURL.deletingLastPathComponent().appendingPathComponent(
+            ".\(targetURL.lastPathComponent).\(UUID().uuidString).tmp",
             isDirectory: false
         )
         do {
@@ -4923,6 +5025,32 @@ extension CMUXCLI {
             }
             throw error
         }
+    }
+
+    private func diffViewerBundledAssetRelativePaths(in sourceDirectory: URL) throws -> [String] {
+        let rootURL = sourceDirectory.standardizedFileURL.resolvingSymlinksInPath()
+        guard let enumerator = FileManager.default.enumerator(
+            at: rootURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            throw CLIError(message: "Failed to enumerate diff viewer assets")
+        }
+
+        var relativePaths: [String] = []
+        for case let fileURL as URL in enumerator {
+            guard fileURL.pathExtension == "mjs",
+                  let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
+                  values.isRegularFile == true else {
+                continue
+            }
+            let standardized = fileURL.standardizedFileURL.resolvingSymlinksInPath()
+            guard standardized.path.hasPrefix(rootURL.path + "/") else {
+                continue
+            }
+            relativePaths.append(String(standardized.path.dropFirst(rootURL.path.count + 1)))
+        }
+        return relativePaths.sorted()
     }
 
     private func isCurrentDiffViewerAsset(targetURL: URL, sourceValues: URLResourceValues) -> Bool {
@@ -5064,6 +5192,18 @@ extension CMUXCLI {
 
         for (index, entry) in sorted.enumerated() where index >= 50 && now.timeIntervalSince(entry.date) > 24 * 60 * 60 {
             try? FileManager.default.removeItem(at: entry.url)
+            try? FileManager.default.removeItem(at: diffViewerPatchFileURL(for: entry.url))
+        }
+
+        for patchURL in entries where patchURL.pathExtension == "patch" {
+            let htmlURL = patchURL.deletingPathExtension().appendingPathExtension("html")
+            guard !FileManager.default.fileExists(atPath: htmlURL.path),
+                  let values = try? patchURL.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey, .isRegularFileKey]),
+                  values.isRegularFile == true,
+                  now.timeIntervalSince(values.contentModificationDate ?? values.creationDate ?? .distantPast) > 24 * 60 * 60 else {
+                continue
+            }
+            try? FileManager.default.removeItem(at: patchURL)
         }
     }
 

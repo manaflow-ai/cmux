@@ -11765,7 +11765,7 @@ class TerminalController {
               token == url.host,
               let rawFiles = params["diff_viewer_files"] as? [[String: Any]],
               !rawFiles.isEmpty,
-              rawFiles.count <= 256 else {
+              rawFiles.count <= CmuxDiffViewerURLSchemeHandler.maxRegisteredFiles else {
             return .err(code: "invalid_params", message: "Missing or invalid trusted diff viewer allowlist", data: nil)
         }
 
