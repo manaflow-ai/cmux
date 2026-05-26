@@ -41,11 +41,45 @@ That writes `.opencode/plugins/cmux-feed.js` in the current directory.
 
 ## What the hooks record
 
-Session hooks write `~/.cmuxterm/<agent>-hook-sessions.json`. Each entry stores the agent session ID, cmux workspace ID, surface ID, cwd, process ID when available, and a sanitized launch command. On app relaunch, cmux rebuilds each workspace and runs the agent's native resume command with the saved session ID.
+Session hooks write `~/.cmuxterm/<agent>-hook-sessions.json`. Each entry stores the agent session ID, cmux workspace ID, surface ID, cwd, process ID when available, current lifecycle (`running`, `idle`, `needsInput`, or `unknown`), and a sanitized launch command. On app relaunch, cmux rebuilds each workspace and runs the agent's native resume command with the saved session ID.
 
 The sanitizer preserves model, sandbox, config, and cwd-related flags. It drops prompts, credentials, old session selectors, and noninteractive commands so relaunch resumes the session instead of starting a new task or leaking secrets.
 
 Grok uses its `Notification` hook for user-facing completion messages. cmux records `Stop` as idle state, but leaves the visible notification text to the `Notification` payload so repeated turns keep Grok's own message instead of a generic completion fallback.
+
+## Agent Hibernation
+
+Agent Hibernation is opt-in. It can free old background terminals only when all of these are true:
+
+- the terminal has a saved restorable agent session
+- the saved launch data can build a resume command
+- the agent lifecycle is `idle`
+- the terminal has had no output or input for the configured idle window
+- the number of live restorable agent terminals is above the configured limit
+- the panel is not currently visible
+
+cmux double-checks the terminal tail before hibernating. A hibernated terminal stays as a placeholder while it is in the background and automatically resumes when you visit its tab. The Resume button is a fallback for manual retry.
+
+Enable it from **Settings > Terminal > Agent Hibernation**, or from the CLI:
+
+```bash
+cmux agent-hibernation on
+cmux agent-hibernation off
+```
+
+Configure the idle window and live-terminal limit from Settings, or set them in `~/.config/cmux/cmux.json`:
+
+```json
+{
+  "terminal": {
+    "agentHibernation": {
+      "enabled": true,
+      "idleSeconds": 3600,
+      "maxLiveTerminals": 12
+    }
+  }
+}
+```
 
 ## Custom surface resume commands
 
