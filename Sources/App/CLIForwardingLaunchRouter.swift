@@ -19,14 +19,13 @@ enum CLIForwardingLaunchRouter {
             return
         }
 
-        setenv(guardKey, "1", 1)
-
-        var cArgs: [UnsafeMutablePointer<CChar>?] = []
-        cArgs.append(strdup(cliURL.path))
-        for arg in argv.dropFirst() {
-            cArgs.append(strdup(arg))
+        guard var cArgs = makeCStringArguments(cliPath: cliURL.path, arguments: argv) else {
+            fputs("error: failed to allocate launch arguments for bundled cmux CLI\n", stderr)
+            fflush(stderr)
+            Darwin.exit(ENOMEM)
         }
-        cArgs.append(nil)
+
+        setenv(guardKey, "1", 1)
 
         _ = cliURL.path.withCString { execPath in
             cArgs.withUnsafeMutableBufferPointer { buffer in
@@ -35,7 +34,7 @@ enum CLIForwardingLaunchRouter {
         }
 
         let execErrno = errno
-        for ptr in cArgs where ptr != nil { free(ptr) }
+        freeCStringArguments(cArgs)
         unsetenv(guardKey)
 
         let errorText = String(cString: strerror(execErrno))
@@ -60,13 +59,17 @@ enum CLIForwardingLaunchRouter {
         return true
     }
 
-    static func bundledCLIURL(bundle: Bundle = .main, fileManager: FileManager = .default) -> URL? {
+    static func bundledCLIURL(
+        bundle: Bundle = .main,
+        fileManager: FileManager = .default,
+        executableURL: URL? = processExecutableURL()
+    ) -> URL? {
         let bundleCandidate = bundle.resourceURL?.appendingPathComponent("bin/cmux")
         if let bundleCandidate, fileManager.isExecutableFile(atPath: bundleCandidate.path) {
             return bundleCandidate
         }
 
-        guard let executableURL = processExecutableURL() else { return nil }
+        guard let executableURL else { return nil }
         let resourcesURL = executableURL
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -77,6 +80,27 @@ enum CLIForwardingLaunchRouter {
         }
 
         return nil
+    }
+
+    private static func makeCStringArguments(cliPath: String, arguments argv: [String]) -> [UnsafeMutablePointer<CChar>?]? {
+        var cArgs: [UnsafeMutablePointer<CChar>?] = []
+
+        guard let cliPathArgument = strdup(cliPath) else { return nil }
+        cArgs.append(cliPathArgument)
+
+        for arg in argv.dropFirst() {
+            guard let duplicated = strdup(arg) else {
+                freeCStringArguments(cArgs)
+                return nil
+            }
+            cArgs.append(duplicated)
+        }
+        cArgs.append(nil)
+        return cArgs
+    }
+
+    private static func freeCStringArguments(_ cArgs: [UnsafeMutablePointer<CChar>?]) {
+        for ptr in cArgs where ptr != nil { free(ptr) }
     }
 
     private static func processExecutableURL() -> URL? {
