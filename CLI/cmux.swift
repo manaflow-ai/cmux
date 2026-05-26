@@ -4774,8 +4774,7 @@ struct CMUXCLI {
 
         let queue = kqueue()
         guard queue >= 0 else {
-            let errorMessage = String(cString: strerror(errno))
-            throw CLIError(message: localizedFormat("cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit: %@", errorMessage))
+            throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit"))
         }
         defer { close(queue) }
 
@@ -4792,8 +4791,7 @@ struct CMUXCLI {
                 process.waitUntilExit()
                 return true
             }
-            let errorMessage = String(cString: strerror(errno))
-            throw CLIError(message: localizedFormat("cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit: %@", errorMessage))
+            throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit"))
         }
 
         let deadline = Date().addingTimeInterval(timeout)
@@ -4817,8 +4815,7 @@ struct CMUXCLI {
                 return false
             }
             if errno != EINTR {
-                let errorMessage = String(cString: strerror(errno))
-                throw CLIError(message: localizedFormat("cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit: %@", errorMessage))
+                throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit"))
             }
         }
     }
