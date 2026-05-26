@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 const tmuxCorpusUpstreamCommit = "a9ba7b8ecbe1d107aa716f52d53c99ea1a00cf11"
 
@@ -75,47 +80,7 @@ func TestTmuxCorpusManifestCoversPinnedUpstreamTests(t *testing.T) {
 		t.Fatal("tmux corpus upstream commit must be pinned")
 	}
 
-	wantSources := []string{
-		"regress/am-terminal.sh",
-		"regress/border-arrows.sh",
-		"regress/capture-pane-hyperlink.sh",
-		"regress/capture-pane-sgr0.sh",
-		"regress/combine-test.sh",
-		"regress/command-order.sh",
-		"regress/conf-syntax.sh",
-		"regress/control-client-sanity.sh",
-		"regress/control-client-size.sh",
-		"regress/copy-mode-test-emacs.sh",
-		"regress/copy-mode-test-vi.sh",
-		"regress/cursor-test1.sh",
-		"regress/cursor-test2.sh",
-		"regress/cursor-test3.sh",
-		"regress/cursor-test4.sh",
-		"regress/decrqm-sync.sh",
-		"regress/format-strings.sh",
-		"regress/has-session-return.sh",
-		"regress/if-shell-TERM.sh",
-		"regress/if-shell-error.sh",
-		"regress/if-shell-nested.sh",
-		"regress/input-keys.sh",
-		"regress/kill-session-process-exit.sh",
-		"regress/new-session-base-index.sh",
-		"regress/new-session-command.sh",
-		"regress/new-session-environment.sh",
-		"regress/new-session-no-client.sh",
-		"regress/new-session-size.sh",
-		"regress/new-window-command.sh",
-		"regress/osc-11colours.sh",
-		"regress/run-shell-output.sh",
-		"regress/session-group-resize.sh",
-		"regress/style-trim.sh",
-		"regress/tty-keys.sh",
-		"regress/utf8-test.sh",
-		"fuzz/cmd-parse-fuzzer.c",
-		"fuzz/format-fuzzer.c",
-		"fuzz/input-fuzzer.c",
-		"fuzz/style-fuzzer.c",
-	}
+	wantSources := loadPinnedTmuxCorpusSources(t)
 
 	got := make(map[string]tmuxCorpusEntry, len(tmuxCorpusManifest))
 	for _, entry := range tmuxCorpusManifest {
@@ -158,4 +123,27 @@ func TestTmuxCorpusManifestCoversPinnedUpstreamTests(t *testing.T) {
 	if len(got) != len(wantSources) {
 		t.Fatalf("manifest has %d entries, want %d", len(got), len(wantSources))
 	}
+}
+
+func loadPinnedTmuxCorpusSources(t *testing.T) []string {
+	t.Helper()
+
+	path := filepath.Join("testdata", "tmux-corpus-sources-"+tmuxCorpusUpstreamCommit+".txt")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read pinned tmux corpus source fixture %s: %v", path, err)
+	}
+
+	var sources []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		sources = append(sources, line)
+	}
+	if len(sources) == 0 {
+		t.Fatalf("pinned tmux corpus source fixture %s is empty", path)
+	}
+	return sources
 }
