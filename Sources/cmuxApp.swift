@@ -517,7 +517,7 @@ struct cmuxApp: App {
 
                 splitCommandButton(title: String(localized: "menu.file.newSSHWorkspace", defaultValue: "New SSH Workspace…"), shortcut: menuShortcut(for: .newSSHWorkspace)) {
                     AppDelegate.shared?.performNewSSHWorkspaceAction(
-                        preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+                        preferredTabManager: activeTabManager,
                         debugSource: "menu.newSSHWorkspace"
                     )
                 }

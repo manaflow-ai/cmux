@@ -235,10 +235,14 @@ extension AppDelegate {
     @discardableResult
     func performNewSSHWorkspaceAction(
         preferredWindow: NSWindow? = nil,
+        preferredTabManager: TabManager? = nil,
         debugSource: String = "newSSHWorkspace"
     ) -> Bool {
         var draft = CmuxNewSSHWorkspaceDialogDraft()
-        let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let tabManagerWindow = preferredTabManager
+            .flatMap { windowId(for: $0) }
+            .flatMap { mainWindow(for: $0) }
+        let targetWindow = preferredWindow ?? tabManagerWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         let targetWindowId = targetWindow.flatMap { mainWindowId(from: $0) }
         while true {
             guard let nextDraft = promptForNewSSHWorkspace(draft: draft, preferredWindow: targetWindow) else {
