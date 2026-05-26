@@ -8236,8 +8236,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return performBindingAction("copy_to_clipboard")
     }
 
-    private func noteExplicitScrollIntent() {
-        terminalSurface?.hostedView.noteExplicitScrollIntent()
+    private func noteExplicitScrollIntent(expectBottomPacket: Bool = false) {
+        terminalSurface?.hostedView.noteExplicitScrollIntent(expectBottomPacket: expectBottomPacket)
     }
 
     private func handleKeyboardCopyModeIfNeeded(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
@@ -8304,7 +8304,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyboardCopyModeViewportRow = 0
             _ = performBindingAction("scroll_to_top")
         case .scrollToBottom:
-            noteExplicitScrollIntent()
+            noteExplicitScrollIntent(expectBottomPacket: true)
             keyboardCopyModeViewportRow = max(Int(ghostty_surface_size(surface).rows) - 1, 0)
             _ = performBindingAction("scroll_to_bottom")
         case let .jumpToPrompt(delta):
@@ -11100,10 +11100,14 @@ final class GhosttySurfaceScrollView: NSView {
     private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
     private var lastSentRow: Int?
+    private enum ExplicitScrollPacketExpectation {
+        case any
+        case bottom
+    }
     private enum ScrollbackViewportIntent {
         case followOutput
         case reviewingScrollback
-        case awaitingExplicitScrollPacket
+        case awaitingExplicitScrollPacket(ExplicitScrollPacketExpectation)
     }
     private var scrollbackViewportIntent: ScrollbackViewportIntent = .followOutput
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
@@ -13984,8 +13988,8 @@ final class GhosttySurfaceScrollView: NSView {
         layer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
-    func noteExplicitScrollIntent() {
-        scrollbackViewportIntent = .awaitingExplicitScrollPacket
+    func noteExplicitScrollIntent(expectBottomPacket: Bool = false) {
+        scrollbackViewportIntent = .awaitingExplicitScrollPacket(expectBottomPacket ? .bottom : .any)
     }
 
     private func synchronizeScrollView(allowExplicitScrollbarSync: Bool = false) {
@@ -14058,9 +14062,26 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         let wasVisible = scrollView.hasVerticalScroller
-        let allowExplicitScrollbarSync = scrollbackViewportIntent == .awaitingExplicitScrollPacket
-        if allowExplicitScrollbarSync || !scrollbar.isAtBottom {
+        let explicitExpectation: ExplicitScrollPacketExpectation? = {
+            guard case let .awaitingExplicitScrollPacket(expectation) = scrollbackViewportIntent else {
+                return nil
+            }
+            return expectation
+        }()
+        let allowExplicitScrollbarSync: Bool = {
+            switch explicitExpectation {
+            case .some(.any):
+                return true
+            case .some(.bottom):
+                return scrollbar.isAtBottom
+            case .none:
+                return false
+            }
+        }()
+        if allowExplicitScrollbarSync {
             scrollbackViewportIntent = scrollbar.isAtBottom ? .followOutput : .reviewingScrollback
+        } else if explicitExpectation == nil, !scrollbar.isAtBottom {
+            scrollbackViewportIntent = .reviewingScrollback
         }
         surfaceView.scrollbar = scrollbar
         let isVisible = shouldShowTerminalScrollBar()
