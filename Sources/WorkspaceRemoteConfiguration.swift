@@ -22,6 +22,10 @@ private enum WorkspaceRemoteSSHOptionFilter {
         filteredOptions(options, droppingKeys: relayScopedControlSocketKeys)
     }
 
+    static func trimmedOptions(_ options: [String]) -> [String] {
+        filteredOptions(options, droppingKeys: [])
+    }
+
     private static func filteredOptions(_ options: [String], droppingKeys keys: Set<String>) -> [String] {
         options.compactMap { option in
             let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -404,7 +408,8 @@ struct WorkspaceRemoteConfiguration: Equatable {
 extension SessionRemoteWorkspaceSnapshot {
     func workspaceConfiguration(
         localSocketPath: String? = nil,
-        allowPersistentPTYRestore: Bool = true
+        allowPersistentPTYRestore: Bool = true,
+        preserveSSHOptions: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
         guard transport == .ssh else { return nil }
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -418,7 +423,9 @@ extension SessionRemoteWorkspaceSnapshot {
         let normalizedRelayPort = relayPort.flatMap { port in
             (1...65535).contains(port) ? port : nil
         }
-        let normalizedOptions = Self.normalizedSSHOptions(sshOptions)
+        let normalizedOptions = preserveSSHOptions
+            ? WorkspaceRemoteSSHOptionFilter.trimmedOptions(sshOptions)
+            : Self.normalizedSSHOptions(sshOptions)
         let optionsWithRestoreControlDefaults = SSHPTYAttachStartupCommandBuilder.sshOptionsWithRestoreControlDefaults(
             normalizedOptions,
             relayPort: normalizedRelayPort

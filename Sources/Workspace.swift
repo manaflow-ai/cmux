@@ -7943,10 +7943,18 @@ final class WorkspaceRemoteSessionController {
         if trimmed.contains(" -N ") && trimmed.contains(" -R 127.0.0.1:") {
             return true
         }
-        if trimmed.contains("cmuxd-remote") && trimmed.contains(" serve --stdio") {
+        if isCMUXRemoteDaemonServeStdioCommand(trimmed) {
             return true
         }
         return false
+    }
+
+    private static func isCMUXRemoteDaemonServeStdioCommand(_ command: String) -> Bool {
+        guard command.contains("cmuxd-remote") else { return false }
+        let normalized = command
+            .replacingOccurrences(of: "'", with: " ")
+            .replacingOccurrences(of: "\"", with: " ")
+        return normalized.contains(" serve ") && normalized.contains(" --stdio")
     }
 
     private static func commandContainsDestination(_ command: String, destination: String) -> Bool {
@@ -16066,7 +16074,8 @@ final class Workspace: Identifiable, ObservableObject {
             .map { WorkspaceRemoteConfiguration.forkedAgentSSHOptions($0.sshOptions) }
         return remoteConfiguration?.sessionSnapshot(sshOptionsOverride: forkedSSHOptions)?.workspaceConfiguration(
             localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore(),
-            allowPersistentPTYRestore: false
+            allowPersistentPTYRestore: false,
+            preserveSSHOptions: true
         ) ?? remoteConfiguration
     }
 
