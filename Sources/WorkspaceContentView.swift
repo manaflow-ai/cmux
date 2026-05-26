@@ -161,7 +161,7 @@ struct WorkspaceContentView: View {
     let isWorkspaceInputActive: Bool
     let isFullScreen: Bool
     let workspacePortalPriority: Int
-    let onWorkspaceVisibilityCommitted: ((UUID) -> Void)?
+    let onWorkspaceVisibilityChanged: ((UUID, Bool) -> Void)?
     let onThemeRefreshRequest: ((
         _ reason: String,
         _ backgroundEventId: UInt64?,
@@ -303,21 +303,21 @@ struct WorkspaceContentView: View {
             updateAgentHibernationPresentationVisibility()
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
-            if isWorkspaceVisible {
-                onWorkspaceVisibilityCommitted?(workspace.id)
-            }
+            onWorkspaceVisibilityChanged?(workspace.id, isWorkspaceVisible)
         }
         .onChange(of: isWorkspaceVisible) { _, isVisible in
             updateAgentHibernationPresentationVisibility()
-            guard isVisible else { return }
-            flushDeferredThemeRefreshIfNeeded()
-            onWorkspaceVisibilityCommitted?(workspace.id)
+            if isVisible {
+                flushDeferredThemeRefreshIfNeeded()
+            }
+            onWorkspaceVisibilityChanged?(workspace.id, isVisible)
         }
         .onChange(of: isWorkspaceInputActive) { _, _ in
             updateAgentHibernationPresentationVisibility()
         }
         .onDisappear {
             workspace.setAgentHibernationAutoResumePresentationVisible(false)
+            onWorkspaceVisibilityChanged?(workspace.id, false)
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()

@@ -108,6 +108,33 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
     }
 
+    func testVisibilityCommitStateClearsHiddenWorkspaceBeforeAlreadyVisibleHandoff() {
+        let selectedWorkspaceId = UUID()
+        var visibleWorkspaceIds: Set<UUID> = []
+
+        WorkspaceVisibilityCommitState.updateVisibleWorkspaceIds(
+            &visibleWorkspaceIds,
+            workspaceId: selectedWorkspaceId,
+            isVisible: true
+        )
+        XCTAssertTrue(visibleWorkspaceIds.contains(selectedWorkspaceId))
+
+        WorkspaceVisibilityCommitState.updateVisibleWorkspaceIds(
+            &visibleWorkspaceIds,
+            workspaceId: selectedWorkspaceId,
+            isVisible: false
+        )
+        XCTAssertFalse(visibleWorkspaceIds.contains(selectedWorkspaceId))
+        XCTAssertFalse(
+            WorkspaceHandoffCompletionPolicy.shouldCompleteFromAlreadyVisibleSelectedWorkspace(
+                selectedWorkspaceId: selectedWorkspaceId,
+                visibleWorkspaceIds: visibleWorkspaceIds,
+                hasRetiringWorkspace: true,
+                selectedWorkspaceReady: true
+            )
+        )
+    }
+
     func testHandoffCompletionRequiresRetiringWorkspace() {
         let selectedWorkspaceId = UUID()
 

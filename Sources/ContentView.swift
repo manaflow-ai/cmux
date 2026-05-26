@@ -907,6 +907,20 @@ enum WorkspaceHandoffCompletionPolicy {
     }
 }
 
+enum WorkspaceVisibilityCommitState {
+    static func updateVisibleWorkspaceIds(
+        _ visibleWorkspaceIds: inout Set<UUID>,
+        workspaceId: UUID,
+        isVisible: Bool
+    ) {
+        if isVisible {
+            visibleWorkspaceIds.insert(workspaceId)
+        } else {
+            visibleWorkspaceIds.remove(workspaceId)
+        }
+    }
+}
+
 /// Installs a FileDropOverlayView on the window's theme frame for Finder file drag support.
 private func findFileDropOverlayView(in root: NSView?) -> FileDropOverlayView? {
     guard let root else { return nil }
@@ -2123,8 +2137,8 @@ struct ContentView: View {
                         isWorkspaceInputActive: isInputActive,
                         isFullScreen: isFullScreen,
                         workspacePortalPriority: portalPriority,
-                        onWorkspaceVisibilityCommitted: { workspaceId in
-                            recordWorkspaceVisibilityCommitted(workspaceId)
+                        onWorkspaceVisibilityChanged: { workspaceId, isVisible in
+                            recordWorkspaceVisibility(workspaceId, isVisible: isVisible)
                         },
                         onThemeRefreshRequest: { reason, eventId, source, payloadHex in
                             scheduleTitlebarThemeRefreshFromWorkspace(
@@ -3735,8 +3749,13 @@ struct ContentView: View {
         completeWorkspaceHandoff(reason: reason)
     }
 
-    private func recordWorkspaceVisibilityCommitted(_ workspaceId: UUID) {
-        visibleWorkspaceIds.insert(workspaceId)
+    private func recordWorkspaceVisibility(_ workspaceId: UUID, isVisible: Bool) {
+        WorkspaceVisibilityCommitState.updateVisibleWorkspaceIds(
+            &visibleWorkspaceIds,
+            workspaceId: workspaceId,
+            isVisible: isVisible
+        )
+        guard isVisible else { return }
         completeWorkspaceHandoffForVisibleWorkspace(workspaceId)
     }
 
