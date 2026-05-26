@@ -3743,6 +3743,23 @@ final class CMUXLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testCanvasKeyboardNavigationPublishesAnimationRevision() throws {
+        let controller = WorkspaceLayoutController()
+        _ = controller.createTab(title: "Base")
+        let sourcePaneId = try XCTUnwrap(controller.focusedPaneId)
+        _ = controller.splitPane(sourcePaneId, orientation: .horizontal)
+        controller.enterCanvasOverview(policy: .scrollingColumns, scale: 1)
+
+        let initialID = try XCTUnwrap(controller.canvasSnapshot().items.first?.id)
+        XCTAssertTrue(controller.focusCanvasItem(initialID))
+        let revisionBefore = controller.canvasFocusAnimationRevision
+
+        _ = try XCTUnwrap(controller.navigateCanvasFocus(direction: .right))
+
+        XCTAssertGreaterThan(controller.canvasFocusAnimationRevision, revisionBefore)
+    }
+
+    @MainActor
     func testCanvasOverviewFocusScrollsFocusedPaneIntoView() throws {
         let controller = WorkspaceLayoutController()
         controller.setContainerFrame(CGRect(x: 0, y: 0, width: 1_200, height: 800))
@@ -3787,6 +3804,7 @@ final class CMUXLayoutTests: XCTestCase {
 
         XCTAssertEqual(controller.canvasViewport.visibleRect.x, 0)
         XCTAssertEqual(controller.canvasViewport.visibleRect.y, 0)
+        XCTAssertEqual(controller.canvasFocusAnimationRevision, 0)
     }
 
     func testCanvasResizeHitAreaUsesPackageOwnedCornersAndEdges() {

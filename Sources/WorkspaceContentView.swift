@@ -1209,6 +1209,11 @@ private final class CanvasPortalPresentationReporterView: NSView {
         scheduleFramePublish()
     }
 
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        scheduleFramePublish()
+    }
+
     func scheduleFramePublish() {
         guard !hasPendingFramePublish else { return }
         hasPendingFramePublish = true
@@ -2261,8 +2266,11 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .transaction { transaction in
-                transaction.animation = nil
+                if activeCanvasDragItemID != nil || !dragStates.isEmpty || !resizeStates.isEmpty {
+                    transaction.animation = nil
+                }
             }
+            .animation(canvasFocusTransitionAnimation, value: controller.canvasFocusAnimationRevision)
             .coordinateSpace(name: workspaceCanvasFreeformCoordinateSpace)
             .clipped()
             .background {
@@ -3284,6 +3292,10 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
     private func zoomedCanvasScale(delta: Double) -> Double {
         CanvasViewportZoom.scaleAfterWheel(deltaY: delta, currentScale: controller.canvasViewport.scale)
+    }
+
+    private var canvasFocusTransitionAnimation: Animation {
+        .timingCurve(0.20, 0.0, 0.0, 1.0, duration: 0.18)
     }
 
     private func zoomedCanvasScale(magnification: Double) -> Double {

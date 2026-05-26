@@ -52,6 +52,12 @@ public final class WorkspaceLayoutController {
     /// Canvas item currently targeted by overview keyboard or pointer navigation.
     public private(set) var focusedCanvasItemID: LayoutItemID?
 
+    /// Monotonic marker for keyboard-driven canvas focus travel.
+    ///
+    /// Pointer focus intentionally does not touch this value so pointer drags and clicks stay
+    /// immediate, while host views can animate shortcut navigation as a separate presentation concern.
+    public private(set) var canvasFocusAnimationRevision: UInt64 = 0
+
     /// When false, drop delegates reject all drags. Set to false for inactive workspaces
     /// so their views (kept alive in a ZStack for state preservation) don't intercept drags
     /// meant for the active workspace.
@@ -845,7 +851,11 @@ public final class WorkspaceLayoutController {
             return currentItem.id
         }
 
+        let focusChanged = focusedCanvasItemID != nextItem.id
         focusedCanvasItemID = nextItem.id
+        if focusChanged {
+            canvasFocusAnimationRevision &+= 1
+        }
         scrollCanvasItemIntoViewIfNeeded(nextItem)
         return nextItem.id
     }
