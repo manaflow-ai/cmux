@@ -4733,13 +4733,13 @@ struct CMUXCLI {
             return (resolved as NSString).deletingLastPathComponent
         }
 
-        throw CLIError(message: String(localized: "cli.pathOpen.error.pathDoesNotExist", defaultValue: "Path does not exist: \(resolved)"))
+        throw CLIError(message: localizedFormat("cli.pathOpen.error.pathDoesNotExist", defaultValue: "Path does not exist: %@", resolved))
     }
 
     private func openDirectoryWithLaunchServices(_ directory: String) throws {
         try runOpenTool(
             arguments: ["-a", appLaunchTarget(), directory],
-            failureMessage: String(localized: "cli.pathOpen.error.openFailed", defaultValue: "Failed to open \(directory) in cmux")
+            failureMessage: localizedFormat("cli.pathOpen.error.openFailed", defaultValue: "Failed to open %@ in cmux", directory)
         )
     }
 
@@ -4758,7 +4758,7 @@ struct CMUXCLI {
                 kill(process.processIdentifier, SIGKILL)
                 _ = try? waitForProcessExit(process, timeout: 1)
             }
-            throw CLIError(message: String(localized: "cli.pathOpen.error.timedOut", defaultValue: "\(failureMessage) (timed out)"))
+            throw CLIError(message: localizedFormat("cli.pathOpen.error.timedOut", defaultValue: "%@ (timed out)", failureMessage))
         }
 
         guard process.terminationStatus == 0 else {
@@ -4775,7 +4775,7 @@ struct CMUXCLI {
         let queue = kqueue()
         guard queue >= 0 else {
             let errorMessage = String(cString: strerror(errno))
-            throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit: \(errorMessage)"))
+            throw CLIError(message: localizedFormat("cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit: %@", errorMessage))
         }
         defer { close(queue) }
 
@@ -4793,7 +4793,7 @@ struct CMUXCLI {
                 return true
             }
             let errorMessage = String(cString: strerror(errno))
-            throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit: \(errorMessage)"))
+            throw CLIError(message: localizedFormat("cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit: %@", errorMessage))
         }
 
         let deadline = Date().addingTimeInterval(timeout)
@@ -4818,9 +4818,14 @@ struct CMUXCLI {
             }
             if errno != EINTR {
                 let errorMessage = String(cString: strerror(errno))
-                throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit: \(errorMessage)"))
+                throw CLIError(message: localizedFormat("cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit: %@", errorMessage))
             }
         }
+    }
+
+    private func localizedFormat(_ key: String, defaultValue: String, _ arguments: CVarArg...) -> String {
+        let format = NSLocalizedString(key, bundle: .main, value: defaultValue, comment: "")
+        return String(format: format, locale: Locale.current, arguments: arguments)
     }
 
     private func openToolPath() -> String {
