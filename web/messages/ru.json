@@ -164,6 +164,84 @@
         "featureSocketApiDesc": "программное управление для создания вкладок и отправки ввода",
         "featureGpuLabel": "GPU-ускорение",
         "featureGpuDesc": "на базе libghostty для плавного рендеринга"
+      },
+      "passkeyAuth": {
+        "title": "Аутентификация с passkey в браузере cmux",
+        "summary": "Встроенный браузер cmux поддерживает аутентификацию с passkey и может импортировать cookie из других браузеров с помощью cmux browser import.",
+        "date": "22 мая 2026 г.",
+        "p1": "Браузер cmux теперь поддерживает аутентификацию с passkey. Сценарии входа, которые зависят от passkey, WebAuthn, Touch ID или аппаратных ключей безопасности, можно завершить внутри панели браузера cmux.",
+        "p2": "Если вы уже используете другой браузер для того же сайта, импортируйте совместимые cookie один раз:",
+        "p3": "Требуется cmux v0.64+. Это помогает, когда Claude Code, Codex, OpenCode, Gemini CLI или другому агенту нужно протестировать авторизованное локальное приложение, не выходя из cmux."
+      },
+      "taskManager": {
+        "title": "Диспетчер задач в cmux",
+        "summary": "Используйте cmux top или Диспетчер задач из палитры команд, чтобы увидеть потребление CPU и RAM вашими агентами для программирования.",
+        "date": "22 мая 2026 г.",
+        "p1": "В cmux появился диспетчер задач для проверки того, сколько CPU и RAM используют ваши агенты для программирования и процессы терминала.",
+        "p2": "Откройте его из CLI:",
+        "p3": "Или нажмите Cmd+Shift+P и выберите Диспетчер задач в палитре команд.",
+        "p4": "Требуется cmux v0.64.4+."
+      },
+      "sessionRestore": {
+        "seoP": "Если вы ищете, как восстановить сеансы Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder или Hermes Agent после сбоя терминала, установите cmux hooks и оставьте возобновление агентов включенным.",
+        "summary": "Как cmux восстанавливает раскладки и возобновляет сеансы Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI и других агентов.",
+        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory и Qoder могут возобновляться, когда у cmux есть нативный ID сеанса. Для большинства агентов установите интеграцию с помощью <code>cmux hooks setup</code>.",
+        "title": "Восстановление сеансов в cmux",
+        "date": "13 мая 2026 г.",
+        "p1": "Терминальные рабочие процессы лучше переживают прерывания, когда приложение может восстановить форму работы. cmux теперь считает layout workspace долговечным состоянием, а не чем-то привязанным к одному процессу приложения.",
+        "p2": "Важная граница здесь это состояние живого процесса. cmux восстанавливает то, чем владеет сам, и то, что поддерживаемые инструменты раскрывают через свои API возобновления. Он не создает checkpoints произвольных терминальных процессов.",
+        "baselineTitle": "Что всегда возвращается",
+        "baselineP": "После обычного перезапуска cmux восстанавливает снимок сеанса на уровне приложения:",
+        "baselineItemLayout": "Layout окон, workspace и панелей",
+        "baselineItemCwd": "Рабочие каталоги",
+        "baselineItemScrollback": "Scrollback терминала, насколько возможно",
+        "baselineItemBrowser": "URL браузера и история навигации",
+        "agentTitle": "Сеансам агентов нужны hooks",
+        "agentP2": "Команда setup устанавливает поддерживаемых агентов, чьи бинарные файлы есть на PATH, и пропускает остальных. Claude Code обрабатывается wrapper cmux Claude, когда интеграция Claude включена в Settings.",
+        "implementationTitle": "Как это работает",
+        "implementationP1": "cmux записывает JSON-снимок сеанса в Application Support с деревом окон, metadata workspace, layout панелей, cwd терминала, данными воспроизведения scrollback и состоянием навигации браузера.",
+        "implementationP2": "Agent hooks записывают сопоставления сеансов в ~/.cmuxterm. При восстановлении cmux сначала пересобирает UI. Если автоматическое возобновление агентов включено, он запускает каждого поддерживаемого агента его native resume command и сохраненным session ID.",
+        "limitsTitle": "Что остается вне области",
+        "limitsP": "tmux, vim, shells и неподдерживаемые инструменты открываются заново как обычные терминалы, если у них нет интеграции cmux, которая записывает безопасную native resume command. Это делает восстановление предсказуемым и не воспроизводит устаревшие prompts или secrets.",
+        "docsCta": "Прочитайте <link>документацию по восстановлению сеансов</link> для команд setup, поддерживаемых агентов и диагностики."
+      },
+      "cmuxFinder": {
+        "title": "cmux Finder",
+        "summary": "В cmux появился файловый обозреватель с предпросмотром видео, изображений, PDF и Markdown-файлов.",
+        "date": "22 мая 2026 г.",
+        "p1": "В боковой панели cmux появился файловый обозреватель в стиле Finder.",
+        "p2": "Он показывает видео, изображения, PDF и Markdown-файлы прямо в cmux, чтобы можно было проверять сгенерированные артефакты, не покидая workspace.",
+        "p3": "Я чаще всего использую его для демо-видео и скриншотов, которые Codex записывает во время тестирования изменений.",
+        "p4": "Переключайте предпросмотр файлов через Cmd+Shift+P, затем выберите Enable Cmd-click File Previews или Disable Cmd-click File Previews.",
+        "p5": "Требуется cmux v0.64+."
+      },
+      "cmuxVault": {
+        "title": "Представляем cmux Vault",
+        "summary": "Ищите сеансы Codex, Claude Code, OpenCode и Pi в панели Vault и перетаскивайте их в workspace.",
+        "date": "22 мая 2026 г.",
+        "p1": "В правой боковой панели cmux появилась панель Vault для старых сеансов агентов.",
+        "p2": "Она индексирует сеансы Codex, Claude Code, OpenCode и Pi с полнотекстовым поиском по transcripts.",
+        "p3": "Перетащите сеанс из Vault в workspace, чтобы снова открыть его там, где вы работаете.",
+        "p4": "Требуется cmux v0.64+."
+      },
+      "markdownViewer": {
+        "title": "Улучшенный Markdown-просмотрщик в cmux",
+        "summary": "Откройте README.md через cmux open или перетащите Markdown-файлы из правой боковой панели.",
+        "date": "22 мая 2026 г.",
+        "p1": "В cmux появился улучшенный Markdown-просмотрщик для README, документации и сгенерированных отчетов.",
+        "p2": "Откройте файл из CLI:",
+        "p3": "Также можно перетащить Markdown-файл из правой боковой панели в workspace.",
+        "p4": "Спасибо <tobiLink>@tobi</tobiLink> за вклад."
+      },
+      "unreadShortcuts": {
+        "title": "Горячие клавиши непрочитанных workspace в cmux",
+        "summary": "Cmd+Control+U циклически переключает непрочитанные workspace, оставляя их непрочитанными, а Cmd+Option+U меняет состояние прочтения.",
+        "date": "22 мая 2026 г.",
+        "p1": "В cmux появились еще две горячие клавиши для управления непрочитанными workspace, когда несколько агентов завершаются одновременно.",
+        "p2": "Cmd+Control+U помечает текущий workspace как самый старый непрочитанный и переходит к самому новому непрочитанному workspace.",
+        "p3": "Это отправляет текущий workspace в конец цикла непрочитанных, чтобы вы могли продолжать обход без очистки состояния.",
+        "p4": "Cmd+Option+U переключает текущий workspace между прочитанным и непрочитанным.",
+        "p5": "Это полезно, когда вы перешли к новому непрочитанному workspace через Cmd+Shift+U, но хотите переключить контекст перед ответом."
       }
     },
     "zenOfCmux": {
@@ -181,6 +259,114 @@
     "introducingCmux": {
       "metaTitle": "Представляем cmux",
       "metaDescription": "Почему мы создали cmux — новый терминал для macOS."
+    },
+    "passkeyAuth": {
+      "metaTitle": "Аутентификация с passkey в браузере cmux",
+      "metaDescription": "cmux v0.64+ поддерживает аутентификацию с passkey в панелях браузера и может импортировать cookie из других браузеров с помощью cmux browser import.",
+      "metaKeywords": [
+        "аутентификация passkey в браузере cmux",
+        "аутентификация passkey",
+        "WebAuthn",
+        "Touch ID",
+        "импорт cookie",
+        "cookie браузера",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "Gemini CLI",
+        "AI-агенты для программирования"
+      ]
+    },
+    "taskManager": {
+      "metaTitle": "Диспетчер задач в cmux",
+      "metaDescription": "cmux v0.64.4+ включает диспетчер задач для проверки использования CPU и RAM агентами для программирования через cmux top или палитру команд.",
+      "metaKeywords": [
+        "диспетчер задач cmux",
+        "cmux top",
+        "использование CPU агентами для программирования",
+        "использование RAM агентами для программирования",
+        "монитор процессов терминала",
+        "CPU Claude Code",
+        "CPU Codex",
+        "CPU OpenCode",
+        "AI-агенты для программирования"
+      ]
+    },
+    "sessionRestore": {
+      "metaDescription": "Как восстановить сеансы Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI и других агентов для программирования после перезапуска или сбоя терминала с помощью cmux.",
+      "metaKeywords": [
+        "cmux",
+        "восстановление сеанса",
+        "восстановить терминал после сбоя",
+        "восстановление после сбоя терминала",
+        "терминал",
+        "macOS",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "opencode",
+        "Gemini CLI",
+        "Antigravity CLI",
+        "Grok Build CLI",
+        "AI-агенты для программирования"
+      ],
+      "metaTitle": "Восстановление сеансов в cmux"
+    },
+    "cmuxFinder": {
+      "metaTitle": "cmux Finder",
+      "metaDescription": "cmux v0.64+ включает файловый обозреватель в стиле Finder с предпросмотром видео, изображений, PDF и Markdown-файлов внутри workspace.",
+      "metaKeywords": [
+        "cmux Finder",
+        "файловый обозреватель cmux",
+        "файловый обозреватель в терминале",
+        "предпросмотр видео в терминале",
+        "предпросмотр скриншотов в терминале",
+        "предпросмотр PDF",
+        "предпросмотр Markdown",
+        "AI-агенты для кода",
+        "демо-видео Codex"
+      ]
+    },
+    "cmuxVault": {
+      "metaTitle": "Представляем cmux Vault",
+      "metaDescription": "cmux v0.64+ добавляет панель Vault для поиска сеансов Codex, Claude Code, OpenCode и Pi, а затем перетаскивания их в workspace.",
+      "metaKeywords": [
+        "cmux Vault",
+        "сеансы Codex",
+        "сеансы Claude Code",
+        "сеансы OpenCode",
+        "сеансы Pi",
+        "история AI-агентов для кода",
+        "поиск сеансов агентов",
+        "восстановить сеанс coding agent",
+        "полнотекстовый поиск"
+      ]
+    },
+    "markdownViewer": {
+      "metaTitle": "Улучшенный Markdown-просмотрщик в cmux",
+      "metaDescription": "Откройте README.md через cmux open или перетащите Markdown-файлы из правой боковой панели в улучшенный Markdown-просмотрщик cmux.",
+      "metaKeywords": [
+        "Markdown-просмотрщик cmux",
+        "cmux open README.md",
+        "предпросмотр Markdown",
+        "просмотрщик README",
+        "Markdown-просмотрщик в терминале",
+        "предпросмотр документации разработчика"
+      ]
+    },
+    "unreadShortcuts": {
+      "metaTitle": "Горячие клавиши непрочитанных workspace в cmux",
+      "metaDescription": "Используйте Cmd+Control+U и Cmd+Option+U, чтобы переключаться между непрочитанными workspace cmux, не очищая состояние до ответа.",
+      "metaKeywords": [
+        "горячие клавиши непрочитанных cmux",
+        "Cmd+Control+U",
+        "Cmd+Option+U",
+        "Cmd+Shift+U",
+        "уведомления coding agent",
+        "уведомления терминала",
+        "AI-агенты для кода",
+        "workspace непрочитан"
+      ]
     }
   },
   "docs": {
@@ -300,7 +486,21 @@
       "browserHostsEmbed": "Хосты для открытия во встроенном браузере: применяется к ссылкам, нажатым в выводе терминала. Хосты из этого списка открываются в cmux; остальные хосты открываются в твоём браузере по умолчанию. Поддерживает один хост или wildcard на строку (например: example.com, *.internal.example).",
       "browserHostsHttp": "HTTP-хосты, разрешённые во встроенном браузере: применяется только к HTTP (не HTTPS) URL-ам. Хосты из этого списка могут открываться в cmux без предупреждения. По умолчанию включают localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 и *.localtest.me.",
       "exampleConfig": "Пример конфигурации",
-      "metaTitle": "Конфигурация"
+      "metaTitle": "Конфигурация",
+      "schemaDescriptions": {
+        "automation": {
+          "suppressSubagentNotifications": "Подавляет видимые уведомления о завершении и изменения статуса от вложенных дочерних агентов Codex или Claude, сохраняя их события в телеметрии Feed."
+        },
+        "app": {
+          "confirmQuit": "Управляет тем, когда cmux запрашивает подтверждение перед выходом. DEV-сборки всегда завершаются сразу независимо от этой настройки. Устаревший app.warnBeforeQuit по-прежнему принимается как булевый запасной вариант.",
+          "warnBeforeQuit": "Устаревший булевый запасной вариант для подтверждения выхода. Для новых конфигураций используйте app.confirmQuit.",
+          "warnBeforeClosingTabXButton": "Показывать подтверждение перед закрытием вкладки кнопкой закрытия вкладки.",
+          "hideTabCloseButton": "Скрывать кнопки закрытия вкладок на панели вкладок области."
+        },
+        "terminal": {
+          "copyOnSelect": "Копирует выделенный текст терминала в системный буфер обмена после подтверждения выделения, включая слова и строки, выбранные двойным или тройным щелчком."
+        }
+      }
     },
     "customCommands": {
       "title": "Пользовательские команды",
@@ -602,7 +802,12 @@
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux passthrough",
       "tmuxDesc": "Если используешь tmux внутри cmux, включи passthrough:",
-      "metaTitle": "Уведомления"
+      "metaTitle": "Уведомления",
+      "hooksTitle": "Хуки уведомлений",
+      "hooksIntro": "<config>cmux.json</config> может задавать хуки уведомлений, которые получают каждую политику уведомления как JSON через stdin. Каждый хук возвращает JSON через stdout. По умолчанию хуки отключены; cmux запускает их только когда <hooksMode>notifications.hooks</hooksMode> содержит хотя бы один включённый хук. cmux применяет возвращённый текст и эффекты, поэтому хуки могут фильтровать баннеры, сохранять или пропускать историю боковой панели, запускать звуки или останавливать последующие хуки.",
+      "hooksJsonTitle": "cmux.json",
+      "hooksIOTitle": "Ввод и вывод хука",
+      "hooksDetails": "Хуки наследуются из глобального файла <globalConfig>~/.config/cmux/cmux.json</globalConfig> и проектных файлов <projectConfig>.cmux/cmux.json</projectConfig> от родительских каталогов до текущего workspace. Проектные хуки перед запуском используют тот же запрос доверия, что и другие проектные команды <config>cmux.json</config>. Баннеры подтверждения Feed тоже проходят через эти хуки; отключение <desktop>desktop</desktop> скрывает нативный баннер, но оставляет элемент Feed доступным в cmux. Установите <hooksMode>notifications.hooksMode</hooksMode> в <replace>replace</replace> в конфигурации проекта, чтобы игнорировать унаследованные хуки. Если хук завершается с ошибкой, истекает по тайм-ауту или возвращает неверный JSON, cmux использует поведение уведомлений по умолчанию и показывает предупреждение об ошибке хука."
     },
     "browserAutomation": {
       "title": "Автоматизация браузера",
@@ -696,6 +901,7 @@
       "gettingStarted": "Начало работы",
       "concepts": "Концепции",
       "configuration": "Конфигурация",
+      "sessionRestore": "Восстановление сессии",
       "customCommands": "Пользовательские команды",
       "keyboardShortcuts": "Горячие клавиши",
       "apiReference": "Справочник API",
@@ -741,6 +947,51 @@
       "agentPromptIntro": "Используйте этот промпт, когда хотите, чтобы coding agent создал элементы Dock. Он просит агента выполнить `cmux docs dock`, изучить проект и спросить перед тем, как что-либо предполагать.",
       "agentPromptCodeTitle": "Промпт агента",
       "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+    },
+    "sessionRestore": {
+      "title": "Восстановление сессии",
+      "metaTitle": "Восстановление сессии",
+      "metaDescription": "Как cmux после перезапуска восстанавливает окна, рабочие пространства, панели, рабочие каталоги, scrollback, историю браузера и поддерживаемые сессии агентов.",
+      "intro": "cmux сохраняет форму вашей работы, чтобы после перезапуска приложения вернуть те же окна, рабочие пространства, панели, контекст терминала и состояние браузера.",
+      "restoredTitle": "Что восстанавливает cmux",
+      "restoredDesc": "После перезапуска cmux восстанавливает layout и метаданные, принадлежащие приложению:",
+      "restoredItemLayout": "Layout окон, рабочих пространств и панелей",
+      "restoredItemCwd": "Рабочие каталоги",
+      "restoredItemScrollback": "Terminal scrollback, best effort",
+      "restoredItemBrowser": "URL браузера и историю навигации",
+      "liveProcessCallout": "cmux не checkpoint-ит произвольное состояние живых процессов. tmux, vim, shell и неподдерживаемые терминальные приложения открываются как обычные терминалы, если у них нет собственной cmux resume-интеграции.",
+      "agentResumeTitle": "Возобновление сессий агентов",
+      "agentResumeDesc": "Поддерживаемые AI coding agents могут возобновляться, когда cmux захватил native session ID агента. Установите hooks после установки agent CLI, чтобы бинарь был в PATH:",
+      "setupBehavior": "cmux hooks setup устанавливает все найденные поддерживаемые интеграции и печатает сводку пропущенных агентов. Используйте имя агента, если нужна только одна интеграция.",
+      "surfaceBindingsTitle": "Пользовательские команды surface resume",
+      "surfaceBindingsDesc": "Опытные пользователи и интеграции могут привязать любую terminal surface к команде перезапуска. cmux сохраняет привязки, созданные публичным CLI или socket, для проверки и ручного возобновления.",
+      "surfaceBindingsNote": "Одобренные префиксы можно просмотреть или изменить в Settings > Terminal > Resume Commands. cmux автоматически запускает только привязки resume, помеченные как доверенные, например tmux-привязки, обнаруженные из живых процессов, или префиксы, одобренные пользователем. cmux по-прежнему не checkpoint-ит произвольную память процессов. Чувствительные ключи окружения, такие как токены, пароли, секреты и API-ключи, отбрасываются перед сохранением привязки возобновления. Одобрения также привязаны к рабочему каталогу и точным значениям окружения, если они есть.",
+      "supportedTitle": "Поддерживаемые агенты",
+      "agentHeader": "Агент",
+      "binaryHeader": "Бинарь",
+      "resumeHeader": "Команда resume",
+      "feedHeader": "Feed bridge",
+      "feedPermissionRequest": "PermissionRequest",
+      "feedPreToolUsePermissionRequest": "PreToolUse, PermissionRequest",
+      "feedBeforeShellExecution": "beforeShellExecution",
+      "feedPreToolUse": "PreToolUse",
+      "pluginEventBus": "plugin event bus",
+      "none": "нет",
+      "supportedNote": "Claude Code обрабатывается wrapper-ом cmux Claude, когда интеграция Claude включена в Settings. Antigravity также принимает agy как alias для setup, а Rovo Dev принимает rovo.",
+      "manualTitle": "Ручное восстановление",
+      "manualDesc": "cmux восстанавливает последний сохраненный snapshot при обычном запуске. Предыдущий snapshot также можно применить вручную:",
+      "manualItemMenu": "History > Restore Previous App Launch",
+      "disableTitle": "Отключить автоматическое возобновление агентов",
+      "disableDesc": "Чтобы восстановить панели без запуска сохраненных agent resume-команд, отключите Settings > Terminal > Resume Agent Sessions on Reopen или задайте:",
+      "disableNote": "Это отключает только команды resume агентов. cmux всё равно восстанавливает layout, рабочие каталоги, scrollback и историю браузера.",
+      "underHoodTitle": "Как это работает",
+      "underHoodItemSnapshot": "cmux записывает версионированный JSON snapshot в ~/Library/Application Support/cmux/session-<bundle-id>.json, а также cache предыдущей сессии для ручного открытия.",
+      "underHoodItemScrollback": "Terminal scrollback хранится как ограниченный текст и при восстановлении проигрывается через временный файл. Это best effort, потому что терминальные приложения могут перерисовать или очистить экран.",
+      "underHoodItemHooks": "Agent hooks записывают ~/.cmuxterm/<agent>-hook-sessions.json с session ID агента, cmux workspace ID, surface ID, cwd, process ID при наличии и очищенной командой запуска.",
+      "underHoodItemResume": "При восстановлении cmux сначала перестраивает окна и панели. Если автоматическое возобновление агентов включено, он запускает одноразовую shell-команду, которая выполняет native resume-команду агента с сохраненным session ID.",
+      "underHoodMore": "Обычная <configLink>документация по конфигурации</configLink> описывает cmux.json. Восстановление сессии хранит layout приложения отдельно от настроек рендеринга терминала Ghostty.",
+      "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     }
   },
   "legal": {
@@ -754,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "Очередной день, очередной проект на libghostty, на этот раз терминал для macOS с вертикальными вкладками, лучшей организацией/уведомлениями, встроенным/скриптуемым браузером, специально для тех, кто активно использует агентские workflow из терминала.",
+    "steipete": "Я поздно подключился, но cmux отличный. Текущее разделение: приложение Codex для Mac для работы со знаниями, обучения и чтения; cmux + Codex CLI для кодинга.",
     "schrockn": "Это именно тот продукт, который я искал. Через два часа утром я влюбился.",
     "egrefen": "Использовал это всё выходные и это потрясающе.",
     "max4c": "это был мой любимый инструмент последние две недели",
