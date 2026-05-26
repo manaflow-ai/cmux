@@ -215,6 +215,7 @@
 		C7A50A000000000000000002 /* TerminalControllerPaneResizeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */; };
 		C7A50B000000000000000002 /* TerminalControllerV2ParamParsingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */; };
 		A5001093 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001090 /* AppDelegate.swift */; };
+		F4D900000000000000000001 /* AppDelegate+MarkdownPaneDragUITest.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4D900000000000000000002 /* AppDelegate+MarkdownPaneDragUITest.swift */; };
 		C3677002000000000000001 /* CmuxSSHURLRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677002000000000000002 /* CmuxSSHURLRequest.swift */; };
 		A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */; };
 		D7AB00000000000000000001 /* AppDelegate+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */; };
@@ -788,6 +789,7 @@
 		C7A504000000000000000001 /* TaskManagerTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerTypes.swift; sourceTree = "<group>"; };
 		C7A505000000000000000001 /* TerminalControllerTopSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerTopSupport.swift; sourceTree = "<group>"; };
 		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		F4D900000000000000000002 /* AppDelegate+MarkdownPaneDragUITest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+MarkdownPaneDragUITest.swift"; sourceTree = "<group>"; };
 		C3873002C3873002C3873002 /* GhosttyCrashBreadcrumb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyCrashBreadcrumb.swift; sourceTree = "<group>"; };
 		C3873004C3873004C3873004 /* GhosttyCrashReportMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyCrashReportMetadata.swift; sourceTree = "<group>"; };
 		C3677002000000000000002 /* CmuxSSHURLRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSSHURLRequest.swift; sourceTree = "<group>"; };
@@ -1393,6 +1395,7 @@
 				F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */,
 				D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */,
 				A5001090 /* AppDelegate.swift */,
+				F4D900000000000000000002 /* AppDelegate+MarkdownPaneDragUITest.swift */,
 				3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */,
 				C3873002C3873002C3873002 /* GhosttyCrashBreadcrumb.swift */,
 				C3873004C3873004C3873004 /* GhosttyCrashReportMetadata.swift */,
@@ -2152,6 +2155,7 @@
 				C3873001C3873001C3873001 /* GhosttyCrashBreadcrumb.swift in Sources */,
 				C3873003C3873003C3873003 /* GhosttyCrashReportMetadata.swift in Sources */,
 				A5001093 /* AppDelegate.swift in Sources */,
+				F4D900000000000000000001 /* AppDelegate+MarkdownPaneDragUITest.swift in Sources */,
 				C3677002000000000000001 /* CmuxSSHURLRequest.swift in Sources */,
 				C3677004000000000000001 /* AppDelegate+CmuxSSHURL.swift in Sources */,
 				A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */,

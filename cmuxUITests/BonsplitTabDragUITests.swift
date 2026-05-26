@@ -857,3 +857,171 @@ final class BonsplitTabDragUITests: XCTestCase {
         source.press(forDuration: 0.25, thenDragTo: target)
     }
 }
+
+final class MarkdownPaneDragUITests: XCTestCase {
+    private let launchTimeout: TimeInterval = 20.0
+    private let setupTimeout: TimeInterval = 45.0
+
+    override func setUp() {
+        super.setUp()
+        continueAfterFailure = false
+
+        let cleanup = XCUIApplication()
+        cleanup.terminate()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+    }
+
+    func testDraggingMarkdownFileIntoPaneKeepsVisibleMarkdownRendererStable() throws {
+        try runMarkdownPaneDragScenario("center")
+    }
+
+    func testDraggingMarkdownFileToPaneEdgeSplitsWithoutFlickeringVisibleMarkdownRenderer() throws {
+        try runMarkdownPaneDragScenario("split")
+    }
+
+    func testDraggingMarkdownFileToVisibleMarkdownPaneEdgeSplitsWithoutFlicker() throws {
+        try runMarkdownPaneDragScenario("samePaneSplit")
+    }
+
+    private func runMarkdownPaneDragScenario(_ scenario: String) throws {
+        let (app, dataPath, fixtureDirectory) = launchConfiguredApp(scenario: scenario)
+        defer {
+            app.terminate()
+            try? FileManager.default.removeItem(atPath: dataPath)
+            try? FileManager.default.removeItem(at: fixtureDirectory)
+        }
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for markdown pane drag scenario \(scenario). state=\(app.state.rawValue)"
+        )
+
+        guard let data = waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for markdown pane drag scenario \(scenario). data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+        if let setupError = data["setupError"], !setupError.isEmpty {
+            XCTFail("Markdown pane drag setup failed: \(setupError). data=\(data)")
+            return
+        }
+
+        XCTAssertEqual(data["dropHandled"], "1", "Expected markdown file drop to be handled. data=\(data)")
+        XCTAssertEqual(data["droppedReady"], "1", "Expected dropped markdown renderer to load. data=\(data)")
+        XCTAssertEqual(data["primaryFlickerDetected"], "0", "Visible markdown renderer reloaded, rerendered, or remounted. data=\(data)")
+        XCTAssertEqual(data["primaryFlickerReasons"] ?? "", "", "Expected no visible markdown flicker reasons. data=\(data)")
+
+        assertCounter(data, "primaryWebViewCreateCount", equals: 0)
+        assertCounter(data, "primaryWebViewReattachCount", equals: 0)
+        assertCounter(data, "primaryLoadShellCount", equals: 0)
+        assertCounter(data, "primaryPushMarkdownCount", equals: 0)
+        assertCounter(data, "primaryDidFinishCount", equals: 0)
+        assertCounter(data, "primaryWebContentProcessTerminationCount", equals: 0)
+        assertCounter(data, "primaryNavigationFailureCount", equals: 0)
+        assertCounter(data, "primaryFlickerSignalCount", equals: 0)
+
+        assertCounter(data, "droppedMakeNSViewCount", equals: 1)
+        assertCounter(data, "droppedReuseNSViewCount", equals: 0)
+        assertCounter(data, "droppedWebViewCreateCount", equals: 1)
+        assertCounter(data, "droppedWebViewReattachCount", equals: 0)
+        assertCounter(data, "droppedLoadShellCount", equals: 1)
+        assertCounter(data, "droppedDidFinishCount", equals: 1)
+        assertCounter(data, "droppedPushMarkdownCount", equals: 1)
+        assertCounter(data, "droppedWebContentProcessTerminationCount", equals: 0)
+        assertCounter(data, "droppedNavigationFailureCount", equals: 0)
+
+        guard let paneCountBefore = intValue(data["paneCountBefore"]),
+              let paneCountAfter = intValue(data["paneCountAfter"]),
+              let expectedPaneCountAfter = intValue(data["expectedPaneCountAfter"]),
+              let targetPaneTabCountBefore = intValue(data["targetPaneTabCountBefore"]),
+              let targetPaneTabCountAfter = intValue(data["targetPaneTabCountAfter"]) else {
+            XCTFail("Missing pane or tab counts. data=\(data)")
+            return
+        }
+
+        XCTAssertEqual(paneCountAfter, expectedPaneCountAfter, "Unexpected pane count after \(scenario) markdown drop. data=\(data)")
+        if scenario == "split" || scenario == "samePaneSplit" {
+            XCTAssertEqual(paneCountAfter, paneCountBefore + 1, "Expected edge markdown drop to create a split. data=\(data)")
+            XCTAssertNotEqual(data["droppedPaneIdAfter"], data["targetPaneId"], "Expected split markdown drop to land in a new pane. data=\(data)")
+            XCTAssertEqual(targetPaneTabCountAfter, targetPaneTabCountBefore, "Expected split drop not to insert another tab into the target pane. data=\(data)")
+            if scenario == "samePaneSplit" {
+                XCTAssertEqual(data["primaryPaneIdAfter"], data["targetPaneId"], "Expected same-pane split to leave the visible markdown panel in its original pane. data=\(data)")
+            }
+        } else {
+            XCTAssertEqual(paneCountAfter, paneCountBefore, "Expected center markdown drop to keep the same pane count. data=\(data)")
+            XCTAssertEqual(targetPaneTabCountAfter, targetPaneTabCountBefore + 1, "Expected center drop to insert a markdown tab into the target pane. data=\(data)")
+            XCTAssertEqual(data["droppedPaneIdAfter"], data["targetPaneId"], "Expected center markdown drop to stay in the target pane. data=\(data)")
+        }
+    }
+
+    private func launchConfiguredApp(scenario: String) -> (XCUIApplication, String, URL) {
+        let app = XCUIApplication()
+        let token = UUID().uuidString
+        let dataPath = "/tmp/cmux-ui-test-markdown-pane-drag-\(scenario)-\(token).json"
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-test-markdown-pane-drag-\(scenario)-\(token)", isDirectory: true)
+        try? FileManager.default.removeItem(atPath: dataPath)
+        try? FileManager.default.removeItem(at: fixtureDirectory)
+        try? FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+
+        app.launchEnvironment["CMUX_TAG"] = "ui-md-\(UUID().uuidString.prefix(6))"
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_MARKDOWN_PANE_DRAG_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_MARKDOWN_PANE_DRAG_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_MARKDOWN_PANE_DRAG_FIXTURE_DIR"] = fixtureDirectory.path
+        app.launchEnvironment["CMUX_UI_TEST_MARKDOWN_PANE_DRAG_SCENARIO"] = scenario
+        app.launchArguments += ["-workspacePresentationMode", "minimal"]
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
+        return (app, dataPath, fixtureDirectory)
+    }
+
+    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.wait(for: .runningForeground, timeout: timeout) {
+            return true
+        }
+        if app.state == .runningBackground {
+            return true
+        }
+        return app.windows.firstMatch.exists
+    }
+
+    private func waitForJSONKey(_ key: String, equals expected: String, atPath path: String, timeout: TimeInterval) -> [String: String]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let data = loadJSON(atPath: path), data[key] == expected {
+                return data
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        if let data = loadJSON(atPath: path), data[key] == expected {
+            return data
+        }
+        return nil
+    }
+
+    private func loadJSON(atPath path: String) -> [String: String]? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return nil
+        }
+        return object
+    }
+
+    private func assertCounter(
+        _ data: [String: String],
+        _ key: String,
+        equals expected: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(intValue(data[key]), expected, "Unexpected \(key). data=\(data)", file: file, line: line)
+    }
+
+    private func intValue(_ raw: String?) -> Int? {
+        guard let raw else { return nil }
+        return Int(raw.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+}

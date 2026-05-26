@@ -20,6 +20,9 @@ final class WeakMarkdownScriptMessageHandler: NSObject, WKScriptMessageHandler {
 @MainActor
 final class MarkdownWebView: WKWebView {
     var onPointerDown: (() -> Void)?
+#if DEBUG
+    var onPortalRenderingStateReattached: ((String) -> Void)?
+#endif
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         PaneFirstClickFocusSettings.isEnabled()
@@ -30,6 +33,125 @@ final class MarkdownWebView: WKWebView {
         super.mouseDown(with: event)
     }
 }
+
+@MainActor
+final class MarkdownWebPortalProbeView: NSView {
+    var onDidMoveToWindow: (() -> Void)?
+    var onGeometryChanged: (() -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setAccessibilityRole(.none)
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setAccessibilityRole(.none)
+        setAccessibilityElement(false)
+    }
+
+    override var isOpaque: Bool {
+        layer?.isOpaque == true
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onDidMoveToWindow?()
+        onGeometryChanged?()
+    }
+
+    override func layout() {
+        super.layout()
+        onGeometryChanged?()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        onGeometryChanged?()
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        onGeometryChanged?()
+    }
+}
+
+@MainActor
+final class MarkdownWebPortalAnchorView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setAccessibilityRole(.none)
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setAccessibilityRole(.none)
+        setAccessibilityElement(false)
+    }
+
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
+#if DEBUG
+struct MarkdownRendererDiagnosticsSnapshot: Equatable {
+    var makeNSViewCount: Int = 0
+    var reuseNSViewCount: Int = 0
+    var webViewCreateCount: Int = 0
+    var webViewReattachCount: Int = 0
+    var updateNSViewCount: Int = 0
+    var probeDismantleCount: Int = 0
+    var loadShellCount: Int = 0
+    var pushMarkdownCount: Int = 0
+    var didFinishCount: Int = 0
+    var webContentProcessTerminationCount: Int = 0
+    var navigationFailureCount: Int = 0
+    var portalBindCount: Int = 0
+    var portalHideCount: Int = 0
+
+    var existingPanelFlickerSignalCount: Int {
+        webViewCreateCount +
+            webViewReattachCount +
+            loadShellCount +
+            pushMarkdownCount +
+            didFinishCount +
+            webContentProcessTerminationCount +
+            navigationFailureCount +
+            portalHideCount
+    }
+
+    func fields(prefix: String, includeExistingPanelFlickerSignalCount: Bool) -> [String: String] {
+        var fields = [
+            "\(prefix)MakeNSViewCount": String(makeNSViewCount),
+            "\(prefix)ReuseNSViewCount": String(reuseNSViewCount),
+            "\(prefix)WebViewCreateCount": String(webViewCreateCount),
+            "\(prefix)WebViewReattachCount": String(webViewReattachCount),
+            "\(prefix)UpdateNSViewCount": String(updateNSViewCount),
+            "\(prefix)ProbeDismantleCount": String(probeDismantleCount),
+            "\(prefix)LoadShellCount": String(loadShellCount),
+            "\(prefix)PushMarkdownCount": String(pushMarkdownCount),
+            "\(prefix)DidFinishCount": String(didFinishCount),
+            "\(prefix)WebContentProcessTerminationCount": String(webContentProcessTerminationCount),
+            "\(prefix)NavigationFailureCount": String(navigationFailureCount),
+            "\(prefix)PortalBindCount": String(portalBindCount),
+            "\(prefix)PortalHideCount": String(portalHideCount),
+        ]
+        if includeExistingPanelFlickerSignalCount {
+            fields["\(prefix)FlickerSignalCount"] = String(existingPanelFlickerSignalCount)
+        }
+        return fields
+    }
+}
+#endif
 
 struct MarkdownWebTheme: Equatable {
     let isDark: Bool
@@ -95,6 +217,45 @@ final class MarkdownRendererSession {
     func renderedText() async -> String? {
         await ownedCoordinator.renderedText()
     }
+
+    func hidePortal(reason: String) {
+        ownedCoordinator.hidePortal(reason: reason)
+    }
+
+    func updatePortalDropContext(_ context: BrowserPaneDropContext?) {
+        ownedCoordinator.updatePortalDropContext(context)
+    }
+
+    @discardableResult
+    func restorePortalIfPossible(
+        zPriority: Int,
+        dropContext: BrowserPaneDropContext,
+        reason: String
+    ) -> Bool {
+        ownedCoordinator.restorePortalIfPossible(
+            zPriority: zPriority,
+            dropContext: dropContext,
+            reason: reason
+        )
+    }
+
+    func portalSnapshot() -> BrowserWindowPortalRegistry.DebugSnapshot? {
+        ownedCoordinator.portalSnapshot()
+    }
+
+#if DEBUG
+    var diagnosticsSnapshot: MarkdownRendererDiagnosticsSnapshot {
+        ownedCoordinator.diagnosticsSnapshot
+    }
+
+    var isLoadedForDiagnostics: Bool {
+        ownedCoordinator.isLoadedForDiagnostics
+    }
+
+    func resetDiagnostics(reason: String) {
+        ownedCoordinator.resetDiagnostics(reason: reason)
+    }
+#endif
 }
 
 extension NSColor {

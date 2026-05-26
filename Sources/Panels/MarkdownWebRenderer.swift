@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import SwiftUI
 import WebKit
 
@@ -11,82 +12,90 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let backgroundColor: NSColor
     let panelId: UUID
     let workspaceId: UUID
+    let paneId: PaneID
     let filePath: String
     let session: MarkdownRendererSession
+    let visibleInUI: Bool
+    let portalPriority: Int
     let onRequestPanelFocus: () -> Void
+
+    private var paneDropContext: BrowserPaneDropContext {
+        BrowserPaneDropContext(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            paneId: paneId,
+            allowsHostedWebViewTextDrop: false
+        )
+    }
 
     func makeCoordinator() -> Coordinator {
         session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
     }
 
-    func makeNSView(context: Context) -> WKWebView {
-        if let webView = context.coordinator.webView {
-            if webView.superview != nil {
-                webView.removeFromSuperview()
-            }
-            webView.onPointerDown = onRequestPanelFocus
-            webView.navigationDelegate = context.coordinator
-            webView.uiDelegate = context.coordinator
-            applyBackground(to: webView)
-            applyAppearance(to: webView, isDark: theme.isDark)
-            return webView
+    func makeNSView(context: Context) -> MarkdownWebPortalProbeView {
+        let probe = MarkdownWebPortalProbeView(frame: .zero)
+        applyBackground(to: probe)
+        let reusedWebView = context.coordinator.webView != nil
+        guard let webView = context.coordinator.ensureWebView(make: { makeWebView(context: context) }) else {
+            return probe
         }
 
-        let config = WKWebViewConfiguration()
-        config.suppressesIncrementalRendering = false
-        // Bridge: JS posts to `cmuxLib` to request lazy-loaded libraries
-        // (mermaid / vega-lite). Swift fetches the bundled source from the
-        // app bundle and injects it via evaluateJavaScript.
-        config.userContentController.add(WeakMarkdownScriptMessageHandler(context.coordinator), name: "cmuxLib")
-        config.setURLSchemeHandler(
-            context.coordinator,
-            forURLScheme: Self.localImageURLScheme
-        )
-        config.setURLSchemeHandler(
-            context.coordinator,
-            forURLScheme: Self.remoteImageURLScheme
-        )
-        let webView = MarkdownWebView(frame: .zero, configuration: config)
-        webView.onPointerDown = onRequestPanelFocus
-        webView.setValue(false, forKey: "drawsBackground")
+        configureWebViewCallbacks(webView, coordinator: context.coordinator)
         applyBackground(to: webView)
-        webView.allowsBackForwardNavigationGestures = false
-        webView.allowsLinkPreview = false
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
-        if #available(macOS 13.3, *) {
 #if DEBUG
-            webView.isInspectable = true
-#else
-            webView.isInspectable = false
+        context.coordinator.recordMakeNSView(reusedWebView: reusedWebView)
 #endif
-        }
         applyAppearance(to: webView, isDark: theme.isDark)
 
-        context.coordinator.webView = webView
-        context.coordinator.loadShell(theme: theme, initialMarkdown: markdown)
-        return webView
+        configurePortalProbe(probe, coordinator: context.coordinator)
+        context.coordinator.bindPortal(
+            to: probe,
+            visibleInUI: visibleInUI,
+            zPriority: portalPriority,
+            dropContext: paneDropContext,
+            reason: "makeNSView"
+        )
+        return probe
     }
 
-    func updateNSView(_ nsView: WKWebView, context: Context) {
+    func updateNSView(_ nsView: MarkdownWebPortalProbeView, context: Context) {
         // Re-bind panel metadata in case SwiftUI recreated the wrapper while
         // the panel-owned renderer session kept the same coordinator.
         context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
-        (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
+#if DEBUG
+        context.coordinator.recordUpdateNSView()
+#endif
         applyBackground(to: nsView)
-        applyAppearance(to: nsView, isDark: theme.isDark)
+        guard let webView = context.coordinator.ensureWebView(make: { makeWebView(context: context) }) else {
+            return
+        }
+        configureWebViewCallbacks(webView, coordinator: context.coordinator)
+        webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+        applyBackground(to: webView)
+        applyAppearance(to: webView, isDark: theme.isDark)
+        configurePortalProbe(nsView, coordinator: context.coordinator)
+        context.coordinator.bindPortal(
+            to: nsView,
+            visibleInUI: visibleInUI,
+            zPriority: portalPriority,
+            dropContext: paneDropContext,
+            reason: "updateNSView"
+        )
         context.coordinator.update(markdown: markdown, theme: theme)
     }
 
-    static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
-        if let retainedWebView = coordinator.webView, retainedWebView === nsView {
-            return
-        }
-        nsView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
-        nsView.navigationDelegate = nil
-        nsView.uiDelegate = nil
-        (nsView as? MarkdownWebView)?.onPointerDown = nil
-        coordinator.cancelImageLoads()
+    static func dismantleNSView(_ nsView: MarkdownWebPortalProbeView, coordinator: Coordinator) {
+#if DEBUG
+        coordinator.recordProbeDismantle()
+#endif
+        coordinator.notePortalProbeDismantled(nsView)
+        nsView.onDidMoveToWindow = nil
+        nsView.onGeometryChanged = nil
+        // The SwiftUI view is only a geometry probe. The actual portal anchor is
+        // panel-owned by the coordinator and remains mounted until the panel closes.
     }
 
     /// WebKit's `prefers-color-scheme` media query reflects the WKWebView's
@@ -106,6 +115,79 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         webView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
     }
 
+    private func applyBackground(to hostView: NSView) {
+        hostView.wantsLayer = true
+        hostView.layer?.backgroundColor = backgroundColor.cgColor
+        hostView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
+    }
+
+    private func configureWebViewCallbacks(
+        _ webView: MarkdownWebView,
+        coordinator: Coordinator
+    ) {
+        webView.onPointerDown = onRequestPanelFocus
+#if DEBUG
+        webView.onPortalRenderingStateReattached = { [weak coordinator] reason in
+            coordinator?.recordWebViewReattach(reason: reason)
+        }
+#endif
+    }
+
+    private func makeWebView(context: Context) -> MarkdownWebView {
+        let config = WKWebViewConfiguration()
+        config.suppressesIncrementalRendering = false
+        // Bridge: JS posts to `cmuxLib` to request lazy-loaded libraries
+        // (mermaid / vega-lite). Swift fetches the bundled source from the
+        // app bundle and injects it via evaluateJavaScript.
+        config.userContentController.add(WeakMarkdownScriptMessageHandler(context.coordinator), name: "cmuxLib")
+        config.setURLSchemeHandler(
+            context.coordinator,
+            forURLScheme: Self.localImageURLScheme
+        )
+        config.setURLSchemeHandler(
+            context.coordinator,
+            forURLScheme: Self.remoteImageURLScheme
+        )
+        let webView = MarkdownWebView(frame: .zero, configuration: config)
+        configureWebViewCallbacks(webView, coordinator: context.coordinator)
+        webView.setValue(false, forKey: "drawsBackground")
+        applyBackground(to: webView)
+        webView.allowsBackForwardNavigationGestures = false
+        webView.allowsLinkPreview = false
+        webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+        if #available(macOS 13.3, *) {
+#if DEBUG
+            webView.isInspectable = true
+#else
+            webView.isInspectable = false
+#endif
+        }
+        applyAppearance(to: webView, isDark: theme.isDark)
+        context.coordinator.installWebView(webView, theme: theme, initialMarkdown: markdown)
+        return webView
+    }
+
+    private func configurePortalProbe(
+        _ probe: MarkdownWebPortalProbeView,
+        coordinator: Coordinator
+    ) {
+        probe.onDidMoveToWindow = { [weak probe, weak coordinator] in
+            guard let probe, let coordinator else { return }
+            coordinator.bindPortal(
+                to: probe,
+                visibleInUI: visibleInUI,
+                zPriority: portalPriority,
+                dropContext: paneDropContext,
+                reason: "hostMovedToWindow"
+            )
+        }
+        probe.onGeometryChanged = { [weak probe, weak coordinator] in
+            guard let probe, let coordinator else { return }
+            coordinator.synchronizePortal(for: probe)
+        }
+    }
+
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
         var webView: MarkdownWebView?
@@ -118,6 +200,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastTheme: MarkdownWebTheme? = nil
         private var isLoaded = false
         private var isShellLoading = false
+        private weak var currentPortalProbe: MarkdownWebPortalProbeView?
+        private let portalAnchorView = MarkdownWebPortalAnchorView(frame: .zero)
+        private var currentPortalHostVisibleInUI = false
+        private var isClosed = false
         private var webContentProcessRecoveryAttempts = 0
         private let maxWebContentProcessRecoveryAttempts = 2
 
@@ -138,6 +224,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var imageLoads: [ObjectIdentifier: ImageLoad] = [:]
 
 #if DEBUG
+        private var diagnostics = MarkdownRendererDiagnosticsSnapshot()
+
         var isShellLoadingForTesting: Bool {
             isShellLoading
         }
@@ -145,23 +233,282 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         var webContentProcessRecoveryAttemptsForTesting: Int {
             webContentProcessRecoveryAttempts
         }
+
+        var diagnosticsSnapshot: MarkdownRendererDiagnosticsSnapshot {
+            diagnostics
+        }
+
+        var isLoadedForDiagnostics: Bool {
+            isLoaded
+        }
+
+        func resetDiagnostics(reason: String) {
+            diagnostics = MarkdownRendererDiagnosticsSnapshot()
+            cmuxDebugLog("markdown.renderer.diagnostics.reset panel=\(panelId.uuidString.prefix(5)) file=\(debugFileName) reason=\(reason)")
+        }
+
+        func recordMakeNSView(reusedWebView: Bool) {
+            recordDiagnosticsEvent("makeNSView") { snapshot in
+                snapshot.makeNSViewCount += 1
+                if reusedWebView {
+                    snapshot.reuseNSViewCount += 1
+                } else {
+                    snapshot.webViewCreateCount += 1
+                }
+            }
+        }
+
+        func recordUpdateNSView() {
+            recordDiagnosticsEvent("updateNSView") { snapshot in
+                snapshot.updateNSViewCount += 1
+            }
+        }
+
+        func recordProbeDismantle() {
+            recordDiagnosticsEvent("probeDismantle") { snapshot in
+                snapshot.probeDismantleCount += 1
+            }
+        }
+
+        func recordWebViewReattach(reason: String) {
+            recordDiagnosticsEvent("webViewReattach reason=\(reason)") { snapshot in
+                snapshot.webViewReattachCount += 1
+            }
+        }
+
+        func recordPortalBind(reason: String, visibleInUI: Bool) {
+            recordDiagnosticsEvent("portalBind reason=\(reason) visible=\(visibleInUI ? 1 : 0)") { snapshot in
+                snapshot.portalBindCount += 1
+                if !visibleInUI {
+                    snapshot.portalHideCount += 1
+                }
+            }
+        }
+
+        private var debugFileName: String {
+            let name = URL(fileURLWithPath: filePath).lastPathComponent
+            return name.isEmpty ? "-" : name
+        }
+
+        private func recordDiagnosticsEvent(
+            _ event: String,
+            update: (inout MarkdownRendererDiagnosticsSnapshot) -> Void
+        ) {
+            update(&diagnostics)
+            cmuxDebugLog(
+                "markdown.renderer.\(event) panel=\(panelId.uuidString.prefix(5)) " +
+                    "file=\(debugFileName) make=\(diagnostics.makeNSViewCount) " +
+                    "reuse=\(diagnostics.reuseNSViewCount) create=\(diagnostics.webViewCreateCount) " +
+                    "reattach=\(diagnostics.webViewReattachCount) update=\(diagnostics.updateNSViewCount) " +
+                    "probeDismantle=\(diagnostics.probeDismantleCount) " +
+                    "loadShell=\(diagnostics.loadShellCount) push=\(diagnostics.pushMarkdownCount) " +
+                    "didFinish=\(diagnostics.didFinishCount) terminate=\(diagnostics.webContentProcessTerminationCount) " +
+                    "navFail=\(diagnostics.navigationFailureCount) " +
+                    "portalBind=\(diagnostics.portalBindCount) portalHide=\(diagnostics.portalHideCount)"
+            )
+        }
 #endif
 
         func bind(panelId: UUID, workspaceId: UUID, filePath: String) {
+            guard !isClosed else { return }
             self.panelId = panelId
             self.workspaceId = workspaceId
             self.filePath = filePath
         }
 
-        func close() {
+        func notePortalProbeDismantled(_ probe: MarkdownWebPortalProbeView) {
+            guard currentPortalProbe === probe else { return }
+            currentPortalProbe = nil
+        }
+
+        func installWebView(
+            _ webView: MarkdownWebView,
+            theme: MarkdownWebTheme,
+            initialMarkdown: String
+        ) {
+            guard !isClosed else { return }
+            guard self.webView == nil else { return }
+            self.webView = webView
+            loadShell(theme: theme, initialMarkdown: initialMarkdown)
+        }
+
+        func ensureWebView(make: () -> MarkdownWebView) -> MarkdownWebView? {
+            guard !isClosed else { return nil }
             if let webView {
+                return webView
+            }
+            return make()
+        }
+
+        func bindPortal(
+            to probe: MarkdownWebPortalProbeView,
+            visibleInUI: Bool,
+            zPriority: Int,
+            dropContext: BrowserPaneDropContext,
+            reason: String
+        ) {
+            guard !isClosed else { return }
+            guard let webView else { return }
+            guard let anchorView = updatePortalAnchorFrame(from: probe) else {
+                if currentPortalProbe === probe {
+                    currentPortalHostVisibleInUI = visibleInUI
+                }
+                guard !visibleInUI else {
+#if DEBUG
+                    recordPortalBind(reason: "\(reason).offWindowDeferred", visibleInUI: true)
+#endif
+                    return
+                }
+                hidePortal(reason: "\(reason).offWindow")
+                return
+            }
+            BrowserWindowPortalRegistry.bind(
+                webView: webView,
+                to: anchorView,
+                visibleInUI: visibleInUI,
+                zPriority: zPriority
+            )
+            currentPortalProbe = probe
+            currentPortalHostVisibleInUI = visibleInUI
+            BrowserWindowPortalRegistry.updatePaneDropContext(
+                for: webView,
+                context: visibleInUI ? dropContext : nil
+            )
+#if DEBUG
+            recordPortalBind(reason: reason, visibleInUI: visibleInUI)
+#endif
+        }
+
+        private func portalReferenceView(in window: NSWindow) -> NSView? {
+            if let glassTarget = WindowGlassEffect.portalInstallationTarget(for: window) {
+                return glassTarget.reference
+            }
+            return window.contentView
+        }
+
+        private func updatePortalAnchorFrame(from probe: MarkdownWebPortalProbeView) -> MarkdownWebPortalAnchorView? {
+            guard let window = probe.window,
+                  let referenceView = portalReferenceView(in: window) else {
+                return nil
+            }
+            if portalAnchorView.superview !== referenceView {
+                portalAnchorView.removeFromSuperview()
+                referenceView.addSubview(portalAnchorView, positioned: .above, relativeTo: nil)
+            }
+
+            let frameInWindow = effectiveProbeFrameInWindow(probe, stoppingAt: referenceView)
+            let frameInReference = referenceView.convert(frameInWindow, from: nil)
+            if !Self.rectApproximatelyEqual(portalAnchorView.frame, frameInReference) {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                portalAnchorView.frame = frameInReference
+                CATransaction.commit()
+            }
+            portalAnchorView.isHidden = false
+            return portalAnchorView
+        }
+
+        private func effectiveProbeFrameInWindow(
+            _ probe: MarkdownWebPortalProbeView,
+            stoppingAt referenceView: NSView
+        ) -> NSRect {
+            var frameInWindow = probe.convert(probe.bounds, to: nil)
+            var current = probe.superview
+            while let ancestor = current {
+                let ancestorBoundsInWindow = ancestor.convert(ancestor.bounds, to: nil)
+                let finiteAncestorBounds =
+                    ancestorBoundsInWindow.origin.x.isFinite &&
+                    ancestorBoundsInWindow.origin.y.isFinite &&
+                    ancestorBoundsInWindow.size.width.isFinite &&
+                    ancestorBoundsInWindow.size.height.isFinite
+                if finiteAncestorBounds {
+                    frameInWindow = frameInWindow.intersection(ancestorBoundsInWindow)
+                    if frameInWindow.isNull { return .zero }
+                }
+                if ancestor === referenceView { break }
+                current = ancestor.superview
+            }
+            return frameInWindow
+        }
+
+        private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.01) -> Bool {
+            abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
+                abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
+                abs(lhs.size.width - rhs.size.width) <= epsilon &&
+                abs(lhs.size.height - rhs.size.height) <= epsilon
+        }
+
+        func hidePortal(reason: String) {
+            guard !isClosed else { return }
+            guard let webView else { return }
+            currentPortalHostVisibleInUI = false
+            BrowserWindowPortalRegistry.hide(webView: webView, source: "markdown.\(reason)")
+            BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: nil)
+#if DEBUG
+            recordPortalBind(reason: reason, visibleInUI: false)
+#endif
+        }
+
+        func updatePortalDropContext(_ context: BrowserPaneDropContext?) {
+            guard !isClosed else { return }
+            guard let webView else { return }
+            BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: context)
+        }
+
+        @discardableResult
+        func restorePortalIfPossible(
+            zPriority: Int,
+            dropContext: BrowserPaneDropContext,
+            reason: String
+        ) -> Bool {
+            guard !isClosed else { return false }
+            guard let probe = currentPortalProbe else { return false }
+            bindPortal(
+                to: probe,
+                visibleInUI: true,
+                zPriority: zPriority,
+                dropContext: dropContext,
+                reason: reason
+            )
+            let snapshot = portalSnapshot()
+            return snapshot?.visibleInUI == true && snapshot?.containerHidden == false
+        }
+
+        func portalSnapshot() -> BrowserWindowPortalRegistry.DebugSnapshot? {
+            guard !isClosed else { return nil }
+            guard let webView else { return nil }
+            return BrowserWindowPortalRegistry.debugSnapshot(for: webView)
+        }
+
+        func synchronizePortal(for probe: MarkdownWebPortalProbeView) {
+            guard !isClosed else { return }
+            guard webView != nil else { return }
+            guard currentPortalProbe === probe else { return }
+            guard let anchorView = updatePortalAnchorFrame(from: probe) else {
+                guard !currentPortalHostVisibleInUI else { return }
+                hidePortal(reason: "geometry.offWindow")
+                return
+            }
+            BrowserWindowPortalRegistry.synchronizeForAnchor(anchorView)
+        }
+
+        func close() {
+            isClosed = true
+            if let webView {
+                BrowserWindowPortalRegistry.discard(webView: webView, source: "markdown.close")
                 webView.stopLoading()
                 webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
                 webView.navigationDelegate = nil
                 webView.uiDelegate = nil
                 webView.onPointerDown = nil
+#if DEBUG
+                webView.onPortalRenderingStateReattached = nil
+#endif
             }
+            portalAnchorView.removeFromSuperview()
             self.webView = nil
+            currentPortalProbe = nil
+            currentPortalHostVisibleInUI = false
             isLoaded = false
             isShellLoading = false
             webContentProcessRecoveryAttempts = 0
@@ -179,6 +526,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             let html = MarkdownViewerAssets.shared.shellHTML(isDark: theme.isDark)
             let baseURL = URL(fileURLWithPath: filePath)
 #if DEBUG
+            recordDiagnosticsEvent("loadShell") { snapshot in
+                snapshot.loadShellCount += 1
+            }
             NSLog("MarkdownPanel.loadShell filePath=\(filePath) baseURL=\(baseURL.absoluteString) htmlBytes=\(html.utf8.count)")
 #endif
             webView?.loadHTMLString(html, baseURL: baseURL)
@@ -278,6 +628,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private func pushMarkdown(_ markdown: String) {
             guard let webView else { return }
 #if DEBUG
+            recordDiagnosticsEvent("pushMarkdown") { snapshot in
+                snapshot.pushMarkdownCount += 1
+            }
             NSLog("MarkdownPanel.pushMarkdown bytes=\(markdown.utf8.count)")
 #endif
             guard let js = Self.renderMarkdownScript(markdown) else { return }
@@ -591,6 +944,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
 #if DEBUG
+            recordDiagnosticsEvent("didFinish") { snapshot in
+                snapshot.didFinishCount += 1
+            }
             NSLog("MarkdownPanel.webView.didFinish")
 #endif
             isShellLoading = false
@@ -620,6 +976,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             guard let currentWebView = self.webView, currentWebView === webView else { return }
 #if DEBUG
+            recordDiagnosticsEvent("webContentProcessDidTerminate") { snapshot in
+                snapshot.webContentProcessTerminationCount += 1
+            }
             NSLog("MarkdownPanel.webView.webContentProcessDidTerminate")
 #endif
             isShellLoading = false
@@ -638,6 +997,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private func handleShellNavigationFailure(for webView: WKWebView, error: Error) {
             guard let currentWebView = self.webView, currentWebView === webView, isShellLoading else { return }
 #if DEBUG
+            recordDiagnosticsEvent("navigationFailed") { snapshot in
+                snapshot.navigationFailureCount += 1
+            }
             NSLog("MarkdownPanel.webView.navigationFailed error=\(error)")
 #endif
             isShellLoading = false

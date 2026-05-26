@@ -37,6 +37,36 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
     }
 
+    func testSelectedWorkspaceIsHiddenWhenTabsPageHidden() {
+        XCTAssertEqual(
+            MountedWorkspacePresentationPolicy.resolve(
+                isTabsPageVisible: false,
+                isSelectedWorkspace: true,
+                isRetiringWorkspace: false
+            ),
+            MountedWorkspacePresentation(
+                isRenderedVisible: false,
+                isPanelVisible: false,
+                renderOpacity: 0
+            )
+        )
+    }
+
+    func testRetiringWorkspaceIsHiddenWhenTabsPageHidden() {
+        XCTAssertEqual(
+            MountedWorkspacePresentationPolicy.resolve(
+                isTabsPageVisible: false,
+                isSelectedWorkspace: false,
+                isRetiringWorkspace: true
+            ),
+            MountedWorkspacePresentation(
+                isRenderedVisible: false,
+                isPanelVisible: false,
+                renderOpacity: 0
+            )
+        )
+    }
+
     func testPanelVisibleInUIReturnsFalseWhenWorkspaceHidden() {
         XCTAssertFalse(
             WorkspaceContentView.panelVisibleInUI(

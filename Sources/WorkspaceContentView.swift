@@ -289,12 +289,25 @@ struct WorkspaceContentView: View {
         .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
+            workspace.setPortalPresentationZPriority(
+                workspacePortalPriority,
+                reason: "workspacePortalPriority.onAppear"
+            )
+            workspace.setPortalPresentationVisibleInUI(isWorkspaceVisible, reason: "workspaceVisibility.onAppear")
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
         }
         .onChange(of: isWorkspaceVisible) { _, isVisible in
+            workspace.setPortalPresentationZPriority(
+                workspacePortalPriority,
+                reason: "workspacePortalPriority.visibilityChange"
+            )
+            workspace.setPortalPresentationVisibleInUI(isVisible, reason: "workspaceVisibility.onChange")
             guard isVisible else { return }
             flushDeferredThemeRefreshIfNeeded()
+        }
+        .onChange(of: workspacePortalPriority) { _, zPriority in
+            workspace.setPortalPresentationZPriority(zPriority, reason: "workspacePortalPriority.onChange")
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()

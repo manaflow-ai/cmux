@@ -848,10 +848,12 @@ struct MountedWorkspacePresentation: Equatable {
 
 enum MountedWorkspacePresentationPolicy {
     static func resolve(
+        isTabsPageVisible: Bool = true,
         isSelectedWorkspace: Bool,
         isRetiringWorkspace: Bool
     ) -> MountedWorkspacePresentation {
-        let isRenderedVisible = isSelectedWorkspace || isRetiringWorkspace
+        let isWorkspaceVisible = isSelectedWorkspace || isRetiringWorkspace
+        let isRenderedVisible = isTabsPageVisible && isWorkspaceVisible
 
         return MountedWorkspacePresentation(
             isRenderedVisible: isRenderedVisible,
@@ -2034,6 +2036,7 @@ struct ContentView: View {
         let mountedWorkspaces = tabManager.tabs.filter { mountedWorkspaceIdSet.contains($0.id) }
         let selectedWorkspaceId = tabManager.selectedTabId
         let retiringWorkspaceId = self.retiringWorkspaceId
+        let isTabsPageVisible = sidebarSelectionState.selection == .tabs
 
         return ZStack {
             ZStack {
@@ -2041,6 +2044,7 @@ struct ContentView: View {
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
                     let isRetiringWorkspace = retiringWorkspaceId == tab.id
                     let presentation = MountedWorkspacePresentationPolicy.resolve(
+                        isTabsPageVisible: isTabsPageVisible,
                         isSelectedWorkspace: isSelectedWorkspace,
                         isRetiringWorkspace: isRetiringWorkspace
                     )
@@ -2048,7 +2052,7 @@ struct ContentView: View {
                     // Allowing both selected+retiring workspaces to be input-active lets the
                     // old workspace steal first responder (notably with WKWebView), which can
                     // delay handoff completion and make browser returns feel laggy.
-                    let isInputActive = isSelectedWorkspace
+                    let isInputActive = isTabsPageVisible && isSelectedWorkspace
                     let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
                     WorkspaceContentView(
                         workspace: tab,

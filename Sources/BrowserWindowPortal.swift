@@ -113,6 +113,9 @@ private extension WKWebView {
         guard browserPortalNeedsRenderingStateReattach else { return }
         guard window != nil else { return }
         browserPortalNeedsRenderingStateReattach = false
+#if DEBUG
+        (self as? MarkdownWebView)?.onPortalRenderingStateReattached?(reason)
+#endif
 
         let firedSelectors = [
             "viewDidUnhide",
@@ -1334,6 +1337,19 @@ struct BrowserPaneDropContext: Equatable {
     let workspaceId: UUID
     let panelId: UUID
     let paneId: PaneID
+    let allowsHostedWebViewTextDrop: Bool
+
+    init(
+        workspaceId: UUID,
+        panelId: UUID,
+        paneId: PaneID,
+        allowsHostedWebViewTextDrop: Bool = true
+    ) {
+        self.workspaceId = workspaceId
+        self.panelId = panelId
+        self.paneId = paneId
+        self.allowsHostedWebViewTextDrop = allowsHostedWebViewTextDrop
+    }
 }
 
 struct BrowserPaneDragTransfer: Equatable {
@@ -1591,6 +1607,17 @@ final class WindowBrowserSlotView: NSView {
         let webPoint = hostedWebView.convert(localPoint, from: self)
         guard hostedWebView.bounds.contains(webPoint) else { return nil }
         return hostedWebView
+    }
+
+    func hostedTextDropWebViewForFileDrop(at localPoint: NSPoint) -> WKWebView? {
+        guard paneDropTargetView.dropContext?.allowsHostedWebViewTextDrop == true else { return nil }
+        return hostedWebViewForFileDrop(at: localPoint)
+    }
+
+    func blocksHostedTextDropForFileDrop(at localPoint: NSPoint) -> Bool {
+        guard bounds.contains(localPoint) else { return false }
+        guard paneDropTargetView.dropContext?.allowsHostedWebViewTextDrop == false else { return false }
+        return true
     }
 
     func setPaneTopChromeHeight(_ height: CGFloat) {
@@ -3916,8 +3943,10 @@ final class WindowBrowserPortal: NSObject {
         }()
         return BrowserWindowPortalRegistry.DebugSnapshot(
             visibleInUI: entry.visibleInUI,
+            zPriority: entry.zPriority,
             containerHidden: entry.containerView?.isHidden ?? true,
-            frameInWindow: frameInWindow
+            frameInWindow: frameInWindow,
+            paneDropContext: entry.paneDropContext
         )
     }
 
@@ -3937,6 +3966,29 @@ final class WindowBrowserPortal: NSObject {
         return nil
     }
 
+    func textDropWebViewAtWindowPoint(_ windowPoint: NSPoint) -> WKWebView? {
+        guard case .webView(let webView) = textDropHitAtWindowPoint(windowPoint) else { return nil }
+        return webView
+    }
+
+    func textDropHitAtWindowPoint(_ windowPoint: NSPoint) -> BrowserPortalTextDropHit {
+        guard ensureInstalled() else { return .none }
+        let point = hostView.convert(windowPoint, from: nil)
+        for subview in hostView.subviews.reversed() {
+            guard let container = subview as? WindowBrowserSlotView else { continue }
+            guard !container.isHidden else { continue }
+            guard container.frame.contains(point) else { continue }
+            let pointInContainer = container.convert(point, from: hostView)
+            if container.blocksHostedTextDropForFileDrop(at: pointInContainer) {
+                return .blocked
+            }
+            if let webView = container.hostedTextDropWebViewForFileDrop(at: pointInContainer) {
+                return .webView(webView)
+            }
+        }
+        return .none
+    }
+
     func browserPaneDropTargetAtWindowPoint(_ windowPoint: NSPoint) -> BrowserPaneDropTargetView? {
         guard ensureInstalled() else { return nil }
         let point = hostView.convert(windowPoint, from: nil)
@@ -3952,11 +4004,20 @@ final class WindowBrowserPortal: NSObject {
 }
 
 @MainActor
+enum BrowserPortalTextDropHit {
+    case webView(WKWebView)
+    case blocked
+    case none
+}
+
+@MainActor
 enum BrowserWindowPortalRegistry {
     struct DebugSnapshot {
         let visibleInUI: Bool
+        let zPriority: Int
         let containerHidden: Bool
         let frameInWindow: CGRect
+        let paneDropContext: BrowserPaneDropContext?
     }
 
     private static var portalsByWindowId: [ObjectIdentifier: WindowBrowserPortal] = [:]
@@ -4081,6 +4142,15 @@ enum BrowserWindowPortalRegistry {
         return portal.isWebViewBoundToAnchor(withId: webViewId, anchorView: anchorView)
     }
 
+    static func isPortalHosted(webView: WKWebView) -> Bool {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else {
+            return false
+        }
+        return portal.webViewIds().contains(webViewId)
+    }
+
     static func hide(webView: WKWebView, source: String = "externalHide") {
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],
@@ -4170,6 +4240,17 @@ enum BrowserWindowPortalRegistry {
         let windowId = ObjectIdentifier(window)
         guard let portal = portalsByWindowId[windowId] else { return nil }
         return portal.webViewAtWindowPoint(windowPoint)
+    }
+
+    static func textDropWebViewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> WKWebView? {
+        guard case .webView(let webView) = textDropHitAtWindowPoint(windowPoint, in: window) else { return nil }
+        return webView
+    }
+
+    static func textDropHitAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> BrowserPortalTextDropHit {
+        let windowId = ObjectIdentifier(window)
+        guard let portal = portalsByWindowId[windowId] else { return .none }
+        return portal.textDropHitAtWindowPoint(windowPoint)
     }
 
     static func browserPaneDropTargetAtWindowPoint(

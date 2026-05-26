@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import SwiftUI
 import WebKit
 
@@ -18,6 +19,7 @@ import WebKit
 ///     is reading.
 struct MarkdownPanelView: View {
     @ObservedObject var panel: MarkdownPanel
+    let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
@@ -46,7 +48,16 @@ struct MarkdownPanelView: View {
     var body: some View {
         Group {
             if panel.isFileUnavailable {
-                fileUnavailableView
+                ZStack {
+                    fileUnavailableView
+                    MarkdownWebPortalVisibilitySink(
+                        session: panel.rendererSession,
+                        reason: "fileUnavailable"
+                    )
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
             } else {
                 markdownContentView
             }
@@ -87,10 +98,17 @@ struct MarkdownPanelView: View {
                 backgroundColor: appearance.contentBackgroundColor,
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
+                paneId: paneId,
                 filePath: panel.filePath,
                 session: panel.rendererSession,
+                visibleInUI: isVisibleInUI && panel.displayMode == .preview,
+                portalPriority: portalPriority,
                 onRequestPanelFocus: onRequestPanelFocus
             )
+            // Keep the NSViewRepresentable identity stable across Bonsplit structural updates.
+            // The renderer updates its pane/drop metadata in updateNSView, so pane churn should
+            // not dismantle the portal-hosted WebKit surface for the visible markdown panel.
+            .id(panel.id)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .opacity(panel.displayMode == .preview ? 1 : 0)
             .allowsHitTesting(panel.displayMode == .preview)
@@ -261,6 +279,18 @@ struct MarkdownPanelView: View {
             return .easeOut(duration: duration)
         }
     }
+}
+
+private struct MarkdownWebPortalVisibilitySink: NSViewRepresentable {
+    let session: MarkdownRendererSession
+    let reason: String
+
+    func makeNSView(context: Context) -> NSView {
+        session.hidePortal(reason: reason)
+        return NSView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
 // MARK: - Toolbar

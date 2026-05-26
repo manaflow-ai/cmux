@@ -9975,6 +9975,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpStalledAttemptCount = 0
     private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
     private var portalRenderingEnabled = true
+    private var portalPresentationVisibleInUI = true
+    private var portalPresentationZPriority = 2
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
@@ -13220,6 +13222,7 @@ final class Workspace: Identifiable, ObservableObject {
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
         hideAllBrowserPortalViews()
+        hideAllMarkdownPortalViews(reason: "workspaceTeardown")
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
             discardClosedPanelLifecycleState(
@@ -13836,6 +13839,14 @@ final class Workspace: Identifiable, ObservableObject {
             )
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
+        } else if let markdownPanel = detached.panel as? MarkdownPanel {
+            markdownPanel.updateWorkspaceId(id)
+            markdownPanel.rendererSession.updatePortalDropContext(BrowserPaneDropContext(
+                workspaceId: id,
+                panelId: markdownPanel.id,
+                paneId: paneId,
+                allowsHostedWebViewTextDrop: false
+            ))
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
             rightSidebarToolPanel.reattach(to: self)
         }
@@ -14260,6 +14271,7 @@ final class Workspace: Identifiable, ObservableObject {
         focusPanel(panelId)
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
         reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.toggleSplitZoom")
+        reconcileMarkdownPortalVisibilityForCurrentRenderedLayout(reason: "workspace.toggleSplitZoom")
         if let browserPanel = browserPanel(for: panelId) {
             browserPanel.preparePortalHostReplacementForNextDistinctClaim(
                 inPane: paneId,
@@ -14363,11 +14375,18 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func hideAllMarkdownPortalViews(reason: String) {
+        for panel in panels.values {
+            guard let markdown = panel as? MarkdownPanel else { continue }
+            markdown.rendererSession.hidePortal(reason: reason)
+        }
+    }
+
     func setPortalRenderingEnabled(_ enabled: Bool, reason: String) {
         let changed = portalRenderingEnabled != enabled
         portalRenderingEnabled = enabled
         if enabled {
-            if changed {
+            if changed && portalPresentationVisibleInUI {
                 beginEventDrivenLayoutFollowUp(
                     reason: reason,
                     includeGeometry: true
@@ -14377,7 +14396,34 @@ final class Workspace: Identifiable, ObservableObject {
             clearLayoutFollowUp()
             hideAllTerminalPortalViews()
             hideAllBrowserPortalViews()
+            hideAllMarkdownPortalViews(reason: reason)
         }
+    }
+
+    func setPortalPresentationVisibleInUI(_ visible: Bool, reason: String) {
+        let changed = portalPresentationVisibleInUI != visible
+        portalPresentationVisibleInUI = visible
+        guard changed else { return }
+
+        if visible {
+            guard portalRenderingEnabled else { return }
+            beginEventDrivenLayoutFollowUp(
+                reason: reason,
+                includeGeometry: true
+            )
+        } else {
+            clearLayoutFollowUp()
+            hideAllTerminalPortalViews()
+            hideAllBrowserPortalViews()
+            hideAllMarkdownPortalViews(reason: reason)
+        }
+    }
+
+    func setPortalPresentationZPriority(_ zPriority: Int, reason: String) {
+        let changed = portalPresentationZPriority != zPriority
+        portalPresentationZPriority = zPriority
+        guard changed, portalRenderingEnabled, portalPresentationVisibleInUI else { return }
+        reconcileMarkdownPortalVisibilityForCurrentRenderedLayout(reason: reason)
     }
 
     // MARK: - Utility
@@ -14850,6 +14896,14 @@ final class Workspace: Identifiable, ObservableObject {
             clearLayoutFollowUp()
             hideAllTerminalPortalViews()
             hideAllBrowserPortalViews()
+            hideAllMarkdownPortalViews(reason: "layoutFollowUp.portalRenderingDisabled")
+            return
+        }
+        guard portalPresentationVisibleInUI else {
+            clearLayoutFollowUp()
+            hideAllTerminalPortalViews()
+            hideAllBrowserPortalViews()
+            hideAllMarkdownPortalViews(reason: "layoutFollowUp.portalPresentationHidden")
             return
         }
         isAttemptingLayoutFollowUp = true
@@ -14860,6 +14914,7 @@ final class Workspace: Identifiable, ObservableObject {
         let geometryPendingBefore = layoutFollowUpNeedsGeometryPass
         let terminalPortalPendingBefore = terminalPortalVisibilityNeedsFollowUp()
         let browserVisibilityPendingBefore = browserPortalVisibilityNeedsFollowUp()
+        let markdownVisibilityPendingBefore = markdownPortalVisibilityNeedsFollowUp()
         let terminalFocusPendingBefore = terminalFocusNeedsFollowUp()
         let browserPanelPendingBefore = browserPanelNeedsFollowUp()
         let browserExitPendingBefore = layoutFollowUpBrowserExitFocusPanelId != nil
@@ -14889,6 +14944,8 @@ final class Workspace: Identifiable, ObservableObject {
         let reason = layoutFollowUpReason ?? "workspace.layout"
         reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
         let browserVisibilityPending = browserPortalVisibilityNeedsFollowUp()
+        reconcileMarkdownPortalVisibilityForCurrentRenderedLayout(reason: reason)
+        let markdownVisibilityPending = markdownPortalVisibilityNeedsFollowUp()
 
         if let browserPanelId = layoutFollowUpBrowserPanelId {
             if let browserPanel = browserPanel(for: browserPanelId) {
@@ -14933,6 +14990,7 @@ final class Workspace: Identifiable, ObservableObject {
             layoutFollowUpNeedsGeometryPass ||
             terminalPortalPending ||
             browserVisibilityPending ||
+            markdownVisibilityPending ||
             terminalFocusPending ||
             browserPanelPending ||
             browserExitPending ||
@@ -14947,6 +15005,7 @@ final class Workspace: Identifiable, ObservableObject {
             (geometryPendingBefore && !layoutFollowUpNeedsGeometryPass) ||
             (terminalPortalPendingBefore && !terminalPortalPending) ||
             (browserVisibilityPendingBefore && !browserVisibilityPending) ||
+            (markdownVisibilityPendingBefore && !markdownVisibilityPending) ||
             (terminalFocusPendingBefore && !terminalFocusPending) ||
             (browserPanelPendingBefore && !browserPanelPending) ||
             (browserExitPendingBefore && !browserExitPending) ||
@@ -15032,7 +15091,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func renderedVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
-        guard portalRenderingEnabled else { return [] }
+        guard portalRenderingEnabled, portalPresentationVisibleInUI else { return [] }
         let renderedPaneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
         var visiblePanelIds: Set<UUID> = []
 
@@ -15192,6 +15251,85 @@ final class Workspace: Identifiable, ObservableObject {
 
         return false
     }
+
+    @discardableResult
+    private func reconcileMarkdownPortalVisibilityForCurrentRenderedLayout(reason: String) -> Bool {
+        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+        var didChange = false
+
+        for panel in panels.values {
+            guard let markdownPanel = panel as? MarkdownPanel else { continue }
+            let shouldBeVisible = markdownPortalShouldBeVisible(markdownPanel, visiblePanelIds: visiblePanelIds)
+            let snapshot = markdownPanel.rendererSession.portalSnapshot()
+            if shouldBeVisible {
+                guard let paneId = paneId(forPanelId: markdownPanel.id) else { continue }
+                let dropContext = BrowserPaneDropContext(
+                    workspaceId: id,
+                    panelId: markdownPanel.id,
+                    paneId: paneId,
+                    allowsHostedWebViewTextDrop: false
+                )
+                markdownPanel.rendererSession.updatePortalDropContext(dropContext)
+                let portalNeedsShow =
+                    snapshot?.visibleInUI == false ||
+                    snapshot?.containerHidden == true
+                guard portalNeedsShow else { continue }
+                let restored = markdownPanel.rendererSession.restorePortalIfPossible(
+                    zPriority: portalPresentationZPriority,
+                    dropContext: dropContext,
+                    reason: reason
+                )
+                didChange = didChange || restored
+            } else {
+                let portalNeedsHide =
+                    snapshot?.visibleInUI == true ||
+                    snapshot?.containerHidden == false
+                if portalNeedsHide {
+                    markdownPanel.rendererSession.hidePortal(reason: reason)
+                    didChange = true
+                }
+            }
+        }
+
+        return didChange
+    }
+
+    private func markdownPortalShouldBeVisible(
+        _ panel: MarkdownPanel,
+        visiblePanelIds: Set<UUID>
+    ) -> Bool {
+        visiblePanelIds.contains(panel.id) &&
+            panel.displayMode == .preview &&
+            !panel.isFileUnavailable
+    }
+
+    private func markdownPortalVisibilityNeedsFollowUp() -> Bool {
+        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+
+        for panel in panels.values {
+            guard let markdownPanel = panel as? MarkdownPanel else { continue }
+            let shouldBeVisible = markdownPortalShouldBeVisible(markdownPanel, visiblePanelIds: visiblePanelIds)
+            let snapshot = markdownPanel.rendererSession.portalSnapshot()
+            if shouldBeVisible {
+                if snapshot?.visibleInUI == false || snapshot?.containerHidden == true {
+                    return true
+                }
+            } else {
+                if snapshot?.visibleInUI == true || snapshot?.containerHidden == false {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+#if DEBUG
+    @discardableResult
+    func debugReconcileMarkdownPortalVisibilityForTesting(reason: String) -> Bool {
+        reconcileMarkdownPortalVisibilityForCurrentRenderedLayout(reason: reason)
+    }
+#endif
 
     private func scheduleMovedTerminalRefresh(panelId: UUID) {
         guard terminalPanel(for: panelId) != nil else { return }
@@ -15848,6 +15986,15 @@ extension Workspace: BonsplitDelegate {
         }
     }
 
+    private func hideMarkdownPortalsForDeselectedTabs(inPane pane: PaneID, selectedTabId: TabID) {
+        for tab in bonsplitController.tabs(inPane: pane) {
+            guard tab.id != selectedTabId else { continue }
+            guard let panelId = panelIdFromSurfaceId(tab.id),
+                  let markdownPanel = panels[panelId] as? MarkdownPanel else { continue }
+            markdownPanel.rendererSession.hidePortal(reason: "tabDeselected")
+        }
+    }
+
     private func applyTabSelectionNow(
         tabId: TabID,
         inPane pane: PaneID,
@@ -15938,6 +16085,7 @@ extension Workspace: BonsplitDelegate {
         // affected by SwiftUI opacity. Without an explicit hide, the deselected browser's
         // portal layer can remain visible above the newly selected tab.
         hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
+        hideMarkdownPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
 
         if let focusWindow = activationWindow(for: panel) {
             yieldForeignOwnedFocusIfNeeded(

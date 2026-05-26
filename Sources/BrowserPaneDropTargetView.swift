@@ -340,6 +340,7 @@ final class BrowserPaneDropTargetView: NSView {
     }
 
     private func shouldRouteFileDropToHostedWebView(_ sender: any NSDraggingInfo, at location: NSPoint) -> Bool {
+        guard dropContext?.allowsHostedWebViewTextDrop == true else { return false }
         guard DragOverlayRoutingPolicy.hasFileURL(sender.draggingPasteboard.types) else { return false }
         let canDropIntoHostedWebView = slotView?.hostedWebViewForFileDrop(at: location) != nil
         return DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(

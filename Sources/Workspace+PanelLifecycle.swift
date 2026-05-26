@@ -319,6 +319,8 @@ extension Workspace {
         }
         if closePanel {
             panel?.close()
+        } else if let markdownPanel = panel as? MarkdownPanel {
+            markdownPanel.rendererSession.hidePortal(reason: "\(origin).preservedPanel")
         }
 
         panels.removeValue(forKey: panelId)

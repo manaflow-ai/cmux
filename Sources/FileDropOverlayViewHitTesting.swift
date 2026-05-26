@@ -31,7 +31,7 @@ extension FileDropOverlayView {
                 activePaneDropTarget = paneDropTarget
                 return paneDropTarget.fileDropDraggingEntered(sender)
             }
-            if let webView = webViewUnderPoint(loc) {
+            if let webView = textDropWebViewUnderPoint(loc) {
                 if activeDragWebView !== webView {
                     if let prev = activeDragWebView {
                         prev.draggingExited(sender)
@@ -136,10 +136,18 @@ extension FileDropOverlayView {
     }
 
     func textDropDestinationKindUnderPoint(_ windowPoint: NSPoint) -> FileDropTextDestinationKind? {
+        switch portalTextDropHitUnderPoint(windowPoint) {
+        case .blocked:
+            return nil
+        case .webView:
+            return .editor
+        case .none:
+            break
+        }
         if editableTextViewUnderPoint(windowPoint) != nil {
             return .editor
         }
-        if webViewUnderPoint(windowPoint) != nil {
+        if inlineTextDropWebViewUnderPoint(windowPoint) != nil {
             return .editor
         }
         if terminalUnderPoint(windowPoint) != nil {
@@ -170,6 +178,9 @@ extension FileDropOverlayView {
         guard !urls.isEmpty else { return false }
 
         let windowPoint = sender.draggingLocation
+        if case .blocked = portalTextDropHitUnderPoint(windowPoint) {
+            return false
+        }
         if let textView = editableTextViewUnderPoint(windowPoint) {
             let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
             guard !text.isEmpty else { return false }
@@ -179,6 +190,17 @@ extension FileDropOverlayView {
             return insert(urls, into: terminal)
         }
         return false
+    }
+
+    private func portalTextDropHitUnderPoint(_ windowPoint: NSPoint) -> BrowserPortalTextDropHit {
+        guard let window else { return .none }
+        return BrowserWindowPortalRegistry.textDropHitAtWindowPoint(windowPoint, in: window)
+    }
+
+    private func inlineTextDropWebViewUnderPoint(_ windowPoint: NSPoint) -> WKWebView? {
+        guard let inlineWebView = inlineWebViewUnderPoint(windowPoint) else { return nil }
+        guard !BrowserWindowPortalRegistry.isPortalHosted(webView: inlineWebView) else { return nil }
+        return inlineWebView
     }
 
     private func viewUnderPoint(_ windowPoint: NSPoint) -> NSView? {
@@ -227,6 +249,21 @@ extension FileDropOverlayView {
             return portalWebView
         }
 
+        return inlineWebViewUnderPoint(windowPoint)
+    }
+
+    func textDropWebViewUnderPoint(_ windowPoint: NSPoint) -> WKWebView? {
+        switch portalTextDropHitUnderPoint(windowPoint) {
+        case .webView(let webView):
+            return webView
+        case .blocked:
+            return nil
+        case .none:
+            return inlineTextDropWebViewUnderPoint(windowPoint)
+        }
+    }
+
+    private func inlineWebViewUnderPoint(_ windowPoint: NSPoint) -> WKWebView? {
         guard let window, let contentView = window.contentView else { return nil }
         isHidden = true
         defer { isHidden = false }

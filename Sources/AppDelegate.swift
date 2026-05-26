@@ -1727,6 +1727,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupTerminalCmdClickUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
         setupBonsplitTabDragUITestIfNeeded()
+        setupMarkdownPaneDragUITestIfNeeded()
         setupMultiWindowNotificationsUITestIfNeeded()
         setupDisplayResolutionUITestDiagnosticsIfNeeded()
         setupPortalStatsUITestDiagnosticsIfNeeded()
@@ -9480,6 +9481,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         return object
     }
+
     private func isGotoSplitUITestRecordingEnabled() -> Bool {
         let env = ProcessInfo.processInfo.environment
         return env["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] == "1" || env["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] == "1"
