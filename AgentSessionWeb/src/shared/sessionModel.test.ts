@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { makeClientId } from "./ids";
-import { initialState, reduceSession, shouldAutoStartProvider } from "./sessionModel";
+import { initialState, reduceSession, shouldAutoStartProvider, statusLabel } from "./sessionModel";
 import type { AppContext, ProviderInfo } from "./types";
 
 const theme = {
@@ -29,7 +29,22 @@ const context: AppContext = {
     start: "Start",
     stop: "Stop",
     send: "Send",
+    provider: "Provider",
+    rateLimits: "Rate limits",
+    voiceInput: "Voice input",
     promptPlaceholder: "Ask anything",
+    loadingStatus: "Loading",
+    idleStatus: "Idle",
+    startingStatus: "Starting",
+    runningStatus: "Running",
+    stoppingStatus: "Stopping",
+    failedStatus: "Failed",
+    rendererReadyFormat: "%@ ready",
+    stopped: "Stopped",
+    sentCharsFormat: "Sent %d chars",
+    providerStarted: "Provider started",
+    providerExitedFormat: "Provider exited %d",
+    requestFailed: "Native bridge request failed.",
   },
   theme,
 };
@@ -67,7 +82,7 @@ test("provider started event records running session", () => {
 
   expect(state.status).toBe("running");
   expect(state.runningSessionId).toBe("session-1");
-  expect(state.log.at(-1)?.text).toBe("provider started");
+  expect(state.log.at(-1)?.text).toBe("Provider started");
 });
 
 test("provider output is appended without changing running session", () => {
@@ -150,6 +165,40 @@ test("auto start is disabled after a provider has already been attempted", () =>
   expect(shouldAutoStartProvider(state)).toBe(false);
 });
 
+test("auto start attempts are remembered per provider switch", () => {
+  const loaded = reduceSession(
+    reduceSession(initialState("react"), { type: "context", context }),
+    { type: "providers", providers },
+  );
+  const attemptedCodex = reduceSession(loaded, { type: "autoStartAttempted", providerId: "codex" });
+  const selectedClaude = reduceSession(attemptedCodex, { type: "selectProvider", providerId: "claude" });
+  const selectedCodexAgain = reduceSession(selectedClaude, { type: "selectProvider", providerId: "codex" });
+
+  expect(shouldAutoStartProvider(selectedCodexAgain)).toBe(false);
+});
+
+test("sent input only clears the submitted value", () => {
+  const loaded = reduceSession(initialState("react"), { type: "context", context });
+  const typed = reduceSession(loaded, { type: "setInput", input: "new draft" });
+  const state = reduceSession(typed, { type: "sent", text: "old draft", submittedInput: "old draft" });
+
+  expect(state.input).toBe("new draft");
+  expect(state.log.at(-1)?.text).toBe("Sent 9 chars");
+});
+
+test("stop preserves running session until provider exit arrives", () => {
+  const running = {
+    ...reduceSession(initialState("react"), { type: "context", context }),
+    status: "running" as const,
+    runningSessionId: "session-1",
+  };
+  const stopping = reduceSession(running, { type: "stopping" });
+
+  expect(stopping.status).toBe("stopping");
+  expect(stopping.runningSessionId).toBe("session-1");
+  expect(statusLabel(stopping)).toBe("Stopping");
+});
+
 test("claude does not auto start", () => {
   const claudeContext = { ...context, initialProviderId: "claude" as const };
   const state = reduceSession(
@@ -174,7 +223,8 @@ test("client ids do not require crypto.randomUUID", () => {
 
   try {
     expect(makeClientId()).toMatch(/^[0-9a-f-]{36}$/);
-    expect(initialState("react").log[0]?.id).toMatch(/^[0-9a-f-]{36}$/);
+    const loaded = reduceSession(initialState("react"), { type: "context", context });
+    expect(loaded.log[0]?.id).toMatch(/^[0-9a-f-]{36}$/);
   } finally {
     if (descriptor) {
       Object.defineProperty(globalThis, "crypto", descriptor);

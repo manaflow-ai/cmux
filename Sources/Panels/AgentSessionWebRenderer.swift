@@ -345,9 +345,11 @@ extension AgentSessionWebRenderer {
                     let reply = try await self.handle(request)
                     replyHandler(["ok": true, "value": reply], nil)
                 } catch let error as AgentExecutableResolverError {
-                    replyHandler(["ok": false, "error": ["message": error.message]], nil)
+                    replyHandler(["ok": false, "error": ["userMessage": error.message]], nil)
+                } catch let error as AgentSessionBridgeError {
+                    replyHandler(["ok": false, "error": ["userMessage": error.localizedDescription]], nil)
                 } catch {
-                    replyHandler(["ok": false, "error": ["message": error.localizedDescription]], nil)
+                    replyHandler(["ok": false, "error": [:]], nil)
                 }
             }
         }
@@ -383,14 +385,17 @@ extension AgentSessionWebRenderer {
         func flushVisiblePaintIfReady() {
             guard hasFinishedNavigation,
                   !hasCompletedVisiblePaintFlush,
-                  let webView else {
+                  let webView,
+                  webView.window != nil,
+                  !webView.bounds.isEmpty else {
                 return
             }
-            hasCompletedVisiblePaintFlush = true
-            flushInitialPaint(for: webView)
+            flushInitialPaint(for: webView) { [weak self] in
+                self?.hasCompletedVisiblePaintFlush = true
+            }
         }
 
-        private func flushInitialPaint(for webView: WKWebView) {
+        private func flushInitialPaint(for webView: WKWebView, completion: (() -> Void)? = nil) {
             // Retained WKWebViews can finish loading before Bonsplit reattaches them
             // to a visible host. Reading layout after navigation forces WebKit to
             // commit the first page layer once the view is back in the pane.
@@ -407,6 +412,7 @@ extension AgentSessionWebRenderer {
             """
             webView.evaluateJavaScript(script) { _, _ in
                 webView.setNeedsDisplay(webView.bounds)
+                completion?()
             }
         }
 
@@ -450,6 +456,33 @@ extension AgentSessionWebRenderer {
                         "promptPlaceholder": String(
                             localized: "agentSession.web.promptPlaceholder",
                             defaultValue: "Ask anything"
+                        ),
+                        "loadingStatus": String(localized: "agentSession.web.status.loading", defaultValue: "Loading"),
+                        "idleStatus": String(localized: "agentSession.web.status.idle", defaultValue: "Idle"),
+                        "startingStatus": String(localized: "agentSession.web.status.starting", defaultValue: "Starting"),
+                        "runningStatus": String(localized: "agentSession.web.status.running", defaultValue: "Running"),
+                        "stoppingStatus": String(localized: "agentSession.web.status.stopping", defaultValue: "Stopping"),
+                        "failedStatus": String(localized: "agentSession.web.status.failed", defaultValue: "Failed"),
+                        "rendererReadyFormat": String(
+                            localized: "agentSession.web.log.rendererReadyFormat",
+                            defaultValue: "%@ ready"
+                        ),
+                        "stopped": String(localized: "agentSession.web.log.stopped", defaultValue: "Stopped"),
+                        "sentCharsFormat": String(
+                            localized: "agentSession.web.log.sentCharsFormat",
+                            defaultValue: "Sent %d chars"
+                        ),
+                        "providerStarted": String(
+                            localized: "agentSession.web.log.providerStarted",
+                            defaultValue: "Provider started"
+                        ),
+                        "providerExitedFormat": String(
+                            localized: "agentSession.web.log.providerExitedFormat",
+                            defaultValue: "Provider exited %d"
+                        ),
+                        "requestFailed": String(
+                            localized: "agentSession.web.error.requestFailed",
+                            defaultValue: "Native bridge request failed."
                         )
                     ]
                 ]
@@ -560,6 +593,7 @@ private enum AgentSessionBridgeError: LocalizedError {
     case missingParameter(String)
     case unsupportedMethod(String)
     case sessionNotFound(String)
+    case sessionAlreadyRunning
 
     var errorDescription: String? {
         switch self {
@@ -589,6 +623,11 @@ private enum AgentSessionBridgeError: LocalizedError {
                 defaultValue: "Agent session was not found: %@"
             )
             return String(format: format, sessionId)
+        case .sessionAlreadyRunning:
+            return String(
+                localized: "agentSession.bridge.error.sessionAlreadyRunning",
+                defaultValue: "An agent session is already running."
+            )
         }
     }
 }
@@ -875,6 +914,9 @@ private final class AgentSessionProcessStore {
     private var sessions: [String: RunningSession] = [:]
 
     func start(plan: AgentSessionLaunchPlan, workingDirectory: String?) throws -> StartedSession {
+        guard sessions.isEmpty else {
+            throw AgentSessionBridgeError.sessionAlreadyRunning
+        }
         let sessionId = UUID().uuidString
         let process = Process()
         process.executableURL = plan.executableURL

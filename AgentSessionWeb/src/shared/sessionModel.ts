@@ -14,10 +14,10 @@ export type SessionState = {
   providers: ProviderInfo[];
   selectedProviderId: ProviderId;
   runningSessionId?: string;
-  status: "loading" | "idle" | "starting" | "running" | "failed";
+  status: "loading" | "idle" | "starting" | "running" | "stopping" | "failed";
   input: string;
   log: LogEntry[];
-  autoStartAttemptedProviderId?: ProviderId;
+  autoStartAttemptedProviderIds: ProviderId[];
 };
 
 export type Action =
@@ -27,57 +27,63 @@ export type Action =
   | { type: "setInput"; input: string }
   | { type: "autoStartAttempted"; providerId: ProviderId }
   | { type: "starting" }
+  | { type: "stopping" }
   | { type: "failed"; message: string }
   | { type: "stopped" }
   | { type: "event"; event: AgentEvent }
-  | { type: "sent"; text: string };
+  | { type: "sent"; text: string; submittedInput: string };
 
-export function initialState(renderer: AppContext["renderer"]): SessionState {
+export function initialState(_renderer: AppContext["renderer"]): SessionState {
   return {
     selectedProviderId: "codex",
     status: "loading",
     input: "",
     providers: [],
-    log: [
-      {
-        id: makeClientId(),
-        level: "info",
-        text: `${renderer} ready`,
-      },
-    ],
+    log: [],
+    autoStartAttemptedProviderIds: [],
   };
 }
 
 export function reduceSession(state: SessionState, action: Action): SessionState {
   switch (action.type) {
     case "context":
-      return {
+      return appendContextReadyLog({
         ...state,
         context: action.context,
         selectedProviderId: action.context.initialProviderId,
         status: "idle",
-      };
+      });
     case "providers":
       return { ...state, providers: action.providers };
     case "selectProvider":
       return {
         ...state,
         selectedProviderId: action.providerId,
-        autoStartAttemptedProviderId:
-          action.providerId === state.autoStartAttemptedProviderId ? state.autoStartAttemptedProviderId : undefined,
       };
     case "setInput":
       return { ...state, input: action.input };
     case "autoStartAttempted":
-      return { ...state, autoStartAttemptedProviderId: action.providerId };
+      if (state.autoStartAttemptedProviderIds.includes(action.providerId)) {
+        return state;
+      }
+      return {
+        ...state,
+        autoStartAttemptedProviderIds: [...state.autoStartAttemptedProviderIds, action.providerId],
+      };
     case "starting":
-      return { ...state, status: "starting", log: appendLog(state, "info", "starting") };
+      return { ...state, status: "starting", log: appendLog(state, "info", copyText(state, "startingStatus", "Starting")) };
+    case "stopping":
+      return { ...state, status: "stopping", log: appendLog(state, "info", copyText(state, "stoppingStatus", "Stopping")) };
     case "failed":
       return { ...state, status: "failed", log: appendLog(state, "error", action.message) };
     case "stopped":
-      return { ...state, status: "idle", runningSessionId: undefined, log: appendLog(state, "info", "stopped") };
+      return { ...state, status: "idle", runningSessionId: undefined, log: appendLog(state, "info", copyText(state, "stopped", "Stopped")) };
     case "sent":
-      return { ...state, input: "", log: appendLog(state, "info", `sent ${action.text.length} chars`) };
+      return {
+        ...state,
+        input: state.input === action.submittedInput ? "" : state.input,
+        log: appendLog(state, "info", formatCopy(state, "sentCharsFormat", "Sent %d chars", action.text.length)),
+      };
     case "event":
       return applyEvent(state, action.event);
   }
@@ -98,6 +104,9 @@ export async function loadInitialData(dispatch: (action: Action) => void): Promi
 }
 
 export async function startProvider(state: SessionState, dispatch: (action: Action) => void): Promise<void> {
+  if (!canStartProvider(state)) {
+    return;
+  }
   dispatch({ type: "starting" });
   try {
     await callNative("provider.start", {
@@ -105,15 +114,15 @@ export async function startProvider(state: SessionState, dispatch: (action: Acti
       workingDirectory: state.context?.workingDirectory,
     });
   } catch (error) {
-    dispatch({ type: "failed", message: messageForError(error) });
+    dispatch({ type: "failed", message: messageForError(error, state) });
   }
 }
 
 export function shouldAutoStartProvider(state: SessionState): boolean {
-  if (state.status !== "idle" || state.runningSessionId || !state.context) {
+  if (!canStartProvider(state)) {
     return false;
   }
-  if (state.autoStartAttemptedProviderId === state.selectedProviderId) {
+  if (state.autoStartAttemptedProviderIds.includes(state.selectedProviderId)) {
     return false;
   }
   const provider = state.providers.find((item) => item.id === state.selectedProviderId);
@@ -126,19 +135,12 @@ export async function autoStartProvider(state: SessionState, dispatch: (action: 
   }
   const providerId = state.selectedProviderId;
   dispatch({ type: "autoStartAttempted", providerId });
-  dispatch({ type: "starting" });
-  try {
-    await callNative("provider.start", {
-      providerId,
-      workingDirectory: state.context?.workingDirectory,
-    });
-  } catch (error) {
-    dispatch({ type: "failed", message: messageForError(error) });
-  }
+  await startProvider(state, dispatch);
 }
 
 export async function sendInput(state: SessionState, dispatch: (action: Action) => void): Promise<void> {
-  const text = state.input.trim();
+  const submittedInput = state.input;
+  const text = submittedInput.trim();
   if (!text || !state.runningSessionId) {
     return;
   }
@@ -147,23 +149,40 @@ export async function sendInput(state: SessionState, dispatch: (action: Action) 
       sessionId: state.runningSessionId,
       text,
     });
-    dispatch({ type: "sent", text });
+    dispatch({ type: "sent", text, submittedInput });
   } catch (error) {
-    dispatch({ type: "failed", message: messageForError(error) });
+    dispatch({ type: "failed", message: messageForError(error, state) });
   }
 }
 
 export async function stopProvider(state: SessionState, dispatch: (action: Action) => void): Promise<void> {
-  if (!state.runningSessionId) {
+  if (!state.runningSessionId || state.status === "stopping") {
     return;
   }
+  dispatch({ type: "stopping" });
   try {
     await callNative("provider.stop", {
       sessionId: state.runningSessionId,
     });
-    dispatch({ type: "stopped" });
   } catch (error) {
-    dispatch({ type: "failed", message: messageForError(error) });
+    dispatch({ type: "failed", message: messageForError(error, state) });
+  }
+}
+
+export function statusLabel(state: SessionState): string {
+  switch (state.status) {
+    case "loading":
+      return copyText(state, "loadingStatus", "Loading");
+    case "idle":
+      return copyText(state, "idleStatus", "Idle");
+    case "starting":
+      return copyText(state, "startingStatus", "Starting");
+    case "running":
+      return copyText(state, "runningStatus", "Running");
+    case "stopping":
+      return copyText(state, "stoppingStatus", "Stopping");
+    case "failed":
+      return copyText(state, "failedStatus", "Failed");
   }
 }
 
@@ -185,7 +204,7 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
         ...state,
         runningSessionId: event.sessionId,
         status: "running",
-        log: appendLog(state, "info", "provider started"),
+        log: appendLog(state, "info", copyText(state, "providerStarted", "Provider started")),
       };
     case "provider.output":
       if (event.sessionId !== state.runningSessionId) {
@@ -203,9 +222,25 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
         ...state,
         runningSessionId: undefined,
         status: event.status === 0 ? "idle" : "failed",
-        log: appendLog(state, event.status === 0 ? "info" : "error", `provider exited ${event.status}`),
+        log: appendLog(
+          state,
+          event.status === 0 ? "info" : "error",
+          formatCopy(state, "providerExitedFormat", "Provider exited %d", event.status),
+        ),
       };
   }
+}
+
+function appendContextReadyLog(state: SessionState): SessionState {
+  const renderer = state.context?.renderer === "solid" ? "Solid" : "React";
+  return {
+    ...state,
+    log: appendLog(state, "info", formatCopy(state, "rendererReadyFormat", "%@ ready", renderer)),
+  };
+}
+
+function canStartProvider(state: SessionState): boolean {
+  return (state.status === "idle" || state.status === "failed") && !state.runningSessionId && Boolean(state.context);
 }
 
 function appendLog(state: SessionState, level: LogEntry["level"], text: string): LogEntry[] {
@@ -220,6 +255,30 @@ function appendLog(state: SessionState, level: LogEntry["level"], text: string):
   return next.slice(-300);
 }
 
-export function messageForError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function copyText<K extends keyof AppContext["copy"]>(state: SessionState, key: K, fallback: string): string {
+  return state.context?.copy[key] || fallback;
+}
+
+function formatCopy<K extends keyof AppContext["copy"]>(
+  state: SessionState,
+  key: K,
+  fallback: string,
+  ...values: Array<string | number>
+): string {
+  return formatTemplate(copyText(state, key, fallback), values);
+}
+
+function formatTemplate(template: string, values: Array<string | number>): string {
+  let index = 0;
+  return template.replace(/%(?:\d+\$)?[@d]/g, () => String(values[index++] ?? ""));
+}
+
+export function messageForError(error: unknown, state?: SessionState): string {
+  if (error instanceof Error && error.message) {
+    if (state && error.message === "Native bridge request failed.") {
+      return copyText(state, "requestFailed", "Native bridge request failed.");
+    }
+    return error.message;
+  }
+  return state ? copyText(state, "requestFailed", "Native bridge request failed.") : "Native bridge request failed.";
 }

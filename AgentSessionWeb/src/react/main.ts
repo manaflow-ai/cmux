@@ -8,6 +8,7 @@ import {
   reduceSession,
   sendInput,
   startProvider,
+  statusLabel,
   stopProvider,
   type Action,
   type SessionState,
@@ -48,9 +49,10 @@ function SessionSurface({
   renderer: string;
 }) {
   const provider = state.providers.find((item) => item.id === state.selectedProviderId);
-  const canStart = state.status === "idle" || state.status === "failed";
+  const canStart = (state.status === "idle" || state.status === "failed") && !state.runningSessionId;
   const canSend = state.status === "running" && state.input.trim().length > 0;
-  const showStart = canStart && provider?.autoStart !== true;
+  const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
+  const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
   const modelLabel = provider ? codexModelLabel(provider.displayName) : "GPT-5.5";
   return React.createElement(
     "section",
@@ -97,7 +99,7 @@ function SessionSurface({
               {
                 className: "provider-select",
                 value: state.selectedProviderId,
-                disabled: state.status === "running" || state.status === "starting",
+                disabled: state.status === "running" || state.status === "starting" || state.status === "stopping",
                 "aria-label": state.context?.copy.provider ?? "",
                 onChange: (event: React.ChangeEvent<HTMLSelectElement>) =>
                   dispatch({ type: "selectProvider", providerId: event.target.value as ProviderId }),
@@ -123,6 +125,7 @@ function SessionSurface({
                 "button",
                 {
                   className: "codex-action codex-start",
+                  type: "button",
                   disabled: !canStart,
                   onClick: () => void startProvider(state, dispatch),
                 },
@@ -133,6 +136,7 @@ function SessionSurface({
             "button",
             {
               className: "codex-action codex-circle-action",
+              type: "button",
               disabled: state.status !== "running",
               "aria-label": state.context?.copy.stop ?? "Stop",
               onClick: () => void stopProvider(state, dispatch),
@@ -141,12 +145,12 @@ function SessionSurface({
           ),
           React.createElement(
             "button",
-            { className: "codex-action codex-mic", disabled: true, "aria-label": state.context?.copy.voiceInput ?? "" },
+            { className: "codex-action codex-mic", type: "button", disabled: true, "aria-label": state.context?.copy.voiceInput ?? "" },
             "♩",
           ),
           React.createElement(
             "button",
-            { className: "codex-action send-button", disabled: !canSend, "aria-label": state.context?.copy.send ?? "Send" },
+            { className: "codex-action send-button", type: "submit", disabled: !canSend, "aria-label": state.context?.copy.send ?? "Send" },
             "↑",
           ),
         ),
@@ -156,7 +160,7 @@ function SessionSurface({
         { className: "rate-line" },
         React.createElement("span", { className: "rate-muted" }, state.context?.copy.rateLimits ?? ""),
         React.createElement("span", { className: `status-dot ${state.status}`, "aria-hidden": true }),
-        React.createElement("span", null, `${provider?.displayName ?? renderer} ${state.status}`),
+        React.createElement("span", null, `${provider?.displayName ?? renderer} ${statusLabel(state)}`),
         React.createElement("span", { className: "rate-dot", "aria-hidden": true }, "•"),
         React.createElement("span", null, provider?.transportKind ?? "stdio-jsonrpc"),
       ),

@@ -99,7 +99,7 @@ struct AgentSessionLaunchPlan: Equatable, Sendable {
     let environment: [String: String]
 }
 
-enum AgentExecutableResolverError: Error, Equatable {
+enum AgentExecutableResolverError: LocalizedError, Equatable {
     case missing(displayName: String, executableName: String, searchedDirectories: [String])
 
     var message: String {
@@ -111,6 +111,10 @@ enum AgentExecutableResolverError: Error, Equatable {
             )
             return String(format: format, displayName, executableName)
         }
+    }
+
+    var errorDescription: String? {
+        message
     }
 }
 

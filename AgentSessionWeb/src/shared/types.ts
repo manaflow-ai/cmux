@@ -46,6 +46,18 @@ export type AgentSessionCopy = {
   rateLimits: string;
   voiceInput: string;
   promptPlaceholder: string;
+  loadingStatus: string;
+  idleStatus: string;
+  startingStatus: string;
+  runningStatus: string;
+  stoppingStatus: string;
+  failedStatus: string;
+  rendererReadyFormat: string;
+  stopped: string;
+  sentCharsFormat: string;
+  providerStarted: string;
+  providerExitedFormat: string;
+  requestFailed: string;
 };
 
 export type AgentEvent =

@@ -4,7 +4,7 @@ import { applyAgentTheme } from "./theme";
 
 type NativeReply<T> =
   | { ok: true; value: T }
-  | { ok: false; error?: { message?: string } };
+  | { ok: false; error?: { userMessage?: string } };
 
 type EventListener = (event: AgentEvent) => void;
 
@@ -65,7 +65,7 @@ export async function callNative<T>(method: string, params: Record<string, unkno
   })) as NativeReply<T>;
 
   if (!reply.ok) {
-    throw new Error(reply.error?.message || "Native bridge request failed.");
+    throw new Error(reply.error?.userMessage || "Native bridge request failed.");
   }
 
   return reply.value;

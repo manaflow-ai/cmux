@@ -8,6 +8,7 @@ import {
   reduceSession,
   sendInput,
   startProvider,
+  statusLabel,
   stopProvider,
   type Action,
   type SessionState,
@@ -42,7 +43,7 @@ function SessionSurface({
   renderer: string;
 }) {
   const provider = () => state().providers.find((item) => item.id === state().selectedProviderId);
-  const canStart = () => state().status === "idle" || state().status === "failed";
+  const canStart = () => (state().status === "idle" || state().status === "failed") && !state().runningSessionId;
   const canSend = () => state().status === "running" && state().input.trim().length > 0;
   const root = document.createElement("section");
   root.className = "agent-shell";
@@ -131,7 +132,7 @@ function SessionSurface({
       select.append(option);
     }
     select.value = state().selectedProviderId;
-    select.disabled = state().status === "running" || state().status === "starting";
+    select.disabled = state().status === "running" || state().status === "starting" || state().status === "stopping";
     select.setAttribute("aria-label", state().context?.copy.provider ?? "");
     modelLabel.textContent = provider() ? codexModelLabel(provider()!.displayName) : "GPT-5.5";
   });
@@ -142,17 +143,23 @@ function SessionSurface({
 
   const start = document.createElement("button");
   start.className = "codex-action codex-start";
+  start.type = "button";
   start.addEventListener("click", () => void startProvider(state(), dispatch));
   controlsRight.append(start);
   createEffect(() => {
     start.textContent = state().context?.copy.start ?? "Start";
-    const showStart = canStart() && provider()?.autoStart !== true;
+    const currentProvider = provider();
+    const autoStartAlreadyAttempted = currentProvider
+      ? state().autoStartAttemptedProviderIds.includes(currentProvider.id)
+      : false;
+    const showStart = canStart() && (currentProvider?.autoStart !== true || autoStartAlreadyAttempted);
     start.hidden = !showStart;
     start.disabled = !showStart;
   });
 
   const stop = document.createElement("button");
   stop.className = "codex-action codex-circle-action";
+  stop.type = "button";
   stop.setAttribute("aria-label", "Stop");
   stop.addEventListener("click", () => void stopProvider(state(), dispatch));
   controlsRight.append(stop);
@@ -163,6 +170,7 @@ function SessionSurface({
 
   const mic = document.createElement("button");
   mic.className = "codex-action codex-mic";
+  mic.type = "button";
   mic.disabled = true;
   mic.textContent = "♩";
   controlsRight.append(mic);
@@ -172,6 +180,7 @@ function SessionSurface({
 
   const send = document.createElement("button");
   send.className = "codex-action send-button";
+  send.type = "submit";
   controlsRight.append(send);
   createEffect(() => {
     send.textContent = "↑";
@@ -196,7 +205,7 @@ function SessionSurface({
   createEffect(() => {
     rateMuted.textContent = state().context?.copy.rateLimits ?? "";
     statusDot.className = `status-dot ${state().status}`;
-    statusText.textContent = `${provider()?.displayName ?? renderer} ${state().status}`;
+    statusText.textContent = `${provider()?.displayName ?? renderer} ${statusLabel(state())}`;
     transport.textContent = provider()?.transportKind ?? "stdio-jsonrpc";
   });
 
