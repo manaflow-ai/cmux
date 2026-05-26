@@ -937,11 +937,20 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func openNotificationSettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") else {
-            return
-        }
+        guard let url = Self.notificationSettingsURL(bundleIdentifier: Bundle.main.bundleIdentifier) else { return }
         logAuthorization("open settings url=\(url.absoluteString)")
         notificationSettingsURLOpener(url)
+    }
+
+    static func notificationSettingsURL(bundleIdentifier: String?) -> URL? {
+        if let bundleIdentifier = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !bundleIdentifier.isEmpty,
+           let encodedBundleIdentifier = bundleIdentifier.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            return URL(
+                string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(encodedBundleIdentifier)"
+            )
+        }
+        return URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")
     }
 
     func sendSettingsTestNotification() {
@@ -1124,7 +1133,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func hasVisibleNotificationIndicator(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
         hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) ||
-            focusedReadIndicatorByTabId[tabId] == surfaceId
+            (focusedReadIndicatorByTabId[tabId].map { $0 == surfaceId } ?? false)
     }
 
     func latestNotification(forTabId tabId: UUID) -> TerminalNotification? {
@@ -1567,6 +1576,7 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             notifications = updated
         }
+        clearFocusedReadIndicator(forTabId: tabId)
         setWorkspaceManualUnread(false, forTabId: tabId)
         clearWorkspacePanelUnread(forTabId: tabId)
         setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
@@ -1589,6 +1599,7 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             notifications = updated
         }
+        clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         if surfaceId == nil {
             clearWorkspacePanelUnread(forTabId: tabId)
             setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
@@ -1609,7 +1620,7 @@ final class TerminalNotificationStore: ObservableObject {
     func markLatestNotificationAsOldestUnread(forTabId tabId: UUID, surfaceId: UUID?) -> UUID? {
         var updated = notifications
         guard let index = latestNotificationIndex(forTabId: tabId, surfaceId: surfaceId, in: updated) else {
-            if !workspaceIsUnread(forTabId: tabId) {
+            if surfaceId == nil, !workspaceIsUnread(forTabId: tabId) {
                 setWorkspaceManualUnread(true, forTabId: tabId)
             }
             return nil
@@ -2167,9 +2178,7 @@ final class TerminalNotificationStore: ObservableObject {
                 block()
             }
         }
-        notificationSettingsURLOpener = { url in
-            NSWorkspace.shared.open(url)
-        }
+        notificationSettingsURLOpener = { url in NSWorkspace.shared.open(url) }
         hasPromptedForSettings = false
     }
 

@@ -1543,6 +1543,10 @@ final class BrowserHistoryStore: ObservableObject {
     private let maxEntries: Int = 5000
     private let saveDebounceNanoseconds: UInt64 = 120_000_000
 
+    var isLoaded: Bool {
+        didLoad
+    }
+
     private struct SuggestionCandidate {
         let entry: Entry
         let urlLower: String
@@ -2292,6 +2296,7 @@ private enum BrowserInsecureHTTPNavigationIntent {
 
 nonisolated enum BrowserWebViewLifecycleState: String {
     case newTab = "new_tab"
+    case deferredURL = "deferred_url"
     case liveVisible = "live_visible"
     case liveHidden = "live_hidden"
     case discarded
@@ -2744,9 +2749,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private var isWebViewVisibleInUI: Bool = false
     private var isClosingWebViewLifecycle: Bool = false
 
-    /// True when the browser is showing the internal empty new-tab page (no WKWebView attached yet).
+    /// True when the browser is showing the internal empty new-tab page.
     var isShowingNewTabPage: Bool {
-        !shouldRenderWebView
+        !shouldRenderWebView && preferredURLStringForOmnibar() == nil
     }
 
     /// Published page title
@@ -3004,7 +3009,7 @@ final class BrowserPanel: Panel, ObservableObject {
         } else if hiddenWebViewDiscardManager.isDiscardedForMemory {
             nextState = .discarded
         } else if !shouldRenderWebView {
-            nextState = .newTab
+            nextState = preferredURLStringForOmnibar() == nil ? .newTab : .deferredURL
         } else if isWebViewVisibleInUI {
             nextState = .liveVisible
         } else {
@@ -8201,13 +8206,13 @@ enum BrowserImportScope: String, CaseIterable, Identifiable {
     }
 }
 
-enum BrowserImportEngineFamily: String, Hashable {
+enum BrowserImportEngineFamily: String, Hashable, Sendable {
     case chromium
     case firefox
     case webkit
 }
 
-struct InstalledBrowserProfile: Identifiable, Hashable {
+struct InstalledBrowserProfile: Identifiable, Hashable, Sendable {
     let displayName: String
     let rootURL: URL
     let isDefault: Bool
@@ -8217,7 +8222,7 @@ struct InstalledBrowserProfile: Identifiable, Hashable {
     }
 }
 
-struct BrowserImportBrowserDescriptor: Hashable {
+struct BrowserImportBrowserDescriptor: Hashable, Sendable {
     let id: String
     let displayName: String
     let family: BrowserImportEngineFamily
@@ -8229,7 +8234,7 @@ struct BrowserImportBrowserDescriptor: Hashable {
     let supportsDataOnlyDetection: Bool
 }
 
-struct InstalledBrowserCandidate: Identifiable, Hashable {
+struct InstalledBrowserCandidate: Identifiable, Hashable, Sendable {
     let descriptor: BrowserImportBrowserDescriptor
     let resolvedFamily: BrowserImportEngineFamily
     let homeDirectoryURL: URL
@@ -8584,6 +8589,17 @@ enum InstalledBrowserDetector {
             }
             return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
         }
+    }
+
+    @MainActor
+    static func applicationBundleLookupSnapshot() -> [String: URL] {
+        var result: [String: URL] = [:]
+        for descriptor in allBrowserDescriptors {
+            for bundleIdentifier in descriptor.bundleIdentifiers where result[bundleIdentifier] == nil {
+                result[bundleIdentifier] = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
+            }
+        }
+        return result
     }
 
     static func summaryText(for browsers: [InstalledBrowserCandidate], limit: Int = 4) -> String {

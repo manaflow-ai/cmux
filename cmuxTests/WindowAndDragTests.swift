@@ -659,6 +659,8 @@ final class WindowDragHandleHitTests: XCTestCase {
     private final class SidebarActionRegionView: NSView, MinimalModeSidebarControlActionHitRegionProviding {
         nonisolated(unsafe) var config = TitlebarControlsStyle.classic.config
 
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
         nonisolated func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
             minimalModeSidebarControlActionSlot(localPoint: localPoint) != nil
         }
@@ -803,7 +805,7 @@ final class WindowDragHandleHitTests: XCTestCase {
     func testTitlebarControlGapsAreOutsideButtonHitColumns() {
         let config = TitlebarControlsStyle.classic.config
         let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
-        XCTAssertEqual(ranges.count, 3)
+        XCTAssertEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
 
         XCTAssertTrue(
             TitlebarControlsHitRegions.pointFallsInButtonColumn(
@@ -823,6 +825,63 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(
             TitlebarControlsHitRegions.pointFallsInButtonColumn(NSPoint(x: secondGapX, y: 14), config: config),
             "The gap between the notification and new-workspace icons should remain available for window dragging"
+        )
+    }
+
+    func testDragHandleYieldsToRegisteredMinimalModeSidebarButtonColumns() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let dragHandle = NSView(frame: contentView.bounds)
+        dragHandle.autoresizingMask = [.width, .height]
+        contentView.addSubview(dragHandle)
+
+        let controlRegion = SidebarActionRegionView(
+            frame: NSRect(
+                x: 72,
+                y: 88,
+                width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+                height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
+            )
+        )
+        contentView.addSubview(controlRegion)
+        MinimalModeTitlebarControlHitRegionRegistry.register(controlRegion)
+        defer { MinimalModeTitlebarControlHitRegionRegistry.unregister(controlRegion) }
+
+        let ranges = TitlebarControlsHitRegions.buttonXRanges(config: controlRegion.config)
+        let backButtonPoint = NSPoint(
+            x: controlRegion.frame.minX + ranges[MinimalModeSidebarControlActionSlot.focusHistoryBack.rawValue].lowerBound + 1,
+            y: controlRegion.frame.midY
+        )
+        XCTAssertTrue(isMinimalModeTitlebarControlHit(window: window, locationInWindow: backButtonPoint))
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(
+                dragHandle.convert(backButtonPoint, from: nil),
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "Registered minimal-mode titlebar buttons should not fall through to the window drag handle."
+        )
+
+        let emptyTitlebarPoint = NSPoint(x: contentView.bounds.maxX - 20, y: controlRegion.frame.midY)
+        XCTAssertTrue(
+            windowDragHandleShouldCaptureHit(
+                dragHandle.convert(emptyTitlebarPoint, from: nil),
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "Empty titlebar space should still be draggable."
         )
     }
 
@@ -861,7 +920,66 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
     }
 
-    func testTitlebarChromeSettingsUseHardcodedDefaults() {
+    func testMinimalModeSidebarTitlebarControlsAlignWithTrafficLightCenter() {
+        let defaults = UserDefaults.standard
+        let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        // WindowDecorationsController.apply reads the production presentation-mode setting
+        // from UserDefaults.standard, so this test saves and restores the shared key narrowly.
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer {
+            if let savedMode {
+                defaults.set(savedMode, forKey: WorkspacePresentationModeSettings.modeKey)
+            } else {
+                defaults.removeObject(forKey: WorkspacePresentationModeSettings.modeKey)
+            }
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 180),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.test")
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        defer { window.orderOut(nil) }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        guard let closeButton = window.standardWindowButton(.closeButton),
+              let closeButtonSuperview = closeButton.superview else {
+            XCTFail("Expected close traffic-light button")
+            return
+        }
+
+        let controller = WindowDecorationsController()
+        controller.apply(to: window)
+
+        guard let target = contentView.subviews.compactMap({ $0 as? MinimalModeSidebarControlActionView }).first else {
+            XCTFail("Expected minimal sidebar titlebar click target")
+            return
+        }
+
+        let trafficLightFrame = closeButtonSuperview.convert(closeButton.frame, to: contentView)
+        let opticalYOffset = MinimalModeSidebarTitlebarControlsMetrics.titlebarControlsOpticalYOffset(in: window)
+        let expectedHostCenterY = contentView.isFlipped
+            ? trafficLightFrame.midY + opticalYOffset
+            : trafficLightFrame.midY - opticalYOffset
+        XCTAssertEqual(
+            target.frame.midY,
+            expectedHostCenterY,
+            accuracy: 0.25,
+            "Minimal-mode sidebar controls should compensate for the titlebar icon padding by one backing pixel"
+        )
+    }
+
+    func testTitlebarChromeSettingsUseDefaultsAndStoredOverrides() {
         let suiteName = "WindowDragHandleHitTests.titlebarChromeSettings.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -881,6 +999,51 @@ final class WindowDragHandleHitTests: XCTestCase {
             MinimalModeTitlebarDebugSettings.leftControlsLeadingInset(defaults: defaults),
             CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset),
             accuracy: 0.001
+        )
+        XCTAssertEqual(
+            MinimalModeSidebarTitlebarControlsMetrics.topInset(defaults: defaults),
+            CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset),
+            accuracy: 0.001
+        )
+
+        defaults.set(44.5, forKey: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
+        defaults.set(6.5, forKey: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
+        defaults.set(12.0, forKey: "titlebarDebug.trafficLightsXOffset")
+        defaults.set(-3.0, forKey: "titlebarDebug.trafficLightsYOffset")
+        defaults.set(88.0, forKey: MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey)
+        defaults.set(92.0, forKey: MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey)
+
+        let storedSnapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
+        XCTAssertEqual(storedSnapshot.leftControlsLeadingInset, 44.5, accuracy: 0.001)
+        XCTAssertEqual(storedSnapshot.leftControlsTopInset, 6.5, accuracy: 0.001)
+        XCTAssertEqual(storedSnapshot.trafficLightTabBarLeadingInset, 88.0, accuracy: 0.001)
+        XCTAssertEqual(storedSnapshot.trafficLightTitlebarLeadingInset, 92.0, accuracy: 0.001)
+
+        defaults.set(999.0, forKey: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
+        XCTAssertEqual(
+            MinimalModeTitlebarDebugSettings.leftControlsLeadingInset(defaults: defaults),
+            CGFloat(MinimalModeTitlebarDebugSettings.horizontalInsetRange.upperBound),
+            accuracy: 0.001
+        )
+    }
+
+    func testTitlebarChromeSettingsIgnoreLegacyNativeTrafficLightOffsets() {
+        let suiteName = "WindowDragHandleHitTests.titlebarChromeLegacyTrafficLights.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(44.0, forKey: "titlebarDebug.trafficLightsXOffset")
+        defaults.set(-12.0, forKey: "titlebarDebug.trafficLightsYOffset")
+
+        let snapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
+        XCTAssertEqual(
+            snapshot,
+            MinimalModeTitlebarDebugSnapshot(
+                leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
+                leftControlsTopInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
+                trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
+                trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+            )
         )
     }
 
@@ -1592,6 +1755,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         defer { window.orderOut(nil) }
 
         let rootView = RightSidebarPanelView(
+            tabManager: TabManager(),
             fileExplorerStore: FileExplorerStore(),
             fileExplorerState: FileExplorerState(),
             sessionIndexStore: SessionIndexStore(),
@@ -3221,17 +3385,164 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
         XCTAssertEqual(model.flashReason, .navigation)
     }
 
-    func testNavigationFlashUsesNonNotificationPresentation() {
-        XCTAssertNotEqual(
-            WorkspaceAttentionCoordinator.flashStyle(for: .navigation),
-            WorkspaceAttentionCoordinator.flashStyle(for: .notificationArrival)
+    func testTmuxWorkspacePaneOverlayModelAnimatesFlashAfterWorkspaceSwitchBackWhenTokenChanges() {
+        let model = TmuxWorkspacePaneOverlayModel()
+        let firstWorkspaceId = UUID()
+        let secondWorkspaceId = UUID()
+        let firstFlashRect = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let flashDate = Date(timeIntervalSince1970: 42)
+
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: firstWorkspaceId,
+            unreadRects: [firstFlashRect],
+            flashRect: firstFlashRect,
+            flashToken: 0,
+            flashReason: nil
+        ))
+        XCTAssertNil(model.flashStartedAt)
+
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: secondWorkspaceId,
+            unreadRects: [],
+            flashRect: nil,
+            flashToken: 0,
+            flashReason: nil
+        ))
+        XCTAssertNil(model.flashStartedAt)
+
+        model.apply(
+            TmuxWorkspacePaneOverlayRenderState(
+                workspaceId: firstWorkspaceId,
+                unreadRects: [],
+                flashRect: firstFlashRect,
+                flashToken: 1,
+                flashReason: .unreadIndicatorDismiss
+            ),
+            now: { flashDate }
         )
+
+        XCTAssertEqual(model.flashStartedAt, flashDate)
+        XCTAssertEqual(model.flashReason, .unreadIndicatorDismiss)
     }
 
-    func testNavigationFlashUsesNonNeutralAccent() {
+    func testTmuxWorkspacePaneOverlayModelWaitsForFlashRectBeforeConsumingToken() {
+        let model = TmuxWorkspacePaneOverlayModel()
+        let firstWorkspaceId = UUID()
+        let secondWorkspaceId = UUID()
+        let firstFlashRect = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let flashDate = Date(timeIntervalSince1970: 42)
+
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: firstWorkspaceId,
+            unreadRects: [],
+            flashRect: firstFlashRect,
+            flashToken: 0,
+            flashReason: nil
+        ))
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: secondWorkspaceId,
+            unreadRects: [],
+            flashRect: nil,
+            flashToken: 0,
+            flashReason: nil
+        ))
+
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: firstWorkspaceId,
+            unreadRects: [],
+            flashRect: nil,
+            flashToken: 1,
+            flashReason: .unreadIndicatorDismiss
+        ))
+        XCTAssertNil(model.flashStartedAt)
+
+        model.apply(
+            TmuxWorkspacePaneOverlayRenderState(
+                workspaceId: firstWorkspaceId,
+                unreadRects: [],
+                flashRect: firstFlashRect,
+                flashToken: 1,
+                flashReason: .unreadIndicatorDismiss
+            ),
+            now: { flashDate }
+        )
+
+        XCTAssertEqual(model.flashStartedAt, flashDate)
+        XCTAssertEqual(model.flashReason, .unreadIndicatorDismiss)
+    }
+
+    func testTmuxWorkspacePaneOverlayModelAnimatesFirstObservedFlashToken() {
+        let model = TmuxWorkspacePaneOverlayModel()
+        let workspaceId = UUID()
+        let flashRect = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let flashDate = Date(timeIntervalSince1970: 42)
+
+        model.apply(
+            TmuxWorkspacePaneOverlayRenderState(
+                workspaceId: workspaceId,
+                unreadRects: [],
+                flashRect: flashRect,
+                flashToken: 1,
+                flashReason: .unreadIndicatorDismiss
+            ),
+            now: { flashDate }
+        )
+
+        XCTAssertEqual(model.flashStartedAt, flashDate)
+        XCTAssertEqual(model.flashReason, .unreadIndicatorDismiss)
+    }
+
+    func testTmuxWorkspacePaneOverlayModelWaitsForRectBeforeFirstObservedFlashToken() {
+        let model = TmuxWorkspacePaneOverlayModel()
+        let workspaceId = UUID()
+        let flashRect = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let flashDate = Date(timeIntervalSince1970: 42)
+
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: workspaceId,
+            unreadRects: [],
+            flashRect: nil,
+            flashToken: 1,
+            flashReason: .unreadIndicatorDismiss
+        ))
+        XCTAssertNil(model.flashStartedAt)
+
+        model.apply(
+            TmuxWorkspacePaneOverlayRenderState(
+                workspaceId: workspaceId,
+                unreadRects: [],
+                flashRect: flashRect,
+                flashToken: 1,
+                flashReason: .unreadIndicatorDismiss
+            ),
+            now: { flashDate }
+        )
+
+        XCTAssertEqual(model.flashStartedAt, flashDate)
+        XCTAssertEqual(model.flashReason, .unreadIndicatorDismiss)
+    }
+
+    func testAllFlashReasonsUseNotificationRingAccent() {
+        let reasons: [WorkspaceAttentionFlashReason] = [
+            .navigation,
+            .notificationArrival,
+            .notificationDismiss,
+            .unreadIndicatorDismiss,
+            .debug,
+        ]
+
+        for reason in reasons {
+            XCTAssertEqual(
+                WorkspaceAttentionCoordinator.flashStyle(for: reason).accent,
+                WorkspaceAttentionCoordinator.notificationRingStyle.accent
+            )
+        }
+    }
+
+    func testFocusFlashUsesNotificationRingColor() {
         XCTAssertEqual(
-            WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent,
-            .navigationTeal
+            WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent.strokeColor.hexString(),
+            WorkspaceAttentionCoordinator.notificationRingStyle.accent.strokeColor.hexString()
         )
     }
 
