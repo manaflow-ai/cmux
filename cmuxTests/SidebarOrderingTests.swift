@@ -115,79 +115,47 @@ final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
     }
 }
 
-final class SidebarTabItemSettingsSnapshotFontScaleTests: XCTestCase {
-    private func makeDefaults() throws -> (suiteName: String, defaults: UserDefaults) {
-        let suiteName = "SidebarTabItemSettingsSnapshotFontScaleTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        return (suiteName, defaults)
-    }
-
+final class SidebarTabItemFontScaleTests: XCTestCase {
     func testDefaultSidebarFontScaleIsUnitScale() throws {
-        let (suiteName, defaults) = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let scale = SidebarTabItemFontScale.scale(for: GhosttyConfig.defaultSidebarFontSize)
 
-        let snapshot = SidebarTabItemSettingsSnapshot(defaults: defaults)
-
-        XCTAssertEqual(snapshot.sidebarFontScale, 1, accuracy: 0.0001)
+        XCTAssertEqual(scale, 1, accuracy: 0.0001)
     }
 
     func testSidebarFontScaleIsProportionalToDefaultSidebarSize() throws {
-        let (suiteName, defaults) = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let snapshot = SidebarTabItemSettingsSnapshot(defaults: defaults, sidebarFontSize: 18)
+        let scale = SidebarTabItemFontScale.scale(for: 18)
 
         XCTAssertEqual(
-            snapshot.sidebarFontScale,
+            scale,
             18 / GhosttyConfig.defaultSidebarFontSize,
             accuracy: 0.0001
         )
     }
 
     func testSidebarFontScaleClampsSmallSizes() throws {
-        let (suiteName, defaults) = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let snapshot = SidebarTabItemSettingsSnapshot(defaults: defaults, sidebarFontSize: 4)
+        let scale = SidebarTabItemFontScale.scale(for: 4)
 
         XCTAssertEqual(
-            snapshot.sidebarFontScale,
+            scale,
             GhosttyConfig.minSidebarFontSize / GhosttyConfig.defaultSidebarFontSize,
             accuracy: 0.0001
         )
     }
 
     func testSidebarFontScaleClampsLargeSizes() throws {
-        let (suiteName, defaults) = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let snapshot = SidebarTabItemSettingsSnapshot(defaults: defaults, sidebarFontSize: 48)
+        let scale = SidebarTabItemFontScale.scale(for: 48)
 
         XCTAssertEqual(
-            snapshot.sidebarFontScale,
+            scale,
             GhosttyConfig.maxSidebarFontSize / GhosttyConfig.defaultSidebarFontSize,
             accuracy: 0.0001
         )
     }
 
-    func testSnapshotEqualityChangesWhenSidebarFontScaleChanges() throws {
-        let (suiteName, defaults) = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+    func testSidebarFontScaleFallsBackToDefaultForNonFiniteValue() throws {
+        let scale = SidebarTabItemFontScale.scale(for: CGFloat.nan)
 
-        let defaultSnapshot = SidebarTabItemSettingsSnapshot(defaults: defaults, sidebarFontSize: 12.5)
-        let largerSnapshot = SidebarTabItemSettingsSnapshot(defaults: defaults, sidebarFontSize: 14)
-
-        XCTAssertNotEqual(defaultSnapshot, largerSnapshot)
-    }
-
-    func testSnapshotEqualityHoldsWhenSidebarFontScaleMatches() throws {
-        let (suiteName, defaults) = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let first = SidebarTabItemSettingsSnapshot(defaults: defaults, sidebarFontSize: 14)
-        let second = SidebarTabItemSettingsSnapshot(defaults: defaults, sidebarFontSize: 14)
-
-        XCTAssertEqual(first, second)
+        XCTAssertEqual(scale, 1, accuracy: 0.0001)
     }
 }
 
