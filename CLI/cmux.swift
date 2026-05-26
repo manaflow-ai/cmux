@@ -4739,14 +4739,22 @@ struct CMUXCLI {
     private func openDirectoryWithLaunchServices(_ directory: String) throws {
         try runOpenTool(
             arguments: ["-a", appLaunchTarget(), directory],
-            failureMessage: localizedFormat("cli.pathOpen.error.openFailed", defaultValue: "Failed to open %@ in cmux", directory)
+            failureMessage: localizedFormat("cli.pathOpen.error.openFailed", defaultValue: "Failed to open %@ in cmux", directory),
+            environment: launchServicesPathOpenEnvironment()
         )
     }
 
-    private func runOpenTool(arguments: [String], failureMessage: String) throws {
+    private func runOpenTool(
+        arguments: [String],
+        failureMessage: String,
+        environment: [String: String]? = nil
+    ) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: openToolPath())
         process.arguments = arguments
+        if let environment {
+            process.environment = environment
+        }
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
 
@@ -4764,6 +4772,26 @@ struct CMUXCLI {
         guard process.terminationStatus == 0 else {
             throw CLIError(message: failureMessage)
         }
+    }
+
+    private static let launchServicesPathOpenScrubbedEnvironmentKeys: Set<String> = [
+        "CMUX_ALLOW_SOCKET_OVERRIDE",
+        "CMUX_SOCKET",
+        "CMUX_SOCKET_ENABLE",
+        "CMUX_SOCKET_MODE",
+        "CMUX_SOCKET_PASSWORD",
+        "CMUX_SOCKET_PATH",
+        "CMUX_SURFACE_ID",
+        "CMUX_TAB_ID",
+        "CMUX_WORKSPACE_ID",
+    ]
+
+    private func launchServicesPathOpenEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        for key in Self.launchServicesPathOpenScrubbedEnvironmentKeys {
+            environment.removeValue(forKey: key)
+        }
+        return environment
     }
 
     private func waitForProcessExit(_ process: Process, timeout: TimeInterval) throws -> Bool {

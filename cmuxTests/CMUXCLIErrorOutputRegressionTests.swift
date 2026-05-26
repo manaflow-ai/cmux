@@ -856,6 +856,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
         let fakeOpenURL = root.appendingPathComponent("open", isDirectory: false)
         let openLogURL = root.appendingPathComponent("open-args.txt", isDirectory: false)
+        let openEnvLogURL = root.appendingPathComponent("open-env.txt", isDirectory: false)
         try fakeOpenScript().write(to: fakeOpenURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeOpenURL.path)
 
@@ -871,9 +872,19 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             environment.removeValue(forKey: key)
         }
         environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SOCKET"] = "/tmp/cmux-stale-\(UUID().uuidString.prefix(8)).sock"
+        environment["CMUX_SOCKET_PASSWORD"] = "stale-password"
+        environment["CMUX_SOCKET_ENABLE"] = "0"
+        environment["CMUX_SOCKET_MODE"] = "off"
+        environment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        environment["CMUX_WORKSPACE_ID"] = "workspace:stale"
+        environment["CMUX_SURFACE_ID"] = "surface:stale"
+        environment["CMUX_TAB_ID"] = "tab:stale"
+        environment["CMUX_TAG"] = "keepme"
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_TEST_OPEN_TOOL_PATH"] = fakeOpenURL.path
         environment["CMUX_TEST_OPEN_LOG"] = openLogURL.path
+        environment["CMUX_TEST_OPEN_ENV_LOG"] = openEnvLogURL.path
 
         let result = runProcess(
             executablePath: cliPath,
@@ -892,6 +903,25 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(openArguments.first, "-a")
         XCTAssertEqual(openArguments.last, workingDirectory.standardizedFileURL.path)
         XCTAssertTrue(openArguments.dropFirst().first?.hasSuffix(".app") == true, openArguments.joined(separator: " "))
+
+        let openEnvironment = try readFakeOpenEnvironment(from: openEnvLogURL)
+        for strippedKey in [
+            "CMUX_ALLOW_SOCKET_OVERRIDE",
+            "CMUX_SOCKET",
+            "CMUX_SOCKET_ENABLE",
+            "CMUX_SOCKET_MODE",
+            "CMUX_SOCKET_PASSWORD",
+            "CMUX_SOCKET_PATH",
+            "CMUX_SURFACE_ID",
+            "CMUX_TAB_ID",
+            "CMUX_WORKSPACE_ID",
+        ] {
+            XCTAssertFalse(
+                openEnvironment.contains { $0.hasPrefix("\(strippedKey)=") },
+                "\(strippedKey) leaked to LaunchServices open environment: \(openEnvironment)"
+            )
+        }
+        XCTAssertTrue(openEnvironment.contains("CMUX_TAG=keepme"), openEnvironment.joined(separator: "\n"))
     }
 
     func testExplicitSocketPathOpenUsesRequestedSocket() throws {
@@ -1155,6 +1185,9 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         : > "$CMUX_TEST_OPEN_LOG"
         printf 'fake open stdout should be suppressed\\n'
         printf 'fake open stderr should be suppressed\\n' >&2
+        if [ -n "${CMUX_TEST_OPEN_ENV_LOG:-}" ]; then
+          env | LC_ALL=C sort | grep '^CMUX_' > "$CMUX_TEST_OPEN_ENV_LOG" || :
+        fi
         for arg in "$@"; do
           printf '%s\\n' "$arg" >> "$CMUX_TEST_OPEN_LOG"
         done
@@ -1163,6 +1196,14 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     }
 
     private func readFakeOpenArguments(from url: URL) throws -> [String] {
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        return Array(contents
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .dropLast())
+    }
+
+    private func readFakeOpenEnvironment(from url: URL) throws -> [String] {
         let contents = try String(contentsOf: url, encoding: .utf8)
         return Array(contents
             .split(separator: "\n", omittingEmptySubsequences: false)
