@@ -41,6 +41,32 @@ final class CMUXCanvasTests: XCTestCase {
         XCTAssertEqual(Set(scene.visibleSurfaces.map(\.id)), Set([visibleID, frontID]))
     }
 
+    func testSceneSortsFocusedSurfaceAboveEqualZIndexSurfaces() throws {
+        let focusedID = LayoutItemID(id: try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000001")))
+        let backgroundID = LayoutItemID(id: try XCTUnwrap(UUID(uuidString: "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF")))
+        let scene = CanvasScene(
+            viewport: CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 800, height: 600), scale: 1),
+            viewportSize: CGSize(width: 800, height: 600),
+            surfaces: [
+                CanvasSurfaceDescriptor(
+                    id: focusedID,
+                    kind: .terminal,
+                    frame: PixelRect(x: 0, y: 0, width: 400, height: 300),
+                    zIndex: 1,
+                    isFocused: true
+                ),
+                CanvasSurfaceDescriptor(
+                    id: backgroundID,
+                    kind: .browser,
+                    frame: PixelRect(x: 0, y: 0, width: 400, height: 300),
+                    zIndex: 1
+                ),
+            ]
+        )
+
+        XCTAssertEqual(scene.surfaces.map(\.id), [backgroundID, focusedID])
+    }
+
     func testInputPanMatchesWorkspaceViewportMathAndReturnsScreenDelta() {
         let controller = CanvasInputController(
             viewport: CanvasViewport(
@@ -283,5 +309,41 @@ final class CMUXCanvasTests: XCTestCase {
 
         XCTAssertNil(cache.descriptor(for: firstKey))
         XCTAssertNotNil(cache.descriptor(for: thirdKey))
+    }
+
+    func testViewportAnimationInterpolatesViewportWithEaseOut() {
+        let animation = CanvasViewportAnimation(
+            startViewport: CanvasViewport(
+                visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800),
+                scale: 1
+            ),
+            targetViewport: CanvasViewport(
+                visibleRect: PixelRect(x: 600, y: -300, width: 2_400, height: 1_600),
+                scale: 0.5
+            ),
+            startTime: 10,
+            duration: 2
+        )
+
+        let halfway = animation.viewport(at: 11)
+        let expectedProgress = CanvasViewportAnimation.easeOutCubic(0.5)
+
+        XCTAssertEqual(halfway.visibleRect.x, 600 * expectedProgress, accuracy: 0.0001)
+        XCTAssertEqual(halfway.visibleRect.y, -300 * expectedProgress, accuracy: 0.0001)
+        XCTAssertEqual(halfway.visibleRect.width, 1_200 + (1_200 * expectedProgress), accuracy: 0.0001)
+        XCTAssertEqual(halfway.visibleRect.height, 800 + (800 * expectedProgress), accuracy: 0.0001)
+        XCTAssertEqual(halfway.scale, 1 - (0.5 * expectedProgress), accuracy: 0.0001)
+        XCTAssertFalse(animation.isComplete(at: 11))
+        XCTAssertTrue(animation.isComplete(at: 12))
+        XCTAssertEqual(animation.viewport(at: 12), animation.targetViewport)
+    }
+
+    func testWindowCoordinateMapperUsesCanvasTopLeftCoordinates() throws {
+        let frame = try XCTUnwrap(CanvasWindowCoordinateMapper.windowFrame(
+            forCanvasRect: CGRect(x: 40, y: 20, width: 320, height: 180),
+            inCanvasWindowFrame: CGRect(x: 100, y: 200, width: 1_000, height: 800)
+        ))
+
+        XCTAssertEqual(frame, CGRect(x: 140, y: 800, width: 320, height: 180))
     }
 }

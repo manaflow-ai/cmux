@@ -58,6 +58,12 @@ public final class WorkspaceLayoutController {
     /// immediate, while host views can animate shortcut navigation as a separate presentation concern.
     public private(set) var canvasFocusAnimationRevision: UInt64 = 0
 
+    /// Monotonic marker for discrete canvas viewport changes that should animate in the host view.
+    ///
+    /// Continuous gestures intentionally update the viewport directly so panning, pinch zooming, and
+    /// dragging track the pointer without easing.
+    public private(set) var canvasViewportAnimationRevision: UInt64 = 0
+
     /// When false, drop delegates reject all drags. Set to false for inactive workspaces
     /// so their views (kept alive in a ZStack for state preservation) don't intercept drags
     /// meant for the active workspace.
@@ -767,6 +773,10 @@ public final class WorkspaceLayoutController {
         canvasDocument.viewport = viewport
     }
 
+    public func requestCanvasViewportAnimation() {
+        canvasViewportAnimationRevision &+= 1
+    }
+
     public func panCanvasViewport(screenDelta: CGSize, scale: CGFloat, viewportSize: CGSize) {
         let safeScale = max(0.0001, scale)
         var viewport = canvasDocument.viewport
@@ -1228,13 +1238,58 @@ public final class WorkspaceLayoutController {
             return (paneID, item)
         })
 
-        return fallback.map { item in
-            guard case .pane(let paneID) = item.content,
+        var resolvedItems: [CanvasItem] = []
+        resolvedItems.reserveCapacity(fallback.count)
+
+        for fallbackItem in fallback {
+            guard case .pane(let paneID) = fallbackItem.content,
                   let existing = existingByPane[paneID] else {
-                return item
+                resolvedItems.append(nonDuplicatedCanvasItem(fallbackItem, fallbackFrame: fallbackItem.frame, placedItems: resolvedItems))
+                continue
             }
-            return existing
+
+            resolvedItems.append(nonDuplicatedCanvasItem(existing, fallbackFrame: fallbackItem.frame, placedItems: resolvedItems))
         }
+
+        return resolvedItems
+    }
+
+    private func nonDuplicatedCanvasItem(
+        _ item: CanvasItem,
+        fallbackFrame: PixelRect,
+        placedItems: [CanvasItem]
+    ) -> CanvasItem {
+        guard placedItems.contains(where: { canvasFramesAreEffectivelyEqual($0.frame, item.frame) }) else {
+            return item
+        }
+
+        var adjusted = item
+        var candidate = fallbackFrame
+        let stepX = max(1, fallbackFrame.width) + 16
+        let attempts = max(placedItems.count + 2, 8)
+        for _ in 0..<attempts {
+            if !placedItems.contains(where: { canvasFramesAreEffectivelyEqual($0.frame, candidate) }) {
+                adjusted.frame = candidate
+                return adjusted
+            }
+            candidate = PixelRect(
+                x: candidate.x + stepX,
+                y: candidate.y,
+                width: candidate.width,
+                height: candidate.height
+            )
+        }
+
+        adjusted.frame = candidate
+        return adjusted
+    }
+
+    private func canvasFramesAreEffectivelyEqual(_ lhs: PixelRect, _ rhs: PixelRect) -> Bool {
+        let epsilon = 0.5
+        return abs(lhs.x - rhs.x) <= epsilon
+            && abs(lhs.y - rhs.y) <= epsilon
+            && abs(lhs.width - rhs.width) <= epsilon
+            && abs(lhs.height - rhs.height) <= epsilon
     }
 
     private func reconcileFocusedCanvasItem() {

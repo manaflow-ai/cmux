@@ -112,6 +112,9 @@ public struct CanvasScene: Sendable, Equatable {
         if lhs.zIndex != rhs.zIndex {
             return lhs.zIndex < rhs.zIndex
         }
+        if lhs.isFocused != rhs.isFocused {
+            return !lhs.isFocused && rhs.isFocused
+        }
         return lhs.id.description < rhs.id.description
     }
 }

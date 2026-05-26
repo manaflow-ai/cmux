@@ -14017,6 +14017,7 @@ final class Workspace: Identifiable, ObservableObject {
     func setCanvasOverviewScale(_ scale: Double) -> Double {
         let clamped = CanvasViewportZoom.clampedScale(scale)
         layoutController.setCanvasViewportScale(clamped)
+        layoutController.requestCanvasViewportAnimation()
         return clamped
     }
 

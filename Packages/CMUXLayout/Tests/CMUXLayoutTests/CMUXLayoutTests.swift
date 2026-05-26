@@ -3678,6 +3678,25 @@ final class CMUXLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testControllerFreeformCanvasRepairsDuplicatePreservedPaneFramesOnSync() throws {
+        let controller = WorkspaceLayoutController()
+        controller.setContainerFrame(CGRect(x: 0, y: 0, width: 1_200, height: 800))
+        _ = controller.createTab(title: "Base")
+        let sourcePaneId = try XCTUnwrap(controller.focusedPaneId)
+        let secondPaneId = try XCTUnwrap(controller.splitPane(sourcePaneId, orientation: .horizontal))
+        controller.enterCanvasOverview(policy: .freeform, scale: 1)
+
+        let firstItem = try XCTUnwrap(controller.canvasItem(forPane: sourcePaneId))
+        let secondItem = try XCTUnwrap(controller.canvasItem(forPane: secondPaneId))
+        controller.moveCanvasItem(secondItem.id, to: firstItem.frame)
+
+        let repairedSecondItem = try XCTUnwrap(controller.canvasItem(forPane: secondPaneId))
+        XCTAssertNotEqual(repairedSecondItem.frame, firstItem.frame)
+        XCTAssertEqual(repairedSecondItem.frame.x, firstItem.frame.x + firstItem.frame.width + 16)
+        XCTAssertEqual(repairedSecondItem.frame.y, firstItem.frame.y)
+    }
+
+    @MainActor
     func testControllerFreeformCanvasPreservesResizedPaneFrame() throws {
         let controller = WorkspaceLayoutController()
         let itemID = try XCTUnwrap(controller.canvasSnapshot().items.first?.id)
@@ -3757,6 +3776,16 @@ final class CMUXLayoutTests: XCTestCase {
         _ = try XCTUnwrap(controller.navigateCanvasFocus(direction: .right))
 
         XCTAssertGreaterThan(controller.canvasFocusAnimationRevision, revisionBefore)
+    }
+
+    @MainActor
+    func testCanvasViewportAnimationRevisionPublishesForDiscreteRequests() {
+        let controller = WorkspaceLayoutController()
+        let revisionBefore = controller.canvasViewportAnimationRevision
+
+        controller.requestCanvasViewportAnimation()
+
+        XCTAssertGreaterThan(controller.canvasViewportAnimationRevision, revisionBefore)
     }
 
     @MainActor
