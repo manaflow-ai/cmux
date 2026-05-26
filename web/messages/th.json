@@ -498,7 +498,9 @@
           "hideTabCloseButton": "ซ่อนปุ่มปิดแท็บในแถบแท็บของพาเนล"
         },
         "terminal": {
-          "copyOnSelect": "คัดลอกข้อความเทอร์มินัลที่เลือกไปยังคลิปบอร์ดของระบบเมื่อยืนยันการเลือก รวมถึงการเลือกคำและบรรทัดจากการดับเบิลคลิกและทริปเปิลคลิก"
+          "copyOnSelect": "คัดลอกข้อความเทอร์มินัลที่เลือกไปยังคลิปบอร์ดของระบบเมื่อยืนยันการเลือก รวมถึงการเลือกคำและบรรทัดจากการดับเบิลคลิกและทริปเปิลคลิก",
+          "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
+          "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
         }
       }
     },
@@ -914,7 +916,8 @@
       "changelog": "Changelog",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (Beta)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -992,6 +995,21 @@
       "underHoodMore": "<configLink>เอกสาร configuration</configLink> ปกติครอบคลุม cmux.json Session restore แยก app layout ออกจาก Ghostty terminal rendering settings",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
+    },
+    "textBox": {
+      "title": "TextBox (Beta)",
+      "metaTitle": "TextBox (Beta)",
+      "metaDescription": "Configure the beta cmux TextBox input for new terminal tabs, splits, and workspaces.",
+      "intro": "TextBox is cmux's rich terminal input surface for composing prompts before sending them to a terminal.",
+      "betaCallout": "TextBox is a beta feature. Its defaults and behavior may change while it is being tested.",
+      "defaultsTitle": "Defaults",
+      "defaultsDesc": "The TextBox settings live in Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals opens new workspaces, terminal tabs, and terminal splits with the TextBox visible while keeping focus in the terminal.",
+      "focusSetting": "Focus TextBox on New Terminals puts keyboard focus in the TextBox. Focusing also shows the TextBox.",
+      "maxLinesSetting": "TextBox Max Lines caps the TextBox height before its content scrolls.",
+      "configTitle": "cmux.json",
+      "configDesc": "Set the same defaults in ~/.config/cmux/cmux.json under terminal:",
+      "focusNote": "Restored sessions keep their saved TextBox visibility and focus state. These defaults apply only to newly created terminal surfaces."
     }
   },
   "legal": {

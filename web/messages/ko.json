@@ -498,7 +498,9 @@
           "hideTabCloseButton": "창 영역 탭 막대에서 탭 닫기 버튼을 숨깁니다."
         },
         "terminal": {
-          "copyOnSelect": "선택이 확정되면 더블 클릭 및 트리플 클릭으로 선택한 단어와 줄을 포함해 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다."
+          "copyOnSelect": "선택이 확정되면 더블 클릭 및 트리플 클릭으로 선택한 단어와 줄을 포함해 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다.",
+          "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
+          "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
         }
       }
     },
@@ -914,7 +916,8 @@
       "changelog": "변경 로그",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (Beta)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -992,6 +995,21 @@
       "underHoodMore": "일반 <configLink>configuration docs</configLink>는 cmux.json을 다룹니다. 세션 복원은 app layout을 Ghostty 터미널 렌더링 설정과 분리해 저장합니다.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
+    },
+    "textBox": {
+      "title": "TextBox (Beta)",
+      "metaTitle": "TextBox (Beta)",
+      "metaDescription": "Configure the beta cmux TextBox input for new terminal tabs, splits, and workspaces.",
+      "intro": "TextBox is cmux's rich terminal input surface for composing prompts before sending them to a terminal.",
+      "betaCallout": "TextBox is a beta feature. Its defaults and behavior may change while it is being tested.",
+      "defaultsTitle": "Defaults",
+      "defaultsDesc": "The TextBox settings live in Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals opens new workspaces, terminal tabs, and terminal splits with the TextBox visible while keeping focus in the terminal.",
+      "focusSetting": "Focus TextBox on New Terminals puts keyboard focus in the TextBox. Focusing also shows the TextBox.",
+      "maxLinesSetting": "TextBox Max Lines caps the TextBox height before its content scrolls.",
+      "configTitle": "cmux.json",
+      "configDesc": "Set the same defaults in ~/.config/cmux/cmux.json under terminal:",
+      "focusNote": "Restored sessions keep their saved TextBox visibility and focus state. These defaults apply only to newly created terminal surfaces."
     }
   },
   "legal": {

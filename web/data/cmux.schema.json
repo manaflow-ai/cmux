@@ -345,11 +345,13 @@
         "showTextBoxOnNewTerminals": {
           "type": "boolean",
           "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.showTextBoxOnNewTerminals",
           "description": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits."
         },
         "focusTextBoxOnNewTerminals": {
           "type": "boolean",
           "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.focusTextBoxOnNewTerminals",
           "description": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
         },
         "agentHibernation": {

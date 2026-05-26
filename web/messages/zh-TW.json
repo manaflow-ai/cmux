@@ -498,7 +498,9 @@
           "hideTabCloseButton": "在窗格分頁列中隱藏分頁關閉按鈕。"
         },
         "terminal": {
-          "copyOnSelect": "確認選取後，將所選終端機文字複製到系統剪貼簿，包括透過按兩下和按三下選取的單字與整行。"
+          "copyOnSelect": "確認選取後，將所選終端機文字複製到系統剪貼簿，包括透過按兩下和按三下選取的單字與整行。",
+          "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
+          "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
         }
       }
     },
@@ -914,7 +916,8 @@
       "changelog": "更新日誌",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (Beta)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -992,6 +995,21 @@
       "underHoodMore": "一般<configLink>設定文件</configLink>說明 cmux.json。工作階段還原會將應用程式佈局與 Ghostty 終端機渲染設定分開保存。",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
+    },
+    "textBox": {
+      "title": "TextBox (Beta)",
+      "metaTitle": "TextBox (Beta)",
+      "metaDescription": "Configure the beta cmux TextBox input for new terminal tabs, splits, and workspaces.",
+      "intro": "TextBox is cmux's rich terminal input surface for composing prompts before sending them to a terminal.",
+      "betaCallout": "TextBox is a beta feature. Its defaults and behavior may change while it is being tested.",
+      "defaultsTitle": "Defaults",
+      "defaultsDesc": "The TextBox settings live in Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals opens new workspaces, terminal tabs, and terminal splits with the TextBox visible while keeping focus in the terminal.",
+      "focusSetting": "Focus TextBox on New Terminals puts keyboard focus in the TextBox. Focusing also shows the TextBox.",
+      "maxLinesSetting": "TextBox Max Lines caps the TextBox height before its content scrolls.",
+      "configTitle": "cmux.json",
+      "configDesc": "Set the same defaults in ~/.config/cmux/cmux.json under terminal:",
+      "focusNote": "Restored sessions keep their saved TextBox visibility and focus state. These defaults apply only to newly created terminal surfaces."
     }
   },
   "legal": {
