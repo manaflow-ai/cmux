@@ -596,6 +596,29 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         }
     }
 
+    func testLoadedGhosttyConfigScanPathsIncludesCmuxConfigsFromMultipleSupportRoots() throws {
+        try withTemporaryAppSupportDirectory { primaryAppSupportDirectory in
+            try withTemporaryAppSupportDirectory { alternateAppSupportDirectory in
+                let alternateConfigURL = try writeAppSupportConfig(
+                    appSupportDirectory: alternateAppSupportDirectory,
+                    bundleIdentifier: "com.cmuxterm.app.nightly",
+                    filename: "config.ghostty",
+                    contents: "theme = light:Nightly Light,dark:Nightly Dark\n"
+                )
+
+                let paths = GhosttyApp.loadedGhosttyConfigScanPaths(
+                    currentBundleIdentifier: "com.cmuxterm.app.nightly",
+                    appSupportDirectories: [
+                        primaryAppSupportDirectory,
+                        alternateAppSupportDirectory,
+                    ]
+                )
+
+                XCTAssertTrue(paths.contains(alternateConfigURL.path))
+            }
+        }
+    }
+
     func testCmuxAppSupportConfigURLsSkipReleaseFallbackForNonDebugBundle() throws {
         try withTemporaryAppSupportDirectory { appSupportDirectory in
             _ = try writeAppSupportConfig(
