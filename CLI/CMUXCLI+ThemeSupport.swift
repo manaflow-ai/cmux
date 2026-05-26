@@ -147,9 +147,10 @@ extension CMUXCLI {
             }
         }
 
-        for appSupportDirectory in CmuxApplicationSupportDirectories.userDirectories(
+        let appSupportDirectories = CmuxApplicationSupportDirectories.userDirectories(
             environment: ProcessInfo.processInfo.environment
-        ) {
+        )
+        for appSupportDirectory in appSupportDirectories {
             let ghosttyDirectory = appSupportDirectory.appendingPathComponent(
                 "com.mitchellh.ghostty",
                 isDirectory: true
@@ -165,14 +166,14 @@ extension CMUXCLI {
             ) {
                 append(legacyGhosttyConfigURL)
             }
+        }
 
-            for url in CmuxGhosttyConfigPathResolver.loadConfigURLs(
-                currentBundleIdentifier: targetBundleIdentifier,
-                appSupportDirectory: appSupportDirectory,
-                fileManager: fileManager
-            ) {
-                append(url)
-            }
+        for url in CmuxGhosttyConfigPathResolver.loadConfigURLs(
+            currentBundleIdentifier: targetBundleIdentifier,
+            appSupportDirectories: appSupportDirectories,
+            fileManager: fileManager
+        ) {
+            append(url)
         }
 
         return urls

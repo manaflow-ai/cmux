@@ -359,6 +359,55 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         }
     }
 
+    func testMultiRootCmuxAppSupportConfigURLsPreferCurrentConfigBeforeReleaseFallbackCleanup() throws {
+        try withTemporaryAppSupportDirectory { primaryAppSupportDirectory in
+            try withTemporaryAppSupportDirectory { alternateAppSupportDirectory in
+                let releaseConfigURL = try writeAppSupportConfig(
+                    appSupportDirectory: primaryAppSupportDirectory,
+                    bundleIdentifier: "com.cmuxterm.app",
+                    filename: "config.ghostty",
+                    contents: """
+                    font-size = 13
+
+                    # cmux themes start
+                    theme = light:Stable Light,dark:Stable Dark
+                    # cmux themes end
+                    """
+                    .appending("\n")
+                )
+                let nightlyConfigURL = try writeAppSupportConfig(
+                    appSupportDirectory: alternateAppSupportDirectory,
+                    bundleIdentifier: "com.cmuxterm.app.nightly",
+                    filename: "config.ghostty",
+                    contents: "theme = light:Nightly Light,dark:Nightly Dark\n"
+                )
+
+                XCTAssertEqual(
+                    CmuxGhosttyConfigPathResolver.loadConfigURLs(
+                        currentBundleIdentifier: "com.cmuxterm.app.nightly",
+                        appSupportDirectories: [
+                            primaryAppSupportDirectory,
+                            alternateAppSupportDirectory,
+                        ]
+                    ),
+                    [nightlyConfigURL]
+                )
+
+                XCTAssertEqual(
+                    try String(contentsOf: releaseConfigURL, encoding: .utf8),
+                    """
+                    font-size = 13
+
+                    # cmux themes start
+                    theme = light:Stable Light,dark:Stable Dark
+                    # cmux themes end
+                    """
+                    .appending("\n")
+                )
+            }
+        }
+    }
+
     func testCmuxAppSupportConfigURLsUseStagingConfigWhenPresent() throws {
         try withTemporaryAppSupportDirectory { appSupportDirectory in
             _ = try writeAppSupportConfig(

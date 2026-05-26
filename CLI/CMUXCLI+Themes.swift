@@ -314,21 +314,23 @@ extension CMUXCLI {
               normalizedBundleIdentifier != Self.cmuxThemeOverrideBundleIdentifier else {
             return
         }
-        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            throw CLIError(message: "Unable to resolve Application Support directory")
-        }
-
-        let currentURLs = CmuxGhosttyConfigPathResolver.existingConfigURLs(
-            for: normalizedBundleIdentifier,
-            appSupportDirectory: appSupport
+        let appSupportDirectories = CmuxApplicationSupportDirectories.userDirectories(
+            environment: ProcessInfo.processInfo.environment
         )
-        guard currentURLs.isEmpty else {
-            return
+        do {
+            try CmuxGhosttyConfigPathResolver.removeStaleReleaseManagedThemeOverrideBeforeFallbackIfNeeded(
+                currentBundleIdentifier: normalizedBundleIdentifier,
+                appSupportDirectories: appSupportDirectories
+            )
+        } catch let error as CLIError {
+            throw error
+        } catch {
+            let message = String(
+                localized: "cli.themes.error.cleanupFailed",
+                defaultValue: "Unable to clean stale cmux theme override."
+            )
+            throw CLIError(message: message)
         }
-
-        try removeStaleReleaseManagedThemeOverrideIfNeeded(
-            activeBundleIdentifier: normalizedBundleIdentifier
-        )
     }
 
     private func printThemesList(

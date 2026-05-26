@@ -1032,6 +1032,39 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    func testAppearanceLockedRuntimeColorSchemeForCmuxThemeReloads() {
+        XCTAssertEqual(
+            GhosttyApp.appearanceLockedRuntimeColorSchemeForConfigReload(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource,
+                requestedColorScheme: .dark,
+                cmuxThemeValue: nil
+            ),
+            .dark
+        )
+        XCTAssertEqual(
+            GhosttyApp.appearanceLockedRuntimeColorSchemeForConfigReload(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource,
+                requestedColorScheme: .light,
+                cmuxThemeValue: "light:3024 Day,dark:3024 Night"
+            ),
+            .light
+        )
+        XCTAssertNil(
+            GhosttyApp.appearanceLockedRuntimeColorSchemeForConfigReload(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource,
+                requestedColorScheme: .dark,
+                cmuxThemeValue: "light:3024 Day,dark:3024 Day"
+            )
+        )
+        XCTAssertNil(
+            GhosttyApp.appearanceLockedRuntimeColorSchemeForConfigReload(
+                source: "socket.reload_config",
+                requestedColorScheme: .dark,
+                cmuxThemeValue: "light:3024 Day,dark:3024 Night"
+            )
+        )
+    }
+
     func testRuntimeColorSchemeForPairedThemeReloadUsesAppearanceDuringConfigLoad() {
         XCTAssertEqual(
             GhosttyApp.runtimeColorSchemeForConfigLoad(

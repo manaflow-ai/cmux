@@ -77,32 +77,46 @@ enum CmuxGhosttyConfigPathResolver {
         appSupportDirectory: URL,
         fileManager: FileManager = .default
     ) -> [URL] {
+        loadConfigURLs(
+            currentBundleIdentifier: currentBundleIdentifier,
+            appSupportDirectories: [appSupportDirectory],
+            fileManager: fileManager
+        )
+    }
+
+    static func loadConfigURLs(
+        currentBundleIdentifier: String?,
+        appSupportDirectories: [URL],
+        fileManager: FileManager = .default
+    ) -> [URL] {
         guard let currentBundleIdentifier, !currentBundleIdentifier.isEmpty else {
-            return preferredExistingConfigURLs(
+            return configURLs(
                 for: releaseBundleIdentifier,
-                appSupportDirectory: appSupportDirectory,
+                appSupportDirectories: appSupportDirectories,
                 fileManager: fileManager
             )
         }
 
-        let currentURLs = preferredExistingConfigURLs(
+        let currentURLs = configURLs(
             for: currentBundleIdentifier,
-            appSupportDirectory: appSupportDirectory,
+            appSupportDirectories: appSupportDirectories,
             fileManager: fileManager
         )
         if !currentURLs.isEmpty {
             return currentURLs
         }
         if allowsReleaseFallback(currentBundleIdentifier) {
-            _ = try? removeStaleReleaseManagedThemeOverrideIfNeeded(
-                currentBundleIdentifier: currentBundleIdentifier,
-                appSupportDirectory: appSupportDirectory,
-                fileManager: fileManager
-            )
+            for appSupportDirectory in uniqueAppSupportDirectories(appSupportDirectories) {
+                _ = try? removeStaleReleaseManagedThemeOverrideIfNeeded(
+                    currentBundleIdentifier: currentBundleIdentifier,
+                    appSupportDirectory: appSupportDirectory,
+                    fileManager: fileManager
+                )
+            }
 
-            let releaseURLs = preferredExistingConfigURLs(
+            let releaseURLs = configURLs(
                 for: releaseBundleIdentifier,
-                appSupportDirectory: appSupportDirectory,
+                appSupportDirectories: appSupportDirectories,
                 fileManager: fileManager
             )
             if !releaseURLs.isEmpty {
@@ -110,6 +124,34 @@ enum CmuxGhosttyConfigPathResolver {
             }
         }
         return []
+    }
+
+    static func removeStaleReleaseManagedThemeOverrideBeforeFallbackIfNeeded(
+        currentBundleIdentifier: String?,
+        appSupportDirectories: [URL],
+        fileManager: FileManager = .default
+    ) throws {
+        guard let currentBundleIdentifier = currentBundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+              shouldRemoveReleaseManagedThemeOverride(for: currentBundleIdentifier) else {
+            return
+        }
+
+        let currentURLs = configURLs(
+            for: currentBundleIdentifier,
+            appSupportDirectories: appSupportDirectories,
+            fileManager: fileManager
+        )
+        guard currentURLs.isEmpty else {
+            return
+        }
+
+        for appSupportDirectory in uniqueAppSupportDirectories(appSupportDirectories) {
+            try removeStaleReleaseManagedThemeOverrideIfNeeded(
+                currentBundleIdentifier: currentBundleIdentifier,
+                appSupportDirectory: appSupportDirectory,
+                fileManager: fileManager
+            )
+        }
     }
 
     static func configDirectoryURL(
@@ -151,6 +193,39 @@ enum CmuxGhosttyConfigPathResolver {
             appSupportDirectory: appSupportDirectory,
             fileManager: fileManager
         )
+    }
+
+    private static func configURLs(
+        for bundleIdentifier: String,
+        appSupportDirectories: [URL],
+        fileManager: FileManager
+    ) -> [URL] {
+        var urls: [URL] = []
+        var seen: Set<String> = []
+        for appSupportDirectory in uniqueAppSupportDirectories(appSupportDirectories) {
+            for url in preferredExistingConfigURLs(
+                for: bundleIdentifier,
+                appSupportDirectory: appSupportDirectory,
+                fileManager: fileManager
+            ) {
+                if seen.insert(url.standardizedFileURL.path).inserted {
+                    urls.append(url)
+                }
+            }
+        }
+        return urls
+    }
+
+    private static func uniqueAppSupportDirectories(_ appSupportDirectories: [URL]) -> [URL] {
+        var directories: [URL] = []
+        var seen: Set<String> = []
+        for appSupportDirectory in appSupportDirectories {
+            let standardized = appSupportDirectory.standardizedFileURL
+            if seen.insert(standardized.path).inserted {
+                directories.append(standardized)
+            }
+        }
+        return directories
     }
 
     private static func isNonEmptyConfigFile(_ url: URL, fileManager: FileManager) -> Bool {

@@ -3265,6 +3265,24 @@ class GhosttyApp {
         return effectiveTerminalColorScheme
     }
 
+    static func appearanceLockedRuntimeColorSchemeForConfigReload(
+        source: String,
+        requestedColorScheme: GhosttyConfig.ColorSchemePreference,
+        cmuxThemeValue: String?
+    ) -> GhosttyConfig.ColorSchemePreference? {
+        guard GhosttySurfaceConfigurationRefresh.isCmuxThemeReloadSource(source) else {
+            return nil
+        }
+        guard let cmuxThemeValue,
+              !cmuxThemeValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return requestedColorScheme
+        }
+        guard shouldResolveCmuxThemePairAgainstAppearance(cmuxThemeValue) else {
+            return nil
+        }
+        return requestedColorScheme
+    }
+
     static func shouldResolveCmuxThemePairAgainstAppearance(_ cmuxThemeValue: String?) -> Bool {
         guard let cmuxThemeValue,
               !cmuxThemeValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -3461,8 +3479,6 @@ class GhosttyApp {
             return
         }
         let cmuxThemeValue = currentCmuxAppSupportThemeValue()
-        let shouldResolveCmuxThemePairAgainstAppearance =
-            Self.shouldResolveCmuxThemePairAgainstAppearance(cmuxThemeValue)
         // Use the appearance preference while loading conditional theme pairs. For cmux
         // single-theme reloads, keep the resolved terminal scheme stable until the new
         // background is known so same-scheme theme changes do not flash through app mode.
@@ -3472,13 +3488,16 @@ class GhosttyApp {
             effectiveTerminalColorScheme: effectiveTerminalColorSchemePreference,
             cmuxThemeValue: cmuxThemeValue
         )
+        let appearanceLockedReloadColorScheme = Self.appearanceLockedRuntimeColorSchemeForConfigReload(
+            source: source,
+            requestedColorScheme: reloadColorScheme,
+            cmuxThemeValue: cmuxThemeValue
+        )
         synchronizeGhosttyRuntimeColorScheme(loadColorScheme, source: "reloadConfiguration:\(source):load")
         logThemeAction("reload begin source=\(source) soft=\(soft)")
         resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
         if soft, let config {
-            let effectiveReloadColorScheme = shouldResolveCmuxThemePairAgainstAppearance
-                ? reloadColorScheme
-                : effectiveTerminalColorSchemePreference
+            let effectiveReloadColorScheme = appearanceLockedReloadColorScheme ?? effectiveTerminalColorSchemePreference
             synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
             prepareTerminalSurfacesForConfigurationReload(preferredColorScheme: effectiveReloadColorScheme)
             ghostty_app_update_config(app, config)
@@ -3506,7 +3525,7 @@ class GhosttyApp {
             source: "reloadConfiguration(source=\(source))",
             scope: .unscoped,
             forceNotify: renderingModeChanged,
-            resolvedColorScheme: shouldResolveCmuxThemePairAgainstAppearance ? reloadColorScheme : nil
+            resolvedColorScheme: appearanceLockedReloadColorScheme
         )
         GhosttyConfig.invalidateLoadCache()
         updateDefaultBackgroundFromResolvedGhosttyConfig(
@@ -3514,9 +3533,10 @@ class GhosttyApp {
             preferredColorScheme: reloadColorScheme,
             baselineConfig: newConfig,
             scope: .unscoped,
-            forceNotify: renderingModeChanged
+            forceNotify: renderingModeChanged,
+            resolvedColorScheme: appearanceLockedReloadColorScheme
         )
-        let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
+        let effectiveReloadColorScheme = appearanceLockedReloadColorScheme ?? effectiveTerminalColorSchemePreference
         synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
         prepareTerminalSurfacesForConfigurationReload(preferredColorScheme: effectiveReloadColorScheme)
         ghostty_app_update_config(app, newConfig)
@@ -3816,7 +3836,8 @@ class GhosttyApp {
         baselineConfig: ghostty_config_t?,
         scope: GhosttyDefaultBackgroundUpdateScope = .unscoped,
         useOnDiskResolvedConfig: Bool = true,
-        forceNotify: Bool = false
+        forceNotify: Bool = false,
+        resolvedColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) {
         let baseline = defaultBackgroundValues(from: baselineConfig)
         guard useOnDiskResolvedConfig else {
@@ -3831,7 +3852,8 @@ class GhosttyApp {
                 selectionForeground: baseline.selectionForeground,
                 source: source,
                 scope: scope,
-                forceNotify: forceNotify
+                forceNotify: forceNotify,
+                resolvedColorScheme: resolvedColorScheme
             )
             return
         }
@@ -3897,28 +3919,6 @@ class GhosttyApp {
                 hasDirective: resolved.hasSelectionForegroundDirective
             ),
             source: "\(source).resolvedGhosttyConfig",
-            scope: scope,
-            forceNotify: forceNotify
-        )
-    }
-
-    private func updateDefaultBackground(
-        from config: GhosttyConfig,
-        source: String,
-        scope: GhosttyDefaultBackgroundUpdateScope = .unscoped,
-        forceNotify: Bool = false,
-        resolvedColorScheme: GhosttyConfig.ColorSchemePreference? = nil
-    ) {
-        applyDefaultBackground(
-            color: config.backgroundColor,
-            opacity: config.backgroundOpacity,
-            backgroundBlur: config.backgroundBlur,
-            foregroundColor: config.foregroundColor,
-            cursorColor: config.cursorColor,
-            cursorTextColor: config.cursorTextColor,
-            selectionBackground: config.selectionBackground,
-            selectionForeground: config.selectionForeground,
-            source: source,
             scope: scope,
             forceNotify: forceNotify,
             resolvedColorScheme: resolvedColorScheme
