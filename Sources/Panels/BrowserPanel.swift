@@ -3167,11 +3167,11 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         guard staleHiddenWebViewVisibleAttachmentBlockers().isEmpty else { return false }
 
-        replaceWebViewPreservingState(
+        guard replaceWebViewPreservingState(
             from: webView,
             websiteDataStore: websiteDataStore,
             reason: reason
-        )
+        ) else { return false }
         webViewLastHiddenAt = now
         webViewLastVisibilityChangeAt = now
         webViewLastVisibilityChangeReason = reason
@@ -4348,12 +4348,13 @@ final class BrowserPanel: Panel, ObservableObject {
         )
     }
 
+    @discardableResult
     private func replaceWebViewPreservingState(
         from oldWebView: WKWebView,
         websiteDataStore: WKWebsiteDataStore,
         reason: String
-    ) {
-        guard oldWebView === webView else { return }
+    ) -> Bool {
+        guard oldWebView === webView else { return false }
 
         let wasRenderable = shouldRenderWebView
         let restoreURL = Self.remoteProxyDisplayURL(for: oldWebView.url) ?? currentURL
@@ -4434,6 +4435,7 @@ final class BrowserPanel: Panel, ObservableObject {
             "restoreURL=\(restoreURLString ?? "nil") shouldRestore=\(shouldRestoreURL ? 1 : 0)"
         )
 #endif
+        return true
     }
 
 #if DEBUG
