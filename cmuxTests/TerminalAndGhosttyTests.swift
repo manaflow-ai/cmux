@@ -2449,6 +2449,183 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 #endif
     }
 
+    func testPrintableKeyRepeatDoesNotForceSurfaceRefresh() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+        XCTAssertNotNil(surface.surface, "Expected runtime surface before sending repeat key input")
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        defer {
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            withExtendedLifetime(surface) {}
+        }
+
+        GhosttyNSView.debugTextInputEventHandler = { _, _ in false }
+        var forwardedRepeatCount = 0
+        var forwardedTexts: [String] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_REPEAT, keyEvent.keycode == 0 else { return }
+            forwardedRepeatCount += 1
+            if let text = keyEvent.text {
+                forwardedTexts.append(String(cString: text))
+            }
+        }
+
+        surface.resetDebugForceRefreshCount()
+
+        for index in 0..<3 {
+            let event = try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime + (Double(index) * 0.001),
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "a",
+                charactersIgnoringModifiers: "a",
+                isARepeat: true,
+                keyCode: 0
+            ))
+
+            withExtendedLifetime(surface) {
+                surfaceView.keyDown(with: event)
+            }
+        }
+
+        XCTAssertEqual(forwardedRepeatCount, 3, "Repeat text keyDown events should still reach Ghostty")
+        XCTAssertEqual(forwardedTexts, ["a", "a", "a"], "Printable repeat should exercise the fallback text path")
+        XCTAssertEqual(
+            surface.debugForceRefreshCount(),
+            0,
+            "Printable key repeat must rely on Ghostty wakeups instead of forcing a synchronous surface refresh per key"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testIMECommittedKeyRepeatDoesNotForceSurfaceRefresh() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+        XCTAssertNotNil(surface.surface, "Expected runtime surface before sending repeat IME input")
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        defer {
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            withExtendedLifetime(surface) {}
+        }
+
+        GhosttyNSView.debugTextInputEventHandler = { view, _ in
+            view.insertText("あ", replacementRange: NSRange(location: NSNotFound, length: 0))
+            return true
+        }
+        var forwardedRepeatCount = 0
+        var forwardedTexts: [String] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_REPEAT, keyEvent.keycode == 0 else { return }
+            forwardedRepeatCount += 1
+            if let text = keyEvent.text {
+                forwardedTexts.append(String(cString: text))
+            }
+        }
+
+        surface.resetDebugForceRefreshCount()
+
+        for index in 0..<3 {
+            let event = try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime + (Double(index) * 0.001),
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "a",
+                charactersIgnoringModifiers: "a",
+                isARepeat: true,
+                keyCode: 0
+            ))
+
+            withExtendedLifetime(surface) {
+                surfaceView.keyDown(with: event)
+            }
+        }
+
+        XCTAssertEqual(forwardedRepeatCount, 3, "Repeat IME text keyDown events should still reach Ghostty")
+        XCTAssertEqual(forwardedTexts, ["あ", "あ", "あ"], "IME repeat should exercise the accumulated committed-text path")
+        XCTAssertEqual(
+            surface.debugForceRefreshCount(),
+            0,
+            "IME key repeat must rely on Ghostty wakeups instead of forcing a synchronous surface refresh per key"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testVisibilityRestoreRefreshesSurfaceWhileTerminalIsInactive() throws {
 #if DEBUG
         let window = makeWindow()
@@ -4703,6 +4880,77 @@ final class TerminalCmdClickPathPunctuationTrimmingTests: XCTestCase {
             literalPath
         )
     }
+
+    // MARK: - Relative path + trailing punctuation (bug #4569)
+
+    func testResolveQuicklookResolvesRelativeMarkdownPathWithTrailingDot() {
+        let cwd = "/Users/dev/project"
+        let existingFile = "/Users/dev/project/docs/specs/2026-05-22-test.md"
+
+        XCTAssertEqual(
+            cmuxResolveQuicklookPathForTesting(
+                "docs/specs/2026-05-22-test.md.",
+                cwd: cwd,
+                existingPaths: [existingFile]
+            ),
+            existingFile
+        )
+    }
+
+    func testResolveQuicklookResolvesRelativePathWithTrailingComma() {
+        let cwd = "/Users/dev/project"
+        let existingFile = "/Users/dev/project/src/main.swift"
+
+        XCTAssertEqual(
+            cmuxResolveQuicklookPathForTesting(
+                "src/main.swift,",
+                cwd: cwd,
+                existingPaths: [existingFile]
+            ),
+            existingFile
+        )
+    }
+
+    func testResolveQuicklookReturnsNilForRelativePathThatDoesNotExist() {
+        XCTAssertNil(
+            cmuxResolveQuicklookPathForTesting(
+                "docs/nonexistent.md.",
+                cwd: "/Users/dev/project",
+                existingPaths: []
+            )
+        )
+    }
+}
+
+// MARK: - Scheme detection gate for file-path-before-URL resolution (bug #4569)
+
+final class TerminalOpenURLSchemeGateTests: XCTestCase {
+    func testRelativePathWithTrailingDotHasNoScheme() {
+        XCTAssertNil(URL(string: "docs/specs/2026-05-22-test.md.")?.scheme)
+    }
+
+    func testBareDomainWithSlashHasNoScheme() {
+        // resolveBrowserNavigableURL handles these, but they have no scheme
+        XCTAssertNil(URL(string: "example.com/docs")?.scheme)
+    }
+
+    func testHTTPSURLHasScheme() {
+        XCTAssertEqual(URL(string: "https://example.com/path")?.scheme, "https")
+    }
+
+    func testFileURLHasScheme() {
+        XCTAssertEqual(URL(string: "file:///tmp/test.md")?.scheme, "file")
+    }
+
+    func testMailtoURLHasScheme() {
+        XCTAssertEqual(URL(string: "mailto:test@example.com")?.scheme, "mailto")
+    }
+
+    func testAbsolutePathHasNoScheme() {
+        // Absolute paths are filtered by isAbsolutePath before the scheme check,
+        // but verify URL(string:) doesn't synthesize a scheme for them.
+        XCTAssertNil(URL(string: "/tmp/test.md")?.scheme)
+    }
 }
 
 
@@ -4866,6 +5114,367 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
                 errnoCode: EACCES,
                 currentUserID: 501
             )
+        )
+    }
+
+    func testStableSocketLockFailureFallsBackToUserScopedSocket() {
+        XCTAssertEqual(
+            TerminalController.fallbackSocketPathAfterBindFailure(
+                requestedPath: SocketControlSettings.stableDefaultSocketPath,
+                stage: "lock",
+                errnoCode: EWOULDBLOCK,
+                currentUserID: 501
+            ),
+            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+        )
+    }
+
+    func testStableSocketLockPreparationFailuresFallBackToUserScopedSocket() {
+        let failures: [(stage: String, errnoCode: Int32)] = [
+            ("create_lock_directory", EACCES),
+            ("open_lock", EACCES),
+            ("open_lock", ELOOP),
+            ("open_lock", EINVAL),
+            ("open_lock", EMLINK),
+        ]
+
+        for failure in failures {
+            XCTAssertEqual(
+                TerminalController.fallbackSocketPathAfterBindFailure(
+                    requestedPath: SocketControlSettings.stableDefaultSocketPath,
+                    stage: failure.stage,
+                    errnoCode: failure.errnoCode,
+                    currentUserID: 501
+                ),
+                SocketControlSettings.userScopedStableSocketPath(currentUserID: 501),
+                failure.stage
+            )
+        }
+    }
+
+    func testStableSocketExistingPathFailuresFallBackToUserScopedSocket() {
+        let failures: [(stage: String, errnoCode: Int32)] = [
+            ("existing_path", EEXIST),
+            ("stat_existing_path", EACCES),
+        ]
+
+        for failure in failures {
+            XCTAssertEqual(
+                TerminalController.fallbackSocketPathAfterBindFailure(
+                    requestedPath: SocketControlSettings.stableDefaultSocketPath,
+                    stage: failure.stage,
+                    errnoCode: failure.errnoCode,
+                    currentUserID: 501
+                ),
+                SocketControlSettings.userScopedStableSocketPath(currentUserID: 501),
+                failure.stage
+            )
+        }
+    }
+
+    func testSocketPathAcceptsConnectionsForLiveUnixSocket() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+
+        let handled = acceptSingleClient(on: listenerFD) { _ in }
+
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(path))
+        wait(for: [handled], timeout: 1.0)
+    }
+
+    func testSocketPathAcceptsConnectionsRejectsStaleSocketFile() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer { unlink(path) }
+
+        XCTAssertFalse(TerminalController.socketPathAcceptsConnections(path))
+    }
+
+    func testPrepareSocketPathForBindRejectsRegularFileWithoutDeletingIt() throws {
+        let path = makeTempSocketPath()
+        try "not-a-socket".write(toFile: path, atomically: true, encoding: .utf8)
+        defer { unlink(path) }
+
+        let failure = try XCTUnwrap(TerminalController.prepareSocketPathForBind(path))
+
+        XCTAssertEqual(failure.stage, "existing_path")
+        XCTAssertEqual(failure.errnoCode, EEXIST)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+    }
+
+    func testPrepareSocketPathForBindRejectsLiveSocketWithoutDeletingIt() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+
+        let handled = acceptSingleClient(on: listenerFD) { _ in }
+        let failure = try XCTUnwrap(TerminalController.prepareSocketPathForBind(path))
+
+        XCTAssertEqual(failure.stage, "bind")
+        XCTAssertEqual(failure.errnoCode, EADDRINUSE)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+        wait(for: [handled], timeout: 1.0)
+    }
+
+    func testPrepareSocketPathForBindPreservesRefusedSocketFileWithoutPathLock() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer { unlink(path) }
+
+        let failure = try XCTUnwrap(TerminalController.prepareSocketPathForBind(path))
+
+        XCTAssertEqual(failure.stage, "bind")
+        XCTAssertEqual(failure.errnoCode, EADDRINUSE)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+    }
+
+    func testPrepareSocketPathForBindRemovesRefusedSocketFileWithReusablePathLock() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer { unlink(path) }
+
+        XCTAssertNil(TerminalController.prepareSocketPathForBind(path, canReplaceRefusedSocket: true))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+    }
+
+    @MainActor
+    func testStartPreservesRefusedSocketFileWhenLockHasNoReusableMarker() throws {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
+        XCTAssertFalse(TerminalController.socketPathCanBeReclaimedForStartup(path))
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
+        XCTAssertFalse(TerminalController.socketPathAcceptsConnections(path))
+    }
+
+    @MainActor
+    func testStartReclaimsTaggedRefusedSocketFileWithoutReusableLockMarker() throws {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let path = "/tmp/cmux-debug-reclaim-\(UUID().uuidString.lowercased()).sock"
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
+    }
+
+    @MainActor
+    func testStartReclaimsRefusedSocketFileWhenReusableLockExists() throws {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let path = makeTempSocketPath()
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(path))
+
+        TerminalController.shared.stop()
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+        XCTAssertTrue(TerminalController.socketPathCanBeReclaimedForStartup(path))
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(path))
+    }
+
+    @MainActor
+    func testStartRejectsSymlinkedSocketPathLockWithoutTouchingTarget() throws {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let path = makeTempSocketPath()
+        let lockPath = path + ".lock"
+        let targetPath = path + ".target"
+        try "preserve me".write(toFile: targetPath, atomically: true, encoding: .utf8)
+        XCTAssertEqual(symlink(targetPath, lockPath), 0)
+        defer {
+            unlink(path)
+            unlink(lockPath)
+            unlink(targetPath)
+        }
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+
+        XCTAssertEqual(
+            try String(contentsOfFile: targetPath, encoding: .utf8),
+            "preserve me"
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+    }
+
+    func testStartupReclaimabilityAllowsMissingSocketWithoutLock() {
+        let path = makeTempSocketPath()
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        XCTAssertTrue(TerminalController.socketPathCanBeReclaimedForStartup(path))
+    }
+
+    func testStartupReclaimabilityRejectsMissingSocketWithInvalidLock() throws {
+        let path = makeTempSocketPath()
+        let lockPath = path + ".lock"
+        let targetPath = path + ".target"
+        try "preserve me".write(toFile: targetPath, atomically: true, encoding: .utf8)
+        XCTAssertEqual(symlink(targetPath, lockPath), 0)
+        defer {
+            unlink(path)
+            unlink(lockPath)
+            unlink(targetPath)
+        }
+
+        XCTAssertFalse(TerminalController.socketPathCanBeReclaimedForStartup(path))
+        XCTAssertEqual(
+            try String(contentsOfFile: targetPath, encoding: .utf8),
+            "preserve me"
+        )
+    }
+
+    @MainActor
+    func testReservedStartupSocketPathFeedsActivePathBeforeListenerStarts() {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let reservedPath = "/tmp/cmux-reserved-startup-\(UUID().uuidString).sock"
+        defer {
+            unlink(reservedPath)
+            unlink(reservedPath + ".lock")
+        }
+        XCTAssertEqual(TerminalController.shared.reserveStartupSocketPath(reservedPath), reservedPath)
+
+        XCTAssertEqual(
+            TerminalController.shared.activeSocketPath(preferredPath: "/tmp/cmux-preferred.sock"),
+            reservedPath
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: reservedPath + ".lock"))
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: TerminalController.shared.activeSocketPath(preferredPath: "/tmp/cmux-preferred.sock"),
+            accessMode: .allowAll
+        )
+
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(reservedPath))
+    }
+
+    @MainActor
+    func testActiveSocketPathPreservesRunningFallbackPathForSettingsRestart() {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let fallbackPath = makeTempSocketPath()
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: fallbackPath,
+            accessMode: .cmuxOnly
+        )
+
+        let restartPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.stableDefaultSocketPath
+        )
+        XCTAssertEqual(restartPath, fallbackPath)
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: restartPath,
+            accessMode: .allowAll
+        )
+
+        XCTAssertEqual(
+            TerminalController.shared.activeSocketPath(
+                preferredPath: SocketControlSettings.stableDefaultSocketPath
+            ),
+            fallbackPath
+        )
+    }
+
+    @MainActor
+    func testReserveStartupSocketPathDoesNotCreateLockWhileListenerRuns() {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let activePath = makeTempSocketPath()
+        let reservedPath = makeTempSocketPath()
+        defer {
+            unlink(activePath)
+            unlink(activePath + ".lock")
+            unlink(reservedPath)
+            unlink(reservedPath + ".lock")
+        }
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: activePath,
+            accessMode: .allowAll
+        )
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(activePath))
+
+        XCTAssertEqual(TerminalController.shared.reserveStartupSocketPath(reservedPath), reservedPath)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: reservedPath + ".lock"))
+        XCTAssertEqual(
+            TerminalController.shared.activeSocketPath(preferredPath: reservedPath),
+            activePath
         )
     }
 
