@@ -226,6 +226,9 @@ final class WindowTerminalHostView: NSView {
             eventType: eventType
         ) else { return false }
         guard decision.result else { return false }
+        if decision.registryHit {
+            return true
+        }
         return hostedTerminalHitView(at: point) == nil
     }
 
