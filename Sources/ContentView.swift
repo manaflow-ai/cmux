@@ -10003,6 +10003,11 @@ struct VerticalTabsSidebar: View {
             modifierKeyMonitor.start()
             dragState.draggedTabId = nil
             dragState.dropIndicator = nil
+            // Defensive reset: if a prior simulation died without running
+            // its teardown (sidebar unmounted mid-loop, app crash, etc.) the
+            // @State SidebarDragState could carry isSimulated=true into a
+            // re-mount, which would silently bypass the real-drag failsafe.
+            dragState.isSimulated = false
             #if DEBUG
             SidebarDragStateRegistry.register(windowId: windowId, dragState: dragState)
             #endif
