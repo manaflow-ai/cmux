@@ -169,6 +169,62 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["markdown.open"])
     }
 
+    func testRoughdraftOpenFailureUsesSanitizedError() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("roughdraft-failure")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-roughdraft-\(UUID().uuidString)", isDirectory: true)
+        let fakeBinURL = rootURL.appendingPathComponent("bin", isDirectory: true)
+        let fileURL = rootURL.appendingPathComponent("README.md")
+        let fakeRoughdraftURL = fakeBinURL.appendingPathComponent("roughdraft")
+        let state = MockSocketServerState()
+
+        try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        try "# Smoke\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        try """
+        #!/bin/sh
+        echo "stdout token TOKEN=abc123 /Users/austinwang/project/private"
+        echo "stderr stack trace TOKEN=abc123 /Users/austinwang/.npm/_logs/private" >&2
+        exit 42
+        """.write(to: fakeRoughdraftURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeRoughdraftURL.path)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(id: id, ok: false, error: ["code": "unexpected"])
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["roughdraft", "open", fileURL.path],
+            environmentOverrides: ["PATH": "\(fakeBinURL.path):/usr/bin:/bin"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stderr.contains("Failed to open the Markdown review app."), result.stderr)
+        XCTAssertTrue(result.stderr.contains("status 42"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("TOKEN=abc123"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("/Users/austinwang"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("stack trace"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("Failed to open Roughdraft"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("npm i -g roughdraft"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("roughdraft exited"), result.stderr)
+        XCTAssertTrue(state.commands.isEmpty, result.stderr)
+    }
+
     func testTopCommandSortsWorkspacesByCPUDescending() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("top-cpu")
@@ -530,11 +586,19 @@ final class CMUXOpenCommandTests: XCTestCase {
         ])
     }
 
-    private func runCLI(cliPath: String, socketPath: String, arguments: [String]) -> ProcessRunResult {
+    private func runCLI(
+        cliPath: String,
+        socketPath: String,
+        arguments: [String],
+        environmentOverrides: [String: String] = [:]
+    ) -> ProcessRunResult {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        for (key, value) in environmentOverrides {
+            environment[key] = value
+        }
         return runProcess(executablePath: cliPath, arguments: arguments, environment: environment, timeout: 5)
     }
 
