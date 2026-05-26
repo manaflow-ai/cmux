@@ -5035,6 +5035,106 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertFalse(output.contains("report_pr_action"), output)
     }
 
+    func testZshNoPullRequestWatchSkipsLegacyGhPRProbe() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-no-pr-watch-\(UUID().uuidString)")
+        let repoURL = root.appendingPathComponent("repo", isDirectory: true)
+        let fakeBinURL = root.appendingPathComponent("fake-bin", isDirectory: true)
+        let markerURL = root.appendingPathComponent("gh-pr-invoked", isDirectory: false)
+        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
+
+        try fileManager.createDirectory(at: repoURL.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        try "ref: refs/heads/issue-2746-rate-limit\n".write(
+            to: repoURL.appendingPathComponent(".git/HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try writeExecutableScript(
+            at: fakeBinURL.appendingPathComponent("gh"),
+            contents: """
+            #!/bin/sh
+            printf invoked > "$CMUX_GH_MARKER"
+            printf '2746\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/2746\\n'
+            """
+        )
+        let socketFD = try bindUnixSocket(at: socketPath.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketPath.path)
+            try? fileManager.removeItem(at: root)
+        }
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            _cmux_send() { :; }
+            _cmux_send_bg() { :; }
+            _cmux_report_pr_for_path "\(repoURL.path)" || true
+            [[ -e "\(markerURL.path)" ]] && print MARKER=1 || print MARKER=0
+            """,
+            extraEnvironment: [
+                "CMUX_NO_PR_WATCH": "1",
+                "CMUX_GH_MARKER": markerURL.path,
+                "CMUX_SOCKET_PATH": socketPath.path,
+                "PATH": "\(fakeBinURL.path):/usr/bin:/bin",
+            ]
+        )
+
+        XCTAssertTrue(output.contains("MARKER=0"), output)
+    }
+
+    func testBashNoPullRequestWatchSkipsLegacyGhPRProbe() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-no-pr-watch-\(UUID().uuidString)")
+        let repoURL = root.appendingPathComponent("repo", isDirectory: true)
+        let fakeBinURL = root.appendingPathComponent("fake-bin", isDirectory: true)
+        let markerURL = root.appendingPathComponent("gh-pr-invoked", isDirectory: false)
+        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
+
+        try fileManager.createDirectory(at: repoURL.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        try "ref: refs/heads/issue-2746-rate-limit\n".write(
+            to: repoURL.appendingPathComponent(".git/HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try writeExecutableScript(
+            at: fakeBinURL.appendingPathComponent("gh"),
+            contents: """
+            #!/bin/sh
+            printf invoked > "$CMUX_GH_MARKER"
+            printf '2746\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/2746\\n'
+            """
+        )
+        let socketFD = try bindUnixSocket(at: socketPath.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketPath.path)
+            try? fileManager.removeItem(at: root)
+        }
+
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            _cmux_send() { :; }
+            _cmux_report_pr_for_path "\(repoURL.path)" || true
+            [[ -e "\(markerURL.path)" ]] && printf 'MARKER=1\\n' || printf 'MARKER=0\\n'
+            """,
+            extraEnvironment: [
+                "CMUX_NO_PR_WATCH": "1",
+                "CMUX_GH_MARKER": markerURL.path,
+                "CMUX_SOCKET_PATH": socketPath.path,
+                "PATH": "\(fakeBinURL.path):/usr/bin:/bin",
+            ]
+        )
+
+        XCTAssertTrue(result.stdout.contains("MARKER=0"), result.stdout)
+    }
+
     func testZshPromptResetsTerminalKeyboardProtocols() throws {
         let output = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,

@@ -2172,6 +2172,14 @@ class TabManager: ObservableObject {
         return Set(probeKeys.map(\.panelId))
     }
 
+    func workspacePullRequestTrackedPanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
+        let probeKeys = Set(workspacePullRequestProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspacePullRequestNextPollAtByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspacePullRequestLastTerminalStateRefreshAtByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspacePullRequestTransientFailureCountByKey.keys.filter { $0.workspaceId == workspaceId })
+        return Set(probeKeys.map(\.panelId))
+    }
+
     private func trackedWorkspaceGitMetadataPollCandidatePanelIds(
         in workspace: Workspace,
         activeProbeKeys: Set<WorkspaceGitProbeKey>
