@@ -270,7 +270,6 @@ extension HighlightedEditorBridge: TextViewCoordinator {
     nonisolated func prepareCoordinator(controller: TextViewController) {
         MainActor.assumeIsolated {
             guard !isCoordinatorDestroyed() else { return }
-            controller.textView.usesFindPanel = true
             textController = controller
             installLocalEventMonitor(scrollView: controller.scrollView)
         }
