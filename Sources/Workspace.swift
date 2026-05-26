@@ -14209,8 +14209,7 @@ final class Workspace: Identifiable, ObservableObject {
         let paneIds = bonsplitController.allPaneIds
         guard paneIds.count > 1 else { return false }
 
-        let currentPaneId = bonsplitController.focusedPaneId ?? focusedPanelId.flatMap { paneId(forPanelId: $0) }
-        guard let currentPaneId,
+        guard let currentPaneId = bonsplitController.focusedPaneId,
               let currentIndex = paneIds.firstIndex(of: currentPaneId) else {
             return false
         }
