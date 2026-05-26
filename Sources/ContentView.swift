@@ -9915,8 +9915,9 @@ struct VerticalTabsSidebar: View {
             switch self {
             case .workspace(let workspace):
                 return "workspace-\(workspace.id.uuidString)"
-            case .group(let group, _):
-                return "group-\(group.id.uuidString)"
+            case .group(let group, let tabs):
+                let firstWorkspaceId = tabs.first?.id.uuidString ?? "empty"
+                return "group-\(group.id.uuidString)-\(firstWorkspaceId)"
             }
         }
     }
@@ -10997,7 +10998,7 @@ struct VerticalTabsSidebar: View {
         // drag mutations at 60fps invalidate only the rows/overlays that
         // read them, never this sidebar body. See SidebarDragState and
         // https://github.com/manaflow-ai/cmux/issues/2586.
-        LazyVStack(spacing: tabRowSpacing) {
+        return LazyVStack(spacing: tabRowSpacing) {
             ForEach(sections) { section in
                 switch section {
                 case .workspace(let tab):
@@ -11069,23 +11070,28 @@ struct VerticalTabsSidebar: View {
         renderContext: WorkspaceListRenderContext
     ) -> [WorkspaceListRenderSection] {
         let groupsById = Dictionary(uniqueKeysWithValues: renderContext.workspaceGroups.map { ($0.id, $0) })
-        var tabsByGroupId: [UUID: [Workspace]] = [:]
-        for tab in renderContext.tabs {
-            guard let groupId = renderContext.workspaceGroupIdByWorkspaceId[tab.id] else { continue }
-            tabsByGroupId[groupId, default: []].append(tab)
-        }
         var emittedGroupIds = Set<UUID>()
         var sections: [WorkspaceListRenderSection] = []
+        var tabIndex = renderContext.tabs.startIndex
 
-        for tab in renderContext.tabs {
+        while tabIndex < renderContext.tabs.endIndex {
+            let tab = renderContext.tabs[tabIndex]
             guard let groupId = renderContext.workspaceGroupIdByWorkspaceId[tab.id],
                   let group = groupsById[groupId] else {
                 sections.append(.workspace(tab))
+                tabIndex += 1
                 continue
             }
 
-            guard emittedGroupIds.insert(groupId).inserted else { continue }
-            sections.append(.group(group, tabsByGroupId[groupId] ?? []))
+            var runTabs: [Workspace] = []
+            while tabIndex < renderContext.tabs.endIndex {
+                let runTab = renderContext.tabs[tabIndex]
+                guard renderContext.workspaceGroupIdByWorkspaceId[runTab.id] == groupId else { break }
+                runTabs.append(runTab)
+                tabIndex += 1
+            }
+            emittedGroupIds.insert(groupId)
+            sections.append(.group(group, runTabs))
         }
 
         for group in renderContext.workspaceGroups where !emittedGroupIds.contains(group.id) {
@@ -11113,7 +11119,7 @@ struct VerticalTabsSidebar: View {
         return VStack(alignment: .leading, spacing: tabRowSpacing) {
             SidebarWorkspaceGroupHeader(
                 group: group,
-                workspaceCount: tabs.count,
+                workspaceCount: group.workspaceIds.count,
                 containsSelectedWorkspace: containsSelectedWorkspace,
                 dropDelegate: headerDropDelegate,
                 onToggleCollapsed: {
@@ -13537,10 +13543,7 @@ private enum SidebarWorkspaceGroupPrompt {
         alert.addButton(withTitle: String(localized: "alert.workspaceFolder.cancel", defaultValue: "Cancel"))
         let alertWindow = alert.window
         alertWindow.initialFirstResponder = input
-        DispatchQueue.main.async {
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
+        input.selectText(nil)
 
         guard alert.runModal() == .alertFirstButtonReturn else { return nil }
         return input.stringValue
