@@ -209,6 +209,22 @@ final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
 }
 
 final class SidebarWorkspaceScrollLayoutTests: XCTestCase {
+    func testUnmeasuredRowsDoNotCreateInitialOverflow() {
+        let contentMinHeight: CGFloat = 480
+        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
+            contentMinHeight: contentMinHeight,
+            rowsHeight: nil
+        )
+
+        XCTAssertEqual(emptyAreaHeight, 0, accuracy: 0.001)
+        XCTAssertFalse(
+            SidebarWorkspaceScrollLayout.rowsOverflow(
+                rowsHeight: nil,
+                contentMinHeight: contentMinHeight
+            )
+        )
+    }
+
     func testEmptyAreaFillsOnlyRemainingViewportSpaceWhenRowsFit() {
         let contentMinHeight = SidebarWorkspaceScrollLayout.contentMinHeight(
             viewportHeight: 720,

@@ -9675,7 +9675,7 @@ struct VerticalTabsSidebar: View {
     @State private var frozenShortcutHintsValue: Bool = false
     @State private var terminalScrollBarVisibilityGeneration: UInt64 = 0
     @State private var laidOutWorkspaceRowIds: Set<UUID> = []
-    @State private var workspaceRowsHeight: CGFloat = 0
+    @State private var workspaceRowsHeight: CGFloat?
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
@@ -9970,6 +9970,10 @@ struct VerticalTabsSidebar: View {
                 contentMinHeight: contentMinHeight,
                 rowsHeight: workspaceRowsHeight
             )
+            let workspaceContentOverflows = SidebarWorkspaceScrollLayout.rowsOverflow(
+                rowsHeight: workspaceRowsHeight,
+                contentMinHeight: contentMinHeight
+            )
 
             ScrollViewReader { scrollProxy in
                 ScrollView(.vertical) {
@@ -9982,7 +9986,10 @@ struct VerticalTabsSidebar: View {
                 .scrollIndicators(.automatic)
                 .background(
                     SidebarScrollViewResolver { scrollView in
-                        configureSidebarScrollView(scrollView)
+                        configureSidebarScrollView(
+                            scrollView,
+                            hasVerticalScroller: workspaceContentOverflows
+                        )
                         dragAutoScrollController.attach(scrollView: scrollView)
                     }
                     .frame(width: 0, height: 0)
@@ -10074,22 +10081,34 @@ struct VerticalTabsSidebar: View {
                 }
                 .onPreferenceChange(SidebarWorkspaceRowsHeightPreferenceKey.self) { rowsHeight in
                     let nextRowsHeight = max(0, rowsHeight)
-                    guard abs(workspaceRowsHeight - nextRowsHeight) > 0.5 else { return }
+                    if let workspaceRowsHeight, abs(workspaceRowsHeight - nextRowsHeight) <= 0.5 {
+                        return
+                    }
                     workspaceRowsHeight = nextRowsHeight
                 }
             }
         }
     }
 
-    private func configureSidebarScrollView(_ scrollView: NSScrollView?) {
+    private func configureSidebarScrollView(
+        _ scrollView: NSScrollView?,
+        hasVerticalScroller: Bool
+    ) {
         guard let scrollView else { return }
 
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
-        scrollView.hasVerticalScroller = SidebarWorkspaceScrollLayout.contentOverflows(
-            contentHeight: scrollView.documentView?.bounds.height ?? 0,
-            viewportHeight: scrollView.contentView.bounds.height
+        scrollView.hasVerticalScroller = hasVerticalScroller
+    }
+
+    private func configureSidebarScrollViewFromDocument(_ scrollView: NSScrollView?) {
+        configureSidebarScrollView(
+            scrollView,
+            hasVerticalScroller: SidebarWorkspaceScrollLayout.contentOverflows(
+                contentHeight: scrollView?.documentView?.bounds.height ?? 0,
+                viewportHeight: scrollView?.contentView.bounds.height ?? 0
+            )
         )
     }
 
@@ -10149,7 +10168,7 @@ struct VerticalTabsSidebar: View {
             }
             .background(
                 SidebarScrollViewResolver { scrollView in
-                    configureSidebarScrollView(scrollView)
+                    configureSidebarScrollViewFromDocument(scrollView)
                     dragAutoScrollController.attach(scrollView: scrollView)
                 }
                 .frame(width: 0, height: 0)

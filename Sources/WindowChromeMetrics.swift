@@ -63,8 +63,9 @@ enum SidebarWorkspaceScrollLayout {
 
     nonisolated static func emptyAreaHeight(
         contentMinHeight: CGFloat,
-        rowsHeight: CGFloat
+        rowsHeight: CGFloat?
     ) -> CGFloat {
+        guard let rowsHeight else { return 0 }
         max(0, contentMinHeight - max(0, rowsHeight))
     }
 
@@ -74,5 +75,18 @@ enum SidebarWorkspaceScrollLayout {
         tolerance: CGFloat = 1
     ) -> Bool {
         contentHeight > viewportHeight + tolerance
+    }
+
+    nonisolated static func rowsOverflow(
+        rowsHeight: CGFloat?,
+        contentMinHeight: CGFloat,
+        tolerance: CGFloat = 1
+    ) -> Bool {
+        guard let rowsHeight else { return false }
+        return contentOverflows(
+            contentHeight: rowsHeight,
+            viewportHeight: contentMinHeight,
+            tolerance: tolerance
+        )
     }
 }
