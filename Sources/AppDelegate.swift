@@ -6814,7 +6814,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
-            guard targetTabManager.openBrowser(
+            guard targetTabManager.openCodeEditor(
                 inWorkspace: targetWorkspaceId,
                 url: openFolderURL,
                 preferSplitRight: true
@@ -6825,6 +6825,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return true
+    }
+
+    @discardableResult
+    func openCodeEditor(
+        tabManager preferredTabManager: TabManager? = nil,
+        url requestedURL: URL? = nil,
+        preferSplitRight: Bool = false,
+        insertAtEnd: Bool = false
+    ) -> UUID? {
+        let targetTabManager = preferredTabManager
+            ?? preferredMainWindowContextForWorkspaceCreation(debugSource: "codeEditor.open.target")?.tabManager
+        guard let targetTabManager else {
+            NSSound.beep()
+            return nil
+        }
+
+        let targetWorkspaceId = targetTabManager.selectedWorkspace?.id
+            ?? targetTabManager.tabs.first?.id
+            ?? targetTabManager.addWorkspace(select: true).id
+
+        if let requestedURL {
+            return targetTabManager.openCodeEditor(
+                inWorkspace: targetWorkspaceId,
+                url: requestedURL,
+                preferSplitRight: preferSplitRight,
+                insertAtEnd: insertAtEnd
+            )
+        }
+
+        func openDefaultCodeEditor() -> UUID? {
+            targetTabManager.openCodeEditor(
+                inWorkspace: targetWorkspaceId,
+                url: BrowserPanel.SurfaceRole.codeEditor.defaultInitialURL,
+                preferSplitRight: preferSplitRight,
+                insertAtEnd: insertAtEnd
+            )
+        }
+
+        let directoryPath = targetTabManager.selectedWorkspace?.currentDirectory
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let directoryPath,
+              !directoryPath.isEmpty,
+              let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
+            return openDefaultCodeEditor()
+        }
+
+        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+            guard let serveWebURL,
+                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
+                      baseWebUIURL: serveWebURL,
+                      directoryPath: directoryPath
+                  ) else {
+                if openDefaultCodeEditor() == nil {
+                    NSSound.beep()
+                }
+                return
+            }
+
+            guard targetTabManager.openCodeEditor(
+                inWorkspace: targetWorkspaceId,
+                url: openFolderURL,
+                preferSplitRight: preferSplitRight,
+                insertAtEnd: insertAtEnd
+            ) != nil else {
+                NSSound.beep()
+                return
+            }
+        }
+
+        return nil
     }
 
     func showOpenFolderInInlineVSCodePanel(tabManager preferredTabManager: TabManager? = nil) {
@@ -13821,6 +13891,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager = context.tabManager
                 defer { tabManager = previousTabManager }
                 guard openBrowserAndFocusAddressBar(insertAtEnd: true) != nil else {
+                    return false
+                }
+                onExecuted?()
+                return true
+            case .newCodeEditor:
+                guard context.tabManager.openCodeEditor(insertAtEnd: true) != nil else {
                     return false
                 }
                 onExecuted?()

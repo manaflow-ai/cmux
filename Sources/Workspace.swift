@@ -544,7 +544,7 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
-        case .browser:
+        case .browser, .codeEditor:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             terminalSnapshot = nil
             let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
@@ -1057,6 +1057,18 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
             return browserPanel.id
+        case .codeEditor:
+            guard let editorPanel = newCodeEditorSurface(
+                inPane: paneId,
+                url: nil,
+                focus: false,
+                preferredProfileID: snapshot.browser?.profileID,
+                creationPolicy: .restoration
+            ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: editorPanel.id)
+            return editorPanel.id
         case .markdown:
             guard let filePath = snapshot.markdown?.filePath,
                   let markdownPanel = newMarkdownSurface(
@@ -1362,6 +1374,19 @@ extension Workspace {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
+
+        case .codeEditor:
+            let url = surface.url.flatMap { URL(string: $0) }
+            if let panel = newCodeEditorSurface(
+                inPane: paneId,
+                url: url ?? BrowserPanel.SurfaceRole.codeEditor.defaultInitialURL,
+                focus: false,
+                creationPolicy: .restoration
+            ) {
+                _ = closePanel(panelId, force: true)
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if surface.focus == true { focusPanelId = panel.id }
+            }
         }
     }
 
@@ -1390,6 +1415,18 @@ extension Workspace {
             if let panel = newBrowserSurface(
                 inPane: paneId,
                 url: url,
+                focus: false,
+                creationPolicy: .restoration
+            ) {
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if surface.focus == true { focusPanelId = panel.id }
+            }
+
+        case .codeEditor:
+            let url = surface.url.flatMap { URL(string: $0) }
+            if let panel = newCodeEditorSurface(
+                inPane: paneId,
+                url: url ?? BrowserPanel.SurfaceRole.codeEditor.defaultInitialURL,
                 focus: false,
                 creationPolicy: .restoration
             ) {
@@ -9352,6 +9389,7 @@ final class Workspace: Identifiable, ObservableObject {
     enum SurfaceKind {
         static let terminal = "terminal"
         static let browser = "browser"
+        static let codeEditor = "editor"
         static let markdown = "markdown"
         static let filePreview = "filePreview"
         static let rightSidebarTool = "rightSidebarTool"
@@ -10061,7 +10099,9 @@ final class Workspace: Identifiable, ObservableObject {
             guard let self = self,
                   let browserPanel = browserPanel,
                   let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
-            self.publishBrowserOpenTabSuggestion(for: browserPanel)
+            if browserPanel.surfaceRole.contributesToBrowserOpenTabSuggestions {
+                self.publishBrowserOpenTabSuggestion(for: browserPanel)
+            }
             guard let existing = self.bonsplitController.tab(tabId) else { return }
             let nextTitle = browserPanel.displayTitle
             if self.panelTitles[browserPanel.id] != nextTitle {
@@ -10081,7 +10121,9 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
         panelSubscriptions[browserPanel.id] = subscription
-        publishBrowserOpenTabSuggestion(for: browserPanel)
+        if browserPanel.surfaceRole.contributesToBrowserOpenTabSuggestions {
+            publishBrowserOpenTabSuggestion(for: browserPanel)
+        }
         setPreferredBrowserProfileID(browserPanel.profileID)
     }
 
@@ -10112,6 +10154,47 @@ final class Workspace: Identifiable, ObservableObject {
             return preferredBrowserProfileID
         }
         return BrowserProfileStore.shared.effectiveLastUsedProfileID
+    }
+
+    private func browserSurfaceKind(for role: BrowserPanel.SurfaceRole) -> String {
+        switch role {
+        case .browser:
+            return SurfaceKind.browser
+        case .codeEditor:
+            return SurfaceKind.codeEditor
+        }
+    }
+
+    private func browserLifecycleKind(for role: BrowserPanel.SurfaceRole) -> String {
+        switch role {
+        case .browser:
+            return "browser"
+        case .codeEditor:
+            return "editor"
+        }
+    }
+
+    private func browserLifecycleOrigin(for role: BrowserPanel.SurfaceRole, suffix: String) -> String {
+        switch role {
+        case .browser:
+            return "browser_\(suffix)"
+        case .codeEditor:
+            return "editor_\(suffix)"
+        }
+    }
+
+    private func initialURLForBrowserRole(
+        _ role: BrowserPanel.SurfaceRole,
+        requestedURL: URL?,
+        creationPolicy: BrowserPanelCreationPolicy
+    ) -> URL? {
+        if let requestedURL {
+            return requestedURL
+        }
+        guard creationPolicy != .restoration else {
+            return nil
+        }
+        return role.defaultInitialURL
     }
 
     private func installMarkdownPanelSubscription(_ markdownPanel: MarkdownPanel) {
@@ -10226,6 +10309,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.terminal
         case .browser:
             return SurfaceKind.browser
+        case .codeEditor:
+            return SurfaceKind.codeEditor
         case .markdown:
             return SurfaceKind.markdown
         case .filePreview:
@@ -12621,13 +12706,14 @@ final class Workspace: Identifiable, ObservableObject {
         url: URL? = nil,
         preferredProfileID: UUID? = nil,
         focus: Bool = true,
+        surfaceRole: BrowserPanel.SurfaceRole = .browser,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         initialDividerPosition: CGFloat? = nil
     ) -> BrowserPanel? {
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let url {
-                _ = NSWorkspace.shared.open(url)
+            if let externalURL = initialURLForBrowserRole(surfaceRole, requestedURL: url, creationPolicy: creationPolicy) {
+                _ = NSWorkspace.shared.open(externalURL)
             }
             return nil
         }
@@ -12648,11 +12734,12 @@ final class Workspace: Identifiable, ObservableObject {
         // Create browser panel
         let browserPanel = BrowserPanel(
             workspaceId: id,
+            surfaceRole: surfaceRole,
             profileID: resolvedNewBrowserProfileID(
                 preferredProfileID: preferredProfileID,
                 sourcePanelId: panelId
             ),
-            initialURL: url,
+            initialURL: initialURLForBrowserRole(surfaceRole, requestedURL: url, creationPolicy: creationPolicy),
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             proxyEndpoint: remoteProxyEndpoint,
@@ -12667,7 +12754,7 @@ final class Workspace: Identifiable, ObservableObject {
         let newTab = Bonsplit.Tab(
             title: browserPanel.displayTitle,
             icon: browserPanel.displayIcon,
-            kind: SurfaceKind.browser,
+            kind: browserSurfaceKind(for: surfaceRole),
             isDirty: browserPanel.isDirty,
             isLoading: browserPanel.isLoading,
             isPinned: false
@@ -12687,7 +12774,15 @@ final class Workspace: Identifiable, ObservableObject {
         }
         applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
         setPreferredBrowserProfileID(browserPanel.profileID)
-        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: browserPanel.id, kind: "browser", origin: "browser_split", focused: focus)
+        publishCmuxSplitCreated(
+            newPaneId,
+            sourcePaneId: paneId,
+            orientation: orientation,
+            surfaceId: browserPanel.id,
+            kind: browserLifecycleKind(for: surfaceRole),
+            origin: browserLifecycleOrigin(for: surfaceRole, suffix: "split"),
+            focused: focus
+        )
 
         // See newTerminalSplit: suppress old view's becomeFirstResponder during reparenting.
         let previousHostedView = focusedTerminalPanel?.hostedView
@@ -12724,11 +12819,13 @@ final class Workspace: Identifiable, ObservableObject {
         insertAtEnd: Bool = false,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
+        surfaceRole: BrowserPanel.SurfaceRole = .browser,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated
     ) -> BrowserPanel? {
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let externalURL = url ?? initialRequest?.url {
+            if let externalURL = initialRequest?.url
+                ?? initialURLForBrowserRole(surfaceRole, requestedURL: url, creationPolicy: creationPolicy) {
                 _ = NSWorkspace.shared.open(externalURL)
             }
             return nil
@@ -12741,11 +12838,12 @@ final class Workspace: Identifiable, ObservableObject {
 
         let browserPanel = BrowserPanel(
             workspaceId: id,
+            surfaceRole: surfaceRole,
             profileID: resolvedNewBrowserProfileID(
                 preferredProfileID: preferredProfileID,
                 sourcePanelId: sourcePanelId
             ),
-            initialURL: url,
+            initialURL: initialURLForBrowserRole(surfaceRole, requestedURL: url, creationPolicy: creationPolicy),
             initialRequest: initialRequest,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
@@ -12761,7 +12859,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let newTabId = bonsplitController.createTab(
             title: browserPanel.displayTitle,
             icon: browserPanel.displayIcon,
-            kind: SurfaceKind.browser,
+            kind: browserSurfaceKind(for: surfaceRole),
             isDirty: browserPanel.isDirty,
             isLoading: browserPanel.isLoading,
             isPinned: false,
@@ -12780,7 +12878,13 @@ final class Workspace: Identifiable, ObservableObject {
             let targetIndex = max(0, bonsplitController.tabs(inPane: paneId).count - 1)
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
-        publishCmuxSurfaceCreated(browserPanel.id, paneId: paneId, kind: "browser", origin: "browser_tab", focused: shouldFocusNewTab)
+        publishCmuxSurfaceCreated(
+            browserPanel.id,
+            paneId: paneId,
+            kind: browserLifecycleKind(for: surfaceRole),
+            origin: browserLifecycleOrigin(for: surfaceRole, suffix: "tab"),
+            focused: shouldFocusNewTab
+        )
 
         // Match terminal behavior: enforce deterministic selection + focus.
         if shouldFocusNewTab {
@@ -12800,6 +12904,50 @@ final class Workspace: Identifiable, ObservableObject {
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
 
         return browserPanel
+    }
+
+    @discardableResult
+    func newCodeEditorSplit(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        url: URL? = nil,
+        preferredProfileID: UUID? = nil,
+        focus: Bool = true,
+        creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
+        initialDividerPosition: CGFloat? = nil
+    ) -> BrowserPanel? {
+        newBrowserSplit(
+            from: panelId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            url: url,
+            preferredProfileID: preferredProfileID,
+            focus: focus,
+            surfaceRole: .codeEditor,
+            creationPolicy: creationPolicy,
+            initialDividerPosition: initialDividerPosition
+        )
+    }
+
+    @discardableResult
+    func newCodeEditorSurface(
+        inPane paneId: PaneID,
+        url: URL? = nil,
+        focus: Bool? = nil,
+        insertAtEnd: Bool = false,
+        preferredProfileID: UUID? = nil,
+        creationPolicy: BrowserPanelCreationPolicy = .userInitiated
+    ) -> BrowserPanel? {
+        newBrowserSurface(
+            inPane: paneId,
+            url: url,
+            focus: focus,
+            insertAtEnd: insertAtEnd,
+            preferredProfileID: preferredProfileID,
+            surfaceRole: .codeEditor,
+            creationPolicy: creationPolicy
+        )
     }
 
     /// Open the markdown viewer for `filePath`, reusing an existing
@@ -13530,6 +13678,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func stageClosedBrowserRestoreSnapshotIfNeeded(for tab: Bonsplit.Tab, inPane pane: PaneID) {
         guard let panelId = panelIdFromSurfaceId(tab.id),
               let browserPanel = browserPanel(for: panelId),
+              browserPanel.panelType == .browser,
               let tabIndex = bonsplitController.tabs(inPane: pane).firstIndex(where: { $0.id == tab.id }) else {
             pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
             return
@@ -14146,6 +14295,7 @@ final class Workspace: Identifiable, ObservableObject {
         trigger: FocusPanelTrigger
     ) {
         guard trigger == .standard else { return }
+        guard browserPanel.surfaceRole.showsBrowserChrome else { return }
         guard !isCommandPaletteVisibleForWorkspaceWindow() else { return }
         guard !browserPanel.shouldSuppressOmnibarAutofocus() else { return }
         guard browserPanel.isShowingNewTabPage || browserPanel.preferredURLStringForOmnibar() == nil else { return }
@@ -16781,6 +16931,9 @@ extension Workspace: BonsplitDelegate {
                     preferredWindow: presentingWindow,
                     debugSource: "surfaceTabBar.cloudVM"
                 )
+            case .newCodeEditor:
+                bonsplitController.focusPane(pane)
+                _ = newCodeEditorSurface(inPane: pane, focus: true)
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }
@@ -16859,6 +17012,8 @@ extension Workspace: BonsplitDelegate {
             _ = newTerminalSurface(inPane: pane)
         case "browser":
             _ = newBrowserSurface(inPane: pane)
+        case SurfaceKind.codeEditor, "codeEditor", "code_editor":
+            _ = newCodeEditorSurface(inPane: pane)
         default:
             _ = newTerminalSurface(inPane: pane)
         }

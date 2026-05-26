@@ -8348,7 +8348,7 @@ class TerminalController {
             return error
         }
         let initialDividerPosition = parsedInitialDivider.value
-        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+        if (panelType == .browser || panelType == .codeEditor), BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
 
@@ -8383,6 +8383,16 @@ class TerminalController {
             let newId: UUID?
             if panelType == .browser {
                 newId = ws.newBrowserSplit(
+                    from: targetSurfaceId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    url: url,
+                    focus: focus,
+                    creationPolicy: .automationPreload,
+                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+                )?.id
+            } else if panelType == .codeEditor {
+                newId = ws.newCodeEditorSplit(
                     from: targetSurfaceId,
                     orientation: orientation,
                     insertFirst: insertFirst,
@@ -8439,7 +8449,7 @@ class TerminalController {
         let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
         let remotePTYSessionID = v2OptionalTrimmedRawString(params, "remote_pty_session_id")
         let startupEnvironment = v2TrimmedStringMap(params, keys: ["startup_environment", "initial_env"])
-        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+        if (panelType == .browser || panelType == .codeEditor), BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
 
@@ -8469,6 +8479,13 @@ class TerminalController {
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             if panelType == .browser {
                 newPanelId = ws.newBrowserSurface(
+                    inPane: paneId,
+                    url: url,
+                    focus: focus,
+                    creationPolicy: .automationPreload
+                )?.id
+            } else if panelType == .codeEditor {
+                newPanelId = ws.newCodeEditorSurface(
                     inPane: paneId,
                     url: url,
                     focus: focus,
@@ -9756,7 +9773,7 @@ class TerminalController {
         let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
         let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
         let startupEnvironment = v2TrimmedStringMap(params, keys: ["startup_environment", "initial_env"])
-        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+        if (panelType == .browser || panelType == .codeEditor), BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
 
@@ -9787,6 +9804,16 @@ class TerminalController {
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             if panelType == .browser {
                 newPanelId = ws.newBrowserSplit(
+                    from: sourcePanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    url: url,
+                    focus: focus,
+                    creationPolicy: .automationPreload,
+                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+                )?.id
+            } else if panelType == .codeEditor {
+                newPanelId = ws.newCodeEditorSplit(
                     from: sourcePanelId,
                     orientation: orientation,
                     insertFirst: insertFirst,
@@ -18710,7 +18737,7 @@ class TerminalController {
             let partStr = String(part)
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
-                panelType = typeStr == "browser" ? .browser : .terminal
+                panelType = PanelType(externalValue: typeStr) ?? .terminal
             } else if partStr.hasPrefix("--direction=") {
                 let dirStr = String(partStr.dropFirst(12))
                 if let parsed = parseSplitDirection(dirStr) {
@@ -18728,7 +18755,7 @@ class TerminalController {
         if invalidDirection {
             return "ERROR: Invalid direction. Use left, right, up, or down."
         }
-        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+        if (panelType == .browser || panelType == .codeEditor), BrowserAvailabilitySettings.isDisabled() {
             return openExternallyWhenBrowserDisabled(rawURL: urlRaw, url: url)
         }
 
@@ -18747,6 +18774,15 @@ class TerminalController {
             let newPanelId: UUID?
             if panelType == .browser {
                 newPanelId = tab.newBrowserSplit(
+                    from: focusedPanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    url: url,
+                    focus: focus,
+                    creationPolicy: .automationPreload
+                )?.id
+            } else if panelType == .codeEditor {
+                newPanelId = tab.newCodeEditorSplit(
                     from: focusedPanelId,
                     orientation: orientation,
                     insertFirst: insertFirst,
@@ -20373,7 +20409,7 @@ class TerminalController {
             let partStr = String(part)
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
-                panelType = typeStr == "browser" ? .browser : .terminal
+                panelType = PanelType(externalValue: typeStr) ?? .terminal
             } else if partStr.hasPrefix("--pane=") {
                 paneArg = String(partStr.dropFirst(7))
             } else if partStr.hasPrefix("--url=") {
@@ -20382,7 +20418,7 @@ class TerminalController {
                 url = urlRaw.flatMap { URL(string: $0) }
             }
         }
-        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+        if (panelType == .browser || panelType == .codeEditor), BrowserAvailabilitySettings.isDisabled() {
             return openExternallyWhenBrowserDisabled(rawURL: urlRaw, url: url)
         }
 
@@ -20417,6 +20453,13 @@ class TerminalController {
             let newPanelId: UUID?
             if panelType == .browser {
                 newPanelId = tab.newBrowserSurface(
+                    inPane: targetPaneId,
+                    url: url,
+                    focus: focus,
+                    creationPolicy: .automationPreload
+                )?.id
+            } else if panelType == .codeEditor {
+                newPanelId = tab.newCodeEditorSurface(
                     inPane: targetPaneId,
                     url: url,
                     focus: focus,

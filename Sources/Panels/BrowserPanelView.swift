@@ -710,8 +710,10 @@ struct BrowserPanelView: View {
         // Layering contract: browser find UI is mounted in the portal-hosted AppKit
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
         VStack(spacing: 0) {
-            addressBar
-                .fixedSize(horizontal: false, vertical: true)
+            if panel.surfaceRole.showsBrowserChrome {
+                addressBar
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             webView
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -769,6 +771,12 @@ struct BrowserPanelView: View {
         }
         .onPreferenceChange(BrowserAddressBarHeightPreferenceKey.self) { height in
             addressBarHeight = height
+        }
+        .onChange(of: panel.surfaceRole.showsBrowserChrome) { _, showsBrowserChrome in
+            if !showsBrowserChrome {
+                addressBarHeight = 0
+                omnibarPillFrame = .zero
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick).filter { [weak panel] note in
             // Only handle clicks from our own webview.
