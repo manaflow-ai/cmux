@@ -16,7 +16,15 @@ The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confi
 
 ## Ghostty sidebar theme keys
 
-cmux also reads cmux-specific sidebar color keys from Ghostty config files and theme files. Values use Ghostty-style hex colors, and can use `light:<hex>,dark:<hex>` pairs where noted.
+cmux also reads cmux-specific sidebar color keys from Ghostty config files and theme files. These are cmux extensions, not standard Ghostty keys. Values use Ghostty-style hex colors such as `#RRGGBB`, and can use `light:<hex>,dark:<hex>` pairs where noted.
+
+Examples:
+
+```ini
+sidebar-background = #123ABC
+sidebar-foreground = light:#111111,dark:#FFFFFF
+sidebar-tint-opacity = 0.72
+```
 
 - `sidebar-background`: sidebar material tint color. Supports light/dark pairs.
 - `sidebar-tint-opacity`: sidebar tint opacity, clamped from `0` to `1`.

@@ -225,74 +225,100 @@ struct GhosttyConfig {
                 sidebarBackgroundLight,
                 key: "sidebarTintHexLight",
                 clearsManagedValueWhenMissing: shouldClearMissingLightBackground,
-                appliedValues: &appliedValues
+                appliedValues: &appliedValues,
+                defaults: defaults
             )
             applySidebarBackgroundColor(
                 sidebarBackgroundDark,
                 key: "sidebarTintHexDark",
                 clearsManagedValueWhenMissing: shouldClearMissingDarkBackground,
-                appliedValues: &appliedValues
+                appliedValues: &appliedValues,
+                defaults: defaults
             )
             applySidebarBackgroundColor(
                 sidebarBackground,
                 key: "sidebarTintHex",
                 clearsManagedValueWhenMissing: false,
-                appliedValues: &appliedValues
+                appliedValues: &appliedValues,
+                defaults: defaults
             )
         } else {
-            clearManagedSidebarAppearanceValue(key: "sidebarTintHexLight", appliedValues: &appliedValues)
-            clearManagedSidebarAppearanceValue(key: "sidebarTintHexDark", appliedValues: &appliedValues)
-            clearManagedSidebarAppearanceValue(key: "sidebarTintHex", appliedValues: &appliedValues)
+            clearManagedSidebarAppearanceValue(
+                key: "sidebarTintHexLight",
+                appliedValues: &appliedValues,
+                defaults: defaults
+            )
+            clearManagedSidebarAppearanceValue(
+                key: "sidebarTintHexDark",
+                appliedValues: &appliedValues,
+                defaults: defaults
+            )
+            clearManagedSidebarAppearanceValue(
+                key: "sidebarTintHex",
+                appliedValues: &appliedValues,
+                defaults: defaults
+            )
         }
 
         applySidebarColorIfConfigured(
             rawSidebarSelectionBackground,
             color: sidebarSelectionBackground,
             key: "sidebarSelectionColorHex",
-            appliedValues: &appliedValues
+            appliedValues: &appliedValues,
+            defaults: defaults
         )
         applySidebarColorIfConfigured(
             rawSidebarForeground,
             color: sidebarForeground,
             key: SidebarThemeSettings.foregroundColorHexKey,
-            appliedValues: &appliedValues
+            appliedValues: &appliedValues,
+            defaults: defaults
         )
         applySidebarColorIfConfigured(
             rawSidebarMutedForeground,
             color: sidebarMutedForeground,
             key: SidebarThemeSettings.mutedForegroundColorHexKey,
-            appliedValues: &appliedValues
+            appliedValues: &appliedValues,
+            defaults: defaults
         )
         applySidebarColorIfConfigured(
             rawSidebarSelectionForeground,
             color: sidebarSelectionForeground,
             key: SidebarThemeSettings.selectionForegroundColorHexKey,
-            appliedValues: &appliedValues
+            appliedValues: &appliedValues,
+            defaults: defaults
         )
         applySidebarColorIfConfigured(
             rawSidebarBorderColor,
             color: sidebarBorderColor,
             key: SidebarThemeSettings.borderColorHexKey,
-            appliedValues: &appliedValues
+            appliedValues: &appliedValues,
+            defaults: defaults
         )
         applySidebarColorIfConfigured(
             rawSidebarAccentColor,
             color: sidebarAccentColor,
             key: SidebarThemeSettings.accentColorHexKey,
-            appliedValues: &appliedValues
+            appliedValues: &appliedValues,
+            defaults: defaults
         )
         applySidebarColorIfConfigured(
             rawSidebarNotificationBadgeBackground,
             color: sidebarNotificationBadgeBackground,
             key: "sidebarNotificationBadgeColorHex",
-            appliedValues: &appliedValues
+            appliedValues: &appliedValues,
+            defaults: defaults
         )
 
         if let opacity = sidebarTintOpacity {
             defaults.set(opacity, forKey: "sidebarTintOpacity")
             appliedValues["sidebarTintOpacity"] = String(format: "%.4f", opacity)
         } else {
-            clearManagedSidebarAppearanceValue(key: "sidebarTintOpacity", appliedValues: &appliedValues)
+            clearManagedSidebarAppearanceValue(
+                key: "sidebarTintOpacity",
+                appliedValues: &appliedValues,
+                defaults: defaults
+            )
         }
 
         if appliedValues.isEmpty {
@@ -329,25 +355,31 @@ struct GhosttyConfig {
         _ raw: String?,
         color: NSColor?,
         key: String,
-        appliedValues: inout [String: String]
+        appliedValues: inout [String: String],
+        defaults: UserDefaults
     ) {
         guard raw != nil else {
-            clearManagedSidebarAppearanceValue(key: key, appliedValues: &appliedValues)
+            clearManagedSidebarAppearanceValue(
+                key: key,
+                appliedValues: &appliedValues,
+                defaults: defaults
+            )
             return
         }
         guard let color else {
             return
         }
-        applySidebarColor(color, key: key, appliedValues: &appliedValues)
+        applySidebarColor(color, key: key, appliedValues: &appliedValues, defaults: defaults)
     }
 
     private func applySidebarColor(
         _ color: NSColor,
         key: String,
-        appliedValues: inout [String: String]
+        appliedValues: inout [String: String],
+        defaults: UserDefaults
     ) {
         let value = color.hexString()
-        UserDefaults.standard.set(value, forKey: key)
+        defaults.set(value, forKey: key)
         appliedValues[key] = value
     }
 
@@ -355,35 +387,41 @@ struct GhosttyConfig {
         _ color: NSColor?,
         key: String,
         clearsManagedValueWhenMissing: Bool,
-        appliedValues: inout [String: String]
+        appliedValues: inout [String: String],
+        defaults: UserDefaults
     ) {
         guard let color else {
             if clearsManagedValueWhenMissing {
-                clearManagedSidebarAppearanceValue(key: key, appliedValues: &appliedValues)
+                clearManagedSidebarAppearanceValue(
+                    key: key,
+                    appliedValues: &appliedValues,
+                    defaults: defaults
+                )
             }
             return
         }
         let value = color.hexString()
-        UserDefaults.standard.set(value, forKey: key)
+        defaults.set(value, forKey: key)
         appliedValues[key] = value
     }
 
     private func clearManagedSidebarAppearanceValue(
         key: String,
-        appliedValues: inout [String: String]
+        appliedValues: inout [String: String],
+        defaults: UserDefaults
     ) {
         guard let appliedValue = appliedValues.removeValue(forKey: key) else { return }
         if key == "sidebarTintOpacity" {
-            let current = UserDefaults.standard.object(forKey: key) as? NSNumber
+            let current = defaults.object(forKey: key) as? NSNumber
             if let current,
                let appliedDouble = Double(appliedValue),
                abs(current.doubleValue - appliedDouble) < 0.0001 {
-                UserDefaults.standard.removeObject(forKey: key)
+                defaults.removeObject(forKey: key)
             }
             return
         }
-        if UserDefaults.standard.string(forKey: key) == appliedValue {
-            UserDefaults.standard.removeObject(forKey: key)
+        if defaults.string(forKey: key) == appliedValue {
+            defaults.removeObject(forKey: key)
         }
     }
 
