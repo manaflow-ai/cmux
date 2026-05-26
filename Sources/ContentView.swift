@@ -1068,6 +1068,7 @@ struct ContentView: View {
     @State private var sidebarDragStartWidth: CGFloat?
     @State private var selectedTabIds: Set<UUID> = []
     @State private var mountedWorkspaceIds: [UUID] = []
+    @State private var visibleWorkspaceIds: Set<UUID> = []
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
@@ -2076,6 +2077,9 @@ struct ContentView: View {
                         isWorkspaceInputActive: isInputActive,
                         isFullScreen: isFullScreen,
                         workspacePortalPriority: portalPriority,
+                        onWorkspaceVisibilityChanged: { workspaceId, isVisible in
+                            recordWorkspaceVisibility(workspaceId, isVisible: isVisible)
+                        },
                         onThemeRefreshRequest: { reason, eventId, source, payloadHex in
                             scheduleTitlebarThemeRefreshFromWorkspace(
                                 workspaceId: tab.id,
@@ -2933,6 +2937,7 @@ struct ContentView: View {
             if let previousSelectedWorkspaceId, !existingIds.contains(previousSelectedWorkspaceId) {
                 self.previousSelectedWorkspaceId = tabManager.selectedTabId
             }
+            visibleWorkspaceIds.formIntersection(existingIds)
             tabManager.pruneBackgroundWorkspaceLoads(existingIds: existingIds)
             reconcileMountedWorkspaceIds(tabs: tabs)
             selectedTabIds = selectedTabIds.filter { existingIds.contains($0) }
@@ -3346,6 +3351,7 @@ struct ContentView: View {
         )
         let removedIds = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
         let mountedIdSet = Set(mountedWorkspaceIds)
+        visibleWorkspaceIds.formIntersection(mountedIdSet)
         for workspace in currentTabs {
             workspace.setPortalRenderingEnabled(
                 mountedIdSet.contains(workspace.id),
@@ -3637,18 +3643,26 @@ struct ContentView: View {
         }
 #endif
 
-        if canCompleteWorkspaceHandoffImmediately(for: newSelectedId) {
+        let selectedWorkspaceReady = canCompleteWorkspaceHandoffImmediately(for: newSelectedId)
+        if selectedWorkspaceReady {
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 cmuxDebugLog(
-                    "ws.handoff.fastReady id=\(snapshot.id) dt=\(debugMsText(dtMs)) selected=\(debugShortWorkspaceId(newSelectedId))"
+                    "ws.handoff.awaitVisible id=\(snapshot.id) dt=\(debugMsText(dtMs)) selected=\(debugShortWorkspaceId(newSelectedId))"
                 )
             } else {
-                cmuxDebugLog("ws.handoff.fastReady id=none selected=\(debugShortWorkspaceId(newSelectedId))")
+                cmuxDebugLog("ws.handoff.awaitVisible id=none selected=\(debugShortWorkspaceId(newSelectedId))")
             }
 #endif
-            completeWorkspaceHandoff(reason: "ready")
+        }
+        if WorkspaceHandoffCompletionPolicy.shouldCompleteFromAlreadyVisibleSelectedWorkspace(
+            selectedWorkspaceId: newSelectedId,
+            visibleWorkspaceIds: visibleWorkspaceIds,
+            hasRetiringWorkspace: retiringWorkspaceId != nil,
+            selectedWorkspaceReady: selectedWorkspaceReady
+        ) {
+            completeWorkspaceHandoff(reason: "visible")
             return
         }
 
@@ -3660,15 +3674,50 @@ struct ContentView: View {
             }
             await MainActor.run {
                 guard workspaceHandoffGeneration == generation else { return }
-                completeWorkspaceHandoff(reason: "timeout")
+                if shouldCompleteWorkspaceHandoff(signal: .timeout, workspaceId: nil) {
+                    completeWorkspaceHandoff(reason: "timeout")
+                }
             }
         }
     }
 
     private func completeWorkspaceHandoffIfNeeded(focusedTabId: UUID, reason: String) {
-        guard focusedTabId == tabManager.selectedTabId else { return }
-        guard retiringWorkspaceId != nil else { return }
+        guard shouldCompleteWorkspaceHandoff(
+            signal: .selectedWorkspaceFocus,
+            workspaceId: focusedTabId
+        ) else { return }
         completeWorkspaceHandoff(reason: reason)
+    }
+
+    private func recordWorkspaceVisibility(_ workspaceId: UUID, isVisible: Bool) {
+        WorkspaceVisibilityCommitState.updateVisibleWorkspaceIds(
+            &visibleWorkspaceIds,
+            workspaceId: workspaceId,
+            isVisible: isVisible
+        )
+        guard isVisible else { return }
+        completeWorkspaceHandoffForVisibleWorkspace(workspaceId)
+    }
+
+    private func completeWorkspaceHandoffForVisibleWorkspace(_ workspaceId: UUID) {
+        guard shouldCompleteWorkspaceHandoff(
+            signal: .selectedWorkspaceVisible,
+            workspaceId: workspaceId
+        ) else { return }
+        completeWorkspaceHandoff(reason: "visible")
+    }
+
+    private func shouldCompleteWorkspaceHandoff(
+        signal: WorkspaceHandoffCompletionSignal,
+        workspaceId: UUID?
+    ) -> Bool {
+        WorkspaceHandoffCompletionPolicy.shouldComplete(
+            signal: signal,
+            selectedWorkspaceId: tabManager.selectedTabId,
+            signalWorkspaceId: workspaceId,
+            hasRetiringWorkspace: retiringWorkspaceId != nil,
+            selectedWorkspaceReady: workspaceId.map { canCompleteWorkspaceHandoffImmediately(for: $0) } ?? false
+        )
     }
 
     private func canCompleteWorkspaceHandoffImmediately(for workspaceId: UUID) -> Bool {
@@ -9622,83 +9671,6 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
         let nextSnapshot = SidebarTabItemSettingsSnapshot(defaults: defaults)
         guard nextSnapshot != snapshot else { return }
         snapshot = nextSnapshot
-    }
-}
-
-/// Transient sidebar drag/drop state, owned by `VerticalTabsSidebar` and passed
-/// by reference into rows and drop delegates. `@Observable` gives per-property
-/// tracking: writing `draggedTabId` or `dropIndicator` during drag invalidates
-/// only the views that read those properties (the dragged row's opacity and the
-/// drop-indicator overlays), never the sidebar body or the `LazyVStack` itself.
-/// That invariant is what prevents the layout-invalidation loop that caused
-/// https://github.com/manaflow-ai/cmux/issues/2586.
-@MainActor
-@Observable
-final class SidebarDragState {
-    var draggedTabId: UUID?
-    var dropIndicator: SidebarDropIndicator?
-
-    init() {}
-}
-
-/// Per-row drop-indicator visibility, computed by the parent from value
-/// inputs only. Takes UUIDs (not `Tab` objects or `SidebarDragState`) so it's
-/// trivially unit-testable and the row's view subtree never reads the
-/// `@Observable` store directly. Same predicate that used to live inside
-/// `SidebarTabDropIndicatorOverlay`.
-enum SidebarTabDropIndicatorPredicate {
-    static func topVisible(
-        forTabId tabId: UUID,
-        draggedTabId: UUID?,
-        dropIndicator: SidebarDropIndicator?,
-        tabIds: [UUID]
-    ) -> Bool {
-        guard draggedTabId != nil, let indicator = dropIndicator else { return false }
-        if indicator.tabId == tabId && indicator.edge == .top {
-            return true
-        }
-        guard indicator.edge == .bottom,
-              let currentIndex = tabIds.firstIndex(of: tabId),
-              currentIndex > 0
-        else {
-            return false
-        }
-        return tabIds[currentIndex - 1] == indicator.tabId
-    }
-
-    /// Convenience used by `SidebarEmptyArea`: the empty area's "top" indicator
-    /// (drawn above the empty space below all rows) is visible when the drop
-    /// indicator targets nothing (end-of-list) or the bottom edge of the last
-    /// row.
-    static func emptyAreaTopVisible(
-        draggedTabId: UUID?,
-        dropIndicator: SidebarDropIndicator?,
-        lastTabId: UUID?
-    ) -> Bool {
-        guard draggedTabId != nil, let indicator = dropIndicator else { return false }
-        if indicator.tabId == nil {
-            return true
-        }
-        guard indicator.edge == .bottom, let lastTabId else { return false }
-        return indicator.tabId == lastTabId
-    }
-}
-
-/// Freezes `showsModifierShortcutHints` for the row whose context menu is open,
-/// so pressing/releasing the modifier key while the menu is up does not flip
-/// the underlying row's shortcut badges (which would be visible around the
-/// open context menu). All other rows transition live.
-enum SidebarShortcutHintFreezePolicy {
-    static func resolved(
-        live: Bool,
-        currentTabId: UUID,
-        frozenTabId: UUID?,
-        frozenValue: Bool
-    ) -> Bool {
-        if frozenTabId == currentTabId {
-            return frozenValue
-        }
-        return live
     }
 }
 
