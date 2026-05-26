@@ -15909,7 +15909,6 @@ private extension NSWindow {
         if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
             let textInputTarget: NSResponder? = firstResponderGhosttyView
                 ?? firstResponderWebView
-                ?? firstResponderEmbeddedWebView
                 ?? self.firstResponder
             if let textInputTarget, textInputTarget !== self {
                 textInputTarget.keyDown(with: event)
