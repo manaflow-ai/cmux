@@ -428,6 +428,7 @@ extension Workspace {
         }
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
+        collapseBonsplitToSinglePaneForSessionRestore()
         let leafEntries = restoreSessionLayout(snapshot.layout)
         var oldToNewPanelIds: [UUID: UUID] = [:]
 
@@ -1126,6 +1127,19 @@ extension Workspace {
         var leaves: [SessionPaneRestoreEntry] = []
         restoreSessionLayoutNode(layout, inPane: rootPaneId, leaves: &leaves)
         return leaves
+    }
+
+    private func collapseBonsplitToSinglePaneForSessionRestore() {
+        guard let rootPaneId = bonsplitController.allPaneIds.first else { return }
+        for paneId in bonsplitController.allPaneIds.reversed() where paneId != rootPaneId {
+            let panelIds = bonsplitController
+                .tabs(inPane: paneId)
+                .compactMap { panelIdFromSurfaceId($0.id) }
+            for panelId in panelIds {
+                _ = closePanel(panelId, force: true)
+            }
+            _ = bonsplitController.closePane(paneId)
+        }
     }
 
     private func restoreSessionLayoutNode(
