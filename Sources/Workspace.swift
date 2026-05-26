@@ -708,6 +708,7 @@ extension Workspace {
         return ClosedPanelHistoryEntry(
             workspaceId: id,
             paneId: pane.id,
+            layoutTabId: layoutTab(containing: controller)?.id,
             paneAnchorPanelId: paneAnchorPanelId,
             tabIndex: tabIndex,
             snapshot: snapshot,
@@ -753,9 +754,7 @@ extension Workspace {
     @discardableResult
     func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry) -> UUID? {
         if entry.restoreInOriginalPane,
-           let originalPane = layoutBonsplitControllers
-            .flatMap({ $0.allPaneIds })
-            .first(where: { $0.id == entry.paneId }) {
+           let originalPane = originalPaneForClosedPanelRestore(entry) {
             return restoreClosedPanel(entry, inPane: originalPane)
         }
         if let paneAnchorPanelId = entry.paneAnchorPanelId,
@@ -766,10 +765,28 @@ extension Workspace {
             triggerFocusFlash(panelId: splitPanelId)
             return splitPanelId
         }
-        guard let pane = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first else {
+        guard let pane = fallbackPaneForClosedPanelRestore(entry) else {
             return nil
         }
         return restoreClosedPanel(entry, inPane: pane)
+    }
+
+    private func originalPaneForClosedPanelRestore(_ entry: ClosedPanelHistoryEntry) -> PaneID? {
+        if let controller = layoutTab(withId: entry.layoutTabId)?.bonsplitController,
+           let pane = controller.allPaneIds.first(where: { $0.id == entry.paneId }) {
+            return pane
+        }
+
+        return layoutBonsplitControllers
+            .flatMap { $0.allPaneIds }
+            .first(where: { $0.id == entry.paneId })
+    }
+
+    private func fallbackPaneForClosedPanelRestore(_ entry: ClosedPanelHistoryEntry) -> PaneID? {
+        if let controller = layoutTab(withId: entry.layoutTabId)?.bonsplitController {
+            return controller.focusedPaneId ?? controller.allPaneIds.first
+        }
+        return bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
     }
 
     @discardableResult
@@ -9445,6 +9462,11 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func layoutTab(containing controller: BonsplitController) -> WorkspaceLayoutTab? {
         layoutTabs.first { $0.bonsplitController === controller }
+    }
+
+    private func layoutTab(withId layoutId: UUID?) -> WorkspaceLayoutTab? {
+        guard let layoutId else { return nil }
+        return layoutTabs.first { $0.id == layoutId }
     }
 
     private func layoutTab(containingSurfaceId surfaceId: TabID) -> WorkspaceLayoutTab? {

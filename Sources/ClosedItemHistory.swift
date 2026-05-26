@@ -257,6 +257,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .panel(ClosedPanelHistoryEntry(
                 workspaceId: newWorkspaceId,
                 paneId: panelEntry.paneId,
+                layoutTabId: panelEntry.layoutTabId,
                 paneAnchorPanelId: remapAnchor(panelEntry.paneAnchorPanelId),
                 restoreInOriginalPane: false,
                 tabIndex: panelEntry.tabIndex,
@@ -295,6 +296,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .panel(ClosedPanelHistoryEntry(
                 workspaceId: panelEntry.workspaceId,
                 paneId: panelEntry.paneId,
+                layoutTabId: panelEntry.layoutTabId,
                 paneAnchorPanelId: paneAnchorPanelId,
                 restoreInOriginalPane: panelEntry.restoreInOriginalPane,
                 tabIndex: panelEntry.tabIndex,
