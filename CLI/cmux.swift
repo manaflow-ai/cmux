@@ -23529,13 +23529,26 @@ function runCmux(args, options = {}) {
   return spawnSync(cmuxExecutable(), cmuxArguments(args), options);
 }
 
+function runtimeHookPayload(ctx, event) {
+  const cwd = cwdFor(ctx, event);
+  return {
+    cwd,
+    input: JSON.stringify({
+      session_id: sessionIdFor(event),
+      cwd,
+      event: event && event.type,
+      hook_event_name: event && event.type,
+    }),
+  };
+}
+
 function openCodeProcessPid() {
   const raw = process.env.CMUX_OPENCODE_PID;
   if (raw && /^\d+$/.test(raw)) return raw;
   return String(process.pid);
 }
 
-function notifyOpenCode(kind, body) {
+function notifyOpenCode(kind, body, ctx, event) {
   if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
   if (!process.env.CMUX_SURFACE_ID) return;
 
@@ -23556,10 +23569,12 @@ function notifyOpenCode(kind, body) {
     args.push("--surface", process.env.CMUX_SURFACE_ID);
   }
   try {
+    const payload = runtimeHookPayload(ctx, event);
     runCmux(args, {
+      input: payload.input,
       encoding: "utf8",
-      env: hookEnvironment(process.cwd()),
-      stdio: ["ignore", "ignore", "ignore"],
+      env: hookEnvironment(payload.cwd),
+      stdio: ["pipe", "ignore", "ignore"],
       timeout: 2000,
     });
   } catch (_) {}
@@ -23639,7 +23654,7 @@ function sendStopHookOnIdleTransition(ctx, event) {
   sendHook("stop", ctx, event);
 }
 
-function setStatus(descriptor) {
+function setStatus(descriptor, ctx, event) {
   if (!descriptor) return;
   if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
   if (!process.env.CMUX_SURFACE_ID) return;
@@ -23657,10 +23672,12 @@ function setStatus(descriptor) {
   }
   args.push("--surface", process.env.CMUX_SURFACE_ID);
   try {
+    const payload = runtimeHookPayload(ctx, event);
     runCmux(args, {
+      input: payload.input,
       encoding: "utf8",
-      env: hookEnvironment(process.cwd()),
-      stdio: ["ignore", "ignore", "ignore"],
+      env: hookEnvironment(payload.cwd),
+      stdio: ["pipe", "ignore", "ignore"],
       timeout: 2000,
     });
   } catch (_) {}
@@ -23713,35 +23730,35 @@ const CMUXSessionRestore = async (ctx) => {
           break;
         case "session.status": {
           const descriptor = descriptorForOpenCodeStatus(props.status || props.info?.status || props);
-          setStatus(descriptor);
+          setStatus(descriptor, ctx, event);
           if (descriptor === STATUS_DESCRIPTORS.idle) {
             sendStopHookOnIdleTransition(ctx, event);
           } else {
             markSessionNotIdle(event);
             if (descriptor === STATUS_DESCRIPTORS.error) {
-              notifyOpenCode("error");
+              notifyOpenCode("error", null, ctx, event);
             }
           }
           break;
         }
         case "session.idle":
-          setStatus(STATUS_DESCRIPTORS.idle);
+          setStatus(STATUS_DESCRIPTORS.idle, ctx, event);
           sendStopHookOnIdleTransition(ctx, event);
           break;
         case "permission.asked":
           markSessionNotIdle(event);
-          setStatus(STATUS_DESCRIPTORS.needsInput);
-          notifyOpenCode("permission", promptBody(props));
+          setStatus(STATUS_DESCRIPTORS.needsInput, ctx, event);
+          notifyOpenCode("permission", promptBody(props), ctx, event);
           break;
         case "question.asked":
           markSessionNotIdle(event);
-          setStatus(STATUS_DESCRIPTORS.needsInput);
-          notifyOpenCode("question", promptBody(props));
+          setStatus(STATUS_DESCRIPTORS.needsInput, ctx, event);
+          notifyOpenCode("question", promptBody(props), ctx, event);
           break;
         case "session.error":
           markSessionNotIdle(event);
-          setStatus(STATUS_DESCRIPTORS.error);
-          notifyOpenCode("error");
+          setStatus(STATUS_DESCRIPTORS.error, ctx, event);
+          notifyOpenCode("error", null, ctx, event);
           break;
         case "session.deleted":
           SESSION_LIFECYCLE.delete(sessionLifecycleKey(event));
