@@ -22214,7 +22214,8 @@ struct CMUXCLI {
         return (try? codexHookSessionStore(env: env).hasRunningSession(
             workspaceId: normalizedWorkspaceId,
             surfaceId: normalizedSurfaceId,
-            excludingSessionId: normalizedSessionId
+            excludingSessionId: normalizedSessionId,
+            requireLiveProcess: true
         )) == true
     }
 

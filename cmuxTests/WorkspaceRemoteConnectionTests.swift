@@ -4018,6 +4018,15 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
               "runtimeStatus": "running",
               "startedAt": 1777107000,
               "updatedAt": 1777107000
+            },
+            "stale-same-surface-session": {
+              "sessionId": "stale-same-surface-session",
+              "workspaceId": "\(workspaceId)",
+              "surfaceId": "\(surfaceId)",
+              "pid": -1,
+              "runtimeStatus": "running",
+              "startedAt": 1777107000,
+              "updatedAt": 1777107000
             }
           }
         }
@@ -4066,7 +4075,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                     command.contains("--color=#8E8E93") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected monitor to clear panel-scoped Running when a Codex turn completes without Stop, even if another panel is still running; saw \(state.snapshot())"
+            "Expected monitor to clear panel-scoped Running when a Codex turn completes without Stop, even if another panel is still running and a stale same-surface session remains; saw \(state.snapshot())"
         )
     }
 
