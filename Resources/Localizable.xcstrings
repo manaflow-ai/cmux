@@ -27960,13 +27960,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal Layout"
+            "value": "Pane Layout"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルレイアウト"
+            "value": "ペインレイアウト"
           }
         },
         "zh-Hans": {
