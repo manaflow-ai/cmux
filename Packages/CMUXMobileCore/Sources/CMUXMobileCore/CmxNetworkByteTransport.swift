@@ -598,8 +598,10 @@ private func cmxNetworkErrorDescription(_ error: NWError) -> String {
         return "Network connection failed."
     case .tls:
         return "Secure connection failed."
+    #if compiler(>=6.2)
     case .wifiAware:
         return "Network connection failed."
+    #endif
     @unknown default:
         return "Network connection failed."
     }
