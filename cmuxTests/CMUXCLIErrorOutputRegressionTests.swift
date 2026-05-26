@@ -927,26 +927,14 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     }
 
     private func bundledCLIPath() throws -> String {
-        let fileManager = FileManager.default
-        let appBundleURL = Bundle(for: Self.self)
-            .bundleURL
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let enumerator = fileManager.enumerator(at: appBundleURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
-
-        while let item = enumerator?.nextObject() as? URL {
-            guard item.lastPathComponent == "cmux",
-                  item.path.contains(".app/Contents/Resources/bin/cmux") else {
-                continue
-            }
-            return item.path
-        }
-
-        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+        try bundledBinaryPath(named: "cmux", insideBinPath: ".app/Contents/Resources/bin/cmux")
     }
 
     private func bundledClaudeWrapperPath() throws -> String {
+        try bundledBinaryPath(named: "claude", insideBinPath: ".app/Contents/Resources/bin/claude")
+    }
+
+    private func bundledBinaryPath(named name: String, insideBinPath binPath: String) throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self)
             .bundleURL
@@ -956,14 +944,14 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let enumerator = fileManager.enumerator(at: appBundleURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
 
         while let item = enumerator?.nextObject() as? URL {
-            guard item.lastPathComponent == "claude",
-                  item.path.contains(".app/Contents/Resources/bin/claude") else {
+            guard item.lastPathComponent == name,
+                  item.path.contains(binPath) else {
                 continue
             }
             return item.path
         }
 
-        throw XCTSkip("Bundled claude wrapper not found in \(appBundleURL.path)")
+        throw XCTSkip("Bundled binary '\(name)' not found in \(appBundleURL.path)")
     }
 
     private func writeExecutableScript(_ contents: String, to url: URL) throws {
