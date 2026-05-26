@@ -47,36 +47,60 @@ enum SyntaxLanguageDetector {
     // to avoid TreeSitter latency spikes on large logs, generated code, etc.
     private static let maxHighlightBytes = 500_000
 
-    // Cache by absolute path so repeated previews of the same file avoid
-    // repeated resourceValues file stats and CodeEdit language detection.
+    // Cache by absolute path and file metadata so repeated previews avoid
+    // CodeEdit language detection while still respecting size/content changes.
     private static let cacheLock = NSLock()
-    nonisolated(unsafe) private static var cache: [String: CodeLanguage?] = [:]
+    nonisolated(unsafe) private static var cache: [String: CacheEntry] = [:]
 
     static func language(for url: URL) -> CodeLanguage? {
+        guard isHighlightCandidate(url) else { return nil }
+
         let key = url.standardizedFileURL.path
+        let metadata = metadata(for: url)
+        if let fileSize = metadata.fileSize, fileSize > maxHighlightBytes {
+            updateCache(key: key, metadata: metadata, language: nil)
+            return nil
+        }
+
         cacheLock.lock()
-        if let cached = cache[key] {
+        if let cached = cache[key], cached.metadata == metadata {
             cacheLock.unlock()
-            return cached
+            return cached.language
         }
         cacheLock.unlock()
 
-        let resolved = resolve(url: url)
-
-        cacheLock.lock()
-        cache.updateValue(resolved, forKey: key)
-        cacheLock.unlock()
+        let resolved = CodeLanguage.detectLanguageFrom(url: url)
+        updateCache(key: key, metadata: metadata, language: resolved)
         return resolved
     }
 
-    private static func resolve(url: URL) -> CodeLanguage? {
+    private static func updateCache(key: String, metadata: FileMetadata, language: CodeLanguage?) {
+        cacheLock.lock()
+        cache[key] = CacheEntry(metadata: metadata, language: language)
+        cacheLock.unlock()
+    }
+
+    private static func isHighlightCandidate(_ url: URL) -> Bool {
         let ext = url.pathExtension.lowercased()
         let filename = url.lastPathComponent.lowercased()
-        guard supportedExtensions.contains(ext) || filename == "dockerfile" else { return nil }
-        if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
-           size > maxHighlightBytes {
-            return nil
-        }
-        return CodeLanguage.detectLanguageFrom(url: url)
+        return supportedExtensions.contains(ext) || filename == "dockerfile"
+    }
+
+    private static func metadata(for url: URL) -> FileMetadata {
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        return FileMetadata(
+            fileSize: values?.fileSize,
+            modificationDate: values?.contentModificationDate
+        )
+    }
+
+    private struct FileMetadata: Equatable {
+        let fileSize: Int?
+        let modificationDate: Date?
+    }
+
+    private struct CacheEntry {
+        let metadata: FileMetadata
+        let language: CodeLanguage?
     }
 }

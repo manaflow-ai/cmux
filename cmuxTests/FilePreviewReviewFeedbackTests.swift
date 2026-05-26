@@ -57,6 +57,53 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "saved by chord")
     }
 
+    func testHighlightedBridgeUpdatesPanelTextSynchronouslyAndSavesShortcut() async throws {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "u", command: true, shift: false, option: true, control: false),
+            for: .saveFilePreview
+        )
+
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+
+        let bridge = HighlightedEditorBridge()
+        bridge.panel = panel
+        bridge.applyUserEditedText("saved by highlighted bridge")
+
+        XCTAssertEqual(panel.textContent, "saved by highlighted bridge")
+        XCTAssertTrue(panel.isDirty)
+
+        let event = try XCTUnwrap(keyEvent(
+            key: "u",
+            keyCode: UInt16(kVK_ANSI_U),
+            modifierFlags: [.command, .option]
+        ))
+        XCTAssertTrue(bridge.handleSaveShortcut(event: event))
+        await waitForPanelSave(panel)
+
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "saved by highlighted bridge")
+        XCTAssertFalse(panel.isDirty)
+    }
+
+    func testSyntaxLanguageDetectorReevaluatesWhenFileGrowsPastHighlightLimit() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("swift")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try "let value = 1\n".write(to: url, atomically: true, encoding: .utf8)
+        XCTAssertNotNil(SyntaxLanguageDetector.language(for: url))
+
+        try Data(repeating: 65, count: 501_000).write(to: url, options: .atomic)
+        XCTAssertNil(SyntaxLanguageDetector.language(for: url))
+    }
+
     func testExtensionlessUTF16TextWithBOMResolvesAsTextAfterSniffing() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -261,11 +308,15 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         return url
     }
 
-    private func keyEvent(key: String, keyCode: UInt16) -> NSEvent? {
+    private func keyEvent(
+        key: String,
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags = [.command]
+    ) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
-            modifierFlags: [.command],
+            modifierFlags: modifierFlags,
             timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: 0,
             context: nil,

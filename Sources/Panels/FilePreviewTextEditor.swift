@@ -72,8 +72,8 @@ struct HighlightedFilePreviewRouter: View {
 // are immediately visible in the text view.
 //
 // CodeEditTextView.setTextStorage() overwrites textStorage.delegate with its
-// own MultiStorageDelegate, so we use TextViewCoordinator.textViewDidChangeText
-// to propagate user edits to panel.textContent rather than NSTextStorageDelegate.
+// own MultiStorageDelegate, so we use CodeEditTextView.TextViewDelegate to
+// propagate user edits to panel.textContent rather than NSTextStorageDelegate.
 //
 // The bridge also implements TextViewCoordinator to register the TextView with
 // FilePreviewFocusCoordinator (keyboard focus) and manage the zoom event monitor.
@@ -128,87 +128,135 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
         fontSize = clamped
     }
 
-    // MARK: - Zoom event monitor
+    // MARK: - Local event monitor
     //
     // SourceEditor's own NSScrollView consumes gesture events before they can
-    // reach HighlightedEditorContainerView, so we use a local event monitor
-    // anchored to the inner scroll view instead.
+    // reach HighlightedEditorContainerView, so we use a local event monitor for
+    // zoom. The same monitor catches the save shortcut while the CodeEdit text
+    // view is first responder so the inner editor cannot swallow it first.
 
-    // zoomEventMonitor may be accessed from destroy() off the main actor as well as
+    // localEventMonitor may be accessed from destroy() off the main actor as well as
     // from @MainActor install/remove methods. NSLock serializes the read-check-remove-nil
     // sequence so the token is never passed to NSEvent.removeMonitor twice.
-    // nonisolated(unsafe) is justified because every access goes through zoomMonitorLock.
-    private let zoomMonitorLock = NSLock()
-    private nonisolated(unsafe) var zoomEventMonitor: Any?
+    // nonisolated(unsafe) is justified because every access goes through eventMonitorLock.
+    private let eventMonitorLock = NSLock()
+    private nonisolated(unsafe) var localEventMonitor: Any?
     private weak var innerScrollView: NSScrollView?
+    private var pendingSaveChordPrefix: ShortcutStroke?
 
-    func installZoomMonitor(scrollView: NSScrollView) {
+    func installLocalEventMonitor(scrollView: NSScrollView) {
         innerScrollView = scrollView
-        zoomMonitorLock.lock()
-        if zoomEventMonitor != nil {
-            zoomMonitorLock.unlock()
+        eventMonitorLock.lock()
+        if localEventMonitor != nil {
+            eventMonitorLock.unlock()
             return
         }
-        zoomMonitorLock.unlock()
+        eventMonitorLock.unlock()
         // NSEvent.addLocalMonitorForEvents handlers fire on the main thread (documented),
         // so MainActor.assumeIsolated lets the closure body call our @MainActor-isolated
         // properties and methods without crossing the actor at compile time.
-        let token = NSEvent.addLocalMonitorForEvents(matching: [.magnify, .scrollWheel, .smartMagnify]) {
+        let token = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .magnify, .scrollWheel, .smartMagnify]) {
             [weak self] event -> NSEvent? in
             let handled = MainActor.assumeIsolated {
-                guard let self,
-                      let sv = self.innerScrollView,
-                      !sv.isHiddenOrHasHiddenAncestor,
-                      let window = sv.window,
-                      event.window === window else { return false }
-                let loc = sv.convert(event.locationInWindow, from: nil)
-                guard sv.bounds.contains(loc) else { return false }
-                switch event.type {
-                case .magnify:
-                    let factor = 1.0 + event.magnification
-                    if factor.isFinite && factor > 0 { self.adjustFontSize(by: factor) }
-                    return true
-                case .scrollWheel:
-                    guard FilePreviewInteraction.hasZoomModifier(event) else { return false }
-                    self.adjustFontSize(by: FilePreviewInteraction.zoomFactor(forScroll: event))
-                    return true
-                case .smartMagnify:
-                    if self.fontSize == HighlightedEditorBridge.defaultFontSize {
-                        self.setFontSize(18)
-                    } else {
-                        self.setFontSize(HighlightedEditorBridge.defaultFontSize)
-                    }
-                    return true
-                default:
-                    return false
-                }
+                self?.handleLocalEvent(event) ?? false
             }
             return handled ? nil : event
         }
-        zoomMonitorLock.lock()
-        if zoomEventMonitor == nil {
-            zoomEventMonitor = token
-            zoomMonitorLock.unlock()
+        eventMonitorLock.lock()
+        if localEventMonitor == nil {
+            localEventMonitor = token
+            eventMonitorLock.unlock()
         } else {
-            zoomMonitorLock.unlock()
+            eventMonitorLock.unlock()
             if let token = token { NSEvent.removeMonitor(token) }
         }
     }
 
-    func removeZoomMonitor() {
-        zoomMonitorLock.lock()
-        let token = zoomEventMonitor
-        zoomEventMonitor = nil
-        zoomMonitorLock.unlock()
+    func removeLocalEventMonitor() {
+        eventMonitorLock.lock()
+        let token = localEventMonitor
+        localEventMonitor = nil
+        eventMonitorLock.unlock()
         if let token = token { NSEvent.removeMonitor(token) }
     }
 
-    func reinstallZoomMonitorIfNeeded() {
-        zoomMonitorLock.lock()
-        let alreadyInstalled = zoomEventMonitor != nil
-        zoomMonitorLock.unlock()
+    func reinstallLocalEventMonitorIfNeeded() {
+        eventMonitorLock.lock()
+        let alreadyInstalled = localEventMonitor != nil
+        eventMonitorLock.unlock()
         guard let sv = innerScrollView, !alreadyInstalled else { return }
-        installZoomMonitor(scrollView: sv)
+        installLocalEventMonitor(scrollView: sv)
+    }
+
+    private func handleLocalEvent(_ event: NSEvent) -> Bool {
+        switch event.type {
+        case .keyDown:
+            guard let textView = textController?.textView,
+                  textView.window?.firstResponder === textView,
+                  event.window === textView.window else { return false }
+            return handleSaveShortcut(event: event)
+        case .magnify, .scrollWheel, .smartMagnify:
+            return handleZoomEvent(event)
+        default:
+            return false
+        }
+    }
+
+    private func handleZoomEvent(_ event: NSEvent) -> Bool {
+        guard let sv = innerScrollView,
+              !sv.isHiddenOrHasHiddenAncestor,
+              let window = sv.window,
+              event.window === window else { return false }
+        let loc = sv.convert(event.locationInWindow, from: nil)
+        guard sv.bounds.contains(loc) else { return false }
+        switch event.type {
+        case .magnify:
+            let factor = 1.0 + event.magnification
+            if factor.isFinite && factor > 0 { adjustFontSize(by: factor) }
+            return true
+        case .scrollWheel:
+            guard FilePreviewInteraction.hasZoomModifier(event) else { return false }
+            adjustFontSize(by: FilePreviewInteraction.zoomFactor(forScroll: event))
+            return true
+        case .smartMagnify:
+            if fontSize == HighlightedEditorBridge.defaultFontSize {
+                setFontSize(18)
+            } else {
+                setFontSize(HighlightedEditorBridge.defaultFontSize)
+            }
+            return true
+        default:
+            return false
+        }
+    }
+
+    func handleSaveShortcut(event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
+        guard shortcut.hasChord else {
+            pendingSaveChordPrefix = nil
+            guard shortcut.matches(event: event) else { return false }
+            panel?.saveTextContent()
+            return true
+        }
+        if let pending = pendingSaveChordPrefix {
+            pendingSaveChordPrefix = nil
+            guard pending == shortcut.firstStroke,
+                  let second = shortcut.secondStroke,
+                  second.matches(event: event) else { return false }
+            panel?.saveTextContent()
+            return true
+        }
+        if shortcut.firstStroke.matches(event: event) {
+            pendingSaveChordPrefix = shortcut.firstStroke
+            return true
+        }
+        return false
+    }
+
+    func applyUserEditedText(_ text: String) {
+        guard !isApplyingExternalUpdate else { return }
+        panel?.updateTextContent(text)
     }
 
     // NSTextStorageDelegate is intentionally not used for edit detection:
@@ -256,16 +304,7 @@ extension HighlightedEditorBridge: TextViewCoordinator {
     nonisolated func prepareCoordinator(controller: TextViewController) {
         Task { @MainActor [weak self] in
             self?.textController = controller
-            self?.installZoomMonitor(scrollView: controller.scrollView)
-        }
-    }
-
-    // Called after every user edit — correct hook since CodeEditTextView replaces
-    // textStorage.delegate and our NSTextStorageDelegate callback would not fire.
-    nonisolated func textViewDidChangeText(controller: TextViewController) {
-        Task { @MainActor [weak self, weak controller] in
-            guard let self, let controller, !self.isApplyingExternalUpdate else { return }
-            self.panel?.updateTextContent(controller.textView.string)
+            self?.installLocalEventMonitor(scrollView: controller.scrollView)
         }
     }
 
@@ -274,13 +313,21 @@ extension HighlightedEditorBridge: TextViewCoordinator {
         // double-call NSEvent.removeMonitor with the same token. SwiftUI releases
         // the coordinator on the same tick that calls destroy(); a deferred Task
         // with [weak self] would find self nil and leak the monitor.
-        zoomMonitorLock.lock()
-        let token = zoomEventMonitor
-        zoomEventMonitor = nil
-        zoomMonitorLock.unlock()
+        eventMonitorLock.lock()
+        let token = localEventMonitor
+        localEventMonitor = nil
+        eventMonitorLock.unlock()
         if let token = token { NSEvent.removeMonitor(token) }
         Task { @MainActor [weak self] in
             self?.textController = nil
+        }
+    }
+}
+
+extension HighlightedEditorBridge: TextViewDelegate {
+    nonisolated func textView(_ textView: TextView, didReplaceContentsIn range: NSRange, with string: String) {
+        MainActor.assumeIsolated {
+            applyUserEditedText(textView.string)
         }
     }
 }
@@ -291,11 +338,9 @@ extension HighlightedEditorBridge: TextViewCoordinator {
 // AppKit responder chain. Zoom gestures are handled by the event monitor above.
 
 final class HighlightedEditorContainerView: NSView {
-    weak var panel: FilePreviewPanel?
     var hostView: NSHostingView<HighlightedSourceEditorCore>?
 
     private let bridge: HighlightedEditorBridge
-    private var pendingSaveChordPrefix: ShortcutStroke?
 
     init(bridge: HighlightedEditorBridge) {
         self.bridge = bridge
@@ -312,31 +357,10 @@ final class HighlightedEditorContainerView: NSView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard event.type == .keyDown,
-              let shouldSave = saveShortcutMatch(for: event) else {
+        guard event.type == .keyDown else {
             return super.performKeyEquivalent(with: event)
         }
-        if shouldSave { panel?.saveTextContent() }
-        return true
-    }
-
-    private func saveShortcutMatch(for event: NSEvent) -> Bool? {
-        let shortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
-        guard shortcut.hasChord else {
-            pendingSaveChordPrefix = nil
-            return shortcut.matches(event: event) ? true : nil
-        }
-        if let pending = pendingSaveChordPrefix {
-            pendingSaveChordPrefix = nil
-            guard pending == shortcut.firstStroke,
-                  let second = shortcut.secondStroke else { return nil }
-            return second.matches(event: event) ? true : nil
-        }
-        if shortcut.firstStroke.matches(event: event) {
-            pendingSaveChordPrefix = shortcut.firstStroke
-            return false
-        }
-        return nil
+        return bridge.handleSaveShortcut(event: event) || super.performKeyEquivalent(with: event)
     }
 }
 
@@ -452,20 +476,18 @@ struct HighlightedFilePreviewEditor: NSViewRepresentable {
     func updateNSView(_ container: HighlightedEditorContainerView, context: Context) {
         let bridge = context.coordinator
         container.isHidden = !isVisibleInUI
-        container.panel = panel
         bridge.panel = panel
         bridge.setContent(panel.textContent)
         bridge.updateThemeIfNeeded(background: themeBackgroundColor, foreground: themeForegroundColor, drawsBackground: drawsBackground)
         if isVisibleInUI {
-            bridge.reinstallZoomMonitorIfNeeded()
+            bridge.reinstallLocalEventMonitorIfNeeded()
         } else {
-            bridge.removeZoomMonitor()
+            bridge.removeLocalEventMonitor()
         }
     }
 
     static func dismantleNSView(_ container: HighlightedEditorContainerView, coordinator: HighlightedEditorBridge) {
-        coordinator.removeZoomMonitor()
-        container.panel = nil
+        coordinator.removeLocalEventMonitor()
     }
 }
 
