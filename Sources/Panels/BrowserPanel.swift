@@ -3053,7 +3053,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func resetWebViewLifecycleMetadata(resetVisibility: Bool = true) {
         cancelHiddenWebViewDiscard()
-        pendingWebExtensionPreparationNavigationToken = nil
+        invalidatePendingWebExtensionPreparationNavigation()
         webViewLifecycleState = .newTab
         if resetVisibility {
             webViewLastVisibleAt = nil
@@ -3544,7 +3544,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let previousWebView = webView
         let desiredZoom = max(minPageZoom, min(maxPageZoom, previousWebView.pageZoom))
 
-        pendingWebExtensionPreparationNavigationToken = nil
+        invalidatePendingWebExtensionPreparationNavigation()
         invalidateSearchFocusRequests(reason: reason)
         searchState = nil
         loadingEndWorkItem?.cancel()
@@ -5041,7 +5041,7 @@ final class BrowserPanel: Panel, ObservableObject {
         preserveRestoredSessionHistory: Bool = false
     ) {
         guard let url = request.url else { return }
-        pendingWebExtensionPreparationNavigationToken = nil
+        invalidatePendingWebExtensionPreparationNavigation()
         cancelHiddenWebViewDiscard()
         clearWebViewDiscardState(reason: "navigation")
         if BrowserWebExtensionSupport.needsPreparationBeforeNavigation(
@@ -5062,6 +5062,10 @@ final class BrowserPanel: Panel, ObservableObject {
             recordTypedNavigation: recordTypedNavigation,
             preserveRestoredSessionHistory: preserveRestoredSessionHistory
         )
+    }
+
+    private func invalidatePendingWebExtensionPreparationNavigation() {
+        pendingWebExtensionPreparationNavigationToken = nil
     }
 
     private func prepareWebExtensionsThenNavigate(
@@ -5331,6 +5335,7 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         guard let url = request.url else { return }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return }
+        invalidatePendingWebExtensionPreparationNavigation()
 
         let alert = insecureHTTPAlertFactory()
         alert.alertStyle = .warning
@@ -5632,6 +5637,7 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 
 extension BrowserPanel {
     private func cancelInFlightNavigationBeforeHistoryTraversal() {
+        invalidatePendingWebExtensionPreparationNavigation()
         guard webView.isLoading || isMainFrameProvisionalNavigationActive else { return }
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
@@ -5785,6 +5791,7 @@ extension BrowserPanel {
 
     /// Reload the current page
     func reload() {
+        invalidatePendingWebExtensionPreparationNavigation()
         if restoreDiscardedWebViewIfNeeded(reason: "reload") {
             return
         }
@@ -5808,6 +5815,7 @@ extension BrowserPanel {
 
     /// Stop loading
     func stopLoading() {
+        invalidatePendingWebExtensionPreparationNavigation()
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
     }
