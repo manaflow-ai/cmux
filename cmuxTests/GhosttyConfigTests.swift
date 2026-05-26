@@ -637,6 +637,20 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(config.backgroundBlur, .radius(37))
     }
 
+    func testParseBackgroundBlurLegacyRadiusAliasUsesSharedValueParser() {
+        var trueConfig = GhosttyConfig()
+        trueConfig.parse("background-blur-radius = true")
+        XCTAssertEqual(trueConfig.backgroundBlur, .radius(20))
+
+        var falseConfig = GhosttyConfig()
+        falseConfig.parse("background-blur-radius = false")
+        XCTAssertEqual(falseConfig.backgroundBlur, .disabled)
+
+        var glassConfig = GhosttyConfig()
+        glassConfig.parse("background-blur-radius = macos-glass-clear")
+        XCTAssertEqual(glassConfig.backgroundBlur, .macosGlassClear)
+    }
+
     func testParseBackgroundBlurIgnoresMalformedValues() {
         var config = GhosttyConfig()
         config.parse("""

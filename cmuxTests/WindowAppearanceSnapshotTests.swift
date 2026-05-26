@@ -112,6 +112,18 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         )
     }
 
+    func testOpaqueTerminalClearsCompositorBlurEvenWhenRadiusIsConfigured() {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: true,
+            backgroundOpacity: 1.0,
+            backgroundBlur: .radius(37)
+        )
+        let plan = snapshot.backdropPlan(glassEffectAvailable: false)
+
+        XCTAssertEqual(plan.hostingPhase, .opaqueWindowFill)
+        XCTAssertEqual(plan.compositorBlurRadius, 0)
+    }
+
     func testSidebarTintChangesDoNotDriveWindowBackdropPlanIdentity() {
         let red = makeSnapshot(
             unifySurfaceBackdrops: false,
