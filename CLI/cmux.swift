@@ -4739,13 +4739,38 @@ struct CMUXCLI {
     }
 
     private func openDirectoryWithLaunchServices(_ directory: String) throws {
+        try runOpenTool(
+            arguments: ["-a", appLaunchTarget(), directory],
+            failureMessage: "Failed to open \(directory) in cmux"
+        )
+    }
+
+    private func runOpenTool(arguments: [String], failureMessage: String) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: openToolPath())
-        process.arguments = ["-a", appLaunchTarget(), directory]
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            exitSignal.signal()
+        }
+
         try process.run()
-        process.waitUntilExit()
+
+        if exitSignal.wait(timeout: .now() + 10) == .timedOut {
+            process.terminate()
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
+            process.terminationHandler = nil
+            throw CLIError(message: "\(failureMessage) (timed out)")
+        }
+
+        process.terminationHandler = nil
         guard process.terminationStatus == 0 else {
-            throw CLIError(message: "Failed to open \(directory) in cmux")
+            throw CLIError(message: failureMessage)
         }
     }
 
@@ -4912,19 +4937,17 @@ struct CMUXCLI {
     }
 
     private func launchApp() throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: openToolPath())
-        process.arguments = ["-a", appLaunchTarget()]
-        try process.run()
-        process.waitUntilExit()
+        try runOpenTool(
+            arguments: ["-a", appLaunchTarget()],
+            failureMessage: "Failed to launch cmux"
+        )
     }
 
     private func activateApp() throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: openToolPath())
-        process.arguments = ["-a", appLaunchTarget()]
-        try process.run()
-        process.waitUntilExit()
+        try runOpenTool(
+            arguments: ["-a", appLaunchTarget()],
+            failureMessage: "Failed to activate cmux"
+        )
     }
 
     private func resolvedIDFormat(jsonOutput: Bool, raw: String?) throws -> CLIIDFormat {

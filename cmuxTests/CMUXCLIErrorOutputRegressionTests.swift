@@ -1153,6 +1153,8 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         #!/bin/sh
         : "${CMUX_TEST_OPEN_LOG:?}"
         : > "$CMUX_TEST_OPEN_LOG"
+        printf 'fake open stdout should be suppressed\\n'
+        printf 'fake open stderr should be suppressed\\n' >&2
         for arg in "$@"; do
           printf '%s\\n' "$arg" >> "$CMUX_TEST_OPEN_LOG"
         done
