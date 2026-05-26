@@ -3743,6 +3743,8 @@ class TerminalController {
 #if DEBUG
         case "debug.terminal.simulate_file_drop":
             return v2Result(id: id, self.v2DebugSimulateTerminalFileDrop(params: params))
+        case "debug.sidebar.simulate_drag":
+            return v2Result(id: id, self.v2DebugSidebarSimulateDrag(params: params))
 #endif
         case "debug.terminal.read_text":
             return v2Result(id: id, self.v2DebugReadTerminalText(params: params))
@@ -15573,6 +15575,131 @@ class TerminalController {
             }
         }
         return result
+    }
+
+    /// Drives `SidebarDragState.draggedTabId` and `dropIndicator` mutations
+    /// across N steps from a starting workspace toward a target neighbor.
+    /// External profilers (e.g. the `profile-pr` skill driving `xctrace`)
+    /// invoke this between `xctrace record --launch` and `xctrace stop` to
+    /// generate a deterministic 60Hz-style drag load without HID synthesis.
+    /// Never commits the reorder; calls back with the synthesized step path.
+    private func v2DebugSidebarSimulateDrag(params: [String: Any]) -> V2CallResult {
+        guard let tabManager else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        guard let fromTabId = v2UUID(params, "from_tab_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid from_tab_id", data: nil)
+        }
+        guard let toTabId = v2UUID(params, "to_tab_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid to_tab_id", data: nil)
+        }
+        let durationMs = v2Int(params, "duration_ms") ?? 1000
+        guard durationMs > 0 else {
+            return .err(code: "invalid_params", message: "duration_ms must be positive", data: nil)
+        }
+        let requestedSteps = v2Int(params, "steps")
+
+        struct DragPlan {
+            let dragStateAvailable: Bool
+            let tabIds: [UUID]
+            let fromIndex: Int?
+            let toIndex: Int?
+        }
+
+        var plan: DragPlan = DragPlan(
+            dragStateAvailable: false,
+            tabIds: [],
+            fromIndex: nil,
+            toIndex: nil
+        )
+
+        v2MainSync {
+            let dragStateAvailable = SidebarDragStateRegistry.state(forWindowId: windowId) != nil
+            let tabIds = tabManager.tabs.map(\.id)
+            let fromIndex = tabIds.firstIndex(of: fromTabId)
+            let toIndex = tabIds.firstIndex(of: toTabId)
+            plan = DragPlan(
+                dragStateAvailable: dragStateAvailable,
+                tabIds: tabIds,
+                fromIndex: fromIndex,
+                toIndex: toIndex
+            )
+        }
+
+        guard plan.dragStateAvailable else {
+            return .err(
+                code: "not_found",
+                message: "No mounted sidebar for window_id",
+                data: ["window_id": windowId.uuidString]
+            )
+        }
+        guard let fromIndex = plan.fromIndex else {
+            return .err(
+                code: "not_found",
+                message: "from_tab_id not in window's workspace list",
+                data: ["from_tab_id": fromTabId.uuidString]
+            )
+        }
+        guard let toIndex = plan.toIndex else {
+            return .err(
+                code: "not_found",
+                message: "to_tab_id not in window's workspace list",
+                data: ["to_tab_id": toTabId.uuidString]
+            )
+        }
+        guard fromIndex != toIndex else {
+            return .err(code: "invalid_params", message: "from_tab_id and to_tab_id must differ", data: nil)
+        }
+
+        let stride = fromIndex < toIndex ? 1 : -1
+        let pathIndices = Swift.stride(from: fromIndex + stride, through: toIndex, by: stride).map { $0 }
+        guard !pathIndices.isEmpty else {
+            return .err(code: "invalid_params", message: "Empty drag path", data: nil)
+        }
+        let steps = max(1, min(requestedSteps ?? pathIndices.count, pathIndices.count))
+        let stepIndices: [Int] = (0..<steps).map { stepNumber in
+            let position = Int(round(Double(stepNumber) * Double(pathIndices.count - 1) / Double(max(1, steps - 1))))
+            return pathIndices[max(0, min(pathIndices.count - 1, position))]
+        }
+        let stepIntervalMs = max(1, durationMs / steps)
+        let edge: SidebarDropEdge = fromIndex < toIndex ? .bottom : .top
+
+        v2MainSync {
+            guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return }
+            dragState.draggedTabId = fromTabId
+            dragState.dropIndicator = nil
+        }
+
+        for tabIndex in stepIndices {
+            let targetTabId = plan.tabIds[tabIndex]
+            v2MainSync {
+                guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return }
+                dragState.dropIndicator = SidebarDropIndicator(tabId: targetTabId, edge: edge)
+            }
+            if stepIntervalMs > 0 {
+                Thread.sleep(forTimeInterval: TimeInterval(stepIntervalMs) / 1000.0)
+            }
+        }
+
+        v2MainSync {
+            guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return }
+            dragState.draggedTabId = nil
+            dragState.dropIndicator = nil
+        }
+
+        return .ok([
+            "window_id": windowId.uuidString,
+            "from_tab_id": fromTabId.uuidString,
+            "to_tab_id": toTabId.uuidString,
+            "steps": steps,
+            "step_interval_ms": stepIntervalMs,
+            "duration_ms": stepIntervalMs * steps,
+            "edge": edge == .top ? "top" : "bottom",
+            "path": stepIndices.map { plan.tabIds[$0].uuidString }
+        ])
     }
 #endif
 

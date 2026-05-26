@@ -9587,6 +9587,35 @@ final class SidebarDragState {
     init() {}
 }
 
+#if DEBUG
+/// Debug-only registry that exposes the live `SidebarDragState` of each
+/// mounted `VerticalTabsSidebar` keyed by `windowId`. The debug-socket
+/// `debug.sidebar.simulate_drag` handler reads from this so external
+/// profiling tools (e.g. the `profile-pr` skill driving `xctrace`) can
+/// generate deterministic drag-state mutations against the running app
+/// without HID synthesis.
+@MainActor
+enum SidebarDragStateRegistry {
+    private static var statesByWindowId: [UUID: SidebarDragState] = [:]
+
+    static func register(windowId: UUID, dragState: SidebarDragState) {
+        statesByWindowId[windowId] = dragState
+    }
+
+    static func unregister(windowId: UUID) {
+        statesByWindowId.removeValue(forKey: windowId)
+    }
+
+    static func state(forWindowId windowId: UUID) -> SidebarDragState? {
+        statesByWindowId[windowId]
+    }
+
+    static func registeredWindowIds() -> [UUID] {
+        Array(statesByWindowId.keys)
+    }
+}
+#endif
+
 /// Per-row drop-indicator visibility, computed by the parent from value
 /// inputs only. Takes UUIDs (not `Tab` objects or `SidebarDragState`) so it's
 /// trivially unit-testable and the row's view subtree never reads the
@@ -9894,6 +9923,9 @@ struct VerticalTabsSidebar: View {
             modifierKeyMonitor.start()
             dragState.draggedTabId = nil
             dragState.dropIndicator = nil
+            #if DEBUG
+            SidebarDragStateRegistry.register(windowId: windowId, dragState: dragState)
+            #endif
             SidebarDragLifecycleNotification.postStateDidChange(
                 tabId: nil,
                 reason: "sidebar_appear"
@@ -9905,6 +9937,9 @@ struct VerticalTabsSidebar: View {
             dragFailsafeMonitor.stop()
             dragState.draggedTabId = nil
             dragState.dropIndicator = nil
+            #if DEBUG
+            SidebarDragStateRegistry.unregister(windowId: windowId)
+            #endif
             SidebarDragLifecycleNotification.postStateDidChange(
                 tabId: nil,
                 reason: "sidebar_disappear"

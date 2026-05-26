@@ -3512,6 +3512,9 @@ struct CMUXCLI {
         case "reorder-workspaces":
             try runReorderWorkspaces(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        case "simulate-sidebar-drag":
+            try runSimulateSidebarDrag(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         case "workspace-action":
             try runWorkspaceAction(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
         case "tab-action":
@@ -5996,6 +5999,52 @@ struct CMUXCLI {
             let index = item["to_index"] ?? item["index"] ?? "?"
             return String(format: lineFormat, workspace, window, String(describing: index))
         }
+    }
+
+    private func runSimulateSidebarDrag(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let windowRaw = optionValue(commandArgs, name: "--window")
+        let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
+        guard let windowHandle else {
+            throw CLIError(message: "simulate-sidebar-drag requires --window <id|ref|index>")
+        }
+        guard let fromRaw = optionValue(commandArgs, name: "--from") else {
+            throw CLIError(message: "simulate-sidebar-drag requires --from <workspace id|ref|index>")
+        }
+        guard let toRaw = optionValue(commandArgs, name: "--to") else {
+            throw CLIError(message: "simulate-sidebar-drag requires --to <workspace id|ref|index>")
+        }
+        let fromHandle = try normalizeWorkspaceHandle(fromRaw, client: client, windowHandle: windowHandle)
+        let toHandle = try normalizeWorkspaceHandle(toRaw, client: client, windowHandle: windowHandle)
+        guard let fromHandle, let toHandle else {
+            throw CLIError(message: "simulate-sidebar-drag could not resolve --from / --to to workspace ids")
+        }
+
+        var params: [String: Any] = [
+            "window_id": windowHandle,
+            "from_tab_id": fromHandle,
+            "to_tab_id": toHandle
+        ]
+        if let durationRaw = optionValue(commandArgs, name: "--duration-ms") {
+            guard let duration = Int(durationRaw), duration > 0 else {
+                throw CLIError(message: "--duration-ms must be a positive integer")
+            }
+            params["duration_ms"] = duration
+        }
+        if let stepsRaw = optionValue(commandArgs, name: "--steps") {
+            guard let steps = Int(stepsRaw), steps > 0 else {
+                throw CLIError(message: "--steps must be a positive integer")
+            }
+            params["steps"] = steps
+        }
+
+        let payload = try client.sendV2(method: "debug.sidebar.simulate_drag", params: params)
+        let summary = "OK steps=\(payload["steps"] ?? "?") duration_ms=\(payload["duration_ms"] ?? "?") edge=\(payload["edge"] ?? "?")"
+        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
     }
 
     private func runWorkspaceAction(
@@ -12058,6 +12107,28 @@ struct CMUXCLI {
               cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31
               cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run
             """)
+        case "simulate-sidebar-drag":
+            return """
+            Usage: cmux simulate-sidebar-drag --window <id|ref|index> --from <ws> --to <ws> [flags]
+
+            Drive deterministic sidebar drag-state mutations against a DEBUG build of
+            the app, intended for headless profiling under xctrace (see the profile-pr
+            skill in cmuxterm-hq). Sets dragState.draggedTabId to --from, ticks
+            dragState.dropIndicator across the rows between --from and --to over
+            --duration-ms in --steps increments, then clears both. Does NOT commit a
+            reorder. Only available in DEBUG builds.
+
+            Flags:
+              --window <id|ref|index>      Window context (required)
+              --from <id|ref|index>        Workspace to mark as the dragged tab (required)
+              --to <id|ref|index>          Final target neighbor row (required)
+              --duration-ms <n>            Total simulation duration (default: 1000)
+              --steps <n>                  Number of indicator updates (default: row count between from and to)
+
+            Example:
+              cmux simulate-sidebar-drag --window window:1 --from workspace:1 --to workspace:25 --duration-ms 2000
+              cmux simulate-sidebar-drag --window window:1 --from workspace:1 --to workspace:25 --steps 120 --duration-ms 2000
+            """
         case "workspace-action":
             return """
             Usage: cmux workspace-action --action <name> [flags]
