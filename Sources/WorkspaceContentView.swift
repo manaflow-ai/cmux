@@ -2046,9 +2046,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             return lhs.id.description < rhs.id.description
         }
         ZStack(alignment: .topLeading) {
-            CanvasMetalBackdrop(backgroundColor: appearance.backgroundColor, preferredFramesPerSecond: 120)
-                .ignoresSafeArea()
-
             canvasViewport(items, activeItemID: scene.activeItemID)
         }
         .accessibilityIdentifier("WorkspaceCanvasOverview")
@@ -2127,6 +2124,23 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 scale: scale,
                 activeItemID: activeItemID
             )
+            let surfaceDescriptors = canvasSurfaceDescriptors(
+                for: renderedItems,
+                renderModes: renderModes
+            )
+            let metalScene = CanvasScene(
+                viewport: controller.canvasViewport,
+                viewportSize: proxy.size,
+                scale: scale,
+                padding: canvasPadding,
+                minimumSurfaceDisplaySize: CGSize(
+                    width: minimumFreeformCardWidth,
+                    height: minimumFreeformCardHeight
+                ),
+                grid: .freeformDefault,
+                surfaces: surfaceDescriptors,
+                alignmentGuides: activeAlignmentGuides
+            )
             let documentBounds = CanvasGeometryEngine.visibleDocumentRect(
                 viewport: controller.canvasViewport,
                 viewportSize: proxy.size,
@@ -2154,7 +2168,15 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             }
 
             ZStack(alignment: .topLeading) {
-                canvasGridOverlay(transform: transform, contentSize: proxy.size)
+                CanvasHostRepresentable(
+                    scene: metalScene,
+                    backgroundColor: appearance.backgroundColor,
+                    style: canvasShellStyle,
+                    preferredFramesPerSecond: 120
+                )
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
 
                 ForEach(visibleItems) { item in
                     let itemFrame = item.frame
@@ -2173,8 +2195,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                             y: canvasRect.minY + (size.height / 2)
                         )
                 }
-
-                canvasAlignmentGuideOverlay(activeAlignmentGuides, transform: transform)
 
                 CanvasPanEventMonitorLayer(
                     scrollPassthroughFrames: scrollPassthroughFrames,
@@ -2329,6 +2349,33 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         })
     }
 
+    private func canvasSurfaceDescriptors(
+        for items: [CanvasItem],
+        renderModes: [LayoutItemID: CanvasRenderMode]
+    ) -> [CanvasSurfaceDescriptor] {
+        items.map { item in
+            CanvasSurfaceDescriptor(
+                id: item.id,
+                kind: canvasSurfaceKind(for: item),
+                frame: item.frame,
+                zIndex: item.zIndex,
+                isFocused: controller.focusedCanvasItemID == item.id,
+                renderMode: canvasSurfaceRenderMode(for: renderModes[item.id] ?? .previewTexture)
+            )
+        }
+    }
+
+    private func canvasSurfaceRenderMode(for renderMode: CanvasRenderMode) -> CanvasSurfaceRenderMode {
+        switch renderMode {
+        case .liveNative1x:
+            return .nativeOverlay
+        case .previewTexture:
+            return .snapshotTexture
+        case .unmounted:
+            return .placeholder
+        }
+    }
+
     private func canvasSurfaceKind(for item: CanvasItem) -> CanvasSurfaceKind {
         guard let selected = selectedTab(for: item) else {
             return .generic
@@ -2349,7 +2396,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         documentBounds: CGRect = .zero,
         renderMode: CanvasRenderMode = .previewTexture
     ) -> some View {
-        let focused = controller.focusedCanvasItemID == item.id
         let tabs = paneTabs(for: item)
         let selected = selectedTab(for: item) ?? tabs.first
         let paneID = paneID(for: item)
@@ -2370,15 +2416,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
             livePaneContent(item: item, selected: selected, paneID: paneID, renderMode: renderMode)
         }
-        .background(canvasCardBackgroundColor)
+        .background(Color.clear)
         .clipped()
-        .overlay {
-            Rectangle()
-                .stroke(
-                    focused ? canvasForegroundColor.opacity(0.34) : appearance.dividerColor.opacity(0.58),
-                    lineWidth: 1
-                )
-        }
         .overlay {
             if let dragScale {
                 canvasResizeHitTargets(item: item, scale: dragScale)
@@ -2399,7 +2438,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 dragScale: dragScale
             )
         }
-        .shadow(color: .black.opacity(focused ? 0.20 : 0.10), radius: focused ? 10 : 5, x: 0, y: 4)
         .contentShape(Rectangle())
         .accessibilityIdentifier(accessibilityIdentifier(for: item))
         .accessibilityLabel(title)
@@ -2491,7 +2529,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         .frame(height: 20)
         .padding(.leading, 6)
         .padding(.trailing, 6)
-        .background(canvasHeaderBackgroundColor)
+        .background(Color.clear)
         .contentShape(Rectangle())
         .onTapGesture {
             focusCanvasHeader(item: item, paneID: paneID)
@@ -2801,13 +2839,12 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .layoutPriority(1)
-        .background(canvasContentBackgroundColor)
+        .background(Color.clear)
         .clipped()
     }
 
     private func canvasPreviewPaneContent(item: CanvasItem, selected: SurfaceTab, paneID: PaneID) -> some View {
         ZStack(alignment: .topLeading) {
-            canvasContentBackgroundColor
             if let terminalPanel = workspace.panel(for: selected.id) as? TerminalPanel,
                let surface = terminalPanel.hostedView.currentCanvasIOSurface() {
                 CanvasIOSurfacePreview(
@@ -2927,7 +2964,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
     private func canvasUnmountedPaneContent(selected: SurfaceTab) -> some View {
         ZStack(alignment: .topLeading) {
-            canvasContentBackgroundColor
             Text(selected.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? String(localized: "canvas.preview.surface", defaultValue: "Surface"))
                 .font(.system(size: 12, weight: .medium))
                 .lineLimit(1)
@@ -3284,6 +3320,37 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
     private var canvasForegroundColor: Color {
         Color(nsColor: appearance.foregroundColor)
+    }
+
+    private var canvasShellStyle: CanvasShellStyle {
+        let background = canvasColor(appearance.backgroundColor)
+        let foreground = canvasColor(appearance.foregroundColor)
+        return CanvasShellStyle(
+            background: background,
+            cardFill: background,
+            headerFill: foreground.withAlpha(0.045),
+            border: foreground.withAlpha(0.22),
+            focusedBorder: foreground.withAlpha(0.34),
+            gridMinor: foreground.withAlpha(0.035),
+            gridMajor: foreground.withAlpha(0.075),
+            alignmentGuide: CanvasColor(red: 0.35, green: 0.65, blue: 1, alpha: 0.72),
+            shadow: CanvasColor(red: 0, green: 0, blue: 0, alpha: 0.12),
+            headerHeight: 20,
+            borderWidth: 1,
+            focusedBorderWidth: 1,
+            shadowOffset: CGSize(width: 0, height: 4),
+            shadowExpansion: 5
+        )
+    }
+
+    private func canvasColor(_ color: NSColor) -> CanvasColor {
+        let resolved = color.usingColorSpace(.deviceRGB) ?? color
+        return CanvasColor(
+            red: Float(resolved.redComponent),
+            green: Float(resolved.greenComponent),
+            blue: Float(resolved.blueComponent),
+            alpha: Float(resolved.alphaComponent)
+        )
     }
 
     private var freeformScale: CGFloat {

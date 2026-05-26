@@ -45,6 +45,7 @@ public struct CanvasScene: Sendable, Equatable {
     public var viewportSize: CGSize
     public var scale: CGFloat
     public var padding: CGFloat
+    public var minimumSurfaceDisplaySize: CGSize
     public var grid: CanvasGrid
     public var surfaces: [CanvasSurfaceDescriptor]
     public var alignmentGuides: [CanvasAlignmentGuide]
@@ -54,6 +55,7 @@ public struct CanvasScene: Sendable, Equatable {
         viewportSize: CGSize = CGSize(width: 1, height: 1),
         scale: CGFloat? = nil,
         padding: CGFloat = 0,
+        minimumSurfaceDisplaySize: CGSize = .zero,
         grid: CanvasGrid = .freeformDefault,
         surfaces: [CanvasSurfaceDescriptor] = [],
         alignmentGuides: [CanvasAlignmentGuide] = []
@@ -66,6 +68,10 @@ public struct CanvasScene: Sendable, Equatable {
         )
         self.scale = max(0.0001, resolvedScale.isFinite ? resolvedScale : 1)
         self.padding = max(0, padding.isFinite ? padding : 0)
+        self.minimumSurfaceDisplaySize = CGSize(
+            width: max(0, minimumSurfaceDisplaySize.width.isFinite ? minimumSurfaceDisplaySize.width : 0),
+            height: max(0, minimumSurfaceDisplaySize.height.isFinite ? minimumSurfaceDisplaySize.height : 0)
+        )
         self.grid = grid
         self.surfaces = surfaces.sorted(by: Self.surfaceSort)
         self.alignmentGuides = alignmentGuides

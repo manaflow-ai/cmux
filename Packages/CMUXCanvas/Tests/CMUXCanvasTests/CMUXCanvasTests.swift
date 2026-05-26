@@ -157,6 +157,110 @@ final class CMUXCanvasTests: XCTestCase {
         XCTAssertEqual(plan.textureSurfaces.map(\.id), [activeID])
     }
 
+    func testShellRenderPlanBuildsGridAndSurfaceChrome() {
+        let activeID = LayoutItemID()
+        let inactiveID = LayoutItemID()
+        let style = CanvasShellStyle(
+            background: CanvasColor(red: 0.1, green: 0.1, blue: 0.1),
+            cardFill: CanvasColor(red: 0.2, green: 0.2, blue: 0.2),
+            headerFill: CanvasColor(red: 0.3, green: 0.3, blue: 0.3),
+            border: CanvasColor(red: 0.4, green: 0.4, blue: 0.4),
+            focusedBorder: CanvasColor(red: 1, green: 1, blue: 1),
+            gridMinor: CanvasColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 0.1),
+            gridMajor: CanvasColor(red: 0.6, green: 0.6, blue: 0.6, alpha: 0.2),
+            alignmentGuide: CanvasColor(red: 0, green: 0.5, blue: 1),
+            shadow: CanvasColor(red: 0, green: 0, blue: 0, alpha: 0.2),
+            headerHeight: 20
+        )
+        let scene = CanvasScene(
+            viewport: CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 800, height: 600), scale: 1),
+            viewportSize: CGSize(width: 800, height: 600),
+            scale: 1,
+            minimumSurfaceDisplaySize: CGSize(width: 240, height: 170),
+            surfaces: [
+                CanvasSurfaceDescriptor(
+                    id: activeID,
+                    kind: .terminal,
+                    frame: PixelRect(x: 20, y: 30, width: 400, height: 300),
+                    isFocused: true,
+                    renderMode: .nativeOverlay
+                ),
+                CanvasSurfaceDescriptor(
+                    id: inactiveID,
+                    kind: .browser,
+                    frame: PixelRect(x: 460, y: 30, width: 260, height: 220),
+                    isFocused: false,
+                    renderMode: .snapshotTexture
+                ),
+            ],
+            alignmentGuides: [
+                CanvasAlignmentGuide(axis: .vertical, position: 460, rangeStart: 0, rangeEnd: 600)
+            ]
+        )
+
+        let plan = CanvasShellRenderPlan(scene: scene, style: style)
+        let surfacesByID = Dictionary(uniqueKeysWithValues: plan.surfaces.map { ($0.id, $0) })
+
+        XCTAssertEqual(Set(plan.surfaces.map(\.id)), Set([activeID, inactiveID]))
+        XCTAssertEqual(surfacesByID[activeID]?.frame, CGRect(x: 20, y: 30, width: 400, height: 300))
+        XCTAssertEqual(surfacesByID[activeID]?.headerFrame, CGRect(x: 20, y: 30, width: 400, height: 20))
+        XCTAssertTrue(plan.primitives.contains { primitive in
+            if case .stroke(_, _, let color) = primitive, color == style.focusedBorder { return true }
+            return false
+        })
+        XCTAssertTrue(plan.primitives.contains { primitive in
+            if case .line(let line) = primitive, line.color == style.alignmentGuide { return true }
+            return false
+        })
+    }
+
+    func testShellRenderPlanUsesMinimumDisplaySizeForZoomedCards() {
+        let id = LayoutItemID()
+        let scene = CanvasScene(
+            viewport: CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 1_600, height: 1_200), scale: 0.25),
+            viewportSize: CGSize(width: 400, height: 300),
+            scale: 0.25,
+            minimumSurfaceDisplaySize: CGSize(width: 240, height: 170),
+            surfaces: [
+                CanvasSurfaceDescriptor(
+                    id: id,
+                    kind: .terminal,
+                    frame: PixelRect(x: 0, y: 0, width: 400, height: 300),
+                    renderMode: .snapshotTexture
+                )
+            ]
+        )
+
+        let plan = CanvasShellRenderPlan(scene: scene)
+
+        XCTAssertEqual(plan.surfaces.first?.frame.size, CGSize(width: 240, height: 170))
+    }
+
+    func testShellRenderPlanCullsOffscreenSurfaces() {
+        let visibleID = LayoutItemID()
+        let hiddenID = LayoutItemID()
+        let scene = CanvasScene(
+            viewport: CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 800, height: 600), scale: 1),
+            viewportSize: CGSize(width: 800, height: 600),
+            surfaces: [
+                CanvasSurfaceDescriptor(
+                    id: visibleID,
+                    kind: .terminal,
+                    frame: PixelRect(x: 20, y: 30, width: 400, height: 300)
+                ),
+                CanvasSurfaceDescriptor(
+                    id: hiddenID,
+                    kind: .browser,
+                    frame: PixelRect(x: 5_000, y: 30, width: 400, height: 300)
+                ),
+            ]
+        )
+
+        let plan = CanvasShellRenderPlan(scene: scene)
+
+        XCTAssertEqual(plan.surfaces.map(\.id), [visibleID])
+    }
+
     func testSurfaceTextureCacheEvictsLeastRecentlyUsedAndPrunesInvisibleSurfaces() {
         let firstID = LayoutItemID()
         let secondID = LayoutItemID()
