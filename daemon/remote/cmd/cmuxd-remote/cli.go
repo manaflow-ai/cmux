@@ -325,9 +325,7 @@ func runNotifyRelay(socketPath string, args []string, jsonOutput bool, refreshAd
 	}
 
 	params := map[string]any{
-		"title":    "Notification",
-		"subtitle": "",
-		"body":     "",
+		"title": "Notification",
 	}
 	if title, ok := parsed.flags["title"]; ok {
 		params["title"] = title

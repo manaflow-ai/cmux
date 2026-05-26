@@ -662,6 +662,66 @@ func TestCLINotifyOutsideTmuxOmitsPreferTTY(t *testing.T) {
 		if _, ok := params["prefer_tty"]; ok {
 			t.Fatalf("expected prefer_tty to be omitted outside tmux, got %v", params["prefer_tty"])
 		}
+		if _, ok := params["subtitle"]; ok {
+			t.Fatalf("expected unset subtitle to be omitted, got %v", params["subtitle"])
+		}
+		if _, ok := params["body"]; ok {
+			t.Fatalf("expected unset body to be omitted, got %v", params["body"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for notify request")
+	}
+}
+
+func TestCLINotifyExplicitSurfaceUsesNotificationCreate(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	workspaceID := "11111111-1111-1111-1111-111111111111"
+	surfaceID := "22222222-2222-2222-2222-222222222222"
+	t.Setenv("CMUX_WORKSPACE_ID", "33333333-3333-3333-3333-333333333333")
+	t.Setenv("CMUX_SURFACE_ID", "44444444-4444-4444-4444-444444444444")
+	t.Setenv("CMUX_CLI_TTY_NAME", "/dev/ttys777")
+	t.Setenv("TMUX", "/tmp/tmux-current,123,0")
+
+	code := runCLI([]string{
+		"--socket", sockPath,
+		"--json",
+		"notify",
+		"--workspace", workspaceID,
+		"--surface", surfaceID,
+		"--title", "Pinned",
+		"--subtitle", "Build",
+		"--body", "done",
+	})
+	if code != 0 {
+		t.Fatalf("notify should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "notification.create" {
+			t.Fatalf("expected notification.create, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["workspace_id"]; got != workspaceID {
+			t.Fatalf("expected workspace_id %s, got %v", workspaceID, got)
+		}
+		if got := params["surface_id"]; got != surfaceID {
+			t.Fatalf("expected surface_id %s, got %v", surfaceID, got)
+		}
+		if got := params["title"]; got != "Pinned" {
+			t.Fatalf("expected title Pinned, got %v", got)
+		}
+		if got := params["subtitle"]; got != "Build" {
+			t.Fatalf("expected subtitle Build, got %v", got)
+		}
+		if got := params["body"]; got != "done" {
+			t.Fatalf("expected body done, got %v", got)
+		}
+		for _, key := range []string{"preferred_workspace_id", "preferred_surface_id", "caller_tty", "prefer_tty"} {
+			if got, ok := params[key]; ok {
+				t.Fatalf("expected %s to be omitted for explicit surface, got %v", key, got)
+			}
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for notify request")
 	}
