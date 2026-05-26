@@ -307,29 +307,17 @@ struct WindowAppearanceSnapshot {
         unifySurfaceBackdrops ? chromeColorScheme : sidebarSettings.colorScheme
     }
 
-    func sidebarContrastOverlayColor(for role: WindowBackdropRole) -> NSColor? {
-        guard unifySurfaceBackdrops,
-              role == .leftSidebar || role == .rightSidebar else {
-            return nil
+    func sidebarContrastOverlayColor(for _: WindowBackdropRole) -> NSColor? {
+        nil
+    }
+
+    func shouldDrawSidebarSeparator(for role: WindowBackdropRole) -> Bool {
+        switch role {
+        case .leftSidebar, .rightSidebar:
+            return !unifySurfaceBackdrops
+        case .windowRoot, .terminalCanvas, .bonsplitChrome, .titlebar, .browserSurface:
+            return true
         }
-
-        let composited = compositedTerminalBackgroundColor
-        let srgb = composited.usingColorSpace(.sRGB) ?? composited
-        var red: CGFloat = 0
-        var green: CGFloat = 0
-        var blue: CGFloat = 0
-        var alpha: CGFloat = 0
-        srgb.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-        _ = alpha
-
-        let isLight = cmuxReadableColorScheme(for: composited) == .light
-        let adjustment: CGFloat = isLight ? -0.05 : 0.07
-        return NSColor(
-            srgbRed: min(1, max(0, red + adjustment)),
-            green: min(1, max(0, green + adjustment)),
-            blue: min(1, max(0, blue + adjustment)),
-            alpha: isLight ? 0.20 : 0.18
-        )
     }
 
     func policy(for role: WindowBackdropRole) -> WindowBackdropPolicy {
@@ -355,5 +343,16 @@ struct WindowAppearanceSnapshot {
             opacity: terminalBackgroundOpacity,
             renderingMode: terminalRenderingMode
         )
+    }
+}
+
+private struct SidebarMatchesTerminalBackgroundKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var sidebarMatchesTerminalBackground: Bool {
+        get { self[SidebarMatchesTerminalBackgroundKey.self] }
+        set { self[SidebarMatchesTerminalBackgroundKey.self] = newValue }
     }
 }

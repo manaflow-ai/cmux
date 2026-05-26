@@ -194,6 +194,21 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertNil(snapshot.sidebarContrastOverlayColor(for: .leftSidebar))
     }
 
+    func testUnifiedSidebarBackdropsDoNotDrawSeparateSidebarSeparators() {
+        let snapshot = makeSnapshot(unifySurfaceBackdrops: true)
+
+        XCTAssertFalse(snapshot.shouldDrawSidebarSeparator(for: .leftSidebar))
+        XCTAssertFalse(snapshot.shouldDrawSidebarSeparator(for: .rightSidebar))
+        XCTAssertTrue(snapshot.shouldDrawSidebarSeparator(for: .titlebar))
+    }
+
+    func testSeparateSidebarBackdropsKeepSidebarSeparators() {
+        let snapshot = makeSnapshot(unifySurfaceBackdrops: false)
+
+        XCTAssertTrue(snapshot.shouldDrawSidebarSeparator(for: .leftSidebar))
+        XCTAssertTrue(snapshot.shouldDrawSidebarSeparator(for: .rightSidebar))
+    }
+
     func testOpaqueTerminalUsesOpaqueWindowFill() {
         let snapshot = makeSnapshot(unifySurfaceBackdrops: false, backgroundOpacity: 1.0)
         let plan = snapshot.backdropPlan(glassEffectAvailable: false)

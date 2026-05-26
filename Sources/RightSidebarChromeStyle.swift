@@ -137,9 +137,13 @@ struct RightSidebarChromePillModifier: ViewModifier {
 }
 
 struct RightSidebarChromeBottomBorderModifier: ViewModifier {
+    @Environment(\.sidebarMatchesTerminalBackground) private var sidebarMatchesTerminalBackground
+
     func body(content: Content) -> some View {
         content.overlay(alignment: .bottom) {
-            WindowChromeBorder(orientation: .horizontal, ignoresSafeArea: false)
+            if !sidebarMatchesTerminalBackground {
+                WindowChromeBorder(orientation: .horizontal, ignoresSafeArea: false)
+            }
         }
     }
 }
