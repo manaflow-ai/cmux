@@ -2,6 +2,13 @@ import Foundation
 import CMUXAgentLaunch
 import SQLite3
 
+/// Tracks fingerprint of latest assistant message per (workspace, panel, session)
+/// to emit completion notifications only on change, not on first observation.
+private enum OpenCodeCompletionTracker {
+    nonisolated(unsafe) static var fingerprintsByKey: [String: (timeCreated: Int64, dataLength: Int)] = [:]
+    // Key: "workspaceId:panelId:sessionId"
+}
+
 extension AgentLaunchCommandSnapshot {
     init(
         processDetectedLauncher launcher: String,
@@ -68,6 +75,11 @@ extension RestorableAgentSessionIndex {
         var resolved = processDetectedOpenCodeSnapshots(
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,
+            fileManager: fileManager
+        )
+
+        processOpenCodeCompletionNotifications(
+            resolved: resolved,
             fileManager: fileManager
         )
 
@@ -569,6 +581,156 @@ extension RestorableAgentSessionIndex {
         }
         return rawValue
     }
+    // MARK: - OpenCode completion notification
+
+    private static func processOpenCodeCompletionNotifications(
+        resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)],
+        fileManager: FileManager
+    ) {
+        guard !resolved.isEmpty else { return }
+        let openCodePanels = resolved.filter { $0.value.snapshot.kind == .opencode }
+        guard !openCodePanels.isEmpty else { return }
+
+        let snapshot: OpenCodeDatabaseSnapshot.Snapshot
+        do {
+            guard let madeSnapshot = try OpenCodeDatabaseSnapshot.make(prefix: "cmux-opencode-notify") else {
+                return
+            }
+            snapshot = madeSnapshot
+        } catch {
+            return
+        }
+        defer { snapshot.remove() }
+
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(snapshot.databaseURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            sqlite3_close(db)
+            return
+        }
+        defer { sqlite3_close(db) }
+
+        for (panelKey, pair) in openCodePanels {
+            let sessionId = pair.snapshot.sessionId
+            guard !sessionId.isEmpty else { continue }
+
+            guard let (dataJSON, timeCreated) = queryLatestAssistantMessage(db: db, sessionId: sessionId),
+                  !dataJSON.isEmpty else {
+                continue
+            }
+
+            let dedupeKey = "\(panelKey.workspaceId.uuidString):\(panelKey.panelId.uuidString):\(sessionId)"
+            let fingerprint = (timeCreated, dataJSON.count)
+
+            if let existing = OpenCodeCompletionTracker.fingerprintsByKey[dedupeKey] {
+                if existing.timeCreated != timeCreated || existing.dataLength != dataJSON.count {
+                    OpenCodeCompletionTracker.fingerprintsByKey[dedupeKey] = fingerprint
+                    emitOpenCodeCompletionNotification(
+                        panelKey: panelKey,
+                        workingDirectory: pair.snapshot.workingDirectory,
+                        dataJSON: dataJSON
+                    )
+                }
+            } else {
+                OpenCodeCompletionTracker.fingerprintsByKey[dedupeKey] = fingerprint
+            }
+        }
+    }
+
+    private static func queryLatestAssistantMessage(
+        db: OpaquePointer,
+        sessionId: String
+    ) -> (dataJSON: String, timeCreated: Int64)? {
+        let sql = """
+            SELECT data, time_created FROM message
+            WHERE session_id = ? AND data LIKE '%"role":"assistant"%'
+            ORDER BY time_created DESC LIMIT 1
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            sqlite3_finalize(stmt)
+            return nil
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_FN)
+
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+
+        let dataText = SessionIndexStore.sqliteText(stmt, 0) ?? ""
+        let timeCreated = sqlite3_column_int64(stmt, 1)
+
+        return (dataText, timeCreated)
+    }
+
+    private static func emitOpenCodeCompletionNotification(
+        panelKey: PanelKey,
+        workingDirectory: String?,
+        dataJSON: String
+    ) {
+        let body = extractAssistantText(from: dataJSON) ?? "OpenCode produced a new response."
+        let subtitle = workingDirectory.map { ($0 as NSString).lastPathComponent } ?? "OpenCode"
+
+        Task { @MainActor in
+            TerminalNotificationStore.shared.addNotification(
+                tabId: panelKey.workspaceId,
+                surfaceId: panelKey.panelId,
+                title: "OpenCode completed",
+                subtitle: subtitle,
+                body: body
+            )
+        }
+    }
+
+    private static func extractAssistantText(from dataJSON: String) -> String? {
+        guard let data = dataJSON.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        func collectText(from root: Any) -> String? {
+            if let str = root as? [String], !str.isEmpty {
+                return str.compactMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }.joined(separator: " ")
+            }
+            if let str = root as? String {
+                let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            if let dict = root as? [String: Any] {
+                if let parts = dict["parts"] as? [[String: Any]] {
+                    let texts = parts.compactMap { collectText(from: $0) }
+                    if !texts.isEmpty { return texts.joined(separator: " ") }
+                }
+                if let content = dict["content"] as? String {
+                    return collectText(from: content)
+                }
+                if let contentItems = dict["content"] as? [[String: Any]] {
+                    let texts = contentItems.compactMap { collectText(from: $0) }
+                    if !texts.isEmpty { return texts.joined(separator: " ") }
+                }
+                if let text = dict["text"] as? String {
+                    return collectText(from: text)
+                }
+                return nil
+            }
+            if let arr = root as? [Any] {
+                let texts = arr.compactMap { collectText(from: $0) }
+                if !texts.isEmpty { return texts.joined(separator: " ") }
+            }
+            return nil
+        }
+
+        guard let text = collectText(from: obj) else { return nil }
+
+        let collapsed = text
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        if collapsed.isEmpty { return nil }
+        if collapsed.count <= 240 { return collapsed }
+        return String(collapsed.prefix(240))
+    }
+
 }
 
 extension SurfaceResumeBindingIndex {
