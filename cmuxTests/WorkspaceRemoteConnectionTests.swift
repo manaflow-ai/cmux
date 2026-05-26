@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -692,6 +693,46 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
         XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+    }
+
+    @MainActor
+    func testRemoteTerminalSessionEndPublishesDisconnectedDetailWithoutTransientNil() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to cmux-macmini",
+            target: "cmux-macmini"
+        )
+
+        let expectedDetail = String(
+            localized: "remote.status.terminalDisconnected",
+            defaultValue: "Remote terminal session disconnected"
+        )
+        var publishedDetails: [String?] = []
+        let cancellable = workspace.$remoteConnectionDetail
+            .dropFirst()
+            .sink { publishedDetails.append($0) }
+        defer { cancellable.cancel() }
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64007)
+
+        XCTAssertEqual(workspace.remoteConnectionDetail, expectedDetail)
+        XCTAssertEqual(publishedDetails, [expectedDetail])
     }
 
     @MainActor
