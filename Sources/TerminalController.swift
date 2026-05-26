@@ -7235,8 +7235,7 @@ class TerminalController {
         let rawDirectory = v2RawString(params, "directory")
             ?? v2RawString(params, "path")
             ?? v2RawString(params, "pwd")
-        guard let directory = rawDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !directory.isEmpty else {
+        guard let directory = rawDirectory, !directory.isEmpty else {
             return .err(code: "invalid_params", message: "Missing directory", data: nil)
         }
 
@@ -7253,7 +7252,8 @@ class TerminalController {
                 tabManager.updateSurfaceDirectory(
                     tabId: workspaceId,
                     surfaceId: requestedSurfaceId,
-                    directory: directory
+                    directory: directory,
+                    preserveExactDirectory: true
                 )
             }
             return .ok([
@@ -7266,18 +7266,8 @@ class TerminalController {
             ])
         }
 
-        var result: V2CallResult = .err(
-            code: "not_found",
-            message: "Workspace not found",
-            data: [
-                "workspace_id": workspaceId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
-                "surface_id": v2OrNull(requestedSurfaceId?.uuidString),
-                "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
-            ]
-        )
-
-        v2MainSync {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
             guard let tab = self.tabForSidebarMutation(id: workspaceId),
                   let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) ?? self.tabManager else {
                 return
@@ -7291,30 +7281,25 @@ class TerminalController {
                 validSurfaceIds: validSurfaceIds
             )
             guard let surfaceId, validSurfaceIds.contains(surfaceId) else {
-                result = .err(
-                    code: "not_found",
-                    message: "Surface not found",
-                    data: [
-                        "workspace_id": workspaceId.uuidString,
-                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
-                        "surface_id": v2OrNull(requestedSurfaceId?.uuidString),
-                        "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
-                    ]
-                )
                 return
             }
 
-            tabManager.updateSurfaceDirectory(tabId: workspaceId, surfaceId: surfaceId, directory: directory)
-            result = .ok([
-                "workspace_id": workspaceId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "directory": directory,
-            ])
+            tabManager.updateSurfaceDirectory(
+                tabId: workspaceId,
+                surfaceId: surfaceId,
+                directory: directory,
+                preserveExactDirectory: true
+            )
         }
 
-        return result
+        return .ok([
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "surface_id": NSNull(),
+            "surface_ref": NSNull(),
+            "directory": directory,
+            "pending": true,
+        ])
     }
 
     private func v2SurfaceReportShellState(params: [String: Any]) -> V2CallResult {

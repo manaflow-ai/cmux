@@ -10944,19 +10944,28 @@ final class Workspace: Identifiable, ObservableObject {
         return trimmedCurrentDirectory.isEmpty ? nil : trimmedCurrentDirectory
     }
 
-    func updatePanelDirectory(panelId: UUID, directory: String) {
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        if panelDirectories[panelId] != trimmed {
-            panelDirectories[panelId] = trimmed
+    func updatePanelDirectory(
+        panelId: UUID,
+        directory: String,
+        preserveExactDirectory: Bool = false
+    ) {
+        let resolvedDirectory: String
+        if preserveExactDirectory {
+            resolvedDirectory = directory
+        } else {
+            resolvedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard !resolvedDirectory.isEmpty else { return }
+        if panelDirectories[panelId] != resolvedDirectory {
+            panelDirectories[panelId] = resolvedDirectory
         }
         // Update current directory if this is the focused panel
         if panelId == focusedPanelId {
-            if surfaceTabBarDirectory != trimmed {
-                surfaceTabBarDirectory = trimmed
+            if surfaceTabBarDirectory != resolvedDirectory {
+                surfaceTabBarDirectory = resolvedDirectory
             }
-            if currentDirectory != trimmed {
-                currentDirectory = trimmed
+            if currentDirectory != resolvedDirectory {
+                currentDirectory = resolvedDirectory
             }
         }
     }

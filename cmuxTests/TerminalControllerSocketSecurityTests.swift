@@ -228,7 +228,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             autoConnect: false
         )
         let surfaceId = try XCTUnwrap(workspace.focusedPanelId)
-        let directory = "/home/dev/project"
+        let directory = "/home/dev/project with trailing space "
         let request: [String: Any] = [
             "id": "report-pwd",
             "method": "surface.report_pwd",
@@ -246,6 +246,8 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         let response = try XCTUnwrap(JSONSerialization.jsonObject(with: responseData, options: []) as? [String: Any])
 
         XCTAssertEqual(response["ok"] as? Bool, true)
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["pending"] as? Bool, true)
         let deadline = Date().addingTimeInterval(1.0)
         while workspace.currentDirectory != directory && Date() < deadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))

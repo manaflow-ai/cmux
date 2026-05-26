@@ -5661,11 +5661,20 @@ class TabManager: ObservableObject {
 
     // MARK: - Surface Directory Updates (Backwards Compatibility)
 
-    func updateSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String) {
+    func updateSurfaceDirectory(
+        tabId: UUID,
+        surfaceId: UUID,
+        directory: String,
+        preserveExactDirectory: Bool = false
+    ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         let previousDirectory = gitProbeDirectory(for: tab, panelId: surfaceId)
-        let normalized = normalizeDirectory(directory)
-        tab.updatePanelDirectory(panelId: surfaceId, directory: normalized)
+        let normalized = preserveExactDirectory ? directory : normalizeDirectory(directory)
+        tab.updatePanelDirectory(
+            panelId: surfaceId,
+            directory: normalized,
+            preserveExactDirectory: preserveExactDirectory
+        )
         let nextDirectory = normalizedWorkingDirectory(normalized)
         if previousDirectory != nextDirectory {
             guard sidebarGitMetadataWatchEnabled else {
