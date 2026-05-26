@@ -1058,27 +1058,6 @@ struct PairingView: View {
                     .accessibilityElement(children: .contain)
                 }
 
-                Section {
-                    Button {
-                        pair()
-                    } label: {
-                        HStack {
-                            Spacer(minLength: 0)
-                            if isPairing {
-                                ProgressView()
-                            } else {
-                                Text(L10n.string("mobile.addDevice.pair", defaultValue: "Pair"))
-                            }
-                            Spacer(minLength: 0)
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .tint(.blue)
-                    .disabled(isPairing || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityIdentifier("MobilePairButton")
-                }
-
                 #if os(iOS)
                 Section {
                     Button {
@@ -1118,21 +1097,42 @@ struct PairingView: View {
                     }
                 }
             }
+            #if os(iOS)
+            .scrollDismissesKeyboard(.interactively)
+            #endif
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    pair()
+                } label: {
+                    HStack {
+                        Spacer(minLength: 0)
+                        if isPairing {
+                            ProgressView()
+                        } else {
+                            Text(L10n.string("mobile.addDevice.pair", defaultValue: "Pair"))
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(.blue)
+                .disabled(isPairing || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityIdentifier("MobilePairButton")
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+                .padding(.top, 24)
+                .background {
+                    PlatformPalette.systemBackground
+                        .ignoresSafeArea(edges: .bottom)
+                }
+            }
             .navigationTitle(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
             .mobileInlineNavigationTitle()
             .toolbar {
                 #if os(iOS)
                 ToolbarItem(placement: .cancellationAction) {
                     cancelButton
-                }
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button {
-                        focusedField = nil
-                    } label: {
-                        Text(L10n.string("mobile.common.done", defaultValue: "Done"))
-                    }
-                    .accessibilityIdentifier("MobileAddDeviceKeyboardDoneButton")
                 }
                 #else
                 ToolbarItem {
