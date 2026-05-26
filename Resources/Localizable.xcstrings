@@ -80793,6 +80793,12 @@
                     "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit Dock 오른쪽 사이드바 최대 너비 터미널 로그"
                 }
             },
+            "km": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit ទទឹងអតិបរមា របារចំហៀងស្តាំ terminal កំណត់ហេតុ lazygit"
+                }
+            },
             "nb": {
                 "stringUnit": {
                     "state": "translated",
@@ -106910,6 +106916,12 @@
             "value": "Dock 최대 너비"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទទឹងអតិបរមា Dock"
+          }
+        },
         "nb": {
           "stringUnit": {
             "state": "translated",
@@ -107027,6 +107039,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "터미널 공간을 추가로 남겨 두는 내장 동적 제한을 사용합니다."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើដែនកំណត់ថាមវន្តដែលមានស្រាប់ ដែលរក្សាទុកកន្លែងបន្ថែមសម្រាប់ terminal។"
           }
         },
         "nb": {
@@ -107148,6 +107166,12 @@
             "value": "Dock은 터미널 공간을 유지하면서 내장 너비 상한을 넘어 커질 수 있습니다."
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock អាចពង្រីកលើសដែនកំណត់ទទឹងដែលមានស្រាប់ ខណៈរក្សាកន្លែងសម្រាប់ terminal។"
+          }
+        },
         "nb": {
           "stringUnit": {
             "state": "translated",
@@ -107267,6 +107291,12 @@
             "value": "사용자 지정 Dock 최대 너비 사용"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើទទឹងអតិបរមា Dock ផ្ទាល់ខ្លួន"
+          }
+        },
         "nb": {
           "stringUnit": {
             "state": "translated",
@@ -107381,6 +107411,12 @@
           }
         },
         "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "km": {
           "stringUnit": {
             "state": "translated",
             "value": "pt"
