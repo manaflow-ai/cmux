@@ -2318,9 +2318,16 @@ private struct NotificationsPopoverView: View {
                 subtitle: nil
             )
         } else {
+            // Snapshot the notifications array as an immutable value before the LazyVStack
+            // so the row closures don't reach back into the ObservableObject. Reading the
+            // store from inside the ForEach builder reintroduces a store dependency below
+            // the list boundary, which is the same anti-pattern CLAUDE.md flags for the
+            // sidebar/sessions panel (https://github.com/manaflow-ai/cmux/issues/2586).
+            let snapshot = notificationStore.notifications
+            let lastIndex = snapshot.count - 1
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(Array(notificationStore.notifications.enumerated()), id: \.element.id) { index, notification in
+                    ForEach(Array(snapshot.enumerated()), id: \.element.id) { index, notification in
                         NotificationPopoverRow(
                             notification: notification,
                             tabTitle: tabTitle(for: notification.tabId),
@@ -2351,7 +2358,7 @@ private struct NotificationsPopoverView: View {
                                 }
                             }
                         )
-                        if index < notificationStore.notifications.count - 1 {
+                        if index < lastIndex {
                             Divider()
                                 .opacity(0.4)
                                 .padding(.leading, 18)
