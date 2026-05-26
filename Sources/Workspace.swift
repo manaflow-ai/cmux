@@ -9402,6 +9402,7 @@ final class Workspace: Identifiable, ObservableObject {
     }()
     nonisolated(unsafe) static var runSSHControlMasterCommandOverrideForTesting: (([String]) -> Void)?
     var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]
+    var panelShellActivitySequences: [UUID: UInt64] = [:]
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] = [:]
@@ -10955,23 +10956,45 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Directory Updates
 
-    func updatePanelRemoteSession(panelId: UUID, session: DetectedRemoteTerminalSession?) {
-        guard panels[panelId] != nil else { return }
+    @discardableResult
+    func updatePanelRemoteSession(
+        panelId: UUID,
+        session: DetectedRemoteTerminalSession?,
+        shellActivitySequence: UInt64? = nil
+    ) -> Bool {
+        guard panels[panelId] != nil else { return false }
 
         if let session {
+            guard !isRemoteWorkspace else { return false }
+            if let shellActivitySequence {
+                let previousSequence = panelShellActivitySequences[panelId] ?? 0
+                guard shellActivitySequence >= previousSequence else { return false }
+                if shellActivitySequence > previousSequence {
+                    updatePanelShellActivityState(
+                        panelId: panelId,
+                        state: .commandRunning,
+                        shellActivitySequence: shellActivitySequence
+                    )
+                } else {
+                    guard panelShellActivityStates[panelId] != .promptIdle else { return false }
+                }
+            } else {
+                guard panelShellActivityStates[panelId] != .promptIdle else { return false }
+            }
             if session.directory != nil {
                 panelDirectories.removeValue(forKey: panelId)
             }
             clearPanelGitBranch(panelId: panelId)
             clearPanelPullRequest(panelId: panelId)
-            guard panelRemoteSessions[panelId] != session else { return }
+            guard panelRemoteSessions[panelId] != session else { return true }
             panelRemoteSessions[panelId] = session
         } else {
-            guard panelRemoteSessions[panelId] != nil else { return }
+            guard panelRemoteSessions[panelId] != nil else { return false }
             panelRemoteSessions.removeValue(forKey: panelId)
         }
 
         syncPanelPresentationTitle(panelId: panelId)
+        return true
     }
 
     private func configTrackingDirectory(for panelId: UUID?) -> String? {
@@ -11015,10 +11038,26 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
-        guard panels[panelId] != nil else { return }
+    @discardableResult
+    func updatePanelShellActivityState(
+        panelId: UUID,
+        state: PanelShellActivityState,
+        shellActivitySequence: UInt64? = nil
+    ) -> Bool {
+        guard panels[panelId] != nil else { return false }
+        var acceptedNewSequence = false
+        if let shellActivitySequence {
+            let previousSequence = panelShellActivitySequences[panelId] ?? 0
+            guard shellActivitySequence >= previousSequence else { return false }
+            let previousState = panelShellActivityStates[panelId] ?? .unknown
+            guard shellActivitySequence > previousSequence || previousState == state else { return false }
+            if shellActivitySequence > previousSequence {
+                panelShellActivitySequences[panelId] = shellActivitySequence
+                acceptedNewSequence = true
+            }
+        }
         let previousState = panelShellActivityStates[panelId] ?? .unknown
-        guard previousState != state else { return }
+        guard previousState != state else { return acceptedNewSequence }
         panelShellActivityStates[panelId] = state
         if state == .promptIdle, !isRemoteWorkspace {
             updatePanelRemoteSession(panelId: panelId, session: nil)
@@ -11036,6 +11075,7 @@ final class Workspace: Identifiable, ObservableObject {
             "panel=\(panelId.uuidString.prefix(5)) from=\(previousState.rawValue) to=\(state.rawValue)"
         )
 #endif
+        return true
     }
 
     func setAgentLifecycle(
@@ -11524,6 +11564,7 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionIDsByPanelId = remotePTYSessionIDsByPanelId.filter { validSurfaceIds.contains($0.key) }
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
+        panelShellActivitySequences = panelShellActivitySequences.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
         let staleAgentPIDPanelIds = agentPIDKeysByPanelId.keys.filter { !validSurfaceIds.contains($0) }
         var didClearStaleAgentRuntime = false

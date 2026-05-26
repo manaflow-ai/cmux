@@ -5664,10 +5664,17 @@ class TabManager: ObservableObject {
     func updateSurfaceRemoteSession(
         tabId: UUID,
         surfaceId: UUID,
-        session: DetectedRemoteTerminalSession?
+        session: DetectedRemoteTerminalSession?,
+        shellActivitySequence: UInt64? = nil
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        tab.updatePanelRemoteSession(panelId: surfaceId, session: session)
+        guard tab.updatePanelRemoteSession(
+            panelId: surfaceId,
+            session: session,
+            shellActivitySequence: shellActivitySequence
+        ) else {
+            return
+        }
         if session != nil {
             clearWorkspaceGitMetadata(for: WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId))
         }
@@ -5685,6 +5692,7 @@ class TabManager: ObservableObject {
         let previousDirectory = gitProbeDirectory(for: tab, panelId: surfaceId)
         if !tab.isRemoteWorkspace,
            let remoteSession = DetectedRemoteTerminalSession.fromReportedDirectory(directory) {
+            guard tab.panelShellActivityStates[surfaceId] != .promptIdle else { return }
             updateSurfaceRemoteSession(tabId: tabId, surfaceId: surfaceId, session: remoteSession)
             return
         }
@@ -5767,10 +5775,17 @@ class TabManager: ObservableObject {
     func updateSurfaceShellActivity(
         tabId: UUID,
         surfaceId: UUID,
-        state: Workspace.PanelShellActivityState
+        state: Workspace.PanelShellActivityState,
+        shellActivitySequence: UInt64? = nil
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        tab.updatePanelShellActivityState(panelId: surfaceId, state: state)
+        guard tab.updatePanelShellActivityState(
+            panelId: surfaceId,
+            state: state,
+            shellActivitySequence: shellActivitySequence
+        ) else {
+            return
+        }
         if state == .promptIdle,
            tab.focusedPanelId == surfaceId,
            let title = tab.panelTitle(panelId: surfaceId) {

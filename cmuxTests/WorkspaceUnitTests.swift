@@ -6210,6 +6210,103 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testStaleSequencedForegroundRemoteSessionAfterPromptIsIgnored() throws {
+        let workspace = Workspace(workingDirectory: "/Users/cmux/local-project")
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let activeSession = DetectedRemoteTerminalSession(
+            transport: .ssh,
+            destination: "devbox.example",
+            directory: nil
+        )
+
+        XCTAssertTrue(
+            workspace.updatePanelRemoteSession(
+                panelId: panelId,
+                session: activeSession,
+                shellActivitySequence: 10
+            )
+        )
+        XCTAssertEqual(workspace.panelRemoteSessions[panelId], activeSession)
+        XCTAssertEqual(workspace.panelShellActivityStates[panelId], .commandRunning)
+
+        workspace.updatePanelShellActivityState(
+            panelId: panelId,
+            state: .promptIdle,
+            shellActivitySequence: 11
+        )
+
+        XCTAssertNil(workspace.panelRemoteSessions[panelId])
+        XCTAssertEqual(workspace.panelShellActivityStates[panelId], .promptIdle)
+        XCTAssertFalse(
+            workspace.updatePanelRemoteSession(
+                panelId: panelId,
+                session: activeSession,
+                shellActivitySequence: 10
+            )
+        )
+        XCTAssertNil(workspace.panelRemoteSessions[panelId])
+        XCTAssertEqual(workspace.panelShellActivityStates[panelId], .promptIdle)
+        XCTAssertEqual(
+            workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [panelId]),
+            ["/Users/cmux/local-project"]
+        )
+    }
+
+    func testNewerSequencedForegroundRemoteSessionCanStartAfterPrompt() throws {
+        let workspace = Workspace(workingDirectory: "/Users/cmux/local-project")
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.updatePanelShellActivityState(
+            panelId: panelId,
+            state: .promptIdle,
+            shellActivitySequence: 20
+        )
+
+        let session = DetectedRemoteTerminalSession(
+            transport: .ssh,
+            destination: "nextbox.example",
+            directory: nil
+        )
+        XCTAssertTrue(
+            workspace.updatePanelRemoteSession(
+                panelId: panelId,
+                session: session,
+                shellActivitySequence: 21
+            )
+        )
+
+        XCTAssertEqual(workspace.panelRemoteSessions[panelId], session)
+        XCTAssertEqual(workspace.panelShellActivityStates[panelId], .commandRunning)
+        XCTAssertEqual(workspace.panelTitle(panelId: panelId), "ssh nextbox.example")
+    }
+
+    func testRemoteOSC7DirectoryReportAtPromptIdleIsIgnored() throws {
+        let manager = TabManager(
+            initialWorkingDirectory: "/Users/cmux/local-project",
+            autoWelcomeIfNeeded: false
+        )
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.updatePanelShellActivityState(
+            panelId: panelId,
+            state: .promptIdle,
+            shellActivitySequence: 30
+        )
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: "file://devbox.example/tmp/stale-remote-cwd"
+        )
+
+        XCTAssertNil(workspace.panelRemoteSessions[panelId])
+        XCTAssertNil(workspace.panelDirectories[panelId])
+        XCTAssertEqual(workspace.currentDirectory, "/Users/cmux/local-project")
+        XCTAssertEqual(
+            workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [panelId]),
+            ["/Users/cmux/local-project"]
+        )
+    }
+
     func testSidebarDerivedCollectionsMatchWhenUsingPrecomputedPanelOrder() {
         let workspace = Workspace()
         guard let leftFirstPanelId = workspace.focusedPanelId,

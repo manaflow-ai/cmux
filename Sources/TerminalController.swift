@@ -792,6 +792,13 @@ class TerminalController {
         }
     }
 
+    nonisolated static func parseReportedShellActivitySequence(
+        _ rawSequence: String?
+    ) -> UInt64? {
+        guard let rawSequence else { return nil }
+        return UInt64(rawSequence.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     nonisolated static func parseRemotePortScanKickReason(
         _ rawReason: String
     ) -> WorkspaceRemoteSessionController.PortScanKickReason? {
@@ -7239,6 +7246,9 @@ class TerminalController {
               let state = Self.parseReportedShellActivityState(rawState) else {
             return .err(code: "invalid_params", message: "state must be prompt, running, or unknown", data: nil)
         }
+        let shellActivitySequence = Self.parseReportedShellActivitySequence(
+            v2RawString(params, "seq") ?? v2RawString(params, "sequence")
+        )
 
         if let requestedSurfaceId {
             let shouldPublish = Self.socketFastPathState.shouldPublishShellActivity(
@@ -7252,7 +7262,8 @@ class TerminalController {
                     tabManager.updateSurfaceShellActivity(
                         tabId: workspaceId,
                         surfaceId: requestedSurfaceId,
-                        state: state
+                        state: state,
+                        shellActivitySequence: shellActivitySequence
                     )
                 }
             }
@@ -7286,7 +7297,12 @@ class TerminalController {
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else {
                 return
             }
-            tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
+            tabManager.updateSurfaceShellActivity(
+                tabId: tab.id,
+                surfaceId: surfaceId,
+                state: state,
+                shellActivitySequence: shellActivitySequence
+            )
         }
 
         return .ok([
@@ -19985,6 +20001,9 @@ class TerminalController {
         guard let state = Self.parseReportedShellActivityState(rawState) else {
             return "ERROR: Invalid shell state '\(rawState)' — expected prompt or running"
         }
+        let shellActivitySequence = Self.parseReportedShellActivitySequence(
+            parsed.options["seq"] ?? parsed.options["sequence"]
+        )
 
         if let scope = Self.explicitSocketScope(options: parsed.options) {
             guard Self.socketFastPathState.shouldPublishShellActivity(
@@ -19996,7 +20015,12 @@ class TerminalController {
             }
             TerminalMutationBus.shared.enqueueMainActorMutation {
                 guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId) else { return }
-                tabManager.updateSurfaceShellActivity(tabId: scope.workspaceId, surfaceId: scope.panelId, state: state)
+                tabManager.updateSurfaceShellActivity(
+                    tabId: scope.workspaceId,
+                    surfaceId: scope.panelId,
+                    state: state,
+                    shellActivitySequence: shellActivitySequence
+                )
             }
             return "OK"
         }
@@ -20038,7 +20062,12 @@ class TerminalController {
                 return
             }
 
-            tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
+            tabManager.updateSurfaceShellActivity(
+                tabId: tab.id,
+                surfaceId: surfaceId,
+                state: state,
+                shellActivitySequence: shellActivitySequence
+            )
         }
         return result
     }
@@ -20051,6 +20080,9 @@ class TerminalController {
         guard let session = TerminalSSHSessionDetector.detectRemoteSession(commandLine: commandLine) else {
             return "OK"
         }
+        let shellActivitySequence = Self.parseReportedShellActivitySequence(
+            parsed.options["seq"] ?? parsed.options["sequence"]
+        )
 
         return schedulePanelMetadataMutation(
             args: args,
@@ -20061,7 +20093,12 @@ class TerminalController {
                   let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else {
                 return
             }
-            tabManager.updateSurfaceRemoteSession(tabId: tab.id, surfaceId: surfaceId, session: session)
+            tabManager.updateSurfaceRemoteSession(
+                tabId: tab.id,
+                surfaceId: surfaceId,
+                session: session,
+                shellActivitySequence: shellActivitySequence
+            )
         }
     }
 
