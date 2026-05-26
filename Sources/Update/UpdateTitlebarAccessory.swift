@@ -2364,37 +2364,40 @@ private struct NotificationPopoverRow: View {
     private static let rowHeight: CGFloat = 56
 
     var body: some View {
-        rowContent
-            .background(
-                Color.primary.opacity(isHovering ? 0.11 : 0)
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // Hover detection runs through an AppKit NSTrackingArea (HoverTrackingRepresentable)
-            // because SwiftUI's `.onHover` / `.onContinuousHover` arbitrate with `.onTapGesture`
-            // on the same node and miss enter/exit events right after the popover opens and when
-            // the pointer crosses between LazyVStack rows.
-            .background(
-                HoverTrackingRepresentable { hovering in
-                    if isHovering != hovering { isHovering = hovering }
-                }
-            )
-            .contentShape(Rectangle())
-            .onTapGesture {
-                onOpen()
+        // Wrap as a Button so the row participates in the key-view loop: keyboard users
+        // can tab to a row and activate it with space/return. Visual styling is owned by
+        // rowContent; the button background lets the NSTrackingArea-driven hover tint
+        // shine through.
+        Button(action: onOpen) {
+            rowContent
+                .background(
+                    Color.primary.opacity(isHovering ? 0.11 : 0)
+                )
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // Hover detection runs through an AppKit NSTrackingArea (HoverTrackingRepresentable)
+        // because SwiftUI's `.onHover` / `.onContinuousHover` arbitrate with the row's
+        // primary action and miss enter/exit events right after the popover opens and when
+        // the pointer crosses between LazyVStack rows.
+        .background(
+            HoverTrackingRepresentable { hovering in
+                if isHovering != hovering { isHovering = hovering }
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("NotificationPopoverRow.\(notification.id.uuidString)")
-            // XCUITest's `.click()` is not always reliable for SwiftUI button-like rows hosted in an
-            // `NSPopover`. Provide an explicit accessibility action so AXPress always routes to onOpen.
-            .accessibilityAction { onOpen() }
-            // The clear button is hover-only for pointer users; expose dismiss as a row-level
-            // accessibility action so VoiceOver / keyboard / assistive tech can dismiss too.
-            .accessibilityAction(
-                named: Text(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
-            ) {
-                onClear()
-            }
-            .contextMenu {
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("NotificationPopoverRow.\(notification.id.uuidString)")
+        // XCUITest's `.click()` is not always reliable for SwiftUI buttons hosted in an
+        // `NSPopover`. Provide an explicit accessibility action so AXPress always routes to onOpen.
+        .accessibilityAction { onOpen() }
+        // The clear button is hover-only for pointer users; expose dismiss as a row-level
+        // accessibility action so VoiceOver / keyboard / assistive tech can dismiss too.
+        .accessibilityAction(
+            named: Text(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
+        ) {
+            onClear()
+        }
+        .contextMenu {
                 Button(String(localized: "notifications.open", defaultValue: "Open")) {
                     onOpen()
                 }
