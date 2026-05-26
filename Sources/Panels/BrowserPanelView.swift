@@ -1500,6 +1500,7 @@ struct BrowserPanelView: View {
                         )
                     },
                     omnibarSuggestions: portalOmnibarSuggestions,
+                    agentCursor: panel.agentCursorState,
                     paneTopChromeHeight: addressBarHeight
                 )
                 .accessibilityIdentifier("BrowserWebViewSurface")
@@ -4844,6 +4845,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     let paneDropZone: DropZone?
     let searchOverlay: BrowserPortalSearchOverlayConfiguration?
     let omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
+    let agentCursor: BrowserAgentCursorState?
     let paneTopChromeHeight: CGFloat
 
     final class Coordinator {
@@ -5273,6 +5275,10 @@ struct WebViewRepresentable: NSViewRepresentable {
             if hidden {
                 notifyHostedWebKitHidden(reason: "slotHidden")
             }
+        }
+
+        func setAgentCursor(_ state: BrowserAgentCursorState?) {
+            localInlineSlotView?.setAgentCursor(state)
         }
 
         func clearLocalInlineCallbacks() {
@@ -7140,6 +7146,14 @@ struct WebViewRepresentable: NSViewRepresentable {
         let hostOwnsPortal = useLocalInlineHosting
             ? updateUsingLocalInlineHosting(nsView, context: context, webView: webView)
             : updateUsingWindowPortal(nsView, context: context, webView: webView)
+        if useLocalInlineHosting {
+            (nsView as? HostContainerView)?.setAgentCursor(agentCursor)
+        } else {
+            BrowserWindowPortalRegistry.updateAgentCursor(
+                for: webView,
+                state: shouldAttachWebView && isCurrentPaneOwner ? agentCursor : nil
+            )
+        }
         if hostOwnsPortal {
             panel.releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: "representable.update")
         }

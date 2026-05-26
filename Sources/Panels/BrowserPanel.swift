@@ -2478,6 +2478,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
     var webViewDidRequestClose: (() -> Void)?
+    @Published private(set) var agentCursorState: BrowserAgentCursorState?
+    private var agentCursorMoveSequence: UInt64 = 0
 
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
@@ -4877,6 +4879,39 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
         navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
+    }
+
+    func setAgentCursor(
+        x: CGFloat,
+        y: CGFloat,
+        visible: Bool = true,
+        animateMovement: Bool = true,
+        viewportWidth: CGFloat? = nil,
+        viewportHeight: CGFloat? = nil
+    ) {
+        agentCursorMoveSequence &+= 1
+        agentCursorState = BrowserAgentCursorState(
+            x: x,
+            y: y,
+            visible: visible,
+            animateMovement: animateMovement,
+            viewportWidth: viewportWidth,
+            viewportHeight: viewportHeight,
+            moveSequence: agentCursorMoveSequence
+        )
+    }
+
+    func hideAgentCursor() {
+        agentCursorMoveSequence &+= 1
+        agentCursorState = BrowserAgentCursorState(
+            x: agentCursorState?.x ?? 0,
+            y: agentCursorState?.y ?? 0,
+            visible: false,
+            animateMovement: false,
+            viewportWidth: agentCursorState?.viewportWidth,
+            viewportHeight: agentCursorState?.viewportHeight,
+            moveSequence: agentCursorMoveSequence
+        )
     }
 
     private func navigateWithoutInsecureHTTPPrompt(

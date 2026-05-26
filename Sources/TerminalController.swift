@@ -3679,6 +3679,12 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserAddScript(params: params))
         case "browser.addstyle":
             return v2Result(id: id, self.v2BrowserAddStyle(params: params))
+        case "browser.cursor.set":
+            return v2Result(id: id, self.v2BrowserCursorSet(params: params))
+        case "browser.cursor.hide":
+            return v2Result(id: id, self.v2BrowserCursorHide(params: params))
+        case "browser.cursor.get":
+            return v2Result(id: id, self.v2BrowserCursorGet(params: params))
         case "browser.viewport.set":
             return v2Result(id: id, self.v2BrowserViewportSet(params: params))
         case "browser.geolocation.set":
@@ -3980,6 +3986,9 @@ class TerminalController {
             "browser.addinitscript",
             "browser.addscript",
             "browser.addstyle",
+            "browser.cursor.set",
+            "browser.cursor.hide",
+            "browser.cursor.get",
             "browser.viewport.set",
             "browser.geolocation.set",
             "browser.offline.set",
@@ -11129,6 +11138,7 @@ class TerminalController {
 
     private func v2AwaitCallback<T>(
         timeout: TimeInterval,
+        onTimeout: (() -> Void)? = nil,
         start: (@escaping (T) -> Void) -> Void
     ) -> T? {
         if Thread.isMainThread {
@@ -11157,12 +11167,17 @@ class TerminalController {
                 0,
                 0,
                 { _ in
+                    var shouldNotifyTimeout = false
                     lock.lock()
                     if !resolved {
                         resolved = true
                         timedOut = true
+                        shouldNotifyTimeout = true
                     }
                     lock.unlock()
+                    if shouldNotifyTimeout {
+                        onTimeout?()
+                    }
                     CFRunLoopStop(runLoop)
                 }
             ) else {
@@ -11196,6 +11211,7 @@ class TerminalController {
             semaphore.signal()
         }
         guard semaphore.wait(timeout: .now() + timeout) == .success else {
+            onTimeout?()
             return nil
         }
         lock.lock()
@@ -11642,6 +11658,7 @@ class TerminalController {
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
+        var createdPanelForInitialLoad: BrowserPanel?
 
         if BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
@@ -11723,6 +11740,7 @@ class TerminalController {
                 result = .err(code: "internal_error", message: "Failed to create browser", data: nil)
                 return
             }
+            createdPanelForInitialLoad = createdPanel
 
             let targetPaneUUID = ws.paneId(forPanelId: browserPanelId)?.id
             let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -11745,7 +11763,98 @@ class TerminalController {
                 "placement_strategy": placementStrategy
             ])
         }
+        if let url, let createdPanelForInitialLoad,
+           case .ok(let payloadAny) = result,
+           var payload = payloadAny as? [String: Any] {
+            payload["initial_load_observed"] = v2WaitForBrowserInitialLoad(
+                createdPanelForInitialLoad,
+                expectedURL: url,
+                timeout: 5.0
+            )
+            result = .ok(payload)
+        }
         return result
+    }
+
+    private final class BrowserInitialLoadWaitObservationState {
+        var observations: [NSKeyValueObservation] = []
+        private var finished = false
+
+        func complete() -> Bool {
+            guard !finished else { return false }
+            finished = true
+            observations.removeAll()
+            return true
+        }
+
+        func cancel() {
+            finished = true
+            observations.removeAll()
+        }
+    }
+
+    private func v2WaitForBrowserInitialLoad(
+        _ browserPanel: BrowserPanel,
+        expectedURL: URL,
+        timeout: TimeInterval
+    ) -> Bool {
+        let webView = browserPanel.webView
+
+        func urlsMatch(_ currentURL: URL?) -> Bool {
+            guard let currentURL else { return false }
+            let current = currentURL.absoluteString
+            let expected = expectedURL.absoluteString
+            if current == expected { return true }
+            if current.hasSuffix("/") && String(current.dropLast()) == expected { return true }
+            if expected.hasSuffix("/") && current == String(expected.dropLast()) { return true }
+            guard let currentComponents = URLComponents(url: currentURL, resolvingAgainstBaseURL: false),
+                  let expectedComponents = URLComponents(url: expectedURL, resolvingAgainstBaseURL: false) else {
+                return false
+            }
+            let currentHost = currentComponents.host?.lowercased() ?? ""
+            let expectedHost = expectedComponents.host?.lowercased() ?? ""
+            let currentPath = currentComponents.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let expectedPath = expectedComponents.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if !currentHost.isEmpty || !expectedHost.isEmpty {
+                return currentHost == expectedHost && currentPath == expectedPath
+            }
+            return false
+        }
+
+        func isSettled() -> Bool {
+            guard !webView.isLoading,
+                  webView.estimatedProgress >= 0.8,
+                  let currentURL = webView.url else {
+                return false
+            }
+            if urlsMatch(currentURL) {
+                return true
+            }
+            return currentURL.scheme?.lowercased() != "about"
+        }
+
+        let observationState = BrowserInitialLoadWaitObservationState()
+        return v2AwaitCallback(timeout: timeout, onTimeout: {
+            observationState.cancel()
+        }) { finish in
+            let completeIfReady = {
+                guard isSettled() else { return }
+                guard observationState.complete() else { return }
+                finish(true)
+            }
+
+            observationState.observations.append(webView.observe(\.url, options: [.new]) { _, _ in
+                DispatchQueue.main.async { completeIfReady() }
+            })
+            observationState.observations.append(webView.observe(\.isLoading, options: [.new]) { _, _ in
+                DispatchQueue.main.async { completeIfReady() }
+            })
+            observationState.observations.append(webView.observe(\.estimatedProgress, options: [.new]) { _, _ in
+                DispatchQueue.main.async { completeIfReady() }
+            })
+
+            DispatchQueue.main.async { completeIfReady() }
+        } ?? false
     }
 
     private func v2BrowserNavigate(params: [String: Any]) -> V2CallResult {
@@ -14890,6 +14999,134 @@ class TerminalController {
                 "styles": styles.count
             ])
         }
+    }
+
+    private func v2BrowserCursorSet(params: [String: Any]) -> V2CallResult {
+        guard let x = v2Double(params, "x"), x.isFinite else {
+            return .err(code: "invalid_params", message: "Missing or invalid x", data: nil)
+        }
+        guard let y = v2Double(params, "y"), y.isFinite else {
+            return .err(code: "invalid_params", message: "Missing or invalid y", data: nil)
+        }
+
+        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+            let viewport = v2BrowserCursorViewport(
+                params: params,
+                browserPanel: browserPanel,
+                surfaceId: surfaceId
+            )
+            browserPanel.setAgentCursor(
+                x: CGFloat(x),
+                y: CGFloat(y),
+                visible: v2Bool(params, "visible") ?? true,
+                animateMovement: v2Bool(params, "animate") ?? v2Bool(params, "animate_movement") ?? true,
+                viewportWidth: viewport.width,
+                viewportHeight: viewport.height
+            )
+            var payload: [String: Any] = [
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
+            ]
+            if let cursor = browserPanel.agentCursorState?.payload() {
+                payload["cursor"] = cursor
+            }
+            return .ok(payload)
+        }
+    }
+
+    private func v2BrowserCursorHide(params: [String: Any]) -> V2CallResult {
+        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+            browserPanel.hideAgentCursor()
+            return .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "cursor": browserPanel.agentCursorState?.payload() ?? ["visible": false]
+            ])
+        }
+    }
+
+    private func v2BrowserCursorGet(params: [String: Any]) -> V2CallResult {
+        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+            return .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "cursor": browserPanel.agentCursorState?.payload() ?? ["visible": false]
+            ])
+        }
+    }
+
+    private func v2BrowserCursorViewport(
+        params: [String: Any],
+        browserPanel: BrowserPanel,
+        surfaceId: UUID
+    ) -> (width: CGFloat?, height: CGFloat?) {
+        let explicitWidth = v2Double(params, "viewport_width") ?? v2Double(params, "width")
+        let explicitHeight = v2Double(params, "viewport_height") ?? v2Double(params, "height")
+        let validExplicitWidth = explicitWidth.flatMap { value -> CGFloat? in
+            value.isFinite && value > 0 ? CGFloat(value) : nil
+        }
+        let validExplicitHeight = explicitHeight.flatMap { value -> CGFloat? in
+            value.isFinite && value > 0 ? CGFloat(value) : nil
+        }
+
+        if let validExplicitWidth,
+           let validExplicitHeight {
+            return (validExplicitWidth, validExplicitHeight)
+        }
+
+        let webView = browserPanel.webView
+        let bounds = webView.bounds
+        let canUseBoundsAsCSSViewport = abs(webView.pageZoom - 1.0) < 0.0001
+        if canUseBoundsAsCSSViewport,
+           bounds.width > 0,
+           bounds.height > 0 {
+            return (
+                validExplicitWidth ?? bounds.width,
+                validExplicitHeight ?? bounds.height
+            )
+        }
+
+        let script = """
+        (() => ({
+          width: Number(window.innerWidth || document.documentElement.clientWidth || 0),
+          height: Number(window.innerHeight || document.documentElement.clientHeight || 0)
+        }))()
+        """
+        if case .success(let value) = v2RunBrowserJavaScript(
+            webView,
+            surfaceId: surfaceId,
+            script: script,
+            timeout: 2.0,
+            useEval: false
+        ),
+           let dict = value as? [String: Any] {
+            let widthNumber = dict["width"] as? NSNumber
+            let heightNumber = dict["height"] as? NSNumber
+            let width = widthNumber?.doubleValue
+            let height = heightNumber?.doubleValue
+            if let width,
+               let height,
+               width.isFinite,
+               height.isFinite,
+               width > 0,
+               height > 0 {
+                return (
+                    validExplicitWidth ?? CGFloat(width),
+                    validExplicitHeight ?? CGFloat(height)
+                )
+            }
+        }
+
+        return (
+            validExplicitWidth ?? (bounds.width > 0 ? bounds.width : nil),
+            validExplicitHeight ?? (bounds.height > 0 ? bounds.height : nil)
+        )
     }
 
     private func v2BrowserViewportSet(params _: [String: Any]) -> V2CallResult {
