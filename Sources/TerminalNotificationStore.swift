@@ -1555,37 +1555,8 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private static let structuredAgentStatusKeyByNotificationTitle: [String: String] = {
-        let pairs = [
-            ("Amp", "amp"),
-            ("Antigravity", "antigravity"),
-            ("Claude Code", "claude_code"),
-            ("CodeBuddy", "codebuddy"),
-            ("Codex", "codex"),
-            ("Copilot", "copilot"),
-            ("Cursor", "cursor"),
-            ("Factory", "factory"),
-            ("Gemini", "gemini"),
-            ("Grok", "grok"),
-            ("Hermes Agent", "hermes-agent"),
-            ("OpenCode", "opencode"),
-            ("Pi", "pi"),
-            ("Qoder", "qoder"),
-            ("Rovo Dev", "rovodev"),
-        ]
-        return Dictionary(uniqueKeysWithValues: pairs.map { title, statusKey in
-            (title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), statusKey)
-        })
-    }()
-
-    private static func normalizedStructuredAgentNotificationTitle(_ title: String) -> String {
-        title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    }
-
     private static func structuredAgentStatusKey(for notification: TerminalNotification) -> String? {
-        structuredAgentStatusKeyByNotificationTitle[
-            normalizedStructuredAgentNotificationTitle(notification.title)
-        ]
+        AgentHibernationLifecycleStatusKeys.statusKey(forNotificationTitle: notification.title)
     }
 
     private func acknowledgeStructuredAgentInputStatuses(for notificationsToAcknowledge: [TerminalNotification]) {

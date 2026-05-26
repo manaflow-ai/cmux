@@ -46,25 +46,41 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
 }
 
 enum AgentHibernationLifecycleStatusKeys {
-    static let allowedStatusKeys: Set<String> = [
-        "amp",
-        "antigravity",
-        "claude_code",
-        "codebuddy",
-        "codex",
-        "copilot",
-        "cursor",
-        "factory",
-        "gemini",
-        "grok",
-        "hermes-agent",
-        "opencode",
-        "pi",
-        "qoder",
-        "rovodev",
+    static let notificationTitleByStatusKey: [String: String] = [
+        "amp": "Amp",
+        "antigravity": "Antigravity",
+        "claude_code": "Claude Code",
+        "codebuddy": "CodeBuddy",
+        "codex": "Codex",
+        "copilot": "Copilot",
+        "cursor": "Cursor",
+        "factory": "Factory",
+        "gemini": "Gemini",
+        "grok": "Grok",
+        "hermes-agent": "Hermes Agent",
+        "opencode": "OpenCode",
+        "pi": "Pi",
+        "qoder": "Qoder",
+        "rovodev": "Rovo Dev",
     ]
+
+    static let allowedStatusKeys: Set<String> = Set(notificationTitleByStatusKey.keys)
 
     static func isAllowed(_ key: String) -> Bool {
         allowedStatusKeys.contains(key)
+    }
+
+    static func statusKey(forNotificationTitle title: String) -> String? {
+        statusKeyByNormalizedNotificationTitle[normalizedNotificationTitle(title)]
+    }
+
+    private static let statusKeyByNormalizedNotificationTitle: [String: String] = Dictionary(
+        uniqueKeysWithValues: notificationTitleByStatusKey.map { statusKey, title in
+            (title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), statusKey)
+        }
+    )
+
+    private static func normalizedNotificationTitle(_ title: String) -> String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
