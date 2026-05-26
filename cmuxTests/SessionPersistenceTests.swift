@@ -13,6 +13,35 @@ final class SessionPersistenceTests: XCTestCase {
         let display: SessionDisplaySnapshot?
     }
 
+    func testIncludingPendingQuickTerminalSnapshotEvictsLastRegularWindowAtCapacity() {
+        let regularWindows = (0..<SessionPersistencePolicy.maxWindowsPerSnapshot).map { index in
+            makeWindowSnapshot(frameX: Double(index), isQuickTerminal: false)
+        }
+        let quickTerminalWindow = makeWindowSnapshot(frameX: 99, isQuickTerminal: true)
+
+        let merged = AppDelegate.includingPendingQuickTerminalSnapshot(
+            regularWindows,
+            pendingQuickTerminalSnapshot: quickTerminalWindow
+        )
+
+        XCTAssertEqual(merged.count, SessionPersistencePolicy.maxWindowsPerSnapshot)
+        XCTAssertEqual(merged.last?.isQuickTerminal, true)
+        XCTAssertFalse(merged.contains { $0.frame?.x == Double(SessionPersistencePolicy.maxWindowsPerSnapshot - 1) })
+    }
+
+    private func makeWindowSnapshot(
+        frameX: Double,
+        isQuickTerminal: Bool
+    ) -> SessionWindowSnapshot {
+        SessionWindowSnapshot(
+            frame: SessionRectSnapshot(x: frameX, y: 0, width: 800, height: 600),
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 220),
+            isQuickTerminal: isQuickTerminal ? true : nil
+        )
+    }
+
     @MainActor
     func testWorkspaceSessionSnapshotRestoresMarkdownPanel() throws {
         let root = FileManager.default.temporaryDirectory

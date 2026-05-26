@@ -4020,11 +4020,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> AppSessionSnapshot? {
         let contexts = sortedMainWindowContextsForSessionSnapshot()
-
         guard !contexts.isEmpty else { return nil }
+
+        let quickTerminalContext = contexts.first(where: { $0.isQuickTerminal })
+        let regularContexts = contexts.filter { !$0.isQuickTerminal }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
 
-        let windows: [SessionWindowSnapshot] = contexts
+        let windows: [SessionWindowSnapshot] = regularContexts
             .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
             .map { context in
                 sessionWindowSnapshot(
@@ -4034,10 +4036,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
                 )
             }
+        let liveQuickTerminalSnapshot = quickTerminalContext.map { context in
+            sessionWindowSnapshot(
+                for: context,
+                includeScrollback: includeScrollback,
+                restorableAgentIndex: restorableAgentIndex,
+                surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
+            )
+        }
 
         let windowsWithPendingQuickTerminal = Self.includingPendingQuickTerminalSnapshot(
             windows,
-            pendingQuickTerminalSnapshot: quickTerminalController.pendingSessionSnapshotForPersistence()
+            pendingQuickTerminalSnapshot: liveQuickTerminalSnapshot
+                ?? quickTerminalController.pendingSessionSnapshotForPersistence()
         )
 
         guard !windowsWithPendingQuickTerminal.isEmpty else { return nil }
