@@ -1064,6 +1064,8 @@ private enum SessionTranscriptLoader {
     private static let maxPreviewRecordBytes = 2 * 1024 * 1024
     private static let maxPreviewTurns = 500
     private static let maxTurnTextCharacters = 40_000
+    private static let antigravityPreviewMaxScanBytes = 16 * 1024 * 1024
+    private static let antigravityPreviewMaxScanLines = 20_000
     private static let newlineByte: UInt8 = 10
 
     private static let claudeUserNeedles = [
@@ -1300,15 +1302,20 @@ private enum SessionTranscriptLoader {
             throw SessionTranscriptLoadError.missingFile
         }
 
-        var turns: [SessionTranscriptTurn] = []
-        var lineIndex = 0
+        var reversedTurns: [SessionTranscriptTurn] = []
+        var reverseLineIndex = 0
         var didHitTurnLimit = false
         let agent = SessionAgent.registered(RegisteredSessionAgent(id: "antigravity"))
 
-        SessionIndexStore.forEachJSONLine(url: url, maxBytes: Int.max) { object in
-            defer { lineIndex += 1 }
+        let streamSummary = SessionIndexStore.forEachJSONLine(
+            url: url,
+            maxBytes: antigravityPreviewMaxScanBytes,
+            maxLines: antigravityPreviewMaxScanLines,
+            direction: .reverse
+        ) { object in
+            defer { reverseLineIndex += 1 }
             if Task.isCancelled { return true }
-            guard turns.count < maxPreviewTurns else {
+            guard reversedTurns.count < maxPreviewTurns else {
                 didHitTurnLimit = true
                 return true
             }
@@ -1319,11 +1326,16 @@ private enum SessionTranscriptLoader {
             guard let text = normalizedText(from: content, role: .user, agent: agent) else {
                 return false
             }
-            turns.append(SessionTranscriptTurn(id: lineIndex, role: .user, text: text))
+            reversedTurns.append(SessionTranscriptTurn(id: reverseLineIndex, role: .user, text: text))
             return false
         }
-        if didHitTurnLimit {
-            appendTurnLimitMarker(to: &turns, id: lineIndex)
+        var turns = reversedTurns.reversed().enumerated().map { offset, turn in
+            SessionTranscriptTurn(id: offset, role: turn.role, text: turn.text)
+        }
+        if didHitTurnLimit
+            || streamSummary.stopReason == .maxBytes
+            || streamSummary.stopReason == .maxLines {
+            turns.insert(turnLimitMarker(id: -1), at: 0)
         }
         return coalesce(turns)
     }
@@ -1903,12 +1915,14 @@ private enum SessionTranscriptLoader {
     }
 
     private static func appendTurnLimitMarker(to turns: inout [SessionTranscriptTurn], id: Int) {
-        turns.append(
-            SessionTranscriptTurn(
-                id: id,
-                role: .event,
-                text: String(localized: "sessionIndex.preview.truncated", defaultValue: "Preview truncated")
-            )
+        turns.append(turnLimitMarker(id: id))
+    }
+
+    private static func turnLimitMarker(id: Int) -> SessionTranscriptTurn {
+        SessionTranscriptTurn(
+            id: id,
+            role: .event,
+            text: String(localized: "sessionIndex.preview.truncated", defaultValue: "Preview truncated")
         )
     }
 }
