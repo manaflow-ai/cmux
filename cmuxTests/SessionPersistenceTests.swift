@@ -1079,9 +1079,10 @@ final class SessionPersistenceTests: XCTestCase {
 
         XCTAssertNotNil(restored)
         guard let restored else { return }
-        XCTAssertTrue(resizedDisplay.visibleFrame.contains(restored))
-        XCTAssertNotEqual(restored.minX, 1_303, "Changed display geometry should clamp/remap frame")
-        XCTAssertNotEqual(restored.minY, -90, "Changed display geometry should clamp/remap frame")
+        XCTAssertEqual(restored.width, 1_280, accuracy: 0.001)
+        XCTAssertEqual(restored.height, 1_410, accuracy: 0.001)
+        XCTAssertEqual(restored.minX, 640, accuracy: 0.001)
+        XCTAssertEqual(restored.maxY, resizedDisplay.visibleFrame.maxY, accuracy: 0.001)
     }
 
     func testResolvedSnapshotTerminalScrollbackPrefersCaptured() {
