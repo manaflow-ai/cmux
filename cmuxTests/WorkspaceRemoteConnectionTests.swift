@@ -452,6 +452,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(state.workspaceSchedulersEnabled)
         XCTAssertTrue(state.remotePortPollTimerExists)
         XCTAssertTrue(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
+        XCTAssertEqual(currentProcessRunCount(), 1)
 
         portalRenderingGate.setEnabled(true)
         controller.syncWorkspaceSchedulerMountState()
