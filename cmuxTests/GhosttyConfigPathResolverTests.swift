@@ -499,6 +499,34 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         }
     }
 
+    func testStaleReleaseCleanupStripsLegacyReleaseManagedThemeWhenCurrentConfigIsMissing() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let legacyReleaseConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config",
+                contents: """
+                font-size = 13
+
+                # cmux themes start
+                theme = light:Stable Light,dark:Stable Dark
+                # cmux themes end
+                """
+                .appending("\n")
+            )
+
+            try CmuxGhosttyConfigPathResolver.removeStaleReleaseManagedThemeOverrideBeforeFallbackIfNeeded(
+                currentBundleIdentifier: "com.cmuxterm.app.nightly",
+                appSupportDirectories: [appSupportDirectory]
+            )
+
+            XCTAssertEqual(
+                try String(contentsOf: legacyReleaseConfigURL, encoding: .utf8),
+                "font-size = 13\n"
+            )
+        }
+    }
+
     func testCmuxAppSupportConfigURLsUseStagingConfigWhenPresent() throws {
         try withTemporaryAppSupportDirectory { appSupportDirectory in
             _ = try writeAppSupportConfig(
