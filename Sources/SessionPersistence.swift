@@ -361,6 +361,23 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
     }
 
+    func startupCommandWithLauncherScript(
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> String? {
+        guard let inlineInput = inlineStartupInput,
+              let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
+                  inlineInput: inlineInput,
+                  binding: self,
+                  fileManager: fileManager,
+                  temporaryDirectory: temporaryDirectory,
+                  returnToLoginShell: true
+              ) else {
+            return nil
+        }
+        return "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))"
+    }
+
     private static func normalized(_ rawValue: String?) -> String? {
         guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawValue.isEmpty else {
@@ -1203,7 +1220,8 @@ private enum SurfaceResumeBindingScriptStore {
         inlineInput: String,
         binding: SurfaceResumeBindingSnapshot,
         fileManager: FileManager,
-        temporaryDirectory: URL
+        temporaryDirectory: URL,
+        returnToLoginShell: Bool = false
     ) -> URL? {
         let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
         do {
@@ -1216,7 +1234,13 @@ private enum SurfaceResumeBindingScriptStore {
                 "\(prefix)-\(UUID().uuidString).zsh",
                 isDirectory: false
             )
-            let contents = "#!/bin/zsh\nrm -f -- \"$0\" 2>/dev/null || true\n\(inlineInput)"
+            var contents = "#!/bin/zsh\nrm -f -- \"$0\" 2>/dev/null || true\n\(inlineInput)"
+            if returnToLoginShell {
+                if !contents.hasSuffix("\n") {
+                    contents.append("\n")
+                }
+                contents.append("exec \"${SHELL:-/bin/zsh}\" -l\n")
+            }
             try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
             try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
             return scriptURL

@@ -588,6 +588,24 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         )
     }
 
+    func resumeStartupCommand(
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> String? {
+        guard let command = resumeCommand,
+              let scriptURL = AgentResumeScriptStore.writeLauncherScript(
+                  command: command,
+                  kind: kind,
+                  sessionId: sessionId,
+                  fileManager: fileManager,
+                  temporaryDirectory: temporaryDirectory,
+                  returnToLoginShell: true
+              ) else {
+            return nil
+        }
+        return "/bin/zsh \(shellSingleQuoted(scriptURL.path))"
+    }
+
     func forkStartupInput(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
@@ -647,7 +665,8 @@ private enum AgentResumeScriptStore {
         kind: RestorableAgentKind,
         sessionId: String,
         fileManager: FileManager,
-        temporaryDirectory: URL
+        temporaryDirectory: URL,
+        returnToLoginShell: Bool = false
     ) -> URL? {
         let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
         do {
@@ -664,11 +683,15 @@ private enum AgentResumeScriptStore {
                 "\(kind.rawValue)-\(String(safeSessionPrefix))-\(UUID().uuidString).zsh",
                 isDirectory: false
             )
-            let contents = """
-            #!/bin/zsh
-            rm -f -- "$0" 2>/dev/null || true
-            \(command)
-            """
+            var lines = [
+                "#!/bin/zsh",
+                "rm -f -- \"$0\" 2>/dev/null || true",
+                command
+            ]
+            if returnToLoginShell {
+                lines.append("exec \"${SHELL:-/bin/zsh}\" -l")
+            }
+            let contents = lines.joined(separator: "\n") + "\n"
             try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
             try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: scriptURL.path)
             return scriptURL
