@@ -1212,6 +1212,21 @@ enum SurfaceResumeApprovalStore {
 #endif
 }
 
+nonisolated enum TerminalStartupReturnShellScript {
+    static let lines = [
+        #"_cmux_resume_shell="${SHELL:-/bin/zsh}""#,
+        #"if [[ "${_cmux_resume_shell:t}" == "zsh" && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" && -r "${CMUX_SHELL_INTEGRATION_DIR}/.zshenv" ]]; then"#,
+        #"  if [[ -n "${ZDOTDIR+X}" ]]; then"#,
+        #"    export CMUX_ZSH_ZDOTDIR="$ZDOTDIR""#,
+        #"  else"#,
+        #"    unset CMUX_ZSH_ZDOTDIR"#,
+        #"  fi"#,
+        #"  export ZDOTDIR="$CMUX_SHELL_INTEGRATION_DIR""#,
+        #"fi"#,
+        #"exec "$_cmux_resume_shell" -l"#
+    ]
+}
+
 private enum SurfaceResumeBindingScriptStore {
     private static let directoryName = "cmux-surface-resume"
     private static let scriptTTL: TimeInterval = 24 * 60 * 60
@@ -1234,13 +1249,15 @@ private enum SurfaceResumeBindingScriptStore {
                 "\(prefix)-\(UUID().uuidString).zsh",
                 isDirectory: false
             )
-            var contents = "#!/bin/zsh\nrm -f -- \"$0\" 2>/dev/null || true\n\(inlineInput)"
+            var lines = [
+                "#!/bin/zsh",
+                "rm -f -- \"$0\" 2>/dev/null || true",
+                inlineInput
+            ]
             if returnToLoginShell {
-                if !contents.hasSuffix("\n") {
-                    contents.append("\n")
-                }
-                contents.append("exec \"${SHELL:-/bin/zsh}\" -l\n")
+                lines.append(contentsOf: TerminalStartupReturnShellScript.lines)
             }
+            let contents = lines.joined(separator: "\n") + "\n"
             try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
             try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
             return scriptURL

@@ -1247,10 +1247,16 @@ extension Workspace {
             let restoredStartupInput = restoredRemotePTYAttachCommand == nil
                 ? (restoredBindingLaunch?.initialInput ?? restoredAgentResumeLaunch?.initialInput)
                 : nil
-            let restoredAgentWillRunStartupLaunch = restorableAgent != nil && (
-                restoredAgentResumeLaunch != nil ||
-                (restoredBindingLaunch != nil && resumeBinding?.isAgentHookBinding == true)
+            let restoredAgentWillRunStartupCommand = restorableAgent != nil && (
+                restoredAgentResumeLaunch?.initialCommand != nil ||
+                (restoredBindingLaunch?.initialCommand != nil && resumeBinding?.isAgentHookBinding == true)
             )
+            let restoredAgentWillRunStartupInput = restorableAgent != nil && (
+                restoredAgentResumeLaunch?.initialInput != nil ||
+                (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
+            )
+            let restoredAgentWillRunStartupLaunch =
+                restoredAgentWillRunStartupCommand || restoredAgentWillRunStartupInput
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -1301,7 +1307,9 @@ extension Workspace {
             }
             if let restorableAgent {
                 restoredAgentSnapshotsByPanelId[terminalPanel.id] = restorableAgent
-                if restoredAgentWillRunStartupLaunch {
+                if restoredAgentWillRunStartupCommand {
+                    restoredAgentResumeStatesByPanelId[terminalPanel.id] = .autoResumeCommandRunning
+                } else if restoredAgentWillRunStartupInput {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .awaitingAutoResumeCommand
                 } else {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .manualResumeAvailable

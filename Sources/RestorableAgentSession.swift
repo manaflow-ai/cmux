@@ -691,7 +691,7 @@ private enum AgentResumeScriptStore {
                 command
             ]
             if returnToLoginShell {
-                lines.append("exec \"${SHELL:-/bin/zsh}\" -l")
+                lines.append(contentsOf: TerminalStartupReturnShellScript.lines)
             }
             let contents = lines.joined(separator: "\n") + "\n"
             try contents.write(to: scriptURL, atomically: true, encoding: .utf8)

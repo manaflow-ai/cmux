@@ -190,6 +190,13 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 restoredPanel,
                 scriptContains: ["'resume'", "codex-running-at-snapshot-session"]
             )
+            XCTAssertEqual(
+                restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+                .autoResumeCommandRunning
+            )
+
+            restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
+            XCTAssertNil(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent)
         }
     }
 
@@ -241,6 +248,10 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             XCTAssertTrue(input.contains("codex-remote-running-session"), input)
             XCTAssertFalse(input.contains("cmux-agent-resume"), input)
             XCTAssertNil(restoredPanel.requestedWorkingDirectory)
+            XCTAssertEqual(
+                restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+                .awaitingAutoResumeCommand
+            )
         }
     }
 
@@ -445,7 +456,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
-    func testAgentHookResumeBindingKeepsRestoredAgentPendingDuringStartupCommand() throws {
+    func testAgentHookResumeBindingClearsAfterStartupCommandCompletes() throws {
         let defaults = UserDefaults.standard
         let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
         let previous = defaults.object(forKey: key)
@@ -494,11 +505,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             restoredPanel,
             scriptContains: ["codex resume codex-binding-auto-resume-session"]
         )
-
-        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
         XCTAssertEqual(
-            restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent?.sessionId,
-            "codex-binding-auto-resume-session"
+            restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+            .autoResumeCommandRunning
         )
 
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
@@ -590,7 +599,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         for needle in needles {
             XCTAssertTrue(script.contains(needle), script, file: file, line: line)
         }
-        XCTAssertTrue(script.contains("exec \"${SHELL:-/bin/zsh}\" -l"), script, file: file, line: line)
+        XCTAssertTrue(script.contains("CMUX_SHELL_INTEGRATION_DIR"), script, file: file, line: line)
+        XCTAssertTrue(script.contains("CMUX_ZSH_ZDOTDIR"), script, file: file, line: line)
+        XCTAssertTrue(script.contains("exec \"$_cmux_resume_shell\" -l"), script, file: file, line: line)
     }
 
     private func makeRestorableAgentIndex(
