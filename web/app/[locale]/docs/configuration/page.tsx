@@ -68,6 +68,11 @@ const settingsFileExample = `{
   //   "showScrollBar": false,
   //   "copyOnSelect": true,
   //   "autoResumeAgentSessions": true,
+  //   "agentHibernation": {
+  //     "enabled": false,
+  //     "idleSeconds": 3600,
+  //     "maxLiveTerminals": 12
+  //   },
   //   "textBoxMaxLines": 10
   // },
 
