@@ -16,6 +16,16 @@ enum CLIForwardingLaunchRouter {
         guard shouldForwardToBundledCLI(arguments: argv) else { return }
 
         guard let cliURL = bundledCLIURL(bundle: bundle, fileManager: fileManager) else {
+            #if DEBUG
+            let resourcePath = bundle.resourceURL?.appendingPathComponent("bin/cmux").path ?? "<missing>"
+            let executablePath = processExecutableURL()?.path ?? "<missing>"
+            NSLog(
+                "cmux: bundled CLI not found for forwarding; bundleID=%@ resourcePath=%@ executablePath=%@",
+                bundle.bundleIdentifier ?? "<missing>",
+                resourcePath,
+                executablePath
+            )
+            #endif
             return
         }
 
