@@ -432,16 +432,12 @@ struct SessionEntry: Identifiable, Hashable {
     }
 
     private static func shellSingleQuote(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: #"'\''"#))'"
+        TerminalStartupShellQuoting.singleQuoted(value)
     }
 
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
     static func shellQuote(_ value: String) -> String {
-        if value.range(of: "[^A-Za-z0-9_./:=+-]", options: .regularExpression) == nil {
-            return value
-        }
-        let escaped = value.replacingOccurrences(of: "'", with: #"'\''"#)
-        return "'\(escaped)'"
+        TerminalStartupShellQuoting.shellToken(value, allowingBareASCII: true)
     }
 
     var displayTitle: String {

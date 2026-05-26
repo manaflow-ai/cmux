@@ -164,6 +164,84 @@
         "featureSocketApiDesc": "sekmeler oluşturmak ve girdi göndermek için programatik kontrol",
         "featureGpuLabel": "GPU hızlandırmalı",
         "featureGpuDesc": "akıcı işleme için libghostty tarafından desteklenir"
+      },
+      "passkeyAuth": {
+        "title": "cmux tarayıcısında passkey kimlik doğrulaması",
+        "summary": "cmux'un yerleşik tarayıcısı passkey kimlik doğrulamasını destekler ve cmux browser import ile diğer tarayıcılardan çerezleri içe aktarabilir.",
+        "date": "22 Mayıs 2026",
+        "p1": "cmux tarayıcısı artık passkey kimlik doğrulamasını destekliyor. Passkey, WebAuthn, Touch ID veya donanım güvenlik anahtarlarına bağlı oturum açma akışları bir cmux tarayıcı panelinde tamamlanabilir.",
+        "p2": "Aynı site için zaten başka bir tarayıcı kullanıyorsanız uyumlu çerezleri bir kez içe aktarın:",
+        "p3": "cmux v0.64+ gerekir. Bu, Claude Code, Codex, OpenCode, Gemini CLI veya başka bir agent'ın kimliği doğrulanmış yerel bir uygulamayı cmux'tan ayrılmadan test etmesi gerektiğinde yardımcı olur."
+      },
+      "taskManager": {
+        "title": "cmux'ta Görev Yöneticisi",
+        "summary": "Kodlama agent'larınızın CPU ve RAM kullanımını görmek için cmux top'u veya komut paletindeki Görev Yöneticisi'ni kullanın.",
+        "date": "22 Mayıs 2026",
+        "p1": "cmux artık kodlama agent'larınızın ve terminal süreçlerinizin ne kadar CPU ve RAM kullandığını kontrol etmek için bir görev yöneticisine sahip.",
+        "p2": "CLI'den açın:",
+        "p3": "Veya Cmd+Shift+P'ye basıp komut paletinden Görev Yöneticisi'ni seçin.",
+        "p4": "cmux v0.64.4+ gerekir."
+      },
+      "sessionRestore": {
+        "seoP": "Terminal çökmesinden sonra Claude Code, OpenCode, opencode, Codex, Gemini CLI, Antigravity CLI, Grok Build CLI, Amp, Cursor CLI, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder veya Hermes Agent oturumlarını nasıl geri yükleyeceğinizi arıyorsanız cmux hooks'u kurun ve agent sürdürmeyi açık tutun.",
+        "summary": "cmux'un düzenleri nasıl geri yüklediği ve Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI ve diğer agent oturumlarını nasıl sürdürdüğü.",
+        "agentP": "Claude Code, Codex, Grok Build CLI, OpenCode, Pi, Amp, Cursor CLI, Gemini CLI, Antigravity CLI, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory ve Qoder, cmux yerel bir oturum ID'sine sahip olduğunda sürdürülebilir. Çoğu agent için entegrasyonu <code>cmux hooks setup</code> ile kurun.",
+        "title": "cmux’ta oturum geri yükleme",
+        "date": "13 Mayıs 2026",
+        "p1": "Uygulama işinin şeklini yeniden kurabildiğinde terminal iş akışları kesintilere daha dayanıklı olur. cmux artık workspace düzenini tek bir uygulama sürecine bağlı bir şey yerine kalıcı durum olarak ele alıyor.",
+        "p2": "Önemli sınır canlı süreç durumudur. cmux kendi sahip olduğu şeyi ve desteklenen araçların kendi resume API’leriyle sunduğu şeyi geri yükler. Rastgele terminal süreçlerini checkpoint yapmaz.",
+        "baselineTitle": "Her zaman geri gelenler",
+        "baselineP": "Normal bir yeniden başlatmadan sonra cmux uygulama düzeyi oturum snapshot’ını geri yükler:",
+        "baselineItemLayout": "Pencere, workspace ve pane düzeni",
+        "baselineItemCwd": "Çalışma dizinleri",
+        "baselineItemScrollback": "Terminal scrollback, en iyi çaba ile",
+        "baselineItemBrowser": "Tarayıcı URL’si ve gezinme geçmişi",
+        "agentTitle": "Ajan oturumları hooks gerektirir",
+        "agentP2": "setup komutu PATH üzerinde binary’si bulunan desteklenen ajanları kurar ve kalanları atlar. Claude Code, Settings içinde Claude entegrasyonu açıkken cmux Claude wrapper tarafından yönetilir.",
+        "implementationTitle": "Nasıl çalışır",
+        "implementationP1": "cmux, Application Support altında pencere ağacı, workspace metadata, pane düzeni, terminal cwd, scrollback replay verisi ve tarayıcı gezinme durumunu içeren bir JSON oturum snapshot’ı yazar.",
+        "implementationP2": "Agent hooks, ~/.cmuxterm altında oturum eşlemeleri yazar. Geri yüklemede cmux önce UI’ı yeniden kurar. Otomatik ajan resume açıksa her desteklenen ajanı kendi native resume komutu ve kaydedilmiş oturum ID’si ile başlatır.",
+        "limitsTitle": "Kapsam dışında kalanlar",
+        "limitsP": "tmux, vim, shell’ler ve desteklenmeyen araçlar, güvenli bir native resume komutu kaydeden cmux entegrasyonuna sahip değilse normal terminal olarak yeniden açılır. Bu, geri yüklemeyi öngörülebilir tutar ve eski prompt veya secret tekrarını önler.",
+        "docsCta": "setup komutları, desteklenen ajanlar ve sorun giderme için <link>oturum geri yükleme dokümanlarını</link> okuyun."
+      },
+      "cmuxFinder": {
+        "title": "cmux Finder",
+        "summary": "cmux artık video, görsel, PDF ve Markdown dosyalarını önizleyen bir dosya gezginine sahip.",
+        "date": "22 Mayıs 2026",
+        "p1": "cmux artık kenar çubuğunda Finder tarzı bir dosya gezgini içeriyor.",
+        "p2": "Video, görsel, PDF ve Markdown dosyalarını cmux içinde önizler, böylece üretilen artefaktları workspace’ten ayrılmadan inceleyebilirsiniz.",
+        "p3": "Ben en çok Codex değişiklikleri test ederken kaydettiği demo videoları ve ekran görüntülerini önizlemek için kullanıyorum.",
+        "p4": "Dosya önizlemelerini Cmd+Shift+P’den değiştirin, ardından Enable Cmd-click File Previews veya Disable Cmd-click File Previews seçin.",
+        "p5": "cmux v0.64+ gerekir."
+      },
+      "cmuxVault": {
+        "title": "cmux Vault tanıtımı",
+        "summary": "Vault panelinden Codex, Claude Code, OpenCode ve Pi oturumlarını arayın ve workspace’e sürükleyin.",
+        "date": "22 Mayıs 2026",
+        "p1": "cmux artık eski ajan oturumları için sağ kenar çubuğunda Vault paneline sahip.",
+        "p2": "Codex, Claude Code, OpenCode ve Pi oturumlarını transcript genelinde tam metin aramayla indeksler.",
+        "p3": "Çalıştığınız yerde yeniden açmak için Vault’tan bir oturumu workspace’e sürükleyin.",
+        "p4": "cmux v0.64+ gerekir."
+      },
+      "markdownViewer": {
+        "title": "cmux’ta daha iyi Markdown görüntüleyici",
+        "summary": "README.md dosyasını cmux open ile açın veya Markdown dosyalarını sağ kenar çubuğundan sürükleyin.",
+        "date": "22 Mayıs 2026",
+        "p1": "cmux, README dosyaları, dokümanlar ve üretilmiş raporlar için daha iyi bir Markdown görüntüleyiciye sahip.",
+        "p2": "CLI’dan dosya açın:",
+        "p3": "Ayrıca sağ kenar çubuğundan Markdown dosyasını workspace’e sürükleyebilirsiniz.",
+        "p4": "Katkı için <tobiLink>@tobi</tobiLink> teşekkürler."
+      },
+      "unreadShortcuts": {
+        "title": "cmux’ta okunmamış workspace kısayolları",
+        "summary": "Cmd+Control+U okunmamış workspace’ler arasında durumlarını koruyarak dolaşır, Cmd+Option+U okundu durumunu değiştirir.",
+        "date": "22 Mayıs 2026",
+        "p1": "Birden fazla ajan aynı anda bittiğinde okunmamış workspace’leri yönetmek için cmux iki yeni kısayol ekledi.",
+        "p2": "Cmd+Control+U geçerli workspace’i en eski okunmamış olarak işaretler, ardından en yeni okunmamış workspace’e atlar.",
+        "p3": "Bu, geçerli workspace’i okunmamış döngüsünün arkasına gönderir ve durumu temizlemeden dolaşmayı sürdürmenizi sağlar.",
+        "p4": "Cmd+Option+U geçerli workspace’in okundu veya okunmadı durumunu değiştirir.",
+        "p5": "Cmd+Shift+U ile yeni okunmamış workspace’e atlayıp yanıtlamadan önce bağlam değiştirmek istediğinizde kullanışlıdır."
       }
     },
     "zenOfCmux": {
@@ -181,6 +259,114 @@
     "introducingCmux": {
       "metaTitle": "cmux'u tanıtıyoruz",
       "metaDescription": "macOS için yeni bir terminal olan cmux'u neden geliştirdik."
+    },
+    "passkeyAuth": {
+      "metaTitle": "cmux tarayıcısında passkey kimlik doğrulaması",
+      "metaDescription": "cmux v0.64+ tarayıcı panellerinde passkey kimlik doğrulamasını destekler ve cmux browser import ile diğer tarayıcılardan çerezleri içe aktarabilir.",
+      "metaKeywords": [
+        "cmux tarayıcı passkey kimlik doğrulaması",
+        "passkey kimlik doğrulaması",
+        "WebAuthn",
+        "Touch ID",
+        "çerez içe aktarma",
+        "tarayıcı çerezleri",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "Gemini CLI",
+        "AI kodlama agent'ları"
+      ]
+    },
+    "taskManager": {
+      "metaTitle": "cmux'ta Görev Yöneticisi",
+      "metaDescription": "cmux v0.64.4+, cmux top veya komut paleti ile kodlama agent'larının CPU ve RAM kullanımını kontrol etmek için bir görev yöneticisi içerir.",
+      "metaKeywords": [
+        "cmux görev yöneticisi",
+        "cmux top",
+        "kodlama agent CPU kullanımı",
+        "kodlama agent RAM kullanımı",
+        "terminal süreç izleyici",
+        "Claude Code CPU",
+        "Codex CPU",
+        "OpenCode CPU",
+        "AI kodlama agent'ları"
+      ]
+    },
+    "sessionRestore": {
+      "metaDescription": "cmux ile yeniden başlatma veya terminal çökmesinden sonra Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI ve diğer kodlama agent oturumlarını geri yükleme.",
+      "metaKeywords": [
+        "cmux",
+        "oturum geri yükleme",
+        "çökmeden sonra terminali geri yükleme",
+        "terminal çökmesi kurtarma",
+        "terminal",
+        "macOS",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "opencode",
+        "Gemini CLI",
+        "Antigravity CLI",
+        "Grok Build CLI",
+        "AI kodlama agent'ları"
+      ],
+      "metaTitle": "cmux’ta oturum geri yükleme"
+    },
+    "cmuxFinder": {
+      "metaTitle": "cmux Finder",
+      "metaDescription": "cmux v0.64+, workspace içinde video, görsel, PDF ve Markdown dosyalarını önizleyen Finder tarzı bir dosya gezgini içerir.",
+      "metaKeywords": [
+        "cmux Finder",
+        "cmux dosya gezgini",
+        "terminal dosya gezgini",
+        "terminalde video önizleme",
+        "terminalde ekran görüntüsü önizleme",
+        "PDF önizleme",
+        "Markdown önizleme",
+        "AI kodlama ajanları",
+        "Codex demo videoları"
+      ]
+    },
+    "cmuxVault": {
+      "metaTitle": "cmux Vault tanıtımı",
+      "metaDescription": "cmux v0.64+, Codex, Claude Code, OpenCode ve Pi oturumlarını aramak ve workspace içine sürüklemek için Vault paneli ekler.",
+      "metaKeywords": [
+        "cmux Vault",
+        "Codex oturumları",
+        "Claude Code oturumları",
+        "OpenCode oturumları",
+        "Pi oturumları",
+        "AI kodlama ajanı geçmişi",
+        "ajan oturumu arama",
+        "kodlama ajanı oturumu geri yükleme",
+        "tam metin arama"
+      ]
+    },
+    "markdownViewer": {
+      "metaTitle": "cmux’ta daha iyi Markdown görüntüleyici",
+      "metaDescription": "README.md dosyasını cmux open ile açın veya Markdown dosyalarını sağ kenar çubuğundan geliştirilmiş cmux Markdown görüntüleyicisine sürükleyin.",
+      "metaKeywords": [
+        "cmux Markdown görüntüleyici",
+        "cmux open README.md",
+        "Markdown önizleme",
+        "README görüntüleyici",
+        "terminal Markdown görüntüleyici",
+        "geliştirici dokümanı önizleme"
+      ]
+    },
+    "unreadShortcuts": {
+      "metaTitle": "cmux’ta okunmamış workspace kısayolları",
+      "metaDescription": "Yanıt vermeden önce okunmamış durumunu temizlemeden cmux workspace’leri arasında dolaşmak için Cmd+Control+U ve Cmd+Option+U kullanın.",
+      "metaKeywords": [
+        "cmux okunmamış kısayolları",
+        "Cmd+Control+U",
+        "Cmd+Option+U",
+        "Cmd+Shift+U",
+        "kodlama ajanı bildirimleri",
+        "terminal bildirimleri",
+        "AI kodlama ajanları",
+        "workspace okunmamış"
+      ]
     }
   },
   "docs": {
@@ -304,6 +490,15 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "İç içe Codex veya Claude alt ajanlarından gelen görünür tamamlanma bildirimlerini ve durum değişikliklerini gizler, olaylarını Feed telemetrisinde tutar."
+        },
+        "app": {
+          "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
+          "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
+          "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
+          "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle."
+        },
+        "terminal": {
+          "copyOnSelect": "Seçim kesinleştiğinde seçilen terminal metnini sistem panosuna kopyalar; çift ve üçlü tıklamayla yapılan sözcük ve satır seçimleri dahil."
         }
       }
     },
@@ -782,10 +977,10 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "yok",
-      "supportedNote": "Claude Code, Settings'te Claude integration etkinse cmux Claude wrapper tarafından işlenir. Rovo Dev setup alias olarak rovo'yu da kabul eder.",
+      "supportedNote": "Claude Code, Settings'te Claude integration etkinse cmux Claude wrapper tarafından işlenir. Antigravity setup alias olarak agy'yi de kabul eder, Rovo Dev ise rovo'yu kabul eder.",
       "manualTitle": "Manuel geri yükleme",
       "manualDesc": "cmux normal açılışta son kaydedilen snapshot'ı geri yükler. Önceki snapshot'ı manuel olarak da tekrar uygulayabilirsiniz:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "Otomatik agent resume'u kapat",
       "disableDesc": "Kaydedilmiş agent resume komutlarını başlatmadan panelleri geri yüklemek için Settings > Terminal > Resume Agent Sessions on Reopen seçeneğini kapatın veya şunu ayarlayın:",
       "disableNote": "Bu yalnızca agent resume komutlarını kapatır. cmux layout, çalışma dizinleri, scrollback ve tarayıcı geçmişini geri yüklemeye devam eder.",
@@ -794,7 +989,9 @@
       "underHoodItemScrollback": "Terminal scrollback sınırlı metin olarak saklanır ve geri yüklemede geçici dosya üzerinden replay edilir. Terminal app'leri ekranı yeniden çizebildiği veya temizleyebildiği için bu best effort'tur.",
       "underHoodItemHooks": "Agent hooks ~/.cmuxterm/<agent>-hook-sessions.json dosyasına agent session ID, cmux workspace ID, surface ID, cwd, varsa process ID ve sanitize edilmiş launch command yazar.",
       "underHoodItemResume": "Geri yüklemede cmux önce pencereleri ve panelleri yeniden kurar. Otomatik agent resume açıksa, kaydedilen session ID ile agent'ın native resume komutunu çalıştıran tek seferlik shell komutu başlatır.",
-      "underHoodMore": "Normal <configLink>configuration docs</configLink> cmux.json'u kapsar. Session restore app layout'unu Ghostty terminal rendering ayarlarından ayrı tutar."
+      "underHoodMore": "Normal <configLink>configuration docs</configLink> cmux.json'u kapsar. Session restore app layout'unu Ghostty terminal rendering ayarlarından ayrı tutar.",
+      "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     }
   },
   "legal": {
@@ -808,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "Bir gün daha, bir libghostty tabanlı proje daha, bu sefer dikey sekmeli, daha iyi düzenleme/bildirimli, gömülü/betiklenebilir tarayıcılı, özellikle terminal tabanlı ajan iş akışlarını çok kullanan kişilere yönelik bir macOS terminali.",
+    "steipete": "Partiye geç kaldım ama cmux harika. Mevcut ayrım: bilgi çalışması, öğrenme ve okuma için Codex Mac uygulaması; kodlama için cmux + Codex CLI.",
     "schrockn": "Bu tam olarak aradığım ürün. Bu sabah iki saat sonra aşık oldum.",
     "egrefen": "Tüm hafta sonu bunu kullandım ve harika.",
     "max4c": "son iki haftadır en sevdiğim araç bu oldu",

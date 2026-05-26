@@ -611,6 +611,15 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testApplicationResignDoesNotTriggerSessionSnapshotSave() {
+        XCTAssertFalse(
+            AppDelegate.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: false)
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: true)
+        )
+    }
+
     func testSessionSnapshotSynchronousWritePolicy() {
         XCTAssertFalse(
             AppDelegate.shouldWriteSessionSnapshotSynchronously(
@@ -1948,6 +1957,45 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testRestorableAgentResumeStartupInputEscapesNonAsciiWorkingDirectoryAsAsciiShellInput() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-\(UUID().uuidString)", isDirectory: true)
+        let cwdURL = root
+            .appendingPathComponent("中文路径", isDirectory: true)
+            .appendingPathComponent("uam-service", isDirectory: true)
+        try FileManager.default.createDirectory(at: cwdURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-123",
+            workingDirectory: cwdURL.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/opt/Claude Code/bin/claude",
+                arguments: [
+                    "/opt/Claude Code/bin/claude",
+                    "--model",
+                    "sonnet"
+                ],
+                workingDirectory: cwdURL.path,
+                environment: ["CLAUDE_CONFIG_DIR": cwdURL.path],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        let startupInput = try XCTUnwrap(snapshot.resumeStartupInput())
+        XCTAssertTrue(
+            startupInput.utf8.allSatisfy { $0 < 0x80 },
+            "Terminal startup input must stay ASCII-only so UTF-8 paths are reconstructed by the shell instead of being mojibaked before execution."
+        )
+
+        let command = startupInput.trimmingCharacters(in: .newlines)
+        let cdCommand = try leadingCdCommand(from: command)
+        try assertZshCommandChangesDirectory(cdCommand, expectedPath: cwdURL.path)
+    }
+
     func testSessionEntryClaudeResumeCommandChangesToSessionCwdBeforeResume() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-resume-\(UUID().uuidString)", isDirectory: true)
@@ -1984,6 +2032,76 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             entry.resumeCommand,
             "cd /Users/tiffanysun/fun && claude --resume a22293b7-bcef-4707-8439-2f538c8517a4"
         )
+    }
+
+    func testSessionEntryClaudeResumeCommandEscapesNonAsciiCwdAsAsciiShellInput() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-resume-\(UUID().uuidString)", isDirectory: true)
+        let cwdURL = root
+            .appendingPathComponent("中文路径", isDirectory: true)
+            .appendingPathComponent("uam-service", isDirectory: true)
+        try FileManager.default.createDirectory(at: cwdURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let entry = SessionEntry(
+            id: "claude:4d8cfb79-ef17-41a7-a0ac-2f0c25ac1519",
+            agent: .claude,
+            sessionId: "4d8cfb79-ef17-41a7-a0ac-2f0c25ac1519",
+            title: "resume me",
+            cwd: cwdURL.path,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 0),
+            fileURL: nil,
+            specifics: .claude(
+                model: "gpt-5.5",
+                permissionMode: "bypassPermissions",
+                configDirectoryForResume: nil
+            )
+        )
+
+        let command = try XCTUnwrap(entry.resumeCommand)
+        XCTAssertTrue(
+            command.utf8.allSatisfy { $0 < 0x80 },
+            "Terminal startup input must stay ASCII-only so UTF-8 paths are reconstructed by the shell instead of being mojibaked before execution."
+        )
+
+        let cdCommand = try leadingCdCommand(from: command)
+        try assertZshCommandChangesDirectory(cdCommand, expectedPath: cwdURL.path)
+    }
+
+    private func leadingCdCommand(from command: String) throws -> String {
+        let separator = try XCTUnwrap(command.range(of: " && "))
+        return String(command[..<separator.lowerBound])
+    }
+
+    private func assertZshCommandChangesDirectory(
+        _ cdCommand: String,
+        expectedPath: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-fc", "\(cdCommand) && pwd"]
+
+        let output = Pipe()
+        let error = Pipe()
+        process.standardOutput = output
+        process.standardError = error
+
+        try process.run()
+        process.waitUntilExit()
+
+        let outputData = output.fileHandleForReading.readDataToEndOfFile()
+        let errorData = error.fileHandleForReading.readDataToEndOfFile()
+        let stdout = String(data: outputData, encoding: .utf8)?
+            .trimmingCharacters(in: .newlines)
+        let stderr = String(data: errorData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        XCTAssertEqual(process.terminationStatus, 0, stderr ?? "", file: file, line: line)
+        XCTAssertEqual(stdout, expectedPath, file: file, line: line)
     }
 
     func testRestorableAgentStartupInputUsesInlineCommandWhenShort() {
@@ -3484,7 +3602,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             detectedSnapshots: [
                 RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
                     snapshot: detectedSnapshot,
-                    updatedAt: 999
+                    updatedAt: 999,
+                    processIDs: [123]
                 ),
             ]
         )
@@ -3550,7 +3669,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             detectedSnapshots: [
                 RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
                     snapshot: detectedSnapshot,
-                    updatedAt: 999
+                    updatedAt: 999,
+                    processIDs: [456]
                 ),
             ]
         )
@@ -4062,6 +4182,49 @@ extension SessionPersistenceTests {
         )
     }
 
+    @MainActor
+    func testAutosaveFingerprintIncludesTextBoxDraftContent() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+
+        let baselineFingerprint = manager.sessionAutosaveFingerprint()
+        terminalPanel.restoreSessionTextBoxDraft(SessionTextBoxInputDraftSnapshot(
+            isActive: true,
+            parts: [.text("draft one")]
+        ))
+        let firstTextFingerprint = manager.sessionAutosaveFingerprint()
+        XCTAssertNotEqual(baselineFingerprint, firstTextFingerprint)
+
+        terminalPanel.restoreSessionTextBoxDraft(SessionTextBoxInputDraftSnapshot(
+            isActive: true,
+            parts: [.text("draft two")]
+        ))
+        let secondTextFingerprint = manager.sessionAutosaveFingerprint()
+        XCTAssertNotEqual(firstTextFingerprint, secondTextFingerprint)
+
+        let attachment = SessionTextBoxInputAttachmentSnapshot(
+            displayName: "moon.png",
+            submissionText: "/tmp/moon.png",
+            submissionPath: "/tmp/moon.png",
+            localPath: "/tmp/moon.png",
+            cleanupLocalPathWhenDisposed: false
+        )
+        terminalPanel.restoreSessionTextBoxDraft(SessionTextBoxInputDraftSnapshot(
+            isActive: true,
+            parts: [.text("look "), .attachment(attachment)]
+        ))
+        let imageDraftFingerprint = manager.sessionAutosaveFingerprint()
+        XCTAssertNotEqual(secondTextFingerprint, imageDraftFingerprint)
+
+        terminalPanel.restoreSessionTextBoxDraft(SessionTextBoxInputDraftSnapshot(
+            isActive: false,
+            parts: [.text("look "), .attachment(attachment)]
+        ))
+        XCTAssertNotEqual(imageDraftFingerprint, manager.sessionAutosaveFingerprint())
+    }
+
     func testSurfaceResumeBindingPreservesExactNonSensitiveEnvironmentValues() {
         let binding = SurfaceResumeBindingSnapshot(
             command: "codex resume session",
@@ -4238,6 +4401,222 @@ extension SessionPersistenceTests {
         ))
     }
 
+    func testSurfaceResumeApprovalWritesRecordsIntoCmuxJSON() throws {
+        let settingsURL = try makeSurfaceResumeApprovalCmuxSettingsURL()
+        let secret = Data("approval-secret".utf8)
+        let initialSettings = """
+        {
+          "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
+          // keep root comment
+          "schemaVersion": 1,
+          "terminal": {
+            // keep terminal comment
+            "showScrollBar": false
+          }
+        }
+        """.replacingOccurrences(of: "\n", with: "\r\n")
+        try initialSettings.write(to: settingsURL, atomically: true, encoding: .utf8)
+
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"],
+            fileURL: settingsURL,
+            signingSecret: secret
+        ))
+
+        let root = try jsonObject(at: settingsURL)
+        let terminal = try XCTUnwrap(root["terminal"] as? [String: Any])
+        XCTAssertEqual(terminal["showScrollBar"] as? Bool, false)
+        let storedRecords = try XCTUnwrap(terminal["resumeCommands"] as? [[String: Any]])
+        XCTAssertEqual(storedRecords.count, 1)
+        XCTAssertEqual(storedRecords.first?["id"] as? String, record.id)
+        let updatedSettings = try String(contentsOf: settingsURL, encoding: .utf8)
+        XCTAssertTrue(updatedSettings.contains("// keep root comment"))
+        XCTAssertTrue(updatedSettings.contains("// keep terminal comment"))
+        XCTAssertTrue(updatedSettings.contains("\r\n    \"resumeCommands\""))
+
+        let validRecords = SurfaceResumeApprovalStore.validRecords(
+            fileURL: settingsURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(validRecords.map(\.id), [record.id])
+        XCTAssertEqual(validRecords.first?.policy, .auto)
+    }
+
+    func testSurfaceResumeApprovalWritesNonUTF8CmuxJSON() throws {
+        let settingsURL = try makeSurfaceResumeApprovalCmuxSettingsURL()
+        let secret = Data("approval-secret".utf8)
+        let initialSettings = """
+        {
+          "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
+          // keep utf16 comment
+          "schemaVersion": 1,
+          "terminal": {
+            "showScrollBar": false
+          }
+        }
+        """
+        try XCTUnwrap(initialSettings.data(using: .utf16LittleEndian))
+            .write(to: settingsURL, options: [.atomic])
+
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"],
+            fileURL: settingsURL,
+            signingSecret: secret
+        ))
+
+        let updatedData = try Data(contentsOf: settingsURL)
+        let updatedSettings = try XCTUnwrap(String(data: updatedData, encoding: .utf16LittleEndian))
+        XCTAssertTrue(updatedSettings.contains("// keep utf16 comment"))
+        XCTAssertTrue(updatedSettings.contains("\"resumeCommands\""))
+        let root = try jsonObject(at: settingsURL)
+        let terminal = try XCTUnwrap(root["terminal"] as? [String: Any])
+        let storedRecords = try XCTUnwrap(terminal["resumeCommands"] as? [[String: Any]])
+        XCTAssertEqual(storedRecords.first?["id"] as? String, record.id)
+    }
+
+    func testSurfaceResumeApprovalMigratesLegacyRecordsIntoCmuxJSON() throws {
+        let settingsURL = try makeSurfaceResumeApprovalCmuxSettingsURL()
+        let legacyURL = settingsURL.deletingLastPathComponent()
+            .appendingPathComponent("resume-commands.json", isDirectory: false)
+        let secret = Data("approval-secret".utf8)
+        try """
+        {
+          "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
+          // keep migration comment
+          "schemaVersion": 1,
+          "rightSidebar": {
+            "width": 320
+          }
+        }
+        """.write(to: settingsURL, atomically: true, encoding: .utf8)
+
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"],
+            fileURL: legacyURL,
+            signingSecret: secret
+        ))
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyURL.path))
+        XCTAssertTrue(SurfaceResumeApprovalStore.migrateLegacyRecordsIfNeeded(
+            fileURL: settingsURL,
+            legacyFileURL: legacyURL
+        ))
+
+        let root = try jsonObject(at: settingsURL)
+        let terminal = try XCTUnwrap(root["terminal"] as? [String: Any])
+        let rightSidebar = try XCTUnwrap(root["rightSidebar"] as? [String: Any])
+        XCTAssertEqual((rightSidebar["width"] as? NSNumber)?.intValue, 320)
+        let storedRecords = try XCTUnwrap(terminal["resumeCommands"] as? [[String: Any]])
+        XCTAssertEqual(storedRecords.count, 1)
+        XCTAssertEqual(storedRecords.first?["id"] as? String, record.id)
+        let updatedSettings = try String(contentsOf: settingsURL, encoding: .utf8)
+        XCTAssertTrue(updatedSettings.contains("// keep migration comment"))
+
+        let validRecords = SurfaceResumeApprovalStore.validRecords(
+            fileURL: settingsURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(validRecords.map(\.id), [record.id])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyURL.path))
+
+        XCTAssertFalse(SurfaceResumeApprovalStore.migrateLegacyRecordsIfNeeded(
+            fileURL: settingsURL,
+            legacyFileURL: legacyURL
+        ))
+        let rootAfterSecondMigration = try jsonObject(at: settingsURL)
+        let terminalAfterSecondMigration = try XCTUnwrap(rootAfterSecondMigration["terminal"] as? [String: Any])
+        let storedRecordsAfterSecondMigration = try XCTUnwrap(terminalAfterSecondMigration["resumeCommands"] as? [[String: Any]])
+        XCTAssertEqual(storedRecordsAfterSecondMigration.count, 1)
+    }
+
+    func testSurfaceResumeApprovalDoesNotOverwriteInvalidCmuxJSON() throws {
+        let settingsURL = try makeSurfaceResumeApprovalCmuxSettingsURL()
+        let legacyURL = settingsURL.deletingLastPathComponent()
+            .appendingPathComponent("resume-commands.json", isDirectory: false)
+        let secret = Data("approval-secret".utf8)
+        let invalidSettingsData = Data("{ \"terminal\":".utf8)
+        try invalidSettingsData.write(to: settingsURL, options: [.atomic])
+
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        let legacyRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"],
+            fileURL: legacyURL,
+            signingSecret: secret
+        ))
+
+        XCTAssertEqual(SurfaceResumeApprovalStore.loadRecords(
+            fileURL: settingsURL,
+            defaultSettingsURL: settingsURL
+        ).map(\.id), [legacyRecord.id])
+        XCTAssertEqual(try Data(contentsOf: settingsURL), invalidSettingsData)
+
+        XCTAssertFalse(SurfaceResumeApprovalStore.migrateLegacyRecordsIfNeeded(
+            fileURL: settingsURL,
+            legacyFileURL: legacyURL
+        ))
+        XCTAssertEqual(try Data(contentsOf: settingsURL), invalidSettingsData)
+
+        XCTAssertNotNil(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"],
+            fileURL: settingsURL,
+            signingSecret: secret
+        ))
+        XCTAssertEqual(try Data(contentsOf: settingsURL), invalidSettingsData)
+        XCTAssertTrue(SurfaceResumeApprovalStore.validRecords(
+            fileURL: settingsURL,
+            signingSecret: secret
+        ).isEmpty)
+        XCTAssertEqual(SurfaceResumeApprovalStore.validRecords(
+            fileURL: legacyURL,
+            signingSecret: secret
+        ).map(\.id), [legacyRecord.id])
+    }
+
     func testSurfaceResumeApprovalPromptsForUnknownManualProposal() throws {
         let binding = SurfaceResumeBindingSnapshot(
             command: "tmux attach -t work",
@@ -4347,6 +4726,22 @@ extension SessionPersistenceTests {
         return root.appendingPathComponent("resume-commands.json", isDirectory: false)
     }
 
+    private func makeSurfaceResumeApprovalCmuxSettingsURL() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-surface-resume-settings-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+        }
+        return root.appendingPathComponent("cmux.json", isDirectory: false)
+    }
+
+    private func jsonObject(at url: URL) throws -> [String: Any] {
+        let data = try Data(contentsOf: url)
+        let sanitized = try JSONCParser.preprocess(data: data)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
+    }
+
     @MainActor
     func testRestoreRunsSurfaceResumeBindingFromBindingCwd() throws {
         let source = Workspace()
@@ -4376,6 +4771,67 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(restoredPanel.requestedWorkingDirectory, "/tmp/new")
         XCTAssertTrue(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+    }
+
+    @MainActor
+    func testRestoreDoesNotRunResumeBindingForHibernatedSnapshot() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sourcePanel = try XCTUnwrap(source.terminalPanel(for: sourcePanelId))
+        let sourcePaneId = try XCTUnwrap(source.paneId(forPanelId: sourcePanelId))
+        _ = try XCTUnwrap(source.newTerminalSurface(inPane: sourcePaneId, focus: true))
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-hibernated-restore",
+            workingDirectory: "/tmp/agent",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: "/tmp/agent",
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        sourcePanel.enterAgentHibernation(
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            hibernatedAt: Date(timeIntervalSince1970: 20)
+        )
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "script",
+                kind: "custom",
+                command: "./resume.sh",
+                cwd: "/tmp/binding",
+                checkpointId: "script",
+                source: "process-detected",
+                autoResume: true,
+                updatedAt: 10
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+        let sourcePanelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == sourcePanelId })
+        XCTAssertNotNil(sourcePanelSnapshot.terminal?.hibernation)
+        XCTAssertNotNil(sourcePanelSnapshot.terminal?.agent?.resumeCommand)
+        XCTAssertNotEqual(snapshot.focusedPanelId, sourcePanelId)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        let restoredPanelSnapshot = try XCTUnwrap(
+            restoredSnapshot.panels.first {
+                $0.terminal?.resumeBinding?.command == "./resume.sh"
+            }
+        )
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelSnapshot.id))
+
+        XCTAssertFalse(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        XCTAssertEqual(restoredPanelSnapshot.terminal?.agent?.sessionId, "codex-hibernated-restore")
     }
 
     @MainActor

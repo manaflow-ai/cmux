@@ -3,23 +3,7 @@ import Darwin
 import Foundation
 
 extension Workspace {
-    private static let structuredAgentHookStatusKeys: Set<String> = [
-        "amp",
-        "antigravity",
-        "claude_code",
-        "codebuddy",
-        "codex",
-        "copilot",
-        "cursor",
-        "factory",
-        "gemini",
-        "grok",
-        "hermes-agent",
-        "opencode",
-        "pi",
-        "qoder",
-        "rovodev",
-    ]
+    private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
     private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
     private static let truthyStartupEnvironmentValues: Set<String> = ["1", "true", "yes", "on", "enabled"]
 
@@ -239,6 +223,12 @@ extension Workspace {
             removeAgentPIDOwnership(key: key)
             didChange = true
         }
+        if let lifecyclePanelId = ownedPanelId ?? panelId {
+            let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
+            if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
+                didChange = true
+            }
+        }
         if let statusKeyToClear,
            !hasAgentRuntime(forStatusKey: statusKeyToClear),
            statusEntries.removeValue(forKey: statusKeyToClear) != nil {
@@ -339,7 +329,9 @@ extension Workspace {
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
+        clearAgentLifecycleStates(panelId: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
+        discardRemotePTYSessionID(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
         surfaceListeningPorts.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
