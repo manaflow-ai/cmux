@@ -39,6 +39,9 @@ jobs:
       - name: Validate release asset guard
         run: node scripts/release_asset_guard.test.js
 
+      - name: Validate universal macOS app verifier
+        run: ./tests/test_verify_universal_macos_app.sh
+
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
 
@@ -652,6 +655,12 @@ jobs:
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
+
+      - name: Verify universal app binary architectures
+        run: |
+          ./scripts/verify-universal-macos-app.sh \
+            "build-universal/Build/Products/Release/cmux.app" \
+            --label "CI Release app"
 
   ui-regressions:
     runs-on: warp-macos-15-arm64-6x
