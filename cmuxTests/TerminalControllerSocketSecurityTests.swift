@@ -202,6 +202,26 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(payload["has_ssh_options"] as? Bool, true)
     }
 
+    func testRemoteConfigureRejectsInvalidPersistentDaemonSlot() throws {
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": UUID().uuidString,
+                "transport": "ssh",
+                "destination": "example.com",
+                "persistent_daemon_slot": "../bad",
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "invalid_params")
+        XCTAssertEqual(
+            error["message"] as? String,
+            "persistent_daemon_slot must contain only letters, numbers, '.', '_' or '-'"
+        )
+    }
+
     func testRemotePTYResizeRunsOnSocketWorker() async throws {
         let socketPath = makeSocketPath("pty-worker")
         let tabManager = TabManager()

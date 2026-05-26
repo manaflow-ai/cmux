@@ -1739,10 +1739,11 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
     }
 
-    func testSessionSnapshotRestoresPersistentSSHPTYWithFreshAttachAfterRelaunch() throws {
+    func testSessionSnapshotRestoresPersistentSSHPTYSessionAfterRelaunch() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Persistent SSH")
+        let persistentDaemonSlot = "ssh-persist-test"
         let configuration = WorkspaceRemoteConfiguration(
             destination: "dev@example.com",
             port: 2222,
@@ -1756,7 +1757,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             relayToken: String(repeating: "e", count: 64),
             localSocketPath: "/tmp/cmux-persist-test.sock",
             terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
-            preserveAfterTerminalExit: true
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: persistentDaemonSlot
         )
         remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
         let remotePanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
@@ -1790,6 +1792,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             persistedTabManager.workspaces.first { $0.customTitle == "Persistent SSH" }
         )
         XCTAssertEqual(persistedWorkspace.remote?.preserveAfterTerminalExit, true)
+        XCTAssertEqual(persistedWorkspace.remote?.relayPort, 64003)
+        XCTAssertEqual(persistedWorkspace.remote?.persistentDaemonSlot, persistentDaemonSlot)
         XCTAssertEqual(
             persistedWorkspace.panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID,
             expectedSessionID
@@ -1804,12 +1808,21 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Persistent SSH" })
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.preserveAfterTerminalExit, true)
+        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.relayPort, 64003)
+        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.persistentDaemonSlot, persistentDaemonSlot)
+        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.localSocketPath, TerminalController.shared.currentSocketPathForRemoteRestore())
+        XCTAssertNotEqual(restoredWorkspace.remoteConfiguration?.relayID, "relay-persist-test")
+        XCTAssertNotEqual(restoredWorkspace.remoteConfiguration?.relayToken, String(repeating: "e", count: 64))
+        let restoredRelayToken = try XCTUnwrap(restoredWorkspace.remoteConfiguration?.relayToken)
+        XCTAssertEqual(restoredRelayToken.count, 64)
+        XCTAssertNotNil(restoredRelayToken.range(of: "^[0-9a-f]{64}$", options: .regularExpression))
         let restoredForegroundAuthToken = try XCTUnwrap(restoredWorkspace.remoteConfiguration?.foregroundAuthToken)
         XCTAssertFalse(restoredForegroundAuthToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         let terminalStartupCommand = try XCTUnwrap(restoredWorkspace.remoteConfiguration?.terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains("ssh-pty-attach"), terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains("workspace.remote.foreground_auth_ready"), terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains(restoredForegroundAuthToken), terminalStartupCommand)
+        XCTAssertFalse(terminalStartupCommand.contains(expectedSessionID), terminalStartupCommand)
         XCTAssertFalse(terminalStartupCommand.contains("--require-existing"), terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains("254|255"), terminalStartupCommand)
         let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
@@ -1819,19 +1832,16 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(restoredInitialCommand.contains("ssh-pty-attach"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("workspace.remote.foreground_auth_ready"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains(restoredForegroundAuthToken), restoredInitialCommand)
-        XCTAssertFalse(restoredInitialCommand.contains("--require-existing"), restoredInitialCommand)
+        XCTAssertTrue(restoredInitialCommand.contains("--require-existing"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("254|255"), restoredInitialCommand)
-        XCTAssertFalse(restoredInitialCommand.contains(expectedSessionID), restoredInitialCommand)
+        XCTAssertTrue(restoredInitialCommand.contains(expectedSessionID), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("CMUX_SURFACE_ID"), restoredInitialCommand)
 
         let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
-        let restoredSessionID = Workspace.defaultSSHPTYSessionID(
-            workspaceId: restoredWorkspace.id,
-            panelId: restoredPanelId
-        )
         XCTAssertEqual(roundTrip.remote?.preserveAfterTerminalExit, true)
-        XCTAssertEqual(roundTrip.panels.first?.terminal?.remotePTYSessionID, restoredSessionID)
-        XCTAssertNotEqual(restoredSessionID, expectedSessionID)
+        XCTAssertEqual(roundTrip.remote?.relayPort, 64003)
+        XCTAssertEqual(roundTrip.remote?.persistentDaemonSlot, persistentDaemonSlot)
+        XCTAssertEqual(roundTrip.panels.first?.terminal?.remotePTYSessionID, expectedSessionID)
         XCTAssertEqual(
             persistedWorkspace.panels.first { $0.id == remotePanelId }?.terminal?.scrollback,
             expectedScrollback
@@ -1905,6 +1915,63 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
         XCTAssertNil(roundTrip.remote?.preserveAfterTerminalExit)
         XCTAssertNil(roundTrip.panels.first?.terminal?.remotePTYSessionID)
+    }
+
+    func testSessionRemoteWorkspaceSnapshotRequiresPersistentDaemonSlotForPTYRestore() throws {
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+                "ControlMaster=auto",
+                "ControlPersist=600",
+            ],
+            preserveAfterTerminalExit: true,
+            skipDaemonBootstrap: nil,
+            relayPort: 64003,
+            persistentDaemonSlot: nil
+        )
+
+        let configuration = try XCTUnwrap(snapshot.workspaceConfiguration(localSocketPath: "/tmp/cmux-restore.sock"))
+
+        XCTAssertEqual(configuration.preserveAfterTerminalExit, false)
+        XCTAssertNil(configuration.foregroundAuthToken)
+        XCTAssertNil(configuration.persistentDaemonSlot)
+        XCTAssertNil(configuration.relayPort)
+        XCTAssertNil(configuration.localSocketPath)
+        XCTAssertFalse(configuration.sshOptions.contains { $0.hasPrefix("ControlPath") })
+        XCTAssertFalse(configuration.terminalStartupCommand?.contains("ssh-pty-attach") == true)
+        XCTAssertEqual(configuration.terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
+    }
+
+    func testSessionRemoteWorkspaceSnapshotRequiresRelayPortForPTYRestore() throws {
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+                "ControlMaster=auto",
+                "ControlPersist=600",
+            ],
+            preserveAfterTerminalExit: true,
+            skipDaemonBootstrap: nil,
+            relayPort: nil,
+            persistentDaemonSlot: "ssh-restore-slot"
+        )
+
+        let configuration = try XCTUnwrap(snapshot.workspaceConfiguration(localSocketPath: "/tmp/cmux-restore.sock"))
+
+        XCTAssertEqual(configuration.preserveAfterTerminalExit, false)
+        XCTAssertNil(configuration.foregroundAuthToken)
+        XCTAssertNil(configuration.persistentDaemonSlot)
+        XCTAssertNil(configuration.relayPort)
+        XCTAssertNil(configuration.localSocketPath)
+        XCTAssertFalse(configuration.terminalStartupCommand?.contains("ssh-pty-attach") == true)
+        XCTAssertEqual(configuration.terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
     }
 
     func testSessionRemoteWorkspaceSnapshotDropsInvalidSSHPortFromReconnectCommand() throws {

@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -13,11 +15,13 @@ import (
 	"math"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -137,6 +141,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fs.SetOutput(stderr)
 		stdio := fs.Bool("stdio", false, "serve over stdin/stdout")
 		ws := fs.Bool("ws", false, "serve terminal PTY transport over WebSocket")
+		persistent := fs.Bool("persistent", false, "proxy stdio to a persistent per-slot daemon")
+		persistentServer := fs.Bool("persistent-server", false, "run the persistent per-slot daemon")
+		persistentSlot := fs.String("slot", "", "persistent daemon slot")
 		listen := fs.String("listen", "127.0.0.1:7777", "address for --ws")
 		authLeaseFile := fs.String("auth-lease-file", "", "required lease JSON path for --ws")
 		rpcAuthLeaseFile := fs.String("rpc-auth-lease-file", "", "optional daemon RPC lease JSON path for --ws /rpc")
@@ -144,8 +151,27 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
+		if *persistentServer {
+			if *stdio || *ws || *persistent {
+				_, _ = fmt.Fprintln(stderr, "serve --persistent-server cannot be combined with --stdio, --ws, or --persistent")
+				return 2
+			}
+			if strings.TrimSpace(*persistentSlot) == "" {
+				_, _ = fmt.Fprintln(stderr, "serve --persistent-server requires --slot")
+				return 2
+			}
+			if err := runPersistentDaemonServer(strings.TrimSpace(*persistentSlot), stderr); err != nil {
+				_, _ = fmt.Fprintf(stderr, "serve --persistent-server failed: %v\n", err)
+				return 1
+			}
+			return 0
+		}
 		if *stdio == *ws {
 			_, _ = fmt.Fprintln(stderr, "serve requires exactly one of --stdio or --ws")
+			return 2
+		}
+		if (*persistent || strings.TrimSpace(*persistentSlot) != "") && !*stdio {
+			_, _ = fmt.Fprintln(stderr, "serve --persistent requires --stdio")
 			return 2
 		}
 		if *ws {
@@ -160,6 +186,17 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				Shell:            strings.TrimSpace(*shell),
 			}, stderr); err != nil {
 				_, _ = fmt.Fprintf(stderr, "serve --ws failed: %v\n", err)
+				return 1
+			}
+			return 0
+		}
+		if *persistent {
+			if strings.TrimSpace(*persistentSlot) == "" {
+				_, _ = fmt.Fprintln(stderr, "serve --persistent requires --slot")
+				return 2
+			}
+			if err := runPersistentStdioProxy(stdin, stdout, stderr, strings.TrimSpace(*persistentSlot)); err != nil {
+				_, _ = fmt.Fprintf(stderr, "serve --stdio --persistent failed: %v\n", err)
 				return 1
 			}
 			return 0
@@ -181,11 +218,16 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Usage:")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote version")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --stdio")
+	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --stdio --persistent --slot <slot>")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote cli <command> [args...]")
 }
 
 func runStdioServer(stdin io.Reader, stdout io.Writer) error {
+	return runRPCServer(stdin, stdout, newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard), true)
+}
+
+func runRPCServer(stdin io.Reader, stdout io.Writer, ptyHub *wsPTYHub, ownsPTYHub bool) error {
 	writer := &stdioFrameWriter{
 		writer: bufio.NewWriter(stdout),
 	}
@@ -194,8 +236,8 @@ func runStdioServer(stdin io.Reader, stdout io.Writer) error {
 		nextSessionID: 1,
 		streams:       map[string]*streamState{},
 		sessions:      map[string]*sessionState{},
-		ptyHub:        newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard),
-		ownsPTYHub:    true,
+		ptyHub:        ptyHub,
+		ownsPTYHub:    ownsPTYHub,
 		frameWriter:   writer,
 	}
 	defer server.closeAll()
@@ -248,6 +290,448 @@ func runStdioServer(stdin io.Reader, stdout io.Writer) error {
 			return err
 		}
 	}
+}
+
+type persistentDaemonPaths struct {
+	slot      string
+	root      string
+	socket    string
+	tokenFile string
+	logFile   string
+	lockFile  string
+}
+
+const persistentDaemonAuthMethod = "daemon.auth"
+
+func persistentDaemonPathsForSlot(rawSlot string) (persistentDaemonPaths, error) {
+	slot, err := validatePersistentDaemonSlot(rawSlot)
+	if err != nil {
+		return persistentDaemonPaths{}, err
+	}
+	rootBase := strings.TrimSpace(os.Getenv("CMUX_REMOTE_DAEMON_ROOT"))
+	if rootBase == "" {
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil || strings.TrimSpace(home) == "" {
+			return persistentDaemonPaths{}, errors.New("cannot resolve remote home directory")
+		}
+		rootBase = filepath.Join(home, ".cmux", "daemon")
+	}
+	root := filepath.Join(rootBase, slot)
+	return persistentDaemonPaths{
+		slot:      slot,
+		root:      root,
+		socket:    filepath.Join(root, "rpc.sock"),
+		tokenFile: filepath.Join(root, "auth.token"),
+		logFile:   filepath.Join(root, "daemon.log"),
+		lockFile:  filepath.Join(root, "daemon.lock"),
+	}, nil
+}
+
+func validatePersistentDaemonSlot(rawSlot string) (string, error) {
+	slot := strings.TrimSpace(rawSlot)
+	if slot == "" {
+		return "", errors.New("persistent daemon slot is required")
+	}
+	if slot == "." || slot == ".." || len(slot) > 128 {
+		return "", fmt.Errorf("invalid persistent daemon slot %q", rawSlot)
+	}
+	for _, r := range slot {
+		if (r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			r == '-' ||
+			r == '_' ||
+			r == '.' {
+			continue
+		}
+		return "", fmt.Errorf("invalid persistent daemon slot %q", rawSlot)
+	}
+	return slot, nil
+}
+
+func ensurePersistentDaemonDirectory(paths persistentDaemonPaths) error {
+	if err := os.MkdirAll(paths.root, 0o700); err != nil {
+		return err
+	}
+	return os.Chmod(paths.root, 0o700)
+}
+
+func persistentDaemonToken(paths persistentDaemonPaths) (string, error) {
+	readExisting := func() (string, error) {
+		data, err := os.ReadFile(paths.tokenFile)
+		if err != nil {
+			return "", err
+		}
+		token := strings.TrimSpace(string(data))
+		if token == "" {
+			return "", errors.New("persistent daemon token file is empty")
+		}
+		return token, nil
+	}
+	if token, err := readExisting(); err == nil {
+		return token, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(raw)
+
+	file, err := os.OpenFile(paths.tokenFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		return readExisting()
+	}
+	if err != nil {
+		return "", err
+	}
+	writeOK := false
+	defer func() {
+		_ = file.Close()
+		if !writeOK {
+			_ = os.Remove(paths.tokenFile)
+		}
+	}()
+	if _, err := file.WriteString(token + "\n"); err != nil {
+		return "", err
+	}
+	writeOK = true
+	return token, nil
+}
+
+func runPersistentStdioProxy(stdin io.Reader, stdout, stderr io.Writer, slot string) error {
+	paths, err := persistentDaemonPathsForSlot(slot)
+	if err != nil {
+		return err
+	}
+	if err := ensurePersistentDaemonDirectory(paths); err != nil {
+		return err
+	}
+	token, err := persistentDaemonToken(paths)
+	if err != nil {
+		return err
+	}
+	if err := ensurePersistentDaemonRunning(paths, token, stderr); err != nil {
+		return err
+	}
+	conn, err := dialPersistentDaemon(paths.socket, token)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	errCh := make(chan error, 2)
+	go func() {
+		_, copyErr := io.Copy(conn, stdin)
+		if unixConn, ok := conn.(*net.UnixConn); ok {
+			_ = unixConn.CloseWrite()
+		}
+		errCh <- copyErr
+	}()
+	go func() {
+		_, copyErr := io.Copy(stdout, conn)
+		errCh <- copyErr
+	}()
+
+	var firstErr error
+	for i := 0; i < 2; i++ {
+		if copyErr := <-errCh; copyErr != nil && !errors.Is(copyErr, net.ErrClosed) && firstErr == nil {
+			firstErr = copyErr
+		}
+	}
+	return firstErr
+}
+
+func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, stderr io.Writer) error {
+	if conn, err := dialPersistentDaemon(paths.socket, token); err == nil {
+		_ = conn.Close()
+		return nil
+	}
+	_ = os.Remove(paths.socket)
+
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	logFile, err := os.OpenFile(paths.logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	defer logFile.Close()
+
+	cmd := exec.Command(executable, "serve", "--persistent-server", "--slot", paths.slot)
+	cmd.Stdin = nil
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	cmd.Env = os.Environ()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	_ = cmd.Process.Release()
+
+	deadline := time.Now().Add(5 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		conn, dialErr := dialPersistentDaemon(paths.socket, token)
+		if dialErr == nil {
+			_ = conn.Close()
+			return nil
+		}
+		lastErr = dialErr
+		time.Sleep(50 * time.Millisecond)
+	}
+	if stderr != nil && lastErr != nil {
+		_, _ = fmt.Fprintf(stderr, "persistent daemon log: %s\n", paths.logFile)
+	}
+	if lastErr == nil {
+		lastErr = errors.New("persistent daemon did not become ready")
+	}
+	return lastErr
+}
+
+func runPersistentDaemonServer(slot string, stderr io.Writer) error {
+	paths, err := persistentDaemonPathsForSlot(slot)
+	if err != nil {
+		return err
+	}
+	if err := ensurePersistentDaemonDirectory(paths); err != nil {
+		return err
+	}
+	token, err := persistentDaemonToken(paths)
+	if err != nil {
+		return err
+	}
+	lockFile, err := os.OpenFile(paths.lockFile, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer lockFile.Close()
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return fmt.Errorf("persistent daemon slot %q is already running", paths.slot)
+	}
+	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+
+	_ = os.Remove(paths.socket)
+	listener, err := net.Listen("unix", paths.socket)
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
+	defer os.Remove(paths.socket)
+	_ = os.Chmod(paths.socket, 0o600)
+
+	return servePersistentDaemon(listener, token, stderr)
+}
+
+func servePersistentDaemon(listener net.Listener, token string, stderr io.Writer) error {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{}, stderr)
+	defer hub.closeAll()
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			if isClosedListenerError(err) {
+				return nil
+			}
+			return err
+		}
+		go handlePersistentDaemonConn(conn, token, hub)
+	}
+}
+
+func isClosedListenerError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	return strings.Contains(err.Error(), "use of closed network connection")
+}
+
+func handlePersistentDaemonConn(conn net.Conn, token string, hub *wsPTYHub) {
+	defer conn.Close()
+	reader := bufio.NewReaderSize(conn, 64*1024)
+	writer := &stdioFrameWriter{writer: bufio.NewWriter(conn)}
+	if !authenticatePersistentDaemonConn(reader, writer, token) {
+		return
+	}
+	_ = runRPCServerWithReader(reader, writer, hub, false)
+}
+
+func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWriter, token string) bool {
+	line, oversized, err := readRPCFrame(reader, maxRPCFrameBytes)
+	if err != nil || oversized {
+		_ = writer.writeResponse(rpcResponse{
+			OK: false,
+			Error: &rpcError{
+				Code:    "unauthorized",
+				Message: "persistent daemon authentication required",
+			},
+		})
+		return false
+	}
+	line = bytes.TrimSuffix(line, []byte{'\n'})
+	line = bytes.TrimSuffix(line, []byte{'\r'})
+	var req rpcRequest
+	if err := json.Unmarshal(line, &req); err != nil {
+		_ = writer.writeResponse(rpcResponse{
+			OK: false,
+			Error: &rpcError{
+				Code:    "invalid_request",
+				Message: "invalid JSON request",
+			},
+		})
+		return false
+	}
+	if req.Method != persistentDaemonAuthMethod {
+		_ = writer.writeResponse(rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "unauthorized",
+				Message: "persistent daemon authentication required",
+			},
+		})
+		return false
+	}
+	provided, _ := getStringParam(req.Params, "token")
+	if strings.TrimSpace(provided) == "" || strings.TrimSpace(provided) != token {
+		_ = writer.writeResponse(rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "unauthorized",
+				Message: "invalid persistent daemon token",
+			},
+		})
+		return false
+	}
+	_ = writer.writeResponse(rpcResponse{
+		ID: req.ID,
+		OK: true,
+		Result: map[string]any{
+			"authenticated": true,
+		},
+	})
+	return true
+}
+
+func runRPCServerWithReader(reader *bufio.Reader, writer *stdioFrameWriter, ptyHub *wsPTYHub, ownsPTYHub bool) error {
+	server := &rpcServer{
+		nextStreamID:  1,
+		nextSessionID: 1,
+		streams:       map[string]*streamState{},
+		sessions:      map[string]*sessionState{},
+		ptyHub:        ptyHub,
+		ownsPTYHub:    ownsPTYHub,
+		frameWriter:   writer,
+	}
+	defer server.closeAll()
+	defer writer.writer.Flush()
+
+	for {
+		line, oversized, readErr := readRPCFrame(reader, maxRPCFrameBytes)
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return nil
+			}
+			return readErr
+		}
+		if oversized {
+			if err := writer.writeResponse(rpcResponse{
+				OK: false,
+				Error: &rpcError{
+					Code:    "invalid_request",
+					Message: "request frame exceeds maximum size",
+				},
+			}); err != nil {
+				return err
+			}
+			continue
+		}
+		line = bytes.TrimSuffix(line, []byte{'\n'})
+		line = bytes.TrimSuffix(line, []byte{'\r'})
+		if len(line) == 0 {
+			continue
+		}
+
+		var req rpcRequest
+		if err := json.Unmarshal(line, &req); err != nil {
+			if err := writer.writeResponse(rpcResponse{
+				OK: false,
+				Error: &rpcError{
+					Code:    "invalid_request",
+					Message: "invalid JSON request",
+				},
+			}); err != nil {
+				return err
+			}
+			continue
+		}
+
+		resp := server.handleRequest(req)
+		if err := writer.writeResponse(resp); err != nil {
+			return err
+		}
+	}
+}
+
+func dialPersistentDaemon(socketPath string, token string) (net.Conn, error) {
+	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	if err := authenticatePersistentDaemonClient(conn, token); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return conn, nil
+}
+
+func authenticatePersistentDaemonClient(conn net.Conn, token string) error {
+	writer := bufio.NewWriter(conn)
+	request := rpcRequest{
+		ID:     "auth",
+		Method: persistentDaemonAuthMethod,
+		Params: map[string]any{
+			"token": token,
+		},
+	}
+	data, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+	if _, err := writer.Write(data); err != nil {
+		return err
+	}
+	if err := writer.WriteByte('\n'); err != nil {
+		return err
+	}
+	if err := writer.Flush(); err != nil {
+		return err
+	}
+	reader := bufio.NewReaderSize(conn, 64*1024)
+	line, oversized, err := readRPCFrame(reader, maxRPCFrameBytes)
+	if err != nil {
+		return err
+	}
+	if oversized {
+		return errors.New("persistent daemon auth response exceeded maximum size")
+	}
+	var resp rpcResponse
+	if err := json.Unmarshal(bytes.TrimSpace(line), &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		if resp.Error != nil && strings.TrimSpace(resp.Error.Message) != "" {
+			return errors.New(resp.Error.Message)
+		}
+		return errors.New("persistent daemon authentication failed")
+	}
+	return nil
 }
 
 func setTCPNoDelay(conn net.Conn) {
@@ -356,6 +840,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"proxy.stream.push",
 					"pty.session",
 					"pty.session.token",
+					"pty.session.persistent_daemon",
 				},
 			},
 		}

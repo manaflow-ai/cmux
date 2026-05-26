@@ -48,6 +48,111 @@ func (b *notifyingBuffer) String() string {
 	return b.buffer.String()
 }
 
+func startPersistentDaemonForTest(t *testing.T, token string) (string, func()) {
+	t.Helper()
+	socketPath := filepath.Join(t.TempDir(), "rpc.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen unix: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- servePersistentDaemon(listener, token, io.Discard)
+	}()
+	stop := func() {
+		_ = listener.Close()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("persistent daemon exited with error: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("persistent daemon did not stop")
+		}
+	}
+	return socketPath, stop
+}
+
+func openPersistentTestClient(t *testing.T, socketPath string, token string) (net.Conn, *bufio.Reader, *bufio.Writer) {
+	t.Helper()
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatalf("dial persistent daemon: %v", err)
+	}
+	reader := bufio.NewReader(conn)
+	writer := bufio.NewWriter(conn)
+	writePersistentTestFrame(t, writer, rpcRequest{
+		ID:     "auth",
+		Method: persistentDaemonAuthMethod,
+		Params: map[string]any{"token": token},
+	})
+	frame := readPersistentTestFrame(t, conn, reader)
+	if ok, _ := frame["ok"].(bool); !ok {
+		_ = conn.Close()
+		t.Fatalf("persistent daemon auth failed: %v", frame)
+	}
+	return conn, reader, writer
+}
+
+func persistentTestRPCCall(t *testing.T, conn net.Conn, reader *bufio.Reader, writer *bufio.Writer, req rpcRequest) map[string]any {
+	t.Helper()
+	writePersistentTestFrame(t, writer, req)
+	for {
+		frame := readPersistentTestFrame(t, conn, reader)
+		if _, isEvent := frame["event"]; isEvent {
+			continue
+		}
+		return frame
+	}
+}
+
+func readPersistentTestEvent(t *testing.T, conn net.Conn, reader *bufio.Reader, matches func(map[string]any) bool) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	var last map[string]any
+	for time.Now().Before(deadline) {
+		frame := readPersistentTestFrame(t, conn, reader)
+		last = frame
+		if _, isEvent := frame["event"]; isEvent && matches(frame) {
+			return frame
+		}
+	}
+	t.Fatalf("timed out waiting for persistent daemon event; last=%v", last)
+	return nil
+}
+
+func writePersistentTestFrame(t *testing.T, writer *bufio.Writer, payload any) {
+	t.Helper()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal test frame: %v", err)
+	}
+	if _, err := writer.Write(data); err != nil {
+		t.Fatalf("write test frame: %v", err)
+	}
+	if err := writer.WriteByte('\n'); err != nil {
+		t.Fatalf("write test newline: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("flush test frame: %v", err)
+	}
+}
+
+func readPersistentTestFrame(t *testing.T, conn net.Conn, reader *bufio.Reader) map[string]any {
+	t.Helper()
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	line, err := reader.ReadBytes('\n')
+	_ = conn.SetReadDeadline(time.Time{})
+	if err != nil {
+		t.Fatalf("read persistent daemon frame: %v", err)
+	}
+	var frame map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(line), &frame); err != nil {
+		t.Fatalf("decode persistent daemon frame %q: %v", string(line), err)
+	}
+	return frame
+}
+
 type eofWithPayloadConn struct {
 	payload  []byte
 	readOnce bool
@@ -169,6 +274,16 @@ func TestRunStdioHelloAndPing(t *testing.T) {
 	if !sawPushCapability {
 		t.Fatalf("hello should advertise proxy.stream.push: %v", firstResult)
 	}
+	var sawPersistentPTYCapability bool
+	for _, capability := range capabilities {
+		if capability == "pty.session.persistent_daemon" {
+			sawPersistentPTYCapability = true
+			break
+		}
+	}
+	if !sawPersistentPTYCapability {
+		t.Fatalf("hello should advertise pty.session.persistent_daemon: %v", firstResult)
+	}
 
 	var second map[string]any
 	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
@@ -176,6 +291,185 @@ func TestRunStdioHelloAndPing(t *testing.T) {
 	}
 	if ok, _ := second["ok"].(bool); !ok {
 		t.Fatalf("second response should be ok=true: %v", second)
+	}
+}
+
+func TestPersistentDaemonRejectsInvalidSlot(t *testing.T) {
+	for _, slot := range []string{"", ".", "..", "../nope", "bad/slot", strings.Repeat("a", 129)} {
+		if _, err := persistentDaemonPathsForSlot(slot); err == nil {
+			t.Fatalf("persistentDaemonPathsForSlot(%q) succeeded, want error", slot)
+		}
+	}
+}
+
+func TestPersistentDaemonTokenConcurrentCreate(t *testing.T) {
+	root := t.TempDir()
+	paths := persistentDaemonPaths{
+		root:      root,
+		tokenFile: filepath.Join(root, "auth.token"),
+	}
+	if err := os.MkdirAll(filepath.Dir(paths.tokenFile), 0o700); err != nil {
+		t.Fatalf("mkdir token dir: %v", err)
+	}
+
+	const workers = 12
+	var wg sync.WaitGroup
+	results := make(chan string, workers)
+	errorsCh := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			token, err := persistentDaemonToken(paths)
+			if err != nil {
+				errorsCh <- err
+				return
+			}
+			results <- token
+		}()
+	}
+	wg.Wait()
+	close(results)
+	close(errorsCh)
+	for err := range errorsCh {
+		t.Fatalf("persistentDaemonToken returned error: %v", err)
+	}
+	var first string
+	for token := range results {
+		if len(token) != 64 {
+			t.Fatalf("token length = %d, want 64", len(token))
+		}
+		if first == "" {
+			first = token
+			continue
+		}
+		if token != first {
+			t.Fatalf("concurrent token mismatch: got %q want %q", token, first)
+		}
+	}
+	onDisk, err := os.ReadFile(paths.tokenFile)
+	if err != nil {
+		t.Fatalf("read token file: %v", err)
+	}
+	if strings.TrimSpace(string(onDisk)) != first {
+		t.Fatalf("token file = %q, want %q", strings.TrimSpace(string(onDisk)), first)
+	}
+}
+
+func TestPersistentDaemonRejectsBadToken(t *testing.T) {
+	socketPath, stop := startPersistentDaemonForTest(t, "good-token")
+	defer stop()
+
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatalf("dial persistent daemon: %v", err)
+	}
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+	writer := bufio.NewWriter(conn)
+	writePersistentTestFrame(t, writer, rpcRequest{
+		ID:     1,
+		Method: persistentDaemonAuthMethod,
+		Params: map[string]any{"token": "bad-token"},
+	})
+	frame := readPersistentTestFrame(t, conn, reader)
+	if ok, _ := frame["ok"].(bool); ok {
+		t.Fatalf("bad token auth should fail: %v", frame)
+	}
+	errObj, _ := frame["error"].(map[string]any)
+	if got := errObj["code"]; got != "unauthorized" {
+		t.Fatalf("bad token error code = %v, want unauthorized; frame=%v", got, frame)
+	}
+}
+
+func TestPersistentDaemonPTYReattachSurvivesClientDisconnect(t *testing.T) {
+	socketPath, stop := startPersistentDaemonForTest(t, "reattach-token")
+	defer stop()
+
+	conn1, reader1, writer1 := openPersistentTestClient(t, socketPath, "reattach-token")
+	sessionID := "persistent-rpc"
+	attach1 := persistentTestRPCCall(t, conn1, reader1, writer1, rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              sessionID,
+			"attachment_id":           "a1",
+			"client_attachment_token": "token-a1",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "printf 'persistent-rpc-data\\n'; sleep 60",
+		},
+	})
+	if ok, _ := attach1["ok"].(bool); !ok {
+		t.Fatalf("first pty.attach failed: %v", attach1)
+	}
+	readPersistentTestEvent(t, conn1, reader1, func(frame map[string]any) bool {
+		return frame["event"] == "pty.ready" && frame["attachment_id"] == "a1"
+	})
+	readPersistentTestEvent(t, conn1, reader1, func(frame map[string]any) bool {
+		if frame["event"] != "pty.data" || frame["attachment_id"] != "a1" {
+			return false
+		}
+		payload, err := base64.StdEncoding.DecodeString(frame["data_base64"].(string))
+		return err == nil && strings.Contains(string(payload), "persistent-rpc-data")
+	})
+	_ = conn1.Close()
+
+	conn2, reader2, writer2 := openPersistentTestClient(t, socketPath, "reattach-token")
+	defer conn2.Close()
+	attach2 := persistentTestRPCCall(t, conn2, reader2, writer2, rpcRequest{
+		ID:     2,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              sessionID,
+			"attachment_id":           "a2",
+			"client_attachment_token": "token-a2",
+			"cols":                    100,
+			"rows":                    30,
+			"command":                 "printf 'should-not-run\\n'",
+			"require_existing":        true,
+		},
+	})
+	if ok, _ := attach2["ok"].(bool); !ok {
+		t.Fatalf("second pty.attach failed: %v", attach2)
+	}
+	readPersistentTestEvent(t, conn2, reader2, func(frame map[string]any) bool {
+		return frame["event"] == "pty.ready" && frame["attachment_id"] == "a2"
+	})
+	readPersistentTestEvent(t, conn2, reader2, func(frame map[string]any) bool {
+		if frame["event"] != "pty.data" || frame["attachment_id"] != "a2" {
+			return false
+		}
+		payload, err := base64.StdEncoding.DecodeString(frame["data_base64"].(string))
+		return err == nil && strings.Contains(string(payload), "persistent-rpc-data")
+	})
+
+	list := persistentTestRPCCall(t, conn2, reader2, writer2, rpcRequest{
+		ID:     3,
+		Method: "pty.list",
+		Params: map[string]any{},
+	})
+	if ok, _ := list["ok"].(bool); !ok {
+		t.Fatalf("pty.list failed: %v", list)
+	}
+	result, _ := list["result"].(map[string]any)
+	sessions, _ := result["sessions"].([]any)
+	if len(sessions) != 1 {
+		t.Fatalf("pty.list sessions = %v, want one", result["sessions"])
+	}
+	session, _ := sessions[0].(map[string]any)
+	if got := session["session_id"]; got != sessionID {
+		t.Fatalf("pty.list session_id = %v, want %s", got, sessionID)
+	}
+
+	closeResp := persistentTestRPCCall(t, conn2, reader2, writer2, rpcRequest{
+		ID:     4,
+		Method: "pty.close",
+		Params: map[string]any{"session_id": sessionID},
+	})
+	if ok, _ := closeResp["ok"].(bool); !ok {
+		t.Fatalf("pty.close failed: %v", closeResp)
 	}
 }
 

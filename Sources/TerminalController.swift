@@ -376,6 +376,10 @@ class TerminalController {
         return body()
     }
 
+    nonisolated func currentSocketPathForRemoteRestore() -> String {
+        withListenerState { socketPath }
+    }
+
     private nonisolated func listenerStateSnapshot() -> ListenerStateSnapshot {
         withListenerState {
             ListenerStateSnapshot(
@@ -6200,6 +6204,21 @@ class TerminalController {
         let localSocketPath = v2RawString(params, "local_socket_path")
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let persistentDaemonSlot = v2RawString(params, "persistent_daemon_slot")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if v2HasNonNullParam(params, "persistent_daemon_slot") {
+            guard let persistentDaemonSlot,
+                  !persistentDaemonSlot.isEmpty,
+                  persistentDaemonSlot.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil,
+                  persistentDaemonSlot != ".",
+                  persistentDaemonSlot != ".." else {
+                return .err(
+                    code: "invalid_params",
+                    message: "persistent_daemon_slot must contain only letters, numbers, '.', '_' or '-'",
+                    data: nil
+                )
+            }
+        }
         let daemonWebSocketURL = v2RawString(params, "daemon_websocket_url")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let daemonWebSocketToken = v2RawString(params, "daemon_websocket_token")?
@@ -6287,6 +6306,7 @@ class TerminalController {
                 foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
                 daemonWebSocketEndpoint: daemonWebSocketEndpoint,
                 preserveAfterTerminalExit: preserveAfterTerminalExit,
+                persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,
                 skipDaemonBootstrap: skipDaemonBootstrap
             )
             workspace.configureRemoteConnection(config, autoConnect: autoConnect)

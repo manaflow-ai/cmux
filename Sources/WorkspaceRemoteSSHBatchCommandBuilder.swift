@@ -10,7 +10,15 @@ enum WorkspaceRemoteSSHBatchCommandBuilder {
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String
     ) -> [String] {
-        let script = "exec \(shellSingleQuoted(remotePath)) serve --stdio"
+        var serveArguments = ["serve", "--stdio"]
+        if let slot = configuration.persistentDaemonSlot?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !slot.isEmpty {
+            serveArguments += ["--persistent", "--slot", slot]
+        }
+        let daemonCommand = ([remotePath] + serveArguments)
+            .map(shellSingleQuoted)
+            .joined(separator: " ")
+        let script = "exec \(daemonCommand)"
         let command = "sh -c \(shellSingleQuoted(script))"
         return ["-T"]
             + batchArguments(configuration: configuration)

@@ -6495,6 +6495,9 @@ struct CMUXCLI {
             sshOptions.extraArguments.isEmpty &&
             remoteTerminalBootstrapScript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
             deferredRemoteReconnectCommandScript != nil
+        let persistentDaemonSlot = usesPersistentSSHPTY
+            ? "ssh-\(UUID().uuidString.lowercased())"
+            : nil
         let startupInitialSSHCommand = buildSSHCommandText(
             sshOptions,
             localCommandScript: combinedLocalCommandScript
@@ -6648,6 +6651,9 @@ struct CMUXCLI {
             }
             if usesPersistentSSHPTY {
                 configureParams["preserve_after_terminal_exit"] = true
+                if let persistentDaemonSlot {
+                    configureParams["persistent_daemon_slot"] = persistentDaemonSlot
+                }
             }
 
             cliDebugLog(
@@ -6715,6 +6721,9 @@ struct CMUXCLI {
         payload["remote_relay_port"] = sshOptions.remoteRelayPort
         if usesPersistentSSHPTY, let workspaceInitialSurfaceId {
             payload["ssh_pty_session_id"] = "ssh-\(workspaceId)-\(workspaceInitialSurfaceId)"
+        }
+        if let persistentDaemonSlot {
+            payload["persistent_daemon_slot"] = persistentDaemonSlot
         }
         logSSHTiming("complete", extra: "workspace=\(String(workspaceId.prefix(8)))")
         if jsonOutput {

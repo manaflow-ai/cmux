@@ -266,7 +266,9 @@ extension Workspace {
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
 
-        let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration()
+        let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration(
+            localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore()
+        )
         if let restoredRemoteConfiguration {
             let shouldAutoConnect = Self.shouldAutoConnectRestoredRemote(
                 foregroundAuthToken: restoredRemoteConfiguration.foregroundAuthToken,
@@ -1148,11 +1150,16 @@ extension Workspace {
                 restoredAgentResumeInput != nil ||
                 (restoredBindingInput != nil && resumeBinding?.isAgentHookBinding == true)
             )
-            // Snapshot session IDs belong to the previous app run's remote daemon.
-            // Restored persistent SSH terminals start a fresh attach path and replay
-            // local scrollback until the new remote PTY is ready.
-            let restoredRemotePTYSessionID: String? = nil
-            let restoredRemotePTYAttachCommand: String? = nil
+            let restoredRemotePTYSessionID: String? = {
+                guard remoteConfiguration?.preserveAfterTerminalExit == true,
+                      remoteConfiguration?.persistentDaemonSlot != nil else {
+                    return nil
+                }
+                return normalizedRemotePTYSessionID(snapshot.terminal?.remotePTYSessionID)
+            }()
+            let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
+                remotePTYAttachStartupCommand(sessionID: $0)
+            }
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -1816,7 +1823,8 @@ protocol WorkspaceRemotePTYBridgeRPCClient: AnyObject {
 nonisolated func remoteDaemonMissingRequiredCapabilitiesMessage(_ missingCapabilities: [String]) -> String {
     let missing = Set(missingCapabilities)
     if missing.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability) ||
-        missing.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability) {
+        missing.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability) ||
+        missing.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYPersistentDaemonCapability) {
         return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
     }
     return "remote daemon is missing required functionality; reconnect the remote workspace to update cmux"
@@ -1829,6 +1837,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
     static let requiredProxyStreamCapability = "proxy.stream.push"
     static let requiredPTYSessionCapability = "pty.session"
     static let requiredPTYSessionTokenCapability = "pty.session.token"
+    static let requiredPTYPersistentDaemonCapability = "pty.session.persistent_daemon"
 
     enum StreamEvent {
         case data(Data)
@@ -1969,6 +1978,9 @@ private final class WorkspaceRemoteDaemonRPCClient {
         if configuration.preserveAfterTerminalExit {
             capabilities.append(requiredPTYSessionCapability)
             capabilities.append(requiredPTYSessionTokenCapability)
+        }
+        if configuration.persistentDaemonSlot != nil {
+            capabilities.append(requiredPTYPersistentDaemonCapability)
         }
         return capabilities
     }
@@ -6654,7 +6666,8 @@ final class WorkspaceRemoteSessionController {
     private var bakedDaemonPreflightRequiredCapabilities: [String] {
         requiredDaemonCapabilities.filter {
             $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability &&
-                $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability
+                $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability &&
+                $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYPersistentDaemonCapability
         }
     }
 
@@ -11881,6 +11894,7 @@ final class Workspace: Identifiable, ObservableObject {
             payload["has_identity_file"] = remoteConfiguration.identityFile != nil
             payload["has_ssh_options"] = !remoteConfiguration.sshOptions.isEmpty
             payload["local_proxy_port"] = remoteConfiguration.localProxyPort ?? NSNull()
+            payload["persistent_daemon_slot"] = remoteConfiguration.persistentDaemonSlot ?? NSNull()
         } else {
             payload["transport"] = NSNull()
             payload["destination"] = NSNull()
@@ -11888,6 +11902,7 @@ final class Workspace: Identifiable, ObservableObject {
             payload["has_identity_file"] = false
             payload["has_ssh_options"] = false
             payload["local_proxy_port"] = NSNull()
+            payload["persistent_daemon_slot"] = NSNull()
         }
         return payload
     }
@@ -16048,7 +16063,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func forkAgentRemoteConfigurationForNewWorkspace(fromPanelId panelId: UUID) -> WorkspaceRemoteConfiguration? {
         guard forkAgentRemoteStartupCommand(fromPanelId: panelId) != nil else { return nil }
-        return remoteConfiguration?.sessionSnapshot()?.workspaceConfiguration() ?? remoteConfiguration
+        return remoteConfiguration?.sessionSnapshot()?.workspaceConfiguration(
+            localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore()
+        ) ?? remoteConfiguration
     }
 
     private static func firstNonEmptyPath(_ candidates: [String?]) -> String? {
