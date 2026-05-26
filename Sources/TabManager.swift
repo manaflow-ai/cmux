@@ -10093,7 +10093,7 @@ extension TabManager {
         from snapshots: [SessionWorkspaceGroupSnapshot]?,
         existingTabs: [Workspace]
     ) -> [SidebarWorkspaceGroup] {
-        let groups = snapshots?.map { snapshot in
+        let groups: [SidebarWorkspaceGroup] = snapshots?.map { snapshot -> SidebarWorkspaceGroup in
             let workspaceIds = snapshot.workspaceIndexes.compactMap { workspaceIndex in
                 existingTabs.indices.contains(workspaceIndex) ? existingTabs[workspaceIndex].id : nil
             }
