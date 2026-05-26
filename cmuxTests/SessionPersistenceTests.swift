@@ -86,10 +86,13 @@ final class SessionPersistenceTests: XCTestCase {
         restored.restoreSessionSnapshot(snapshot)
 
         let roundTrip = restored.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(roundTrip.panels.count, 2)
+        let roundTripPanelIds = Set(roundTrip.panels.map(\.id))
+        XCTAssertEqual(roundTripPanelIds.count, 2)
         let restoredTitles = Set(roundTrip.panels.compactMap(\.customTitle))
-        XCTAssertTrue(restoredTitles.contains("文章規劃"))
-        XCTAssertTrue(restoredTitles.contains("Threads"))
+        XCTAssertEqual(restoredTitles, Set(["文章規劃", "Threads"]))
         let focusedPanelId = try XCTUnwrap(roundTrip.focusedPanelId)
+        XCTAssertTrue(roundTripPanelIds.contains(focusedPanelId))
         XCTAssertEqual(restored.panelTitle(panelId: focusedPanelId), "Threads")
     }
 
