@@ -674,6 +674,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 ($0["command"] as? String)?.contains("hooks feed --source kiro --event preToolUse") == true
                     && ($0["timeout_ms"] as? Int) == 120_000
                     && (($0["command"] as? String)?.contains("|| echo '{}'") == false)
+                    && (($0["command"] as? String)?.contains("status=$?") == true)
+                    && (($0["command"] as? String)?.contains("exit 2") == true)
             },
             "Expected Kiro preToolUse feed hook to preserve cmux's exit status for deny decisions, saw \(preToolUse)"
         )

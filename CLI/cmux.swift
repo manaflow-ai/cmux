@@ -28955,8 +28955,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private static func emitKiroDecisionIfHandled(decision: [String: Any]) -> Bool {
         guard (decision["kind"] as? String) == "permission" else { return false }
         let mode = (decision["mode"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if mode == "deny" || mode == nil || mode?.isEmpty == true {
+        if mode == "deny" {
             fputs("User denied permission via cmux Feed.\n", stderr)
+            fflush(stderr)
+            exit(2)
+        }
+        if mode == nil || mode?.isEmpty == true {
+            fputs("cmux Feed returned an invalid Kiro permission decision; denying for safety.\n", stderr)
             fflush(stderr)
             exit(2)
         }

@@ -809,11 +809,11 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[KiroIntegrationSettings.hooksEnabledKey] = .bool(value)
         }
         if let raw = jsonString(section["kiroNotificationLevel"]) {
-            guard KiroIntegrationSettings.NotificationLevel(rawValue: raw) != nil else {
+            if KiroIntegrationSettings.NotificationLevel(rawValue: raw) != nil {
+                snapshot.managedUserDefaults[KiroIntegrationSettings.notificationLevelKey] = .string(raw)
+            } else {
                 logInvalid("automation.kiroNotificationLevel", sourcePath: sourcePath)
-                return
             }
-            snapshot.managedUserDefaults[KiroIntegrationSettings.notificationLevelKey] = .string(raw)
         }
         if let value = jsonInt(section["portBase"]) {
             guard value > 0 else {
