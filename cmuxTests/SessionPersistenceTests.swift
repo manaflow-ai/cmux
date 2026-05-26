@@ -579,6 +579,61 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testClosedWorkspaceRestorePersistsCompletedRecoverySnapshot() throws {
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
+
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-recovery-restore-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        let app = AppDelegate.shared ?? AppDelegate()
+        let originalSnapshotURL = app.debugSessionSnapshotFileURLForTesting
+        app.debugSessionSnapshotFileURLForTesting = snapshotURL
+        defer { app.debugSessionSnapshotFileURLForTesting = originalSnapshotURL }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let workspace = manager.addWorkspace(
+            title: "Recovered Workspace",
+            inheritWorkingDirectory: false,
+            select: true,
+            autoWelcomeIfNeeded: false
+        )
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let splitPanel = try XCTUnwrap(workspace.newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            focus: true
+        ))
+        workspace.setPanelCustomTitle(panelId: splitPanel.id, title: "Restored Split")
+
+        manager.closeWorkspace(workspace)
+        let closedSnapshot = try XCTUnwrap(waitForSessionSnapshot(at: snapshotURL))
+        XCTAssertEqual(closedSnapshot.windows.first?.tabManager.workspaces.count, 1)
+        try? FileManager.default.removeItem(at: snapshotURL)
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        let restoredSnapshot = try XCTUnwrap(waitForSessionSnapshot(at: snapshotURL) { snapshot in
+            guard let workspace = snapshot.windows.first?.tabManager.workspaces.first(where: {
+                $0.customTitle == "Recovered Workspace"
+            }) else {
+                return false
+            }
+            return workspace.panels.count == 2 && workspace.panels.contains { $0.customTitle == "Restored Split" }
+        })
+        let restoredWorkspace = try XCTUnwrap(
+            restoredSnapshot.windows.first?.tabManager.workspaces.first { $0.customTitle == "Recovered Workspace" }
+        )
+        XCTAssertEqual(restoredWorkspace.panels.count, 2)
+        XCTAssertTrue(restoredWorkspace.panels.contains { $0.customTitle == "Restored Split" })
+    }
+
+    @MainActor
     func testUnregisteredWorkspaceTopologyChangeDoesNotOverwriteRecoverySnapshot() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-recovery-guard-\(UUID().uuidString)", isDirectory: true)
@@ -1714,6 +1769,26 @@ final class SessionPersistenceTests: XCTestCase {
             RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02))
         } while Date() < deadline
         return SessionPersistenceStore.load(fileURL: url)
+    }
+
+    private func waitForSessionSnapshot(
+        at url: URL,
+        timeout: TimeInterval = 2.0,
+        matching predicate: (AppSessionSnapshot) -> Bool
+    ) -> AppSessionSnapshot? {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if let snapshot = SessionPersistenceStore.load(fileURL: url),
+               predicate(snapshot) {
+                return snapshot
+            }
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        } while Date() < deadline
+        guard let snapshot = SessionPersistenceStore.load(fileURL: url),
+              predicate(snapshot) else {
+            return nil
+        }
+        return snapshot
     }
 
     private func fileNumber(for fileURL: URL) throws -> Int {
