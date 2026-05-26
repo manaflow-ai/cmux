@@ -15140,10 +15140,10 @@ private struct TabItemView: View, Equatable {
             guard !Task.isCancelled, workspaceFinderDirectoryOpenRequest == request else { return }
             workspaceFinderDirectoryOpenRequest = nil
         }
-        .onChange(of: snapshot.settings) { _ in
+        .onChange(of: snapshot.settings) {
             refreshWorkspaceSnapshot(force: true)
         }
-        .onChange(of: snapshot.workspaceSnapshot) { _ in
+        .onChange(of: snapshot.workspaceSnapshot) {
             refreshWorkspaceSnapshot()
         }
         .onDrag {
