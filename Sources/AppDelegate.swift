@@ -11228,6 +11228,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let panelTarget = focusedPanelNotificationTarget(target) {
             let panelId = panelTarget.panelId
             let workspace = panelTarget.workspace
+            if notificationStore.hasVisibleNotificationIndicator(forTabId: target.tabId, surfaceId: nil) {
+                notificationStore.markRead(forTabId: target.tabId)
+                return true
+            }
             let hasWorkspaceManualUnreadOnPanel =
                 notificationStore.hasManualUnread(forTabId: target.tabId) &&
                 workspace.representativePanelIdForWorkspaceManualUnread() == panelId
