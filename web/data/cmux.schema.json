@@ -349,6 +349,31 @@
           "default": 10,
           "description": "Maximum number of lines the rich terminal TextBox input can grow to before it scrolls."
         },
+        "quickTerminalPosition": {
+          "type": "string",
+          "enum": ["top", "bottom", "left", "right", "center"],
+          "default": "top",
+          "description": "Screen edge or center position for the floating quick terminal."
+        },
+        "quickTerminalPrimarySizeRatio": {
+          "type": "number",
+          "minimum": 0.2,
+          "maximum": 1,
+          "default": 0.38,
+          "description": "Quick terminal size along its slide-in axis, as a fraction of the visible screen."
+        },
+        "quickTerminalSecondarySizeRatio": {
+          "type": "number",
+          "minimum": 0.2,
+          "maximum": 1,
+          "default": 1,
+          "description": "Quick terminal size across the opposite axis, as a fraction of the visible screen."
+        },
+        "quickTerminalAutoHide": {
+          "type": "boolean",
+          "default": true,
+          "description": "Hide the quick terminal automatically when it loses key focus."
+        },
         "resumeCommands": {
           "type": "array",
           "default": [],
@@ -900,6 +925,7 @@
               "reloadConfiguration",
               "showHideAllWindows",
               "globalSearch",
+              "toggleQuickTerminal",
               "newWindow",
               "closeWindow",
               "toggleFullScreen",

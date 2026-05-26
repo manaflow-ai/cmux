@@ -6488,6 +6488,14 @@ struct ContentView: View {
                 keywords: ["toggle", "sidebar", "left", "layout"]
             )
         )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.toggleQuickTerminal",
+                title: constant(String(localized: "command.toggleQuickTerminal.title", defaultValue: "Toggle Quick Terminal")),
+                subtitle: constant(String(localized: "command.toggleQuickTerminal.subtitle", defaultValue: "Terminal")),
+                keywords: ["quick", "terminal", "toggle", "dropdown", "quake"]
+            )
+        )
         for descriptor in CmuxExtensionSidebarSelection.descriptors {
             let title = CmuxExtensionSidebarSelection.localizedTitle(for: descriptor)
             let titleFormat = String(localized: "command.switchExtensionSidebar.title", defaultValue: "Sidebar: %@")
@@ -7518,6 +7526,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleSidebar") {
             sidebarState.toggle()
+        }
+        registry.register(commandId: "palette.toggleQuickTerminal") {
+            AppDelegate.shared?.toggleQuickTerminal(nil)
         }
         for descriptor in CmuxExtensionSidebarSelection.descriptors {
             registry.register(commandId: commandPaletteExtensionSidebarCommandID(descriptor.id)) {

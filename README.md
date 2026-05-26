@@ -220,6 +220,7 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 
 | Shortcut | Action |
 |----------|--------|
+| ⌥ ⌘ ` | Toggle quick terminal (system-wide) |
 | ⌘ K | Clear scrollback |
 | ⌘ C | Copy (with selection) |
 | ⌘ V | Paste |

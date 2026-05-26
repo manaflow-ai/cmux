@@ -11,6 +11,8 @@ extension ContentView {
             return .newTab
         case "palette.newWindow":
             return .newWindow
+        case "palette.toggleQuickTerminal":
+            return .toggleQuickTerminal
         case "palette.openFolder":
             return .openFolder
         case "palette.reopenPreviousSession":

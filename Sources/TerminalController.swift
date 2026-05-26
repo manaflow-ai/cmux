@@ -273,6 +273,9 @@ class TerminalController {
         "browser.tab.switch",
         "notification.open",
         "notification.jump_to_unread",
+        "quick_terminal.toggle",
+        "quick_terminal.show",
+        "quick_terminal.hide",
         "debug.command_palette.toggle",
         "debug.notification.focus",
         "debug.app.activate",
@@ -3517,6 +3520,14 @@ class TerminalController {
             return v2Result(id: id, self.v2AppFocusOverride(params: params))
         case "app.simulate_active":
             return v2Result(id: id, self.v2AppSimulateActive())
+        case "quick_terminal.toggle":
+            return v2Result(id: id, self.v2QuickTerminalToggle())
+        case "quick_terminal.show":
+            return v2Result(id: id, self.v2QuickTerminalShow())
+        case "quick_terminal.hide":
+            return v2Result(id: id, self.v2QuickTerminalHide())
+        case "quick_terminal.status":
+            return v2Ok(id: id, result: self.v2QuickTerminalStatus())
 
         // Browser
         case "browser.open_split":
@@ -3889,6 +3900,10 @@ class TerminalController {
             "notification.jump_to_unread",
             "app.focus_override.set",
             "app.simulate_active",
+            "quick_terminal.toggle",
+            "quick_terminal.show",
+            "quick_terminal.hide",
+            "quick_terminal.status",
             "file.open",
             "markdown.open",
             "browser.open_split",
@@ -10916,6 +10931,54 @@ class TerminalController {
             )
         }
         return .ok([:])
+    }
+
+    private func v2QuickTerminalToggle() -> V2CallResult {
+        var didToggle = false
+        v2MainSync {
+            didToggle = AppDelegate.shared?.toggleQuickTerminalVisibility(activateApp: false) == true
+        }
+        guard didToggle else {
+            return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
+        }
+        return .ok(v2QuickTerminalStatus())
+    }
+
+    private func v2QuickTerminalShow() -> V2CallResult {
+        var didShow = false
+        v2MainSync {
+            didShow = AppDelegate.shared?.showQuickTerminal(activateApp: false) == true
+        }
+        guard didShow else {
+            return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
+        }
+        return .ok(v2QuickTerminalStatus())
+    }
+
+    private func v2QuickTerminalHide() -> V2CallResult {
+        var didHide = false
+        v2MainSync {
+            didHide = AppDelegate.shared?.hideQuickTerminal(restorePreviousApp: false) == true
+        }
+        guard didHide else {
+            return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
+        }
+        return .ok(v2QuickTerminalStatus())
+    }
+
+    private func v2QuickTerminalStatus() -> [String: Any] {
+        var payload: [String: Any]?
+        v2MainSync {
+            payload = AppDelegate.shared?.quickTerminalStatusPayload()
+        }
+
+        guard let payload else {
+            return [
+                "available": false,
+                "visible": false
+            ]
+        }
+        return payload
     }
 
     // MARK: - V2 Browser Methods
