@@ -7944,7 +7944,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if size.width > 0, size.height > 0 {
             hostedContentSurfaceSize = size
         }
-        updateSurfaceSize(size: size)
+        return updateSurfaceSize(size: size)
     }
 
 #if DEBUG
