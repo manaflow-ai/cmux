@@ -148,16 +148,33 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         )
     }
 
-    func testUnifiedSidebarBackdropsDoNotTintMatchedTerminalBackground() {
-        for backgroundHex in ["#FFFFFF", "#000000", "#777777"] {
+    func testMatchedLeftAndRightSidebarBackdropsShareTerminalRootBackdrop() {
+        let cases: [(backgroundHex: String, opacity: CGFloat)] = [
+            ("#FFFFFF", 1),
+            ("#000000", 1),
+            ("#777777", 1),
+            ("#000000", 0.05),
+        ]
+
+        for testCase in cases {
             let snapshot = makeSnapshot(
                 unifySurfaceBackdrops: true,
-                backgroundHex: backgroundHex,
-                backgroundOpacity: 1
+                backgroundHex: testCase.backgroundHex,
+                backgroundOpacity: testCase.opacity
             )
 
+            assertTerminalBackdrop(
+                snapshot.policy(for: .windowRoot),
+                expectedHex: testCase.backgroundHex,
+                expectedOpacity: testCase.opacity
+            )
+            assertClearBackdrop(snapshot.policy(for: .terminalCanvas))
+            assertClearBackdrop(snapshot.policy(for: .bonsplitChrome))
+            assertClearBackdrop(snapshot.policy(for: .titlebar))
+            assertClearBackdrop(snapshot.policy(for: .browserSurface))
             assertClearBackdrop(snapshot.policy(for: .leftSidebar))
             assertClearBackdrop(snapshot.policy(for: .rightSidebar))
+            XCTAssertEqual(snapshot.sidebarContentColorScheme, snapshot.chromeColorScheme)
         }
     }
 
@@ -188,11 +205,11 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertEqual(sidebarPolicy.tintColor.hexString(includeAlpha: true), "#FF000066")
     }
 
-    func testUnifiedSidebarBackdropsDoNotDrawSeparateSidebarSeparators() {
+    func testMatchedSidebarBackdropsKeepWorkspaceBoundarySeparators() {
         let snapshot = makeSnapshot(unifySurfaceBackdrops: true)
 
-        XCTAssertFalse(snapshot.shouldDrawSidebarSeparator(for: .leftSidebar))
-        XCTAssertFalse(snapshot.shouldDrawSidebarSeparator(for: .rightSidebar))
+        XCTAssertTrue(snapshot.shouldDrawSidebarSeparator(for: .leftSidebar))
+        XCTAssertTrue(snapshot.shouldDrawSidebarSeparator(for: .rightSidebar))
         XCTAssertTrue(snapshot.shouldDrawSidebarSeparator(for: .titlebar))
     }
 
@@ -269,6 +286,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
 
     private func assertTerminalBackdrop(
         _ policy: WindowBackdropPolicy,
+        expectedHex: String = "#272822",
         expectedOpacity: CGFloat = 0.6,
         file: StaticString = #filePath,
         line: UInt = #line
@@ -277,7 +295,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             XCTFail("expected terminal backdrop", file: file, line: line)
             return
         }
-        XCTAssertEqual(color.hexString(), "#272822", file: file, line: line)
+        XCTAssertEqual(color.hexString(), expectedHex, file: file, line: line)
         XCTAssertEqual(opacity, expectedOpacity, accuracy: 0.0001, file: file, line: line)
         XCTAssertEqual(renderingMode, .windowHostBackdrop, file: file, line: line)
     }
