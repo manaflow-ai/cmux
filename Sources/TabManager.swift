@@ -10078,7 +10078,7 @@ extension TabManager {
         let workspaceIndexById = Dictionary(uniqueKeysWithValues: restorableTabs.enumerated().map { index, workspace in
             (workspace.id, index)
         })
-        workspaceGroups.map { group in
+        return workspaceGroups.map { group in
             SessionWorkspaceGroupSnapshot(
                 id: group.id,
                 title: group.title,
@@ -10097,7 +10097,7 @@ extension TabManager {
             let workspaceIds = snapshot.workspaceIndexes.compactMap { workspaceIndex in
                 existingTabs.indices.contains(workspaceIndex) ? existingTabs[workspaceIndex].id : nil
             }
-            SidebarWorkspaceGroup(
+            return SidebarWorkspaceGroup(
                 id: snapshot.id,
                 title: snapshot.title,
                 isCollapsed: snapshot.isCollapsed,
