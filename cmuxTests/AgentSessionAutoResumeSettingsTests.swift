@@ -256,6 +256,59 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteWorkspaceAutoResumeKeepsLongResumeInputInline() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let source = Workspace()
+            let remoteCommand = "ssh cmux-macmini"
+            source.configureRemoteConnection(
+                WorkspaceRemoteConfiguration(
+                    destination: "cmux-macmini",
+                    port: nil,
+                    identityFile: nil,
+                    sshOptions: [],
+                    localProxyPort: nil,
+                    relayPort: 64000,
+                    relayID: "relay-auto-resume-long-remote",
+                    relayToken: String(repeating: "b", count: 64),
+                    localSocketPath: "/tmp/cmux-auto-resume-long-remote.sock",
+                    terminalStartupCommand: remoteCommand
+                ),
+                autoConnect: false
+            )
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let longPath = "/Users/cmux/" + String(repeating: "nested-project-", count: 120)
+            let sourceIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "codex-remote-long-running-session",
+                extraArguments: ["--add-dir", longPath]
+            )
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+            let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+            let restoredInput = try XCTUnwrap(restoredPanel.surface.initialInput)
+
+            XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), restored.remoteConfiguration?.terminalStartupCommand)
+            XCTAssertGreaterThan(restoredInput.utf8.count, SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
+            XCTAssertTrue(restoredInput.contains("'resume'"), restoredInput)
+            XCTAssertTrue(restoredInput.contains("codex-remote-long-running-session"), restoredInput)
+            XCTAssertTrue(restoredInput.contains(longPath), restoredInput)
+            XCTAssertFalse(restoredInput.contains("cmux-agent-resume"), restoredInput)
+            XCTAssertEqual(
+                restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+                .awaitingAutoResumeCommand
+            )
+        }
+    }
+
+    @MainActor
     func testUnknownAgentShellStatePreservesLegacyAutoResumeBehavior() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
@@ -601,13 +654,15 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         }
         XCTAssertTrue(script.contains("CMUX_SHELL_INTEGRATION_DIR"), script, file: file, line: line)
         XCTAssertTrue(script.contains("CMUX_ZSH_ZDOTDIR"), script, file: file, line: line)
+        XCTAssertTrue(script.contains("\"$_cmux_resume_shell\" -lic"), script, file: file, line: line)
         XCTAssertTrue(script.contains("exec \"$_cmux_resume_shell\" -l"), script, file: file, line: line)
     }
 
     private func makeRestorableAgentIndex(
         workspaceId: UUID,
         panelId: UUID,
-        sessionId: String
+        sessionId: String,
+        extraArguments: [String] = []
     ) throws -> RestorableAgentSessionIndex {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-auto-resume-\(UUID().uuidString)", isDirectory: true)
@@ -636,7 +691,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                     "launchCommand": [
                         "launcher": "codex",
                         "executablePath": "/usr/local/bin/codex",
-                        "arguments": ["/usr/local/bin/codex", "--model", "gpt-5.4"],
+                        "arguments": ["/usr/local/bin/codex", "--model", "gpt-5.4"] + extraArguments,
                         "workingDirectory": "/tmp/repo",
                         "environment": ["CODEX_HOME": "/tmp/codex"],
                         "capturedAt": Date().timeIntervalSince1970,

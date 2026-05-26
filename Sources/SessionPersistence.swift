@@ -1213,8 +1213,8 @@ enum SurfaceResumeApprovalStore {
 }
 
 nonisolated enum TerminalStartupReturnShellScript {
-    static let lines = [
-        #"_cmux_resume_shell="${SHELL:-/bin/zsh}""#,
+    private static let shellLine = #"_cmux_resume_shell="${SHELL:-/bin/zsh}""#
+    private static let zshIntegrationReentryLines = [
         #"if [[ "${_cmux_resume_shell:t}" == "zsh" && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" && -r "${CMUX_SHELL_INTEGRATION_DIR}/.zshenv" ]]; then"#,
         #"  if [[ -n "${ZDOTDIR+X}" ]]; then"#,
         #"    export CMUX_ZSH_ZDOTDIR="$ZDOTDIR""#,
@@ -1223,8 +1223,24 @@ nonisolated enum TerminalStartupReturnShellScript {
         #"  fi"#,
         #"  export ZDOTDIR="$CMUX_SHELL_INTEGRATION_DIR""#,
         #"fi"#,
+    ]
+
+    static let lines = [shellLine] + zshIntegrationReentryLines + [
         #"exec "$_cmux_resume_shell" -l"#
     ]
+
+    static func commandThenReturnLines(command: String) -> [String] {
+        let quotedCommand = TerminalStartupShellQuoting.singleQuoted(command)
+        return [
+            shellLine,
+            #"case "${_cmux_resume_shell:t}" in"#,
+            #"  zsh|bash) "$_cmux_resume_shell" -lic \#(quotedCommand) ;;"#,
+            #"  *) "$_cmux_resume_shell" -lc \#(quotedCommand) ;;"#,
+            #"esac"#,
+        ] + zshIntegrationReentryLines + [
+            #"exec "$_cmux_resume_shell" -l"#
+        ]
+    }
 }
 
 private enum SurfaceResumeBindingScriptStore {
@@ -1251,11 +1267,12 @@ private enum SurfaceResumeBindingScriptStore {
             )
             var lines = [
                 "#!/bin/zsh",
-                "rm -f -- \"$0\" 2>/dev/null || true",
-                inlineInput
+                "rm -f -- \"$0\" 2>/dev/null || true"
             ]
             if returnToLoginShell {
-                lines.append(contentsOf: TerminalStartupReturnShellScript.lines)
+                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(command: inlineInput))
+            } else {
+                lines.append(inlineInput)
             }
             let contents = lines.joined(separator: "\n") + "\n"
             try contents.write(to: scriptURL, atomically: true, encoding: .utf8)

@@ -580,13 +580,15 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     func resumeStartupInput(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        allowLauncherScript: Bool = true
+        allowLauncherScript: Bool = true,
+        allowOversizedInlineInput: Bool = false
     ) -> String? {
         startupInput(
             command: resumeCommand,
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
-            allowLauncherScript: allowLauncherScript
+            allowLauncherScript: allowLauncherScript,
+            allowOversizedInlineInput: allowOversizedInlineInput
         )
     }
 
@@ -625,11 +627,15 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         command: String?,
         fileManager: FileManager,
         temporaryDirectory: URL,
-        allowLauncherScript: Bool = true
+        allowLauncherScript: Bool = true,
+        allowOversizedInlineInput: Bool = false
     ) -> String? {
         guard let command else { return nil }
         let inlineInput = command + "\n"
         guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
+            return inlineInput
+        }
+        guard !allowOversizedInlineInput else {
             return inlineInput
         }
         guard allowLauncherScript else { return nil }
@@ -687,11 +693,12 @@ private enum AgentResumeScriptStore {
             )
             var lines = [
                 "#!/bin/zsh",
-                "rm -f -- \"$0\" 2>/dev/null || true",
-                command
+                "rm -f -- \"$0\" 2>/dev/null || true"
             ]
             if returnToLoginShell {
-                lines.append(contentsOf: TerminalStartupReturnShellScript.lines)
+                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(command: command))
+            } else {
+                lines.append(command)
             }
             let contents = lines.joined(separator: "\n") + "\n"
             try contents.write(to: scriptURL, atomically: true, encoding: .utf8)

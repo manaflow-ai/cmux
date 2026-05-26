@@ -1220,7 +1220,10 @@ extension Workspace {
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
                 if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil {
                     if remoteStartupCommand != nil {
-                        restorableAgent?.resumeStartupInput(allowLauncherScript: false)
+                        restorableAgent?.resumeStartupInput(
+                            allowLauncherScript: false,
+                            allowOversizedInlineInput: true
+                        )
                             .map(SurfaceResumeStartupLaunch.input)
                     } else {
                         restorableAgent?.resumeStartupCommand()
