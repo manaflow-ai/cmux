@@ -2,16 +2,30 @@ import Cocoa
 import Sparkle
 
 /// SPUUserDriver that updates the view model for custom update UI.
-class UpdateDriver: NSObject, SPUUserDriver {
+class UpdateDriver: NSObject, SPUUserDriver, @unchecked Sendable {
     let viewModel: UpdateViewModel
     private let minimumCheckDuration: TimeInterval = UpdateTiming.minimumCheckDisplayDuration
+    private let terminalSessionSummaryProvider: () -> UpdateInstallGate.TerminalSessionSummary
+    private let terminalTerminationConfirmation: (UpdateInstallGate.TerminalSessionSummary) -> Bool
     private var lastCheckStart: Date?
     private var pendingCheckTransition: DispatchWorkItem?
     private var checkTimeoutWorkItem: DispatchWorkItem?
     private var lastFeedURLString: String?
+    private var didConfirmTerminalTerminationForInstall = false
 
-    init(viewModel: UpdateViewModel, hostBundle _: Bundle) {
+    init(
+        viewModel: UpdateViewModel,
+        hostBundle _: Bundle,
+        terminalSessionSummaryProvider: @escaping () -> UpdateInstallGate.TerminalSessionSummary = {
+            AppDelegate.shared?.terminalSessionSummaryForUpdateInstall() ?? .empty
+        },
+        terminalTerminationConfirmation: @escaping (UpdateInstallGate.TerminalSessionSummary) -> Bool = {
+            UpdateDriver.confirmTerminalTerminationForUpdate(summary: $0)
+        }
+    ) {
         self.viewModel = viewModel
+        self.terminalSessionSummaryProvider = terminalSessionSummaryProvider
+        self.terminalTerminationConfirmation = terminalTerminationConfirmation
         super.init()
     }
 
@@ -44,7 +58,11 @@ class UpdateDriver: NSObject, SPUUserDriver {
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         UpdateLogStore.shared.append("show update found: \(appcastItem.displayVersionString)")
-        setStateAfterMinimumCheckDelay(.updateAvailable(.init(appcastItem: appcastItem, reply: reply)))
+        didConfirmTerminalTerminationForInstall = false
+        setStateAfterMinimumCheckDelay(.updateAvailable(.init(
+            appcastItem: appcastItem,
+            reply: installGateReply(reply)
+        )))
     }
 
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
@@ -127,13 +145,15 @@ class UpdateDriver: NSObject, SPUUserDriver {
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         UpdateLogStore.shared.append("show ready to install")
-        reply(.install)
+        replyToInstallChoice(.install, reply: reply)
     }
 
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
         UpdateLogStore.shared.append("show installing update")
         setState(.installing(.init(
-            retryTerminatingApplication: retryTerminatingApplication,
+            retryTerminatingApplication: { [weak self] in
+                self?.runImmediateInstallAfterGate(retryTerminatingApplication)
+            },
             dismiss: { [weak viewModel] in
                 viewModel?.state = .idle
             }
@@ -152,6 +172,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
 
     func dismissUpdateInstallation() {
         UpdateLogStore.shared.append("dismiss update installation")
+        didConfirmTerminalTerminationForInstall = false
         if case .error = viewModel.state {
             UpdateLogStore.shared.append("dismiss update installation ignored (error visible)")
             return
@@ -165,6 +186,117 @@ class UpdateDriver: NSObject, SPUUserDriver {
             return
         }
         setState(.idle)
+    }
+
+    private func installGateReply(
+        _ reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void
+    ) -> @Sendable (SPUUserUpdateChoice) -> Void {
+        { [weak self] choice in
+            guard let self else {
+                reply(choice)
+                return
+            }
+            self.replyToInstallChoice(choice, reply: reply)
+        }
+    }
+
+    private func replyToInstallChoice(
+        _ choice: SPUUserUpdateChoice,
+        reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void
+    ) {
+        guard choice == .install else {
+            didConfirmTerminalTerminationForInstall = false
+            reply(choice)
+            return
+        }
+
+        runOnMain { [weak self] in
+            guard let self else {
+                reply(.dismiss)
+                return
+            }
+            guard self.confirmUpdateInstallAfterTerminalWarning() else {
+                UpdateLogStore.shared.append("update install deferred after terminal session warning")
+                reply(.dismiss)
+                return
+            }
+            reply(.install)
+        }
+    }
+
+    func runImmediateInstallAfterGate(_ install: @escaping () -> Void) {
+        runOnMain { [weak self] in
+            guard let self else { return }
+            guard self.confirmUpdateInstallAfterTerminalWarning() else {
+                UpdateLogStore.shared.append("update relaunch deferred after terminal session warning")
+                return
+            }
+            install()
+        }
+    }
+
+    func confirmUpdateInstallAfterTerminalWarningForImmediateInstall() -> Bool {
+        confirmUpdateInstallAfterTerminalWarning()
+    }
+
+    private func confirmUpdateInstallAfterTerminalWarning() -> Bool {
+        let summary = terminalSessionSummaryProvider()
+        switch UpdateInstallGate.decision(
+            terminalSessions: summary,
+            userAlreadyConfirmed: didConfirmTerminalTerminationForInstall
+        ) {
+        case .installNow:
+            return true
+        case .requireConfirmation(let warningSummary):
+            guard terminalTerminationConfirmation(warningSummary) else {
+                return false
+            }
+            didConfirmTerminalTerminationForInstall = true
+            return true
+        }
+    }
+
+    private static func confirmTerminalTerminationForUpdate(
+        summary: UpdateInstallGate.TerminalSessionSummary
+    ) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "update.terminalWarning.title",
+            defaultValue: "Install Update and Relaunch?"
+        )
+        alert.informativeText = terminalTerminationWarningMessage(summary: summary)
+        alert.addButton(withTitle: String(
+            localized: "common.installAndRelaunch",
+            defaultValue: "Install and Relaunch"
+        ))
+        alert.addButton(withTitle: String(
+            localized: "common.restartLater",
+            defaultValue: "Restart Later"
+        ))
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private static func terminalTerminationWarningMessage(
+        summary: UpdateInstallGate.TerminalSessionSummary
+    ) -> String {
+        let base = String(
+            format: String(
+                localized: "update.terminalWarning.message",
+                defaultValue: "cmux will relaunch and terminate %lld terminal sessions across %lld workspaces. Running shells, SSH connections, and agents in those terminals will stop."
+            ),
+            Int64(summary.terminalCount),
+            Int64(summary.workspaceCount)
+        )
+        guard summary.runningCommandCount > 0 else { return base }
+        let running = String(
+            format: String(
+                localized: "update.terminalWarning.runningCommands",
+                defaultValue: "%lld terminal sessions appear to have running commands."
+            ),
+            Int64(summary.runningCommandCount)
+        )
+        return base + "\n\n" + running
     }
 
     private func beginChecking(cancel: @escaping () -> Void) {

@@ -9369,6 +9369,14 @@ extension TabManager {
         )
     }
 
+    func terminalSessionSummaryForUpdateInstall() -> UpdateInstallGate.TerminalSessionSummary {
+        var summary = UpdateInstallGate.TerminalSessionSummary.empty
+        for workspace in tabs {
+            summary.merge(workspace.terminalSessionSummaryForUpdateInstall())
+        }
+        return summary
+    }
+
     private func releaseRestoredAwayWorkspace(_ workspace: Workspace) {
         // Session restore replaces the bootstrap workspace objects with freshly
         // restored ones. Tear the old graph down after the atomic swap so late

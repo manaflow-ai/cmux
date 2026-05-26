@@ -421,7 +421,7 @@ class UpdateViewModel: ObservableObject {
 }
 
 enum UpdateInstallGate {
-    struct TerminalSessionSummary: Equatable {
+    struct TerminalSessionSummary: Equatable, Sendable {
         var windowCount: Int
         var workspaceCount: Int
         var terminalCount: Int
@@ -433,9 +433,20 @@ enum UpdateInstallGate {
             terminalCount: 0,
             runningCommandCount: 0
         )
+
+        var hasTerminalSessions: Bool {
+            terminalCount > 0
+        }
+
+        mutating func merge(_ other: TerminalSessionSummary) {
+            windowCount += other.windowCount
+            workspaceCount += other.workspaceCount
+            terminalCount += other.terminalCount
+            runningCommandCount += other.runningCommandCount
+        }
     }
 
-    enum Decision: Equatable {
+    enum Decision: Equatable, Sendable {
         case installNow
         case requireConfirmation(TerminalSessionSummary)
     }
@@ -444,7 +455,10 @@ enum UpdateInstallGate {
         terminalSessions summary: TerminalSessionSummary,
         userAlreadyConfirmed: Bool
     ) -> Decision {
-        .installNow
+        guard !userAlreadyConfirmed, summary.hasTerminalSessions else {
+            return .installNow
+        }
+        return .requireConfirmation(summary)
     }
 }
 

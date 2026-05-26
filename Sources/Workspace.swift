@@ -10846,6 +10846,29 @@ final class Workspace: Identifiable, ObservableObject {
         return panel.isDirty
     }
 
+    func terminalSessionSummaryForUpdateInstall() -> UpdateInstallGate.TerminalSessionSummary {
+        var terminalCount = 0
+        var runningCommandCount = 0
+
+        for (panelId, panel) in panels {
+            guard let terminalPanel = panel as? TerminalPanel else { continue }
+            terminalCount += 1
+            if panelNeedsConfirmClose(
+                panelId: panelId,
+                fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
+            ) {
+                runningCommandCount += 1
+            }
+        }
+
+        return UpdateInstallGate.TerminalSessionSummary(
+            windowCount: 0,
+            workspaceCount: terminalCount > 0 ? 1 : 0,
+            terminalCount: terminalCount,
+            runningCommandCount: runningCommandCount
+        )
+    }
+
     func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {
         let state = SidebarGitBranchState(branch: branch, isDirty: isDirty)
         let existing = panelGitBranches[panelId]

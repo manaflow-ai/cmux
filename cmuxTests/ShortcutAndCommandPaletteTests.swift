@@ -1932,6 +1932,51 @@ final class UpdateInstallGatePolicyTests: XCTestCase {
             .installNow
         )
     }
+
+    func testUpdateDriverBlocksInstallWhenTerminalWarningIsDeclined() {
+        let summary = UpdateInstallGate.TerminalSessionSummary(
+            windowCount: 1,
+            workspaceCount: 2,
+            terminalCount: 2,
+            runningCommandCount: 1
+        )
+        var promptedSummary: UpdateInstallGate.TerminalSessionSummary?
+        let driver = UpdateDriver(
+            viewModel: UpdateViewModel(),
+            hostBundle: .main,
+            terminalSessionSummaryProvider: { summary },
+            terminalTerminationConfirmation: { warningSummary in
+                promptedSummary = warningSummary
+                return false
+            }
+        )
+
+        XCTAssertFalse(driver.confirmUpdateInstallAfterTerminalWarningForImmediateInstall())
+        XCTAssertEqual(promptedSummary, summary)
+    }
+
+    func testUpdateDriverDoesNotPromptAgainAfterTerminalWarningConfirmed() {
+        let summary = UpdateInstallGate.TerminalSessionSummary(
+            windowCount: 1,
+            workspaceCount: 1,
+            terminalCount: 1,
+            runningCommandCount: 1
+        )
+        var promptCount = 0
+        let driver = UpdateDriver(
+            viewModel: UpdateViewModel(),
+            hostBundle: .main,
+            terminalSessionSummaryProvider: { summary },
+            terminalTerminationConfirmation: { _ in
+                promptCount += 1
+                return true
+            }
+        )
+
+        XCTAssertTrue(driver.confirmUpdateInstallAfterTerminalWarningForImmediateInstall())
+        XCTAssertTrue(driver.confirmUpdateInstallAfterTerminalWarningForImmediateInstall())
+        XCTAssertEqual(promptCount, 1)
+    }
 }
 
 final class UpdateViewModelPresentationTests: XCTestCase {

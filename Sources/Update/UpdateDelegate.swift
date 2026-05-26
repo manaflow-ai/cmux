@@ -51,13 +51,15 @@ extension UpdateDriver: SPUUpdaterDelegate {
             viewModel?.clearDetectedUpdate()
             viewModel?.state = .installing(.init(
                 isAutoUpdate: true,
-                retryTerminatingApplication: immediateInstallHandler,
+                retryTerminatingApplication: { [weak self] in
+                    self?.runImmediateInstallAfterGate(immediateInstallHandler)
+                },
                 dismiss: { [weak viewModel] in
                     viewModel?.state = .idle
                 }
             ))
         }
-        return true
+        return confirmUpdateInstallAfterTerminalWarningForImmediateInstall()
     }
 
     func updater(_ updater: SPUUpdater, didFinishLoading appcast: SUAppcast) {
