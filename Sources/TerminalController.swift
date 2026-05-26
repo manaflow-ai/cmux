@@ -3452,45 +3452,45 @@ class TerminalController {
 
         // Surfaces / input
         case "surface.list":
-            return v2Result(id: id, self.v2SurfaceList(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceList(params: params) }
         case "surface.current":
-            return v2Result(id: id, self.v2SurfaceCurrent(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceCurrent(params: params) }
         case "surface.focus":
-            return v2Result(id: id, self.v2SurfaceFocus(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceFocus(params: params) }
         case "surface.split":
-            return v2Result(id: id, self.v2SurfaceSplit(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceSplit(params: params) }
         case "surface.create":
-            return v2Result(id: id, self.v2SurfaceCreate(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceCreate(params: params) }
         case "surface.close":
-            return v2Result(id: id, self.v2SurfaceClose(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceClose(params: params) }
         case "surface.move":
-            return v2Result(id: id, self.v2SurfaceMove(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceMove(params: params) }
         case "surface.reorder":
-            return v2Result(id: id, self.v2SurfaceReorder(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceReorder(params: params) }
         case "surface.action":
-            return v2Result(id: id, self.v2TabAction(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2TabAction(params: params) }
         case "tab.action":
-            return v2Result(id: id, self.v2TabAction(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2TabAction(params: params) }
         case "surface.drag_to_split":
-            return v2Result(id: id, self.v2SurfaceDragToSplit(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceDragToSplit(params: params) }
         case "surface.split_off":
-            return v2Result(id: id, self.v2SurfaceSplitOff(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceSplitOff(params: params) }
         case "surface.refresh":
-            return v2Result(id: id, self.v2SurfaceRefresh(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceRefresh(params: params) }
         case "surface.health":
-            return v2Result(id: id, self.v2SurfaceHealth(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceHealth(params: params) }
         case "surface.resume.set":
-            return v2Result(id: id, self.v2SurfaceResumeSet(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceResumeSet(params: params) }
         case "surface.resume.get":
-            return v2Result(id: id, self.v2SurfaceResumeGet(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceResumeGet(params: params) }
         case "surface.resume.clear":
-            return v2Result(id: id, self.v2SurfaceResumeClear(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceResumeClear(params: params) }
         case "debug.terminals":
             return v2Result(id: id, self.v2DebugTerminals(params: params))
         case "surface.send_text":
-            return v2Result(id: id, self.v2SurfaceSendText(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceSendText(params: params) }
         case "surface.send_key":
-            return v2Result(id: id, self.v2SurfaceSendKey(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceSendKey(params: params) }
         case "surface.report_tty":
             return v2Result(id: id, self.v2SurfaceReportTTY(params: params))
         case "surface.report_shell_state":
@@ -3498,29 +3498,29 @@ class TerminalController {
         case "surface.ports_kick":
             return v2Result(id: id, self.v2SurfacePortsKick(params: params))
         case "surface.clear_history":
-            return v2Result(id: id, self.v2SurfaceClearHistory(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceClearHistory(params: params) }
         case "surface.trigger_flash":
-            return v2Result(id: id, self.v2SurfaceTriggerFlash(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2SurfaceTriggerFlash(params: params) }
 
         // Panes
         case "pane.list":
-            return v2Result(id: id, self.v2PaneList(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneList(params: params) }
         case "pane.focus":
-            return v2Result(id: id, self.v2PaneFocus(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneFocus(params: params) }
         case "pane.surfaces":
-            return v2Result(id: id, self.v2PaneSurfaces(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneSurfaces(params: params) }
         case "pane.create":
-            return v2Result(id: id, self.v2PaneCreate(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneCreate(params: params) }
         case "pane.resize":
-            return v2Result(id: id, self.v2PaneResize(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneResize(params: params) }
         case "pane.swap":
-            return v2Result(id: id, self.v2PaneSwap(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneSwap(params: params) }
         case "pane.break":
-            return v2Result(id: id, self.v2PaneBreak(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneBreak(params: params) }
         case "pane.join":
-            return v2Result(id: id, self.v2PaneJoin(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneJoin(params: params) }
         case "pane.last":
-            return v2Result(id: id, self.v2PaneLast(params: params))
+            return v2ResultActivatingRequestedPage(id: id, params: params) { self.v2PaneLast(params: params) }
 
         // Notifications
         case "notification.create":
@@ -5211,6 +5211,53 @@ class TerminalController {
             return v2Ok(id: id, result: payload)
         case .err(let code, let message, let data):
             return v2Error(id: id, code: code, message: message, data: data)
+        }
+    }
+
+    private func v2ResultActivatingRequestedPage(
+        id: Any?,
+        params: [String: Any],
+        _ body: () -> V2CallResult
+    ) -> String {
+        if let activationError = v2ActivateRequestedPageContext(params: params) {
+            return v2Result(id: id, activationError)
+        }
+        return v2Result(id: id, body())
+    }
+
+    private func v2ActivateRequestedPageContext(params: [String: Any]) -> V2CallResult? {
+        guard let pageId = v2UUID(params, "page_id") else { return nil }
+
+        return v2MainSync {
+            guard let located = v2LocatePage(pageId) else {
+                return .err(code: "not_found", message: "Page not found", data: [
+                    "page_id": pageId.uuidString,
+                    "page_ref": v2Ref(kind: .page, uuid: pageId)
+                ])
+            }
+
+            if let windowId = v2UUID(params, "window_id"), windowId != located.windowId {
+                return .err(code: "not_found", message: "Page not found in window", data: [
+                    "window_id": windowId.uuidString,
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "page_id": pageId.uuidString,
+                    "page_ref": v2Ref(kind: .page, uuid: pageId)
+                ])
+            }
+
+            if let workspaceId = v2UUID(params, "workspace_id"), workspaceId != located.workspace.id {
+                return .err(code: "not_found", message: "Page not found in workspace", data: [
+                    "workspace_id": workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                    "page_id": pageId.uuidString,
+                    "page_ref": v2Ref(kind: .page, uuid: pageId)
+                ])
+            }
+
+            if located.workspace.activePageId != pageId {
+                located.workspace.selectPage(pageId)
+            }
+            return nil
         }
     }
 

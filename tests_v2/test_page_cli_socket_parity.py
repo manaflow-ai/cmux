@@ -126,6 +126,29 @@ def main() -> int:
             _must(selected_titles == ["editor"], f"page.list should report editor selected after create: {listed}")
             _must(str(listed.get("page_id") or "") == second_page_id, f"page.list should mirror active page: {listed}")
 
+            page_targeted_surface = c._call(
+                "surface.create",
+                {"workspace_id": workspace_id, "page_id": first_page_id, "focus": False},
+            ) or {}
+            _must(
+                str(page_targeted_surface.get("workspace_id") or "") == workspace_id,
+                f"surface.create with page_id should resolve the requested workspace: {page_targeted_surface}",
+            )
+
+            page_targeted_list = c._call("page.list", {"workspace_id": workspace_id}) or {}
+            page_targeted_pages = {
+                str(page.get("title") or ""): page
+                for page in (page_targeted_list.get("pages") or [])
+            }
+            _must(
+                int(page_targeted_pages.get("agents", {}).get("surface_count", -1)) == 2,
+                f"surface.create with page_id should add the surface to agents: {page_targeted_list}",
+            )
+            _must(
+                int(page_targeted_pages.get("editor", {}).get("surface_count", -1)) == 1,
+                f"surface.create with page_id must not mutate the active editor page: {page_targeted_list}",
+            )
+
             selected = _run_cli_json(
                 cli,
                 ["select-page", "--workspace", workspace_id, "--page", first_page_ref],
