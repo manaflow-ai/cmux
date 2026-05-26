@@ -48,6 +48,32 @@ final class AgentExecutableResolverTests: XCTestCase {
         }
     }
 
+    func testResolvesConfiguredClaudePathBeforePath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let configuredBin = root.appendingPathComponent("configured", isDirectory: true)
+        let pathBin = root.appendingPathComponent("path", isDirectory: true)
+        try FileManager.default.createDirectory(at: configuredBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: pathBin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configuredClaude = configuredBin.appendingPathComponent("claude")
+        let pathClaude = pathBin.appendingPathComponent("claude")
+        try "#!/bin/sh\nexit 0\n".write(to: configuredClaude, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\nexit 0\n".write(to: pathClaude, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: configuredClaude.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pathClaude.path)
+
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": pathBin.path, "HOME": root.path],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            configuredExecutablePaths: [.claude: configuredClaude.path]
+        )
+
+        let plan = try resolver.resolve(.claude)
+        XCTAssertEqual(plan.executableURL.path, configuredClaude.standardizedFileURL.path)
+    }
+
     func testIgnoresBundleResourceBinEvenWhenExecutableExists() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)

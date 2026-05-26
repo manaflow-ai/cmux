@@ -42,7 +42,9 @@ final class AgentSessionPanel: Panel, ObservableObject {
         rendererSession.focus()
     }
 
-    func unfocus() {}
+    func unfocus() {
+        rendererSession.unfocus()
+    }
 
     func close() {
         rendererSession.close()

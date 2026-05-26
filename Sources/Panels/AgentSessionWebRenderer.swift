@@ -16,7 +16,8 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
             rendererKind: panel.rendererKind,
             initialProviderID: panel.initialProviderID,
             workingDirectory: panel.workingDirectory,
-            theme: theme
+            theme: theme,
+            isFocused: isFocused
         )
     }
 
@@ -41,7 +42,8 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
             rendererKind: panel.rendererKind,
             initialProviderID: panel.initialProviderID,
             workingDirectory: panel.workingDirectory,
-            theme: theme
+            theme: theme,
+            isFocused: isFocused
         )
         nsView.onPointerDown = onRequestPanelFocus
         nsView.navigationDelegate = context.coordinator
@@ -192,7 +194,8 @@ final class AgentSessionWebRendererSession {
         rendererKind: AgentSessionRendererKind,
         initialProviderID: AgentSessionProviderID,
         workingDirectory: String?,
-        theme: AgentSessionWebTheme
+        theme: AgentSessionWebTheme,
+        isFocused: Bool
     ) -> AgentSessionWebRenderer.Coordinator {
         ownedCoordinator.bind(
             panelId: panelId,
@@ -200,13 +203,18 @@ final class AgentSessionWebRendererSession {
             rendererKind: rendererKind,
             initialProviderID: initialProviderID,
             workingDirectory: workingDirectory,
-            theme: theme
+            theme: theme,
+            isFocused: isFocused
         )
         return ownedCoordinator
     }
 
     func focus() {
         ownedCoordinator.focus()
+    }
+
+    func unfocus() {
+        ownedCoordinator.unfocus()
     }
 
     func close() {
@@ -229,6 +237,7 @@ extension AgentSessionWebRenderer {
         private var loadedRendererKind: AgentSessionRendererKind?
         private var hasFinishedNavigation = false
         private var hasCompletedVisiblePaintFlush = false
+        private var isPanelFocused = false
         private var processStore = AgentSessionProcessStore()
 
         func bind(
@@ -237,7 +246,8 @@ extension AgentSessionWebRenderer {
             rendererKind: AgentSessionRendererKind,
             initialProviderID: AgentSessionProviderID,
             workingDirectory: String?,
-            theme: AgentSessionWebTheme
+            theme: AgentSessionWebTheme,
+            isFocused: Bool
         ) {
             self.panelId = panelId
             self.workspaceId = workspaceId
@@ -249,6 +259,7 @@ extension AgentSessionWebRenderer {
             self.rendererKind = rendererKind
             self.initialProviderID = initialProviderID
             self.workingDirectory = workingDirectory
+            isPanelFocused = isFocused
             let themeChanged = self.theme != theme
             self.theme = theme
             if themeChanged {
@@ -316,6 +327,15 @@ extension AgentSessionWebRenderer {
             _ = webView.window?.makeFirstResponder(webView)
         }
 
+        func unfocus() {
+            guard let webView,
+                  let window = webView.window,
+                  Self.responderChainContains(window.firstResponder, target: webView) else {
+                return
+            }
+            window.makeFirstResponder(nil)
+        }
+
         func close() {
             processStore.closeAll()
             if let webView {
@@ -360,7 +380,9 @@ extension AgentSessionWebRenderer {
 #endif
             hasFinishedNavigation = true
             applyThemeToLoadedPage()
-            focus()
+            if isPanelFocused {
+                focus()
+            }
             flushInitialPaint(for: webView)
         }
 
@@ -503,7 +525,9 @@ extension AgentSessionWebRenderer {
                 }
             case "provider.start":
                 let provider = try request.providerID()
-                let resolver = AgentExecutableResolver()
+                let resolver = AgentExecutableResolver(
+                    configuredExecutablePaths: AgentExecutableResolver.cmuxConfiguredExecutablePaths()
+                )
                 let plan = try resolver.resolve(provider)
                 let session = try processStore.start(
                     plan: plan,
@@ -546,6 +570,17 @@ extension AgentSessionWebRenderer {
                 _ = error
 #endif
             }
+        }
+
+        private static func responderChainContains(_ responder: NSResponder?, target: NSResponder) -> Bool {
+            var current = responder
+            while let item = current {
+                if item === target {
+                    return true
+                }
+                current = item.nextResponder
+            }
+            return false
         }
     }
 }

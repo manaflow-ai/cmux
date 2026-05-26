@@ -124,22 +124,29 @@ struct AgentExecutableResolver {
     var fileManager: FileManager
     var bundleResourceURL: URL?
     var extraSearchDirectories: [String]
+    var configuredExecutablePaths: [AgentSessionProviderID: String]
 
     init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default,
         bundleResourceURL: URL? = Bundle.main.resourceURL,
-        extraSearchDirectories: [String] = []
+        extraSearchDirectories: [String] = [],
+        configuredExecutablePaths: [AgentSessionProviderID: String] = [:]
     ) {
         self.environment = environment
         self.fileManager = fileManager
         self.bundleResourceURL = bundleResourceURL
         self.extraSearchDirectories = extraSearchDirectories
+        self.configuredExecutablePaths = configuredExecutablePaths
     }
 
     func resolve(_ provider: AgentSessionProviderID) throws -> AgentSessionLaunchPlan {
         let executableName = provider.executableName
         let searchDirectories = resolvedSearchDirectories()
+        if let configuredURL = resolvedConfiguredExecutableURL(for: provider) {
+            return launchPlan(provider: provider, executableURL: configuredURL, searchDirectories: searchDirectories)
+        }
+
         for directory in searchDirectories {
             guard !shouldSkipSearchDirectory(directory) else { continue }
             let candidateURL = URL(fileURLWithPath: directory, isDirectory: true)
@@ -150,14 +157,7 @@ struct AgentExecutableResolver {
             guard !isBundledProviderExecutable(candidateURL) else { continue }
             guard !isKnownCmuxClaudeWrapper(candidateURL, provider: provider) else { continue }
 
-            var launchEnvironment = environment
-            launchEnvironment["PATH"] = runtimeSearchPath(searchDirectories: searchDirectories)
-            return AgentSessionLaunchPlan(
-                provider: provider,
-                executableURL: candidateURL,
-                arguments: provider.launchArguments,
-                environment: launchEnvironment
-            )
+            return launchPlan(provider: provider, executableURL: candidateURL, searchDirectories: searchDirectories)
         }
 
         throw AgentExecutableResolverError.missing(
@@ -165,6 +165,13 @@ struct AgentExecutableResolver {
             executableName: executableName,
             searchedDirectories: searchDirectories
         )
+    }
+
+    static func cmuxConfiguredExecutablePaths(defaults: UserDefaults = .standard) -> [AgentSessionProviderID: String] {
+        guard let claudePath = ClaudeCodeIntegrationSettings.customClaudePath(defaults: defaults) else {
+            return [:]
+        }
+        return [.claude: claudePath]
     }
 
     func resolvedSearchDirectories() -> [String] {
@@ -199,6 +206,38 @@ struct AgentExecutableResolver {
         searchDirectories
             .filter { !shouldSkipSearchDirectory($0) }
             .joined(separator: ":")
+    }
+
+    private func launchPlan(
+        provider: AgentSessionProviderID,
+        executableURL: URL,
+        searchDirectories: [String]
+    ) -> AgentSessionLaunchPlan {
+        var launchEnvironment = environment
+        launchEnvironment["PATH"] = runtimeSearchPath(searchDirectories: searchDirectories)
+        return AgentSessionLaunchPlan(
+            provider: provider,
+            executableURL: executableURL,
+            arguments: provider.launchArguments,
+            environment: launchEnvironment
+        )
+    }
+
+    private func resolvedConfiguredExecutableURL(for provider: AgentSessionProviderID) -> URL? {
+        guard let rawPath = configuredExecutablePaths[provider]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawPath.isEmpty else {
+            return nil
+        }
+        let candidateURL = URL(fileURLWithPath: rawPath, isDirectory: false).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: candidateURL.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue,
+              fileManager.isExecutableFile(atPath: candidateURL.path),
+              !isBundledProviderExecutable(candidateURL),
+              !isKnownCmuxClaudeWrapper(candidateURL, provider: provider) else {
+            return nil
+        }
+        return candidateURL
     }
 
     private func shouldSkipSearchDirectory(_ directory: String) -> Bool {
