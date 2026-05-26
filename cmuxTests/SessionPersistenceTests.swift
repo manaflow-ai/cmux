@@ -550,6 +550,34 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: true))
     }
 
+    @MainActor
+    func testWorkspaceTopologyChangePersistsRecoverySnapshot() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-recovery-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        let app = AppDelegate.shared ?? AppDelegate()
+        let originalSnapshotURL = app.debugSessionSnapshotFileURLForTesting
+        app.debugSessionSnapshotFileURLForTesting = snapshotURL
+        defer { app.debugSessionSnapshotFileURLForTesting = originalSnapshotURL }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        _ = manager.addWorkspace(
+            title: "Recovered work",
+            inheritWorkingDirectory: false,
+            autoWelcomeIfNeeded: false
+        )
+
+        let snapshot = try XCTUnwrap(waitForSessionSnapshot(at: snapshotURL))
+        XCTAssertEqual(snapshot.windows.first?.tabManager.workspaces.count, 2)
+        XCTAssertEqual(snapshot.windows.first?.tabManager.workspaces.last?.customTitle, "Recovered work")
+    }
+
     func testMainWindowRegistrationSnapshotSavePolicySkipsStartupRestore() {
         XCTAssertTrue(
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
@@ -1641,6 +1669,17 @@ final class SessionPersistenceTests: XCTestCase {
             createdAt: Date().timeIntervalSince1970,
             windows: [window]
         )
+    }
+
+    private func waitForSessionSnapshot(at url: URL, timeout: TimeInterval = 2.0) -> AppSessionSnapshot? {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if let snapshot = SessionPersistenceStore.load(fileURL: url) {
+                return snapshot
+            }
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        } while Date() < deadline
+        return SessionPersistenceStore.load(fileURL: url)
     }
 
     private func fileNumber(for fileURL: URL) throws -> Int {

@@ -919,6 +919,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
     private var lastTypingActivityAt: TimeInterval = 0
+#if DEBUG
+    var debugSessionSnapshotFileURLForTesting: URL?
+#endif
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
@@ -3947,11 +3950,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     forKey: Self.persistedWindowGeometryDefaultsKey
                 )
             }
+            #if DEBUG
+            if let snapshot {
+                _ = SessionPersistenceStore.save(snapshot, fileURL: self.debugSessionSnapshotFileURLForTesting)
+            } else if removeWhenEmpty {
+                SessionPersistenceStore.removeSnapshot(fileURL: self.debugSessionSnapshotFileURLForTesting)
+            }
+            #else
             if let snapshot {
                 _ = SessionPersistenceStore.save(snapshot)
             } else if removeWhenEmpty {
                 SessionPersistenceStore.removeSnapshot()
             }
+            #endif
         }
 
         if synchronously {
