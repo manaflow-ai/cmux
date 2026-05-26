@@ -2272,6 +2272,11 @@ class TerminalController {
         "workspace.remote.pty_resize",
     ]
 
+    private nonisolated static let mainThreadCallableSocketWorkerV2Methods: Set<String> = [
+        "system.ping",
+        "system.capabilities",
+    ]
+
     private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
         if method.hasPrefix("vm.") || socketWorkerV2Methods.contains(method) {
             return .socketWorker
@@ -2883,7 +2888,8 @@ class TerminalController {
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
         if Thread.isMainThread,
            let request = parseV2SocketRequest(command),
-           Self.executionPolicy(forV2Method: request.method) == .socketWorker {
+           Self.executionPolicy(forV2Method: request.method) == .socketWorker,
+           !Self.mainThreadCallableSocketWorkerV2Methods.contains(request.method) {
             return v2Error(
                 id: request.id,
                 code: "invalid_dispatch",
