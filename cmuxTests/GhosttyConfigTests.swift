@@ -4279,10 +4279,13 @@ final class SidebarBackgroundConfigTests: XCTestCase {
                 restoreDefaultsValue(original, key: key, defaults: defaults)
             }
         }
-        defaults.removeObject(forKey: GhosttyConfig.sidebarAppearanceAppliedDefaultsKey)
 
         defaults.set("#AAAAAA", forKey: "sidebarTintHexLight")
         defaults.set("#BBBBBB", forKey: "sidebarTintHexDark")
+        defaults.set([
+            "sidebarTintHexLight": "#AAAAAA",
+            "sidebarTintHexDark": "#BBBBBB",
+        ], forKey: GhosttyConfig.sidebarAppearanceAppliedDefaultsKey)
 
         var config = GhosttyConfig()
         config.rawSidebarBackground = "#222222"
@@ -4294,6 +4297,33 @@ final class SidebarBackgroundConfigTests: XCTestCase {
                      "Stale light key should be cleared")
         XCTAssertNil(defaults.string(forKey: "sidebarTintHexDark"),
                      "Stale dark key should be cleared")
+    }
+
+    func testApplyToUserDefaultsPreservesUserEditedLightDarkTintKeysOnSwitchToSingle() {
+        let defaults = UserDefaults.standard
+        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark", GhosttyConfig.sidebarAppearanceAppliedDefaultsKey]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
+
+        defaults.set("#CCCCCC", forKey: "sidebarTintHexLight")
+        defaults.set("#DDDDDD", forKey: "sidebarTintHexDark")
+        defaults.set([
+            "sidebarTintHexLight": "#AAAAAA",
+            "sidebarTintHexDark": "#BBBBBB",
+        ], forKey: GhosttyConfig.sidebarAppearanceAppliedDefaultsKey)
+
+        var config = GhosttyConfig()
+        config.rawSidebarBackground = "#222222"
+        config.resolveSidebarBackground(preferredColorScheme: .light)
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHex"), "#222222")
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHexLight"), "#CCCCCC")
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHexDark"), "#DDDDDD")
     }
 
     func testApplyToUserDefaultsOnlyWritesOpacityWhenExplicit() {

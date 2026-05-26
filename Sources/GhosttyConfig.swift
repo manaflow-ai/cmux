@@ -341,8 +341,7 @@ struct GhosttyConfig {
         appliedValues: inout [String: String]
     ) {
         guard let color else {
-            UserDefaults.standard.removeObject(forKey: key)
-            appliedValues.removeValue(forKey: key)
+            clearManagedSidebarAppearanceValue(key: key, appliedValues: &appliedValues)
             return
         }
         let value = color.hexString()
