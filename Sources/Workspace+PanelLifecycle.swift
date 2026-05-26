@@ -136,21 +136,27 @@ extension Workspace {
     }
 
     @discardableResult
-    func acknowledgeStructuredAgentInputStatus(panelId: UUID? = nil) -> Bool {
+    func acknowledgeStructuredAgentInputStatus(
+        statusKeys acknowledgedStatusKeys: Set<String>,
+        panelId: UUID? = nil,
+        notificationCreatedAt: Date
+    ) -> Bool {
         let candidateStatusKeys: Set<String>
         if let panelId {
-            candidateStatusKeys = Set((agentPIDKeysByPanelId[panelId] ?? []).map {
+            let panelStatusKeys = Set((agentPIDKeysByPanelId[panelId] ?? []).map {
                 agentStatusKey(forAgentPIDKey: $0)
             })
+            candidateStatusKeys = panelStatusKeys.intersection(acknowledgedStatusKeys)
         } else {
-            candidateStatusKeys = Set(statusEntries.keys)
+            candidateStatusKeys = acknowledgedStatusKeys
         }
 
         let idleValue = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
         var didChange = false
         for key in candidateStatusKeys where Self.structuredAgentHookStatusKeys.contains(key) {
             guard let entry = statusEntries[key],
-                  isStructuredAgentInputStatus(entry) else {
+                  isStructuredAgentInputStatus(entry),
+                  entry.timestamp <= notificationCreatedAt else {
                 continue
             }
             statusEntries[key] = SidebarStatusEntry(
@@ -168,11 +174,7 @@ extension Workspace {
         guard Self.structuredAgentHookStatusKeys.contains(entry.key) else {
             return false
         }
-        if entry.icon == "bell.fill" {
-            return true
-        }
-        let value = entry.value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return value == "needs input" || value.hasSuffix(" needs input")
+        return entry.icon == "bell.fill"
     }
 
     func sidebarStatusEntriesVisibleForDisplay() -> [SidebarStatusEntry] {
