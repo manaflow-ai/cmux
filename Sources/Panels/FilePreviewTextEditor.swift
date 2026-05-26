@@ -17,16 +17,6 @@ protocol FilePreviewTextEditingPanel: AnyObject {
     func saveTextContent() -> Task<Void, Never>?
 }
 
-// MARK: - Language detection cache
-
-private final class FileLanguageCache: ObservableObject {
-    let language: CodeLanguage?
-
-    init(url: URL) {
-        language = SyntaxLanguageDetector.language(for: url)
-    }
-}
-
 // MARK: - Router (chooses highlighted or plain editor based on file extension)
 
 struct HighlightedFilePreviewRouter: View {
@@ -36,7 +26,7 @@ struct HighlightedFilePreviewRouter: View {
     let themeForegroundColor: NSColor
     let drawsBackground: Bool
 
-    @StateObject private var languageCache: FileLanguageCache
+    @State private var language: CodeLanguage?
 
     init(
         panel: FilePreviewPanel,
@@ -50,11 +40,11 @@ struct HighlightedFilePreviewRouter: View {
         self.themeBackgroundColor = themeBackgroundColor
         self.themeForegroundColor = themeForegroundColor
         self.drawsBackground = drawsBackground
-        self._languageCache = StateObject(wrappedValue: FileLanguageCache(url: panel.fileURL))
+        self._language = State(initialValue: SyntaxLanguageDetector.language(for: panel.fileURL))
     }
 
     var body: some View {
-        if let language = languageCache.language {
+        if let language {
             HighlightedFilePreviewEditor(
                 panel: panel,
                 isVisibleInUI: isVisibleInUI,
