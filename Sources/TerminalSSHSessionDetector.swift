@@ -636,7 +636,7 @@ enum TerminalSSHSessionDetector {
     }
 
     static func detectRemoteSession(commandLine: String) -> DetectedRemoteTerminalSession? {
-        for segment in shellCommandSegments(commandLine).reversed() where !segment.runsInBackground {
+        for segment in shellCommandSegments(commandLine) where !segment.runsInBackground {
             let commandArguments = remoteCommandArguments(from: segment.arguments)
             guard let commandName = commandArguments.first.map(executableName) else { continue }
 

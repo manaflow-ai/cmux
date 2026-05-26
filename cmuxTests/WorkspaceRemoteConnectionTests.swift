@@ -2082,6 +2082,21 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    func testChainedSSHForegroundCommandUsesFirstRemoteSegment() {
+        let session = TerminalSSHSessionDetector.detectRemoteSession(
+            commandLine: "ssh first.example.com; ssh second.example.com"
+        )
+
+        XCTAssertEqual(
+            session,
+            DetectedRemoteTerminalSession(
+                transport: .ssh,
+                destination: "first.example.com",
+                directory: nil
+            )
+        )
+    }
+
     func testIgnoresNonSessionSSHForegroundCommands() {
         XCTAssertNil(TerminalSSHSessionDetector.detectRemoteSession(commandLine: "ssh -V"))
         XCTAssertNil(TerminalSSHSessionDetector.detectRemoteSession(commandLine: "ssh -G example.com"))
