@@ -5704,24 +5704,12 @@ class TabManager: ObservableObject {
             }
         }
 
-        var emittedWorkspaceIds = Set<UUID>()
-        let pinnedTabs = tabs.filter(\.isPinned)
-        let unpinnedTabs = tabs.filter { !$0.isPinned }
-        let normalizedIds =
-            normalizedWorkspaceGroupBlockIds(
-                for: pinnedTabs,
-                groupsById: groupsById,
-                groupIdByWorkspaceId: groupIdByWorkspaceId,
-                existingIds: existingIds,
-                emittedWorkspaceIds: &emittedWorkspaceIds
-            ) +
-            normalizedWorkspaceGroupBlockIds(
-                for: unpinnedTabs,
-                groupsById: groupsById,
-                groupIdByWorkspaceId: groupIdByWorkspaceId,
-                existingIds: existingIds,
-                emittedWorkspaceIds: &emittedWorkspaceIds
-            )
+        let normalizedIds = normalizedWorkspaceGroupBlockIds(
+            for: tabs,
+            groupsById: groupsById,
+            groupIdByWorkspaceId: groupIdByWorkspaceId,
+            existingIds: existingIds
+        )
 
         guard normalizedIds.count == originalIds.count, normalizedIds != originalIds else {
             return []
@@ -5743,21 +5731,25 @@ class TabManager: ObservableObject {
         for tabs: [Workspace],
         groupsById: [UUID: SidebarWorkspaceGroup],
         groupIdByWorkspaceId: [UUID: UUID],
-        existingIds: Set<UUID>,
-        emittedWorkspaceIds: inout Set<UUID>
+        existingIds: Set<UUID>
     ) -> [UUID] {
-        let partitionIds = Set(tabs.map(\.id))
+        let orderedWorkspaceIdsByGroupId = Dictionary(grouping: tabs.compactMap { tab -> (UUID, UUID)? in
+            guard let groupId = groupIdByWorkspaceId[tab.id] else { return nil }
+            return (groupId, tab.id)
+        }, by: { $0.0 }).mapValues { grouped in
+            grouped.map { $0.1 }
+        }
         var emittedGroupIds = Set<UUID>()
+        var emittedWorkspaceIds = Set<UUID>()
         var normalizedIds: [UUID] = []
 
         for tab in tabs {
             if let groupId = groupIdByWorkspaceId[tab.id],
                let group = groupsById[groupId] {
                 guard emittedGroupIds.insert(groupId).inserted else { continue }
-                for workspaceId in group.workspaceIds {
-                    guard existingIds.contains(workspaceId), partitionIds.contains(workspaceId) else {
-                        continue
-                    }
+                let orderedGroupWorkspaceIds = orderedWorkspaceIdsByGroupId[group.id] ?? group.workspaceIds
+                for workspaceId in orderedGroupWorkspaceIds {
+                    guard existingIds.contains(workspaceId) else { continue }
                     guard emittedWorkspaceIds.insert(workspaceId).inserted else { continue }
                     normalizedIds.append(workspaceId)
                 }

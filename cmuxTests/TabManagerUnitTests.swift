@@ -234,13 +234,13 @@ final class TabManagerWorkspaceGroupTests: XCTestCase {
 
         XCTAssertTrue(manager.reorderWorkspace(tabId: second.id, after: fourth.id))
 
-        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id, fourth.id])
-        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id, second.id, third.id])
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, third.id, second.id, fourth.id])
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id, third.id, second.id])
 
         XCTAssertTrue(manager.reorderWorkspace(tabId: fourth.id, before: third.id))
 
-        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id, fourth.id])
-        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id, second.id, third.id])
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, third.id, second.id, fourth.id])
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id, third.id, second.id])
     }
 
     func testWorkspaceOrderMutationsPreserveWorkspaceGroupBlocks() throws {
@@ -257,25 +257,44 @@ final class TabManagerWorkspaceGroupTests: XCTestCase {
 
         manager.moveTabToTop(third.id)
 
-        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id, fourth.id])
-        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id, second.id, third.id])
+        XCTAssertEqual(manager.tabs.map(\.id), [third.id, first.id, second.id, fourth.id])
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [third.id, first.id, second.id])
 
         manager.moveTabsToTop([second.id, fourth.id])
 
-        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id, fourth.id])
-        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id, second.id, third.id])
+        XCTAssertEqual(manager.tabs.map(\.id), [second.id, third.id, first.id, fourth.id])
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [second.id, third.id, first.id])
 
         if case .failure = manager.reorderWorkspaces(orderedWorkspaceIds: [second.id, fourth.id]) {
             XCTFail("Expected batch workspace reorder to succeed")
         }
 
-        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id, fourth.id])
-        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id, second.id, third.id])
+        XCTAssertEqual(manager.tabs.map(\.id), [second.id, third.id, first.id, fourth.id])
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [second.id, third.id, first.id])
 
         manager.setPinned(second, pinned: true)
 
-        XCTAssertEqual(manager.tabs.map(\.id), [second.id, first.id, third.id, fourth.id])
-        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [second.id, first.id, third.id])
+        XCTAssertEqual(manager.tabs.map(\.id), [second.id, third.id, first.id, fourth.id])
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [second.id, third.id, first.id])
+    }
+
+    func testWorkspaceGroupNormalizationKeepsMixedPinnedFoldersComplete() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let first = try XCTUnwrap(manager.selectedWorkspace)
+        let second = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let third = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let fourth = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+
+        manager.setPinned(first, pinned: true)
+        manager.createWorkspaceGroup(
+            title: "Grouped",
+            workspaceIds: [third.id, fourth.id]
+        )
+
+        manager.setPinned(fourth, pinned: true)
+
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, fourth.id, third.id, second.id])
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [fourth.id, third.id])
     }
 
     func testPreserveDropAssignmentDoesNotUngroupWorkspace() throws {
