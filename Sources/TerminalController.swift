@@ -15674,6 +15674,16 @@ class TerminalController {
             guard let windowId = v2UUID(params, "window_id") else {
                 return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
             }
+            // Scope to the requested window. self.tabManager is the controller's
+            // primary tabManager; in multi-window runs that's the wrong list for
+            // a window_id other than the primary.
+            guard let windowTabManager = AppDelegate.shared?.tabManagerFor(windowId: windowId) else {
+                return .err(
+                    code: "not_found",
+                    message: "No TabManager for window_id",
+                    data: ["window_id": windowId.uuidString]
+                )
+            }
             guard let fromTabId = v2UUID(params, "from_tab_id") else {
                 return .err(code: "invalid_params", message: "Missing or invalid from_tab_id", data: nil)
             }
@@ -15698,9 +15708,6 @@ class TerminalController {
             } else {
                 requestedSteps = nil
             }
-            guard let tabManager else {
-                return .err(code: "unavailable", message: "TabManager not available", data: nil)
-            }
             guard SidebarDragStateRegistry.state(forWindowId: windowId) != nil else {
                 return .err(
                     code: "not_found",
@@ -15708,7 +15715,7 @@ class TerminalController {
                     data: ["window_id": windowId.uuidString]
                 )
             }
-            let tabIds = tabManager.tabs.map(\.id)
+            let tabIds = windowTabManager.tabs.map(\.id)
             guard let fromIndex = tabIds.firstIndex(of: fromTabId) else {
                 return .err(
                     code: "not_found",

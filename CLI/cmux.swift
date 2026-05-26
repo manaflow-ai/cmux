@@ -6068,20 +6068,37 @@ struct CMUXCLI {
             "from_tab_id": fromHandle,
             "to_tab_id": toHandle
         ]
+        var requestedDurationMs = 1000  // matches server default
+        var requestedSteps: Int?
         if let durationRaw = optionValue(commandArgs, name: "--duration-ms") {
             guard let duration = Int(durationRaw), duration > 0 else {
                 throw CLIError(message: "--duration-ms must be a positive integer")
             }
             params["duration_ms"] = duration
+            requestedDurationMs = duration
         }
         if let stepsRaw = optionValue(commandArgs, name: "--steps") {
             guard let steps = Int(stepsRaw), steps > 0 else {
                 throw CLIError(message: "--steps must be a positive integer")
             }
             params["steps"] = steps
+            requestedSteps = steps
         }
 
-        let payload = try client.sendV2(method: "debug.sidebar.simulate_drag", params: params)
+        // The handler blocks until the simulated drag completes
+        // (duration_ms in the common path; longer when --steps > path
+        // length because the per-step interval has a 1ms minimum). The
+        // default 15s socket response timeout would abort long profiling
+        // runs while the app keeps simulating. Allow generous slack.
+        let stepBasedMinMs = (requestedSteps ?? 0)  // server enforces 1ms min interval
+        let expectedRuntimeMs = max(requestedDurationMs, stepBasedMinMs)
+        let responseTimeout = max(30.0, Double(expectedRuntimeMs) / 1000.0 + 10.0)
+
+        let payload = try client.sendV2(
+            method: "debug.sidebar.simulate_drag",
+            params: params,
+            responseTimeout: responseTimeout
+        )
         let summary = "OK steps=\(payload["steps"] ?? "?") duration_ms=\(payload["duration_ms"] ?? "?") edge=\(payload["edge"] ?? "?")"
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
     }
