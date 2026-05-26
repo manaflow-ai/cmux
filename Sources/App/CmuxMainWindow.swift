@@ -7,6 +7,7 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
     override var safeAreaRect: NSRect { bounds }
     override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
+    override var mouseDownCanMoveWindow: Bool { false }
 
     required init(rootView: Content) {
         super.init(rootView: rootView)
@@ -27,44 +28,10 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     }
 }
 
-class FirstMouseGatedHostingView<Content: View>: NSHostingView<Content> {
-    override var intrinsicContentSize: NSSize {
-        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        if shouldCaptureInactiveFirstMouse(at: point) {
-            return self
-        }
-        return super.hitTest(point)
-    }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        PaneFirstClickFocusSettings.isEnabled()
-    }
-
-    func shouldCaptureInactiveFirstMouse(at point: NSPoint) -> Bool {
-        let localPoint = superview.map { convert(point, from: $0) } ?? point
-        return window?.isKeyWindow != true &&
-            !PaneFirstClickFocusSettings.isEnabled() &&
-            bounds.contains(localPoint)
-    }
-}
-
-final class FirstMouseGatedPassThroughHostingView<Content: View>: FirstMouseGatedHostingView<Content> {
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        shouldCaptureInactiveFirstMouse(at: point) ? self : nil
-    }
-}
-
-struct FirstMouseGatedHostingOverlay: NSViewRepresentable {
-    func makeNSView(context: Context) -> FirstMouseGatedPassThroughHostingView<AnyView> {
-        FirstMouseGatedPassThroughHostingView(rootView: AnyView(EmptyView()))
-    }
-
-    func updateNSView(_ nsView: FirstMouseGatedPassThroughHostingView<AnyView>, context: Context) {
-        nsView.rootView = AnyView(EmptyView())
-    }
+@MainActor
+func configureCmuxMainWindowDragBehavior(_ window: NSWindow) {
+    window.isMovableByWindowBackground = false
+    window.isMovable = false
 }
 
 @MainActor

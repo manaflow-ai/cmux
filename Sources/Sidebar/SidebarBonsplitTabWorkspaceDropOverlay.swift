@@ -5,8 +5,8 @@ import SwiftUI
 struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
     let currentSelectedTabId: () -> UUID?
     let sidebarIndexForTabId: (UUID) -> Int?
-    let moveToExistingWorkspace: (UUID) -> Bool
-    let moveToNewWorkspace: (Int) -> UUID?
+    let moveToExistingWorkspace: (UUID, BonsplitTabDragPayload.Transfer) -> Bool
+    let moveToNewWorkspace: (Int, BonsplitTabDragPayload.Transfer) -> UUID?
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     @Binding var dropIndicator: SidebarDropIndicator?
@@ -19,12 +19,8 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
 
     func updateNSView(_ nsView: SidebarBonsplitTabWorkspaceDropView, context: Context) {
         nsView.targets = targets
-        nsView.hasValidTransfer = {
-            BonsplitTabDragPayload.currentTransfer() != nil
-        }
-        nsView.canPerformAction = { action in
-            guard let transfer = BonsplitTabDragPayload.currentTransfer(),
-                  let app = AppDelegate.shared else {
+        nsView.canPerformAction = { action, transfer in
+            guard let app = AppDelegate.shared else {
                 return false
             }
             switch action {
@@ -42,14 +38,14 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
         nsView.setDropIndicator = { indicator in
             dropIndicator = indicator
         }
-        nsView.performExistingWorkspaceMove = { workspaceId in
-            guard moveToExistingWorkspace(workspaceId) else { return false }
+        nsView.performExistingWorkspaceMove = { workspaceId, transfer in
+            guard moveToExistingWorkspace(workspaceId, transfer) else { return false }
             selectedTabIds = [workspaceId]
             syncSidebarSelection(preferredSelectedTabId: workspaceId)
             return true
         }
-        nsView.performNewWorkspaceMove = { insertionIndex, _ in
-            guard let destinationWorkspaceId = moveToNewWorkspace(insertionIndex) else { return false }
+        nsView.performNewWorkspaceMove = { insertionIndex, _, transfer in
+            guard let destinationWorkspaceId = moveToNewWorkspace(insertionIndex, transfer) else { return false }
             selectedTabIds = [destinationWorkspaceId]
             syncSidebarSelection(preferredSelectedTabId: destinationWorkspaceId)
             return true
@@ -70,12 +66,11 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     private static let pasteboardType = NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier)
 
     var targets: [SidebarDropPlanner.WorkspaceDropTarget] = []
-    var hasValidTransfer: () -> Bool = { false }
-    var canPerformAction: (SidebarDropPlanner.WorkspaceDropAction) -> Bool = { _ in false }
+    var canPerformAction: (SidebarDropPlanner.WorkspaceDropAction, BonsplitTabDragPayload.Transfer) -> Bool = { _, _ in false }
     var updateAutoscroll: () -> Void = {}
     var setDropIndicator: (SidebarDropIndicator?) -> Void = { _ in }
-    var performExistingWorkspaceMove: (UUID) -> Bool = { _ in false }
-    var performNewWorkspaceMove: (Int, SidebarDropIndicator) -> Bool = { _, _ in false }
+    var performExistingWorkspaceMove: (UUID, BonsplitTabDragPayload.Transfer) -> Bool = { _, _ in false }
+    var performNewWorkspaceMove: (Int, SidebarDropIndicator, BonsplitTabDragPayload.Transfer) -> Bool = { _, _, _ in false }
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { false }
@@ -110,7 +105,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let action = action(for: sender)
-        let accepted = acceptsDrag(sender, action: action)
+        let accepted = acceptedTransfer(sender, action: action) != nil
 #if DEBUG
         dlog(
             "sidebar.workspaceDropOverlay.prepare accepted=\(accepted ? 1 : 0) " +
@@ -123,7 +118,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         defer { setDropIndicator(nil) }
         let action = action(for: sender)
-        guard acceptsDrag(sender, action: action), let action else {
+        guard let action, let transfer = acceptedTransfer(sender, action: action) else {
 #if DEBUG
             dlog(
                 "sidebar.workspaceDropOverlay.perform moved=0 reason=notAccepted " +
@@ -136,9 +131,9 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
         let moved: Bool
         switch action {
         case .existingWorkspace(let workspaceId):
-            moved = performExistingWorkspaceMove(workspaceId)
+            moved = performExistingWorkspaceMove(workspaceId, transfer)
         case .newWorkspace(let insertionIndex, let indicator):
-            moved = performNewWorkspaceMove(insertionIndex, indicator)
+            moved = performNewWorkspaceMove(insertionIndex, indicator, transfer)
         }
 
 #if DEBUG
@@ -159,7 +154,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
 
     private func updateDrag(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
         let action = action(for: sender)
-        guard acceptsDrag(sender, action: action), let action else {
+        guard acceptedTransfer(sender, action: action) != nil, let action else {
             setDropIndicator(nil)
 #if DEBUG
             dlog(
@@ -187,13 +182,18 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
         return .move
     }
 
-    private func acceptsDrag(
+    private func acceptedTransfer(
         _ sender: any NSDraggingInfo,
         action: SidebarDropPlanner.WorkspaceDropAction?
-    ) -> Bool {
-        guard sender.draggingPasteboard.types?.contains(Self.pasteboardType) == true else { return false }
-        guard hasValidTransfer(), let action else { return false }
-        return canPerformAction(action)
+    ) -> BonsplitTabDragPayload.Transfer? {
+        let pasteboard = sender.draggingPasteboard
+        guard pasteboard.types?.contains(Self.pasteboardType) == true,
+              let transfer = BonsplitTabDragPayload.transfer(from: pasteboard),
+              let action,
+              canPerformAction(action, transfer) else {
+            return nil
+        }
+        return transfer
     }
 
     private func action(for sender: any NSDraggingInfo) -> SidebarDropPlanner.WorkspaceDropAction? {
@@ -201,7 +201,9 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     }
 
     private func shouldCaptureHitTest() -> Bool {
-        guard BonsplitTabDragPayload.currentTransfer() != nil else { return false }
+        guard BonsplitTabDragPayload.canRouteWorkspaceDrop(
+            pasteboardTypes: NSPasteboard(name: .drag).types
+        ) else { return false }
         guard let eventType = NSApp.currentEvent?.type else { return true }
         switch eventType {
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .cursorUpdate, .mouseMoved:

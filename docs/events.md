@@ -90,7 +90,7 @@ heartbeats.
 in memory, or newer than the current process after an app restart. In that case,
 process the replayed tail, then refresh any state you need through
 snapshot-style commands such as `list-workspaces`, `list-notifications`, `tree`,
-or focused surface queries.
+`extension.sidebar.snapshot`, or focused surface queries.
 
 ### Event
 
@@ -234,6 +234,40 @@ Workspace:
 | `workspace.reordered` | Workspace order changed. |
 | `workspace.moved` | Workspace moved to another window. |
 | `workspace.action` | Workspace action command completed. |
+| `workspace.prompt.submitted` | A prompt was submitted in a workspace. Used by extension sidebars to keep derived state fresh without polling. |
+
+`workspace.reordered` payloads are published by the shared workspace lifecycle
+path and include ordered `workspace_ids`, `moved_workspace_ids`,
+`pinned_workspace_ids`, and `count`.
+
+`workspace.prompt.submitted` payloads include `workspace_id`, a redacted
+`message`, `message_preview`, `message_length`, and `redacted_fields`. This is
+local sensitive data, so consumers should only forward it with explicit user
+opt-in.
+
+Extension sidebars should bootstrap from the v2 socket method
+`extension.sidebar.snapshot`, then subscribe to `cmux events --category
+workspace --category notification --category sidebar --reconnect` and reduce
+events from the returned `seq`. The snapshot returns `selected_workspace_id`
+and an ordered `workspaces` array containing workspace ids/refs, title,
+description, pinned state, root/project paths, branch summary, remote status,
+latest submitted prompt preview/time, listening ports, pull request URLs,
+panel directories, and git branch summaries.
+
+Socket `workspace.reorder` and `workspace.reorder_many` command results include
+`plan` and `events` arrays that use short refs and final indexes. Those response
+fields describe the command result; they are not separate event-stream payloads:
+
+```json
+{
+  "window_id": "2FB4...",
+  "window_ref": "window:1",
+  "workspace_id": "8D10...",
+  "workspace_ref": "workspace:11",
+  "from_index": 12,
+  "to_index": 1
+}
+```
 
 Surface and pane:
 
@@ -278,6 +312,10 @@ Notifications:
 | --- | --- |
 | `notification.requested` | Socket command asked cmux to create a notification. |
 | `notification.clear_requested` | Socket command asked cmux to clear notifications. |
+| `notification.dismiss_requested` | Socket command asked cmux to remove one notification or already-read notifications. |
+| `notification.mark_read_requested` | Socket command asked cmux to mark notifications read. |
+| `notification.open_requested` | Socket command asked cmux to open a notification by id. |
+| `notification.jump_to_unread_requested` | Socket command asked cmux to jump to the latest unread notification. |
 | `notification.created` | Notification store created a notification. |
 | `notification.read` | Notification was marked read. |
 | `notification.removed` | One notification was removed. |
