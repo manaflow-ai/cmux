@@ -148,7 +148,11 @@ def main() -> int:
         try:
             listener.bind(str(socket_path))
             listener.listen(1)
-            transcript = _run_interactive_bash(socket_path)
+            try:
+                transcript = _run_interactive_bash(socket_path)
+            except TimeoutError as error:
+                print(f"FAIL: {error}")
+                return 1
         finally:
             listener.close()
 
