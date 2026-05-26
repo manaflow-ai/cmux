@@ -5411,10 +5411,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testKeyboardLayoutUsesCurrentKeyboardLayoutBeforeASCIICapableFallbackForIME() {
 #if DEBUG
         var requestedSourceKinds: [KeyboardLayout.InputSourceKind] = []
+        var observedKeyCodes: [UInt16] = []
+        var observedModifierFlags: [NSEvent.ModifierFlags] = []
         KeyboardLayout.debugCharacterForInputSourceKind = { sourceKind, keyCode, modifierFlags in
             requestedSourceKinds.append(sourceKind)
-            XCTAssertEqual(keyCode, UInt16(kVK_ANSI_L))
-            XCTAssertTrue(modifierFlags.contains(.command))
+            observedKeyCodes.append(keyCode)
+            observedModifierFlags.append(modifierFlags)
             switch sourceKind {
             case .currentKeyboardInputSource:
                 return "ㅣ"
@@ -5436,6 +5438,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             [.currentKeyboardInputSource, .currentKeyboardLayoutInputSource],
             "A matching current keyboard layout should prevent the unrelated ASCII-capable fallback from owning the shortcut"
         )
+        XCTAssertEqual(observedKeyCodes, [UInt16(kVK_ANSI_L), UInt16(kVK_ANSI_L)])
+        XCTAssertTrue(observedModifierFlags.allSatisfy { $0.contains(.command) })
 #else
         XCTFail("debugCharacterForInputSourceKind is only available in DEBUG")
 #endif
