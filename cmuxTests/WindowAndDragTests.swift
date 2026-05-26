@@ -494,6 +494,24 @@ final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
 
 
 final class FocusFlashPatternTests: XCTestCase {
+    func testPanelOverlayRingRadiusTracksInsetWindowCornerRadius() {
+        XCTAssertEqual(
+            PanelOverlayRingMetrics.cornerRadius(forWindowCornerRadius: 12),
+            10,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            PanelOverlayRingMetrics.cornerRadius(forWindowCornerRadius: 2),
+            0,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            PanelOverlayRingMetrics.cornerRadius(forWindowCornerRadius: nil),
+            6,
+            accuracy: 0.0001
+        )
+    }
+
     func testFocusFlashPatternMatchesTerminalDoublePulseShape() {
         XCTAssertEqual(FocusFlashPattern.values, [0, 1, 0, 1, 0])
         XCTAssertEqual(FocusFlashPattern.keyTimes, [0, 0.25, 0.5, 0.75, 1])
