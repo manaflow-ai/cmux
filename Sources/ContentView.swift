@@ -3302,7 +3302,7 @@ struct ContentView: View {
             syncTrafficLightInset()
         })
 
-        view = AnyView(view.onChange(of: sidebarPositionRaw) { _ in
+        view = AnyView(view.onChange(of: sidebarPositionRaw) { _, _ in
             clampSidebarWidthIfNeeded()
             clampRightSidebarWidthIfNeeded()
             schedulePortalGeometrySynchronize()
