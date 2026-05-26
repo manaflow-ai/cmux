@@ -2309,11 +2309,15 @@ struct ContentView: View {
                         .padding(.leading, -6)
                 }
 
-                Text(titlebarText)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
-                    .lineLimit(1)
-                    .allowsHitTesting(false)
+                if let workspace = tabManager.selectedWorkspace {
+                    titlebarPageStrip(workspace: workspace, textColor: fakeTitlebarTextColor(appearance: appearance))
+                } else {
+                    Text(titlebarText)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
+                        .lineLimit(1)
+                        .allowsHitTesting(false)
+                }
 
                 Spacer()
 
@@ -2329,6 +2333,75 @@ struct ContentView: View {
         .background(TitlebarDoubleClickMonitorView())
         .overlay(alignment: .bottom) {
             WindowChromeBorder(orientation: .horizontal)
+        }
+    }
+
+    private func titlebarPageStrip(workspace: Workspace, textColor: Color) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(workspace.pages) { page in
+                    titlebarPageButton(page: page, workspace: workspace, textColor: textColor)
+                }
+
+                Button {
+                    _ = workspace.newPage(select: true)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(textColor.opacity(0.8))
+                .help(String(localized: "menu.view.newPage", defaultValue: "New Page"))
+            }
+            .frame(maxHeight: .infinity, alignment: .center)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func titlebarPageButton(page: WorkspacePage, workspace: Workspace, textColor: Color) -> some View {
+        let isActive = page.id == workspace.activePageId
+        return Button {
+            workspace.selectPage(page.id)
+        } label: {
+            HStack(spacing: 4) {
+                Text(page.title)
+                    .font(.system(size: 12, weight: isActive ? .semibold : .regular))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(isActive ? textColor.opacity(0.16) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .stroke(isActive ? textColor.opacity(0.20) : Color.clear, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(isActive ? textColor : textColor.opacity(0.72))
+        .help(page.title)
+        .contextMenu {
+            Button(String(localized: "workspace.page.context.rename", defaultValue: "Rename Page…")) {
+                workspace.promptRenamePage(pageId: page.id)
+            }
+            Button(String(localized: "workspace.page.context.duplicate", defaultValue: "Duplicate Page")) {
+                _ = workspace.duplicatePage(sourcePageId: page.id, select: true)
+            }
+            Divider()
+            Button(String(localized: "workspace.page.context.closeOthers", defaultValue: "Close Other Pages")) {
+                workspace.closeOtherPages(keeping: page.id)
+            }
+            .disabled(workspace.pages.count <= 1)
+            Button(String(localized: "workspace.page.context.close", defaultValue: "Close Page")) {
+                workspace.closePage(page.id)
+            }
+            .disabled(!workspace.canClosePage(page.id))
         }
     }
 

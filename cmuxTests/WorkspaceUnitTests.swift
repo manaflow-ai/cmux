@@ -2354,6 +2354,20 @@ final class WorkspaceShortcutMapperTests: XCTestCase {
         XCTAssertEqual(WorkspaceShortcutMapper.digitForWorkspace(at: 11, workspaceCount: 12), 9)
         XCTAssertNil(WorkspaceShortcutMapper.digitForWorkspace(at: 8, workspaceCount: 12))
     }
+
+    func testOptionDigitMapsToPageIndexWithNineAsLastPage() {
+        XCTAssertEqual(WorkspaceShortcutMapper.pageIndex(forOptionDigit: 1, pageCount: 12), 0)
+        XCTAssertEqual(WorkspaceShortcutMapper.pageIndex(forOptionDigit: 8, pageCount: 12), 7)
+        XCTAssertEqual(WorkspaceShortcutMapper.pageIndex(forOptionDigit: 9, pageCount: 12), 11)
+        XCTAssertNil(WorkspaceShortcutMapper.pageIndex(forOptionDigit: 0, pageCount: 12))
+    }
+
+    func testOptionDigitBadgesUseNineForLastPageWhenNeeded() {
+        XCTAssertEqual(WorkspaceShortcutMapper.optionDigitForPage(at: 0, pageCount: 12), 1)
+        XCTAssertEqual(WorkspaceShortcutMapper.optionDigitForPage(at: 7, pageCount: 12), 8)
+        XCTAssertEqual(WorkspaceShortcutMapper.optionDigitForPage(at: 11, pageCount: 12), 9)
+        XCTAssertNil(WorkspaceShortcutMapper.optionDigitForPage(at: 8, pageCount: 12))
+    }
 }
 @MainActor
 final class WorkspaceCustomDescriptionTests: XCTestCase {
