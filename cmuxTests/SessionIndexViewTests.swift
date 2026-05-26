@@ -346,6 +346,7 @@ final class SessionIndexViewTests: XCTestCase {
             modified: Date(timeIntervalSince1970: 0),
             fileURL: fileURL,
             specifics: specifics ?? agent.defaultSpecificsForTesting(
+                sessionId: sessionId,
                 claudeConfigDirectoryForResume: claudeConfigDirectoryForResume
             )
         )
@@ -431,6 +432,7 @@ final class SessionIndexViewTests: XCTestCase {
 
 private extension SessionAgent {
     func defaultSpecificsForTesting(
+        sessionId: String,
         claudeConfigDirectoryForResume: String? = nil
     ) -> AgentSpecifics {
         switch self {
