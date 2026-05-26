@@ -1,5 +1,8 @@
 import Darwin
 import Foundation
+import os
+
+nonisolated private let cliForwardingLogger = Logger(subsystem: "com.cmuxterm.app", category: "CLIForwarding")
 
 enum CLIForwardingLaunchRouter {
     private static let guardKey = "CMUX_CLI_FORWARDED"
@@ -19,40 +22,34 @@ enum CLIForwardingLaunchRouter {
             #if DEBUG
             let resourcePath = bundle.resourceURL?.appendingPathComponent("bin/cmux").path ?? "<missing>"
             let executablePath = processExecutableURL()?.path ?? "<missing>"
-            NSLog(
-                "cmux: bundled CLI not found for forwarding; bundleID=%@ resourcePath=%@ executablePath=%@",
-                bundle.bundleIdentifier ?? "<missing>",
-                resourcePath,
-                executablePath
-            )
+            cliForwardingLogger.debug("bundled CLI not found for forwarding; bundleID=\(bundle.bundleIdentifier ?? "<missing>", privacy: .public) resourcePath=\(resourcePath, privacy: .public) executablePath=\(executablePath, privacy: .public)")
             #endif
-            return
+            writeStderr(localizedMissingBundledCLIError())
+            Darwin.exit(127)
         }
 
         guard var cArgs = makeCStringArguments(cliPath: cliURL.path, arguments: argv) else {
-            fputs("error: failed to allocate launch arguments for bundled cmux CLI\n", stderr)
-            fflush(stderr)
+            writeStderr(localizedArgumentAllocationError())
             Darwin.exit(ENOMEM)
         }
 
         setenv(guardKey, "1", 1)
 
-        _ = cliURL.path.withCString { execPath in
+        let execErrno = cliURL.path.withCString { execPath in
             cArgs.withUnsafeMutableBufferPointer { buffer in
                 Darwin.execv(execPath, buffer.baseAddress)
+                return errno
             }
         }
 
-        let execErrno = errno
         freeCStringArguments(cArgs)
         unsetenv(guardKey)
 
         let errorText = String(cString: strerror(execErrno))
         #if DEBUG
-        NSLog("cmux: failed to exec bundled CLI at %@: %@", cliURL.path, errorText)
+        cliForwardingLogger.warning("failed to exec bundled CLI at \(cliURL.path, privacy: .public): \(errorText, privacy: .public)")
         #endif
-        fputs("error: failed to launch bundled cmux CLI: \(errorText)\n", stderr)
-        fflush(stderr)
+        writeStderr(localizedExecFailureError(errorText))
         Darwin.exit(127)
     }
 
@@ -111,6 +108,33 @@ enum CLIForwardingLaunchRouter {
 
     private static func freeCStringArguments(_ cArgs: [UnsafeMutablePointer<CChar>?]) {
         for ptr in cArgs where ptr != nil { free(ptr) }
+    }
+
+    private static func writeStderr(_ message: String) {
+        fputs("\(message)\n", stderr)
+        fflush(stderr)
+    }
+
+    private static func localizedMissingBundledCLIError() -> String {
+        String(
+            localized: "cli.forwarding.error.missingBundledCLI",
+            defaultValue: "error: bundled cmux CLI was not found"
+        )
+    }
+
+    private static func localizedArgumentAllocationError() -> String {
+        String(
+            localized: "cli.forwarding.error.allocateArguments",
+            defaultValue: "error: failed to allocate launch arguments for bundled cmux CLI"
+        )
+    }
+
+    private static func localizedExecFailureError(_ errorText: String) -> String {
+        let format = String(
+            localized: "cli.forwarding.error.execFailed",
+            defaultValue: "error: failed to launch bundled cmux CLI: %@"
+        )
+        return String(format: format, errorText)
     }
 
     private static func processExecutableURL() -> URL? {
