@@ -41,6 +41,9 @@ extension TerminalController {
         if installResult.shouldStart {
             source.resume()
             installResult.previousSource?.cancel()
+            socketListenerQueue.async { [weak self] in
+                self?.performSocketFileHealthCheck()
+            }
         } else {
             source.resume()
             source.cancel()
@@ -146,7 +149,6 @@ extension TerminalController {
     nonisolated func performSocketFileHealthCheck() {
         let snapshot = listenerStateSnapshot()
         guard snapshot.isRunning,
-              snapshot.acceptLoopAlive,
               snapshot.serverSocket >= 0,
               !snapshot.listenerStartInProgress else {
             return

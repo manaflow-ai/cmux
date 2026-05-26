@@ -566,7 +566,6 @@ class TerminalController {
     nonisolated func scheduleSocketFileRecoveryIfCurrent(_ snapshot: ListenerStateSnapshot) -> Bool {
         withListenerState {
             guard isRunning,
-                  acceptLoopAlive,
                   serverSocket == snapshot.serverSocket,
                   activeAcceptLoopGeneration == snapshot.activeGeneration,
                   pendingSocketFileRecoveryGeneration == nil else {
@@ -1786,6 +1785,7 @@ class TerminalController {
                 socketPath: self.socketPath,
                 reservedStartupSocketPath: reservedStartupSocketPath,
                 socketPathLockHeld: socketPathLockFD >= 0,
+                hasSocketPathWatchSource: socketPathWatchSource != nil,
                 hasRetainedInactiveListenerState: !isRunning && (
                     pendingAcceptLoopRearmGeneration != nil ||
                         socketPathLockFD >= 0 ||
@@ -1796,6 +1796,7 @@ class TerminalController {
                 )
             )
         }
+        let shouldRestoreRecoveryRetryWatcherOnFailure = !existing.isRunning && existing.hasSocketPathWatchSource
 
         if existing.isRunning && SocketControlSettings.pathsMatch(existing.socketPath, socketPath) {
             self.accessMode = accessMode
@@ -1849,6 +1850,12 @@ class TerminalController {
                         boundSocketPathIdentity = nil
                     }
                     listenerStartInProgress = false
+                }
+                if shouldRestoreRecoveryRetryWatcherOnFailure {
+                    startSocketFileRecoveryRetryWatcher(
+                        socketPath: activeSocketPath,
+                        accessMode: accessMode
+                    )
                 }
             }
         }
