@@ -497,9 +497,11 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
             initialWorkspaceIds,
             "Nested split-screen layout should remain grouped under the original workspace"
         )
+        XCTAssertEqual(manager.selectedWorkspace?.id, workspace.id)
         XCTAssertEqual(Set(workspace.panels.keys), [initialPanelId, rightPanelId, bottomPanelId])
         XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 3)
         XCTAssertEqual(splitNodes(in: workspace.bonsplitController.treeSnapshot()).count, 2)
+        XCTAssertNotNil(workspace.paneId(forPanelId: initialPanelId))
         XCTAssertNotNil(workspace.paneId(forPanelId: rightPanelId))
         XCTAssertNotNil(workspace.paneId(forPanelId: bottomPanelId))
     }
