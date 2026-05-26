@@ -1797,6 +1797,7 @@ class TerminalController {
             )
         }
         let shouldRestoreRecoveryRetryWatcherOnFailure = !existing.isRunning && existing.hasSocketPathWatchSource
+        let recoveryRetryWatcherPathToRestore = shouldRestoreRecoveryRetryWatcherOnFailure ? socketPath : nil
 
         if existing.isRunning && SocketControlSettings.pathsMatch(existing.socketPath, socketPath) {
             self.accessMode = accessMode
@@ -1853,7 +1854,7 @@ class TerminalController {
                 }
                 if shouldRestoreRecoveryRetryWatcherOnFailure {
                     startSocketFileRecoveryRetryWatcher(
-                        socketPath: activeSocketPath,
+                        socketPath: recoveryRetryWatcherPathToRestore ?? activeSocketPath,
                         accessMode: accessMode
                     )
                 }
@@ -2836,13 +2837,13 @@ class TerminalController {
                 preserveAcceptFailureStreak: true
             )
             if !didStart {
-                let retryPath = self.listenerStateSnapshot().socketPath
+                let failedPath = self.listenerStateSnapshot().socketPath
                 self.reportSocketListenerFailure(
                     message: "socket.listener.rearm.restart_failed",
                     stage: "accept_rearm",
                     errnoCode: errnoCode,
                     extra: [
-                        "path": retryPath,
+                        "path": failedPath,
                         "requestedPath": restartPath,
                         "mode": restartMode.rawValue,
                         "generation": generation,
@@ -2850,7 +2851,7 @@ class TerminalController {
                     ]
                 )
                 self.startSocketFileRecoveryRetryWatcher(
-                    socketPath: retryPath,
+                    socketPath: restartPath,
                     accessMode: restartMode
                 )
             }

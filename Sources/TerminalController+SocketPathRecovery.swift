@@ -127,19 +127,19 @@ extension TerminalController {
                 preserveAcceptFailureStreak: true
             )
             if !didStart {
-                let updatedRetryPath = self.listenerStateSnapshot().socketPath
+                let failedPath = self.listenerStateSnapshot().socketPath
                 self.reportSocketListenerFailure(
                     message: "socket.listener.path.recovery.retry_failed",
                     stage: "socket_file_recovery_retry",
                     extra: [
-                        "path": updatedRetryPath,
+                        "path": failedPath,
                         "requestedPath": retrySocketPath,
                         "mode": retryAccessMode.rawValue
                     ]
                 )
                 self.clearSocketListenerStartInProgress()
                 self.startSocketFileRecoveryRetryWatcher(
-                    socketPath: updatedRetryPath,
+                    socketPath: retrySocketPath,
                     accessMode: retryAccessMode
                 )
             }
@@ -277,19 +277,19 @@ extension TerminalController {
             preserveAcceptFailureStreak: true
         )
         if !didRestart {
-            let retryPath = listenerStateSnapshot().socketPath
+            let failedPath = listenerStateSnapshot().socketPath
             reportSocketListenerFailure(
                 message: "socket.listener.path.recovery.restart_failed",
                 stage: "socket_file_recovery_restart",
                 extra: [
-                    "path": retryPath,
+                    "path": failedPath,
                     "requestedPath": recoveryPath,
                     "mode": restart.mode.rawValue,
                     "generation": generation
                 ]
             )
             startSocketFileRecoveryRetryWatcher(
-                socketPath: retryPath,
+                socketPath: recoveryPath,
                 accessMode: restart.mode
             )
         }
