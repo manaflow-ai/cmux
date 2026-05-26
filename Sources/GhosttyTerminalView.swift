@@ -8769,8 +8769,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return true
         }
 
+        // Explicit after-menu-miss path used by the window-level direct-to-menu
+        // router before an unclaimed Cmd+Shift+Arrow can fall through to keyDown.
         if !shouldRetryMainMenu,
-           handleTerminalSelectionCommandEquivalent(event) {
+           handleTerminalSelectionCommandEquivalent(event, surface: surface) {
             return true
         }
 
@@ -8815,7 +8817,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             lastPerformKeyEvent = event.timestamp; return false
         }
 
-        if handleTerminalSelectionCommandEquivalent(event) {
+        // AppKit can re-enter performKeyEquivalent with the same timestamp after
+        // the local two-call menu dance; handle that path before synthesizing keyDown.
+        if handleTerminalSelectionCommandEquivalent(event, surface: surface) {
             return true
         }
 
@@ -8841,7 +8845,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     @discardableResult
-    private func handleTerminalSelectionCommandEquivalent(_ event: NSEvent) -> Bool {
+    private func handleTerminalSelectionCommandEquivalent(
+        _ event: NSEvent,
+        surface: ghostty_surface_t
+    ) -> Bool {
         guard let move = terminalKeyboardSelectionMoveForCommandEquivalent(
             keyCode: event.keyCode,
             modifierFlags: event.modifierFlags
@@ -8852,6 +8859,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeInputState.reset()
         if !keyboardCopyModeActive {
             setKeyboardCopyModeActive(true)
+        } else if !keyboardCopyModeVisualActive {
+            _ = ghostty_surface_select_cursor_cell_compat(surface)
         }
         keyboardCopyModeVisualActive = true
         performBindingAction("adjust_selection:\(move.rawValue)", repeatCount: 1)

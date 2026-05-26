@@ -11,6 +11,7 @@ import AppKit
 final class GhosttyCommandShiftForwardingTests: XCTestCase {
     private static let keyCodeANSIK: UInt16 = 40
     private static let keyCodeLeftArrow: UInt16 = 123
+    private static let keyCodeUpArrow: UInt16 = 126
 
     private struct HostedTerminal {
         let surface: TerminalSurface
@@ -111,6 +112,25 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
     }
 
     func testCommandShiftLeftAfterMenuMissStartsTerminalSelectionInsteadOfForwardingToShell() throws {
+        try assertCommandShiftArrowStartsSelectionInsteadOfForwardingToShell(
+            keyCode: Self.keyCodeLeftArrow,
+            charactersIgnoringModifiers: String(UnicodeScalar(NSLeftArrowFunctionKey)!)
+        )
+    }
+
+    func testCommandShiftUpAfterMenuMissStartsTerminalSelectionInsteadOfForwardingToShell() throws {
+        try assertCommandShiftArrowStartsSelectionInsteadOfForwardingToShell(
+            keyCode: Self.keyCodeUpArrow,
+            charactersIgnoringModifiers: String(UnicodeScalar(NSUpArrowFunctionKey)!)
+        )
+    }
+
+    private func assertCommandShiftArrowStartsSelectionInsteadOfForwardingToShell(
+        keyCode: UInt16,
+        charactersIgnoringModifiers: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
         let hostedTerminal = try makeHostedTerminal()
         let window = hostedTerminal.window
         let surfaceView = hostedTerminal.surfaceView
@@ -124,7 +144,7 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
             previousKeyEventObserver?(keyEvent)
             guard keyEvent.action == GHOSTTY_ACTION_PRESS,
-                  keyEvent.keycode == UInt32(Self.keyCodeLeftArrow) else { return }
+                  keyEvent.keycode == UInt32(keyCode) else { return }
             forwardedPressCount += 1
         }
         defer { GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver }
@@ -137,17 +157,33 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
             windowNumber: window.windowNumber,
             context: nil,
             characters: "",
-            charactersIgnoringModifiers: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
             isARepeat: false,
-            keyCode: Self.keyCodeLeftArrow
+            keyCode: keyCode
         ))
 
         withExtendedLifetime(hostedTerminal.surface) {
-            XCTAssertTrue(surfaceView.performKeyEquivalentAfterMenuMiss(with: event))
+            XCTAssertTrue(surfaceView.performKeyEquivalentAfterMenuMiss(with: event), file: file, line: line)
         }
 
-        XCTAssertEqual(forwardedPressCount, 0, "Cmd+Shift+Left should not reach the shell as a Super+Shift+Arrow sequence")
-        XCTAssertTrue(hostedTerminal.surface.keyboardCopyModeActive, "Cmd+Shift+Left should enter terminal keyboard selection mode")
-        XCTAssertTrue(hostedTerminal.surface.hasSelection(), "Cmd+Shift+Left should create a terminal selection")
+        XCTAssertEqual(
+            forwardedPressCount,
+            0,
+            "Cmd+Shift+Arrow should not reach the shell as a Super+Shift+Arrow sequence",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            hostedTerminal.surface.keyboardCopyModeActive,
+            "Cmd+Shift+Arrow should enter terminal keyboard selection mode",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            hostedTerminal.surface.hasSelection(),
+            "Cmd+Shift+Arrow should create a terminal selection",
+            file: file,
+            line: line
+        )
     }
 }
