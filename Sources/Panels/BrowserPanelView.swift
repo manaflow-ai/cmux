@@ -768,12 +768,6 @@ struct BrowserPanelView: View {
         .onPreferenceChange(BrowserAddressBarHeightPreferenceKey.self) { height in
             addressBarHeight = height
         }
-        .onChange(of: panel.surfaceRole.showsBrowserChrome) { _, showsBrowserChrome in
-            if !showsBrowserChrome {
-                addressBarHeight = 0
-                omnibarPillFrame = .zero
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick).filter { [weak panel] note in
             // Only handle clicks from our own webview.
             guard let webView = note.object as? CmuxWebView else { return false }

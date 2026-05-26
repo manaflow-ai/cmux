@@ -6860,9 +6860,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let targetWorkspaceId = targetTabManager.selectedWorkspace?.id
-            ?? targetTabManager.tabs.first?.id
-            ?? targetTabManager.addWorkspace(select: true).id
+        let targetWorkspace = targetTabManager.selectedWorkspace
+            ?? targetTabManager.tabs.first
+            ?? targetTabManager.addWorkspace(select: true)
+        let targetWorkspaceId = targetWorkspace.id
         let normalizedDirectoryURL = directoryURL.standardizedFileURL
 
         VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
@@ -6902,9 +6903,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
-        let targetWorkspaceId = targetTabManager.selectedWorkspace?.id
-            ?? targetTabManager.tabs.first?.id
-            ?? targetTabManager.addWorkspace(select: true).id
+        let targetWorkspace = targetTabManager.selectedWorkspace
+            ?? targetTabManager.tabs.first
+            ?? targetTabManager.addWorkspace(select: true)
+        let targetWorkspaceId = targetWorkspace.id
 
         if let requestedURL {
             return targetTabManager.openCodeEditor(
@@ -6924,7 +6926,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
 
-        let directoryPath = targetTabManager.selectedWorkspace?.currentDirectory
+        let directoryPath = targetWorkspace.currentDirectory
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let directoryPath,
               !directoryPath.isEmpty,
