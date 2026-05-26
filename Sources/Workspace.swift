@@ -251,7 +251,12 @@ extension Workspace {
         )
     }
 
-    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
+    @discardableResult
+    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) -> [UUID: UUID] {
+        let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
+        suppressClosedPanelHistory = true
+        defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
+
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
@@ -318,6 +323,7 @@ extension Workspace {
         agentPIDs.removeAll()
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
+        clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
         logEntries = snapshot.logEntries.map { entry in
             SidebarLogEntry(
@@ -355,6 +361,7 @@ extension Workspace {
         }
         AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
         syncUnreadBadgeStateForAllPanels()
+        return oldToNewPanelIds
     }
 
     private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
@@ -437,7 +444,8 @@ extension Workspace {
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
             }
         }
-        let effectiveRestorableAgent = restoredAgentSnapshotsByPanelId[panelId]
+        let hibernationState = (panel as? TerminalPanel)?.agentHibernationState
+        let effectiveRestorableAgent = hibernationState?.agent ?? restoredAgentSnapshotsByPanelId[panelId]
 
         let panelTitle = panelTitle(panelId: panelId)
         let customTitle = panelCustomTitles[panelId]
@@ -524,7 +532,7 @@ extension Workspace {
 #else
             let allowDebugFallbackScrollback = false
 #endif
-            let capturedScrollback = includeScrollback && shouldPersistScrollback
+            let capturedScrollback = includeScrollback && shouldPersistScrollback && hibernationState == nil
                 ? TerminalController.shared.readTerminalTextForSnapshot(
                     terminalPanel: terminalPanel,
                     includeScrollback: true,
@@ -543,6 +551,12 @@ extension Workspace {
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
+                hibernation: hibernationState.map {
+                    SessionAgentHibernationSnapshot(
+                        hibernatedAt: $0.hibernatedAt.timeIntervalSince1970,
+                        lastActivityAt: $0.lastActivityAt.timeIntervalSince1970
+                    )
+                },
                 resumeBinding: resumeBinding,
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
@@ -611,6 +625,157 @@ extension Workspace {
             filePreview: filePreviewSnapshot,
             rightSidebarTool: rightSidebarToolSnapshot
         )
+    }
+
+    private func closedPanelHistoryEntry(panelId: UUID, tabId: TabID, pane: PaneID) -> ClosedPanelHistoryEntry? {
+        guard !suppressClosedPanelHistory else { return nil }
+        guard let tabIndex = bonsplitController.tabs(inPane: pane).firstIndex(where: { $0.id == tabId }) else {
+            return nil
+        }
+        let paneTabs = bonsplitController.tabs(inPane: pane)
+        let paneAnchorPanelId: UUID? = {
+            if tabIndex + 1 < paneTabs.count {
+                return panelIdFromSurfaceId(paneTabs[tabIndex + 1].id)
+            }
+            if tabIndex > 0 {
+                return panelIdFromSurfaceId(paneTabs[tabIndex - 1].id)
+            }
+            return nil
+        }()
+        let fallbackPlan = browserCloseFallbackPlan(
+            forPaneId: pane.id.uuidString,
+            in: bonsplitController.treeSnapshot()
+        )
+        let fallbackAnchorPanelId = fallbackPlan?.anchorPaneId.flatMap { anchorPaneId -> UUID? in
+            guard let anchorPane = bonsplitController.allPaneIds.first(where: { $0.id == anchorPaneId }),
+                  let anchorTab = bonsplitController.selectedTab(inPane: anchorPane)
+                    ?? bonsplitController.tabs(inPane: anchorPane).first else {
+                return nil
+            }
+            return panelIdFromSurfaceId(anchorTab.id)
+        }
+        let fallbackSplitPlacement = fallbackPlan.map {
+            ClosedPanelSplitPlacement(
+                orientation: $0.orientation,
+                insertFirst: $0.insertFirst,
+                anchorPanelId: fallbackAnchorPanelId
+            )
+        }
+        let restorableAgentIndex = RestorableAgentSessionIndex.load()
+        guard let snapshot = sessionPanelSnapshot(
+            panelId: panelId,
+            includeScrollback: true,
+            restorableAgent: restorableAgentIndex.snapshot(workspaceId: id, panelId: panelId),
+            resumeBinding: effectiveSurfaceResumeBinding(
+                panelId: panelId,
+                surfaceResumeBindingIndex: nil
+            )
+        ) else {
+            return nil
+        }
+        return ClosedPanelHistoryEntry(
+            workspaceId: id,
+            paneId: pane.id,
+            paneAnchorPanelId: paneAnchorPanelId,
+            tabIndex: tabIndex,
+            snapshot: snapshot,
+            fallbackSplitPlacement: fallbackSplitPlacement
+        )
+    }
+
+    private func consumeCloseHistoryEligibility(tabId: TabID, panelId: UUID?) -> Bool {
+        let eligibleByTab = closeHistoryEligibleTabIds.remove(tabId) != nil
+        let eligibleByPanel = panelId.map { closeHistoryEligiblePanelIds.remove($0) != nil } ?? false
+        return eligibleByTab || eligibleByPanel
+    }
+
+    private func clearCloseHistoryEligibility(tabId: TabID, panelId: UUID? = nil) {
+        closeHistoryEligibleTabIds.remove(tabId)
+        let resolvedPanelId = panelId ?? panelIdFromSurfaceId(tabId)
+        if let resolvedPanelId {
+            closeHistoryEligiblePanelIds.remove(resolvedPanelId)
+        }
+    }
+
+    @discardableResult
+    private func pushClosedPanelHistoryIfEligible(for tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+        guard !suppressClosedPanelHistory else { return false }
+        guard let panelId = panelIdFromSurfaceId(tab.id) else { return false }
+        guard consumeCloseHistoryEligibility(tabId: tab.id, panelId: panelId) else { return false }
+        guard let entry = closedPanelHistoryEntry(panelId: panelId, tabId: tab.id, pane: pane) else {
+            return false
+        }
+        ClosedItemHistoryStore.shared.push(.panel(entry))
+        return true
+    }
+
+    @discardableResult
+    func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry) -> UUID? {
+        if entry.restoreInOriginalPane,
+           let originalPane = bonsplitController.allPaneIds.first(where: { $0.id == entry.paneId }) {
+            return restoreClosedPanel(entry, inPane: originalPane)
+        }
+        if let paneAnchorPanelId = entry.paneAnchorPanelId,
+           let pane = paneId(forPanelId: paneAnchorPanelId) {
+            return restoreClosedPanel(entry, inPane: pane)
+        }
+        if let splitPanelId = restoreClosedPanelInFallbackSplit(entry) {
+            triggerFocusFlash(panelId: splitPanelId)
+            return splitPanelId
+        }
+        guard let pane = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first else {
+            return nil
+        }
+        return restoreClosedPanel(entry, inPane: pane)
+    }
+
+    @discardableResult
+    private func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry, inPane pane: PaneID) -> UUID? {
+        guard let panelId = createPanel(from: entry.snapshot, inPane: pane) else { return nil }
+
+        let maxIndex = max(0, bonsplitController.tabs(inPane: pane).count - 1)
+        _ = reorderSurface(panelId: panelId, toIndex: min(max(entry.tabIndex, 0), maxIndex))
+        if let tabId = surfaceIdFromPanelId(panelId) {
+            bonsplitController.focusPane(pane)
+            bonsplitController.selectTab(tabId)
+        }
+        focusPanel(panelId)
+        triggerFocusFlash(panelId: panelId)
+        return panelId
+    }
+
+    @discardableResult
+    private func restoreClosedPanelInFallbackSplit(_ entry: ClosedPanelHistoryEntry) -> UUID? {
+        guard let placement = entry.fallbackSplitPlacement,
+              let anchorPanelId = placement.anchorPanelId,
+              panels[anchorPanelId] != nil else {
+            return nil
+        }
+
+        guard let placeholderPanel = newTerminalSplit(
+            from: anchorPanelId,
+            orientation: placement.orientation,
+            insertFirst: placement.insertFirst,
+            focus: false
+        ) else {
+            return nil
+        }
+        guard let pane = paneId(forPanelId: placeholderPanel.id) else {
+            _ = closePanel(placeholderPanel.id, force: true)
+            return nil
+        }
+
+        guard let panelId = createPanel(from: entry.snapshot, inPane: pane) else {
+            _ = closePanel(placeholderPanel.id, force: true)
+            return nil
+        }
+
+        _ = closePanel(placeholderPanel.id, force: true)
+        guard panels[panelId] != nil else {
+            return nil
+        }
+        focusPanel(panelId)
+        return panelId
     }
 
     nonisolated static func resolvedSnapshotTerminalScrollback(
@@ -944,13 +1109,19 @@ extension Workspace {
         case .terminal:
             let resumeBinding = snapshot.terminal?.resumeBinding
             let restorableAgent = snapshot.terminal?.agent
+            let restoredHibernation = snapshot.terminal?.hibernation
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
             // Only auto-resume if the agent was actively running when the snapshot was saved.
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
             let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
             let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit
+            let resumeBindingForStartup =
+                restoredHibernation != nil ||
+                (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
+                    ? nil
+                    : resumeBinding
             let restoredBindingInput = Self.surfaceResumeStartupInput(
-                resumeBinding,
+                resumeBindingForStartup,
                 autoResumeAgentSessions: shouldAutoResumeAgent,
                 allowLauncherScript: true
             )
@@ -977,7 +1148,7 @@ extension Workspace {
                 tmuxStartCommand: restoredTmuxStartCommand,
                 resumeStartupInput: restoredBindingInput
             )
-            let restoredAgentResumeInput = shouldAutoResumeAgent
+            let restoredAgentResumeInput = shouldAutoResumeAgent && restoredHibernation == nil
                 ? (restoredBindingInput == nil ? restorableAgent?.resumeStartupInput() : nil)
                 : nil
             let restoredStartupInput = restoredBindingInput ?? restoredAgentResumeInput
@@ -1046,6 +1217,14 @@ extension Workspace {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .manualResumeAvailable
                 }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
+                if let restoredHibernation,
+                   restorableAgent.resumeCommand != nil {
+                    terminalPanel.enterAgentHibernation(
+                        agent: restorableAgent,
+                        lastActivityAt: Date(timeIntervalSince1970: restoredHibernation.lastActivityAt),
+                        hibernatedAt: Date(timeIntervalSince1970: restoredHibernation.hibernatedAt)
+                    )
+                }
             } else {
                 clearRestoredAgentSnapshot(panelId: terminalPanel.id)
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
@@ -8976,6 +9155,29 @@ struct ClosedBrowserPanelRestoreSnapshot {
     let fallbackSplitOrientation: SplitOrientation?
     let fallbackSplitInsertFirst: Bool
     let fallbackAnchorPaneId: UUID?
+    let closedAt: Date
+
+    init(
+        workspaceId: UUID,
+        url: URL?,
+        profileID: UUID?,
+        originalPaneId: UUID,
+        originalTabIndex: Int,
+        fallbackSplitOrientation: SplitOrientation?,
+        fallbackSplitInsertFirst: Bool,
+        fallbackAnchorPaneId: UUID?,
+        closedAt: Date = Date()
+    ) {
+        self.workspaceId = workspaceId
+        self.url = url
+        self.profileID = profileID
+        self.originalPaneId = originalPaneId
+        self.originalTabIndex = originalTabIndex
+        self.fallbackSplitOrientation = fallbackSplitOrientation
+        self.fallbackSplitInsertFirst = fallbackSplitInsertFirst
+        self.fallbackAnchorPaneId = fallbackAnchorPaneId
+        self.closedAt = closedAt
+    }
 }
 
 /// Workspace represents a sidebar tab.
@@ -9213,6 +9415,7 @@ final class Workspace: Identifiable, ObservableObject {
     var agentPIDs: [String: pid_t] = [:]
     var agentPIDPanelIdsByKey: [String: UUID] = [:]
     var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
+    var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -9948,6 +10151,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// shortcut when the shortcut preference is set to close the workspace on the last surface),
     /// rather than an internal close/move flow.
     private var explicitUserCloseTabIds: Set<TabID> = []
+    private var closeHistoryEligibleTabIds: Set<TabID> = []
+    private var closeHistoryEligiblePanelIds: Set<UUID> = []
+    private var suppressClosedPanelHistory = false
     private var tabCloseButtonCloseTabIds: Set<TabID> = []
 
     /// Deterministic tab selection to apply after a tab closes.
@@ -9956,6 +10162,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Panel IDs that were in a pane when a pane-close operation was approved.
     /// Bonsplit pane-close does not emit per-tab didClose callbacks.
     private var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
+    private var pendingPaneCloseHistoryEntries: [UUID: [ClosedPanelHistoryEntry]] = [:]
     private var pendingClosedBrowserRestoreSnapshots: [TabID: ClosedBrowserPanelRestoreSnapshot] = [:]
     private var isApplyingTabSelection = false
     private struct PendingTabSelectionRequest {
@@ -9963,6 +10170,7 @@ final class Workspace: Identifiable, ObservableObject {
         let pane: PaneID
         let reassertAppKitFocus: Bool
         let focusIntent: PanelFocusIntent?
+        let resumeHibernatedAgent: Bool?
         let previousTerminalHostedView: GhosttySurfaceScrollView?
     }
     private var pendingTabSelection: PendingTabSelectionRequest?
@@ -9986,6 +10194,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpStalledAttemptCount = 0
     private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
     private var portalRenderingEnabled = true
+    private var agentHibernationAutoResumePresentationVisible = true
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
@@ -10024,6 +10233,35 @@ final class Workspace: Identifiable, ObservableObject {
 
     func markExplicitClose(surfaceId: TabID) {
         explicitUserCloseTabIds.insert(surfaceId)
+        closeHistoryEligibleTabIds.insert(surfaceId)
+        if let panelId = panelIdFromSurfaceId(surfaceId) {
+            closeHistoryEligiblePanelIds.insert(panelId)
+        }
+    }
+
+    func markCloseHistoryEligible(panelId: UUID) {
+        closeHistoryEligiblePanelIds.insert(panelId)
+        if let surfaceId = surfaceIdFromPanelId(panelId) {
+            closeHistoryEligibleTabIds.insert(surfaceId)
+        }
+    }
+
+    @discardableResult
+    func requestCloseTabRecordingHistory(_ tabId: TabID, force: Bool) -> Bool {
+        let panelId = panelIdFromSurfaceId(tabId)
+        if let panelId {
+            markCloseHistoryEligible(panelId: panelId)
+        }
+
+        let closed = requestCloseTab(tabId, force: force)
+        return closed
+    }
+
+    func withClosedPanelHistorySuppressed(_ body: () -> Void) {
+        let previous = suppressClosedPanelHistory
+        suppressClosedPanelHistory = true
+        defer { suppressClosedPanelHistory = previous }
+        body()
     }
 
     func markTabCloseButtonClose(surfaceId: TabID) {
@@ -10039,6 +10277,10 @@ final class Workspace: Identifiable, ObservableObject {
         terminalPanel.onRequestWorkspacePaneFlash = { [weak self, weak terminalPanel] reason in
             guard let self, let terminalPanel else { return }
             self.triggerWorkspacePaneFlash(panelId: terminalPanel.id, reason: reason)
+        }
+        terminalPanel.onRequestAgentHibernationResume = { [weak self, weak terminalPanel] focus in
+            guard let self, let terminalPanel else { return false }
+            return self.resumeAgentHibernation(panelId: terminalPanel.id, focus: focus)
         }
     }
 
@@ -10750,6 +10992,145 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
     }
 
+    func setAgentLifecycle(
+        key: String,
+        panelId: UUID?,
+        lifecycle: AgentHibernationLifecycleState
+    ) {
+        let targetPanelId = panelId ?? focusedPanelId
+        guard let targetPanelId, panels[targetPanelId] != nil else { return }
+        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
+        recordAgentLifecycleChange(panelId: targetPanelId)
+    }
+
+    @discardableResult
+    func clearAgentLifecycle(key: String, panelId: UUID? = nil) -> Bool {
+        var didClear = false
+        let panelIds = panelId.map { [$0] } ?? Array(agentLifecycleStatesByPanelId.keys)
+        for panelId in panelIds {
+            guard agentLifecycleStatesByPanelId[panelId]?[key] != nil else { continue }
+            agentLifecycleStatesByPanelId[panelId]?.removeValue(forKey: key)
+            if agentLifecycleStatesByPanelId[panelId]?.isEmpty == true {
+                agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
+            }
+            didClear = true
+            recordAgentLifecycleChange(panelId: panelId)
+        }
+        return didClear
+    }
+
+    func clearAgentLifecycleStates(panelId: UUID) {
+        guard agentLifecycleStatesByPanelId.removeValue(forKey: panelId) != nil else { return }
+        recordAgentLifecycleChange(panelId: panelId)
+    }
+
+    func clearAllAgentLifecycleStates() {
+        let panelIds = Array(agentLifecycleStatesByPanelId.keys)
+        guard !panelIds.isEmpty else { return }
+        agentLifecycleStatesByPanelId.removeAll()
+        for panelId in panelIds {
+            recordAgentLifecycleChange(panelId: panelId)
+        }
+    }
+
+    private func recordAgentLifecycleChange(panelId: UUID) {
+        AgentHibernationController.shared.recordAgentLifecycleChange(
+            workspaceId: id,
+            panelId: panelId
+        )
+    }
+
+    func agentHibernationLifecycleState(
+        panelId: UUID,
+        fallback: AgentHibernationLifecycleState?
+    ) -> AgentHibernationLifecycleState {
+        guard let panelStates = agentLifecycleStatesByPanelId[panelId],
+              !panelStates.isEmpty else {
+            return fallback ?? .unknown
+        }
+        let states = Array(panelStates.values)
+        if states.contains(.running) { return .running }
+        if states.contains(.needsInput) { return .needsInput }
+        if states.contains(.unknown) { return .unknown }
+        if states.contains(.idle) { return .idle }
+        return fallback ?? .unknown
+    }
+
+    func restorableAgentForHibernation(
+        panelId: UUID,
+        index: RestorableAgentSessionIndex
+    ) -> SessionRestorableAgentSnapshot? {
+        guard let snapshot = restoredAgentSnapshotsByPanelId[panelId] ?? index.snapshot(workspaceId: id, panelId: panelId),
+              snapshot.resumeCommand != nil else {
+            return nil
+        }
+        let fingerprint = TabManager.restorableAgentSnapshotFingerprint(snapshot)
+        guard invalidatedRestoredAgentFingerprintsByPanelId[panelId] != fingerprint else {
+            return nil
+        }
+        return snapshot
+    }
+
+    func enterAgentHibernation(
+        panelId: UUID,
+        agent: SessionRestorableAgentSnapshot,
+        lastActivityAt: Date
+    ) {
+        guard let terminalPanel = panels[panelId] as? TerminalPanel,
+              !terminalPanel.isAgentHibernated else {
+            return
+        }
+        guard agent.resumeCommand != nil else { return }
+        restoredAgentSnapshotsByPanelId[panelId] = agent
+        restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
+        invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+        let keys = agentPIDKeysByPanelId[panelId] ?? []
+        for key in keys {
+            _ = clearAgentPID(key: key, panelId: panelId, clearStatus: false, refreshPorts: false)
+        }
+        if !keys.isEmpty {
+            refreshTrackedAgentPorts()
+        }
+        terminalPanel.enterAgentHibernation(agent: agent, lastActivityAt: lastActivityAt)
+    }
+
+    @discardableResult
+    func resumeAgentHibernation(panelId: UUID, focus: Bool) -> Bool {
+        guard let terminalPanel = panels[panelId] as? TerminalPanel,
+              terminalPanel.isAgentHibernated else {
+            return false
+        }
+        let preparation = terminalPanel.prepareAgentHibernationResume()
+        guard preparation.didResume else {
+            return false
+        }
+        if restoredAgentSnapshotsByPanelId[panelId] != nil {
+            restoredAgentResumeStatesByPanelId[panelId] = preparation.queuedStartupInput
+                ? .awaitingAutoResumeCommand
+                : .manualResumeAvailable
+            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+        }
+        clearAgentLifecycleStates(panelId: panelId)
+        AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
+        if focus {
+            focusPanel(panelId)
+        }
+        return true
+    }
+
+    @discardableResult
+    func resumeVisibleAgentHibernationPanels(panelIds: Set<UUID>) -> Bool {
+        var didResume = false
+        for panelId in panelIds {
+            guard let terminalPanel = panels[panelId] as? TerminalPanel,
+                  terminalPanel.isAgentHibernated else {
+                continue
+            }
+            didResume = resumeAgentHibernation(panelId: panelId, focus: false) || didResume
+        }
+        return didResume
+    }
+
     private func restoredAgentResumeStateForAcceptedSnapshot(panelId: UUID) -> RestoredAgentResumeState {
         panelShellActivityStates[panelId] == .commandRunning
             ? .observedAgentCommandRunning
@@ -10967,6 +11348,7 @@ final class Workspace: Identifiable, ObservableObject {
         agentPIDs.removeAll()
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
+        clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
         latestConversationMessage = nil
         latestSubmittedMessage = nil
@@ -13539,6 +13921,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func stageClosedBrowserRestoreSnapshotIfNeeded(for tab: Bonsplit.Tab, inPane pane: PaneID) {
+        guard !suppressClosedPanelHistory else {
+            pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
+            return
+        }
         guard let panelId = panelIdFromSurfaceId(tab.id),
               let browserPanel = browserPanel(for: panelId),
               let tabIndex = bonsplitController.tabs(inPane: pane).firstIndex(where: { $0.id == tab.id }) else {
@@ -13837,6 +14223,7 @@ final class Workspace: Identifiable, ObservableObject {
         panels[detached.panelId] = detached.panel
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
+            configureTerminalPanel(terminalPanel)
         } else if let browserPanel = detached.panel as? BrowserPanel {
             browserPanel.reattachToWorkspace(
                 id,
@@ -14132,6 +14519,7 @@ final class Workspace: Identifiable, ObservableObject {
                 inPane: targetPaneId,
                 reassertAppKitFocus: !shouldSuppressReentrantRefocus,
                 focusIntent: activationIntent,
+                resumeHibernatedAgent: true,
                 previousTerminalHostedView: previousTerminalHostedView
             )
         }
@@ -14389,6 +14777,13 @@ final class Workspace: Identifiable, ObservableObject {
             hideAllTerminalPortalViews()
             hideAllBrowserPortalViews()
         }
+    }
+
+    func setAgentHibernationAutoResumePresentationVisible(_ isVisible: Bool) {
+        guard agentHibernationAutoResumePresentationVisible != isVisible else { return }
+        agentHibernationAutoResumePresentationVisible = isVisible
+        guard isVisible else { return }
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
     }
 
     // MARK: - Utility
@@ -15067,10 +15462,17 @@ final class Workspace: Identifiable, ObservableObject {
         return visiblePanelIds
     }
 
+    func agentHibernationVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
+        guard agentHibernationAutoResumePresentationVisible else { return [] }
+        return renderedVisiblePanelIdsForCurrentLayout()
+    }
+
     @discardableResult
     private func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
-        var didChange = false
+        var didChange = agentHibernationAutoResumePresentationVisible
+            ? resumeVisibleAgentHibernationPanels(panelIds: visiblePanelIds)
+            : false
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
@@ -15818,6 +16220,7 @@ extension Workspace: BonsplitDelegate {
         inPane pane: PaneID,
         reassertAppKitFocus: Bool = true,
         focusIntent: PanelFocusIntent? = nil,
+        resumeHibernatedAgent: Bool? = nil,
         previousTerminalHostedView: GhosttySurfaceScrollView? = nil
     ) {
         pendingTabSelection = PendingTabSelectionRequest(
@@ -15825,6 +16228,7 @@ extension Workspace: BonsplitDelegate {
             pane: pane,
             reassertAppKitFocus: reassertAppKitFocus,
             focusIntent: focusIntent,
+            resumeHibernatedAgent: resumeHibernatedAgent,
             previousTerminalHostedView: previousTerminalHostedView
         )
         guard !isApplyingTabSelection else { return }
@@ -15844,6 +16248,7 @@ extension Workspace: BonsplitDelegate {
                 inPane: request.pane,
                 reassertAppKitFocus: request.reassertAppKitFocus,
                 focusIntent: request.focusIntent,
+                resumeHibernatedAgent: request.resumeHibernatedAgent,
                 previousTerminalHostedView: request.previousTerminalHostedView
             )
         }
@@ -15864,6 +16269,7 @@ extension Workspace: BonsplitDelegate {
         inPane pane: PaneID,
         reassertAppKitFocus: Bool,
         focusIntent: PanelFocusIntent?,
+        resumeHibernatedAgent: Bool?,
         previousTerminalHostedView: GhosttySurfaceScrollView?
     ) {
         let previousFocusedPanelId = focusedPanelId
@@ -15927,9 +16333,18 @@ extension Workspace: BonsplitDelegate {
         if explicitFocusIntent {
             markExplicitFocusIntent(on: effectiveFocusedPanelId)
         }
+        // Selecting a hibernated tab means the user is visiting it again. Resume by
+        // default so sidebar/tab selection behaves the same as pressing Resume.
+        let shouldResumeHibernatedAgent = resumeHibernatedAgent ?? true
         let activationIntent = focusIntent ?? panel.preferredFocusIntentForActivation()
         panel.prepareFocusIntentForActivation(activationIntent)
         let panelId = effectiveFocusedPanelId
+        if let terminalPanel = panel as? TerminalPanel {
+            if terminalPanel.isAgentHibernated, shouldResumeHibernatedAgent {
+                _ = resumeAgentHibernation(panelId: panelId, focus: false)
+            }
+            AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
+        }
 
         syncPinnedStateForTab(selectedTabId, panelId: selectedPanelId)
         if previousFocusedPanelId != panelId {
@@ -16201,7 +16616,11 @@ extension Workspace: BonsplitDelegate {
         let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabCloseButtonClose
 
         if forceCloseTabIds.contains(tab.id) {
-            stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
+            if !pushClosedPanelHistoryIfEligible(for: tab, inPane: pane) {
+                stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
+            } else {
+                clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            }
             recordPostCloseSelection()
             return true
         }
@@ -16211,18 +16630,24 @@ extension Workspace: BonsplitDelegate {
             ?? AppDelegate.shared?.tabManager
         if let closeConfirmationManager, closeConfirmationManager.isCloseConfirmationInFlight {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            if pendingCloseConfirmTabIds.contains(tab.id) {
+                return false
+            }
+            clearCloseHistoryEligibility(tabId: tab.id)
             return false
         }
 
         if let panelId = panelIdFromSurfaceId(tab.id),
            pinnedPanelIds.contains(panelId) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            clearCloseHistoryEligibility(tabId: tab.id, panelId: panelId)
             NSSound.beep()
             return false
         }
 
         if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            clearCloseHistoryEligibility(tabId: tab.id)
             if tabCloseButtonClose {
                 owningTabManager?.closeWorkspaceFromTabCloseButton(self)
             } else {
@@ -16273,7 +16698,10 @@ extension Workspace: BonsplitDelegate {
                     guard self.panelIdFromSurfaceId(tabId) != nil else { return }
 
                     let confirmed = await self.confirmClosePanel(for: tabId)
-                    guard confirmed else { return }
+                    guard confirmed else {
+                        self.clearCloseHistoryEligibility(tabId: tabId)
+                        return
+                    }
 
                     self.forceCloseTabIds.insert(tabId)
                     self.bonsplitController.closeTab(tabId)
@@ -16283,7 +16711,11 @@ extension Workspace: BonsplitDelegate {
             return false
         }
 
-        stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
+        if !pushClosedPanelHistoryIfEligible(for: tab, inPane: pane) {
+            stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
+        } else {
+            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+        }
         recordPostCloseSelection()
         return true
     }
@@ -16312,6 +16744,7 @@ extension Workspace: BonsplitDelegate {
         #endif
 
         let panel = panels[panelId]
+        _ = consumeCloseHistoryEligibility(tabId: tabId, panelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId[panelId]
         let preservesSurfaceForDetach = isDetaching && panel != nil
 
@@ -16371,6 +16804,9 @@ extension Workspace: BonsplitDelegate {
             requestTransferredRemoteCleanup: false,
             cleanupControllerSurfaceState: !isDetaching
         )
+        if !isDetaching {
+            owningTabManager?.invalidateFocusHistoryTarget(workspaceId: id, panelId: panelId)
+        }
         syncRemotePortScanTTYs()
         recomputeListeningPorts()
         clearRemoteConfigurationIfWorkspaceBecameLocal()
@@ -16512,10 +16948,17 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
+        let closedHistoryEntries = pendingPaneCloseHistoryEntries.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
 
         publishCmuxPaneClosed(paneId, closedPanelIds: closedPanelIds, origin: "pane_close")
         if !closedPanelIds.isEmpty {
+            if !isDetachingCloseTransaction && !suppressClosedPanelHistory {
+                for entry in closedHistoryEntries {
+                    ClosedItemHistoryStore.shared.push(.panel(entry))
+                }
+            }
+
             for panelId in closedPanelIds {
                 let panel = panels[panelId]
                 discardClosedPanelLifecycleState(
@@ -16530,6 +16973,9 @@ extension Workspace: BonsplitDelegate {
                     requestTransferredRemoteCleanup: true,
                     cleanupControllerSurfaceState: !isDetachingCloseTransaction
                 )
+                if !isDetachingCloseTransaction {
+                    owningTabManager?.invalidateFocusHistoryTarget(workspaceId: id, panelId: panelId)
+                }
             }
 
             syncRemotePortScanTTYs()
@@ -16561,10 +17007,25 @@ extension Workspace: BonsplitDelegate {
                    source: .shortcut
                ) {
                 pendingPaneClosePanelIds.removeValue(forKey: pane.id)
+                pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
                 return false
             }
         }
-        pendingPaneClosePanelIds[pane.id] = tabs.compactMap { panelIdFromSurfaceId($0.id) }
+        let panelIds = tabs.compactMap { panelIdFromSurfaceId($0.id) }
+        pendingPaneClosePanelIds[pane.id] = panelIds
+        if suppressClosedPanelHistory || isDetachingCloseTransaction {
+            pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
+        } else {
+            let historyEntries = tabs.compactMap { tab -> ClosedPanelHistoryEntry? in
+                guard let panelId = panelIdFromSurfaceId(tab.id) else { return nil }
+                return closedPanelHistoryEntry(panelId: panelId, tabId: tab.id, pane: pane)
+            }
+            if historyEntries.isEmpty {
+                pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
+            } else {
+                pendingPaneCloseHistoryEntries[pane.id] = historyEntries
+            }
+        }
         return true
     }
 
