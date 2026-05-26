@@ -20,7 +20,6 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("workspace cwd", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "workspace-inherit-working-directory"))
         assertSearch("claude sessions", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("opencode resume", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
-        assertSearch("textbox height", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "textbox-max-lines"))
         assertSearch("tmux resume command approval", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "resume-commands"))
         assertSearch("ctrl b", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcut-chords"))
         assertSearch("split right", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts"))
@@ -43,13 +42,6 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(
             SettingsSearchIndex.anchorID(forSettingsPath: "terminal.autoResumeAgentSessions"),
             SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume")
-        )
-    }
-
-    func testSettingsPathAnchorIncludesTextBoxMaxLines() {
-        XCTAssertEqual(
-            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.textBoxMaxLines"),
-            SettingsSearchIndex.settingID(for: .terminal, idSuffix: "textbox-max-lines")
         )
     }
 

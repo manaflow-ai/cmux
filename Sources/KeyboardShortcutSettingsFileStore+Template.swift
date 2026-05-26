@@ -71,10 +71,8 @@ extension CmuxSettingsFileStore {
                     "reorderOnNotification": WorkspaceAutoReorderSettings.defaultValue,
                     "iMessageMode": IMessageModeSettings.defaultValue,
                     "sendAnonymousTelemetry": TelemetrySettings.defaultSendAnonymousTelemetry,
-                    "confirmQuit": QuitWarningSettings.defaultConfirmQuitMode.rawValue,
+                    "warnBeforeQuit": QuitWarningSettings.defaultWarnBeforeQuit,
                     "warnBeforeClosingTab": CloseTabWarningSettings.defaultWarnBeforeClosingTab,
-                    "warnBeforeClosingTabXButton": CloseTabWarningSettings.defaultWarnBeforeClosingTabXButton,
-                    "hideTabCloseButton": CloseTabWarningSettings.defaultHideTabCloseButton,
                     "renameSelectsExistingName": CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,
                     "commandPaletteSearchesAllSurfaces": CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces,
                 ],
@@ -82,15 +80,7 @@ extension CmuxSettingsFileStore {
             [
                 "terminal": [
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
-                    "copyOnSelect": TerminalCopyOnSelectSettings.defaultCopyOnSelect,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
-                    "agentHibernation": [
-                        "enabled": AgentHibernationSettings.defaultEnabled,
-                        "idleSeconds": Int(AgentHibernationSettings.defaultIdleSeconds),
-                        "maxLiveTerminals": AgentHibernationSettings.defaultMaxLiveTerminals,
-                    ],
-                    "textBoxMaxLines": TerminalTextBoxInputSettings.defaultMaxLines,
-                    "resumeCommands": [],
                 ],
             ],
             [
@@ -111,8 +101,6 @@ extension CmuxSettingsFileStore {
                     "hideAllDetails": SidebarWorkspaceDetailSettings.defaultHideAllDetails,
                     "showWorkspaceDescription": SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription,
                     "branchLayout": SidebarBranchLayoutSettings.defaultVerticalLayout ? "vertical" : "inline",
-                    "stackBranchDirectory": SidebarBranchDirectoryStackedSettings.defaultStacked,
-                    "pathLastSegmentOnly": SidebarPathLastSegmentSettings.defaultLastSegmentOnly,
                     "showNotificationMessage": SidebarWorkspaceDetailSettings.defaultShowNotificationMessage,
                     "showBranchDirectory": SidebarWorkspaceDetailDefaults.showBranchDirectory,
                     "showPullRequests": SidebarWorkspaceDetailDefaults.showPullRequests,

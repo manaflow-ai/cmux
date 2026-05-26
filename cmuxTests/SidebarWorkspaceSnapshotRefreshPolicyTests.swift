@@ -113,8 +113,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             latestLog: nil,
             progress: nil,
             compactGitBranchSummaryText: nil,
-            compactDirectoryCandidates: [],
-            compactBranchDirectoryCandidates: [],
+            compactBranchDirectoryRow: nil,
             branchDirectoryLines: [],
             branchLinesContainBranch: false,
             pullRequestRows: [],
@@ -126,7 +125,6 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         showsWorkspaceDescription: Bool = true,
         usesVerticalBranchLayout: Bool = true,
         showsGitBranch: Bool = true,
-        usesViewportAwarePath: Bool = false,
         visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
             showsMetadata: true,
             showsLog: true,
@@ -140,7 +138,6 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             showsWorkspaceDescription: showsWorkspaceDescription,
             usesVerticalBranchLayout: usesVerticalBranchLayout,
             showsGitBranch: showsGitBranch,
-            usesViewportAwarePath: usesViewportAwarePath,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }
@@ -205,6 +202,73 @@ final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
                 newWorkspaceIds: ["a", "c"]
             )
         )
+    }
+}
+
+final class SidebarTabItemPresentationResolutionPolicyTests: XCTestCase {
+    func testFrozenContextMenuPresentationDoesNotSuppressLiveNotificationState() {
+        let tabId = UUID()
+        let frozen = SidebarTabItemPresentationSnapshot(
+            tabId: tabId,
+            unreadCount: 0,
+            latestNotificationText: nil,
+            showsModifierShortcutHints: true
+        )
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: tabId,
+            unreadCount: 1,
+            latestNotificationText: "done",
+            showsModifierShortcutHints: false
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: frozen
+        )
+
+        XCTAssertEqual(resolved.unreadCount, 1)
+        XCTAssertEqual(resolved.latestNotificationText, "done")
+        XCTAssertTrue(resolved.showsModifierShortcutHints)
+    }
+
+    func testNoFrozenPresentationUsesLiveSnapshot() {
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 2,
+            latestNotificationText: "live",
+            showsModifierShortcutHints: true
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: nil
+        )
+
+        XCTAssertEqual(resolved, live)
+    }
+
+    func testNonMatchingTabIdUsesLiveShortcutHints() {
+        let frozen = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 0,
+            latestNotificationText: nil,
+            showsModifierShortcutHints: true
+        )
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 1,
+            latestNotificationText: "done",
+            showsModifierShortcutHints: false
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: frozen
+        )
+
+        XCTAssertEqual(resolved.unreadCount, 1)
+        XCTAssertEqual(resolved.latestNotificationText, "done")
+        XCTAssertFalse(resolved.showsModifierShortcutHints)
     }
 }
 

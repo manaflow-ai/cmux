@@ -15,8 +15,6 @@ extension ContentView {
             return .openFolder
         case "palette.reopenPreviousSession":
             return .reopenPreviousSession
-        case "palette.reopenClosedBrowserTab":
-            return .reopenClosedBrowserPanel
         case "palette.newTerminalTab":
             return .newSurface
         case "palette.newBrowserTab":
@@ -73,10 +71,6 @@ extension ContentView {
             return .hideFind
         case "palette.terminalUseSelectionForFind":
             return .useSelectionForFind
-        case "palette.terminalFocusTextBoxInput":
-            return .focusTextBoxInput
-        case "palette.terminalAttachTextBoxFile":
-            return .attachTextBoxFile
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
         case "palette.equalizeSplits":
@@ -94,10 +88,9 @@ extension ContentView {
         }
 
         return RightSidebarMode.availableModes().map { mode in
-            let title = mode.shortcutAction?.label ?? mode.label
-            return CommandPaletteCommandContribution(
+            CommandPaletteCommandContribution(
                 commandId: Self.commandPaletteRightSidebarModeCommandID(mode),
-                title: constant(title),
+                title: constant(mode.shortcutAction.label),
                 subtitle: constant(String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")),
                 keywords: ["right", "sidebar", "show", "switch", "focus", mode.rawValue]
             )
@@ -131,8 +124,6 @@ extension ContentView {
             return "palette.showRightSidebarFeed"
         case .dock:
             return "palette.showRightSidebarDock"
-        case .history:
-            return "palette.showHistoryPane"
         }
     }
 
@@ -154,8 +145,6 @@ extension ContentView {
             return "palette.openFindPane"
         case .sessions:
             return "palette.openVaultPane"
-        case .history:
-            return "palette.openHistoryPane"
         case .feed, .dock:
             return nil
         }
@@ -169,8 +158,6 @@ extension ContentView {
             return String(localized: "command.openFindPane.title", defaultValue: "Open Find as Pane")
         case .sessions:
             return String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane")
-        case .history:
-            return String(localized: "command.openHistoryPane.title", defaultValue: "Open History as Pane")
         case .feed, .dock:
             return nil
         }
@@ -200,11 +187,8 @@ extension ContentView {
     private static func commandPaletteRightSidebarModeShortcutAction(
         forCommandID commandID: String
     ) -> KeyboardShortcutSettings.Action? {
-        guard let mode = RightSidebarMode.availableModes().first(where: { mode in
+        RightSidebarMode.availableModes().first { mode in
             Self.commandPaletteRightSidebarModeCommandID(mode) == commandID
-        }) else {
-            return nil
-        }
-        return mode.shortcutAction
+        }?.shortcutAction
     }
 }

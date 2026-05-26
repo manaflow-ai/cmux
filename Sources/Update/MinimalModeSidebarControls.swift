@@ -28,7 +28,7 @@ struct MinimalModeSidebarControlActionProxyView: NSViewRepresentable {
 
 enum TitlebarControlsHitRegions {
     static let outerLeadingPadding: CGFloat = 4
-    static let buttonCount = MinimalModeSidebarControlActionSlot.allCases.count
+    static let buttonCount = 3
 
     static func buttonXRanges(config: TitlebarControlsStyleConfig) -> [ClosedRange<CGFloat>] {
         var ranges: [ClosedRange<CGFloat>] = []
@@ -79,7 +79,7 @@ final class MinimalModeSidebarControlActionView: NSView {
 
     override init(frame frameRect: NSRect) {
         var buttons: [MinimalModeSidebarControlActionSlot: MinimalModeSidebarControlButton] = [:]
-        for slot in MinimalModeSidebarControlActionSlot.allCases {
+        for slot in [MinimalModeSidebarControlActionSlot.toggleSidebar, .showNotifications, .newTab] {
             buttons[slot] = Self.makeButton(for: slot)
         }
         self.buttons = buttons
@@ -97,7 +97,7 @@ final class MinimalModeSidebarControlActionView: NSView {
 
     required init?(coder: NSCoder) {
         var buttons: [MinimalModeSidebarControlActionSlot: MinimalModeSidebarControlButton] = [:]
-        for slot in MinimalModeSidebarControlActionSlot.allCases {
+        for slot in [MinimalModeSidebarControlActionSlot.toggleSidebar, .showNotifications, .newTab] {
             buttons[slot] = Self.makeButton(for: slot)
         }
         self.buttons = buttons
@@ -139,7 +139,7 @@ final class MinimalModeSidebarControlActionView: NSView {
 
     override func accessibilityChildren() -> [Any]? {
         guard isRevealed || !requiresRevealedState else { return [] }
-        return MinimalModeSidebarControlActionSlot.allCases.compactMap { buttons[$0] }
+        return [MinimalModeSidebarControlActionSlot.toggleSidebar, .showNotifications, .newTab].compactMap { buttons[$0] }
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
@@ -156,7 +156,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         guard let slot = TitlebarControlsHitRegions.sidebarActionSlot(at: point, config: config) else {
             return nil
         }
-        if NSApp.currentEvent?.type == .rightMouseDown, !slot.acceptsContextMenu {
+        if NSApp.currentEvent?.type == .rightMouseDown, slot != .newTab {
             return nil
         }
         guard shouldAcceptAction(at: point) else { return nil }
@@ -189,20 +189,12 @@ final class MinimalModeSidebarControlActionView: NSView {
     override func rightMouseDown(with event: NSEvent) {
         let localPoint = convert(event.locationInWindow, from: nil)
         guard let slot = TitlebarControlsHitRegions.sidebarActionSlot(at: localPoint, config: config),
+              slot == .newTab,
               shouldAcceptAction(at: localPoint) else {
             super.rightMouseDown(with: event)
             return
         }
-        switch slot {
-        case .newTab:
-            _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: self, event: event)
-        case .focusHistoryBack:
-            _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: self, event: event, direction: .back)
-        case .focusHistoryForward:
-            _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: self, event: event, direction: .forward)
-        case .toggleSidebar, .showNotifications:
-            super.rightMouseDown(with: event)
-        }
+        _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: self, event: event)
     }
 
     override func layout() {

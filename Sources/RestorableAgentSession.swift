@@ -1,35 +1,8 @@
 import Foundation
 import CMUXAgentLaunch
 
-nonisolated enum TerminalStartupShellQuoting {
-    static func singleQuoted(_ value: String) -> String {
-        if value.utf8.contains(where: { $0 >= 0x80 }) {
-            return asciiPrintfCommandSubstitution(for: value)
-        }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
-    static func shellToken(_ value: String, allowingBareASCII: Bool) -> String {
-        if value.utf8.contains(where: { $0 >= 0x80 }) {
-            return asciiPrintfCommandSubstitution(for: value)
-        }
-        if allowingBareASCII,
-           value.range(of: "[^A-Za-z0-9_./:=+-]", options: .regularExpression) == nil {
-            return value
-        }
-        return singleQuoted(value)
-    }
-
-    private static func asciiPrintfCommandSubstitution(for value: String) -> String {
-        let octalBytes = value.utf8
-            .map { String(format: #"\%03o"#, Int($0)) }
-            .joined()
-        return #""$(printf '"# + octalBytes + #"')""#
-    }
-}
-
 fileprivate func shellSingleQuoted(_ value: String) -> String {
-    TerminalStartupShellQuoting.singleQuoted(value)
+    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
 enum AgentResumeCommandBuilder {
@@ -628,16 +601,6 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     }
 }
 
-extension SessionRestorableAgentSnapshot {
-    var agentDisplayName: String {
-        if let name = registration?.name.trimmingCharacters(in: .whitespacesAndNewlines),
-           !name.isEmpty {
-            return name
-        }
-        return kind.displayName
-    }
-}
-
 private enum AgentResumeScriptStore {
     private static let directoryName = "cmux-agent-resume"
     private static let scriptTTL: TimeInterval = 24 * 60 * 60
@@ -705,7 +668,6 @@ private struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var pid: Int?
     var launchCommand: AgentLaunchCommandSnapshot?
     var isRestorable: Bool?
-    var agentLifecycle: AgentHibernationLifecycleState?
     var updatedAt: TimeInterval
 }
 
@@ -715,50 +677,18 @@ private struct RestorableAgentHookSessionStoreFile: Codable, Sendable {
 }
 
 struct RestorableAgentSessionIndex: Sendable {
-    static let empty = RestorableAgentSessionIndex(entriesByPanel: [:])
+    static let empty = RestorableAgentSessionIndex(snapshotsByPanel: [:])
 
     struct PanelKey: Hashable, Sendable {
         let workspaceId: UUID
         let panelId: UUID
     }
 
-    struct Entry: Sendable {
-        let snapshot: SessionRestorableAgentSnapshot
-        let lifecycle: AgentHibernationLifecycleState?
-        let updatedAt: TimeInterval
-        let processIDs: Set<Int>
-    }
-
-    private struct SessionKey: Hashable {
-        let kind: RestorableAgentKind
-        let sessionId: String
-    }
-
-    private let entriesByPanel: [PanelKey: Entry]
-    private let entriesByPanelId: [UUID: Entry]
-
-    private func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
-        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
-    }
+    private let snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]
+    private let snapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot]
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        entry(workspaceId: workspaceId, panelId: panelId)?.snapshot
-    }
-
-    func lifecycle(workspaceId: UUID, panelId: UUID) -> AgentHibernationLifecycleState? {
-        entry(workspaceId: workspaceId, panelId: panelId)?.lifecycle
-    }
-
-    func updatedAt(workspaceId: UUID, panelId: UUID) -> TimeInterval? {
-        entry(workspaceId: workspaceId, panelId: panelId)?.updatedAt
-    }
-
-    func processIDs(workspaceId: UUID, panelId: UUID) -> Set<Int> {
-        entry(workspaceId: workspaceId, panelId: panelId)?.processIDs ?? []
-    }
-
-    func hasLiveProcess(workspaceId: UUID, panelId: UUID) -> Bool {
-        !processIDs(workspaceId: workspaceId, panelId: panelId).isEmpty
+        snapshotsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? snapshotsByPanelId[panelId]
     }
 
     static func load(
@@ -807,13 +737,10 @@ struct RestorableAgentSessionIndex: Sendable {
         homeDirectory: String,
         fileManager: FileManager,
         registry: CmuxVaultAgentRegistry,
-        detectedSnapshots: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)],
-        processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
-            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
-        }
+        detectedSnapshots: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)]
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
-        var resolved: [PanelKey: Entry] = [:]
+        var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
         let claudeTranscriptLookup = ClaudeTranscriptLookupCache(
             homeDirectory: homeDirectory,
             fileManager: fileManager
@@ -826,8 +753,6 @@ struct RestorableAgentSessionIndex: Sendable {
                     ? nil
                     : (kind: .custom(registration.id), registration: registration)
             }
-        var hookCandidatesBySession: [SessionKey: Entry] = [:]
-        var hookCandidatesByPanel: [PanelKey: Entry] = [:]
 
         for (kind, registration) in hookKinds {
             let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
@@ -842,6 +767,12 @@ struct RestorableAgentSessionIndex: Sendable {
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: record.workspaceId),
                       let panelId = UUID(uuidString: record.surfaceId),
+                      hookRecordStillBelongsToLiveAgent(
+                          record,
+                          kind: kind,
+                          workspaceId: workspaceId,
+                          panelId: panelId
+                      ),
                       hookRecordIsRestorable(
                           record,
                           kind: kind,
@@ -859,76 +790,22 @@ struct RestorableAgentSessionIndex: Sendable {
                     registration: registration
                 )
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
-                let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
-                let liveProcessID = liveScopedProcessID(
-                    for: record,
-                    kind: kind,
-                    workspaceId: workspaceId,
-                    panelId: panelId,
-                    processArgumentsProvider: processArgumentsProvider
-                )
-                let entry = Entry(
-                    snapshot: snapshot,
-                    lifecycle: record.agentLifecycle,
-                    updatedAt: record.updatedAt,
-                    processIDs: liveProcessID.map { [$0] } ?? []
-                )
-                if hookCandidatesByPanel[key]?.updatedAt ?? -Double.infinity <= record.updatedAt {
-                    hookCandidatesByPanel[key] = entry
-                }
-                if hookCandidatesBySession[sessionKey]?.updatedAt ?? -Double.infinity <= record.updatedAt {
-                    hookCandidatesBySession[sessionKey] = entry
-                }
-                guard record.pid == nil || liveProcessID != nil else {
-                    continue
-                }
                 if let existing = resolved[key], existing.updatedAt > record.updatedAt {
                     continue
                 }
-                resolved[key] = entry
+                resolved[key] = (snapshot: snapshot, updatedAt: record.updatedAt)
             }
         }
 
         for (key, detected) in detectedSnapshots {
-            if let existing = Self.matchingHookEntry(
-                for: detected.snapshot,
-                resolved: resolved[key],
-                panelCandidate: hookCandidatesByPanel[key],
-                sessionCandidate: hookCandidatesBySession[
-                    SessionKey(kind: detected.snapshot.kind, sessionId: detected.snapshot.sessionId)
-                ]
-            ) {
-                resolved[key] = Entry(
-                    snapshot: detected.snapshot,
-                    lifecycle: existing.lifecycle,
-                    updatedAt: existing.updatedAt,
-                    processIDs: detected.processIDs
-                )
-            } else {
-                resolved[key] = Entry(
-                    snapshot: detected.snapshot,
-                    lifecycle: nil,
-                    updatedAt: 0,
-                    processIDs: detected.processIDs
-                )
+            if let existing = resolved[key],
+               existing.updatedAt > detected.updatedAt {
+                continue
             }
+            resolved[key] = detected
         }
 
-        return RestorableAgentSessionIndex(entriesByPanel: resolved)
-    }
-
-    private static func matchingHookEntry(
-        for snapshot: SessionRestorableAgentSnapshot,
-        resolved: Entry?,
-        panelCandidate: Entry?,
-        sessionCandidate: Entry?
-    ) -> Entry? {
-        [resolved, panelCandidate, sessionCandidate].compactMap { $0 }
-            .filter {
-                $0.snapshot.kind == snapshot.kind &&
-                    $0.snapshot.sessionId == snapshot.sessionId
-            }
-            .max { $0.updatedAt < $1.updatedAt }
+        return RestorableAgentSessionIndex(snapshotsByPanel: resolved)
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
@@ -1121,35 +998,32 @@ struct RestorableAgentSessionIndex: Sendable {
         return size.intValue > 0
     }
 
-    private static func liveScopedProcessID(
-        for record: RestorableAgentHookSessionRecord,
+    private static func hookRecordStillBelongsToLiveAgent(
+        _ record: RestorableAgentHookSessionRecord,
         kind: RestorableAgentKind,
         workspaceId: UUID,
-        panelId: UUID,
-        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
-    ) -> Int? {
+        panelId: UUID
+    ) -> Bool {
         guard let pid = record.pid else {
-            return nil
+            return true
         }
         guard pid > 0,
-              let process = processArgumentsProvider(pid),
-              process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId) else {
-            return nil
+              let process = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: pid),
+              process.environmentUUID(forKey: "CMUX_WORKSPACE_ID") == workspaceId,
+              process.environmentUUID(forKey: "CMUX_SURFACE_ID") == panelId else {
+            return false
         }
 
         if let liveKind = normalizedProcessValue(process.environment["CMUX_AGENT_LAUNCH_KIND"]),
            liveKind.compare(kind.rawValue, options: [.caseInsensitive, .literal]) != .orderedSame {
-            return nil
+            return false
         }
 
         guard let recordedExecutable = recordedExecutableBasename(record),
               let liveExecutable = process.arguments.first.map(executableBasename) else {
-            return pid
+            return true
         }
-        guard liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame else {
-            return nil
-        }
-        return pid
+        return liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame
     }
 
     private static func recordedExecutableBasename(_ record: RestorableAgentHookSessionRecord) -> String? {
@@ -1174,16 +1048,16 @@ struct RestorableAgentSessionIndex: Sendable {
         return rawValue
     }
 
-    private init(entriesByPanel: [PanelKey: Entry]) {
-        self.entriesByPanel = entriesByPanel
-        var entriesByPanelId: [UUID: Entry] = [:]
-        for (key, entry) in entriesByPanel {
-            let existing = entriesByPanelId[key.panelId]
-            if existing == nil || entry.updatedAt >= (existing?.updatedAt ?? 0) {
-                entriesByPanelId[key.panelId] = entry
+    private init(snapshotsByPanel: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)]) {
+        self.snapshotsByPanel = snapshotsByPanel.mapValues(\.snapshot)
+        var snapshotsByPanelId: [UUID: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        for (key, value) in snapshotsByPanel {
+            let existing = snapshotsByPanelId[key.panelId]
+            if existing == nil || value.updatedAt >= (existing?.updatedAt ?? 0) {
+                snapshotsByPanelId[key.panelId] = value
             }
         }
-        self.entriesByPanelId = entriesByPanelId
+        self.snapshotsByPanelId = snapshotsByPanelId.mapValues(\.snapshot)
     }
 }
 

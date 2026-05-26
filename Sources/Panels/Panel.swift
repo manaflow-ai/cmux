@@ -40,7 +40,6 @@ public enum PanelType: String, Codable, Sendable {
 public enum TerminalPanelFocusIntent: Equatable {
     case surface
     case findField
-    case textBoxInput
 }
 
 public enum BrowserPanelFocusIntent: Equatable {
@@ -76,11 +75,14 @@ public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
 
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
     case notificationBlue
+    case navigationTeal
 
     var strokeColor: NSColor {
         switch self {
         case .notificationBlue:
             return .systemBlue
+        case .navigationTeal:
+            return .systemTeal
         }
     }
 }
@@ -116,22 +118,20 @@ struct WorkspaceAttentionFlashDecision: Equatable, Sendable {
 }
 
 enum WorkspaceAttentionCoordinator {
-    static let notificationRingStyle = WorkspaceAttentionFlashPresentation(
-        accent: .notificationBlue,
-        glowOpacity: 0.35,
-        glowRadius: 3
-    )
-
-    static let flashRingStyle = WorkspaceAttentionFlashPresentation(
-        accent: .notificationBlue,
-        glowOpacity: 0.6,
-        glowRadius: 6
-    )
-
     static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> WorkspaceAttentionFlashPresentation {
         switch reason {
-        case .navigation, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
-            return flashRingStyle
+        case .navigation:
+            return WorkspaceAttentionFlashPresentation(
+                accent: .navigationTeal,
+                glowOpacity: 0.14,
+                glowRadius: 3
+            )
+        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
+            return WorkspaceAttentionFlashPresentation(
+                accent: .notificationBlue,
+                glowOpacity: 0.6,
+                glowRadius: 6
+            )
         }
     }
 

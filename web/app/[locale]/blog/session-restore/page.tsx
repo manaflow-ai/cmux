@@ -11,20 +11,24 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.sessionRestore" });
-  const rawKeywords = t.raw("metaKeywords");
-  const keywords = Array.isArray(rawKeywords)
-    ? rawKeywords.filter((keyword): keyword is string => typeof keyword === "string")
-    : [];
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    keywords,
+    keywords: [
+      "cmux",
+      "session restore",
+      "terminal",
+      "macOS",
+      "Claude Code",
+      "Codex",
+      "OpenCode",
+      "AI coding agents",
+    ],
     openGraph: {
       title: t("metaTitle"),
       description: t("metaDescription"),
       type: "article",
       publishedTime: "2026-05-13T00:00:00Z",
-      modifiedTime: "2026-05-22T00:00:00Z",
     },
     twitter: {
       card: "summary_large_image",
@@ -57,7 +61,6 @@ export default function SessionRestoreBlogPage() {
 
       <p className="mt-6">{t("p1")}</p>
       <p>{t("p2")}</p>
-      <p>{t("seoP")}</p>
 
       <h2>{t("baselineTitle")}</h2>
       <p>{t("baselineP")}</p>

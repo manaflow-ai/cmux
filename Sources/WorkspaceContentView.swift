@@ -108,8 +108,8 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
     @Published private(set) var flashStartedAt: Date?
     @Published private(set) var flashReason: WorkspaceAttentionFlashReason?
 
-    private var currentWorkspaceId: UUID?
-    private var lastFlashTokenByWorkspaceId: [UUID: UInt64] = [:]
+    private var lastWorkspaceId: UUID?
+    private var lastFlashToken: UInt64?
 
     func apply(
         _ state: TmuxWorkspacePaneOverlayRenderState,
@@ -119,21 +119,20 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
         flashRect = state.flashRect
         flashReason = state.flashReason
 
-        let didChangeWorkspace = currentWorkspaceId != state.workspaceId
-        let previousFlashToken = lastFlashTokenByWorkspaceId[state.workspaceId]
-        let didChangeFlashToken = previousFlashToken.map { state.flashToken != $0 } ?? (state.flashToken > 0)
-        if didChangeFlashToken,
+        let didChangeWorkspace = lastWorkspaceId != state.workspaceId
+        if didChangeWorkspace {
+            lastWorkspaceId = state.workspaceId
+            lastFlashToken = state.flashToken
+            flashStartedAt = nil
+            return
+        }
+
+        if let lastFlashToken,
+           state.flashToken != lastFlashToken,
            state.flashRect != nil {
             flashStartedAt = now()
-        } else if didChangeWorkspace {
-            flashStartedAt = nil
         }
-        currentWorkspaceId = state.workspaceId
-        if (previousFlashToken == nil && state.flashToken == 0) ||
-            !didChangeFlashToken ||
-            state.flashRect != nil {
-            lastFlashTokenByWorkspaceId[state.workspaceId] = state.flashToken
-        }
+        self.lastFlashToken = state.flashToken
     }
 
     func clear() {
@@ -141,8 +140,8 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
         flashRect = nil
         flashStartedAt = nil
         flashReason = nil
-        currentWorkspaceId = nil
-        lastFlashTokenByWorkspaceId = [:]
+        lastWorkspaceId = nil
+        lastFlashToken = nil
     }
 }
 
@@ -248,7 +247,6 @@ struct WorkspaceContentView: View {
                     isSplit: isSplit,
                     appearance: appearance,
                     hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
-                    terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
                     onFocus: {
                         // Keep bonsplit focus in sync with the AppKit first responder for the
                         // active workspace. This prevents divergence between the blue focused-tab
@@ -266,16 +264,6 @@ struct WorkspaceContentView: View {
                             in: NSApp.keyWindow ?? NSApp.mainWindow
                         )
                         workspace.focusPanel(panel.id)
-                    },
-                    onResumeAgentHibernation: {
-                        guard isWorkspaceInputActive else { return }
-                        guard workspace.panels[panel.id] != nil else { return }
-                        workspace.resumeAgentHibernation(panelId: panel.id, focus: true)
-                    },
-                    onAutoResumeAgentHibernation: {
-                        guard isWorkspaceInputActive else { return }
-                        guard workspace.panels[panel.id] != nil else { return }
-                        workspace.resumeAgentHibernation(panelId: panel.id, focus: false)
                     },
                     onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                 )
@@ -300,20 +288,12 @@ struct WorkspaceContentView: View {
         .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            updateAgentHibernationPresentationVisibility()
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
         }
         .onChange(of: isWorkspaceVisible) { _, isVisible in
-            updateAgentHibernationPresentationVisibility()
             guard isVisible else { return }
             flushDeferredThemeRefreshIfNeeded()
-        }
-        .onChange(of: isWorkspaceInputActive) { _, _ in
-            updateAgentHibernationPresentationVisibility()
-        }
-        .onDisappear {
-            workspace.setAgentHibernationAutoResumePresentationVisible(false)
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
@@ -591,10 +571,6 @@ struct WorkspaceContentView: View {
         )
     }
 
-    private func updateAgentHibernationPresentationVisibility() {
-        workspace.setAgentHibernationAutoResumePresentationVisible(isWorkspaceVisible && isWorkspaceInputActive)
-    }
-
     private func refreshGhosttyAppearanceConfig(
         reason: String,
         backgroundOverride: NSColor? = nil,
@@ -706,30 +682,6 @@ struct WorkspaceContentView: View {
 }
 
 extension WorkspaceContentView {
-    static func terminalAgentContext(panel: any Panel, workspace: Workspace) -> String {
-        var parts: [String] = []
-        if let terminalPanel = panel as? TerminalPanel {
-            if let initialCommand = terminalPanel.surface.initialCommand {
-                parts.append("initialCommand:\(initialCommand)")
-            }
-            if let tmuxStartCommand = terminalPanel.surface.tmuxStartCommand {
-                parts.append("tmuxStartCommand:\(tmuxStartCommand)")
-            }
-        }
-        if let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[panel.id] {
-            parts.append("restoredAgent:\(restoredAgent.kind.rawValue)")
-        }
-        if let agentPIDKeys = workspace.agentPIDKeysByPanelId[panel.id], !agentPIDKeys.isEmpty {
-            for key in agentPIDKeys.sorted() {
-                parts.append("agentPIDKey:\(key)")
-            }
-        }
-        return parts
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-    }
-
     #if DEBUG
     static func debugPanelLookup(tab: Bonsplit.Tab, workspace: Workspace) {
         let found = workspace.panel(for: tab.id) != nil

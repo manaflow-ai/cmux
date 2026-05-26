@@ -6,6 +6,7 @@ extension Workspace {
         let panelId: UUID
         let statusEntries: [String: SidebarStatusEntry]
         let agentPIDs: [String: pid_t]
+        let agentProcessStates: [String: SidebarAgentProcessState]
         let agentPIDKeys: Set<String>
     }
 
@@ -24,14 +25,13 @@ extension Workspace {
         let cachedTitle: String?
         let customTitle: String?
         let manuallyUnread: Bool
-        let restoredUnreadIndicator: RestoredPanelUnreadIndicator?
+        let restoredUnread: Bool
         let restorableAgent: SessionRestorableAgentSnapshot?
         let restorableAgentResumeState: RestoredAgentResumeState?
         let resumeBinding: SurfaceResumeBindingSnapshot?
         let agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
         let remoteRelayPort: Int?
-        let remotePTYSessionID: String?
         let remoteCleanupConfiguration: WorkspaceRemoteConfiguration?
 
         func withRemoteCleanupConfiguration(_ configuration: WorkspaceRemoteConfiguration?) -> Self {
@@ -50,14 +50,13 @@ extension Workspace {
                 cachedTitle: cachedTitle,
                 customTitle: customTitle,
                 manuallyUnread: manuallyUnread,
-                restoredUnreadIndicator: restoredUnreadIndicator,
+                restoredUnread: restoredUnread,
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
                 resumeBinding: resumeBinding,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,
                 remoteRelayPort: remoteRelayPort,
-                remotePTYSessionID: remotePTYSessionID,
                 remoteCleanupConfiguration: configuration
             )
         }
