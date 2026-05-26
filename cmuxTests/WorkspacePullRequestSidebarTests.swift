@@ -916,6 +916,16 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             manager.workspacePullRequestTrackedPanelIdsForTesting(workspaceId: workspace.id).isEmpty,
             "Disabling PR visibility should clear PR state and polling without disabling branch metadata."
         )
+
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
+        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+
+        XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "issue-2746-rate-limit")
+        XCTAssertEqual(
+            manager.workspacePullRequestTrackedPanelIdsForTesting(workspaceId: workspace.id),
+            Set([panelId]),
+            "Re-enabling PR visibility should restart PR polling from preserved branch metadata."
+        )
     }
 
     func testReenablingGitWatchRestartsRefreshFromCurrentPanelDirectories() throws {

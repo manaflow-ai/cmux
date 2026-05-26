@@ -3053,7 +3053,7 @@ class TabManager: ObservableObject {
                 workspace.clearPanelPullRequest(panelId: probeKey.panelId)
             }
         case .notFound:
-            if shouldTrackPullRequests, workspace.panelPullRequests[probeKey.panelId] != nil {
+            if workspace.panelPullRequests[probeKey.panelId] != nil {
                 workspace.clearPanelPullRequest(panelId: probeKey.panelId)
             }
         case .deferred, .unsupportedRepository, .transientFailure:
