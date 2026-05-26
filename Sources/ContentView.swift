@@ -1723,7 +1723,7 @@ struct ContentView: View {
 
     private func normalizedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
         let resolvedAvailableWidth = resolvedRightSidebarAvailableWidth(availableWidth)
-        let availableWidth = SidebarContentLayoutPolicy.rightSidebarAvailableWidth(
+        let effectiveAvailableWidth = SidebarContentLayoutPolicy.rightSidebarAvailableWidth(
             totalWidth: resolvedAvailableWidth,
             workspaceSidebarWidth: sidebarWidth,
             position: sidebarPosition,
@@ -1731,7 +1731,7 @@ struct ContentView: View {
         )
         return Self.clampedRightSidebarWidth(
             candidate,
-            availableWidth: availableWidth
+            availableWidth: effectiveAvailableWidth
         )
     }
 
@@ -11381,14 +11381,8 @@ private struct HorizontalTabsSidebar: View {
     @Binding var lastSidebarSelectionIndex: Int?
     @EnvironmentObject private var tabManager: TabManager
     @EnvironmentObject private var notificationStore: TerminalNotificationStore
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    @State private var workspaceUpdateToken: UInt64 = 0
-
-    private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
 
     var body: some View {
-        let _ = keyboardShortcutSettingsObserver.revision
-        let _ = workspaceUpdateToken
         let snapshots = workspaceSnapshots
         let selectedWorkspaceId = tabManager.selectedTabId
 
@@ -11447,16 +11441,6 @@ private struct HorizontalTabsSidebar: View {
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .accessibilityIdentifier("Sidebar")
-        .onReceive(immediateWorkspaceObservationPublisher.receive(on: RunLoop.main)) { _ in
-            workspaceUpdateToken &+= 1
-        }
-        .onReceive(
-            debouncedWorkspaceObservationPublisher
-                .receive(on: RunLoop.main)
-                .debounce(for: Self.workspaceObservationCoalesceInterval, scheduler: RunLoop.main)
-        ) { _ in
-            workspaceUpdateToken &+= 1
-        }
     }
 
     private var workspaceSnapshots: [HorizontalWorkspaceTabSnapshot] {
@@ -11490,22 +11474,6 @@ private struct HorizontalTabsSidebar: View {
                 )
             )
         }
-    }
-
-    private var immediateWorkspaceObservationPublisher: AnyPublisher<Void, Never> {
-        let publishers = tabManager.tabs.map(\.sidebarImmediateObservationPublisher)
-        guard !publishers.isEmpty else {
-            return Empty<Void, Never>().eraseToAnyPublisher()
-        }
-        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
-    }
-
-    private var debouncedWorkspaceObservationPublisher: AnyPublisher<Void, Never> {
-        let publishers = tabManager.tabs.map(\.sidebarObservationPublisher)
-        guard !publishers.isEmpty else {
-            return Empty<Void, Never>().eraseToAnyPublisher()
-        }
-        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
     }
 
     private func scrollToSelectedWorkspace(

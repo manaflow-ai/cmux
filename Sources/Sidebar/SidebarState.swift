@@ -62,6 +62,10 @@ enum SidebarContentLayoutPolicy {
         case .left:
             return usesWithinWindowOverlay ? .leftOverlay : .leftStack
         case .right:
+            // Right-positioned workspace sidebar stays in stack layout even when
+            // within-window material is enabled. The app can already host the
+            // tool sidebar on the trailing edge, and a single stacked trailing
+            // geometry keeps both sidebar dividers deterministic.
             return .rightStack
         case .top:
             return .topStack
