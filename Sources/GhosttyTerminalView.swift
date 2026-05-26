@@ -14013,9 +14013,15 @@ final class GhosttySurfaceScrollView: NSView {
                 // streaming output and resize changes preserve the same visible terminal rows.
                 // Suppress only passive bottom packets that would resume follow mode without
                 // an explicit user scroll request.
+                let shouldFollowOutput: Bool = {
+                    guard case .followOutput = scrollbackViewportIntent else {
+                        return false
+                    }
+                    return true
+                }()
                 let shouldAutoScroll =
                     allowExplicitScrollbarSync ||
-                    scrollbackViewportIntent == .followOutput ||
+                    shouldFollowOutput ||
                     !scrollbar.isAtBottom
 
                 if shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
