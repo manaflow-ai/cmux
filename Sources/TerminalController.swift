@@ -11642,12 +11642,14 @@ class TerminalController {
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
+        if BrowserAvailabilitySettings.isDisabled() {
+            if url?.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
+                return .err(code: "browser_disabled", message: "cmux browser is disabled", data: nil)
+            }
+            return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
         if let error = v2RegisterDiffViewerURLIfNeeded(params: params, url: url) {
             return error
-        }
-
-        if BrowserAvailabilitySettings.isDisabled() {
-            return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser", data: nil)
