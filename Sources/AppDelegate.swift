@@ -1218,7 +1218,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.start()
         windowDecorationsController.start()
         installMainWindowKeyObserver()
-        refreshGhosttyNavigationShortcuts()
+        MainActor.assumeIsolated {
+            refreshGhosttyNavigationShortcuts()
+        }
         installGhosttyConfigObserver()
         installWindowResponderSwizzles()
         installBrowserAddressBarFocusObservers()
