@@ -100,7 +100,7 @@ const settingsFileExample = `{
   // "shortcuts": {
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
-  //     "toggleQuickTerminal": "cmd+opt+`",
+  //     "toggleQuickTerminal": "cmd+opt+\`",
   //     "toggleFileExplorer": "cmd+opt+b",
   //     "newTab": ["ctrl+b", "c"],
   //     "commandPalettePrevious": null

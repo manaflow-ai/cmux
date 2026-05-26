@@ -1190,6 +1190,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.browser-popup",
     "cmux.browserProfilePopoverDebug",
     "cmux.configEditor",
+    "cmux.quick-terminal",
     "cmux.feedButtonStyleDebug",
     "cmux.feedPreview",
     "cmux.feedTextEditorDebug",
