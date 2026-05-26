@@ -233,6 +233,7 @@ class TerminalController {
         let reservedStartupSocketPath: String?
         let listenerStartInProgress: Bool
         let socketPathLockHeld: Bool
+        let hasSocketPathWatchSource: Bool
     }
 
     nonisolated struct SocketFileRecoveryRetryToken: Sendable {
@@ -415,7 +416,8 @@ class TerminalController {
                 pendingRearmGeneration: pendingAcceptLoopRearmGeneration,
                 reservedStartupSocketPath: reservedStartupSocketPath,
                 listenerStartInProgress: listenerStartInProgress,
-                socketPathLockHeld: socketPathLockFD >= 0
+                socketPathLockHeld: socketPathLockFD >= 0,
+                hasSocketPathWatchSource: socketPathWatchSource != nil
             )
         }
     }
@@ -488,6 +490,7 @@ class TerminalController {
             || snapshot.listenerStartInProgress
             || snapshot.pendingRearmGeneration != nil
             || snapshot.socketPathLockHeld
+            || snapshot.hasSocketPathWatchSource
             || snapshot.serverSocket >= 0 {
             return snapshot.socketPath
         }
