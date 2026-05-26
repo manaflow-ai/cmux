@@ -10084,7 +10084,7 @@ extension TabManager {
         return workspaceGroups.compactMap { group in
             let workspaceIndexes = group.workspaceIds.compactMap { workspaceIndexById[$0] }
             guard preservesEmptyGroups || !workspaceIndexes.isEmpty else { return nil }
-            SessionWorkspaceGroupSnapshot(
+            return SessionWorkspaceGroupSnapshot(
                 id: group.id,
                 title: group.title,
                 isCollapsed: group.isCollapsed,
