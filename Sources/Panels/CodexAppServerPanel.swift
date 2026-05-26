@@ -1542,21 +1542,30 @@ final class CodexAppServerPanel: Panel, ObservableObject {
     }
 
     func resolvePendingRequest(_ request: CodexAppServerPendingRequest, decision: CodexAppServerApprovalDecision) {
+        Task { @MainActor [weak self] in
+            await self?.sendPendingRequestResolution(request, decision: decision)
+        }
+    }
+
+    private func sendPendingRequestResolution(
+        _ request: CodexAppServerPendingRequest,
+        decision: CodexAppServerApprovalDecision
+    ) async {
         do {
             guard let result = request.approvalResponseResult(for: decision) else {
-                try client.rejectServerRequest(
+                removePendingRequest(id: request.id)
+                try await client.rejectServerRequest(
                     id: request.id,
                     message: String(
                         localized: "codexAppServer.request.unsupported",
                         defaultValue: "cmux does not support this Codex app-server request yet."
                     )
                 )
-                removePendingRequest(id: request.id)
                 return
             }
 
-            try client.respondToServerRequest(id: request.id, result: result)
             removePendingRequest(id: request.id)
+            try await client.respondToServerRequest(id: request.id, result: result)
             appendEvent(
                 title: String(localized: "codexAppServer.event.approvalSent", defaultValue: "Approval response sent"),
                 body: String(

@@ -140,9 +140,9 @@ private final class FakeCodexAppServerClient: CodexAppServerClienting {
 
     func interruptTurn(threadId: String, turnId: String) async throws {}
 
-    func respondToServerRequest(id: CodexAppServerRequestID, result: [String: Any]) throws {}
+    func respondToServerRequest(id: CodexAppServerRequestID, result: [String: Any]) async throws {}
 
-    func rejectServerRequest(id: CodexAppServerRequestID, message: String) throws {}
+    func rejectServerRequest(id: CodexAppServerRequestID, message: String) async throws {}
 }
 
 final class CodexAppServerRequestFactoryTests: XCTestCase {

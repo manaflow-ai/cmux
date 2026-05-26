@@ -97,8 +97,8 @@ protocol CodexAppServerClienting: AnyObject {
     func readRateLimits() async throws -> [String: Any]
     func steerTurn(threadId: String, turnId: String, text: String) async throws -> String
     func interruptTurn(threadId: String, turnId: String) async throws
-    func respondToServerRequest(id: CodexAppServerRequestID, result: [String: Any]) throws
-    func rejectServerRequest(id: CodexAppServerRequestID, message: String) throws
+    func respondToServerRequest(id: CodexAppServerRequestID, result: [String: Any]) async throws
+    func rejectServerRequest(id: CodexAppServerRequestID, message: String) async throws
 }
 
 enum CodexAppServerRequestFactory {
@@ -476,7 +476,7 @@ final class CodexAppServerClient: CodexAppServerClienting, @unchecked Sendable {
         do {
             try start()
             _ = try await sendRequestObject(CodexAppServerRequestFactory.initializeRequest(id: nextId()))
-            try sendNotificationObject(CodexAppServerRequestFactory.initializedNotification())
+            try await sendNotificationObject(CodexAppServerRequestFactory.initializedNotification())
 #if DEBUG
             CodexAppServerTiming.log("client.initialize.end", [
                 "ms": CodexAppServerTiming.ms(CodexAppServerTiming.elapsedMs(since: timingStart)),
@@ -595,12 +595,12 @@ final class CodexAppServerClient: CodexAppServerClienting, @unchecked Sendable {
         )
     }
 
-    func respondToServerRequest(id: CodexAppServerRequestID, result: [String: Any]) throws {
-        try sendResponseObject(CodexAppServerRequestFactory.response(id: id, result: result))
+    func respondToServerRequest(id: CodexAppServerRequestID, result: [String: Any]) async throws {
+        try await sendResponseObject(CodexAppServerRequestFactory.response(id: id, result: result))
     }
 
-    func rejectServerRequest(id: CodexAppServerRequestID, message: String) throws {
-        try sendResponseObject(CodexAppServerRequestFactory.errorResponse(id: id, message: message))
+    func rejectServerRequest(id: CodexAppServerRequestID, message: String) async throws {
+        try await sendResponseObject(CodexAppServerRequestFactory.errorResponse(id: id, message: message))
     }
 
     private func nextId() -> Int {
@@ -807,36 +807,29 @@ final class CodexAppServerClient: CodexAppServerClienting, @unchecked Sendable {
         }
     }
 
-    private func sendNotificationObject(_ object: [String: Any]) throws {
-        let result: Result<Void, Error> = stateQueue.sync {
-            do {
-                guard process?.isRunning == true,
-                      let stdinPipe else {
-                    throw CodexAppServerClientError.notRunning
-                }
-                try Self.writeJSONObject(object, to: stdinPipe.fileHandleForWriting)
-                return .success(())
-            } catch {
-                return .failure(error)
-            }
-        }
-        try result.get()
+    private func sendNotificationObject(_ object: [String: Any]) async throws {
+        try await sendOutboundObject(object)
     }
 
-    private func sendResponseObject(_ object: [String: Any]) throws {
-        let result: Result<Void, Error> = stateQueue.sync {
-            do {
-                guard process?.isRunning == true,
-                      let stdinPipe else {
-                    throw CodexAppServerClientError.notRunning
+    private func sendResponseObject(_ object: [String: Any]) async throws {
+        try await sendOutboundObject(object)
+    }
+
+    private func sendOutboundObject(_ object: [String: Any]) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            stateQueue.async {
+                do {
+                    guard self.process?.isRunning == true,
+                          let stdinPipe = self.stdinPipe else {
+                        throw CodexAppServerClientError.notRunning
+                    }
+                    try Self.writeJSONObject(object, to: stdinPipe.fileHandleForWriting)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
                 }
-                try Self.writeJSONObject(object, to: stdinPipe.fileHandleForWriting)
-                return .success(())
-            } catch {
-                return .failure(error)
             }
         }
-        try result.get()
     }
 
     @discardableResult
