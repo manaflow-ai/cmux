@@ -4702,7 +4702,7 @@ struct CMUXCLI {
     private func openPath(_ path: String) throws {
         let directory = try directoryForPathOpen(path)
         try openDirectoryWithLaunchServices(directory)
-        print("OK")
+        print(String(localized: "common.ok", defaultValue: "OK"))
     }
 
     /// Open a path through an explicitly selected socket, preserving deliberate instance routing.
@@ -4717,7 +4717,8 @@ struct CMUXCLI {
 
         let response = try client.sendV2(method: "workspace.create", params: ["cwd": directory])
         let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
-        print(wsRef.isEmpty ? "OK" : "OK \(wsRef)")
+        let okText = String(localized: "common.ok", defaultValue: "OK")
+        print(wsRef.isEmpty ? okText : "\(okText) \(wsRef)")
         try activateApp()
     }
 
