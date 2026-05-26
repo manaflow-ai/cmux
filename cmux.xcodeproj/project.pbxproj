@@ -481,6 +481,7 @@
 		F4200000A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */; };
 		F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */; };
 		F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */; };
+		F5000002A1B2C3D4E5F60718 /* SessionLayoutSnapshotDeepNestingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5000003A1B2C3D4E5F60718 /* SessionLayoutSnapshotDeepNestingTests.swift */; };
 		B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */; };
 		F5410000A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */; };
 		F5410004A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */; };
@@ -1059,6 +1060,7 @@
 		F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppearanceSnapshotTests.swift; sourceTree = "<group>"; };
 		F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScannerTests.swift; sourceTree = "<group>"; };
 		F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
+		F5000003A1B2C3D4E5F60718 /* SessionLayoutSnapshotDeepNestingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionLayoutSnapshotDeepNestingTests.swift; sourceTree = "<group>"; };
 		B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiVaultAgentPersistenceTests.swift; sourceTree = "<group>"; };
 		F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookProviderResumeTests.swift; sourceTree = "<group>"; };
 		F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookProviderHermesTests.swift; sourceTree = "<group>"; };
@@ -1624,6 +1626,7 @@
 				F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */,
 					F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */,
 					F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */,
+					F5000003A1B2C3D4E5F60718 /* SessionLayoutSnapshotDeepNestingTests.swift */,
 					B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */,
 					D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */,
 					D36A00020000000000000002 /* AgentHibernationTests.swift */,
@@ -2439,6 +2442,7 @@
 				F4200000A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift in Sources */,
 					F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */,
 					F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
+					F5000002A1B2C3D4E5F60718 /* SessionLayoutSnapshotDeepNestingTests.swift in Sources */,
 					B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */,
 					D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */,
 					D36A00020000000000000001 /* AgentHibernationTests.swift in Sources */,

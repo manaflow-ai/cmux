@@ -1510,46 +1510,258 @@ struct SessionPaneLayoutSnapshot: Codable, Sendable {
     var selectedPanelId: UUID?
 }
 
-struct SessionSplitLayoutSnapshot: Codable, Sendable {
+struct SessionSplitLayoutSnapshot: Sendable {
     var orientation: SessionSplitOrientation
     var dividerPosition: Double
     var first: SessionWorkspaceLayoutSnapshot
     var second: SessionWorkspaceLayoutSnapshot
 }
 
-indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
+indirect enum SessionWorkspaceLayoutSnapshot: Sendable {
     case pane(SessionPaneLayoutSnapshot)
     case split(SessionSplitLayoutSnapshot)
+}
 
-    private enum CodingKeys: String, CodingKey {
+// MARK: - Layout snapshot Codable (iterative wire format)
+//
+// Encoding the layout tree directly through Codable used to recurse through
+// `SessionSplitLayoutSnapshot.encode` once per nesting level, which pushes
+// ~7 Swift frames per level onto whatever thread JSONEncoder is running on.
+// The production `com.cmuxterm.app.sessionPersistence` DispatchQueue worker
+// gets the macOS default 512 KB stack, so a workspace with ~70 nested splits
+// would blow the guard page and SIGBUS the entire app
+// (manaflow-ai/cmux#4656). To keep persistence stack-bounded regardless of
+// tree depth we serialize a flat array of nodes where each split references
+// its two children by index in the same array.
+//
+// The wire format is versioned. On decode we detect the legacy nested
+// `{"type": "pane"|"split", ...}` shape and accept it (existing saved
+// sessions can never be deeper than what the old recursive encoder was
+// able to actually write to disk, which is bounded by the same stack
+// budget, so the recursive legacy path is safe for any data that already
+// exists in the wild).
+
+extension SessionWorkspaceLayoutSnapshot: Codable {
+
+    /// Wire version for the flat-array format. Bumped when the on-disk
+    /// representation changes in a way old readers cannot handle.
+    static let flatWireVersion: Int = 2
+
+    private enum WireDispatchKeys: String, CodingKey {
+        case version
+        case nodes
         case type
         case pane
         case split
     }
 
+    /// Flattened, non-recursive representation of a node. Splits point at
+    /// their two children by index instead of nesting another node inline.
+    fileprivate enum FlatNode: Codable, Sendable {
+        case pane(SessionPaneLayoutSnapshot)
+        case split(orientation: SessionSplitOrientation, dividerPosition: Double, first: Int, second: Int)
+
+        private enum CodingKeys: String, CodingKey {
+            case type
+            case pane
+            case split
+        }
+
+        private enum SplitPayloadKeys: String, CodingKey {
+            case orientation
+            case dividerPosition
+            case first
+            case second
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let kind = try container.decode(String.self, forKey: .type)
+            switch kind {
+            case "pane":
+                self = .pane(try container.decode(SessionPaneLayoutSnapshot.self, forKey: .pane))
+            case "split":
+                let payload = try container.nestedContainer(keyedBy: SplitPayloadKeys.self, forKey: .split)
+                self = .split(
+                    orientation: try payload.decode(SessionSplitOrientation.self, forKey: .orientation),
+                    dividerPosition: try payload.decode(Double.self, forKey: .dividerPosition),
+                    first: try payload.decode(Int.self, forKey: .first),
+                    second: try payload.decode(Int.self, forKey: .second)
+                )
+            default:
+                throw DecodingError.dataCorruptedError(
+                    forKey: .type,
+                    in: container,
+                    debugDescription: "Unsupported flat layout node type: \(kind)"
+                )
+            }
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            switch self {
+            case .pane(let pane):
+                try container.encode("pane", forKey: .type)
+                try container.encode(pane, forKey: .pane)
+            case .split(let orientation, let dividerPosition, let first, let second):
+                try container.encode("split", forKey: .type)
+                var payload = container.nestedContainer(keyedBy: SplitPayloadKeys.self, forKey: .split)
+                try payload.encode(orientation, forKey: .orientation)
+                try payload.encode(dividerPosition, forKey: .dividerPosition)
+                try payload.encode(first, forKey: .first)
+                try payload.encode(second, forKey: .second)
+            }
+        }
+    }
+
+    fileprivate struct FlatWire: Codable, Sendable {
+        var version: Int
+        var nodes: [FlatNode]
+    }
+
     init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // Detect the wire format by probing for `version` (new flat layout)
+        // versus `type` (legacy nested layout). Either container shape is
+        // acceptable, so we use a permissive keyed container that knows about
+        // both sets of keys.
+        let container = try decoder.container(keyedBy: WireDispatchKeys.self)
+        if container.contains(.version) {
+            let wire = try FlatWire(from: decoder)
+            self = try SessionWorkspaceLayoutSnapshot.expand(wire: wire)
+            return
+        }
+        guard container.contains(.type) else {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: container.codingPath,
+                    debugDescription: "SessionWorkspaceLayoutSnapshot is missing both `version` and `type`"
+                )
+            )
+        }
+        // Legacy nested decode. Bounded by stack, but limited in practice by
+        // the same stack that wrote the file, so anything already on disk is
+        // safe to read with the recursive path.
         let type = try container.decode(String.self, forKey: .type)
         switch type {
         case "pane":
             self = .pane(try container.decode(SessionPaneLayoutSnapshot.self, forKey: .pane))
         case "split":
-            self = .split(try container.decode(SessionSplitLayoutSnapshot.self, forKey: .split))
+            self = .split(try container.decode(LegacySplitLayout.self, forKey: .split).asSplitSnapshot)
         default:
-            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unsupported layout node type: \(type)")
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Unsupported layout node type: \(type)"
+            )
         }
     }
 
     func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .pane(let pane):
-            try container.encode("pane", forKey: .type)
-            try container.encode(pane, forKey: .pane)
-        case .split(let split):
-            try container.encode("split", forKey: .type)
-            try container.encode(split, forKey: .split)
+        let wire = SessionWorkspaceLayoutSnapshot.flatten(self)
+        try wire.encode(to: encoder)
+    }
+
+    /// Walk the layout tree iteratively, producing a flat array where the
+    /// root is at index 0 and each `.split` records the indices of its
+    /// children. Uses an explicit work queue so stack usage is O(1) in tree
+    /// depth.
+    private static func flatten(_ root: SessionWorkspaceLayoutSnapshot) -> FlatWire {
+        let panePlaceholder = SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
+        var nodes: [FlatNode] = [.pane(panePlaceholder)] // root slot, overwritten below
+        var work: [(node: SessionWorkspaceLayoutSnapshot, index: Int)] = [(root, 0)]
+
+        while let (node, index) = work.popLast() {
+            switch node {
+            case .pane(let pane):
+                nodes[index] = .pane(pane)
+            case .split(let split):
+                let firstIndex = nodes.count
+                nodes.append(.pane(panePlaceholder))
+                let secondIndex = nodes.count
+                nodes.append(.pane(panePlaceholder))
+                nodes[index] = .split(
+                    orientation: split.orientation,
+                    dividerPosition: split.dividerPosition,
+                    first: firstIndex,
+                    second: secondIndex
+                )
+                work.append((split.first, firstIndex))
+                work.append((split.second, secondIndex))
+            }
         }
+        return FlatWire(version: flatWireVersion, nodes: nodes)
+    }
+
+    /// Rebuild the layout tree from the flat array. Because `flatten` always
+    /// assigns children after their parent in the array, processing nodes
+    /// from the back forward guarantees that every reference index has
+    /// already been resolved by the time we need it. Uses constant stack.
+    private static func expand(wire: FlatWire) throws -> SessionWorkspaceLayoutSnapshot {
+        guard wire.version == flatWireVersion else {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: [],
+                    debugDescription: "Unsupported SessionWorkspaceLayoutSnapshot wire version \(wire.version)"
+                )
+            )
+        }
+        guard !wire.nodes.isEmpty else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: [], debugDescription: "SessionWorkspaceLayoutSnapshot.FlatWire has no nodes")
+            )
+        }
+        var resolved: [SessionWorkspaceLayoutSnapshot?] = Array(repeating: nil, count: wire.nodes.count)
+        for index in stride(from: wire.nodes.count - 1, through: 0, by: -1) {
+            switch wire.nodes[index] {
+            case .pane(let pane):
+                resolved[index] = .pane(pane)
+            case .split(let orientation, let dividerPosition, let firstIndex, let secondIndex):
+                guard firstIndex > index,
+                      secondIndex > index,
+                      firstIndex < resolved.count,
+                      secondIndex < resolved.count,
+                      let first = resolved[firstIndex],
+                      let second = resolved[secondIndex]
+                else {
+                    throw DecodingError.dataCorrupted(
+                        .init(
+                            codingPath: [],
+                            debugDescription: "Invalid split child indices first=\(firstIndex) second=\(secondIndex) for node \(index)"
+                        )
+                    )
+                }
+                resolved[index] = .split(
+                    SessionSplitLayoutSnapshot(
+                        orientation: orientation,
+                        dividerPosition: dividerPosition,
+                        first: first,
+                        second: second
+                    )
+                )
+            }
+        }
+        // resolved[0] is guaranteed non-nil because we just set it in the
+        // loop above (every index gets a non-nil value).
+        return resolved[0]!
+    }
+}
+
+/// Recursive legacy decode helper. Only reached when reading a session file
+/// written by the original recursive encoder, which is depth-bounded by the
+/// same stack budget that we're now eliminating.
+private struct LegacySplitLayout: Decodable, Sendable {
+    var orientation: SessionSplitOrientation
+    var dividerPosition: Double
+    var first: SessionWorkspaceLayoutSnapshot
+    var second: SessionWorkspaceLayoutSnapshot
+
+    var asSplitSnapshot: SessionSplitLayoutSnapshot {
+        SessionSplitLayoutSnapshot(
+            orientation: orientation,
+            dividerPosition: dividerPosition,
+            first: first,
+            second: second
+        )
     }
 }
 
