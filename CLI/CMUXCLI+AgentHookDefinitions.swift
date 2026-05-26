@@ -324,7 +324,7 @@ extension CMUXCLI {
         if def.name == "kiro" {
             return kiroAgentHookShellCommand("cmux hooks feed --source \(def.name) --event \(agentEvent)", for: def)
         }
-        agentHookShellCommand("cmux hooks feed --source \(def.name) --event \(agentEvent)", for: def)
+        return agentHookShellCommand("cmux hooks feed --source \(def.name) --event \(agentEvent)", for: def)
     }
 
     private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
