@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
+    @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -16,6 +17,7 @@ struct cmuxApp: App {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+    @StateObject var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
 
@@ -415,6 +417,14 @@ struct cmuxApp: App {
                     ) {
                         AboutTitlebarDebugWindowController.shared.show()
                     }
+                    Button(
+                        String(
+                            localized: "debug.menu.titlebarLayoutDebug",
+                            defaultValue: "Titlebar Layout Debug..."
+                        )
+                    ) {
+                        TitlebarLayoutDebugWindowController.shared.show()
+                    }
                     Button("Sidebar Debug…") {
                         SidebarDebugWindowController.shared.show()
                     }
@@ -568,15 +578,6 @@ struct cmuxApp: App {
                     workspaceCommandMenuContent(manager: activeTabManager)
                 }
 
-                splitCommandButton(title: String(localized: "menu.file.reopenPreviousSession", defaultValue: "Reopen Previous Session"), shortcut: menuShortcut(for: .reopenPreviousSession)) {
-                    if AppDelegate.shared?.reopenPreviousSession() != true {
-                        NSSound.beep()
-                    }
-                }
-
-                splitCommandButton(title: String(localized: "menu.file.reopenClosedBrowserPanel", defaultValue: "Reopen Closed Browser Panel"), shortcut: menuShortcut(for: .reopenClosedBrowserPanel)) {
-                    _ = activeTabManager.reopenMostRecentlyClosedBrowserPanel()
-                }
             }
 
             // Find
@@ -658,6 +659,7 @@ struct cmuxApp: App {
             }
         }
         helpCommands
+        historyCommands
         CommandGroup(after: .toolbar) {
             splitCommandButton(title: String(localized: "menu.view.toggleLeftSidebar", defaultValue: "Toggle Left Sidebar"), shortcut: menuShortcut(for: .toggleSidebar)) {
                 if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
@@ -885,6 +887,7 @@ struct cmuxApp: App {
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         ) ?? tabManager
     }
+
     private func notificationMenuItemTitle(for notification: TerminalNotification) -> String {
         let tabTitle = appDelegate.tabTitle(for: notification.tabId)
         return MenuBarNotificationLineFormatter.menuTitle(notification: notification, tabTitle: tabTitle)
@@ -1137,6 +1140,7 @@ struct cmuxApp: App {
         BrowserImportHintDebugWindowController.shared.show()
         BrowserProfilePopoverDebugWindowController.shared.show()
         AboutTitlebarDebugWindowController.shared.show()
+        TitlebarLayoutDebugWindowController.shared.show()
         SidebarDebugWindowController.shared.show()
         BackgroundDebugWindowController.shared.show()
         StartupAppearanceDebugWindowController.shared.show()
@@ -1166,6 +1170,7 @@ private struct MainWindowBootstrapView: View {
     }
 }
 
+
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.settings",
     "cmux.about",
@@ -1179,6 +1184,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.fileExplorerStyleDebug",
     "cmux.folderDragIcon",
     "cmux.pdfPreviewChromeDebug",
+    "cmux.recentlyClosedHistory",
     "cmux.splitButtonLayoutDebug",
     "cmux.tabBarBackdropLab",
     "cmux.taskManager",
@@ -1191,6 +1197,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.backgroundDebug",
     "cmux.startupAppearanceDebug",
     "cmux.bonsplitTabBarDebug",
+    "cmux.titlebarLayoutDebug",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut
@@ -1631,6 +1638,7 @@ private enum DebugWindowConfigSnapshot {
         sidebarPathLastSegmentOnly=\(boolValue(defaults, key: SidebarPathLastSegmentSettings.key, fallback: SidebarPathLastSegmentSettings.defaultLastSegmentOnly))
         sidebarActiveTabIndicatorStyle=\(stringValue(defaults, key: SidebarActiveTabIndicatorSettings.styleKey, fallback: SidebarActiveTabIndicatorSettings.defaultStyle.rawValue))
         sidebarDevBuildBannerVisible=\(boolValue(defaults, key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey, fallback: DevBuildBannerDebugSettings.defaultShowSidebarBanner))
+        sidebarMinimumWidth=\(String(format: "%.1f", SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults)))
         """
 
         let backgroundPayload = """
@@ -1642,10 +1650,14 @@ private enum DebugWindowConfigSnapshot {
 
         let menuBarPayload = MenuBarIconDebugSettings.copyPayload(defaults: defaults)
         let browserDevToolsPayload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: defaults)
+        let titlebarLayoutPayload = TitlebarLayoutDebugSettingsSnapshot.copyPayload(defaults: defaults)
 
         return """
         # Sidebar Debug
         \(sidebarPayload)
+
+        # Titlebar Layout Debug
+        \(titlebarLayoutPayload)
 
         # Background Debug
         \(backgroundPayload)
@@ -1765,6 +1777,14 @@ private struct DebugWindowControlsView: View {
                         ) {
                             AboutTitlebarDebugWindowController.shared.show()
                         }
+                        Button(
+                            String(
+                                localized: "debug.menu.titlebarLayoutDebug",
+                                defaultValue: "Titlebar Layout Debug..."
+                            )
+                        ) {
+                            TitlebarLayoutDebugWindowController.shared.show()
+                        }
                         Button("Sidebar Debug…") {
                             SidebarDebugWindowController.shared.show()
                         }
@@ -1819,6 +1839,7 @@ private struct DebugWindowControlsView: View {
                             BrowserImportHintDebugWindowController.shared.show()
                             BrowserProfilePopoverDebugWindowController.shared.show()
                             AboutTitlebarDebugWindowController.shared.show()
+                            TitlebarLayoutDebugWindowController.shared.show()
                             SidebarDebugWindowController.shared.show()
                             BackgroundDebugWindowController.shared.show()
                             BonsplitTabBarDebugWindowController.shared.show()
@@ -5271,6 +5292,12 @@ struct SettingsView: View {
     private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
     @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
     private var autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions
+    @AppStorage(AgentHibernationSettings.enabledKey)
+    private var agentHibernationEnabled = AgentHibernationSettings.defaultEnabled
+    @AppStorage(AgentHibernationSettings.idleSecondsKey)
+    private var agentHibernationIdleSeconds = AgentHibernationSettings.defaultIdleSeconds
+    @AppStorage(AgentHibernationSettings.maxLiveTerminalsKey)
+    private var agentHibernationMaxLiveTerminals = AgentHibernationSettings.defaultMaxLiveTerminals
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
@@ -5523,6 +5550,38 @@ struct SettingsView: View {
                 guard autoResumeAgentSessions != newValue else { return }
                 autoResumeAgentSessions = newValue
                 AgentSessionAutoResumeSettings.notifyDidChange()
+            }
+        )
+    }
+
+    private var agentHibernationEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { agentHibernationEnabled },
+            set: { newValue in
+                AgentHibernationSettings.setValues(enabled: newValue)
+                agentHibernationEnabled = newValue
+            }
+        )
+    }
+
+    private var agentHibernationIdleSecondsBinding: Binding<Double> {
+        Binding(
+            get: { AgentHibernationSettings.sanitizedIdleSeconds(agentHibernationIdleSeconds) },
+            set: { newValue in
+                let sanitized = AgentHibernationSettings.sanitizedIdleSeconds(newValue)
+                AgentHibernationSettings.setValues(idleSeconds: sanitized)
+                agentHibernationIdleSeconds = sanitized
+            }
+        )
+    }
+
+    private var agentHibernationMaxLiveTerminalsBinding: Binding<Int> {
+        Binding(
+            get: { AgentHibernationSettings.sanitizedMaxLiveTerminals(agentHibernationMaxLiveTerminals) },
+            set: { newValue in
+                let sanitized = AgentHibernationSettings.sanitizedMaxLiveTerminals(newValue)
+                AgentHibernationSettings.setValues(maxLiveTerminals: sanitized)
+                agentHibernationMaxLiveTerminals = sanitized
             }
         )
     }
@@ -6745,6 +6804,58 @@ struct SettingsView: View {
                                 .accessibilityLabel(
                                     String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen")
                                 )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.agentHibernation.enabled"),
+                            String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"),
+                            subtitle: agentHibernationEnabled
+                                ? String(localized: "settings.terminal.agentHibernation.subtitleOn", defaultValue: "Idle background agent terminals can be suspended when the live-terminal limit is exceeded.")
+                                : String(localized: "settings.terminal.agentHibernation.subtitleOff", defaultValue: "Agent terminals stay live until you close them or quit cmux.")
+                        ) {
+                            Toggle("", isOn: agentHibernationEnabledBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTerminalAgentHibernationToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.agentHibernation.idleSeconds"),
+                            String(localized: "settings.terminal.agentHibernation.idleSeconds", defaultValue: "Hibernate After Idle Seconds"),
+                            subtitle: String(localized: "settings.terminal.agentHibernation.idleSeconds.subtitle", defaultValue: "A terminal must have no output and report an idle agent lifecycle for this long before it can be suspended."),
+                            controlWidth: 140
+                        ) {
+                            Stepper(
+                                "\(Int(agentHibernationIdleSecondsBinding.wrappedValue))",
+                                value: agentHibernationIdleSecondsBinding,
+                                in: 5...604800,
+                                step: 60
+                            )
+                            .accessibilityIdentifier("SettingsTerminalAgentHibernationIdleSecondsStepper")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.agentHibernation.maxLiveTerminals"),
+                            String(localized: "settings.terminal.agentHibernation.maxLiveTerminals", defaultValue: "Max Live Agent Terminals"),
+                            subtitle: String(localized: "settings.terminal.agentHibernation.maxLiveTerminals.subtitle", defaultValue: "Visible terminals stay live. Extra idle background agent terminals hibernate oldest first."),
+                            controlWidth: 120
+                        ) {
+                            Stepper(
+                                "\(agentHibernationMaxLiveTerminalsBinding.wrappedValue)",
+                                value: agentHibernationMaxLiveTerminalsBinding,
+                                in: 1...256,
+                                step: 1
+                            )
+                            .accessibilityIdentifier("SettingsTerminalAgentHibernationMaxLiveStepper")
                         }
                     }
 
@@ -8007,6 +8118,7 @@ struct SettingsView: View {
         if previousAutoResumeAgentSessions != autoResumeAgentSessions {
             AgentSessionAutoResumeSettings.notifyDidChange()
         }
+        AgentHibernationSettings.reset()
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         iMessageMode = IMessageModeSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
