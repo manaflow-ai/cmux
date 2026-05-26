@@ -23622,20 +23622,20 @@ function descriptorForOpenCodeStatus(rawStatus) {
   return null;
 }
 
-const IDLE_STOP_SESSIONS = new Set();
+const SESSION_LIFECYCLE = new Map();
 
-function idleStopKey(event) {
+function sessionLifecycleKey(event) {
   return sessionIdFor(event) || "default";
 }
 
 function markSessionNotIdle(event) {
-  IDLE_STOP_SESSIONS.delete(idleStopKey(event));
+  SESSION_LIFECYCLE.set(sessionLifecycleKey(event), "active");
 }
 
-function sendStopHookOnce(ctx, event) {
-  const sessionId = idleStopKey(event);
-  if (IDLE_STOP_SESSIONS.has(sessionId)) return;
-  IDLE_STOP_SESSIONS.add(sessionId);
+function sendStopHookOnIdleTransition(ctx, event) {
+  const sessionId = sessionLifecycleKey(event);
+  if (SESSION_LIFECYCLE.get(sessionId) === "idle") return;
+  SESSION_LIFECYCLE.set(sessionId, "idle");
   sendHook("stop", ctx, event);
 }
 
@@ -23719,21 +23719,22 @@ const CMUXSessionRestore = async (ctx) => {
             sendHook("session-start", ctx, event);
           }
           break;
-        case "session.status":
+        case "session.status": {
           const descriptor = descriptorForOpenCodeStatus(props.status || props.info?.status || props);
           setStatus(descriptor);
           if (descriptor === STATUS_DESCRIPTORS.idle) {
-            sendStopHookOnce(ctx, event);
-          } else if (descriptor === STATUS_DESCRIPTORS.error) {
+            sendStopHookOnIdleTransition(ctx, event);
+          } else {
             markSessionNotIdle(event);
-            notifyOpenCode("Error", "OpenCode reported an error");
-          } else if (descriptor) {
-            markSessionNotIdle(event);
+            if (descriptor === STATUS_DESCRIPTORS.error) {
+              notifyOpenCode("Error", "OpenCode reported an error");
+            }
           }
           break;
+        }
         case "session.idle":
           setStatus(STATUS_DESCRIPTORS.idle);
-          sendStopHookOnce(ctx, event);
+          sendStopHookOnIdleTransition(ctx, event);
           break;
         case "permission.asked":
           markSessionNotIdle(event);
@@ -23751,10 +23752,11 @@ const CMUXSessionRestore = async (ctx) => {
           notifyOpenCode("Error", "OpenCode reported an error");
           break;
         case "session.deleted":
-          IDLE_STOP_SESSIONS.delete(idleStopKey(event));
+          SESSION_LIFECYCLE.delete(sessionLifecycleKey(event));
           sendHook("session-end", ctx, event);
           break;
         default:
+          markSessionNotIdle(event);
           break;
       }
     },
