@@ -731,6 +731,18 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(branchWithBase.html.contains("\"sourceLabel\":\"git branch main\""), branchWithBase.html)
         XCTAssertTrue(branchWithBase.html.contains("\"branchBaseRef\":\"main\""), branchWithBase.html)
         XCTAssertTrue(branchWithBase.html.contains("+two"), branchWithBase.html)
+        let branchWithBasePayload = try diffViewerPayload(from: branchWithBase.html)
+        let branchWithBaseRepoOptions = try XCTUnwrap(branchWithBasePayload["repoOptions"] as? [[String: Any]])
+        let siblingRepoBranchURLString = try diffViewerOptionURL(value: siblingRepoURL.path, in: branchWithBaseRepoOptions)
+        let siblingRepoBranchFileURL = try diffViewerHTMLFileURL(
+            for: siblingRepoBranchURLString,
+            from: branchWithBase.params
+        )
+        let siblingRepoBranchHTML = try String(contentsOf: siblingRepoBranchFileURL, encoding: .utf8)
+        XCTAssertTrue(siblingRepoBranchHTML.contains("\"sourceLabel\":\"git branch main\""), siblingRepoBranchHTML)
+        XCTAssertTrue(siblingRepoBranchHTML.contains("\"branchBaseRef\":\"main\""), siblingRepoBranchHTML)
+        XCTAssertTrue(siblingRepoBranchHTML.contains("\"repoRoot\":\"\(siblingRepoURL.path)\""), siblingRepoBranchHTML)
+        XCTAssertTrue(siblingRepoBranchHTML.contains("+changed"), siblingRepoBranchHTML)
 
         let repoOverride = try runDiffCLIAndReadHTML(
             cliPath: cliPath,

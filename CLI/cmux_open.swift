@@ -2593,6 +2593,7 @@ extension CMUXCLI {
         let groupID = "\(timestamp)-\(UUID().uuidString.prefix(8))"
         let requestedSource = selectedSource
         let repoRoot = try gitRepoRootForDiff(context)
+        let explicitBranchBaseRef = normalizedDiffSourceValue(context.branchBaseRef)
         var selectedSource = requestedSource
         func sourceContext(for source: DiffSource, repoRoot: String) throws -> DiffSourceContext {
             var sourceContext = context
@@ -2766,7 +2767,7 @@ extension CMUXCLI {
                             workspaceId: selectedContext.workspaceId,
                             surfaceId: selectedContext.surfaceId,
                             repoRoot: option.repoRoot,
-                            branchBaseRef: source == .branch ? nil : selectedContext.branchBaseRef
+                            branchBaseRef: source == .branch ? explicitBranchBaseRef : selectedContext.branchBaseRef
                         ),
                         sourceOptions: sourceOptionsForRepo(selected: source, selectedRepoRoot: option.repoRoot),
                         repoOptions: repoOptionsForSource(source, selectedRepoRoot: option.repoRoot),

@@ -15,6 +15,24 @@ struct CLIProcessDataResult {
     let timedOut: Bool
 }
 
+private final class CLIProcessOutputBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func set(_ newData: Data) {
+        lock.lock()
+        data = newData
+        lock.unlock()
+    }
+
+    func get() -> Data {
+        lock.lock()
+        let current = data
+        lock.unlock()
+        return current
+    }
+}
+
 enum CLIProcessRunner {
     static func runProcess(
         executablePath: String,
@@ -47,25 +65,8 @@ enum CLIProcessRunner {
 
         let stdoutFinished = DispatchSemaphore(value: 0)
         let stderrFinished = DispatchSemaphore(value: 0)
-        final class OutputBuffer: @unchecked Sendable {
-            private let lock = NSLock()
-            private var data = Data()
-
-            func set(_ newData: Data) {
-                lock.lock()
-                data = newData
-                lock.unlock()
-            }
-
-            func get() -> Data {
-                lock.lock()
-                let current = data
-                lock.unlock()
-                return current
-            }
-        }
-        let stdoutBuffer = OutputBuffer()
-        let stderrBuffer = OutputBuffer()
+        let stdoutBuffer = CLIProcessOutputBuffer()
+        let stderrBuffer = CLIProcessOutputBuffer()
 
         DispatchQueue.global(qos: .utility).async {
             stdoutBuffer.set(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
@@ -108,13 +109,8 @@ enum CLIProcessRunner {
             timedOut = false
         }
 
-        if timedOut {
-            stdoutFinished.wait()
-            stderrFinished.wait()
-        } else {
-            stdoutFinished.wait()
-            stderrFinished.wait()
-        }
+        stdoutFinished.wait()
+        stderrFinished.wait()
 
         let stdout = String(data: stdoutBuffer.get(), encoding: .utf8) ?? ""
         var stderr = String(data: stderrBuffer.get(), encoding: .utf8) ?? ""
@@ -166,25 +162,8 @@ enum CLIProcessRunner {
 
         let stdoutFinished = DispatchSemaphore(value: 0)
         let stderrFinished = DispatchSemaphore(value: 0)
-        final class OutputBuffer: @unchecked Sendable {
-            private let lock = NSLock()
-            private var data = Data()
-
-            func set(_ newData: Data) {
-                lock.lock()
-                data = newData
-                lock.unlock()
-            }
-
-            func get() -> Data {
-                lock.lock()
-                let current = data
-                lock.unlock()
-                return current
-            }
-        }
-        let stdoutBuffer = OutputBuffer()
-        let stderrBuffer = OutputBuffer()
+        let stdoutBuffer = CLIProcessOutputBuffer()
+        let stderrBuffer = CLIProcessOutputBuffer()
 
         DispatchQueue.global(qos: .utility).async {
             stdoutBuffer.set(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
