@@ -535,7 +535,7 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         XCTAssertTrue(stagedFallback.html.contains("Staged changes"), stagedFallback.html)
         XCTAssertTrue(stagedFallback.html.contains("\"sourceLabel\":\"git staged\""), stagedFallback.html)
-        XCTAssertTrue(stagedFallback.html.contains("+two"), stagedFallback.html)
+        XCTAssertTrue(stagedFallback.patch.contains("+two"), stagedFallback.patch)
         let payload = try diffViewerPayload(from: stagedFallback.html)
         let sourceOptions = try XCTUnwrap(payload["sourceOptions"] as? [[String: Any]])
         let stagedOption = try XCTUnwrap(sourceOptions.first { $0["value"] as? String == "staged" })
@@ -695,8 +695,8 @@ final class CMUXOpenCommandTests: XCTestCase {
             currentDirectoryURL: repoURL
         )
         XCTAssertTrue(branch.html.contains("Branch source"), branch.html)
-        XCTAssertTrue(branch.html.contains("+two"), branch.html)
-        XCTAssertTrue(branch.html.contains("+three"), branch.html)
+        XCTAssertTrue(branch.patch.contains("+two"), branch.patch)
+        XCTAssertTrue(branch.patch.contains("+three"), branch.patch)
         XCTAssertTrue(branch.html.contains("\"sourceLabel\":\"git branch origin/main\""), branch.html)
         XCTAssertTrue(branch.html.contains("id=\"source-select\""), branch.html)
         XCTAssertTrue(branch.html.contains("id=\"repo-select\""), branch.html)
@@ -730,9 +730,13 @@ final class CMUXOpenCommandTests: XCTestCase {
             from: branch.params
         )
         let siblingRepoUnstagedHTML = try String(contentsOf: siblingRepoUnstagedFileURL, encoding: .utf8)
+        let siblingRepoUnstagedPatch = try String(
+            contentsOf: siblingRepoUnstagedFileURL.deletingPathExtension().appendingPathExtension("patch"),
+            encoding: .utf8
+        )
         XCTAssertTrue(siblingRepoUnstagedHTML.contains("\"sourceLabel\":\"git unstaged\""), siblingRepoUnstagedHTML)
         XCTAssertTrue(siblingRepoUnstagedHTML.contains("\"repoRoot\":\"\(siblingRepoURL.path)\""), siblingRepoUnstagedHTML)
-        XCTAssertTrue(siblingRepoUnstagedHTML.contains("+changed"), siblingRepoUnstagedHTML)
+        XCTAssertTrue(siblingRepoUnstagedPatch.contains("+changed"), siblingRepoUnstagedPatch)
         XCTAssertFalse(siblingRepoUnstagedHTML.contains("\"sourceLabel\":\"git branch"), siblingRepoUnstagedHTML)
 
         let branchWithBase = try runDiffCLIAndReadHTML(
@@ -742,7 +746,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         )
         XCTAssertTrue(branchWithBase.html.contains("\"sourceLabel\":\"git branch main\""), branchWithBase.html)
         XCTAssertTrue(branchWithBase.html.contains("\"branchBaseRef\":\"main\""), branchWithBase.html)
-        XCTAssertTrue(branchWithBase.html.contains("+two"), branchWithBase.html)
+        XCTAssertTrue(branchWithBase.patch.contains("+two"), branchWithBase.patch)
         let branchWithBasePayload = try diffViewerPayload(from: branchWithBase.html)
         let branchWithBaseRepoOptions = try XCTUnwrap(branchWithBasePayload["repoOptions"] as? [[String: Any]])
         let siblingRepoBranchURLString = try diffViewerOptionURL(value: siblingRepoURL.path, in: branchWithBaseRepoOptions)
@@ -751,10 +755,14 @@ final class CMUXOpenCommandTests: XCTestCase {
             from: branchWithBase.params
         )
         let siblingRepoBranchHTML = try String(contentsOf: siblingRepoBranchFileURL, encoding: .utf8)
+        let siblingRepoBranchPatch = try String(
+            contentsOf: siblingRepoBranchFileURL.deletingPathExtension().appendingPathExtension("patch"),
+            encoding: .utf8
+        )
         XCTAssertTrue(siblingRepoBranchHTML.contains("\"sourceLabel\":\"git branch main\""), siblingRepoBranchHTML)
         XCTAssertTrue(siblingRepoBranchHTML.contains("\"branchBaseRef\":\"main\""), siblingRepoBranchHTML)
         XCTAssertTrue(siblingRepoBranchHTML.contains("\"repoRoot\":\"\(siblingRepoURL.path)\""), siblingRepoBranchHTML)
-        XCTAssertTrue(siblingRepoBranchHTML.contains("+changed"), siblingRepoBranchHTML)
+        XCTAssertTrue(siblingRepoBranchPatch.contains("+changed"), siblingRepoBranchPatch)
 
         let repoOverride = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
@@ -763,7 +771,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         )
         XCTAssertTrue(repoOverride.html.contains("\"sourceLabel\":\"git unstaged\""), repoOverride.html)
         XCTAssertTrue(repoOverride.html.contains("\"repoRoot\":\"\(repoURL.path)\""), repoOverride.html)
-        XCTAssertTrue(repoOverride.html.contains("+three"), repoOverride.html)
+        XCTAssertTrue(repoOverride.patch.contains("+three"), repoOverride.patch)
 
         let unstaged = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
@@ -771,9 +779,9 @@ final class CMUXOpenCommandTests: XCTestCase {
             currentDirectoryURL: repoURL
         )
         XCTAssertTrue(unstaged.html.contains("Unstaged changes"), unstaged.html)
-        XCTAssertTrue(unstaged.html.contains("+three"), unstaged.html)
+        XCTAssertTrue(unstaged.patch.contains("+three"), unstaged.patch)
         XCTAssertTrue(unstaged.html.contains("\"sourceLabel\":\"git unstaged\""), unstaged.html)
-        assertNoANSIEscape(unstaged.html)
+        assertNoANSIEscape(unstaged.patch)
 
         try runGit(["add", "story.txt"], in: repoURL)
         let staged = try runDiffCLIAndReadHTML(
@@ -782,9 +790,9 @@ final class CMUXOpenCommandTests: XCTestCase {
             currentDirectoryURL: repoURL
         )
         XCTAssertTrue(staged.html.contains("Staged changes"), staged.html)
-        XCTAssertTrue(staged.html.contains("+three"), staged.html)
+        XCTAssertTrue(staged.patch.contains("+three"), staged.patch)
         XCTAssertTrue(staged.html.contains("\"sourceLabel\":\"git staged\""), staged.html)
-        assertNoANSIEscape(staged.html)
+        assertNoANSIEscape(staged.patch)
 
         let workspaceId = UUID().uuidString.lowercased()
         let surfaceId = UUID().uuidString.lowercased()
@@ -828,22 +836,22 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(lastTurn.params["surface_id"] as? String, surfaceId)
         XCTAssertEqual(lastTurn.params["show_omnibar"] as? Bool, false)
         XCTAssertTrue(lastTurn.html.contains("Last turn diff"), lastTurn.html)
-        XCTAssertTrue(lastTurn.html.contains("+two"), lastTurn.html)
-        XCTAssertTrue(lastTurn.html.contains("+three"), lastTurn.html)
-        XCTAssertTrue(lastTurn.html.contains("new-turn-file.txt"), lastTurn.html)
-        XCTAssertTrue(lastTurn.html.contains("+created"), lastTurn.html)
-        XCTAssertTrue(lastTurn.html.contains("preexisting.txt"), lastTurn.html)
-        XCTAssertTrue(lastTurn.html.contains("-before"), lastTurn.html)
-        XCTAssertTrue(lastTurn.html.contains("+after"), lastTurn.html)
-        XCTAssertTrue(lastTurn.html.contains("binary.dat"), lastTurn.html)
-        XCTAssertTrue(lastTurn.html.contains("GIT binary patch"), lastTurn.html)
-        XCTAssertTrue(lastTurn.html.contains("tracked-later.txt"), lastTurn.html)
-        XCTAssertTrue(lastTurn.html.contains("+tracked later"), lastTurn.html)
-        XCTAssertFalse(lastTurn.html.contains("-tracked later"), lastTurn.html)
-        XCTAssertTrue(lastTurn.html.contains("deleted-untracked.txt"), lastTurn.html)
-        XCTAssertTrue(lastTurn.html.contains("-remove me"), lastTurn.html)
-        XCTAssertFalse(lastTurn.html.contains("unchanged-untracked.txt"), lastTurn.html)
-        assertNoANSIEscape(lastTurn.html)
+        XCTAssertTrue(lastTurn.patch.contains("+two"), lastTurn.patch)
+        XCTAssertTrue(lastTurn.patch.contains("+three"), lastTurn.patch)
+        XCTAssertTrue(lastTurn.patch.contains("new-turn-file.txt"), lastTurn.patch)
+        XCTAssertTrue(lastTurn.patch.contains("+created"), lastTurn.patch)
+        XCTAssertTrue(lastTurn.patch.contains("preexisting.txt"), lastTurn.patch)
+        XCTAssertTrue(lastTurn.patch.contains("-before"), lastTurn.patch)
+        XCTAssertTrue(lastTurn.patch.contains("+after"), lastTurn.patch)
+        XCTAssertTrue(lastTurn.patch.contains("binary.dat"), lastTurn.patch)
+        XCTAssertTrue(lastTurn.patch.contains("GIT binary patch"), lastTurn.patch)
+        XCTAssertTrue(lastTurn.patch.contains("tracked-later.txt"), lastTurn.patch)
+        XCTAssertTrue(lastTurn.patch.contains("+tracked later"), lastTurn.patch)
+        XCTAssertFalse(lastTurn.patch.contains("-tracked later"), lastTurn.patch)
+        XCTAssertTrue(lastTurn.patch.contains("deleted-untracked.txt"), lastTurn.patch)
+        XCTAssertTrue(lastTurn.patch.contains("-remove me"), lastTurn.patch)
+        XCTAssertFalse(lastTurn.patch.contains("unchanged-untracked.txt"), lastTurn.patch)
+        assertNoANSIEscape(lastTurn.patch)
 
         let refLastTurn = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
@@ -920,7 +928,7 @@ final class CMUXOpenCommandTests: XCTestCase {
             currentDirectoryURL: repoURL
         )
         XCTAssertTrue(homeLastTurn.html.contains("Last turn diff"), homeLastTurn.html)
-        XCTAssertTrue(homeLastTurn.html.contains("new-turn-file.txt"), homeLastTurn.html)
+        XCTAssertTrue(homeLastTurn.patch.contains("new-turn-file.txt"), homeLastTurn.patch)
 
         let wrongSurfaceResult = runDiffCLIExpectingNoOpen(
             cliPath: cliPath,
@@ -1055,8 +1063,8 @@ final class CMUXOpenCommandTests: XCTestCase {
             currentDirectoryURL: repoURL
         )
         XCTAssertTrue(large.html.contains("Large git source"), large.html)
-        XCTAssertTrue(large.html.contains("large.txt"), large.html)
-        XCTAssertTrue(large.html.contains("+new line 4999"), large.html)
+        XCTAssertTrue(large.patch.contains("large.txt"), large.patch)
+        XCTAssertTrue(large.patch.contains("+new line 4999"), large.patch)
     }
 
     func testTopCommandSortsWorkspacesByCPUDescending() throws {
@@ -1449,7 +1457,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         environmentOverrides: [String: String] = [:],
         currentDirectoryURL: URL? = nil,
         socketResponse: (@Sendable (String) -> String?)? = nil
-    ) throws -> (html: String, params: [String: Any], stdout: String) {
+    ) throws -> (html: String, patch: String, params: [String: Any], stdout: String) {
         let socketPath = makeSocketPath("diff-src")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
@@ -1502,7 +1510,10 @@ final class CMUXOpenCommandTests: XCTestCase {
         let viewerFileURL = try diffViewerHTMLFileURL(from: params)
         defer { try? FileManager.default.removeItem(at: viewerFileURL) }
         let html = try String(contentsOf: viewerFileURL, encoding: .utf8)
-        return (html, params, result.stdout)
+        let patchURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
+        defer { try? FileManager.default.removeItem(at: patchURL) }
+        let patch = try String(contentsOf: patchURL, encoding: .utf8)
+        return (html, patch, params, result.stdout)
     }
 
     private func diffViewerHTMLFileURL(from params: [String: Any]) throws -> URL {
