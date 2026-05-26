@@ -4277,7 +4277,7 @@ final class SidebarBackgroundConfigTests: XCTestCase {
     }
 }
 
-final class ZshShellIntegrationHandoffTests: XCTestCase {
+final class ShellIntegrationHandoffTests: XCTestCase {
     func testGhosttyPromptHooksLoadWhenCmuxRequestsZshIntegration() throws {
         let output = try runInteractiveZsh(cmuxLoadGhosttyIntegration: true)
 
@@ -5296,7 +5296,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             let message = "openpty failed: \(String(cString: strerror(errno)))"
             XCTFail(message)
             throw NSError(
-                domain: "ZshShellIntegrationHandoffTests",
+                domain: "ShellIntegrationHandoffTests",
                 code: Int(errno),
                 userInfo: [NSLocalizedDescriptionKey: message]
             )
@@ -5371,7 +5371,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             let message = "Timed out waiting for interactive zsh prompt: \(terminalOutput)"
             XCTFail(message)
             throw NSError(
-                domain: "ZshShellIntegrationHandoffTests",
+                domain: "ShellIntegrationHandoffTests",
                 code: 1,
                 userInfo: [NSLocalizedDescriptionKey: message]
             )
@@ -5390,7 +5390,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             let message = "Timed out waiting for interactive zsh to exit: \(terminalOutput)"
             XCTFail(message)
             throw NSError(
-                domain: "ZshShellIntegrationHandoffTests",
+                domain: "ShellIntegrationHandoffTests",
                 code: 1,
                 userInfo: [NSLocalizedDescriptionKey: message]
             )
