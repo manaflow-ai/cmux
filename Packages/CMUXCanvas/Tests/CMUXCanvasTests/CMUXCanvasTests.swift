@@ -183,6 +183,44 @@ final class CMUXCanvasTests: XCTestCase {
         XCTAssertEqual(plan.textureSurfaces.map(\.id), [activeID])
     }
 
+    func testNativeOverlayManagerUsesSharedNativeThreshold() {
+        let activeID = LayoutItemID()
+        let descriptor = CanvasSurfaceDescriptor(
+            id: activeID,
+            kind: .terminal,
+            frame: PixelRect(x: 100, y: 120, width: 400, height: 300),
+            isFocused: true,
+            renderMode: .nativeOverlay
+        )
+        let manager = NativeSurfaceOverlayManager(
+            configuration: CanvasNativeOverlayConfiguration(activeSurfaceID: activeID)
+        )
+
+        let previewPlan = manager.plan(scene: CanvasScene(
+            viewport: CanvasViewport(
+                visibleRect: PixelRect(x: 0, y: 0, width: 800, height: 600),
+                scale: CanvasViewportZoom.nativeOverlayMinimumScale - 0.001
+            ),
+            viewportSize: CGSize(width: 800, height: 600),
+            scale: CGFloat(CanvasViewportZoom.nativeOverlayMinimumScale - 0.001),
+            surfaces: [descriptor]
+        ))
+        let nativePlan = manager.plan(scene: CanvasScene(
+            viewport: CanvasViewport(
+                visibleRect: PixelRect(x: 0, y: 0, width: 800, height: 600),
+                scale: CanvasViewportZoom.nativeOverlayMinimumScale
+            ),
+            viewportSize: CGSize(width: 800, height: 600),
+            scale: CGFloat(CanvasViewportZoom.nativeOverlayMinimumScale),
+            surfaces: [descriptor]
+        ))
+
+        XCTAssertTrue(previewPlan.nativeOverlays.isEmpty)
+        XCTAssertEqual(previewPlan.textureSurfaces.map(\.id), [activeID])
+        XCTAssertEqual(nativePlan.nativeOverlays.map(\.id), [activeID])
+        XCTAssertTrue(nativePlan.textureSurfaces.isEmpty)
+    }
+
     func testShellRenderPlanBuildsGridAndSurfaceChrome() {
         let activeID = LayoutItemID()
         let inactiveID = LayoutItemID()

@@ -1302,6 +1302,7 @@ private final class CanvasAnimationFrameClockView: NSView {
     private var token: UInt64 = 0
     private var isActive = false
     private var hasPendingMainFrame = false
+    private var pendingMainFrameTime: TimeInterval = 0
     private let lock = NSLock()
     private var onFrame: ((TimeInterval) -> Void)?
 
@@ -1329,6 +1330,7 @@ private final class CanvasAnimationFrameClockView: NSView {
         }
         lock.lock()
         hasPendingMainFrame = false
+        pendingMainFrameTime = 0
         lock.unlock()
     }
 
@@ -1354,9 +1356,10 @@ private final class CanvasAnimationFrameClockView: NSView {
         CVDisplayLinkStart(displayLink)
     }
 
-    fileprivate func displayLinkDidFire() {
+    fileprivate func displayLinkDidFire(outputTime: TimeInterval) {
         let shouldSchedule: Bool
         lock.lock()
+        pendingMainFrameTime = outputTime
         if hasPendingMainFrame {
             shouldSchedule = false
         } else {
@@ -1368,13 +1371,21 @@ private final class CanvasAnimationFrameClockView: NSView {
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            let frameTime: TimeInterval
             self.lock.lock()
+            frameTime = self.pendingMainFrameTime
             self.hasPendingMainFrame = false
             self.lock.unlock()
             guard self.isActive else { return }
-            self.onFrame?(CACurrentMediaTime())
+            self.onFrame?(frameTime > 0 ? frameTime : canvasAnimationClockTime())
         }
     }
+}
+
+private func canvasAnimationClockTime() -> TimeInterval {
+    let frequency = CVGetHostClockFrequency()
+    guard frequency > 0 else { return CACurrentMediaTime() }
+    return TimeInterval(Double(CVGetCurrentHostTime()) / frequency)
 }
 
 private func canvasAnimationFrameClockCallback(
@@ -1387,7 +1398,14 @@ private func canvasAnimationFrameClockCallback(
 ) -> CVReturn {
     guard let ctx else { return kCVReturnSuccess }
     let view = Unmanaged<CanvasAnimationFrameClockView>.fromOpaque(ctx).takeUnretainedValue()
-    view.displayLinkDidFire()
+    let outputHostTime = inOutputTime.pointee.hostTime == 0
+        ? CVGetCurrentHostTime()
+        : inOutputTime.pointee.hostTime
+    let frequency = CVGetHostClockFrequency()
+    let outputTime = frequency > 0
+        ? TimeInterval(Double(outputHostTime) / frequency)
+        : CACurrentMediaTime()
+    view.displayLinkDidFire(outputTime: outputTime)
     return kCVReturnSuccess
 }
 
@@ -2318,7 +2336,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         activeCanvasViewportAnimation = CanvasViewportAnimation(
             startViewport: startViewport,
             targetViewport: targetViewport,
-            startTime: CACurrentMediaTime(),
+            startTime: canvasAnimationClockTime(),
             duration: 0.18
         )
         presentedCanvasViewport = startViewport

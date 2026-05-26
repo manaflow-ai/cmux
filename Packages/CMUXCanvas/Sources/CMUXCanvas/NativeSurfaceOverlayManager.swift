@@ -6,8 +6,16 @@ public struct CanvasNativeOverlayConfiguration: Sendable, Equatable {
     public var minimumNativeScale: CGFloat
     public var activeSurfaceID: LayoutItemID?
 
-    public init(minimumNativeScale: CGFloat = 0.995, activeSurfaceID: LayoutItemID? = nil) {
-        self.minimumNativeScale = max(0.0001, minimumNativeScale.isFinite ? minimumNativeScale : 0.995)
+    public init(
+        minimumNativeScale: CGFloat = CGFloat(CanvasViewportZoom.nativeOverlayMinimumScale),
+        activeSurfaceID: LayoutItemID? = nil
+    ) {
+        self.minimumNativeScale = max(
+            0.0001,
+            minimumNativeScale.isFinite
+                ? minimumNativeScale
+                : CGFloat(CanvasViewportZoom.nativeOverlayMinimumScale)
+        )
         self.activeSurfaceID = activeSurfaceID
     }
 }

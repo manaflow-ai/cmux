@@ -70,7 +70,7 @@ public struct CanvasSceneSnapshot: Codable, Sendable, Equatable {
         self.activeItemID = activeItemID ?? focusedItemID
 
         let resolvedActiveItemID = activeItemID ?? focusedItemID
-        let allowsLiveNativeMount = document.viewport.scale >= 0.99
+        let allowsLiveNativeMount = document.viewport.scale >= CanvasViewportZoom.nativeOverlayMinimumScale
         self.items = document.items.map { item in
             let isFocused = item.id == focusedItemID
             return CanvasSceneItem(

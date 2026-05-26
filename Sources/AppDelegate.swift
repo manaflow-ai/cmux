@@ -13750,7 +13750,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isCanvasZoomShortcutAvailable(event: NSEvent) -> Bool {
-        canvasShortcutWorkspace(event: event) != nil
+        guard canvasShortcutWorkspace(event: event) != nil else { return false }
+        guard shortcutEventBrowserPanel(event) == nil else { return false }
+        guard let firstResponder = resolvedShortcutEventWindow(event)?.firstResponder ?? NSApp.keyWindow?.firstResponder else {
+            return true
+        }
+        if firstResponder is NSTextView || firstResponder is NSTextField {
+            return false
+        }
+        let responderClassName = NSStringFromClass(type(of: firstResponder))
+        if responderClassName.contains("WK") || responderClassName.contains("WebView") {
+            return false
+        }
+        return true
     }
 
     private func activateFocusedCanvasItemForShortcutIfNeeded(

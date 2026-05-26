@@ -94,6 +94,7 @@ public struct CanvasViewport: Codable, Sendable, Equatable {
 public enum CanvasViewportZoom {
     public static let minimumScale: Double = CanvasViewport.minimumScale
     public static let maximumScale: Double = 1.0
+    public static let nativeOverlayMinimumScale: Double = 0.995
 
     public static func presentationScale(for viewport: CanvasViewport) -> Double {
         clampedScale(viewport.scale)

@@ -3851,6 +3851,37 @@ final class CMUXLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testControllerRestoresFreeformCanvasDocument() throws {
+        let controller = WorkspaceLayoutController()
+        _ = controller.createTab(title: "Base")
+        let paneID = try XCTUnwrap(controller.focusedPaneId)
+        let restoredFrame = PixelRect(x: 144, y: 88, width: 720, height: 440)
+        let restoredViewport = CanvasViewport(
+            visibleRect: PixelRect(x: 40, y: 60, width: 1_400, height: 900),
+            scale: 0.5
+        )
+
+        controller.restoreCanvasDocument(CanvasDocument(
+            policy: .freeform,
+            viewport: restoredViewport,
+            items: [
+                CanvasItem(
+                    content: .pane(paneID),
+                    frame: restoredFrame,
+                    zIndex: 4,
+                    isNativeResolution: true
+                )
+            ]
+        ))
+
+        let canvas = controller.canvasSnapshot()
+        XCTAssertEqual(canvas.policy, .freeform)
+        XCTAssertEqual(canvas.viewport, restoredViewport)
+        XCTAssertEqual(controller.canvasItem(forPane: paneID)?.frame, restoredFrame)
+        XCTAssertTrue(controller.isCanvasOverviewActive)
+    }
+
+    @MainActor
     func testControllerCanvasItemIDsRemainStableAcrossSync() throws {
         let controller = WorkspaceLayoutController()
         _ = controller.createTab(title: "Base")
@@ -4577,5 +4608,32 @@ final class CMUXLayoutTests: XCTestCase {
 
         XCTAssertNil(scene.activeMountDirective)
         XCTAssertTrue(scene.items.allSatisfy { $0.renderMode == .previewTexture })
+    }
+
+    @MainActor
+    func testCanvasSceneSnapshotUsesNativeOverlayThreshold() throws {
+        let controller = WorkspaceLayoutController()
+        let firstID = try XCTUnwrap(controller.canvasSnapshot().items.first?.id)
+
+        XCTAssertTrue(controller.focusCanvasItem(firstID))
+        controller.enterCanvasOverview(
+            policy: .freeform,
+            scale: CanvasViewportZoom.nativeOverlayMinimumScale - 0.001
+        )
+
+        let previewScene = controller.canvasSceneSnapshot()
+
+        XCTAssertNil(previewScene.activeMountDirective)
+        XCTAssertTrue(previewScene.items.allSatisfy { $0.renderMode == .previewTexture })
+
+        controller.enterCanvasOverview(
+            policy: .freeform,
+            scale: CanvasViewportZoom.nativeOverlayMinimumScale
+        )
+
+        let nativeScene = controller.canvasSceneSnapshot()
+
+        XCTAssertEqual(nativeScene.activeMountDirective?.itemID, firstID)
+        XCTAssertEqual(nativeScene.activeMountDirective?.renderMode, .liveNative1x)
     }
 }

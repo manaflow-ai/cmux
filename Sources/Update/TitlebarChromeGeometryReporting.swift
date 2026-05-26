@@ -50,12 +50,17 @@ enum TitlebarChromeUITestRecorder {
 #if DEBUG
     private static func dataPath() -> String? {
         let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1",
-              let path = env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"],
-              !path.isEmpty else {
-            return nil
+        if env["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_SETUP"] == "1",
+           let path = env["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_PATH"],
+           !path.isEmpty {
+            return path
         }
-        return path
+        if env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1",
+           let path = env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"],
+           !path.isEmpty {
+            return path
+        }
+        return nil
     }
 
     private static func loadPayload(at path: String) -> [String: String] {

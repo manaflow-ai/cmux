@@ -974,6 +974,14 @@ public final class WorkspaceLayoutController {
         return canvasDocument
     }
 
+    public func restoreCanvasDocument(_ document: CanvasDocument, activateOverview: Bool = true) {
+        canvasDocument = document
+        syncCanvasDocumentWithCurrentLayout()
+        if activateOverview {
+            isCanvasOverviewActive = true
+        }
+    }
+
     public func canvasSceneSnapshot(activeItemID: LayoutItemID? = nil) -> CanvasSceneSnapshot {
         return CanvasSceneSnapshot(
             document: canvasDocument,

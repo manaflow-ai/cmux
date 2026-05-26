@@ -7551,6 +7551,14 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.canvasScrollingColumns",
+                title: constant(String(localized: "command.canvasScrollingColumns.title", defaultValue: "Arrange Canvas as Columns")),
+                subtitle: constant(String(localized: "command.canvas.subtitle", defaultValue: "Canvas")),
+                keywords: ["canvas", "columns", "scrolling", "niri", "arrange", "layout"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.equalizeSplits",
                 title: constant(String(localized: "command.equalizeSplits.title", defaultValue: "Equalize Splits")),
                 subtitle: workspaceSubtitle,

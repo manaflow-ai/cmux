@@ -1553,6 +1553,20 @@ indirect enum SessionWorkspacePaneLayoutSnapshot: Codable, Sendable {
     }
 }
 
+struct SessionCanvasItemSnapshot: Codable, Sendable {
+    var panelIds: [UUID]
+    var selectedPanelId: UUID?
+    var frame: PixelRect
+    var zIndex: Int
+    var isNativeResolution: Bool?
+}
+
+struct SessionCanvasSnapshot: Codable, Sendable {
+    var policy: CanvasLayoutPolicy
+    var viewport: CanvasViewport
+    var items: [SessionCanvasItemSnapshot]
+}
+
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     var processTitle: String
     var customTitle: String?
@@ -1572,6 +1586,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
     var remote: SessionRemoteWorkspaceSnapshot?
+    var canvas: SessionCanvasSnapshot? = nil
 }
 
 extension SessionWorkspaceSnapshot {

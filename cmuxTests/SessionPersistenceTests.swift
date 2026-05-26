@@ -1,4 +1,5 @@
 import Darwin
+import CMUXLayout
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -11,6 +12,39 @@ final class SessionPersistenceTests: XCTestCase {
     private struct LegacyPersistedWindowGeometry: Codable {
         let frame: SessionRectSnapshot
         let display: SessionDisplaySnapshot?
+    }
+
+    @MainActor
+    func testWorkspaceSessionSnapshotRestoresFreeformCanvasState() throws {
+        let workspace = Workspace()
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let rightPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false)
+        )
+        let rightPaneId = try XCTUnwrap(workspace.paneId(forPanelId: rightPanel.id))
+
+        workspace.enterCanvasOverview(policy: .freeform)
+        let rightItem = try XCTUnwrap(workspace.layoutController.canvasItem(forPane: rightPaneId))
+        let movedFrame = PixelRect(x: 320, y: 180, width: 880, height: 540)
+        let movedViewport = CanvasViewport(
+            visibleRect: PixelRect(x: 96, y: 128, width: 1_600, height: 900),
+            scale: 0.5
+        )
+        workspace.layoutController.moveCanvasItem(rightItem.id, to: movedFrame)
+        workspace.layoutController.setCanvasViewport(movedViewport)
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(snapshot.canvas?.policy, .freeform)
+        XCTAssertEqual(snapshot.canvas?.viewport, movedViewport)
+        XCTAssertTrue(snapshot.canvas?.items.contains { $0.frame == movedFrame } == true)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredCanvas = restored.layoutController.canvasSnapshot()
+
+        XCTAssertEqual(restoredCanvas.policy, .freeform)
+        XCTAssertEqual(restoredCanvas.viewport, movedViewport)
+        XCTAssertTrue(restoredCanvas.items.contains { $0.frame == movedFrame })
     }
 
     @MainActor

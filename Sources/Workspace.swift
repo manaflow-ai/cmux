@@ -194,6 +194,8 @@ extension Workspace {
                     )
                 )
             }
+        let panelSnapshotIds = Set(panelSnapshots.map(\.id))
+        let canvasSnapshot = sessionCanvasSnapshot(includingPanelIds: panelSnapshotIds)
 
         let statusSnapshots = statusEntries.values
             .sorted { lhs, rhs in lhs.key < rhs.key }
@@ -246,7 +248,8 @@ extension Workspace {
             logEntries: logSnapshots,
             progress: progressSnapshot,
             gitBranch: gitBranchSnapshot,
-            remote: remoteConfiguration?.sessionSnapshot()
+            remote: remoteConfiguration?.sessionSnapshot(),
+            canvas: canvasSnapshot
         )
     }
 
@@ -339,7 +342,9 @@ extension Workspace {
         } else {
             scheduleFocusReconcile()
         }
-        ensureCanvasMainView()
+        if !restoreCanvasSnapshot(snapshot.canvas, oldToNewPanelIds: oldToNewPanelIds) {
+            ensureCanvasMainView()
+        }
         let isWorkspaceManuallyUnread = snapshot.isManuallyUnread == true
         restoreWorkspaceManualUnread(isWorkspaceManuallyUnread)
         let restoredNotifications = restoredSessionNotifications(
@@ -413,6 +418,37 @@ extension Workspace {
             return nil
         }
         return decoded.id
+    }
+
+    private func sessionCanvasSnapshot(includingPanelIds restorablePanelIds: Set<UUID>) -> SessionCanvasSnapshot? {
+        let document = layoutController.canvasSnapshot()
+        let items = document.items.compactMap { item -> SessionCanvasItemSnapshot? in
+            guard case .pane(let paneID) = item.content else { return nil }
+            let panelIds = layoutController
+                .tabs(inPane: paneID)
+                .compactMap { panelIdFromSurfaceId($0.id) }
+                .filter { restorablePanelIds.contains($0) }
+            guard !panelIds.isEmpty else { return nil }
+
+            let selectedPanelId = layoutController
+                .selectedTab(inPane: paneID)
+                .flatMap { panelIdFromSurfaceId($0.id) }
+
+            return SessionCanvasItemSnapshot(
+                panelIds: panelIds,
+                selectedPanelId: selectedPanelId.flatMap { restorablePanelIds.contains($0) ? $0 : nil },
+                frame: item.frame,
+                zIndex: item.zIndex,
+                isNativeResolution: item.isNativeResolution
+            )
+        }
+
+        guard !items.isEmpty else { return nil }
+        return SessionCanvasSnapshot(
+            policy: document.policy,
+            viewport: document.viewport,
+            items: items
+        )
     }
 
     private func sessionPanelSnapshot(
@@ -1053,6 +1089,101 @@ extension Workspace {
             layoutController.focusPane(paneId)
             layoutController.selectTab(selectedTabId)
         }
+    }
+
+    private func restoreCanvasSnapshot(
+        _ snapshot: SessionCanvasSnapshot?,
+        oldToNewPanelIds: [UUID: UUID]
+    ) -> Bool {
+        guard let snapshot else { return false }
+
+        struct PaneCandidate {
+            var paneID: PaneID
+            var panelIds: [UUID]
+        }
+
+        let candidates = layoutController.allPaneIds.compactMap { paneID -> PaneCandidate? in
+            let panelIds = layoutController
+                .tabs(inPane: paneID)
+                .compactMap { panelIdFromSurfaceId($0.id) }
+            guard !panelIds.isEmpty else { return nil }
+            return PaneCandidate(
+                paneID: paneID,
+                panelIds: panelIds
+            )
+        }
+        guard !candidates.isEmpty else { return false }
+
+        var usedPaneIds = Set<PaneID>()
+        var restoredItems: [CanvasItem] = []
+        restoredItems.reserveCapacity(snapshot.items.count)
+
+        func available(_ candidate: PaneCandidate) -> Bool {
+            !usedPaneIds.contains(candidate.paneID)
+        }
+
+        func bestPaneCandidate(
+            mappedPanelIds: [UUID],
+            mappedSelectedPanelId: UUID?
+        ) -> PaneCandidate? {
+            guard !mappedPanelIds.isEmpty else { return nil }
+            let mappedPanelIdSet = Set(mappedPanelIds)
+
+            if let exact = candidates.first(where: { candidate in
+                available(candidate) && candidate.panelIds == mappedPanelIds
+            }) {
+                return exact
+            }
+
+            if let mappedSelectedPanelId,
+               let selected = candidates.first(where: { candidate in
+                   available(candidate) && candidate.panelIds.contains(mappedSelectedPanelId)
+               }) {
+                return selected
+            }
+
+            if let containingAll = candidates.first(where: { candidate in
+                available(candidate) && mappedPanelIdSet.isSubset(of: Set(candidate.panelIds))
+            }) {
+                return containingAll
+            }
+
+            return candidates.first { candidate in
+                available(candidate) && candidate.panelIds.contains { mappedPanelIdSet.contains($0) }
+            }
+        }
+
+        for item in snapshot.items {
+            let mappedPanelIds = item.panelIds.compactMap { oldToNewPanelIds[$0] }
+            let mappedSelectedPanelId = item.selectedPanelId.flatMap { oldToNewPanelIds[$0] }
+            guard let candidate = bestPaneCandidate(
+                mappedPanelIds: mappedPanelIds,
+                mappedSelectedPanelId: mappedSelectedPanelId
+            ) else {
+                continue
+            }
+
+            usedPaneIds.insert(candidate.paneID)
+            restoredItems.append(
+                CanvasItem(
+                    id: LayoutItemID(paneID: candidate.paneID),
+                    content: .pane(candidate.paneID),
+                    frame: item.frame,
+                    zIndex: item.zIndex,
+                    isNativeResolution: item.isNativeResolution ?? true
+                )
+            )
+        }
+
+        guard !restoredItems.isEmpty else { return false }
+        layoutController.restoreCanvasDocument(
+            CanvasDocument(
+                policy: snapshot.policy,
+                viewport: snapshot.viewport,
+                items: restoredItems
+            )
+        )
+        return true
     }
 
     func reconcileSurfaceResumeBindings(using surfaceResumeBindingIndex: SurfaceResumeBindingIndex) {
