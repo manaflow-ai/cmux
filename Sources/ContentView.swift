@@ -9625,6 +9625,7 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
     }
 }
 
+@MainActor
 private final class SidebarWorkspaceRowObservationStore {
     var cancellablesById: [UUID: [AnyCancellable]] = [:]
 }
