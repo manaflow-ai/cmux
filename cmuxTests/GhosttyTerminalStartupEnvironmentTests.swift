@@ -87,6 +87,28 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         )
     }
 
+    func testZellijInheritedConfigScrubsGeneratedStartup() {
+        var config = CmuxSurfaceConfigTemplate()
+        config.fontSize = 18
+        config.workingDirectory = "/tmp/cmux"
+        config.command = "exec 'zellij' 'attach' '--create' 'cmux-session'"
+        config.initialInput = "echo stale\n"
+        config.waitAfterCommand = true
+        config.environmentVariables = ["CMUX_KEEP": "1"]
+
+        TerminalSessionBackendSettings.sanitizeInheritedConfig(
+            &config,
+            sourceIdentity: TerminalSessionIdentity(backend: .zellij, name: "cmux-session")
+        )
+
+        XCTAssertEqual(config.fontSize, 18)
+        XCTAssertEqual(config.workingDirectory, "/tmp/cmux")
+        XCTAssertEqual(config.environmentVariables, ["CMUX_KEEP": "1"])
+        XCTAssertNil(config.command)
+        XCTAssertNil(config.initialInput)
+        XCTAssertFalse(config.waitAfterCommand)
+    }
+
     @MainActor
     func testTerminalSurfaceStoresExplicitZellijSessionIdentity() throws {
         let workspaceId = UUID()

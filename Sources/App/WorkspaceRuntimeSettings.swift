@@ -288,6 +288,16 @@ enum TerminalSessionBackendSettings {
         return "exec " + args.map(shellSingleQuoted).joined(separator: " ")
     }
 
+    static func sanitizeInheritedConfig(
+        _ config: inout CmuxSurfaceConfigTemplate,
+        sourceIdentity: TerminalSessionIdentity?
+    ) {
+        guard sourceIdentity?.backend == .zellij else { return }
+        config.command = nil
+        config.initialInput = nil
+        config.waitAfterCommand = false
+    }
+
     private static func normalizedIdentity(_ identity: TerminalSessionIdentity) -> TerminalSessionIdentity? {
         guard identity.backend != .native else { return nil }
         guard let name = normalizedString(identity.name) else { return nil }

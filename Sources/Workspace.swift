@@ -12282,6 +12282,10 @@ final class Workspace: Identifiable, ObservableObject {
                 sourceSurface: sourceSurface,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT
             )
+            TerminalSessionBackendSettings.sanitizeInheritedConfig(
+                &config,
+                sourceIdentity: surface.terminalSessionIdentity
+            )
             if let rootedFontPoints = resolvedTerminalInheritanceFontPoints(
                 for: terminalPanel,
                 sourceSurface: sourceSurface,
