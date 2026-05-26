@@ -2363,21 +2363,14 @@ private struct NotificationPopoverRow: View {
                 )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Hover detection lives on a dedicated transparent background layer so it doesn't
-        // share an AppKit mouse-tracking pipeline node with `.onTapGesture` (which arbitrates
-        // against `.onHover` and causes flaky enter/exit events, especially right after the
-        // popover opens and when crossing between rows in a LazyVStack).
+        // Hover detection runs through an AppKit NSTrackingArea (HoverTrackingRepresentable)
+        // because SwiftUI's `.onHover` / `.onContinuousHover` arbitrate with `.onTapGesture`
+        // on the same node and miss enter/exit events right after the popover opens and when
+        // the pointer crosses between LazyVStack rows.
         .background(
-            Color.clear
-                .contentShape(Rectangle())
-                .onContinuousHover { phase in
-                    switch phase {
-                    case .active:
-                        if !isHovering { isHovering = true }
-                    case .ended:
-                        if isHovering { isHovering = false }
-                    }
-                }
+            HoverTrackingRepresentable { hovering in
+                if isHovering != hovering { isHovering = hovering }
+            }
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -2480,6 +2473,87 @@ private struct NotificationPopoverRow: View {
             .frame(width: 20, height: 20)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct HoverTrackingRepresentable: NSViewRepresentable {
+    let onChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> HoverTrackingNSView {
+        HoverTrackingNSView(onChange: onChange)
+    }
+
+    func updateNSView(_ nsView: HoverTrackingNSView, context: Context) {
+        nsView.onChange = onChange
+    }
+}
+
+private final class HoverTrackingNSView: NSView {
+    var onChange: (Bool) -> Void
+    private var trackingArea: NSTrackingArea?
+    private var isInside: Bool = false
+
+    init(onChange: @escaping (Bool) -> Void) {
+        self.onChange = onChange
+        super.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    // Pass clicks through to the SwiftUI parent (which owns the tap gesture and accessibility
+    // action). Tracking areas keep working because they're driven by window mouse-tracking,
+    // not by hitTest.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+
+        // Sync current pointer state in case the pointer is already inside when the tracking
+        // area is (re)installed — happens on first popover open or after layout changes.
+        if let window, window.isVisible {
+            let mouseInWindow = window.mouseLocationOutsideOfEventStream
+            let mouseInView = convert(mouseInWindow, from: nil)
+            let nowInside = bounds.contains(mouseInView)
+            if nowInside != isInside {
+                isInside = nowInside
+                let captured = onChange
+                DispatchQueue.main.async { captured(nowInside) }
+            }
+        }
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        if !isInside {
+            isInside = true
+            onChange(true)
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        if isInside {
+            isInside = false
+            onChange(false)
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil, isInside {
+            isInside = false
+            onChange(false)
+        }
     }
 }
 
