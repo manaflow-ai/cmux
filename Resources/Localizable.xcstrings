@@ -112105,23 +112105,7 @@
         }
       }
     },
-    "sessionIndex.agent.tmux": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "tmux"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "tmux"
-          }
-        }
-      }
-    },
+    "sessionIndex.agent.tmux": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"translated","value":"tmux"}},"bs":{"stringUnit":{"state":"translated","value":"tmux"}},"da":{"stringUnit":{"state":"translated","value":"tmux"}},"de":{"stringUnit":{"state":"translated","value":"tmux"}},"en":{"stringUnit":{"state":"translated","value":"tmux"}},"es":{"stringUnit":{"state":"translated","value":"tmux"}},"fr":{"stringUnit":{"state":"translated","value":"tmux"}},"it":{"stringUnit":{"state":"translated","value":"tmux"}},"ja":{"stringUnit":{"state":"translated","value":"tmux"}},"km":{"stringUnit":{"state":"translated","value":"tmux"}},"ko":{"stringUnit":{"state":"translated","value":"tmux"}},"nb":{"stringUnit":{"state":"translated","value":"tmux"}},"pl":{"stringUnit":{"state":"translated","value":"tmux"}},"pt-BR":{"stringUnit":{"state":"translated","value":"tmux"}},"ru":{"stringUnit":{"state":"translated","value":"tmux"}},"th":{"stringUnit":{"state":"translated","value":"tmux"}},"tr":{"stringUnit":{"state":"translated","value":"tmux"}},"uk":{"stringUnit":{"state":"translated","value":"tmux"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"tmux"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"tmux"}}} },
     "sessionIndex.agent.grok": {
       "extractionState": "manual",
       "localizations": {
@@ -112561,74 +112545,10 @@
         }
       }
     },
-    "sessionIndex.tmux.sessionTitle.oneWindowOnePane": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ · 1 window, 1 pane"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ · 1 ウィンドウ、1 ペイン"
-          }
-        }
-      }
-    },
-    "sessionIndex.tmux.sessionTitle.oneWindowManyPanes": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ · 1 window, %d panes"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ · 1 ウィンドウ、%d ペイン"
-          }
-        }
-      }
-    },
-    "sessionIndex.tmux.sessionTitle.manyWindowsOnePane": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ · %d windows, 1 pane"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ · %d ウィンドウ、1 ペイン"
-          }
-        }
-      }
-    },
-    "sessionIndex.tmux.sessionTitle.manyWindowsManyPanes": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ · %d windows, %d panes"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ · %d ウィンドウ、%d ペイン"
-          }
-        }
-      }
-    },
+    "sessionIndex.tmux.sessionTitle.oneWindowOnePane": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"translated","value":"%@ · نافذة واحدة، جزء واحد"}},"bs":{"stringUnit":{"state":"translated","value":"%@ · 1 prozor, 1 okno"}},"da":{"stringUnit":{"state":"translated","value":"%@ · 1 vindue, 1 rude"}},"de":{"stringUnit":{"state":"translated","value":"%@ · 1 Fenster, 1 Bereich"}},"en":{"stringUnit":{"state":"translated","value":"%@ · 1 window, 1 pane"}},"es":{"stringUnit":{"state":"translated","value":"%@ · 1 ventana, 1 panel"}},"fr":{"stringUnit":{"state":"translated","value":"%@ · 1 fenêtre, 1 volet"}},"it":{"stringUnit":{"state":"translated","value":"%@ · 1 finestra, 1 riquadro"}},"ja":{"stringUnit":{"state":"translated","value":"%@ · 1 ウィンドウ、1 ペイン"}},"km":{"stringUnit":{"state":"translated","value":"%@ · បង្អួច 1, ផ្ទាំង 1"}},"ko":{"stringUnit":{"state":"translated","value":"%@ · 창 1개, 패널 1개"}},"nb":{"stringUnit":{"state":"translated","value":"%@ · 1 vindu, 1 rute"}},"pl":{"stringUnit":{"state":"translated","value":"%@ · 1 okno, 1 panel"}},"pt-BR":{"stringUnit":{"state":"translated","value":"%@ · 1 janela, 1 painel"}},"ru":{"stringUnit":{"state":"translated","value":"%@ · 1 окно, 1 панель"}},"th":{"stringUnit":{"state":"translated","value":"%@ · 1 หน้าต่าง, 1 พาเนล"}},"tr":{"stringUnit":{"state":"translated","value":"%@ · 1 pencere, 1 bölme"}},"uk":{"stringUnit":{"state":"translated","value":"%@ · 1 вікно, 1 панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"%@ · 1 个窗口，1 个窗格"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"%@ · 1 個視窗，1 個窗格"}}} },
+    "sessionIndex.tmux.sessionTitle.oneWindowManyPanes": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"translated","value":"%@ · نافذة واحدة، %d أجزاء"}},"bs":{"stringUnit":{"state":"translated","value":"%@ · 1 prozor, %d okna"}},"da":{"stringUnit":{"state":"translated","value":"%@ · 1 vindue, %d ruder"}},"de":{"stringUnit":{"state":"translated","value":"%@ · 1 Fenster, %d Bereiche"}},"en":{"stringUnit":{"state":"translated","value":"%@ · 1 window, %d panes"}},"es":{"stringUnit":{"state":"translated","value":"%@ · 1 ventana, %d paneles"}},"fr":{"stringUnit":{"state":"translated","value":"%@ · 1 fenêtre, %d volets"}},"it":{"stringUnit":{"state":"translated","value":"%@ · 1 finestra, %d riquadri"}},"ja":{"stringUnit":{"state":"translated","value":"%@ · 1 ウィンドウ、%d ペイン"}},"km":{"stringUnit":{"state":"translated","value":"%@ · បង្អួច 1, ផ្ទាំង %d"}},"ko":{"stringUnit":{"state":"translated","value":"%@ · 창 1개, 패널 %d개"}},"nb":{"stringUnit":{"state":"translated","value":"%@ · 1 vindu, %d ruter"}},"pl":{"stringUnit":{"state":"translated","value":"%@ · 1 okno, %d paneli"}},"pt-BR":{"stringUnit":{"state":"translated","value":"%@ · 1 janela, %d painéis"}},"ru":{"stringUnit":{"state":"translated","value":"%@ · 1 окно, %d панелей"}},"th":{"stringUnit":{"state":"translated","value":"%@ · 1 หน้าต่าง, %d พาเนล"}},"tr":{"stringUnit":{"state":"translated","value":"%@ · 1 pencere, %d bölme"}},"uk":{"stringUnit":{"state":"translated","value":"%@ · 1 вікно, %d панелей"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"%@ · 1 个窗口，%d 个窗格"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"%@ · 1 個視窗，%d 個窗格"}}} },
+    "sessionIndex.tmux.sessionTitle.manyWindowsOnePane": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"translated","value":"%@ · %d نوافذ، جزء واحد"}},"bs":{"stringUnit":{"state":"translated","value":"%@ · %d prozora, 1 okno"}},"da":{"stringUnit":{"state":"translated","value":"%@ · %d vinduer, 1 rude"}},"de":{"stringUnit":{"state":"translated","value":"%@ · %d Fenster, 1 Bereich"}},"en":{"stringUnit":{"state":"translated","value":"%@ · %d windows, 1 pane"}},"es":{"stringUnit":{"state":"translated","value":"%@ · %d ventanas, 1 panel"}},"fr":{"stringUnit":{"state":"translated","value":"%@ · %d fenêtres, 1 volet"}},"it":{"stringUnit":{"state":"translated","value":"%@ · %d finestre, 1 riquadro"}},"ja":{"stringUnit":{"state":"translated","value":"%@ · %d ウィンドウ、1 ペイン"}},"km":{"stringUnit":{"state":"translated","value":"%@ · បង្អួច %d, ផ្ទាំង 1"}},"ko":{"stringUnit":{"state":"translated","value":"%@ · 창 %d개, 패널 1개"}},"nb":{"stringUnit":{"state":"translated","value":"%@ · %d vinduer, 1 rute"}},"pl":{"stringUnit":{"state":"translated","value":"%@ · %d okien, 1 panel"}},"pt-BR":{"stringUnit":{"state":"translated","value":"%@ · %d janelas, 1 painel"}},"ru":{"stringUnit":{"state":"translated","value":"%@ · %d окон, 1 панель"}},"th":{"stringUnit":{"state":"translated","value":"%@ · %d หน้าต่าง, 1 พาเนล"}},"tr":{"stringUnit":{"state":"translated","value":"%@ · %d pencere, 1 bölme"}},"uk":{"stringUnit":{"state":"translated","value":"%@ · %d вікон, 1 панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"%@ · %d 个窗口，1 个窗格"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"%@ · %d 個視窗，1 個窗格"}}} },
+    "sessionIndex.tmux.sessionTitle.manyWindowsManyPanes": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"translated","value":"%@ · %d نوافذ، %d أجزاء"}},"bs":{"stringUnit":{"state":"translated","value":"%@ · %d prozora, %d okna"}},"da":{"stringUnit":{"state":"translated","value":"%@ · %d vinduer, %d ruder"}},"de":{"stringUnit":{"state":"translated","value":"%@ · %d Fenster, %d Bereiche"}},"en":{"stringUnit":{"state":"translated","value":"%@ · %d windows, %d panes"}},"es":{"stringUnit":{"state":"translated","value":"%@ · %d ventanas, %d paneles"}},"fr":{"stringUnit":{"state":"translated","value":"%@ · %d fenêtres, %d volets"}},"it":{"stringUnit":{"state":"translated","value":"%@ · %d finestre, %d riquadri"}},"ja":{"stringUnit":{"state":"translated","value":"%@ · %d ウィンドウ、%d ペイン"}},"km":{"stringUnit":{"state":"translated","value":"%@ · បង្អួច %d, ផ្ទាំង %d"}},"ko":{"stringUnit":{"state":"translated","value":"%@ · 창 %d개, 패널 %d개"}},"nb":{"stringUnit":{"state":"translated","value":"%@ · %d vinduer, %d ruter"}},"pl":{"stringUnit":{"state":"translated","value":"%@ · %d okien, %d paneli"}},"pt-BR":{"stringUnit":{"state":"translated","value":"%@ · %d janelas, %d painéis"}},"ru":{"stringUnit":{"state":"translated","value":"%@ · %d окон, %d панелей"}},"th":{"stringUnit":{"state":"translated","value":"%@ · %d หน้าต่าง, %d พาเนล"}},"tr":{"stringUnit":{"state":"translated","value":"%@ · %d pencere, %d bölme"}},"uk":{"stringUnit":{"state":"translated","value":"%@ · %d вікон, %d панелей"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"%@ · %d 个窗口，%d 个窗格"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"%@ · %d 個視窗，%d 個窗格"}}} },
     "sessionIndex.section.noChats": {
       "extractionState": "manual",
       "localizations": {
