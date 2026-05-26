@@ -2313,7 +2313,7 @@ private struct CodexAppServerPendingRequestView: View {
             .font(.caption.weight(.semibold))
             .foregroundStyle(.orange)
 
-            Text(request.method)
+            Text(request.localizedKindDescription)
                 .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)

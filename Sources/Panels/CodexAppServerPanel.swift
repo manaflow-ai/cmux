@@ -475,6 +475,21 @@ struct CodexAppServerPendingRequest: Identifiable {
     let params: [String: Any]?
     let summary: String
 
+    var localizedKindDescription: String {
+        switch method {
+        case "item/commandExecution/requestApproval",
+             "execCommandApproval":
+            return String(localized: "codexAppServer.request.kind.command", defaultValue: "Command approval")
+        case "item/fileChange/requestApproval",
+             "applyPatchApproval":
+            return String(localized: "codexAppServer.request.kind.fileChange", defaultValue: "File change approval")
+        case "item/permissions/requestApproval":
+            return String(localized: "codexAppServer.request.kind.permissions", defaultValue: "Permission approval")
+        default:
+            return String(localized: "codexAppServer.request.kind.unsupported", defaultValue: "Codex request")
+        }
+    }
+
     var supportsDecisionResponse: Bool {
         approvalResponseResult(for: .decline) != nil
     }
@@ -1620,17 +1635,16 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         case .notification(let notification):
             handleNotification(notification)
         case .serverRequest(let request):
-            pendingRequests.append(
-                CodexAppServerPendingRequest(
-                    id: request.id,
-                    method: request.rawMethod,
-                    params: request.paramsObject,
-                    summary: Self.prettyJSON(request.paramsObject)
-                )
+            let pendingRequest = CodexAppServerPendingRequest(
+                id: request.id,
+                method: request.rawMethod,
+                params: request.paramsObject,
+                summary: Self.prettyJSON(request.paramsObject)
             )
+            pendingRequests.append(pendingRequest)
             appendEvent(
                 title: String(localized: "codexAppServer.event.request", defaultValue: "Approval requested"),
-                body: request.rawMethod
+                body: pendingRequest.localizedKindDescription
             )
         case .stderr(let text):
             appendStderr(text)
