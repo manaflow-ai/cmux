@@ -16,7 +16,7 @@ import UserNotifications
 final class TerminalSurfaceResizePolicyTests: XCTestCase {
     func testPixelOnlyResizeWithinExistingGridIsCoalesced() {
         XCTAssertFalse(
-            TerminalSurface.shouldApplySurfacePixelSizeChangeForTesting(
+            TerminalSurface.shouldApplySurfacePixelSizeChange(
                 currentColumns: 80,
                 currentRows: 24,
                 currentCellWidthPx: 10,
@@ -32,7 +32,7 @@ final class TerminalSurfaceResizePolicyTests: XCTestCase {
 
     func testResizeAppliesWhenGridChangesOutsideLiveResizeOrFirstApply() {
         XCTAssertTrue(
-            TerminalSurface.shouldApplySurfacePixelSizeChangeForTesting(
+            TerminalSurface.shouldApplySurfacePixelSizeChange(
                 currentColumns: 80,
                 currentRows: 24,
                 currentCellWidthPx: 10,
@@ -46,7 +46,7 @@ final class TerminalSurfaceResizePolicyTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            TerminalSurface.shouldApplySurfacePixelSizeChangeForTesting(
+            TerminalSurface.shouldApplySurfacePixelSizeChange(
                 currentColumns: 80,
                 currentRows: 24,
                 currentCellWidthPx: 10,
@@ -60,7 +60,7 @@ final class TerminalSurfaceResizePolicyTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            TerminalSurface.shouldApplySurfacePixelSizeChangeForTesting(
+            TerminalSurface.shouldApplySurfacePixelSizeChange(
                 currentColumns: 80,
                 currentRows: 24,
                 currentCellWidthPx: 10,

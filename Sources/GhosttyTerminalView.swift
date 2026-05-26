@@ -5971,7 +5971,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         abs(lhs - rhs) <= epsilon
     }
 
-    private static func shouldApplySurfacePixelSizeChange(
+    static func shouldApplySurfacePixelSizeChange(
         currentColumns: UInt32,
         currentRows: UInt32,
         currentCellWidthPx: UInt32,
@@ -5996,28 +5996,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let targetColumns = max(UInt32(1), targetWidthPx / currentCellWidthPx)
         let targetRows = max(UInt32(1), targetHeightPx / currentCellHeightPx)
         return targetColumns != currentColumns || targetRows != currentRows
-    }
-
-    static func shouldApplySurfacePixelSizeChangeForTesting(
-        currentColumns: UInt32,
-        currentRows: UInt32,
-        currentCellWidthPx: UInt32,
-        currentCellHeightPx: UInt32,
-        targetWidthPx: UInt32,
-        targetHeightPx: UInt32,
-        coalescePixelOnlyResize: Bool,
-        hasAppliedPixelSize: Bool
-    ) -> Bool {
-        shouldApplySurfacePixelSizeChange(
-            currentColumns: currentColumns,
-            currentRows: currentRows,
-            currentCellWidthPx: currentCellWidthPx,
-            currentCellHeightPx: currentCellHeightPx,
-            targetWidthPx: targetWidthPx,
-            targetHeightPx: targetHeightPx,
-            coalescePixelOnlyResize: coalescePixelOnlyResize,
-            hasAppliedPixelSize: hasAppliedPixelSize
-        )
     }
 
     @MainActor
