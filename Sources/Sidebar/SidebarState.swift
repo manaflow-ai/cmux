@@ -69,6 +69,19 @@ enum SidebarContentLayoutPolicy {
             return .bottomStack
         }
     }
+
+    static func rightSidebarAvailableWidth(
+        totalWidth: CGFloat,
+        workspaceSidebarWidth: CGFloat,
+        position: SidebarPositionOption,
+        isWorkspaceSidebarVisible: Bool
+    ) -> CGFloat {
+        let sanitizedTotalWidth = max(0, totalWidth)
+        guard isWorkspaceSidebarVisible, position == .right else {
+            return sanitizedTotalWidth
+        }
+        return max(0, sanitizedTotalWidth - max(0, workspaceSidebarWidth))
+    }
 }
 
 enum SidebarResizeInteraction {

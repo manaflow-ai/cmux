@@ -134,6 +134,36 @@ final class SidebarWidthPolicyTests: XCTestCase {
             .bottomStack
         )
     }
+
+    func testRightSidebarAvailableWidthAccountsForRightWorkspaceSidebar() {
+        XCTAssertEqual(
+            SidebarContentLayoutPolicy.rightSidebarAvailableWidth(
+                totalWidth: 900,
+                workspaceSidebarWidth: 240,
+                position: .right,
+                isWorkspaceSidebarVisible: true
+            ),
+            660
+        )
+        XCTAssertEqual(
+            SidebarContentLayoutPolicy.rightSidebarAvailableWidth(
+                totalWidth: 900,
+                workspaceSidebarWidth: 240,
+                position: .left,
+                isWorkspaceSidebarVisible: true
+            ),
+            900
+        )
+        XCTAssertEqual(
+            SidebarContentLayoutPolicy.rightSidebarAvailableWidth(
+                totalWidth: 900,
+                workspaceSidebarWidth: 240,
+                position: .right,
+                isWorkspaceSidebarVisible: false
+            ),
+            900
+        )
+    }
 }
 
 final class SidebarWorkspaceSelectionColorTests: XCTestCase {

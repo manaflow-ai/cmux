@@ -1617,7 +1617,7 @@ struct ContentView: View {
                 captureStart: { fileExplorerDragStartWidth = fileExplorerWidth },
                 updateWidth: { translation in
                     let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
-                    let nextWidth = Self.clampedRightSidebarWidth(
+                    let nextWidth = normalizedRightSidebarWidth(
                         startWidth - translation,
                         availableWidth: availableWidth
                     )
@@ -1723,10 +1723,15 @@ struct ContentView: View {
 
     private func normalizedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
         let resolvedAvailableWidth = resolvedRightSidebarAvailableWidth(availableWidth)
-        let workspaceSidebarTrailingInset = sidebarState.isVisible && sidebarPosition == .right ? sidebarWidth : 0
+        let availableWidth = SidebarContentLayoutPolicy.rightSidebarAvailableWidth(
+            totalWidth: resolvedAvailableWidth,
+            workspaceSidebarWidth: sidebarWidth,
+            position: sidebarPosition,
+            isWorkspaceSidebarVisible: sidebarState.isVisible
+        )
         return Self.clampedRightSidebarWidth(
             candidate,
-            availableWidth: max(0, resolvedAvailableWidth - workspaceSidebarTrailingInset)
+            availableWidth: availableWidth
         )
     }
 
@@ -2017,8 +2022,13 @@ struct ContentView: View {
     }
 
     private func rightSidebarDividerX(totalWidth: CGFloat) -> CGFloat {
-        let workspaceSidebarTrailingInset = sidebarState.isVisible && sidebarPosition == .right ? sidebarWidth : 0
-        return min(max(totalWidth - workspaceSidebarTrailingInset - rightSidebarWidth, 0), totalWidth)
+        let availableWidth = SidebarContentLayoutPolicy.rightSidebarAvailableWidth(
+            totalWidth: totalWidth,
+            workspaceSidebarWidth: sidebarWidth,
+            position: sidebarPosition,
+            isWorkspaceSidebarVisible: sidebarState.isVisible
+        )
+        return min(max(availableWidth - rightSidebarWidth, 0), totalWidth)
     }
 
     private var sidebarView: some View {
@@ -3273,6 +3283,7 @@ struct ContentView: View {
             // terminals and browsers need an explicit post-layout geometry resync.
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
+            clampRightSidebarWidthIfNeeded()
         })
 
         view = AnyView(view.onChange(of: sidebarMinimumWidthSetting) { _ in
@@ -3287,11 +3298,13 @@ struct ContentView: View {
             }
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
+            clampRightSidebarWidthIfNeeded()
             syncTrafficLightInset()
         })
 
         view = AnyView(view.onChange(of: sidebarPositionRaw) { _ in
             clampSidebarWidthIfNeeded()
+            clampRightSidebarWidthIfNeeded()
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
             syncTrafficLightInset()
@@ -11509,6 +11522,7 @@ private struct HorizontalTabsSidebar: View {
         let modifiers = NSEvent.modifierFlags
         let isCommand = modifiers.contains(.command)
         let isShift = modifiers.contains(.shift)
+        let wasSelected = tabManager.selectedTabId == workspaceId
 
         if isShift, let lastIndex = lastSidebarSelectionIndex {
             let lower = min(lastIndex, index)
@@ -11531,6 +11545,12 @@ private struct HorizontalTabsSidebar: View {
 
         lastSidebarSelectionIndex = index
         tabManager.selectTab(workspace)
+        if wasSelected, !isCommand, !isShift {
+            tabManager.dismissNotificationOnDirectInteraction(
+                tabId: workspaceId,
+                surfaceId: tabManager.focusedSurfaceId(for: workspaceId)
+            )
+        }
         selection = .tabs
     }
 
