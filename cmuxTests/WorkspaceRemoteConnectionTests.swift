@@ -464,6 +464,16 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         portalRenderingGate.setEnabled(false)
         controller.syncWorkspaceSchedulerMountState()
+        portalRenderingGate.setEnabled(true)
+        controller.syncWorkspaceSchedulerMountState()
+        state = try controller.debugWorkspaceSchedulerStateForTesting()
+        XCTAssertTrue(state.workspaceSchedulersEnabled)
+        XCTAssertTrue(state.remotePortPollTimerExists)
+        XCTAssertFalse(state.remotePortPollTimerSuspendedForWorkspaceUnmount)
+        XCTAssertEqual(currentProcessRunCount(), 3)
+
+        portalRenderingGate.setEnabled(false)
+        controller.syncWorkspaceSchedulerMountState()
         state = try controller.debugWorkspaceSchedulerStateForTesting()
         XCTAssertFalse(state.workspaceSchedulersEnabled)
         XCTAssertTrue(state.remotePortPollTimerExists)
@@ -2912,7 +2922,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 localSocketPath: nil,
                 terminalStartupCommand: nil
             ),
-            controllerID: UUID()
+            controllerID: UUID(),
+            portalRenderingGate: WorkspacePortalRenderingGate()
         )
 
         let didCloseReadHandles = DispatchSemaphore(value: 0)

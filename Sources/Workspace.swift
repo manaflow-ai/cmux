@@ -7,6 +7,7 @@ import CryptoKit
 import Darwin
 import Network
 import CoreText
+import os
 
 #if DEBUG
 private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
@@ -5463,27 +5464,26 @@ final class WorkspaceRemotePTYBridgeServer {
     }
 }
 
+// Safe because the only mutable state is the Boolean protected by
+// OSAllocatedUnfairLock; callers never access it outside `withLock`.
 final class WorkspacePortalRenderingGate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var enabled: Bool
+    private let enabled: OSAllocatedUnfairLock<Bool>
 
     init(enabled: Bool = true) {
-        self.enabled = enabled
+        self.enabled = OSAllocatedUnfairLock(initialState: enabled)
     }
 
     var isEnabled: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return enabled
+        enabled.withLock { $0 }
     }
 
     @discardableResult
     func setEnabled(_ nextValue: Bool) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard enabled != nextValue else { return false }
-        enabled = nextValue
-        return true
+        enabled.withLock { currentValue in
+            guard currentValue != nextValue else { return false }
+            currentValue = nextValue
+            return true
+        }
     }
 }
 
@@ -5667,7 +5667,7 @@ final class WorkspaceRemoteSessionController {
         workspace: Workspace,
         configuration: WorkspaceRemoteConfiguration,
         controllerID: UUID,
-        portalRenderingGate: WorkspacePortalRenderingGate = WorkspacePortalRenderingGate()
+        portalRenderingGate: WorkspacePortalRenderingGate
     ) {
         self.workspace = workspace
         self.portalRenderingGate = portalRenderingGate
@@ -5696,8 +5696,9 @@ final class WorkspaceRemoteSessionController {
     }
 
     func syncWorkspaceSchedulerMountState() {
+        let requestedMountEnabled = portalRenderingGate.isEnabled
         queue.async { [weak self] in
-            self?.syncWorkspaceSchedulerMountStateLocked()
+            self?.syncWorkspaceSchedulerMountStateLocked(enabled: requestedMountEnabled)
         }
     }
 
@@ -5988,8 +5989,8 @@ final class WorkspaceRemoteSessionController {
         portalRenderingGate.isEnabled
     }
 
-    private func syncWorkspaceSchedulerMountStateLocked() {
-        if workspaceSchedulersEnabledLocked() {
+    private func syncWorkspaceSchedulerMountStateLocked(enabled: Bool) {
+        if enabled {
             updateRemotePortPollingStateLocked()
             if remotePortScanPendingReason != nil && remotePortScanCoalesceWorkItem == nil {
                 scheduleRemotePortScanCoalesceLocked()
