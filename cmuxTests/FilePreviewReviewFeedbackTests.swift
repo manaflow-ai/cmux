@@ -100,6 +100,21 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertFalse(bridge.isLocalEventMonitorInstalledForTesting)
     }
 
+    func testHighlightedBridgeIgnoresEditsAfterDestroy() throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        panel.updateTextContent("active")
+
+        let bridge = HighlightedEditorBridge()
+        bridge.panel = panel
+        bridge.destroy()
+        bridge.applyUserEditedText("stale")
+
+        XCTAssertEqual(panel.textContent, "active")
+    }
+
     func testHighlightedContainerRetriesPendingFocusWhenAttachedToWindow() throws {
         let url = try temporaryTextFile(contents: "preview", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }

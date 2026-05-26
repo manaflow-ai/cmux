@@ -218,7 +218,7 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
     }
 
     func applyUserEditedText(_ text: String) {
-        guard !isApplyingExternalUpdate else { return }
+        guard !isApplyingExternalUpdate, !isCoordinatorDestroyed() else { return }
         panel?.updateTextContent(text)
     }
 
