@@ -112969,6 +112969,91 @@
         }
       }
     },
+    "terminal.namedSession.deleteFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not delete named session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前付きセッションを削除できませんでした"
+          }
+        }
+      }
+    },
+    "terminal.namedSession.invalidName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session names may use letters, numbers, dashes, underscores, and periods, and must start with a letter or number."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション名には英数字、ハイフン、アンダースコア、ピリオドを使用でき、英数字で始める必要があります。"
+          }
+        }
+      }
+    },
+    "terminal.namedSession.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Named session not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指定した名前付きセッションが見つかりません"
+          }
+        }
+      }
+    },
+    "terminal.namedSession.saveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not save named session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前付きセッションを保存できませんでした"
+          }
+        }
+      }
+    },
+    "terminal.namedSession.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Named session operation failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前付きセッション操作に失敗しました"
+          }
+        }
+      }
+    },
     "settings.account.error.missingAccessToken": {
       "extractionState": "manual",
       "localizations": {

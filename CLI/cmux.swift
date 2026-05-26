@@ -2871,6 +2871,16 @@ struct CMUXCLI {
             return
         }
 
+        if command == "session" {
+            try runSessionCommand(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
         if command == "feedback" {
             try runFeedback(
                 commandArgs: commandArgs,
@@ -4800,6 +4810,111 @@ struct CMUXCLI {
             print(jsonString(payload))
         } else {
             print("OK")
+        }
+    }
+
+    private func runSessionCommand(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?,
+        jsonOutput: Bool
+    ) throws {
+        let remaining = commandArgs.filter { $0 != "--" }
+        guard let subcommand = remaining.first?.lowercased() else {
+            throw CLIError(message: subcommandUsage("session") ?? "Usage: cmux session <save|restore|list|delete> [name]")
+        }
+        let args = Array(remaining.dropFirst())
+
+        switch subcommand {
+        case "help", "--help", "-h":
+            print(subcommandUsage("session") ?? "Usage: cmux session <save|restore|list|delete> [name]")
+
+        case "save":
+            let name = try namedSessionCLIArgument(args, usage: "Usage: cmux session save <name>")
+            let client = try connectClient(
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                launchIfNeeded: false
+            )
+            defer { client.close() }
+            let response = try client.sendV2(method: "session.save_named", params: ["name": name])
+            if jsonOutput {
+                print(jsonString(response))
+            } else {
+                print("OK saved \(response["name"] as? String ?? name)")
+            }
+
+        case "restore":
+            let name = try namedSessionCLIArgument(args, usage: "Usage: cmux session restore <name>")
+            let client = try connectClient(
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                launchIfNeeded: true
+            )
+            defer { client.close() }
+            let response = try client.sendV2(method: "session.restore_named", params: ["name": name])
+            if jsonOutput {
+                print(jsonString(response))
+            } else {
+                print("OK restored \(response["name"] as? String ?? name)")
+            }
+
+        case "list":
+            guard args.isEmpty else {
+                throw CLIError(message: "Usage: cmux session list")
+            }
+            let client = try connectClient(
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                launchIfNeeded: false
+            )
+            defer { client.close() }
+            let response = try client.sendV2(method: "session.list_named")
+            if jsonOutput {
+                print(jsonString(response))
+            } else {
+                printNamedSessions(response)
+            }
+
+        case "delete":
+            let name = try namedSessionCLIArgument(args, usage: "Usage: cmux session delete <name>")
+            let client = try connectClient(
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                launchIfNeeded: false
+            )
+            defer { client.close() }
+            let response = try client.sendV2(method: "session.delete_named", params: ["name": name])
+            if jsonOutput {
+                print(jsonString(response))
+            } else {
+                print("OK deleted \(response["name"] as? String ?? name)")
+            }
+
+        default:
+            throw CLIError(message: "Unsupported session subcommand: \(subcommand)")
+        }
+    }
+
+    private func namedSessionCLIArgument(_ args: [String], usage: String) throws -> String {
+        guard args.count == 1 else {
+            throw CLIError(message: usage)
+        }
+        return args[0]
+    }
+
+    private func printNamedSessions(_ response: [String: Any]) {
+        let sessions = response["sessions"] as? [[String: Any]] ?? []
+        guard !sessions.isEmpty else {
+            print("No named sessions")
+            return
+        }
+
+        for session in sessions {
+            let name = session["name"] as? String ?? "?"
+            let windows = intFromAny(session["windows"])
+            let workspaces = intFromAny(session["workspaces"])
+            print("\(name)  windows=\(windows)  workspaces=\(workspaces)")
         }
     }
 
@@ -11597,6 +11712,27 @@ struct CMUXCLI {
             Usage: cmux logout
 
             Alias for `cmux auth logout`.
+            """
+        case "session":
+            return """
+            Usage: cmux session <save|restore|list|delete> [name]
+
+            Save and restore named workspace sessions.
+
+            Subcommands:
+              save <name>      Save the current windows and workspaces as a named session
+              restore <name>   Restore a named session
+              list             List saved named sessions
+              delete <name>    Delete a named session
+
+            Session names may use letters, numbers, dashes, underscores, and periods.
+            Names must start with a letter or number.
+
+            Examples:
+              cmux session save my-project
+              cmux session restore my-project
+              cmux session list
+              cmux session delete my-project
             """
         case "vm", "cloud":
             return """
@@ -29480,6 +29616,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           shortcuts
           disable-browser | enable-browser | browser-status
           restore-session
+          session <save|restore|list|delete> [name]
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear

@@ -2953,6 +2953,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let snapshot = SessionPersistenceStore.loadReopenSessionSnapshot() else {
             return false
         }
+        return restoreSessionSnapshot(
+            snapshot,
+            shouldActivate: shouldActivate,
+            isManualReopen: true
+        )
+    }
+
+    @discardableResult
+    func saveNamedSession(_ name: String) throws -> NamedSessionSummary {
+        guard let snapshot = buildSessionSnapshot(includeScrollback: false) else {
+            throw NamedSessionPersistenceError.saveFailed
+        }
+        return try SessionPersistenceStore.saveNamedSession(snapshot, name: name)
+    }
+
+    func namedSessionSummaries() -> [NamedSessionSummary] {
+        SessionPersistenceStore.listNamedSessions()
+    }
+
+    @discardableResult
+    func deleteNamedSession(_ name: String) throws -> NamedSessionSummary {
+        try SessionPersistenceStore.deleteNamedSession(name: name)
+    }
+
+    @discardableResult
+    func restoreNamedSession(_ name: String, shouldActivate: Bool = true) throws -> NamedSessionSummary {
+        let snapshot = try SessionPersistenceStore.loadNamedSession(name: name)
+        let normalizedName = try SessionPersistenceStore.normalizedNamedSessionName(name)
+        let restored = restoreSessionSnapshot(
+            snapshot,
+            shouldActivate: shouldActivate,
+            isManualReopen: true
+        )
+        guard restored else {
+            throw NamedSessionPersistenceError.notFound
+        }
+        return NamedSessionSummary(
+            name: normalizedName,
+            createdAt: snapshot.createdAt,
+            windowCount: snapshot.windows.count,
+            workspaceCount: snapshot.windows.reduce(0) { partial, window in
+                partial + window.tabManager.workspaces.count
+            }
+        )
+    }
+
+    @discardableResult
+    private func restoreSessionSnapshot(
+        _ snapshot: AppSessionSnapshot,
+        shouldActivate: Bool,
+        isManualReopen: Bool
+    ) -> Bool {
 
         let snapshotWindows = Array(
             snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
@@ -2996,7 +3048,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        completeSessionRestoreOperation(isManualReopen: true)
+        completeSessionRestoreOperation(isManualReopen: isManualReopen)
 
         if shouldActivate,
            let primaryWindow = sortedMainWindowContextsForSessionSnapshot()

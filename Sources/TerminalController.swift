@@ -277,7 +277,8 @@ class TerminalController {
         "debug.notification.focus",
         "debug.app.activate",
         "debug.right_sidebar.focus",
-        "feed.jump"
+        "feed.jump",
+        "session.restore_named"
     ]
 
     enum V2HandleKind: String, CaseIterable {
@@ -3402,6 +3403,14 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceRemoteTerminalSessionEnd(params: params))
         case "session.restore_previous":
             return v2Result(id: id, self.v2SessionRestorePrevious())
+        case "session.save_named":
+            return v2Result(id: id, self.v2SessionSaveNamed(params: params))
+        case "session.list_named":
+            return v2Result(id: id, self.v2SessionListNamed())
+        case "session.delete_named":
+            return v2Result(id: id, self.v2SessionDeleteNamed(params: params))
+        case "session.restore_named":
+            return v2Result(id: id, self.v2SessionRestoreNamed(params: params))
 
         // Settings
         case "settings.open":
@@ -3833,6 +3842,10 @@ class TerminalController {
             "workspace.remote.pty_attach_end",
             "workspace.remote.terminal_session_end",
             "session.restore_previous",
+            "session.save_named",
+            "session.list_named",
+            "session.delete_named",
+            "session.restore_named",
             "settings.open",
             "feedback.open",
             "feedback.submit",
@@ -10594,6 +10607,181 @@ class TerminalController {
             )
         }
         return .ok(["restored": true])
+    }
+
+    private func v2SessionSaveNamed(params: [String: Any]) -> V2CallResult {
+        let parsedName = v2NamedSessionName(params: params)
+        if let error = parsedName.error {
+            return error
+        }
+
+        var result: Result<NamedSessionSummary, Error> = .failure(NamedSessionPersistenceError.saveFailed)
+        v2MainSync {
+            guard let appDelegate = AppDelegate.shared else {
+                result = .failure(NamedSessionPersistenceError.saveFailed)
+                return
+            }
+            do {
+                result = .success(try appDelegate.saveNamedSession(parsedName.name))
+            } catch {
+                result = .failure(error)
+            }
+        }
+
+        switch result {
+        case .success(let summary):
+            var payload = v2NamedSessionSummaryPayload(summary)
+            payload["saved"] = true
+            return .ok(payload)
+        case .failure(let error):
+            return v2NamedSessionError(error, fallbackCode: "save_failed")
+        }
+    }
+
+    private func v2SessionListNamed() -> V2CallResult {
+        var summaries: [NamedSessionSummary] = []
+        v2MainSync {
+            summaries = AppDelegate.shared?.namedSessionSummaries() ?? []
+        }
+        return .ok([
+            "sessions": summaries.map { v2NamedSessionSummaryPayload($0) }
+        ])
+    }
+
+    private func v2SessionDeleteNamed(params: [String: Any]) -> V2CallResult {
+        let parsedName = v2NamedSessionName(params: params)
+        if let error = parsedName.error {
+            return error
+        }
+
+        var result: Result<NamedSessionSummary, Error> = .failure(NamedSessionPersistenceError.deleteFailed)
+        v2MainSync {
+            guard let appDelegate = AppDelegate.shared else {
+                result = .failure(NamedSessionPersistenceError.deleteFailed)
+                return
+            }
+            do {
+                result = .success(try appDelegate.deleteNamedSession(parsedName.name))
+            } catch {
+                result = .failure(error)
+            }
+        }
+
+        switch result {
+        case .success(let summary):
+            var payload = v2NamedSessionSummaryPayload(summary)
+            payload["deleted"] = true
+            return .ok(payload)
+        case .failure(let error):
+            return v2NamedSessionError(error, fallbackCode: "delete_failed")
+        }
+    }
+
+    private func v2SessionRestoreNamed(params: [String: Any]) -> V2CallResult {
+        let parsedName = v2NamedSessionName(params: params)
+        if let error = parsedName.error {
+            return error
+        }
+
+        var result: Result<NamedSessionSummary, Error> = .failure(NamedSessionPersistenceError.notFound)
+        v2MainSync {
+            guard let appDelegate = AppDelegate.shared else {
+                result = .failure(NamedSessionPersistenceError.notFound)
+                return
+            }
+            do {
+                result = .success(try appDelegate.restoreNamedSession(parsedName.name, shouldActivate: false))
+            } catch {
+                result = .failure(error)
+            }
+        }
+
+        switch result {
+        case .success(let summary):
+            var payload = v2NamedSessionSummaryPayload(summary)
+            payload["restored"] = true
+            return .ok(payload)
+        case .failure(let error):
+            return v2NamedSessionError(error, fallbackCode: "not_found")
+        }
+    }
+
+    private func v2NamedSessionName(params: [String: Any]) -> (name: String, error: V2CallResult?) {
+        guard let name = v2String(params, "name") else {
+            return (
+                "",
+                .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "terminal.namedSession.invalidName",
+                        defaultValue: "Session names may use letters, numbers, dashes, underscores, and periods, and must start with a letter or number."
+                    ),
+                    data: nil
+                )
+            )
+        }
+        return (name, nil)
+    }
+
+    private func v2NamedSessionSummaryPayload(_ summary: NamedSessionSummary) -> [String: Any] {
+        [
+            "name": summary.name,
+            "created_at": summary.createdAt,
+            "windows": summary.windowCount,
+            "workspaces": summary.workspaceCount
+        ]
+    }
+
+    private func v2NamedSessionError(_ error: Error, fallbackCode: String) -> V2CallResult {
+        guard let namedError = error as? NamedSessionPersistenceError else {
+            return .err(
+                code: fallbackCode,
+                message: String(
+                    localized: "terminal.namedSession.unavailable",
+                    defaultValue: "Named session operation failed"
+                ),
+                data: nil
+            )
+        }
+
+        switch namedError {
+        case .invalidName:
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "terminal.namedSession.invalidName",
+                    defaultValue: "Session names may use letters, numbers, dashes, underscores, and periods, and must start with a letter or number."
+                ),
+                data: nil
+            )
+        case .notFound:
+            return .err(
+                code: "not_found",
+                message: String(
+                    localized: "terminal.namedSession.notFound",
+                    defaultValue: "Named session not found"
+                ),
+                data: nil
+            )
+        case .saveFailed:
+            return .err(
+                code: "save_failed",
+                message: String(
+                    localized: "terminal.namedSession.saveFailed",
+                    defaultValue: "Could not save named session"
+                ),
+                data: nil
+            )
+        case .deleteFailed:
+            return .err(
+                code: "delete_failed",
+                message: String(
+                    localized: "terminal.namedSession.deleteFailed",
+                    defaultValue: "Could not delete named session"
+                ),
+                data: nil
+            )
+        }
     }
 
     private func v2SettingsOpen(params: [String: Any]) -> V2CallResult {
