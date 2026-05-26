@@ -315,6 +315,42 @@ final class TerminalCmdClickUITests: XCTestCase {
         )
     }
 
+    func testCmdClickPngOpensInCmuxFilePreviewWhenEnabled() throws {
+        let app = launchApp(
+            displayMode: .raw,
+            fileName: "Command Click Fixture.png",
+            captureOpenPaths: true,
+            captureHoverDiagnostics: false,
+            openSupportedFilesInCmux: true
+        )
+        defer { app.terminate() }
+
+        let setup = try waitForReadySetup()
+        let expectedResolvedPath = expectedPath(for: "Command Click Fixture.png")
+        XCTAssertEqual(setup.expectedPath, expectedResolvedPath)
+
+        let result = try runCommand(action: "cmd_click_token")
+        XCTAssertEqual(
+            result["lastCommandSucceeded"] as? String,
+            "1",
+            "Expected cmd-click to open the PNG path. result=\(result)"
+        )
+        XCTAssertEqual(
+            result["lastCommandOpenedPath"] as? String,
+            expectedResolvedPath,
+            "Expected cmd-click to resolve the PNG path. result=\(result)"
+        )
+        XCTAssertEqual(
+            result["lastCommandOpenedInFilePreview"] as? String,
+            "1",
+            "Expected supported-file routing to create a cmux file preview. result=\(result)"
+        )
+        XCTAssertTrue(
+            waitForOpenCountToStay(0, timeout: 0.75),
+            "Expected cmux file preview routing to avoid the external opener. opened=\(loadCapturedOpenPaths())"
+        )
+    }
+
     func testCmdClickLsStyleInvalidCellsDoNothingForConsultantAgreementDocx() throws {
         try assertCommandClickDoesNothingAtInvalidOffsets(
             fileName: "Standard - Consultant Agreement - Form of Consulting Agreement.docx",
@@ -626,6 +662,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         extraFileNames: [String] = [],
         captureOpenPaths: Bool,
         captureHoverDiagnostics: Bool,
+        openSupportedFilesInCmux: Bool = false,
         quicklookOverride: String? = nil,
         viewportOffsetDelta: Int? = nil
     ) -> XCUIApplication {
@@ -639,6 +676,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_FILE_NAME"] = fileName
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_MODE"] = displayMode.rawValue
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_FORMAT"] = lineFormat.rawValue
+        app.launchEnvironment["CMUX_UI_TEST_OPEN_SUPPORTED_FILES_IN_CMUX"] = openSupportedFilesInCmux ? "1" : "0"
         if !linePrefix.isEmpty {
             app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_PREFIX"] = linePrefix
         }

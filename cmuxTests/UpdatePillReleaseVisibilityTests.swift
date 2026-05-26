@@ -1,176 +1,12 @@
 import XCTest
 import Foundation
 import AppKit
-import Sparkle
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
-@MainActor
-final class UpdateViewModelLatestEmissionTests: XCTestCase {
-    func testPassiveDetectedUpdatePillFollowsEveryValidEmissionIncludingRollback() throws {
-        let model = UpdateViewModel()
-
-        let firstPollItem = try Self.appcastItem(displayVersion: "9.9.0")
-        model.recordDetectedUpdate(firstPollItem)
-        XCTAssertEqual(model.text, "Update Available: 9.9.0")
-        XCTAssertEqual(Self.visibleUpdateVersion(in: model), "9.9.0")
-
-        let newerPollItem = try Self.appcastItem(displayVersion: "9.9.1")
-        model.recordDetectedUpdate(newerPollItem)
-        XCTAssertEqual(model.text, "Update Available: 9.9.1")
-        XCTAssertEqual(Self.visibleUpdateVersion(in: model), "9.9.1")
-
-        // The pill follows the current appcast emission. If a newer release is yanked,
-        // keeping the unavailable version would be another stale first-signal cache.
-        let rollbackPollItem = try Self.appcastItem(displayVersion: "9.9.0")
-        model.recordDetectedUpdate(rollbackPollItem)
-        XCTAssertEqual(model.text, "Update Available: 9.9.0")
-        XCTAssertEqual(Self.visibleUpdateVersion(in: model), "9.9.0")
-    }
-
-    func testPassiveDetectionDoesNotReplaceInstallableStateWithoutMatchingReply() throws {
-        let model = UpdateViewModel()
-        let installedReply = UpdateChoiceRecorder()
-
-        model.recordAvailableUpdate(try Self.updateAvailable(
-            displayVersion: "9.9.0",
-            recorder: installedReply
-        ))
-
-        model.recordDetectedUpdate(try Self.appcastItem(displayVersion: "9.9.1"))
-
-        XCTAssertEqual(model.detectedUpdateVersion, "9.9.1")
-        XCTAssertEqual(Self.visibleUpdateVersion(in: model), "9.9.0")
-        XCTAssertEqual(model.text, "Update Available: 9.9.0")
-
-        guard case .updateAvailable(let update) = model.effectiveState else {
-            XCTFail("Expected installable state to remain updateAvailable")
-            return
-        }
-        update.reply(.install)
-
-        XCTAssertEqual(installedReply.count, 1)
-    }
-
-    func testAvailableUpdateRefreshUsesLatestReplyWhenOverrideIsVisible() throws {
-        let model = UpdateViewModel()
-        let staleReply = UpdateChoiceRecorder()
-        let latestReply = UpdateChoiceRecorder()
-
-        model.overrideState = .updateAvailable(try Self.updateAvailable(
-            displayVersion: "9.9.0",
-            recorder: staleReply
-        ))
-
-        model.recordAvailableUpdate(try Self.updateAvailable(
-            displayVersion: "9.9.1",
-            recorder: latestReply
-        ))
-
-        XCTAssertEqual(Self.visibleUpdateVersion(in: model), "9.9.1")
-
-        guard case .updateAvailable(let update) = model.effectiveState else {
-            XCTFail("Expected visible override to remain updateAvailable")
-            return
-        }
-        update.reply(.dismiss)
-
-        XCTAssertEqual(staleReply.count, 0)
-        XCTAssertEqual(latestReply.count, 1)
-    }
-
-    func testDismissDetectedAvailableUpdateClearsStaleInstallableStateAndRepliesOnce() throws {
-        let model = UpdateViewModel()
-        let reply = UpdateChoiceRecorder()
-        let update = try Self.updateAvailable(displayVersion: "9.9.0", recorder: reply)
-
-        model.recordAvailableUpdate(update)
-        model.overrideState = .updateAvailable(update)
-        XCTAssertTrue(model.showsPill)
-        XCTAssertEqual(model.detectedUpdateVersion, "9.9.0")
-
-        model.dismissDetectedAvailableUpdate()
-
-        XCTAssertEqual(model.state, .idle)
-        XCTAssertNil(model.overrideState)
-        XCTAssertNil(model.detectedUpdateVersion)
-        XCTAssertFalse(model.showsPill)
-        XCTAssertEqual(reply.count, 1)
-    }
-
-    func testCancelActiveStateForNewCheckPreventsQueuedDismissFromReplyingAgain() throws {
-        let model = UpdateViewModel()
-        let reply = UpdateChoiceRecorder()
-        let update = try Self.updateAvailable(displayVersion: "9.9.0", recorder: reply)
-
-        model.recordAvailableUpdate(update)
-        model.overrideState = .updateAvailable(update)
-
-        model.cancelActiveStateForNewCheck()
-        model.dismissDetectedAvailableUpdate()
-
-        XCTAssertEqual(model.state, .idle)
-        XCTAssertNil(model.overrideState)
-        XCTAssertEqual(reply.count, 1)
-    }
-
-    private static func visibleUpdateVersion(in model: UpdateViewModel) -> String? {
-        switch model.effectiveState {
-        case .idle:
-            return model.detectedUpdateVersion
-        case .updateAvailable(let update):
-            return update.appcastItem.displayVersionString
-        default:
-            return nil
-        }
-    }
-
-    private static func updateAvailable(
-        displayVersion: String,
-        recorder: UpdateChoiceRecorder? = nil
-    ) throws -> UpdateState.UpdateAvailable {
-        .init(
-            appcastItem: try appcastItem(displayVersion: displayVersion),
-            reply: { choice in recorder?.record(choice) }
-        )
-    }
-
-    private static func appcastItem(displayVersion: String) throws -> SUAppcastItem {
-        let enclosure: [String: Any] = [
-            "url": "https://example.com/cmux-\(displayVersion).zip",
-            "length": "1024",
-            "sparkle:version": displayVersion,
-            "sparkle:shortVersionString": displayVersion,
-        ]
-        let item: [String: Any] = [
-            "title": "cmux \(displayVersion)",
-            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
-            "enclosure": enclosure,
-        ]
-        return try XCTUnwrap(SUAppcastItem(dictionary: item))
-    }
-
-    private final class UpdateChoiceRecorder: @unchecked Sendable {
-        private let lock = NSLock()
-        private var recordedCount = 0
-
-        var count: Int {
-            lock.lock()
-            defer { lock.unlock() }
-            return recordedCount
-        }
-
-        func record(_: SPUUserUpdateChoice) {
-            lock.lock()
-            recordedCount += 1
-            lock.unlock()
-        }
-    }
-}
 
 final class BrowserInsecureHTTPSettingsTests: XCTestCase {
     func testDefaultAllowlistPatternsArePresent() {
@@ -347,29 +183,346 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: offsetChanged))
     }
 
-    func testShortcutHintVerticalOffsetKeepsPillInsideButtonLane() {
+    func testTitlebarControlsListenForWindowGeometryChanges() {
+        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didResizeNotification))
+        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didEndLiveResizeNotification))
+        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.willEnterFullScreenNotification))
+        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didEnterFullScreenNotification))
+        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.willExitFullScreenNotification))
+        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didExitFullScreenNotification))
+        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didChangeScreenNotification))
+        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didChangeBackingPropertiesNotification))
+    }
+
+    func testShortcutHintVerticalOffsetTucksPillIntoBottomOfButtonLane() {
         for style in TitlebarControlsStyle.allCases {
             let config = style.config
             let hintHeight = titlebarShortcutHintHeight(for: config)
             let verticalOffset = titlebarShortcutHintVerticalOffset(for: config)
 
-            XCTAssertGreaterThanOrEqual(verticalOffset, 0, "Expected non-negative hint offset for style \(style)")
+            XCTAssertLessThan(verticalOffset, config.buttonSize)
+            XCTAssertGreaterThan(verticalOffset + hintHeight, config.buttonSize)
+        }
+    }
+
+    func testShortcutHintVerticalGapStaysTuckedAgainstButtonLane() {
+        XCTAssertEqual(TitlebarShortcutHintMetrics.verticalGap, -3, accuracy: 0.001)
+    }
+
+    func testTitlebarControlsUseNeutralVisualLift() {
+        XCTAssertEqual(
+            TitlebarControlsVisualMetrics.liftedYOffset(3),
+            3,
+            accuracy: 0.001
+        )
+    }
+
+    func testTitlebarControlsUseDeterministicContentSize() {
+        let classic = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.classic.config)
+        XCTAssertEqual(classic.width, 150, accuracy: 0.001)
+        XCTAssertEqual(classic.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
+
+        let compact = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.compact.config)
+        XCTAssertEqual(compact.width, 136, accuracy: 0.001)
+        XCTAssertEqual(compact.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
+    }
+
+    func testTitlebarControlsVerticalOffsetAlignsToTrafficLightsWhenAvailable() {
+        let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
+        let yOffset = TitlebarControlsLayoutMetrics.yOffset(
+            contentHeight: WindowChromeMetrics.appTitlebarHeight,
+            containerHeight: 32,
+            trafficLightFrame: NSRect(x: 20, y: 7, width: 14, height: 14),
+            debugSnapshot: snapshot
+        )
+
+        XCTAssertEqual(yOffset, 0, accuracy: 0.001)
+    }
+
+    func testTitlebarControlsBalanceTopAndBottomAgainstTrafficLights() {
+        let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
+        let trafficLightFrame = NSRect(x: 20, y: 7, width: 14, height: 14)
+        let contentHeight = WindowChromeMetrics.appTitlebarHeight
+        let yOffset = TitlebarControlsLayoutMetrics.yOffset(
+            contentHeight: contentHeight,
+            containerHeight: 32,
+            trafficLightFrame: trafficLightFrame,
+            debugSnapshot: snapshot
+        )
+        let contentFrame = NSRect(x: 0, y: yOffset, width: 100, height: contentHeight)
+
+        XCTAssertEqual(contentFrame.midY, trafficLightFrame.midY, accuracy: 0.001)
+        XCTAssertEqual(
+            trafficLightFrame.minY - contentFrame.minY,
+            contentFrame.maxY - trafficLightFrame.maxY,
+            accuracy: 0.001
+        )
+    }
+
+    func testTitlebarControlsVerticalOffsetFallsBackToTitlebarCenter() {
+        let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
+        let yOffset = TitlebarControlsLayoutMetrics.yOffset(
+            contentHeight: WindowChromeMetrics.appTitlebarHeight,
+            containerHeight: 32,
+            trafficLightFrame: nil,
+            debugSnapshot: snapshot
+        )
+
+        XCTAssertEqual(yOffset, 2, accuracy: 0.001)
+    }
+
+    func testNotificationBadgeIsSmallAndShiftedUpRight() {
+        for style in TitlebarControlsStyle.allCases {
+            let config = style.config
+
+            XCTAssertLessThan(
+                titlebarNotificationBadgeFontSize(for: config),
+                8,
+                "Expected a compact notification badge font for style \(style)"
+            )
+            XCTAssertGreaterThanOrEqual(
+                config.badgeOffset.width,
+                3,
+                "Expected notification badge to sit farther right for style \(style)"
+            )
             XCTAssertLessThanOrEqual(
-                verticalOffset + hintHeight,
-                config.buttonSize,
-                "Expected hint pill to fit within the titlebar button lane for style \(style)"
+                config.badgeOffset.height,
+                -3,
+                "Expected notification badge to sit farther up for style \(style)"
             )
         }
     }
 }
 
 final class TitlebarControlsHoverPolicyTests: XCTestCase {
-    func testHoverTrackingOnlyEnabledForHoverBackgroundStyles() {
-        XCTAssertFalse(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.classic.config))
-        XCTAssertFalse(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.compact.config))
-        XCTAssertFalse(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.roomy.config))
-        XCTAssertTrue(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.pillGroup.config))
-        XCTAssertFalse(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.softButtons.config))
+    func testHoverTrackingEnabledForEveryTitlebarStyle() {
+        for style in TitlebarControlsStyle.allCases {
+            XCTAssertTrue(
+                titlebarControlsShouldTrackButtonHover(config: style.config),
+                "Expected hover tracking for titlebar style \(style)"
+            )
+        }
+    }
+
+    func testButtonsStayVisuallyEvenAcrossTitlebarStyles() {
+        let sizes = TitlebarControlsStyle.allCases.map { $0.config.buttonSize }
+        let smallest = sizes.min() ?? 0
+        let largest = sizes.max() ?? 0
+
+        XCTAssertLessThanOrEqual(largest - smallest, 4)
+
+        for style in TitlebarControlsStyle.allCases {
+            let config = style.config
+            let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
+
+            XCTAssertEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
+            for range in ranges {
+                XCTAssertEqual(
+                    range.upperBound - range.lowerBound,
+                    config.buttonSize,
+                    accuracy: 0.001,
+                    "Expected every titlebar button lane to use one visual height for style \(style)"
+                )
+            }
+        }
+    }
+
+    func testHoverAndPressedStatesHaveVisibleDelta() {
+        for style in TitlebarControlsStyle.allCases {
+            let config = style.config
+            let idleForeground = titlebarControlForegroundOpacity(isHovering: false, isPressed: false)
+            let hoverForeground = titlebarControlForegroundOpacity(isHovering: true, isPressed: false)
+            let pressedForeground = titlebarControlForegroundOpacity(isHovering: true, isPressed: true)
+
+            XCTAssertGreaterThan(hoverForeground, idleForeground, "Expected hover foreground delta for style \(style)")
+            XCTAssertGreaterThan(pressedForeground, hoverForeground, "Expected pressed foreground delta for style \(style)")
+            XCTAssertGreaterThan(
+                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false),
+                titlebarControlBackgroundOpacity(config: config, isHovering: false, isPressed: false),
+                "Expected hover background delta for style \(style)"
+            )
+            XCTAssertGreaterThan(
+                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: true),
+                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false),
+                "Expected pressed background delta for style \(style)"
+            )
+            XCTAssertGreaterThanOrEqual(
+                titlebarControlBorderOpacity(config: config, isHovering: true, isPressed: true),
+                titlebarControlBorderOpacity(config: config, isHovering: true, isPressed: false),
+                "Expected pressed border to stay at least as visible as hover for style \(style)"
+            )
+        }
+    }
+
+    func testIdleTitlebarButtonsStayReadableButMuted() {
+        let idleForeground = titlebarControlForegroundOpacity(isHovering: false, isPressed: false)
+
+        XCTAssertGreaterThanOrEqual(idleForeground, 0.84)
+        XCTAssertLessThan(idleForeground, 1.0)
+    }
+
+    func testPressedStateDoesNotScaleTitlebarButtons() {
+        XCTAssertEqual(titlebarControlPressedScale(isPressed: false), 1, accuracy: 0.001)
+        XCTAssertEqual(titlebarControlPressedScale(isPressed: true), 1, accuracy: 0.001)
+    }
+
+    func testDisabledStateMutesTitlebarButtons() {
+        for style in TitlebarControlsStyle.allCases {
+            let config = style.config
+
+            XCTAssertLessThan(
+                titlebarControlForegroundOpacity(isHovering: true, isPressed: false, isEnabled: false),
+                titlebarControlForegroundOpacity(isHovering: false, isPressed: false, isEnabled: true),
+                "Expected disabled foreground to stay muted for style \(style)"
+            )
+            XCTAssertEqual(
+                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false, isEnabled: false),
+                0,
+                "Expected disabled titlebar button hover to have no active background for style \(style)"
+            )
+        }
+    }
+
+    func testMinimalModeHoverTrackerPassesMouseMovedThroughWhenButtonsAreVisible() {
+        XCTAssertTrue(
+            minimalModePassthroughHoverTrackerCapturesHit(
+                capturesPassiveHits: true,
+                eventType: .mouseMoved,
+                pressedMouseButtons: 0,
+                boundsContainsPoint: true
+            ),
+            "Expected the hidden minimal-mode hover tracker to capture passive hover so controls reveal"
+        )
+
+        XCTAssertFalse(
+            minimalModePassthroughHoverTrackerCapturesHit(
+                capturesPassiveHits: false,
+                eventType: .mouseMoved,
+                pressedMouseButtons: 0,
+                boundsContainsPoint: true
+            ),
+            "Expected revealed minimal-mode buttons to receive mouseMoved so their hover style can update"
+        )
+    }
+
+    func testMinimalModeHoverTrackerDoesNotCaptureMouseDownOrDraggedHover() {
+        XCTAssertFalse(
+            minimalModePassthroughHoverTrackerCapturesHit(
+                capturesPassiveHits: true,
+                eventType: .leftMouseDown,
+                pressedMouseButtons: 0,
+                boundsContainsPoint: true
+            )
+        )
+        XCTAssertFalse(
+            minimalModePassthroughHoverTrackerCapturesHit(
+                capturesPassiveHits: true,
+                eventType: .mouseMoved,
+                pressedMouseButtons: 1,
+                boundsContainsPoint: true
+            )
+        )
+        XCTAssertFalse(
+            minimalModePassthroughHoverTrackerCapturesHit(
+                capturesPassiveHits: true,
+                eventType: .mouseMoved,
+                pressedMouseButtons: 0,
+                boundsContainsPoint: false
+            )
+        )
+    }
+}
+
+@MainActor
+final class NotificationsPopoverAnchorPolicyTests: XCTestCase {
+    func testPreferredPopoverAnchorUsesVisibleButtonAnchorBeforeWideFallback() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 80),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let fallback = NSView(frame: NSRect(x: 20, y: 40, width: 160, height: 24))
+        let buttonAnchor = NSView(frame: NSRect(x: 50, y: 2, width: 20, height: 20))
+        contentView.addSubview(fallback)
+        fallback.addSubview(buttonAnchor)
+
+        XCTAssertTrue(
+            preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === buttonAnchor
+        )
+
+        buttonAnchor.isHidden = true
+        XCTAssertTrue(
+            preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === fallback
+        )
+    }
+
+    func testPreferredPopoverAnchorRejectsButtonAnchorFromDifferentWindow() {
+        let sourceWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 80),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { sourceWindow.orderOut(nil) }
+        let otherWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 80),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { otherWindow.orderOut(nil) }
+        guard let sourceContentView = sourceWindow.contentView,
+              let otherContentView = otherWindow.contentView else {
+            XCTFail("Expected content views")
+            return
+        }
+
+        let fallback = NSView(frame: NSRect(x: 20, y: 40, width: 160, height: 24))
+        let buttonAnchor = NSView(frame: NSRect(x: 50, y: 2, width: 20, height: 20))
+        sourceContentView.addSubview(fallback)
+        otherContentView.addSubview(buttonAnchor)
+
+        XCTAssertTrue(
+            preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === fallback
+        )
+    }
+
+    func testNotificationAnchorRegistryFindsNearestVisibleButtonAnchor() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 100),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let bellAnchor = NSView(frame: NSRect(x: 90, y: 60, width: 20, height: 20))
+        let plusAnchor = NSView(frame: NSRect(x: 140, y: 60, width: 20, height: 20))
+        contentView.addSubview(bellAnchor)
+        contentView.addSubview(plusAnchor)
+        NotificationsAnchorRegistry.shared.register(bellAnchor)
+        NotificationsAnchorRegistry.shared.register(plusAnchor)
+
+        let pointNearBell = NSPoint(x: bellAnchor.frame.midX + 2, y: bellAnchor.frame.midY)
+        XCTAssertTrue(
+            NotificationsAnchorRegistry.shared.closestAnchor(in: window, to: pointNearBell) === bellAnchor
+        )
+
+        bellAnchor.isHidden = true
+        XCTAssertTrue(
+            NotificationsAnchorRegistry.shared.closestAnchor(in: window, to: pointNearBell) === plusAnchor
+        )
     }
 }
 

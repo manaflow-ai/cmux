@@ -1,11 +1,40 @@
+import Foundation
+
 enum SidebarWorkspaceDetailDefaults {
+    static let showBranchDirectoryKey = "sidebarShowBranchDirectory"
+    static let showPullRequestsKey = "sidebarShowPullRequest"
+    static let watchGitStatusKey = "sidebarWatchGitStatus"
+    static let showSSHKey = "sidebarShowSSH"
+    static let showPortsKey = "sidebarShowPorts"
+    static let showLogKey = "sidebarShowLog"
+    static let showProgressKey = "sidebarShowProgress"
+    static let showCustomMetadataKey = "sidebarShowStatusPills"
+
     static let showBranchDirectory = true
     static let showPullRequests = true
+    static let watchGitStatus = true
     static let showSSH = true
     static let showPorts = true
     static let showLog = true
     static let showProgress = true
     static let showCustomMetadata = true
+}
+
+extension SidebarWorkspaceDetailDefaults {
+    static func boolValue(defaults: UserDefaults, key: String, defaultValue: Bool) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultValue
+        }
+        return defaults.bool(forKey: key)
+    }
+
+    static func showPullRequestsValue(defaults: UserDefaults) -> Bool {
+        boolValue(defaults: defaults, key: showPullRequestsKey, defaultValue: showPullRequests)
+    }
+
+    static func watchGitStatusValue(defaults: UserDefaults) -> Bool {
+        boolValue(defaults: defaults, key: watchGitStatusKey, defaultValue: watchGitStatus)
+    }
 }
 
 enum AutomationSettings {
@@ -24,20 +53,31 @@ extension CmuxSettingsFileStore {
         "app.appIcon",
         "app.menuBarOnly",
         "app.newWorkspacePlacement",
+        "app.workspaceInheritWorkingDirectory",
         "app.minimalMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",
         "app.focusPaneOnFirstClick",
         "app.preferredEditor",
+        "app.openSupportedFilesInCmux",
         "app.openMarkdownInCmuxViewer",
         "app.iMessageMode",
         "app.reorderOnNotification",
         "app.sendAnonymousTelemetry",
+        "app.confirmQuit",
         "app.warnBeforeQuit",
         "app.warnBeforeClosingTab",
+        "app.warnBeforeClosingTabXButton",
+        "app.hideTabCloseButton",
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
         "terminal.showScrollBar",
+        "terminal.copyOnSelect",
         "terminal.autoResumeAgentSessions",
+        "terminal.agentHibernation.enabled",
+        "terminal.agentHibernation.idleSeconds",
+        "terminal.agentHibernation.maxLiveTerminals",
+        "terminal.textBoxMaxLines",
+        "terminal.resumeCommands",
         "notifications.dockBadge",
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",
@@ -45,11 +85,17 @@ extension CmuxSettingsFileStore {
         "notifications.sound",
         "notifications.customSoundFilePath",
         "notifications.command",
+        "notifications.hooks",
+        "notifications.hooksMode",
         "sidebar.hideAllDetails",
+        "sidebar.showWorkspaceDescription",
         "sidebar.branchLayout",
+        "sidebar.stackBranchDirectory",
+        "sidebar.pathLastSegmentOnly",
         "sidebar.showNotificationMessage",
         "sidebar.showBranchDirectory",
         "sidebar.showPullRequests",
+        "sidebar.watchGitStatus",
         "sidebar.makePullRequestsClickable",
         "sidebar.openPullRequestLinksInCmuxBrowser",
         "sidebar.openPortLinksInCmuxBrowser",
@@ -73,6 +119,8 @@ extension CmuxSettingsFileStore {
         "automation.socketPassword",
         "automation.claudeCodeIntegration",
         "automation.claudeBinaryPath",
+        "automation.ripgrepBinaryPath",
+        "automation.suppressSubagentNotifications",
         "automation.cursorIntegration",
         "automation.geminiIntegration",
         "automation.portBase",
@@ -80,6 +128,8 @@ extension CmuxSettingsFileStore {
         "browser.defaultSearchEngine",
         "browser.showSearchSuggestions",
         "browser.theme",
+        "browser.discardHiddenWebViews",
+        "browser.hiddenWebViewDiscardDelaySeconds",
         "browser.openTerminalLinksInCmuxBrowser",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
         "browser.hostsToOpenInEmbeddedBrowser",
