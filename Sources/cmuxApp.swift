@@ -5292,6 +5292,12 @@ struct SettingsView: View {
     private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
     @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
     private var autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions
+    @AppStorage(AgentHibernationSettings.enabledKey)
+    private var agentHibernationEnabled = AgentHibernationSettings.defaultEnabled
+    @AppStorage(AgentHibernationSettings.idleSecondsKey)
+    private var agentHibernationIdleSeconds = AgentHibernationSettings.defaultIdleSeconds
+    @AppStorage(AgentHibernationSettings.maxLiveTerminalsKey)
+    private var agentHibernationMaxLiveTerminals = AgentHibernationSettings.defaultMaxLiveTerminals
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
@@ -5544,6 +5550,38 @@ struct SettingsView: View {
                 guard autoResumeAgentSessions != newValue else { return }
                 autoResumeAgentSessions = newValue
                 AgentSessionAutoResumeSettings.notifyDidChange()
+            }
+        )
+    }
+
+    private var agentHibernationEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { agentHibernationEnabled },
+            set: { newValue in
+                AgentHibernationSettings.setValues(enabled: newValue)
+                agentHibernationEnabled = newValue
+            }
+        )
+    }
+
+    private var agentHibernationIdleSecondsBinding: Binding<Double> {
+        Binding(
+            get: { AgentHibernationSettings.sanitizedIdleSeconds(agentHibernationIdleSeconds) },
+            set: { newValue in
+                let sanitized = AgentHibernationSettings.sanitizedIdleSeconds(newValue)
+                AgentHibernationSettings.setValues(idleSeconds: sanitized)
+                agentHibernationIdleSeconds = sanitized
+            }
+        )
+    }
+
+    private var agentHibernationMaxLiveTerminalsBinding: Binding<Int> {
+        Binding(
+            get: { AgentHibernationSettings.sanitizedMaxLiveTerminals(agentHibernationMaxLiveTerminals) },
+            set: { newValue in
+                let sanitized = AgentHibernationSettings.sanitizedMaxLiveTerminals(newValue)
+                AgentHibernationSettings.setValues(maxLiveTerminals: sanitized)
+                agentHibernationMaxLiveTerminals = sanitized
             }
         )
     }
@@ -6766,6 +6804,58 @@ struct SettingsView: View {
                                 .accessibilityLabel(
                                     String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen")
                                 )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.agentHibernation.enabled"),
+                            String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"),
+                            subtitle: agentHibernationEnabled
+                                ? String(localized: "settings.terminal.agentHibernation.subtitleOn", defaultValue: "Idle background agent terminals can be suspended when the live-terminal limit is exceeded.")
+                                : String(localized: "settings.terminal.agentHibernation.subtitleOff", defaultValue: "Agent terminals stay live until you close them or quit cmux.")
+                        ) {
+                            Toggle("", isOn: agentHibernationEnabledBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTerminalAgentHibernationToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.agentHibernation.idleSeconds"),
+                            String(localized: "settings.terminal.agentHibernation.idleSeconds", defaultValue: "Hibernate After Idle Seconds"),
+                            subtitle: String(localized: "settings.terminal.agentHibernation.idleSeconds.subtitle", defaultValue: "A terminal must have no output and report an idle agent lifecycle for this long before it can be suspended."),
+                            controlWidth: 140
+                        ) {
+                            Stepper(
+                                "\(Int(agentHibernationIdleSecondsBinding.wrappedValue))",
+                                value: agentHibernationIdleSecondsBinding,
+                                in: 5...604800,
+                                step: 60
+                            )
+                            .accessibilityIdentifier("SettingsTerminalAgentHibernationIdleSecondsStepper")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.agentHibernation.maxLiveTerminals"),
+                            String(localized: "settings.terminal.agentHibernation.maxLiveTerminals", defaultValue: "Max Live Agent Terminals"),
+                            subtitle: String(localized: "settings.terminal.agentHibernation.maxLiveTerminals.subtitle", defaultValue: "Visible terminals stay live. Extra idle background agent terminals hibernate oldest first."),
+                            controlWidth: 120
+                        ) {
+                            Stepper(
+                                "\(agentHibernationMaxLiveTerminalsBinding.wrappedValue)",
+                                value: agentHibernationMaxLiveTerminalsBinding,
+                                in: 1...256,
+                                step: 1
+                            )
+                            .accessibilityIdentifier("SettingsTerminalAgentHibernationMaxLiveStepper")
                         }
                     }
 
@@ -8028,6 +8118,7 @@ struct SettingsView: View {
         if previousAutoResumeAgentSessions != autoResumeAgentSessions {
             AgentSessionAutoResumeSettings.notifyDidChange()
         }
+        AgentHibernationSettings.reset()
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         iMessageMode = IMessageModeSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails

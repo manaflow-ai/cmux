@@ -342,6 +342,32 @@
           "default": true,
           "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
         },
+        "agentHibernation": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Opt-in Agent Hibernation settings. cmux can suspend old background terminals only when they run a restorable coding agent, the agent lifecycle reports idle, no terminal output has changed for the configured idle window, and the live-terminal limit is exceeded. Hibernated agents resume when their tab is visited; the placeholder Resume button is a manual fallback.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable Agent Hibernation."
+            },
+            "idleSeconds": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 604800,
+              "default": 3600,
+              "description": "Minimum seconds with no terminal output or input before an idle restorable agent terminal can hibernate."
+            },
+            "maxLiveTerminals": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256,
+              "default": 12,
+              "description": "Maximum live restorable agent terminals to keep before cmux hibernates eligible background terminals, oldest first."
+            }
+          }
+        },
         "textBoxMaxLines": {
           "type": "integer",
           "minimum": 1,

@@ -8781,7 +8781,7 @@ class TabManager: ObservableObject {
 
         func sendText(_ panelId: UUID, _ text: String) {
             guard let tp = tab.terminalPanel(for: panelId) else { return }
-            tp.surface.sendText(text)
+            tp.sendText(text)
         }
 
         // Sample a very top strip so the probe remains valid even after vertical expand/collapse.
@@ -9168,7 +9168,7 @@ class TabManager: ObservableObject {
                 }
                 // Use an explicit shell exit command for deterministic child-exit behavior across
                 // startup timing variance; this still exercises the same SHOW_CHILD_EXITED path.
-                rightPanel.surface.sendText("exit\r")
+                rightPanel.sendText("exit\r")
 
                 // Wait for the right panel to close.
                 let closed = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
@@ -9650,6 +9650,10 @@ extension TabManager {
                     ),
                     into: &hasher
                 )
+                Self.hashAgentHibernationPanelState(
+                    (workspace.panels[panelId] as? TerminalPanel)?.agentHibernationState,
+                    into: &hasher
+                )
                 Self.hashSurfaceResumeBindingSnapshot(
                     workspace.effectiveSurfaceResumeBinding(
                         panelId: panelId,
@@ -9736,6 +9740,21 @@ extension TabManager {
         }
         hashOptionalDouble(launchCommand.capturedAt, into: &hasher)
         hashOptionalString(launchCommand.source, into: &hasher)
+    }
+
+    private static func hashAgentHibernationPanelState(
+        _ state: AgentHibernationPanelState?,
+        into hasher: inout Hasher
+    ) {
+        guard let state else {
+            hasher.combine(false)
+            return
+        }
+
+        hasher.combine(true)
+        hashRestorableAgentSnapshot(state.agent, into: &hasher)
+        hasher.combine(state.hibernatedAt.timeIntervalSince1970)
+        hasher.combine(state.lastActivityAt.timeIntervalSince1970)
     }
 
     nonisolated private static func hashSurfaceResumeBindingSnapshot(

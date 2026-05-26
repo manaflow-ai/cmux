@@ -1260,6 +1260,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
+    var hibernation: SessionAgentHibernationSnapshot?
     var resumeBinding: SurfaceResumeBindingSnapshot?
     var textBoxDraft: SessionTextBoxInputDraftSnapshot?
     var remotePTYSessionID: String?
@@ -1272,6 +1273,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         scrollback: String? = nil,
         agent: SessionRestorableAgentSnapshot? = nil,
         tmuxStartCommand: String? = nil,
+        hibernation: SessionAgentHibernationSnapshot? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         remotePTYSessionID: String? = nil,
@@ -1281,11 +1283,17 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.scrollback = scrollback
         self.agent = agent
         self.tmuxStartCommand = tmuxStartCommand
+        self.hibernation = hibernation
         self.resumeBinding = resumeBinding
         self.textBoxDraft = textBoxDraft
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
     }
+}
+
+struct SessionAgentHibernationSnapshot: Codable, Sendable {
+    var hibernatedAt: TimeInterval
+    var lastActivityAt: TimeInterval
 }
 
 struct SessionTextBoxInputDraftSnapshot: Codable, Equatable, Sendable {
@@ -1371,6 +1379,7 @@ struct SessionTextBoxInputAttachmentSnapshot: Codable, Equatable, Sendable {
     var localPath: String?
     var cleanupLocalPathWhenDisposed: Bool
 }
+
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
     var profileID: UUID?

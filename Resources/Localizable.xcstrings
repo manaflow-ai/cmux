@@ -111180,6 +111180,76 @@
         }
       }
     },
+    "settings.terminal.agentHibernation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent Hibernation" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェント休止" } }
+      }
+    },
+    "settings.terminal.agentHibernation.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent terminals stay live until you close them or quit cmux." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェント端末は、閉じるか cmux を終了するまでライブのままです。" } }
+      }
+    },
+    "settings.terminal.agentHibernation.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Idle background agent terminals can be hibernated when the live-terminal limit is exceeded." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ライブ端末数の上限を超えると、アイドル状態のバックグラウンドエージェント端末を休止できます。" } }
+      }
+    },
+    "settings.terminal.agentHibernation.idleSeconds": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hibernate After Idle Seconds" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "休止までのアイドル秒数" } }
+      }
+    },
+    "settings.terminal.agentHibernation.idleSeconds.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "A terminal must have no output and report an idle agent lifecycle for this long before it can be hibernated." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この時間だけ出力がなく、エージェントのライフサイクルがアイドルと報告された端末だけを休止できます。" } }
+      }
+    },
+    "settings.terminal.agentHibernation.maxLiveTerminals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Max Live Agent Terminals" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ライブエージェント端末の上限" } }
+      }
+    },
+    "settings.terminal.agentHibernation.maxLiveTerminals.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Visible terminals stay live. Extra idle background agent terminals hibernate oldest first." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "表示中の端末はライブのままです。余分なアイドル中のバックグラウンドエージェント端末は古い順に休止します。" } }
+      }
+    },
+    "terminal.agentHibernation.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent hibernated" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントは休止中" } }
+      }
+    },
+    "terminal.agentHibernation.lastActivity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Last activity %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "最終アクティビティ %@" } }
+      }
+    },
+    "terminal.agentHibernation.resume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Resume" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再開" } }
+      }
+    },
     "surfaceResumeApproval.cwd.none": {
       "extractionState": "manual",
       "localizations": {
