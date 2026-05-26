@@ -1,149 +1,220 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
 
-const tmuxCorpusUpstreamCommit = "a9ba7b8ecbe1d107aa716f52d53c99ea1a00cf11"
-
-type tmuxCorpusPortStatus string
-
-const (
-	tmuxCorpusPorted        tmuxCorpusPortStatus = "ported"
-	tmuxCorpusAdapted       tmuxCorpusPortStatus = "adapted"
-	tmuxCorpusNotApplicable tmuxCorpusPortStatus = "not_applicable"
-)
-
-type tmuxCorpusCILane string
-
-const (
-	tmuxCorpusLanePR      tmuxCorpusCILane = "pr"
-	tmuxCorpusLaneNightly tmuxCorpusCILane = "nightly"
-	tmuxCorpusLaneNone    tmuxCorpusCILane = "none"
-)
-
-type tmuxCorpusEntry struct {
-	Source string
-	Layer  string
-	Status tmuxCorpusPortStatus
-	Lane   tmuxCorpusCILane
-	Reason string
-}
-
-var tmuxCorpusManifest = []tmuxCorpusEntry{
-	{Source: "regress/am-terminal.sh", Layer: "terminal-renderer", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLaneNightly, Reason: "Autowrap belongs to Ghostty/cmux terminal rendering, not the Go remote daemon."},
-	{Source: "regress/border-arrows.sh", Layer: "tmux-ui", Status: tmuxCorpusNotApplicable, Lane: tmuxCorpusLaneNone, Reason: "cmux does not expose tmux border arrow indicators."},
-	{Source: "regress/capture-pane-hyperlink.sh", Layer: "terminal-renderer", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLaneNightly, Reason: "OSC 8 hyperlink capture belongs to terminal rendering and should preserve Ghostty behavior."},
-	{Source: "regress/capture-pane-sgr0.sh", Layer: "terminal-renderer", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLaneNightly, Reason: "SGR reset semantics belong to terminal rendering and session replay."},
-	{Source: "regress/combine-test.sh", Layer: "terminal-renderer", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLaneNightly, Reason: "Unicode combining width belongs to Ghostty/cmux terminal rendering."},
-	{Source: "regress/command-order.sh", Layer: "tmux-compat", Status: tmuxCorpusPorted, Lane: tmuxCorpusLanePR, Reason: "Command splitting and sequential dispatch are covered for the supported tmux-compat subset."},
-	{Source: "regress/conf-syntax.sh", Layer: "tmux-config", Status: tmuxCorpusNotApplicable, Lane: tmuxCorpusLaneNone, Reason: "cmux does not parse tmux configuration files."},
-	{Source: "regress/control-client-sanity.sh", Layer: "tmux-compat", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLanePR, Reason: "cmux exposes JSON-RPC and tmux-compat commands instead of tmux control mode."},
-	{Source: "regress/control-client-size.sh", Layer: "remote-pty", Status: tmuxCorpusPorted, Lane: tmuxCorpusLanePR, Reason: "WebSocket PTY resize control frames are covered."},
-	{Source: "regress/copy-mode-test-emacs.sh", Layer: "tmux-copy-mode", Status: tmuxCorpusNotApplicable, Lane: tmuxCorpusLaneNone, Reason: "cmux does not implement tmux copy-mode key tables."},
-	{Source: "regress/copy-mode-test-vi.sh", Layer: "tmux-copy-mode", Status: tmuxCorpusNotApplicable, Lane: tmuxCorpusLaneNone, Reason: "cmux does not implement tmux copy-mode key tables."},
-	{Source: "regress/cursor-test1.sh", Layer: "terminal-renderer", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLaneNightly, Reason: "Cursor wrapping and reflow belong to terminal rendering."},
-	{Source: "regress/cursor-test2.sh", Layer: "terminal-renderer", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLaneNightly, Reason: "Cursor wrapping and reflow belong to terminal rendering."},
-	{Source: "regress/cursor-test3.sh", Layer: "terminal-renderer", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLaneNightly, Reason: "Cursor wrapping and reflow belong to terminal rendering."},
-	{Source: "regress/cursor-test4.sh", Layer: "terminal-renderer", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLaneNightly, Reason: "Cursor wrapping and reflow belong to terminal rendering."},
-	{Source: "regress/decrqm-sync.sh", Layer: "terminal-renderer", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLaneNightly, Reason: "Synchronized output mode belongs to terminal rendering."},
-	{Source: "regress/format-strings.sh", Layer: "tmux-compat", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLanePR, Reason: "cmux supports a deliberate tmux format subset for agent shims."},
-	{Source: "regress/has-session-return.sh", Layer: "tmux-compat", Status: tmuxCorpusPorted, Lane: tmuxCorpusLanePR, Reason: "has-session success and failure are covered through workspace resolution."},
-	{Source: "regress/if-shell-TERM.sh", Layer: "tmux-shell", Status: tmuxCorpusNotApplicable, Lane: tmuxCorpusLaneNone, Reason: "cmux does not implement tmux if-shell."},
-	{Source: "regress/if-shell-error.sh", Layer: "tmux-shell", Status: tmuxCorpusNotApplicable, Lane: tmuxCorpusLaneNone, Reason: "cmux does not implement tmux if-shell."},
-	{Source: "regress/if-shell-nested.sh", Layer: "tmux-shell", Status: tmuxCorpusNotApplicable, Lane: tmuxCorpusLaneNone, Reason: "cmux does not implement tmux if-shell."},
-	{Source: "regress/input-keys.sh", Layer: "tmux-compat", Status: tmuxCorpusPorted, Lane: tmuxCorpusLanePR, Reason: "send-keys token translation and literal passthrough are covered."},
-	{Source: "regress/kill-session-process-exit.sh", Layer: "remote-pty", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLanePR, Reason: "PTY process exit closes the WebSocket session normally."},
-	{Source: "regress/new-session-base-index.sh", Layer: "tmux-indexing", Status: tmuxCorpusNotApplicable, Lane: tmuxCorpusLaneNone, Reason: "cmux workspace numbering is not tmux base-index configurable."},
-	{Source: "regress/new-session-command.sh", Layer: "tmux-compat", Status: tmuxCorpusPorted, Lane: tmuxCorpusLanePR, Reason: "new-session command dispatch to the first surface is covered."},
-	{Source: "regress/new-session-environment.sh", Layer: "remote-pty", Status: tmuxCorpusPorted, Lane: tmuxCorpusLanePR, Reason: "WebSocket PTY startup environment is covered, including UTF-8 and truecolor identity."},
-	{Source: "regress/new-session-no-client.sh", Layer: "tmux-compat", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLanePR, Reason: "Detached creation is represented by focus=false workspace creation."},
-	{Source: "regress/new-session-size.sh", Layer: "remote-pty", Status: tmuxCorpusPorted, Lane: tmuxCorpusLanePR, Reason: "Initial PTY rows and columns are covered through stty output."},
-	{Source: "regress/new-window-command.sh", Layer: "tmux-compat", Status: tmuxCorpusPorted, Lane: tmuxCorpusLanePR, Reason: "new-window command dispatch is covered through workspace creation and surface input."},
-	{Source: "regress/osc-11colours.sh", Layer: "terminal-renderer", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLaneNightly, Reason: "cmux should preserve Ghostty truecolor behavior instead of tmux's poorer default color assumptions."},
-	{Source: "regress/run-shell-output.sh", Layer: "tmux-shell", Status: tmuxCorpusNotApplicable, Lane: tmuxCorpusLaneNone, Reason: "cmux does not implement tmux run-shell."},
-	{Source: "regress/session-group-resize.sh", Layer: "remote-rpc", Status: tmuxCorpusPorted, Lane: tmuxCorpusLanePR, Reason: "Smallest-client resize arbitration is covered in the remote session coordinator."},
-	{Source: "regress/style-trim.sh", Layer: "tmux-status-style", Status: tmuxCorpusNotApplicable, Lane: tmuxCorpusLaneNone, Reason: "cmux does not implement tmux status line style trimming."},
-	{Source: "regress/tty-keys.sh", Layer: "terminal-input", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLaneNightly, Reason: "OS key event forwarding is covered in macOS terminal tests, not the Go daemon."},
-	{Source: "regress/utf8-test.sh", Layer: "terminal-renderer", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLaneNightly, Reason: "UTF-8 rendering belongs to Ghostty/cmux; Go covers UTF-8 environment and byte-safe command paths."},
-	{Source: "fuzz/cmd-parse-fuzzer.c", Layer: "tmux-compat", Status: tmuxCorpusPorted, Lane: tmuxCorpusLaneNightly, Reason: "Go fuzz target covers supported tmux-compat argv parsing."},
-	{Source: "fuzz/format-fuzzer.c", Layer: "tmux-compat", Status: tmuxCorpusPorted, Lane: tmuxCorpusLaneNightly, Reason: "Go fuzz target covers supported format-string expansion."},
-	{Source: "fuzz/input-fuzzer.c", Layer: "remote-pty", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLaneNightly, Reason: "Go fuzz covers PTY control frames and send-keys tokens; full escape rendering remains in Ghostty."},
-	{Source: "fuzz/style-fuzzer.c", Layer: "terminal-renderer", Status: tmuxCorpusAdapted, Lane: tmuxCorpusLaneNightly, Reason: "Style and color parsing belongs to Ghostty/cmux rendering, with better truecolor expectations than tmux defaults."},
-}
-
-func TestTmuxCorpusManifestCoversPinnedUpstreamTests(t *testing.T) {
-	if tmuxCorpusUpstreamCommit == "" {
-		t.Fatal("tmux corpus upstream commit must be pinned")
+func TestTmuxCorpusPRLaneSourcesExerciseRuntimeBehavior(t *testing.T) {
+	cases := []struct {
+		source string
+		run    func(*testing.T)
+	}{
+		{"regress/command-order.sh", assertTmuxCorpusCommandOrder},
+		{"regress/control-client-sanity.sh", assertTmuxCorpusHasSession},
+		{"regress/control-client-size.sh", assertTmuxCorpusResizePane},
+		{"regress/format-strings.sh", assertTmuxCorpusFormatStrings},
+		{"regress/has-session-return.sh", assertTmuxCorpusHasSession},
+		{"regress/input-keys.sh", assertTmuxCorpusSendKeys},
+		{"regress/new-session-command.sh", assertTmuxCorpusCommandOrder},
+		{"regress/new-session-environment.sh", assertTmuxCorpusPTYEnvironment},
+		{"regress/new-session-no-client.sh", assertTmuxCorpusDetachedWorkspaceCreation},
+		{"regress/new-session-size.sh", assertTmuxCorpusPTYSizeNormalization},
+		{"regress/new-window-command.sh", assertTmuxCorpusCommandOrder},
+		{"regress/session-group-resize.sh", assertTmuxCorpusResizePane},
 	}
 
-	wantSources := loadPinnedTmuxCorpusSources(t)
-
-	got := make(map[string]tmuxCorpusEntry, len(tmuxCorpusManifest))
-	for _, entry := range tmuxCorpusManifest {
-		if entry.Source == "" {
-			t.Fatalf("manifest entry has empty source: %+v", entry)
-		}
-		if _, exists := got[entry.Source]; exists {
-			t.Fatalf("duplicate manifest source %q", entry.Source)
-		}
-		got[entry.Source] = entry
-		if entry.Layer == "" {
-			t.Fatalf("%s has empty layer", entry.Source)
-		}
-		switch entry.Status {
-		case tmuxCorpusPorted, tmuxCorpusAdapted, tmuxCorpusNotApplicable:
-		default:
-			t.Fatalf("%s has invalid status %q", entry.Source, entry.Status)
-		}
-		switch entry.Lane {
-		case tmuxCorpusLanePR, tmuxCorpusLaneNightly, tmuxCorpusLaneNone:
-		default:
-			t.Fatalf("%s has invalid CI lane %q", entry.Source, entry.Lane)
-		}
-		if entry.Status == tmuxCorpusNotApplicable && entry.Lane != tmuxCorpusLaneNone {
-			t.Fatalf("%s is not applicable but has CI lane %q", entry.Source, entry.Lane)
-		}
-		if entry.Status != tmuxCorpusNotApplicable && entry.Lane == tmuxCorpusLaneNone {
-			t.Fatalf("%s is %q but has no CI lane", entry.Source, entry.Status)
-		}
-		if entry.Reason == "" {
-			t.Fatalf("%s must explain its porting decision", entry.Source)
-		}
-	}
-
-	for _, source := range wantSources {
-		if _, ok := got[source]; !ok {
-			t.Fatalf("pinned tmux corpus source %q is missing from manifest", source)
-		}
-	}
-	if len(got) != len(wantSources) {
-		t.Fatalf("manifest has %d entries, want %d", len(got), len(wantSources))
+	for _, tc := range cases {
+		t.Run(tc.source, tc.run)
 	}
 }
 
-func loadPinnedTmuxCorpusSources(t *testing.T) []string {
+func assertTmuxCorpusCommandOrder(t *testing.T) {
 	t.Helper()
 
-	path := filepath.Join("testdata", "tmux-corpus-sources-"+tmuxCorpusUpstreamCommit+".txt")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read pinned tmux corpus source fixture %s: %v", path, err)
+	recorder := startTmuxCorpusRPCRecorder(t)
+	rc := &rpcContext{socketPath: recorder.socketPath}
+
+	if err := dispatchTmuxCommand(rc, "new-session", []string{"-d", "-s", "build", "-c", "/tmp", "echo one"}); err != nil {
+		t.Fatalf("new-session: %v", err)
+	}
+	if err := dispatchTmuxCommand(rc, "new-window", []string{"-d", "-n", "test", "echo two"}); err != nil {
+		t.Fatalf("new-window: %v", err)
 	}
 
-	var sources []string
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+	wantOrder := []string{
+		"workspace.create",
+		"workspace.rename",
+		"surface.list",
+		"surface.send_text",
+		"workspace.create",
+		"workspace.rename",
+		"surface.list",
+		"surface.send_text",
+	}
+	if methods := recorder.methods(); !reflect.DeepEqual(methods, wantOrder) {
+		t.Fatalf("RPC methods = %v, want %v", methods, wantOrder)
+	}
+
+	sendRequests := recorder.requestsFor("surface.send_text")
+	if len(sendRequests) != 2 {
+		t.Fatalf("surface.send_text requests = %d, want 2", len(sendRequests))
+	}
+	if got := sendRequests[0].Params["text"]; got != "cd -- '/tmp' && echo one\r" {
+		t.Fatalf("new-session send text = %q", got)
+	}
+	if got := sendRequests[1].Params["text"]; got != "echo two\r" {
+		t.Fatalf("new-window send text = %q", got)
+	}
+}
+
+func assertTmuxCorpusDetachedWorkspaceCreation(t *testing.T) {
+	t.Helper()
+
+	recorder := startTmuxCorpusRPCRecorder(t)
+	rc := &rpcContext{socketPath: recorder.socketPath}
+
+	if err := dispatchTmuxCommand(rc, "new-session", []string{"-d", "-s", "detached", "echo detached"}); err != nil {
+		t.Fatalf("new-session -d: %v", err)
+	}
+
+	createRequests := recorder.requestsFor("workspace.create")
+	if len(createRequests) != 1 {
+		t.Fatalf("workspace.create requests = %d, want 1", len(createRequests))
+	}
+	if got := createRequests[0].Params["focus"]; got != false {
+		t.Fatalf("detached new-session focus = %v, want false", got)
+	}
+}
+
+func assertTmuxCorpusHasSession(t *testing.T) {
+	t.Helper()
+
+	recorder := startTmuxCorpusRPCRecorder(t)
+	rc := &rpcContext{socketPath: recorder.socketPath}
+
+	if err := dispatchTmuxCommand(rc, "has-session", []string{"-t", "main"}); err != nil {
+		t.Fatalf("has-session existing workspace: %v", err)
+	}
+	err := dispatchTmuxCommand(rc, "has-session", []string{"-t", "missing"})
+	if err == nil {
+		t.Fatal("has-session should fail for a missing workspace")
+	}
+	if !strings.Contains(err.Error(), "workspace not found") {
+		t.Fatalf("has-session error = %q, want workspace not found", err.Error())
+	}
+}
+
+func assertTmuxCorpusSendKeys(t *testing.T) {
+	t.Helper()
+
+	tests := []struct {
+		tokens  []string
+		literal bool
+		want    string
+	}{
+		{tokens: []string{"printf", "ok", "Enter"}, want: "printf ok\r"},
+		{tokens: []string{"C-c", "C-d", "C-z", "C-l"}, want: "\x03\x04\x1a\x0c"},
+		{tokens: []string{"Escape", "Tab", "BSpace"}, want: "\x1b\t\x7f"},
+		{tokens: []string{"Enter", "C-c", "plain"}, literal: true, want: "Enter C-c plain"},
+	}
+	for _, tt := range tests {
+		if got := tmuxSendKeysText(tt.tokens, tt.literal); got != tt.want {
+			t.Fatalf("tmuxSendKeysText(%v, literal=%v) = %q, want %q", tt.tokens, tt.literal, got, tt.want)
 		}
-		sources = append(sources, line)
 	}
-	if len(sources) == 0 {
-		t.Fatalf("pinned tmux corpus source fixture %s is empty", path)
+}
+
+func assertTmuxCorpusFormatStrings(t *testing.T) {
+	t.Helper()
+
+	ctx := map[string]string{
+		"session_name": "cmux",
+		"window_id":    "@workspace",
+		"window_name":  "Build",
+		"pane_id":      "%pane",
+		"pane_width":   "120",
+		"pane_height":  "40",
 	}
-	return sources
+
+	tests := []struct {
+		format   string
+		fallback string
+		want     string
+	}{
+		{format: "#{session_name}:#{window_name}:#{pane_id}", want: "cmux:Build:%pane"},
+		{format: "#{window_id} #{pane_width}x#{pane_height}", want: "@workspace 120x40"},
+		{format: "#{unknown}#{also_unknown}", fallback: "fallback", want: "fallback"},
+	}
+	for _, tt := range tests {
+		if got := tmuxRenderFormat(tt.format, ctx, tt.fallback); got != tt.want {
+			t.Fatalf("tmuxRenderFormat(%q) = %q, want %q", tt.format, got, tt.want)
+		}
+	}
+}
+
+func assertTmuxCorpusResizePane(t *testing.T) {
+	t.Helper()
+
+	recorder := startTmuxCorpusRPCRecorder(t)
+	rc := &rpcContext{socketPath: recorder.socketPath}
+
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-x", "100"}); err != nil {
+		t.Fatalf("resize-pane absolute width: %v", err)
+	}
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-L", "-x", "7"}); err != nil {
+		t.Fatalf("resize-pane directional: %v", err)
+	}
+
+	resizeRequests := recorder.requestsFor("pane.resize")
+	if len(resizeRequests) != 2 {
+		t.Fatalf("pane.resize requests = %d, want 2", len(resizeRequests))
+	}
+	if got := resizeRequests[0].Params["direction"]; got != "right" {
+		t.Fatalf("absolute resize direction = %v, want right", got)
+	}
+	if got := asInt(t, resizeRequests[0].Params["amount"], "absolute resize amount"); got != 160 {
+		t.Fatalf("absolute resize amount = %v, want 160", got)
+	}
+	if got := resizeRequests[1].Params["direction"]; got != "left" {
+		t.Fatalf("directional resize direction = %v, want left", got)
+	}
+	if got := asInt(t, resizeRequests[1].Params["amount"], "directional resize amount"); got != 7 {
+		t.Fatalf("directional resize amount = %v, want 7", got)
+	}
+}
+
+func assertTmuxCorpusPTYEnvironment(t *testing.T) {
+	t.Helper()
+
+	for _, key := range []string{"SHELL", "COLORTERM", "TERM_PROGRAM", "LANG", "LC_CTYPE", "LC_ALL"} {
+		t.Setenv(key, "")
+	}
+
+	env := strings.Join(defaultWebSocketPTYEnv("/bin/sh"), "\n")
+	for _, want := range []string{
+		"SHELL=/bin/sh",
+		"TERM=xterm-256color",
+		"COLORTERM=truecolor",
+		"LANG=C.UTF-8",
+		"CMUX_REMOTE_TRANSPORT=ws",
+	} {
+		if !strings.Contains(env, want) {
+			t.Fatalf("PTY environment missing %q in %q", want, env)
+		}
+	}
+}
+
+func assertTmuxCorpusPTYSizeNormalization(t *testing.T) {
+	t.Helper()
+
+	cols, rows := normalizePTYSize(0, 0)
+	if cols != defaultPTYCols || rows != defaultPTYRows {
+		t.Fatalf("default PTY size = %dx%d, want %dx%d", cols, rows, defaultPTYCols, defaultPTYRows)
+	}
+	cols, rows = normalizePTYSize(maxPTYDimension+1, maxPTYDimension+1)
+	if cols != maxPTYDimension || rows != maxPTYDimension {
+		t.Fatalf("clamped PTY size = %dx%d, want %dx%d", cols, rows, maxPTYDimension, maxPTYDimension)
+	}
 }
