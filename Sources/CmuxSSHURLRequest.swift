@@ -29,7 +29,9 @@ struct CmuxSSHURLRequest: Equatable {
     let originalURL: URL
     let destination: String
     let port: Int?
+    let identityFile: String?
     let title: String?
+    let windowId: UUID?
     let sshOptions: [String]
     let noFocus: Bool
 
@@ -38,8 +40,14 @@ struct CmuxSSHURLRequest: Equatable {
         if let port {
             parts += ["--port", String(port)]
         }
+        if let identityFile = normalizedIdentityFile {
+            parts += ["--identity", identityFile]
+        }
         if let title = normalizedTitle {
             parts += ["--name", title]
+        }
+        if let windowId {
+            parts += ["--window", windowId.uuidString]
         }
         for sshOption in sshOptions {
             parts += ["--ssh-option", sshOption]
@@ -71,10 +79,61 @@ struct CmuxSSHURLRequest: Equatable {
         return destination
     }
 
+    private var normalizedIdentityFile: String? {
+        guard let identityFile else { return nil }
+        let trimmed = identityFile.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     private var normalizedTitle: String? {
         guard let title else { return nil }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func manual(
+        destination rawDestination: String,
+        port rawPort: String?,
+        identityFile rawIdentityFile: String?,
+        title rawTitle: String?,
+        windowId: UUID? = nil
+    ) -> Result<CmuxSSHURLRequest, CmuxSSHURLParseError> {
+        let destination: String
+        switch normalizedManualDestination(rawDestination) {
+        case .success(let value):
+            destination = value
+        case .failure(let error):
+            return .failure(error)
+        }
+
+        let port: Int?
+        switch normalizedManualPort(rawPort) {
+        case .success(let value):
+            port = value
+        case .failure(let error):
+            return .failure(error)
+        }
+
+        let title: String?
+        switch normalizedManualTitle(rawTitle) {
+        case .success(let value):
+            title = value
+        case .failure(let error):
+            return .failure(error)
+        }
+
+        return .success(
+            CmuxSSHURLRequest(
+                originalURL: manualOriginalURL(),
+                destination: destination,
+                port: port,
+                identityFile: normalizedManualIdentityFile(rawIdentityFile),
+                title: title,
+                windowId: windowId,
+                sshOptions: [],
+                noFocus: false
+            )
+        )
     }
 
     static func parse(
@@ -190,7 +249,9 @@ struct CmuxSSHURLRequest: Equatable {
                 originalURL: url,
                 destination: destination,
                 port: parsedPort,
+                identityFile: nil,
                 title: title,
+                windowId: nil,
                 sshOptions: sshOptions,
                 noFocus: noFocus
             )
@@ -355,5 +416,83 @@ struct CmuxSSHURLRequest: Equatable {
         }
         let prefix = String(name.prefix(64))
         return prefix.count == name.count ? name : "\(prefix)..."
+    }
+
+    private static func normalizedManualDestination(_ rawValue: String) -> Result<String, CmuxSSHURLParseError> {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            return .failure(.missingDestination)
+        }
+        guard value.count <= maxDestinationLength else {
+            return .failure(.destinationTooLong(maxLength: maxDestinationLength))
+        }
+        guard !value.hasPrefix("-") else {
+            return .failure(.destinationStartsWithDash)
+        }
+        guard !containsUnsafeHiddenCharacter(value) else {
+            return .failure(.destinationContainsUnsafeCharacters)
+        }
+
+        let parts = value
+            .split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+            .map(String.init)
+        if parts.count == 2 {
+            let user = parts[0]
+            let host = parts[1]
+            guard !user.isEmpty, !host.isEmpty else {
+                return .failure(.destinationContainsUnsafeCharacters)
+            }
+            guard !user.hasPrefix("-"), !host.hasPrefix("-") else {
+                return .failure(.destinationStartsWithDash)
+            }
+            guard isAllowedSSHUser(user), isAllowedSSHHost(host) else {
+                return .failure(.destinationContainsUnsafeCharacters)
+            }
+        } else {
+            guard isAllowedSSHHost(value) else {
+                return .failure(.destinationContainsUnsafeCharacters)
+            }
+        }
+
+        return .success(value)
+    }
+
+    private static func normalizedManualPort(_ rawValue: String?) -> Result<Int?, CmuxSSHURLParseError> {
+        guard let rawValue else { return .success(nil) }
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return .success(nil) }
+        guard !containsUnsafeHiddenCharacter(value),
+              value.range(of: #"^[0-9]+$"#, options: .regularExpression) != nil,
+              let port = Int(value),
+              (1...65535).contains(port) else {
+            return .failure(.invalidPort)
+        }
+        return .success(port)
+    }
+
+    private static func normalizedManualIdentityFile(_ rawValue: String?) -> String? {
+        guard let rawValue else { return nil }
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    private static func normalizedManualTitle(_ rawValue: String?) -> Result<String?, CmuxSSHURLParseError> {
+        guard let rawValue else { return .success(nil) }
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return .success(nil) }
+        guard value.count <= maxTitleLength else {
+            return .failure(.titleTooLong(maxLength: maxTitleLength))
+        }
+        guard !containsUnsafeHiddenCharacter(value) else {
+            return .failure(.titleContainsUnsafeCharacters)
+        }
+        return .success(value)
+    }
+
+    private static func manualOriginalURL() -> URL {
+        var components = URLComponents()
+        components.scheme = AuthEnvironment.callbackScheme
+        components.host = "ssh"
+        return components.url ?? URL(fileURLWithPath: "/")
     }
 }

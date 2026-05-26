@@ -6358,6 +6358,14 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.newSSHWorkspace",
+                title: constant(String(localized: "command.newSSHWorkspace.title", defaultValue: "New SSH Workspace")),
+                subtitle: constant(String(localized: "command.newSSHWorkspace.subtitle", defaultValue: "Remote Workspace")),
+                keywords: ["create", "new", "workspace", "ssh", "remote", "host"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.newWindow",
                 title: constant(String(localized: "command.newWindow.title", defaultValue: "New Window")),
                 subtitle: constant(String(localized: "command.newWindow.subtitle", defaultValue: "Window")),
@@ -7439,6 +7447,14 @@ struct ContentView: View {
                 tabManager: tabManager,
                 debugSource: "palette.newWorkspace"
             )
+        }
+        registry.register(commandId: "palette.newSSHWorkspace") {
+            DispatchQueue.main.async {
+                AppDelegate.shared?.performNewSSHWorkspaceAction(
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+                    debugSource: "palette.newSSHWorkspace"
+                )
+            }
         }
         registry.register(commandId: "palette.openFolder") {
             // Defer so the command palette dismisses before the modal sheet appears.

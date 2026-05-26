@@ -105,6 +105,49 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
+    func testManualSSHWorkspaceRequestBuildsCLIArguments() throws {
+        let windowId = try XCTUnwrap(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
+
+        switch CmuxSSHURLRequest.manual(
+            destination: " alice@dev.example.com ",
+            port: " 2222 ",
+            identityFile: " ~/.ssh/id_ed25519 ",
+            title: " Dev SSH ",
+            windowId: windowId
+        ) {
+        case .success(let request):
+            XCTAssertEqual(request.destination, "alice@dev.example.com")
+            XCTAssertEqual(request.port, 2222)
+            XCTAssertEqual(request.identityFile, "~/.ssh/id_ed25519")
+            XCTAssertEqual(request.title, "Dev SSH")
+            XCTAssertEqual(request.windowId, windowId)
+            XCTAssertEqual(request.cliArguments, [
+                "ssh",
+                "--port", "2222",
+                "--identity", "~/.ssh/id_ed25519",
+                "--name", "Dev SSH",
+                "--window", "11111111-2222-3333-4444-555555555555",
+                "alice@dev.example.com"
+            ])
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testManualSSHWorkspaceRequestRejectsUnsafeDestination() {
+        switch CmuxSSHURLRequest.manual(
+            destination: "alice:bad@dev.example.com",
+            port: "",
+            identityFile: "",
+            title: ""
+        ) {
+        case .failure(.destinationContainsUnsafeCharacters):
+            break
+        default:
+            XCTFail("Expected unsafe destination rejection")
+        }
+    }
+
     func testParsesNoFocusFlagWithoutValue() throws {
         let url = try XCTUnwrap(URL(string: "\(supportedScheme)://ssh?host=dev.example.com&no-focus"))
 

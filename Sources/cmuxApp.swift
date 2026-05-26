@@ -515,6 +515,13 @@ struct cmuxApp: App {
                     }
                 }
 
+                splitCommandButton(title: String(localized: "menu.file.newSSHWorkspace", defaultValue: "New SSH Workspace…"), shortcut: menuShortcut(for: .newSSHWorkspace)) {
+                    AppDelegate.shared?.performNewSSHWorkspaceAction(
+                        preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+                        debugSource: "menu.newSSHWorkspace"
+                    )
+                }
+
                 splitCommandButton(title: String(localized: "menu.file.openFolder", defaultValue: "Open Folder…"), shortcut: menuShortcut(for: .openFolder)) {
                     AppDelegate.shared?.showOpenFolderPanel()
                 }
