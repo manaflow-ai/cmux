@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"math"
 	"net"
@@ -411,6 +412,20 @@ func TestPersistentDaemonRejectsBadToken(t *testing.T) {
 	}
 }
 
+func TestDialPersistentDaemonBadTokenWrapsAuthFailure(t *testing.T) {
+	socketPath, stop := startPersistentDaemonForTest(t, "good-token")
+	defer stop()
+
+	conn, err := dialPersistentDaemon(socketPath, "bad-token")
+	if err == nil {
+		_ = conn.Close()
+		t.Fatalf("dialPersistentDaemon succeeded with bad token")
+	}
+	if !errors.Is(err, errPersistentDaemonAuthFailed) {
+		t.Fatalf("dialPersistentDaemon error = %v, want errPersistentDaemonAuthFailed", err)
+	}
+}
+
 func TestAuthenticatePersistentDaemonClientReadDeadline(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()
@@ -437,6 +452,68 @@ func TestAuthenticatePersistentDaemonClientReadDeadline(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatalf("server did not receive auth request")
+	}
+}
+
+func TestAuthenticatePersistentDaemonServerReadDeadline(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+
+	hub := newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard)
+	defer hub.closeAll()
+
+	done := make(chan struct{}, 1)
+	go func() {
+		handlePersistentDaemonConnWithAuthTimeout(server, "token", hub, 50*time.Millisecond)
+		done <- struct{}{}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatalf("server auth handler did not return after deadline")
+	}
+}
+
+func TestPersistentStdioProxyReturnsWhenDaemonClosesFirst(t *testing.T) {
+	client, server := net.Pipe()
+	stdinReader, stdinWriter := io.Pipe()
+	defer stdinWriter.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- proxyPersistentDaemonConn(stdinReader, io.Discard, client)
+	}()
+
+	_ = server.Close()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("proxyPersistentDaemonConn returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("proxyPersistentDaemonConn did not return after daemon side closed")
+	}
+	_ = stdinWriter.Close()
+}
+
+func TestPersistentDaemonLockPIDRoundTrip(t *testing.T) {
+	lockFile := filepath.Join(t.TempDir(), "daemon.lock")
+	file, err := os.OpenFile(lockFile, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatalf("open lock file: %v", err)
+	}
+	defer file.Close()
+
+	if err := writePersistentDaemonLockPID(file); err != nil {
+		t.Fatalf("writePersistentDaemonLockPID: %v", err)
+	}
+	pid, err := persistentDaemonLockPID(lockFile)
+	if err != nil {
+		t.Fatalf("persistentDaemonLockPID: %v", err)
+	}
+	if pid != os.Getpid() {
+		t.Fatalf("persistentDaemonLockPID = %d, want %d", pid, os.Getpid())
 	}
 }
 

@@ -6260,6 +6260,17 @@ class TerminalController {
             )
         }
         let skipDaemonBootstrap = v2Bool(params, "skip_daemon_bootstrap") ?? false
+        if preserveAfterTerminalExit,
+           transport == .ssh,
+           !skipDaemonBootstrap,
+           daemonWebSocketEndpoint == nil,
+           persistentDaemonSlot == nil {
+            return .err(
+                code: "invalid_params",
+                message: "persistent_daemon_slot is required when preserve_after_terminal_exit is true for bootstrap SSH",
+                data: nil
+            )
+        }
         if relayPort != nil {
             guard let relayID, !relayID.isEmpty else {
                 return .err(code: "invalid_params", message: "relay_id is required when relay_port is set", data: nil)

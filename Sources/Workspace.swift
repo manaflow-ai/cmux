@@ -6666,8 +6666,7 @@ final class WorkspaceRemoteSessionController {
     private var bakedDaemonPreflightRequiredCapabilities: [String] {
         requiredDaemonCapabilities.filter {
             $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability &&
-                $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability &&
-                $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYPersistentDaemonCapability
+                $0 != WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability
         }
     }
 

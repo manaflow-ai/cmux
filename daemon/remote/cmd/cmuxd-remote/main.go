@@ -309,6 +309,8 @@ const (
 	persistentDaemonAuthTimeout = 5 * time.Second
 )
 
+var errPersistentDaemonAuthFailed = errors.New("persistent daemon authentication failed")
+
 func persistentDaemonPathsForSlot(rawSlot string) (persistentDaemonPaths, error) {
 	slot, err := validatePersistentDaemonSlot(rawSlot)
 	if err != nil {
@@ -450,28 +452,49 @@ func runPersistentStdioProxy(stdin io.Reader, stdout, stderr io.Writer, slot str
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	return proxyPersistentDaemonConn(stdin, stdout, conn)
+}
 
-	errCh := make(chan error, 2)
+type persistentProxyCopyResult struct {
+	stream string
+	err    error
+}
+
+func proxyPersistentDaemonConn(stdin io.Reader, stdout io.Writer, conn net.Conn) error {
+	defer conn.Close()
+	errCh := make(chan persistentProxyCopyResult, 2)
 	go func() {
 		_, copyErr := io.Copy(conn, stdin)
 		if unixConn, ok := conn.(*net.UnixConn); ok {
 			_ = unixConn.CloseWrite()
 		}
-		errCh <- copyErr
+		errCh <- persistentProxyCopyResult{stream: "stdin", err: copyErr}
 	}()
 	go func() {
 		_, copyErr := io.Copy(stdout, conn)
-		errCh <- copyErr
+		errCh <- persistentProxyCopyResult{stream: "stdout", err: copyErr}
 	}()
 
-	var firstErr error
-	for i := 0; i < 2; i++ {
-		if copyErr := <-errCh; copyErr != nil && !errors.Is(copyErr, net.ErrClosed) && firstErr == nil {
-			firstErr = copyErr
-		}
+	first := <-errCh
+	if first.stream == "stdout" {
+		return persistentProxyCopyError(first.err)
 	}
-	return firstErr
+	second := <-errCh
+	if firstErr := persistentProxyCopyError(first.err); firstErr != nil {
+		return firstErr
+	}
+	return persistentProxyCopyError(second.err)
+}
+
+func persistentProxyCopyError(err error) error {
+	if err == nil ||
+		errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, os.ErrClosed) ||
+		errors.Is(err, io.ErrClosedPipe) ||
+		errors.Is(err, syscall.EPIPE) {
+		return nil
+	}
+	return err
 }
 
 func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, stderr io.Writer) error {
@@ -480,6 +503,10 @@ func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, st
 		return nil
 	} else if shouldRemovePersistentSocketAfterDialError(err) {
 		_ = os.Remove(paths.socket)
+	} else if errors.Is(err, errPersistentDaemonAuthFailed) {
+		if recoverErr := recoverPersistentDaemonAuthFailure(paths, err); recoverErr != nil {
+			return recoverErr
+		}
 	} else {
 		return err
 	}
@@ -588,6 +615,9 @@ func runPersistentDaemonServer(slot string, stderr io.Writer) error {
 		return fmt.Errorf("persistent daemon slot %q is already running", paths.slot)
 	}
 	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	if err := writePersistentDaemonLockPID(lockFile); err != nil {
+		return err
+	}
 
 	_ = os.Remove(paths.socket)
 	listener, err := net.Listen("unix", paths.socket)
@@ -619,6 +649,78 @@ func signalPersistentDaemonReady() {
 	_ = file.Close()
 }
 
+func writePersistentDaemonLockPID(file *os.File) error {
+	if err := file.Truncate(0); err != nil {
+		return err
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(file, "%d\n", os.Getpid())
+	return err
+}
+
+func persistentDaemonLockPID(lockFile string) (int, error) {
+	data, err := os.ReadFile(lockFile)
+	if err != nil {
+		return 0, err
+	}
+	raw := strings.TrimSpace(string(data))
+	if raw == "" {
+		return 0, errors.New("persistent daemon lock file does not contain a pid")
+	}
+	pid, err := strconv.Atoi(raw)
+	if err != nil || pid <= 1 {
+		return 0, fmt.Errorf("persistent daemon lock file contains invalid pid %q", raw)
+	}
+	return pid, nil
+}
+
+func recoverPersistentDaemonAuthFailure(paths persistentDaemonPaths, authErr error) error {
+	pid, err := persistentDaemonLockPID(paths.lockFile)
+	if err != nil {
+		return fmt.Errorf("%w; could not recover existing daemon: %v", authErr, err)
+	}
+	if pid == os.Getpid() {
+		return fmt.Errorf("%w; refusing to stop current process", authErr)
+	}
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return fmt.Errorf("%w; could not stop existing daemon pid %d: %v", authErr, pid, err)
+	}
+	_ = os.Remove(paths.socket)
+	if err := waitPersistentDaemonLockAvailable(paths.lockFile, 2*time.Second); err != nil {
+		return fmt.Errorf("%w; existing daemon pid %d did not release lock: %v", authErr, pid, err)
+	}
+	return nil
+}
+
+func waitPersistentDaemonLockAvailable(lockFile string, timeout time.Duration) error {
+	file, err := os.OpenFile(lockFile, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		lockErr := syscall.Flock(int(file.Fd()), syscall.LOCK_EX)
+		if lockErr == nil {
+			_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		}
+		done <- lockErr
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-timer.C:
+		_ = file.Close()
+		return fmt.Errorf("timed out waiting for lock release")
+	}
+}
+
 func servePersistentDaemon(listener net.Listener, token string, stderr io.Writer) error {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{}, stderr)
 	defer hub.closeAll()
@@ -645,11 +747,25 @@ func isClosedListenerError(err error) bool {
 }
 
 func handlePersistentDaemonConn(conn net.Conn, token string, hub *wsPTYHub) {
+	handlePersistentDaemonConnWithAuthTimeout(conn, token, hub, persistentDaemonAuthTimeout)
+}
+
+func handlePersistentDaemonConnWithAuthTimeout(conn net.Conn, token string, hub *wsPTYHub, timeout time.Duration) {
 	defer conn.Close()
+	if timeout > 0 {
+		if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+			return
+		}
+	}
 	reader := bufio.NewReaderSize(conn, 64*1024)
 	writer := &stdioFrameWriter{writer: bufio.NewWriter(conn)}
 	if !authenticatePersistentDaemonConn(reader, writer, token) {
 		return
+	}
+	if timeout > 0 {
+		if err := conn.SetDeadline(time.Time{}); err != nil {
+			return
+		}
 	}
 	_ = runRPCServerWithReader(reader, writer, hub, false)
 }
@@ -831,10 +947,11 @@ func authenticatePersistentDaemonClientWithTimeout(conn net.Conn, token string, 
 		return err
 	}
 	if !resp.OK {
+		message := "persistent daemon authentication failed"
 		if resp.Error != nil && strings.TrimSpace(resp.Error.Message) != "" {
-			return errors.New(resp.Error.Message)
+			message = strings.TrimSpace(resp.Error.Message)
 		}
-		return errors.New("persistent daemon authentication failed")
+		return fmt.Errorf("%w: %s", errPersistentDaemonAuthFailed, message)
 	}
 	return nil
 }

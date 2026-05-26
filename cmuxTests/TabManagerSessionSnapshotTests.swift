@@ -1974,6 +1974,34 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(configuration.terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
     }
 
+    func testSessionRemoteWorkspaceSnapshotRequiresLocalSocketPathForPTYRestore() throws {
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+                "ControlMaster=auto",
+                "ControlPersist=600",
+            ],
+            preserveAfterTerminalExit: true,
+            skipDaemonBootstrap: nil,
+            relayPort: 64003,
+            persistentDaemonSlot: "ssh-restore-slot"
+        )
+
+        let configuration = try XCTUnwrap(snapshot.workspaceConfiguration(localSocketPath: "   "))
+
+        XCTAssertEqual(configuration.preserveAfterTerminalExit, false)
+        XCTAssertNil(configuration.foregroundAuthToken)
+        XCTAssertNil(configuration.persistentDaemonSlot)
+        XCTAssertNil(configuration.relayPort)
+        XCTAssertNil(configuration.localSocketPath)
+        XCTAssertFalse(configuration.terminalStartupCommand?.contains("ssh-pty-attach") == true)
+        XCTAssertEqual(configuration.terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
+    }
+
     func testSessionRemoteWorkspaceSnapshotDropsInvalidSSHPortFromReconnectCommand() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,

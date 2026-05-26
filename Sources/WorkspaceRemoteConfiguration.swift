@@ -386,6 +386,7 @@ extension SessionRemoteWorkspaceSnapshot {
         let normalizedOptions = Self.normalizedSSHOptions(sshOptions)
         let optionsWithRestoreControlDefaults = SSHPTYAttachStartupCommandBuilder.sshOptionsWithRestoreControlDefaults(normalizedOptions)
         let normalizedPersistentDaemonSlot = WorkspaceRemoteSSHOptionFilter.normalizedOptional(persistentDaemonSlot)
+        let normalizedLocalSocketPath = WorkspaceRemoteSSHOptionFilter.normalizedOptional(localSocketPath)
         let normalizedRelayPort = relayPort.flatMap { port in
             (1...65535).contains(port) ? port : nil
         }
@@ -394,6 +395,7 @@ extension SessionRemoteWorkspaceSnapshot {
             preserveAfterTerminalExit == true &&
             skipDaemonBootstrap != true &&
             normalizedPersistentDaemonSlot != nil &&
+            normalizedLocalSocketPath != nil &&
             normalizedRelayPort != nil &&
             SSHPTYAttachStartupCommandBuilder.sshOptionsSupportReusableForegroundAuth(optionsWithRestoreControlDefaults)
         let restoredSSHOptions = preservePTYSession ? optionsWithRestoreControlDefaults : normalizedOptions
@@ -423,7 +425,7 @@ extension SessionRemoteWorkspaceSnapshot {
             relayPort: preservePTYSession ? normalizedRelayPort : nil,
             relayID: restoredRelayID,
             relayToken: restoredRelayToken,
-            localSocketPath: preservePTYSession ? WorkspaceRemoteSSHOptionFilter.normalizedOptional(localSocketPath) : nil,
+            localSocketPath: preservePTYSession ? normalizedLocalSocketPath : nil,
             terminalStartupCommand: preservePTYSession
                 ? SSHPTYAttachStartupCommandBuilder.command(
                     foregroundAuth: foregroundAuth,
