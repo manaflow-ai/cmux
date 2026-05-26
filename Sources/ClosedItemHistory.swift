@@ -11,6 +11,7 @@ struct ClosedPanelSplitPlacement {
 struct ClosedPanelHistoryEntry {
     let workspaceId: UUID
     let paneId: UUID
+    let layoutTabId: UUID?
     let paneAnchorPanelId: UUID?
     let restoreInOriginalPane: Bool
     let tabIndex: Int
@@ -20,6 +21,7 @@ struct ClosedPanelHistoryEntry {
     init(
         workspaceId: UUID,
         paneId: UUID,
+        layoutTabId: UUID? = nil,
         paneAnchorPanelId: UUID? = nil,
         restoreInOriginalPane: Bool = true,
         tabIndex: Int,
@@ -28,6 +30,7 @@ struct ClosedPanelHistoryEntry {
     ) {
         self.workspaceId = workspaceId
         self.paneId = paneId
+        self.layoutTabId = layoutTabId
         self.paneAnchorPanelId = paneAnchorPanelId
         self.restoreInOriginalPane = restoreInOriginalPane
         self.tabIndex = tabIndex

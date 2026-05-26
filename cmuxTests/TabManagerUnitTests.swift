@@ -2461,6 +2461,44 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         )
     }
 
+    func testRestoreClosedPanelFallbackUsesOriginalTopLevelTab() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+        let firstLayoutController = workspace.bonsplitController
+
+        manager.newSurface()
+        let secondTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+        let secondLayoutController = workspace.bonsplitController
+        let secondPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panelSnapshot = try XCTUnwrap(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == secondPanelId }
+        )
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: firstTopTabId, reassertAppKitFocus: false))
+        let restoredPanelId = try XCTUnwrap(workspace.restoreClosedPanel(ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: UUID(),
+            layoutTabId: secondTopTabId,
+            tabIndex: 0,
+            snapshot: panelSnapshot
+        )))
+
+        XCTAssertEqual(
+            workspace.selectedTopLevelTabId,
+            secondTopTabId,
+            "Expected restoring a closed panel to activate the original top-level tab"
+        )
+        XCTAssertTrue(
+            workspace.bonsplitController(containingPanelId: restoredPanelId) === secondLayoutController,
+            "Expected the restored panel to be inserted into the original top-level tab controller"
+        )
+        XCTAssertFalse(
+            workspace.bonsplitController(containingPanelId: restoredPanelId) === firstLayoutController,
+            "Expected the selected top-level tab not to receive the restored panel"
+        )
+    }
+
     func testOpenBrowserInsertAtEndPlacesNewBrowserAtPaneEnd() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
