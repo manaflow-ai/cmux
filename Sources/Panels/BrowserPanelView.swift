@@ -16,6 +16,11 @@ private func browserPanelViewRectDescription(_ rect: NSRect) -> String {
     String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.width, rect.height)
 }
 
+private struct BrowserWebViewVisibilityOwnershipState: Equatable {
+    let isVisibleInUI: Bool
+    let isCurrentPaneOwner: Bool
+}
+
 private extension NSObject {
     @discardableResult
     func browserPanelCallVoidIfAvailable(_ rawSelector: String) -> Bool {
@@ -625,6 +630,13 @@ struct BrowserPanelView: View {
         isPanelInPane
     }
 
+    private var webViewVisibilityOwnershipState: BrowserWebViewVisibilityOwnershipState {
+        BrowserWebViewVisibilityOwnershipState(
+            isVisibleInUI: isVisibleInUI,
+            isCurrentPaneOwner: isCurrentPaneOwner
+        )
+    }
+
     private var currentEventIsCommandPointerActivation: Bool {
         guard let event = NSApp.currentEvent else { return false }
         switch event.type {
@@ -732,20 +744,12 @@ struct BrowserPanelView: View {
         panel.scheduleDeveloperToolsVisibilityLossCheck()
     }
 
-    private func handleWebViewVisibleInUIChange(_ visibleInUI: Bool) {
+    private func handleWebViewVisibilityOwnershipChange(_ state: BrowserWebViewVisibilityOwnershipState) {
+        let hiddenReason = state.isVisibleInUI ? "view.lostPaneOwner" : "view.hidden"
         synchronizeWebViewVisibilityForPaneOwnership(
-            visibleInUI: visibleInUI,
+            visibleInUI: state.isVisibleInUI,
             visibleReason: "view.visible",
-            hiddenReason: "view.hidden"
-        )
-    }
-
-    private func handlePaneOwnershipChange(_ isOwner: Bool) {
-        guard isVisibleInUI else { return }
-        synchronizeWebViewVisibilityForPaneOwnership(
-            visibleInUI: isVisibleInUI,
-            visibleReason: "view.paneOwner",
-            hiddenReason: "view.lostPaneOwner"
+            hiddenReason: hiddenReason
         )
     }
 
@@ -931,11 +935,8 @@ struct BrowserPanelView: View {
                 refreshSuggestions()
             }
         }
-        .onChange(of: isVisibleInUI) { visibleInUI in
-            handleWebViewVisibleInUIChange(visibleInUI)
-        }
-        .onChange(of: isCurrentPaneOwner) { isOwner in
-            handlePaneOwnershipChange(isOwner)
+        .onChange(of: webViewVisibilityOwnershipState) { state in
+            handleWebViewVisibilityOwnershipChange(state)
         }
         .onChange(of: isFocused) { focused in
 #if DEBUG
