@@ -141,17 +141,19 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
     // nonisolated(unsafe) is justified because every access goes through eventMonitorLock.
     private let eventMonitorLock = NSLock()
     private nonisolated(unsafe) var localEventMonitor: Any?
+    private nonisolated(unsafe) var coordinatorDestroyed = false
     private weak var innerScrollView: NSScrollView?
     private var pendingSaveChordPrefix: ShortcutStroke?
 
     func installLocalEventMonitor(scrollView: NSScrollView) {
-        innerScrollView = scrollView
         eventMonitorLock.lock()
-        if localEventMonitor != nil {
+        if coordinatorDestroyed || localEventMonitor != nil {
             eventMonitorLock.unlock()
             return
         }
         eventMonitorLock.unlock()
+
+        innerScrollView = scrollView
         // NSEvent.addLocalMonitorForEvents handlers fire on the main thread (documented),
         // so MainActor.assumeIsolated lets the closure body call our @MainActor-isolated
         // properties and methods without crossing the actor at compile time.
@@ -163,7 +165,7 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
             return handled ? nil : event
         }
         eventMonitorLock.lock()
-        if localEventMonitor == nil {
+        if !coordinatorDestroyed, localEventMonitor == nil {
             localEventMonitor = token
             eventMonitorLock.unlock()
         } else {
@@ -183,9 +185,24 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
     func reinstallLocalEventMonitorIfNeeded() {
         eventMonitorLock.lock()
         let alreadyInstalled = localEventMonitor != nil
+        let destroyed = coordinatorDestroyed
         eventMonitorLock.unlock()
-        guard let sv = innerScrollView, !alreadyInstalled else { return }
+        guard let sv = innerScrollView, !alreadyInstalled, !destroyed else { return }
         installLocalEventMonitor(scrollView: sv)
+    }
+
+    var isLocalEventMonitorInstalledForTesting: Bool {
+        eventMonitorLock.lock()
+        let installed = localEventMonitor != nil
+        eventMonitorLock.unlock()
+        return installed
+    }
+
+    private func isCoordinatorDestroyed() -> Bool {
+        eventMonitorLock.lock()
+        let destroyed = coordinatorDestroyed
+        eventMonitorLock.unlock()
+        return destroyed
     }
 
     private func handleLocalEvent(_ event: NSEvent) -> Bool {
@@ -259,6 +276,10 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
         panel?.updateTextContent(text)
     }
 
+    func retryPendingFocus() {
+        panel?.retryPendingFocus()
+    }
+
     // NSTextStorageDelegate is intentionally not used for edit detection:
     // CodeEditTextView replaces textStorage.delegate in setTextStorage().
     func textStorage(
@@ -302,9 +323,10 @@ private extension NSColor {
 
 extension HighlightedEditorBridge: TextViewCoordinator {
     nonisolated func prepareCoordinator(controller: TextViewController) {
-        Task { @MainActor [weak self] in
-            self?.textController = controller
-            self?.installLocalEventMonitor(scrollView: controller.scrollView)
+        MainActor.assumeIsolated {
+            guard !isCoordinatorDestroyed() else { return }
+            textController = controller
+            installLocalEventMonitor(scrollView: controller.scrollView)
         }
     }
 
@@ -314,13 +336,11 @@ extension HighlightedEditorBridge: TextViewCoordinator {
         // the coordinator on the same tick that calls destroy(); a deferred Task
         // with [weak self] would find self nil and leak the monitor.
         eventMonitorLock.lock()
+        coordinatorDestroyed = true
         let token = localEventMonitor
         localEventMonitor = nil
         eventMonitorLock.unlock()
         if let token = token { NSEvent.removeMonitor(token) }
-        Task { @MainActor [weak self] in
-            self?.textController = nil
-        }
     }
 }
 
@@ -354,6 +374,11 @@ final class HighlightedEditorContainerView: NSView {
     override func layout() {
         super.layout()
         hostView?.frame = bounds
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        bridge.retryPendingFocus()
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -487,7 +512,7 @@ struct HighlightedFilePreviewEditor: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ container: HighlightedEditorContainerView, coordinator: HighlightedEditorBridge) {
-        coordinator.removeLocalEventMonitor()
+        coordinator.destroy()
     }
 }
 

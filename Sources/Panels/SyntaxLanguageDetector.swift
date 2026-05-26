@@ -61,8 +61,10 @@ enum SyntaxLanguageDetector {
 
         let key = url.standardizedFileURL.path
         let metadata = metadata(for: url)
-        if let fileSize = metadata.fileSize, fileSize > maxHighlightBytes {
-            updateCache(key: key, metadata: metadata, language: nil)
+        if currentContentUTF8ByteCount == nil,
+           let fileSize = metadata.fileSize,
+           fileSize > maxHighlightBytes {
+            removeCache(key: key)
             return nil
         }
 
@@ -81,6 +83,12 @@ enum SyntaxLanguageDetector {
     private static func updateCache(key: String, metadata: FileMetadata, language: CodeLanguage?) {
         cacheLock.lock()
         cache[key] = CacheEntry(metadata: metadata, language: language)
+        cacheLock.unlock()
+    }
+
+    private static func removeCache(key: String) {
+        cacheLock.lock()
+        cache.removeValue(forKey: key)
         cacheLock.unlock()
     }
 

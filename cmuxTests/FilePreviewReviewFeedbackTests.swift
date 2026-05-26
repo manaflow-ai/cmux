@@ -91,6 +91,36 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertFalse(panel.isDirty)
     }
 
+    func testHighlightedBridgeDoesNotInstallEventMonitorAfterDestroy() {
+        let bridge = HighlightedEditorBridge()
+        bridge.destroy()
+
+        bridge.installLocalEventMonitor(scrollView: NSScrollView())
+
+        XCTAssertFalse(bridge.isLocalEventMonitorInstalledForTesting)
+    }
+
+    func testHighlightedContainerRetriesPendingFocusWhenAttachedToWindow() throws {
+        let url = try temporaryTextFile(contents: "preview", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        let focusTarget = FilePreviewReviewFocusTestView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        panel.attachPreviewFocus(root: focusTarget, primaryResponder: focusTarget, intent: .textEditor)
+        XCTAssertFalse(panel.restoreFocusIntent(.filePreview(.textEditor)))
+
+        let bridge = HighlightedEditorBridge()
+        bridge.panel = panel
+        let container = HighlightedEditorContainerView(bridge: bridge)
+        focusTarget.addSubview(container)
+
+        let window = NSWindow(contentRect: focusTarget.bounds, styleMask: [], backing: .buffered, defer: false)
+        defer { window.close() }
+        window.contentView = focusTarget
+
+        XCTAssertTrue(window.firstResponder === focusTarget)
+    }
+
     func testSyntaxLanguageDetectorReevaluatesWhenFileGrowsPastHighlightLimit() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -125,6 +155,21 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertNil(SyntaxLanguageDetector.language(
             for: url,
             currentContentUTF8ByteCount: panel.textContentUTF8ByteCount
+        ))
+    }
+
+    func testSyntaxLanguageDetectorUsesCurrentPanelTextSizeWhenDiskFileIsLarge() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("swift")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try Data(repeating: 65, count: 501_000).write(to: url, options: .atomic)
+        XCTAssertNil(SyntaxLanguageDetector.language(for: url))
+
+        XCTAssertNotNil(SyntaxLanguageDetector.language(
+            for: url,
+            currentContentUTF8ByteCount: "let value = 1\n".utf8.count
         ))
     }
 
