@@ -29,6 +29,17 @@ extension CMUXCLI {
             switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
             case "browser":
                 return .browser
+            case "editor":
+                return .editor
+            default:
+                return nil
+            }
+        }
+
+        static func parseConfig(_ raw: String) -> HTMLFileOpenMode? {
+            switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "browser":
+                return .browser
             case "editor", "code", "code-editor", "codeeditor":
                 return .editor
             default:
@@ -276,7 +287,7 @@ extension CMUXCLI {
               let rawMode = browser[HTMLFileOpenMode.configKey] as? String else {
             return nil
         }
-        return HTMLFileOpenMode.parse(rawMode)
+        return HTMLFileOpenMode.parseConfig(rawMode)
     }
 
     func openSubcommandUsage() -> String {

@@ -281,7 +281,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["file.open"])
     }
 
-    func testOpenCommandReadsHTMLFileOpenModeFromCmuxJSON() throws {
+    func testOpenCommandReadsHTMLFileOpenModeAliasFromCmuxJSON() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("open-html-config")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -291,7 +291,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let homeURL = rootURL.appendingPathComponent("home", isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
-        try writeCmuxConfig(homeURL: homeURL, htmlFileOpenMode: "editor")
+        try writeCmuxConfig(homeURL: homeURL, htmlFileOpenMode: "code-editor")
         try "<!doctype html><title>Configured</title>\n".write(to: fileURL, atomically: true, encoding: .utf8)
         let state = MockSocketServerState()
 
@@ -385,6 +385,21 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "OK urls=1\n")
         XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["browser.open_split"])
+    }
+
+    func testOpenCommandRejectsUndocumentedHTMLModeAliasFromFlag() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("open-html-invalid-mode")
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["open", "index.html", "--html-mode", "code"]
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("--html-mode must be browser|editor"), result.stderr)
     }
 
     func testMarkdownOpenCommandUsesMarkdownOpenEndpoint() throws {
