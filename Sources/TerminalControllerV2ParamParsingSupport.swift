@@ -183,9 +183,6 @@ extension TerminalController {
 
     func v2PanelType(_ params: [String: Any], _ key: String) -> PanelType? {
         guard let s = v2String(params, key) else { return nil }
-        let normalized = s.replacingOccurrences(of: "-", with: "")
-            .replacingOccurrences(of: "_", with: "")
-            .lowercased()
-        return PanelType(rawValue: normalized)
+        return PanelType(surfaceType: s)
     }
 }

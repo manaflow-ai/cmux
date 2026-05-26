@@ -134,6 +134,8 @@ extension Workspace {
     }
 }
 
+typealias TabBarBackdropLabSplitButtonBackdropEffect = BonsplitConfiguration.Appearance.SplitButtonBackdropEffect
+
 struct TabBarBackdropLabVariant: Identifiable {
     let id: String
     let title: String

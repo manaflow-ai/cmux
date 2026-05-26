@@ -3939,6 +3939,52 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         return window
     }
 
+    func testConfiguredNewTabTerminalCommandSendsReturnWhenSurfaceBecomesReady() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let initialPanelIds = Set(workspace.panels.keys)
+
+        let markerURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-command-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: markerURL) }
+
+        let action = try XCTUnwrap(CmuxResolvedConfigAction.fromDefinition(
+            id: "start-codex",
+            definition: CmuxConfigActionDefinition(
+                action: .command("/usr/bin/touch \(markerURL.path)"),
+                terminalCommandTarget: .newTabInCurrentPane
+            ),
+            sourcePath: nil
+        ))
+
+        XCTAssertTrue(CmuxConfigExecutor.execute(
+            action: action,
+            commands: [],
+            commandSourcePaths: [:],
+            tabManager: manager,
+            baseCwd: FileManager.default.homeDirectoryForCurrentUser.path,
+            globalConfigPath: "/tmp/cmux-global.json"
+        ))
+
+        let createdPanelIds = Set(workspace.panels.keys).subtracting(initialPanelIds)
+        let panelId = try XCTUnwrap(createdPanelIds.first)
+        let panel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+        let window = try hostTerminalPanelInWindow(panel)
+        defer { window.orderOut(nil) }
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 5) {
+                FileManager.default.fileExists(atPath: markerURL.path)
+            },
+            "Expected configured new-tab command to execute after the terminal surface became ready"
+        )
+    }
+
+    func testNewTerminalLaunchCommandsDoNotUseReadyTimeout() {
+        XCTAssertNil(WorkspacePendingTerminalInputPolicy.timeout(for: .newTerminalLaunchCommand))
+        XCTAssertEqual(WorkspacePendingTerminalInputPolicy.timeout(for: .configurationCommand), 3.0)
+    }
+
     func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() {
         let workspace = Workspace()
         guard let sourcePaneId = workspace.bonsplitController.focusedPaneId else {
@@ -4374,6 +4420,36 @@ final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
             leftTerminalPanelId,
             "Expected inheritance to prefer last focused terminal when browser is focused in another pane"
         )
+    }
+}
+
+@MainActor
+final class WorkspaceCodexPanelTests: XCTestCase {
+    func testAttachDetachedCodexPanelReattachesAfterTabCreation() throws {
+        let source = Workspace()
+        let destination = Workspace()
+        let sourcePaneId = try XCTUnwrap(source.bonsplitController.allPaneIds.first)
+        let destinationPaneId = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
+        let panel = try XCTUnwrap(
+            source.newCodexAppServerSurface(
+                inPane: sourcePaneId,
+                cwd: "/tmp/codex-detach",
+                focus: false,
+                autoStartOnAppear: false
+            )
+        )
+
+        let detached = try XCTUnwrap(source.detachSurface(panelId: panel.id))
+        let attachedPanelId = try XCTUnwrap(
+            destination.attachDetachedSurface(detached, inPane: destinationPaneId, focus: false)
+        )
+
+        XCTAssertEqual(attachedPanelId, panel.id)
+        XCTAssertNil(source.panels[panel.id])
+        let attachedPanel = try XCTUnwrap(destination.panels[panel.id] as? CodexAppServerPanel)
+        XCTAssertEqual(attachedPanel.workspaceId, destination.id)
+        XCTAssertEqual(attachedPanel.cwd, "/tmp/codex-detach")
+        XCTAssertNotNil(destination.codexAppServerPanel(for: panel.id))
     }
 }
 

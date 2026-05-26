@@ -6,6 +6,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     case cloudVM = "cmux.cloudvm"
     case newTerminal = "cmux.newTerminal"
     case newBrowser = "cmux.newBrowser"
+    case newCodex = "cmux.newCodex"
     case splitRight = "cmux.splitRight"
     case splitDown = "cmux.splitDown"
 
@@ -21,6 +22,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             self = .newTerminal
         case "cmux.newBrowser", "newBrowser":
             self = .newBrowser
+        case "cmux.newCodex", "newCodex", "codex", "codex-app-server":
+            self = .newCodex
         case "cmux.splitRight", "splitRight":
             self = .splitRight
         case "cmux.splitDown", "splitDown":
@@ -44,6 +47,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return "terminal"
         case .newBrowser:
             return "globe"
+        case .newCodex:
+            return "sparkles"
         case .splitRight:
             return "square.split.2x1"
         case .splitDown:
@@ -59,6 +64,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return .newTerminal
         case .newBrowser:
             return .newBrowser
+        case .newCodex:
+            return .custom("codex-app-server")
         case .splitRight:
             return .splitRight
         case .splitDown:

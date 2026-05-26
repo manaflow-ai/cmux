@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+import argparse
+import base64
+import hashlib
+import json
+import re
+import subprocess
+from pathlib import Path
+
+
+SCHEMA_FILES = [
+    "ServerNotification",
+    "ServerRequest",
+    "ClientRequest",
+    "ClientNotification",
+]
+
+
+def swift_string(value: str) -> str:
+    return json.dumps(value, ensure_ascii=True)
+
+
+def swift_case_name(method: str) -> str:
+    parts = re.split(r"[^A-Za-z0-9]+", method)
+    words: list[str] = []
+    for part in parts:
+        if not part:
+            continue
+        subwords = re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])|\d+", part)
+        words.extend(subwords or [part])
+    if not words:
+        return "unknown"
+    first = words[0].lower()
+    rest = [word[:1].upper() + word[1:] for word in words[1:]]
+    candidate = first + "".join(rest)
+    if candidate[:1].isdigit():
+        candidate = "method" + candidate[:1].upper() + candidate[1:]
+    if candidate in {"case", "default", "class", "enum", "func", "init", "let", "struct", "var"}:
+        candidate += "Method"
+    return candidate
+
+
+def schema_ref_name(ref: str | None) -> str | None:
+    if not ref:
+        return None
+    prefix = "#/definitions/"
+    if ref.startswith(prefix):
+        return ref[len(prefix):]
+    return ref
+
+
+def load_union(schema_root: Path, name: str) -> tuple[dict, list[dict[str, str | None]]]:
+    path = schema_root / f"{name}.json"
+    data = json.loads(path.read_text())
+    entries: list[dict[str, str | None]] = []
+    for item in data.get("oneOf", []):
+        properties = item.get("properties", {})
+        methods = properties.get("method", {}).get("enum", [])
+        if not methods:
+            continue
+        params_ref = properties.get("params", {}).get("$ref")
+        entries.append(
+            {
+                "method": methods[0],
+                "messageSchemaName": item.get("title"),
+                "paramsSchemaName": schema_ref_name(params_ref),
+            }
+        )
+    return data, entries
+
+
+def git_value(repo: Path, *args: str) -> str:
+    try:
+        return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
+    except Exception:
+        return ""
+
+
+def chunked_base64(data: bytes, width: int = 96) -> str:
+    encoded = base64.b64encode(data).decode("ascii")
+    return "\n".join(encoded[index:index + width] for index in range(0, len(encoded), width))
+
+
+def emit_method_enum(enum_name: str, entries: list[dict[str, str | None]]) -> str:
+    seen_cases: set[str] = set()
+    lines = [f"enum {enum_name}: String, CaseIterable, Codable {{"]
+    for entry in entries:
+        method = str(entry["method"])
+        case_name = swift_case_name(method)
+        original_case_name = case_name
+        suffix = 2
+        while case_name in seen_cases:
+            case_name = f"{original_case_name}{suffix}"
+            suffix += 1
+        seen_cases.add(case_name)
+        lines.append(f"    case {case_name} = {swift_string(method)}")
+    lines.append("}")
+    return "\n".join(lines)
+
+
+def emit_schema_array(name: str, entries: list[dict[str, str | None]]) -> str:
+    lines = [f"    static let {name}: [CodexAppServerMethodSchema] = ["]
+    for entry in entries:
+        method = str(entry["method"])
+        message_schema_name = str(entry["messageSchemaName"] or "")
+        params_schema_name = entry["paramsSchemaName"]
+        params_expr = "nil" if params_schema_name is None else swift_string(str(params_schema_name))
+        lines.append(
+            "        CodexAppServerMethodSchema("
+            f"method: {swift_string(method)}, "
+            f"messageSchemaName: {swift_string(message_schema_name)}, "
+            f"paramsSchemaName: {params_expr}"
+            "),"
+        )
+    lines.append("    ]")
+    return "\n".join(lines)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--codex-repo", required=True, type=Path)
+    parser.add_argument("--out", required=True, type=Path)
+    args = parser.parse_args()
+
+    codex_repo = args.codex_repo.resolve()
+    schema_root = codex_repo / "codex-rs/app-server-protocol/schema/json"
+    if not schema_root.is_dir():
+        raise SystemExit(f"missing schema directory: {schema_root}")
+
+    unions: dict[str, list[dict[str, str | None]]] = {}
+    schema_json: dict[str, str] = {}
+    digest = hashlib.sha256()
+    for name in SCHEMA_FILES:
+        data, entries = load_union(schema_root, name)
+        unions[name] = entries
+        minified = json.dumps(data, sort_keys=True, separators=(",", ":"))
+        schema_json[name] = minified
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(minified.encode("utf-8"))
+        digest.update(b"\0")
+
+    revision = git_value(codex_repo, "rev-parse", "HEAD")
+    remote = git_value(codex_repo, "config", "--get", "remote.origin.url")
+    branch = git_value(codex_repo, "branch", "--show-current")
+
+    lines: list[str] = [
+        "// Generated by scripts/generate-codex-app-server-schemas.py.",
+        "// Source: codex-rs/app-server-protocol/schema/json in openai/codex.",
+        "// Do not edit by hand.",
+        "",
+        "import Foundation",
+        "",
+        emit_method_enum("CodexAppServerServerNotificationMethod", unions["ServerNotification"]),
+        "",
+        emit_method_enum("CodexAppServerServerRequestMethod", unions["ServerRequest"]),
+        "",
+        emit_method_enum("CodexAppServerClientRequestMethod", unions["ClientRequest"]),
+        "",
+        emit_method_enum("CodexAppServerClientNotificationMethod", unions["ClientNotification"]),
+        "",
+        "enum CodexAppServerGeneratedSchemas {",
+        f"    static let sourceRemote = {swift_string(remote)}",
+        f"    static let sourceBranch = {swift_string(branch)}",
+        f"    static let sourceRevision = {swift_string(revision)}",
+        f"    static let schemaDigest = {swift_string(digest.hexdigest())}",
+        "",
+        emit_schema_array("serverNotificationSchemas", unions["ServerNotification"]),
+        "",
+        emit_schema_array("serverRequestSchemas", unions["ServerRequest"]),
+        "",
+        emit_schema_array("clientRequestSchemas", unions["ClientRequest"]),
+        "",
+        emit_schema_array("clientNotificationSchemas", unions["ClientNotification"]),
+        "",
+        "    static let rootSchemaBase64ByName: [String: String] = [",
+    ]
+
+    for name in SCHEMA_FILES:
+        encoded = chunked_base64(schema_json[name].encode("utf-8"))
+        lines.append(f"        {swift_string(name)}: \"\"\"")
+        lines.extend(f"        {line}" for line in encoded.splitlines())
+        lines.append("        \"\"\",")
+    lines.extend(
+        [
+            "    ]",
+            "}",
+            "",
+        ]
+    )
+
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text("\n".join(lines))
+
+
+if __name__ == "__main__":
+    main()

@@ -792,6 +792,14 @@ struct EmptyPanelView: View {
         _ = workspace.newBrowserSurface(inPane: paneId)
     }
 
+    private func createCodexAppServer() {
+        #if DEBUG
+        dlog("emptyPane.newCodexAppServer pane=\(paneId.id.uuidString.prefix(5))")
+        #endif
+        focusPane()
+        _ = workspace.newCodexAppServerSurface(inPane: paneId)
+    }
+
     private var newSurfaceShortcut: StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
         return KeyboardShortcutSettings.shortcut(for: .newSurface)
@@ -806,10 +814,10 @@ struct EmptyPanelView: View {
     private func emptyPaneActionButton(
         title: String,
         systemImage: String,
-        shortcut: StoredShortcut,
+        shortcut: StoredShortcut?,
         action: @escaping () -> Void
     ) -> some View {
-        if let key = shortcut.keyEquivalent {
+        if let shortcut, let key = shortcut.keyEquivalent {
             Button(action: action) {
                 HStack(spacing: 10) {
                     Label(title, systemImage: systemImage)
@@ -822,7 +830,9 @@ struct EmptyPanelView: View {
             Button(action: action) {
                 HStack(spacing: 10) {
                     Label(title, systemImage: systemImage)
-                    ShortcutHint(text: shortcut.displayString)
+                    if let shortcut {
+                        ShortcutHint(text: shortcut.displayString)
+                    }
                 }
             }
             .buttonStyle(.borderedProminent)
@@ -835,23 +845,30 @@ struct EmptyPanelView: View {
                 .font(.system(size: 48))
                 .foregroundStyle(.tertiary)
 
-            Text("Empty Panel")
+            Text(String(localized: "emptyPanel.title", defaultValue: "Empty Panel"))
                 .font(.headline)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
                 emptyPaneActionButton(
-                    title: "Terminal",
+                    title: String(localized: "emptyPanel.action.terminal", defaultValue: "Terminal"),
                     systemImage: "terminal.fill",
                     shortcut: newSurfaceShortcut,
                     action: createTerminal
                 )
 
                 emptyPaneActionButton(
-                    title: "Browser",
+                    title: String(localized: "emptyPanel.action.browser", defaultValue: "Browser"),
                     systemImage: "globe",
                     shortcut: openBrowserShortcut,
                     action: createBrowser
+                )
+
+                emptyPaneActionButton(
+                    title: String(localized: "emptyPanel.action.codex", defaultValue: "Codex"),
+                    systemImage: "sparkles",
+                    shortcut: nil,
+                    action: createCodexAppServer
                 )
             }
         }

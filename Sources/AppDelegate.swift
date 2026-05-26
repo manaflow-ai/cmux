@@ -6682,6 +6682,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    func openCodexAppServerInPreferredMainWindow(
+        tabManager preferredTabManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil,
+        debugSource: String = "codexAppServer"
+    ) -> Bool {
+        let context: MainWindowContext? = {
+            if let preferredTabManager,
+               let context = mainWindowContext(for: preferredTabManager),
+               resolvedWindow(for: context) != nil {
+                return context
+            }
+            if let manager = activeTabManagerForCommands(preferredWindow: preferredWindow),
+               let context = mainWindowContext(for: manager),
+               resolvedWindow(for: context) != nil {
+                return context
+            }
+            let windowId = createMainWindow(shouldActivate: true)
+            return mainWindowContexts.values.first { $0.windowId == windowId }
+        }()
+        guard let context else { return false }
+
+        if let window = resolvedWindow(for: context) {
+            bringToFront(window)
+            setActiveMainWindow(window)
+        }
+
+        let workspace = context.tabManager.selectedWorkspace
+            ?? context.tabManager.addWorkspace(select: true)
+        guard let paneId = workspace.bonsplitController.focusedPaneId
+            ?? workspace.bonsplitController.allPaneIds.first else {
+            return false
+        }
+
+#if DEBUG
+        cmuxDebugLog("codexAppServer.open source=\(debugSource) workspace=\(workspace.id.uuidString.prefix(5))")
+#endif
+        workspace.clearSplitZoom()
+        _ = workspace.newCodexAppServerSurface(inPane: paneId, focus: true)
+        return true
+    }
+
+    @discardableResult
     func performCloudVMAction(
         tabManager preferredTabManager: TabManager? = nil,
         preferredWindow: NSWindow? = nil,
@@ -13928,6 +13970,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 onExecuted?()
                 return true
+            case .newCodex:
+                let didOpen = openCodexAppServerInPreferredMainWindow(
+                    preferredWindow: resolvedWindow(for: context) ?? preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow,
+                    debugSource: "shortcut.cmuxNewCodex"
+                )
+                if didOpen { onExecuted?() }
+                return didOpen
             case .splitRight:
                 if shouldSuppressSplitShortcutForTransientTerminalFocusState(
                     direction: .right,

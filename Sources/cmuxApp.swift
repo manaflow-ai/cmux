@@ -17,6 +17,12 @@ struct cmuxApp: App {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+#if DEBUG
+    @AppStorage(CodexComposerDebugSettings.layoutLabVisibleKey)
+    private var showCodexComposerLayoutLab = CodexComposerDebugSettings.defaultShowLayoutLab
+    @AppStorage(CodexComposerDebugSettings.queueLabVisibleKey)
+    private var showCodexQueueLayoutLab = CodexComposerDebugSettings.defaultShowQueueLab
+#endif
     @StateObject var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
@@ -339,6 +345,17 @@ struct cmuxApp: App {
 
 #if DEBUG
             CommandMenu("Debug") {
+                Toggle(
+                    String(localized: "menu.codexDebug.showComposerLayoutLab", defaultValue: "Show Composer Layout Lab"),
+                    isOn: $showCodexComposerLayoutLab
+                )
+                Toggle(
+                    String(localized: "menu.codexDebug.showQueueLayoutLab", defaultValue: "Show Queue Layout Lab"),
+                    isOn: $showCodexQueueLayoutLab
+                )
+
+                Divider()
+
                 Button("New Tab With Lorem Search Text") {
                     appDelegate.openDebugLoremTab(nil)
                 }
@@ -3227,10 +3244,10 @@ private struct TabBarBackdropLabView: View {
         WindowChromeSeparatorColor.color(forChromeBackground: terminalColor)
     }
 
-    private var candidateBackdropEffect: BonsplitConfiguration.Appearance.SplitButtonBackdropEffect {
+    private var candidateBackdropEffect: TabBarBackdropLabSplitButtonBackdropEffect {
         let softness = CGFloat(min(max(0, candidateSoftness), 1))
         let productionSoftness = Workspace.bonsplitSplitButtonBackdropSoftness
-        let production = Workspace.bonsplitSplitButtonBackdropEffect()
+        let production = Self.productionSplitButtonBackdropEffect
         func interpolate(strong: CGFloat, production: CGFloat, soft: CGFloat) -> CGFloat {
             if softness <= productionSoftness {
                 let progress = softness / productionSoftness
@@ -3253,6 +3270,18 @@ private struct TabBarBackdropLabView: View {
             masksTabContent: true
         )
     }
+
+    private static let productionSplitButtonBackdropEffect: TabBarBackdropLabSplitButtonBackdropEffect = .init(
+        style: .translucentChrome,
+        fadeWidth: 99.75,
+        contentFadeWidth: 28.875,
+        solidWidth: 23.875,
+        fadeRampStartFraction: Workspace.bonsplitSplitButtonBackdropSoftness,
+        leadingOpacity: 0,
+        trailingOpacity: 0.8625,
+        contentOcclusionFraction: 0.6875,
+        masksTabContent: true
+    )
 
     private var variants: [TabBarBackdropLabVariant] {
         let chromeHex = surfaceColor.hexString(includeAlpha: true)
@@ -3540,7 +3569,7 @@ private struct TabBarBackdropLabView: View {
         id: String,
         title: String,
         detail: String,
-        effect: BonsplitConfiguration.Appearance.SplitButtonBackdropEffect,
+        effect: TabBarBackdropLabSplitButtonBackdropEffect,
         chromeHex: String,
         tabBarHex: String? = nil,
         splitButtonBackdropHex: String? = nil,
@@ -3673,14 +3702,10 @@ private struct TabBarBackdropLabSample: View {
             showSplitButtons: true,
             splitButtons: BonsplitConfiguration.SplitActionButton.defaults,
             splitButtonsOnHover: false,
-            splitButtonBackdropEffect: variant.effect,
             animationDuration: 0.0,
             enableAnimations: false,
             chromeColors: .init(
                 backgroundHex: variant.chromeHex,
-                tabBarBackgroundHex: variant.tabBarHex,
-                splitButtonBackdropHex: variant.splitButtonBackdropHex,
-                paneBackgroundHex: variant.paneHex,
                 borderHex: variant.borderHex
             )
         )
@@ -4867,19 +4892,12 @@ enum CommandPaletteSwitcherSearchSettings {
 enum ClaudeCodeIntegrationSettings {
     static let hooksEnabledKey = "claudeCodeHooksEnabled"
     static let defaultHooksEnabled = true
-    static let customClaudePathKey = "claudeCodeCustomClaudePath"
 
     static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: hooksEnabledKey) == nil {
             return defaultHooksEnabled
         }
         return defaults.bool(forKey: hooksEnabledKey)
-    }
-
-    static func customClaudePath(defaults: UserDefaults = .standard) -> String? {
-        let value = defaults.string(forKey: customClaudePathKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return value.isEmpty ? nil : value
     }
 }
 
@@ -5225,8 +5243,6 @@ struct SettingsView: View {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
-    @AppStorage(ClaudeCodeIntegrationSettings.customClaudePathKey)
-    private var customClaudePath = ""
     @AppStorage(RipgrepIntegrationSettings.customRipgrepPathKey)
     private var customRipgrepPath = ""
     @AppStorage(AgentSubagentNotificationSettings.suppressNotificationsKey)
@@ -5241,6 +5257,8 @@ struct SettingsView: View {
     @AppStorage(CmdClickSupportedFileRouteSettings.key)
     private var openSupportedFilesInCmux = CmdClickSupportedFileRouteSettings.defaultValue
     @AppStorage(CmdClickMarkdownRouteSettings.key) private var openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
+    @AppStorage(CodexAppServerUISettings.transcriptFontSizeKey)
+    private var codexTranscriptFontSize = CodexAppServerUISettings.defaultTranscriptFontSize
     @AppStorage(AutomationSettings.portBaseKey) private var cmuxPortBase = AutomationSettings.defaultPortBase
     @AppStorage(AutomationSettings.portRangeKey) private var cmuxPortRange = AutomationSettings.defaultPortRange
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -6432,6 +6450,34 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.app.codexTranscriptFontSize", defaultValue: "Codex Transcript Text Size"),
+                            subtitle: String(localized: "settings.app.codexTranscriptFontSize.subtitle", defaultValue: "Controls message and tool text size in Codex panels.")
+                        ) {
+                            HStack(spacing: 8) {
+                                Stepper(
+                                    "",
+                                    value: $codexTranscriptFontSize,
+                                    in: CodexAppServerUISettings.transcriptFontSizeRange,
+                                    step: 1
+                                )
+                                .labelsHidden()
+                                Text(
+                                    String(
+                                        format: String(localized: "settings.app.codexTranscriptFontSize.value", defaultValue: "%.0f pt"),
+                                        locale: Locale.current,
+                                        codexTranscriptFontSize
+                                    )
+                                )
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 42, alignment: .trailing)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             configurationReview: .json("app.reorderOnNotification"),
                             String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification"),
                             subtitle: String(localized: "settings.app.reorderOnNotification.subtitle", defaultValue: "Move workspaces to the top when they receive a notification. Disable for stable shortcut positions.")
@@ -7181,22 +7227,7 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardNote(String(localized: "settings.automation.claudeCode.note", defaultValue: "When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself."))
-                    }
-
-                    SettingsCard {
-                        SettingsCardRow(
-                            configurationReview: .json("automation.claudeBinaryPath"),
-                            String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"),
-                            subtitle: String(localized: "settings.automation.claudeCode.customPath.subtitle", defaultValue: "Custom path to the claude binary. Leave empty to use PATH.")
-                        ) {
-                            TextField(
-                                String(localized: "settings.automation.claudeCode.customPath.placeholder", defaultValue: "e.g. /usr/local/bin/claude"),
-                                text: $customClaudePath
-                            )
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 200)
-                        }
+                        SettingsCardNote(String(localized: "settings.automation.claudeCode.note", defaultValue: "cmux uses Claude's native hooks and your existing claude binary. Configure Claude hooks to call cmux hooks claude; cmux does not ship or wrap the Claude binary."))
                     }
 
                     SettingsCard {
@@ -8050,7 +8081,6 @@ struct SettingsView: View {
         AppIconSettings.applyIcon(.automatic)
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
-        customClaudePath = ""
         customRipgrepPath = ""
         suppressSubagentNotifications = AgentSubagentNotificationSettings.defaultSuppressNotifications
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
@@ -8060,6 +8090,7 @@ struct SettingsView: View {
         CmdClickSupportedFileRouteSettings.setEnabled(CmdClickSupportedFileRouteSettings.defaultValue)
         openSupportedFilesInCmux = CmdClickSupportedFileRouteSettings.defaultValue
         openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
+        codexTranscriptFontSize = CodexAppServerUISettings.defaultTranscriptFontSize
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue

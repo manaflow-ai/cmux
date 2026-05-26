@@ -210,6 +210,8 @@ extension Workspace {
             return "browser"
         case .markdown:
             return "markdown"
+        case .codexAppServer:
+            return "codex_app_server"
         case .filePreview:
             return "file_preview"
         case .rightSidebarTool:

@@ -1393,6 +1393,10 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
 
+struct SessionCodexAppServerPanelSnapshot: Codable, Sendable {
+    var threadId: String?
+}
+
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
@@ -1478,6 +1482,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?
+    var codexAppServer: SessionCodexAppServerPanelSnapshot?
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
 }

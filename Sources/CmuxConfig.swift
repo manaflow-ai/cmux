@@ -1124,12 +1124,14 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
 
     static let newTerminal = actionReference(CmuxSurfaceTabBarBuiltInAction.newTerminal.configID)
     static let newBrowser = actionReference(CmuxSurfaceTabBarBuiltInAction.newBrowser.configID)
+    static let newCodex = actionReference(CmuxSurfaceTabBarBuiltInAction.newCodex.configID, tooltip: String(localized: "splitButton.newCodex", defaultValue: "New Codex"))
     static let splitRight = actionReference(CmuxSurfaceTabBarBuiltInAction.splitRight.configID)
     static let splitDown = actionReference(CmuxSurfaceTabBarBuiltInAction.splitDown.configID)
 
     static let defaults: [CmuxSurfaceTabBarButton] = [
         .newTerminal,
         .newBrowser,
+        .newCodex,
         .splitRight,
         .splitDown
     ]
@@ -1514,6 +1516,9 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         case .newBrowser:
             title = String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab")
             keywords = ["new", "browser", "tab", "surface"]
+        case .newCodex:
+            title = String(localized: "splitButton.newCodex", defaultValue: "New Codex")
+            keywords = ["new", "codex", "agent", "chat", "app", "server"]
         case .splitRight:
             title = String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right")
             keywords = ["terminal", "split", "right"]
@@ -2198,6 +2203,7 @@ final class CmuxConfigStore: ObservableObject {
         }) ?? [
             .builtIn(.newTerminal),
             .builtIn(.newBrowser),
+            .builtIn(.newCodex),
             .builtIn(.splitRight),
             .builtIn(.splitDown)
         ]

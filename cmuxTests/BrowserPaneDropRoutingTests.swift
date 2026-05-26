@@ -94,6 +94,16 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         XCTAssertEqual(legacy, .filePreview)
     }
 
+    func testPanelTypeSurfaceParserAcceptsCodexAliases() throws {
+        XCTAssertEqual(PanelType(surfaceType: "codex-app-server"), .codexAppServer)
+        XCTAssertEqual(PanelType(surfaceType: "codex_app_server"), .codexAppServer)
+        XCTAssertEqual(PanelType(surfaceType: "codexAppServer"), .codexAppServer)
+        XCTAssertEqual(PanelType(surfaceType: "codex"), .codexAppServer)
+
+        let decoded = try JSONDecoder().decode(PanelType.self, from: Data("\"codex-app-server\"".utf8))
+        XCTAssertEqual(decoded, .codexAppServer)
+    }
+
     func testVerticalZonesFollowAppKitCoordinates() {
         let size = CGSize(width: 240, height: 180)
 

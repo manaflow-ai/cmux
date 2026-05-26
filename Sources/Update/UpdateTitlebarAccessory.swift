@@ -706,6 +706,7 @@ struct TitlebarControlsView: View {
     let onToggleSidebar: () -> Void
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
+    let onNewCodex: (() -> Void)?
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
@@ -891,6 +892,13 @@ struct TitlebarControlsView: View {
                     _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: anchorView, event: event)
                 }) {
                 iconLabel(systemName: "plus", config: config, iconGeometryKeyPrefix: "titlebarControl_newTabIcon")
+            }
+            .contextMenu {
+                if let onNewCodex {
+                    Button(String(localized: "splitButton.newCodex", defaultValue: "New Codex")) {
+                        onNewCodex()
+                    }
+                }
             }
             .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
 
@@ -1229,6 +1237,7 @@ struct HiddenTitlebarSidebarControlsView: View {
     let onToggleSidebar: () -> Void
     let onToggleNotifications: (NSView?) -> Void
     let onNewTab: () -> Void
+    let onNewCodex: (() -> Void)?
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
     @StateObject private var viewModel = TitlebarControlsViewModel()
@@ -1283,6 +1292,7 @@ struct HiddenTitlebarSidebarControlsView: View {
                     onToggleNotifications(viewModel.notificationsAnchorView)
                 },
                 onNewTab: onNewTab,
+                onNewCodex: onNewCodex,
                 onFocusHistoryBack: onFocusHistoryBack,
                 onFocusHistoryForward: onFocusHistoryForward,
                 visibilityMode: .alwaysVisible
@@ -1819,6 +1829,12 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             _ = AppDelegate.shared?.toggleNotificationsPopover(animated: true, anchorView: containerView)
         }
         let newTab = { _ = AppDelegate.shared?.performNewWorkspaceAction(debugSource: "titlebar.accessoryNewWorkspace") }
+        let newCodex = { [weak containerView] in
+            _ = AppDelegate.shared?.openCodexAppServerInPreferredMainWindow(
+                preferredWindow: containerView?.window,
+                debugSource: "titlebar.accessoryNewCodex"
+            )
+        }
         let focusHistoryBack = { [weak containerView] in
             _ = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: containerView?.window)?.navigateBack()
         }
@@ -1832,6 +1848,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 onToggleSidebar: toggleSidebar,
                 onToggleNotifications: toggleNotifications,
                 onNewTab: newTab,
+                onNewCodex: newCodex,
                 onFocusHistoryBack: focusHistoryBack,
                 onFocusHistoryForward: focusHistoryForward,
                 visibilityMode: .alwaysVisible

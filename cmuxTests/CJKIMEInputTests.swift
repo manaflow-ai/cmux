@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Darwin
 import ObjectiveC.runtime
 
 #if canImport(cmux_DEV)
@@ -7,6 +8,13 @@ import ObjectiveC.runtime
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+private typealias GhosttySurfaceProcessOutputFunction = @convention(c) (ghostty_surface_t, UnsafePointer<CChar>, UInt) -> Void
+
+private func cmuxGhosttySurfaceProcessOutputFunction() -> GhosttySurfaceProcessOutputFunction? {
+    guard let symbol = dlsym(nil, "ghostty_surface_process_output") else { return nil }
+    return unsafeBitCast(symbol, to: GhosttySurfaceProcessOutputFunction.self)
+}
 
 private var cjkIMEInterpretKeyEventsSwizzled = false
 var cjkIMEInterpretKeyEventsHook: ((GhosttyNSView, [NSEvent]) -> Bool)?
@@ -1676,9 +1684,12 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
     private func processTerminalOutput(_ data: Data, in terminal: HostedTerminalWindow) throws {
         guard !data.isEmpty else { return }
         let runtimeSurface = try XCTUnwrap(terminal.surface.surface)
+        guard let processOutput = cmuxGhosttySurfaceProcessOutputFunction() else {
+            throw XCTSkip("ghostty_surface_process_output is unavailable in this GhosttyKit build")
+        }
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
-            ghostty_surface_process_output(runtimeSurface, baseAddress, UInt(rawBuffer.count))
+            processOutput(runtimeSurface, baseAddress, UInt(rawBuffer.count))
         }
     }
 

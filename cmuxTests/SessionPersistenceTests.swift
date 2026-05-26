@@ -48,6 +48,34 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceSessionSnapshotRestoresCodexAppServerThreadId() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let threadId = "019d6637-e5cc-7cc0-a321-2c43b7991234"
+        let panel = try XCTUnwrap(
+            workspace.newCodexAppServerSurface(
+                inPane: paneId,
+                cwd: "/tmp/codex-project",
+                resumeThreadId: " \(threadId) ",
+                focus: true
+            )
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panel.id })
+        XCTAssertEqual(panelSnapshot.codexAppServer?.threadId, threadId)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.codexAppServerPanel(for: restoredPanelId))
+        XCTAssertEqual(restoredPanel.cwd, "/tmp/codex-project")
+        XCTAssertEqual(restoredPanel.resumableThreadId, threadId)
+        XCTAssertFalse(restoredPanel.shouldAutoStart)
+    }
+
+    @MainActor
     func testSessionSnapshotSkipsTransientRemoteListeningPorts() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -3247,7 +3275,6 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 ],
                 workingDirectory: "/tmp/team repo",
                 environment: [
-                    "CMUX_CUSTOM_CLAUDE_PATH": "/opt/Claude Code/bin/claude",
                     "PATH": "/opt/Claude Code/bin:/usr/bin"
                 ],
                 capturedAt: 123,
@@ -3257,7 +3284,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd '/tmp/team repo' && 'env' 'CMUX_CUSTOM_CLAUDE_PATH=/opt/Claude Code/bin/claude' '/Applications/cmux.app/Contents/Resources/bin/cmux' 'claude-teams' '--resume' 'claude-team-session' '--teammate-mode' 'auto' '--model' 'sonnet' '--remote-control-session-name-prefix' 'cmux-team' '--permission-mode' 'auto'"
+            "cd '/tmp/team repo' && '/Applications/cmux.app/Contents/Resources/bin/cmux' 'claude-teams' '--resume' 'claude-team-session' '--teammate-mode' 'auto' '--model' 'sonnet' '--remote-control-session-name-prefix' 'cmux-team' '--permission-mode' 'auto'"
         )
     }
 

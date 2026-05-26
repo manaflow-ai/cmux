@@ -2296,6 +2296,12 @@ struct ContentView: View {
                     debugSource: "titlebar.fullscreenNewWorkspace"
                 )
             },
+            onNewCodex: {
+                AppDelegate.shared?.openCodexAppServerInPreferredMainWindow(
+                    tabManager: tabManager,
+                    debugSource: "titlebar.fullscreenNewCodex"
+                )
+            },
             onFocusHistoryBack: {
                 if !tabManager.navigateBack() {
                     NSSound.beep()
@@ -5816,6 +5822,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
+        case .codexAppServer:
+            return String(localized: "commandPalette.kind.codexAppServer", defaultValue: "Codex")
         case .filePreview:
             return String(localized: "commandPalette.kind.filePreview", defaultValue: "File Preview")
         case .rightSidebarTool:
@@ -5831,6 +5839,8 @@ struct ContentView: View {
             return ["browser", "web", "page"]
         case .markdown:
             return ["markdown", "note", "preview"]
+        case .codexAppServer:
+            return ["codex", "app server", "agent"]
         case .filePreview:
             return ["file", "preview", "text", "pdf", "image", "audio", "video"]
         case .rightSidebarTool:
@@ -10099,6 +10109,12 @@ struct VerticalTabsSidebar: View {
                                 )
                             },
                             onNewTab: onNewTab,
+                            onNewCodex: {
+                                AppDelegate.shared?.openCodexAppServerInPreferredMainWindow(
+                                    tabManager: tabManager,
+                                    debugSource: "titlebar.hiddenNewCodex"
+                                )
+                            },
                             onFocusHistoryBack: {
                                 if !tabManager.navigateBack() {
                                     NSSound.beep()
@@ -10240,6 +10256,7 @@ struct VerticalTabsSidebar: View {
                             )
                         },
                         onNewTab: onNewTab,
+                        onNewCodex: nil,
                         onFocusHistoryBack: {
                             if !tabManager.navigateBack() {
                                 NSSound.beep()

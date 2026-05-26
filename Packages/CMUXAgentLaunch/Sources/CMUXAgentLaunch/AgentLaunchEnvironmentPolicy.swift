@@ -34,7 +34,6 @@ public enum AgentLaunchEnvironmentPolicy {
         "ANTHROPIC_BASE_URL",
         "ANTHROPIC_MODEL",
         "CLAUDE_CONFIG_DIR",
-        "CMUX_CUSTOM_CLAUDE_PATH",
         "CMUX_ROVODEV_SESSIONS_DIR",
         "CODEX_HOME",
         "CODEBUDDY_BASE_URL",

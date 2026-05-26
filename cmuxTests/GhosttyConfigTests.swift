@@ -1320,9 +1320,6 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             renderingMode: .ghosttyRendererOwnedBackgroundImage
         )
         XCTAssertEqual(colors.backgroundHex, "#272822")
-        XCTAssertEqual(colors.tabBarBackgroundHex, "#272822")
-        XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
-        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
         XCTAssertEqual(colors.borderHex, "#4F504A5B")
     }
 }

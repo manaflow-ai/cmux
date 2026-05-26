@@ -3004,6 +3004,10 @@ struct CMUXCLI {
                 return
             }
         }
+        if shouldNoopDisabledClaudeHook(command: command, commandArgs: commandArgs, processEnv: processEnv) {
+            print("{}")
+            return
+        }
 
         // Feed helpers: clear the persistent workstream history.
         if command == "feed" {
@@ -16132,40 +16136,19 @@ struct CMUXCLI {
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
+        launcherEnvironment["PATH"] = providerExecutableLaunchPath(searchPath: launcherEnvironment["PATH"])
         let shimDirectory = try createClaudeTeamsShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
         let focusedContext = try tmuxCompatFocusedContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
-        let bundledClaudePath = resolvedExecutableURL()?
-            .deletingLastPathComponent()
-            .appendingPathComponent("claude", isDirectory: false)
-            .path
-        let claudeExecutablePath: String? = {
-            // Check custom path from Settings > Automation > Claude Code.
-            // Try env var first (set by the app per-session), then UserDefaults.
-            let candidates = [
-                launcherEnvironment["CMUX_CUSTOM_CLAUDE_PATH"],
-                UserDefaults.standard.string(forKey: "claudeCodeCustomClaudePath"),
-            ]
-            for raw in candidates {
-                guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !trimmed.isEmpty else { continue }
-                var isDir: ObjCBool = false
-                guard FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDir),
-                      !isDir.boolValue,
-                      FileManager.default.isExecutableFile(atPath: trimmed),
-                      !isCmuxClaudeWrapper(at: trimmed) else { continue }
-                return trimmed
-            }
-            return resolveClaudeExecutable(searchPath: launcherEnvironment["PATH"])
-                ?? {
-                    guard let bundledClaudePath,
-                          FileManager.default.isExecutableFile(atPath: bundledClaudePath) else { return nil }
-                    return bundledClaudePath
-                }()
-        }()
+        guard let claudeExecutablePath = resolveClaudeExecutable(searchPath: launcherEnvironment["PATH"]) else {
+            throw CLIError(message: String(
+                localized: "agentSession.error.missingClaudeExecutable",
+                defaultValue: "Claude Code was not found. Install it and make sure \"claude\" is available on PATH."
+            ))
+        }
         configureClaudeTeamsEnvironment(
             processEnvironment: launcherEnvironment,
             shimDirectory: shimDirectory,
@@ -16175,7 +16158,7 @@ struct CMUXCLI {
             focusedContext: focusedContext
         )
 
-        let launchPath = claudeExecutablePath ?? "claude"
+        let launchPath = claudeExecutablePath
         let launchArguments = claudeTeamsLaunchArguments(commandArgs: commandArgs)
         exportAgentLaunchCommandEnvironment(
             launcher: "claudeTeams",
@@ -16191,11 +16174,7 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        if claudeExecutablePath != nil {
-            execv(launchPath, &argv)
-        } else {
-            execvp("claude", &argv)
-        }
+        execv(launchPath, &argv)
         let code = errno
         throw CLIError(message: "Failed to launch claude: \(String(cString: strerror(code)))")
     }
@@ -16893,6 +16872,7 @@ struct CMUXCLI {
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
+        launcherEnvironment["PATH"] = providerExecutableLaunchPath(searchPath: launcherEnvironment["PATH"])
 
         guard let focusedContext = try tmuxCompatFocusedContext(
             processEnvironment: launcherEnvironment,
@@ -16903,8 +16883,13 @@ struct CMUXCLI {
             throw CLIError(message: "cmux codex-teams must be started from a cmux terminal surface")
         }
 
-        let codexExecutablePath = resolveCodexExecutable(searchPath: launcherEnvironment["PATH"])
-        let codexExecutableForShell = codexExecutablePath ?? "codex"
+        guard let codexExecutablePath = resolveCodexExecutable(searchPath: launcherEnvironment["PATH"]) else {
+            throw CLIError(message: String(
+                localized: "agentSession.error.missingCodexExecutable",
+                defaultValue: "Codex was not found. Install it and make sure \"codex\" is available on PATH."
+            ))
+        }
+        let codexExecutableForShell = codexExecutablePath
         let appServerPort = omoBindableLoopbackPort(0) ?? 0
         guard appServerPort > 0 else {
             throw CLIError(message: "Failed to allocate a localhost port for Codex app-server")
@@ -16915,7 +16900,7 @@ struct CMUXCLI {
         let watcherLogURL = codexTeamsLogURL(port: appServerPort, name: "watcher")
         let appServer = try startCodexTeamsProcess(
             executablePath: codexExecutablePath,
-            fallbackName: "codex",
+            fallbackName: codexExecutablePath,
             arguments: ["app-server", "--listen", appServerURL],
             environment: launcherEnvironment,
             logURL: appServerLogURL
@@ -16974,7 +16959,7 @@ struct CMUXCLI {
 
         rootCodex = try startCodexTeamsProcess(
             executablePath: codexExecutablePath,
-            fallbackName: "codex",
+            fallbackName: codexExecutablePath,
             arguments: codexTeamsRootArguments(appServerURL: appServerURL, commandArgs: commandArgs),
             environment: rootEnvironment,
             standardInput: FileHandle.standardInput,
@@ -17440,8 +17425,10 @@ struct CMUXCLI {
     private static let legacyOmoPluginName = "oh-my-opencode"
     private static let openCodeSessionPluginConfigSpec = "./plugins/cmux-session.js"
 
-    private func resolveExecutableInPath(_ name: String) -> String? {
-        let entries = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
+    private func resolveExecutableInPath(_ name: String, searchPath: String? = nil) -> String? {
+        let entries = (searchPath ?? ProcessInfo.processInfo.environment["PATH"])?
+            .split(separator: ":")
+            .map(String.init) ?? []
         for entry in entries where !entry.isEmpty {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
                 .appendingPathComponent(name, isDirectory: false)
@@ -17523,12 +17510,14 @@ struct CMUXCLI {
     private func omoRunPackageInstall(
         executablePath: String,
         arguments: [String],
-        currentDirectoryURL: URL
+        currentDirectoryURL: URL,
+        environment: [String: String]
     ) throws -> Int32 {
         let process = Process()
         process.currentDirectoryURL = currentDirectoryURL
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
+        process.environment = environment
         process.standardOutput = FileHandle.standardError
         process.standardError = FileHandle.standardError
         try process.run()
@@ -17651,7 +17640,7 @@ struct CMUXCLI {
     /// Creates a shadow config directory that layers oh-my-openagent on top of the user's
     /// existing opencode config without modifying the original. Sets OPENCODE_CONFIG_DIR
     /// to point at the shadow directory.
-    private func omoEnsurePlugin() throws {
+    private func omoEnsurePlugin(processEnvironment: [String: String]) throws {
         let userDir = omoUserConfigDir()
         let shadowDir = omoShadowConfigDir()
         let fm = FileManager.default
@@ -17718,13 +17707,14 @@ struct CMUXCLI {
         let pluginPackageDir = shadowNodeModules.appendingPathComponent(Self.omoPluginName)
         if !fm.fileExists(atPath: pluginPackageDir.path) {
             let installDir = shadowDir
-            if let bunPath = resolveExecutableInPath("bun") {
+            if let bunPath = resolveExecutableInPath("bun", searchPath: processEnvironment["PATH"]) {
                 omoWriteStatus(Self.omoInstallingPluginMessage())
                 let installArguments = ["add", Self.omoPluginName]
                 let firstAttemptStatus = try omoRunPackageInstall(
                     executablePath: bunPath,
                     arguments: installArguments,
-                    currentDirectoryURL: installDir
+                    currentDirectoryURL: installDir,
+                    environment: processEnvironment
                 )
                 if firstAttemptStatus != 0 {
                     omoWriteStatus(Self.omoRetryingInstallMessage())
@@ -17734,18 +17724,20 @@ struct CMUXCLI {
                     let retryStatus = try omoRunPackageInstall(
                         executablePath: bunPath,
                         arguments: installArguments,
-                        currentDirectoryURL: installDir
+                        currentDirectoryURL: installDir,
+                        environment: processEnvironment
                     )
                     if retryStatus != 0 {
                         throw CLIError(message: Self.omoInstallFailedMessage())
                     }
                 }
-            } else if let npmPath = resolveExecutableInPath("npm") {
+            } else if let npmPath = resolveExecutableInPath("npm", searchPath: processEnvironment["PATH"]) {
                 omoWriteStatus(Self.omoInstallingPluginMessage())
                 let status = try omoRunPackageInstall(
                     executablePath: npmPath,
                     arguments: ["install", Self.omoPluginName],
-                    currentDirectoryURL: installDir
+                    currentDirectoryURL: installDir,
+                    environment: processEnvironment
                 )
                 if status != 0 {
                     throw CLIError(message: Self.omoInstallFailedMessage())
@@ -17858,24 +17850,17 @@ struct CMUXCLI {
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
+        launcherEnvironment["PATH"] = providerExecutableLaunchPath(searchPath: launcherEnvironment["PATH"])
 
-        // Check for opencode before doing expensive plugin setup
-        let openCodeExecutablePath = resolveOpenCodeExecutable(searchPath: launcherEnvironment["PATH"])
-        if openCodeExecutablePath == nil {
-            let checkProcess = Process()
-            checkProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-            checkProcess.arguments = ["opencode"]
-            checkProcess.standardOutput = Pipe()
-            checkProcess.standardError = Pipe()
-            try? checkProcess.run()
-            checkProcess.waitUntilExit()
-            if checkProcess.terminationStatus != 0 {
-                throw CLIError(message: "opencode is not installed. Install it first:\n  npm install -g opencode-ai\n  # or\n  bun install -g opencode-ai\n\nThen run: cmux omo")
-            }
+        guard let openCodeExecutablePath = resolveOpenCodeExecutable(searchPath: launcherEnvironment["PATH"]) else {
+            throw CLIError(message: String(
+                localized: "agentSession.error.missingOpenCodeExecutable",
+                defaultValue: "OpenCode was not found. Install it and make sure \"opencode\" is available on PATH."
+            ))
         }
 
         // Ensure oh-my-openagent plugin is registered and installed
-        try omoEnsurePlugin()
+        try omoEnsurePlugin(processEnvironment: launcherEnvironment)
 
         let shimDirectory = try createOMOShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
@@ -17898,7 +17883,7 @@ struct CMUXCLI {
             openCodePort: openCodePort
         )
 
-        let launchPath = openCodeExecutablePath ?? "opencode"
+        let launchPath = openCodeExecutablePath
         // oh-my-openagent needs the OpenCode API server running to attach
         // subagent sessions to tmux panes. Prefer the historic default port
         // when it is available, otherwise fall back to a free loopback port.
@@ -17921,13 +17906,9 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        if openCodeExecutablePath != nil {
-            execv(launchPath, &argv)
-        } else {
-            execvp("opencode", &argv)
-        }
+        execv(launchPath, &argv)
         let code = errno
-        throw CLIError(message: "Failed to launch opencode: \(String(cString: strerror(code)))\n\nIs opencode installed? Install with:\n  npm install -g opencode-ai")
+        throw CLIError(message: "Failed to launch opencode: \(String(cString: strerror(code)))")
     }
 
     // MARK: - cmux omx (Oh My Codex)
@@ -18016,6 +17997,7 @@ struct CMUXCLI {
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
+        launcherEnvironment["PATH"] = providerExecutableLaunchPath(searchPath: launcherEnvironment["PATH"])
 
         let omxExecutablePath = resolveOMXExecutable(searchPath: launcherEnvironment["PATH"])
         if omxExecutablePath == nil {
@@ -18145,6 +18127,7 @@ struct CMUXCLI {
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
+        launcherEnvironment["PATH"] = providerExecutableLaunchPath(searchPath: launcherEnvironment["PATH"])
 
         let omcExecutablePath = resolveOMCExecutable(searchPath: launcherEnvironment["PATH"])
         if omcExecutablePath == nil {
@@ -29136,6 +29119,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         default:
             guard let def = Self.agentDef(named: first) else {
+                if first == "claude",
+                   let action = commandArgs.dropFirst().first?.lowercased(),
+                   action == "install" || action == "uninstall" {
+                    throw CLIError(message: String(
+                        localized: "cli.hooks.claudeInstallUnsupported",
+                        defaultValue: "cmux does not install Claude hooks. Configure Claude Code hooks to call `cmux hooks claude <event>`, or run `cmux hooks setup` for supported agents."
+                    ))
+                }
                 if first == "feed" || first == "claude" {
                     return false
                 }
@@ -29163,9 +29154,53 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
     }
 
+    private func shouldNoopDisabledClaudeHook(
+        command: String,
+        commandArgs: [String],
+        processEnv: [String: String]
+    ) -> Bool {
+        guard processEnv["CMUX_CLAUDE_HOOKS_DISABLED"] == "1" else {
+            return false
+        }
+
+        switch command {
+        case "claude-hook":
+            return true
+        case "hooks":
+            guard let first = commandArgs.first?.lowercased() else {
+                return false
+            }
+            if first == "claude" {
+                let action = commandArgs.dropFirst().first?.lowercased()
+                return action != "install" && action != "uninstall"
+            }
+            if first == "feed" {
+                return claudeHookSource(in: Array(commandArgs.dropFirst()))
+            }
+            return false
+        case "feed-hook":
+            return claudeHookSource(in: commandArgs)
+        default:
+            return false
+        }
+    }
+
+    private func claudeHookSource(in args: [String]) -> Bool {
+        if optionValue(args, name: "--source")?.caseInsensitiveCompare("claude") == .orderedSame {
+            return true
+        }
+        return args.contains { arg in
+            arg.caseInsensitiveCompare("--source=claude") == .orderedSame
+        }
+    }
+
     private static func hooksCommandNeedsCmuxTarget(_ commandArgs: [String]) -> Bool {
         guard let first = commandArgs.first?.lowercased() else { return false }
-        if first == "feed" || first == "claude" { return true }
+        if first == "feed" { return true }
+        if first == "claude" {
+            let action = commandArgs.dropFirst().first?.lowercased()
+            return action != "install" && action != "uninstall"
+        }
         guard let def = Self.agentDef(named: first) else { return false }
         let action = commandArgs.dropFirst().first?.lowercased()
         if def.name == "grok" {

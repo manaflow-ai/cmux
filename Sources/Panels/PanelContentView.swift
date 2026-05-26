@@ -72,6 +72,13 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .codexAppServer:
+            if let codexPanel = panel as? CodexAppServerPanel {
+                CodexAppServerPanelView(
+                    panel: codexPanel,
+                    isFocused: isFocused
+                )
+            }
         case .filePreview:
             if let filePreviewPanel = panel as? FilePreviewPanel {
                 FilePreviewPanelView(
@@ -112,7 +119,7 @@ struct PanelContentView: View {
         switch panel.panelType {
         case .markdown, .filePreview, .rightSidebarTool:
             return true
-        case .terminal, .browser:
+        case .terminal, .browser, .codexAppServer:
             return false
         }
     }

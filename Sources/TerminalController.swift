@@ -8410,7 +8410,8 @@ class TerminalController {
             let orientation = direction.orientation
             let insertFirst = direction.insertFirst
             let newId: UUID?
-            if panelType == .browser {
+            switch panelType {
+            case .browser:
                 newId = ws.newBrowserSplit(
                     from: targetSurfaceId,
                     orientation: orientation,
@@ -8420,7 +8421,16 @@ class TerminalController {
                     creationPolicy: .automationPreload,
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )?.id
-            } else {
+            case .codexAppServer:
+                newId = ws.newCodexAppServerSplit(
+                    from: targetSurfaceId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    cwd: workingDirectory,
+                    focus: focus,
+                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+                )?.id
+            case .terminal:
                 newId = tabManager.newSplit(
                     tabId: ws.id,
                     surfaceId: targetSurfaceId,
@@ -8433,6 +8443,9 @@ class TerminalController {
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) },
                     remotePTYSessionID: remotePTYSessionID
                 )
+            case .markdown, .filePreview, .rightSidebarTool:
+                result = .err(code: "unsupported_type", message: "Unsupported surface type: \(panelType.rawValue)", data: ["type": panelType.rawValue])
+                return
             }
 
             if let newId {
@@ -8496,14 +8509,21 @@ class TerminalController {
 
             let newPanelId: UUID?
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
-            if panelType == .browser {
+            switch panelType {
+            case .browser:
                 newPanelId = ws.newBrowserSurface(
                     inPane: paneId,
                     url: url,
                     focus: focus,
                     creationPolicy: .automationPreload
                 )?.id
-            } else {
+            case .codexAppServer:
+                newPanelId = ws.newCodexAppServerSurface(
+                    inPane: paneId,
+                    cwd: workingDirectory,
+                    focus: focus
+                )?.id
+            case .terminal:
                 newPanelId = ws.newTerminalSurface(
                     inPane: paneId,
                     focus: focus,
@@ -8513,6 +8533,9 @@ class TerminalController {
                     startupEnvironment: startupEnvironment,
                     remotePTYSessionID: remotePTYSessionID
                 )?.id
+            case .markdown, .filePreview, .rightSidebarTool:
+                result = .err(code: "unsupported_type", message: "Unsupported surface type: \(panelType.rawValue)", data: ["type": panelType.rawValue])
+                return
             }
 
             guard let newPanelId else {
@@ -9836,7 +9859,8 @@ class TerminalController {
 
             let newPanelId: UUID?
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
-            if panelType == .browser {
+            switch panelType {
+            case .browser:
                 newPanelId = ws.newBrowserSplit(
                     from: sourcePanelId,
                     orientation: orientation,
@@ -9846,7 +9870,16 @@ class TerminalController {
                     creationPolicy: .automationPreload,
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )?.id
-            } else {
+            case .codexAppServer:
+                newPanelId = ws.newCodexAppServerSplit(
+                    from: sourcePanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    cwd: workingDirectory,
+                    focus: focus,
+                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+                )?.id
+            case .terminal:
                 newPanelId = ws.newTerminalSplit(
                     from: sourcePanelId,
                     orientation: orientation,
@@ -9858,6 +9891,9 @@ class TerminalController {
                     startupEnvironment: startupEnvironment,
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )?.id
+            case .markdown, .filePreview, .rightSidebarTool:
+                result = .err(code: "unsupported_type", message: "Unsupported surface type: \(panelType.rawValue)", data: ["type": panelType.rawValue])
+                return
             }
 
             guard let newPanelId else {

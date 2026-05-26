@@ -118,7 +118,6 @@ extension CmuxSettingsFileStore {
         "automation.socketControlMode",
         "automation.socketPassword",
         "automation.claudeCodeIntegration",
-        "automation.claudeBinaryPath",
         "automation.ripgrepBinaryPath",
         "automation.suppressSubagentNotifications",
         "automation.cursorIntegration",

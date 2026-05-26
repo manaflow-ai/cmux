@@ -351,6 +351,34 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertTrue(CmuxEventBus.shared.retainedSnapshot().isEmpty)
     }
 
+    @MainActor
+    func testCodexSurfaceCreationPublishesLifecycleEvent() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let panel = try XCTUnwrap(
+            workspace.newCodexAppServerSurface(
+                inPane: paneId,
+                cwd: "/tmp",
+                focus: false
+            )
+        )
+
+        let event = try XCTUnwrap(
+            CmuxEventBus.shared.retainedSnapshot().last { $0["name"] as? String == "surface.created" }
+        )
+        XCTAssertEqual(event["workspace_id"] as? String, workspace.id.uuidString)
+        XCTAssertEqual(event["surface_id"] as? String, panel.id.uuidString)
+        XCTAssertEqual(event["pane_id"] as? String, paneId.id.uuidString)
+
+        let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+        XCTAssertEqual(payload["kind"] as? String, "codex_app_server")
+        XCTAssertEqual(payload["origin"] as? String, "codex_app_server_tab")
+        XCTAssertEqual(payload["focused"] as? Bool, false)
+    }
+
     func testWorkstreamPayloadRedactsSensitiveFields() throws {
         let event = WorkstreamEvent(
             sessionId: "session",

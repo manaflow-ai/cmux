@@ -25,6 +25,7 @@ private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120)
 
 enum WorkspacePendingTerminalInputReason {
     case configurationCommand
+    case newTerminalLaunchCommand
 }
 
 enum WorkspacePendingTerminalInputPolicy {
@@ -32,6 +33,8 @@ enum WorkspacePendingTerminalInputPolicy {
         switch reason {
         case .configurationCommand:
             return 3.0
+        case .newTerminalLaunchCommand:
+            return nil
         }
     }
 }
@@ -487,6 +490,7 @@ extension Workspace {
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
+        let codexSnapshot: SessionCodexAppServerPanelSnapshot?
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?
         switch panel.panelType {
@@ -556,6 +560,7 @@ extension Workspace {
             )
             browserSnapshot = nil
             markdownSnapshot = nil
+            codexSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
         case .browser:
@@ -572,6 +577,7 @@ extension Workspace {
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
             )
             markdownSnapshot = nil
+            codexSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
         case .markdown:
@@ -579,6 +585,15 @@ extension Workspace {
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
+            codexSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
+        case .codexAppServer:
+            guard let codexPanel = panel as? CodexAppServerPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            codexSnapshot = SessionCodexAppServerPanelSnapshot(threadId: codexPanel.resumableThreadId)
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
         case .filePreview:
@@ -586,6 +601,7 @@ extension Workspace {
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
+            codexSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
             rightSidebarToolSnapshot = nil
         case .rightSidebarTool:
@@ -593,6 +609,7 @@ extension Workspace {
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
+            codexSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(mode: toolPanel.mode)
         }
@@ -614,6 +631,7 @@ extension Workspace {
             terminal: terminalSnapshot,
             browser: browserSnapshot,
             markdown: markdownSnapshot,
+            codexAppServer: codexSnapshot,
             filePreview: filePreviewSnapshot,
             rightSidebarTool: rightSidebarToolSnapshot
         )
@@ -1247,6 +1265,18 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
             return markdownPanel.id
+        case .codexAppServer:
+            guard let codexPanel = newCodexAppServerSurface(
+                inPane: paneId,
+                cwd: snapshot.directory,
+                resumeThreadId: snapshot.codexAppServer?.threadId,
+                focus: false,
+                autoStartOnAppear: false
+            ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: codexPanel.id)
+            return codexPanel.id
         case .filePreview:
             guard let filePath = snapshot.filePreview?.filePath,
                   let filePreviewPanel = newFilePreviewSurface(
@@ -1652,6 +1682,27 @@ extension Workspace {
                 #endif
             }
         }
+    }
+
+    @discardableResult
+    func newTerminalSurfaceAndSendInputWhenReady(
+        _ text: String,
+        inPane paneId: PaneID,
+        focus: Bool? = nil,
+        workingDirectory: String? = nil,
+        startupEnvironment: [String: String] = [:],
+        reason: WorkspacePendingTerminalInputReason = .newTerminalLaunchCommand
+    ) -> TerminalPanel? {
+        guard let panel = newTerminalSurface(
+            inPane: paneId,
+            focus: focus,
+            workingDirectory: workingDirectory,
+            startupEnvironment: startupEnvironment
+        ) else {
+            return nil
+        }
+        sendInputWhenReady(text, to: panel, reason: reason)
+        return panel
     }
 
     private func hasPendingTerminalInputObserver(
@@ -9389,6 +9440,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
+    private static let codexAppServerErrorStatusKey = "codex_app_server.error"
     private static let remoteNotificationCooldown: TimeInterval = 5 * 60
     private static let sshControlMasterCleanupQueue = DispatchQueue(
         label: "com.cmux.remote-ssh.control-master-cleanup",
@@ -9556,6 +9608,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let terminal = "terminal"
         static let browser = "browser"
         static let markdown = "markdown"
+        static let codexAppServer = "codex-app-server"
         static let filePreview = "filePreview"
         static let rightSidebarTool = "rightSidebarTool"
     }
@@ -10385,6 +10438,70 @@ final class Workspace: Identifiable, ObservableObject {
         panelSubscriptions[markdownPanel.id] = subscription
     }
 
+    private func installCodexAppServerPanelSubscription(_ codexPanel: CodexAppServerPanel) {
+        let subscription = Publishers.CombineLatest(
+            codexPanel.$cwd.removeDuplicates(),
+            codexPanel.$status.removeDuplicates()
+        )
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak codexPanel] cwd, _ in
+                guard let self, let codexPanel else { return }
+                self.updatePanelDirectory(panelId: codexPanel.id, directory: cwd)
+                self.updateCodexAppServerPanelDisplay(codexPanel)
+            }
+        panelSubscriptions[codexPanel.id] = subscription
+        updatePanelDirectory(panelId: codexPanel.id, directory: codexPanel.cwd)
+        updateCodexAppServerPanelDisplay(codexPanel)
+    }
+
+    private func syncCodexAppServerSidebarStatus() {
+        let failedMessages: [String] = panels.values.compactMap { (panel: any Panel) -> String? in
+            guard let codexPanel = panel as? CodexAppServerPanel else { return nil }
+            guard case let .failed(message) = codexPanel.status else { return nil }
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        guard let failedMessage = failedMessages.first else {
+            statusEntries.removeValue(forKey: Self.codexAppServerErrorStatusKey)
+            return
+        }
+
+        statusEntries[Self.codexAppServerErrorStatusKey] = SidebarStatusEntry(
+            key: Self.codexAppServerErrorStatusKey,
+            value: String(
+                format: String(localized: "codexAppServer.sidebar.error", defaultValue: "Codex Error: %@"),
+                failedMessage
+            ),
+            icon: "exclamationmark.triangle.fill",
+            color: "#ff453a",
+            priority: 100,
+            timestamp: Date()
+        )
+    }
+
+    private func updateCodexAppServerPanelDisplay(_ codexPanel: CodexAppServerPanel) {
+        let nextTitle = codexPanel.displayTitle
+        _ = updatePanelTitle(panelId: codexPanel.id, title: nextTitle)
+        syncCodexAppServerSidebarStatus()
+
+        guard let tabId = surfaceIdFromPanelId(codexPanel.id),
+              let existing = bonsplitController.tab(tabId) else { return }
+
+        let iconUpdate: String?? = existing.icon == codexPanel.displayIcon ? nil : .some(codexPanel.displayIcon)
+        let dirtyUpdate: Bool? = existing.isDirty == codexPanel.isDirty ? nil : codexPanel.isDirty
+        let loadingUpdate: Bool? = existing.isLoading == codexPanel.status.isBusy ? nil : codexPanel.status.isBusy
+
+        guard iconUpdate != nil || dirtyUpdate != nil || loadingUpdate != nil else { return }
+        bonsplitController.updateTab(
+            tabId,
+            icon: iconUpdate,
+            hasCustomTitle: panelCustomTitles[codexPanel.id] != nil,
+            isDirty: dirtyUpdate,
+            isLoading: loadingUpdate
+        )
+    }
+
     private func installFilePreviewPanelSubscription(_ filePreviewPanel: FilePreviewPanel) {
         let titleAndDirty = Publishers.CombineLatest(
             filePreviewPanel.$displayTitle.removeDuplicates(),
@@ -10458,6 +10575,10 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? MarkdownPanel
     }
 
+    func codexAppServerPanel(for panelId: UUID) -> CodexAppServerPanel? {
+        panels[panelId] as? CodexAppServerPanel
+    }
+
     func filePreviewPanel(for panelId: UUID) -> FilePreviewPanel? {
         panels[panelId] as? FilePreviewPanel
     }
@@ -10470,6 +10591,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.browser
         case .markdown:
             return SurfaceKind.markdown
+        case .codexAppServer:
+            return SurfaceKind.codexAppServer
         case .filePreview:
             return SurfaceKind.filePreview
         case .rightSidebarTool:
@@ -12655,7 +12778,7 @@ final class Workspace: Identifiable, ObservableObject {
             // ghostty_surface_inherited_config or cmuxCurrentSurfaceFontSizePoints
             // is still reading through the pointer.
             let surface = terminalPanel.surface
-            guard let sourceSurface = surface.surface else { continue }
+            guard let sourceSurface = surface.liveSurfaceForGhosttyAccess(reason: "configInheritance") else { continue }
             var config = cmuxInheritedSurfaceConfig(
                 sourceSurface: sourceSurface,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT
@@ -13331,6 +13454,138 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func newCodexAppServerSplit(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        cwd: String? = nil,
+        resumeThreadId: String? = nil,
+        focus: Bool = true,
+        autoStartOnAppear: Bool = true,
+        initialDividerPosition: CGFloat? = nil
+    ) -> CodexAppServerPanel? {
+        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
+        var sourcePaneId: PaneID?
+        for paneId in bonsplitController.allPaneIds {
+            let tabs = bonsplitController.tabs(inPane: paneId)
+            if tabs.contains(where: { $0.id == sourceTabId }) {
+                sourcePaneId = paneId
+                break
+            }
+        }
+
+        guard let paneId = sourcePaneId else { return nil }
+
+        let requestedCwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedCwd = (requestedCwd?.isEmpty == false ? requestedCwd : nil)
+            ?? panelDirectories[panelId]
+            ?? currentDirectory
+        let codexPanel = CodexAppServerPanel(
+            workspaceId: id,
+            cwd: resolvedCwd,
+            resumeThreadId: resumeThreadId,
+            autoStartOnAppear: autoStartOnAppear
+        )
+        panels[codexPanel.id] = codexPanel
+        panelTitles[codexPanel.id] = codexPanel.displayTitle
+
+        let newTab = Bonsplit.Tab(
+            title: codexPanel.displayTitle,
+            icon: codexPanel.displayIcon,
+            kind: SurfaceKind.codexAppServer,
+            isDirty: codexPanel.isDirty,
+            isLoading: false,
+            isPinned: false
+        )
+        surfaceIdToPanelId[newTab.id] = codexPanel.id
+        let previousFocusedPanelId = focusedPanelId
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            panels.removeValue(forKey: codexPanel.id)
+            panelTitles.removeValue(forKey: codexPanel.id)
+            return nil
+        }
+        applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
+        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: codexPanel.id, kind: "codex_app_server", origin: "codex_app_server_split", focused: focus)
+
+        let previousHostedView = focusedTerminalPanel?.hostedView
+        if focus {
+            suppressReparentFocusUntilLayoutFollowUp(previousHostedView, reason: "codexAppServerSplit.focus")
+            focusPanel(codexPanel.id)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: codexPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installCodexAppServerPanelSubscription(codexPanel)
+        return codexPanel
+    }
+
+    @discardableResult
+    func newCodexAppServerSurface(
+        inPane paneId: PaneID,
+        cwd: String? = nil,
+        resumeThreadId: String? = nil,
+        focus: Bool? = nil,
+        autoStartOnAppear: Bool = true
+    ) -> CodexAppServerPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+        let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
+        let requestedCwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedCwd = (requestedCwd?.isEmpty == false ? requestedCwd : nil)
+            ?? sourcePanelId.flatMap { panelDirectories[$0] }
+            ?? currentDirectory
+
+        let codexPanel = CodexAppServerPanel(
+            workspaceId: id,
+            cwd: resolvedCwd,
+            resumeThreadId: resumeThreadId,
+            autoStartOnAppear: autoStartOnAppear
+        )
+        panels[codexPanel.id] = codexPanel
+        panelTitles[codexPanel.id] = codexPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: codexPanel.displayTitle,
+            icon: codexPanel.displayIcon,
+            kind: SurfaceKind.codexAppServer,
+            isDirty: codexPanel.isDirty,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: codexPanel.id)
+            panelTitles.removeValue(forKey: codexPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = codexPanel.id
+        publishCmuxSurfaceCreated(codexPanel.id, paneId: paneId, kind: "codex_app_server", origin: "codex_app_server_tab", focused: shouldFocusNewTab)
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: codexPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installCodexAppServerPanelSubscription(codexPanel)
+        return codexPanel
+    }
+
+    @discardableResult
     func openOrFocusMarkdownSurface(
         inPane paneId: PaneID,
         filePath: String,
@@ -13630,6 +13885,7 @@ final class Workspace: Identifiable, ObservableObject {
         terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
         lastTerminalConfigInheritancePanelId = nil
         lastTerminalConfigInheritanceFontPoints = nil
+        statusEntries.removeValue(forKey: Self.codexAppServerErrorStatusKey)
     }
 
     /// Close a panel.
@@ -14223,6 +14479,9 @@ final class Workspace: Identifiable, ObservableObject {
             )
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
+        } else if let codexPanel = detached.panel as? CodexAppServerPanel {
+            codexPanel.reattachToWorkspace(id, cwd: detached.directory)
+            installCodexAppServerPanelSubscription(codexPanel)
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
             rightSidebarToolPanel.reattach(to: self)
         }
@@ -14251,6 +14510,9 @@ final class Workspace: Identifiable, ObservableObject {
         if let markdownPanel = detached.panel as? MarkdownPanel,
            panelSubscriptions[markdownPanel.id] == nil {
             installMarkdownPanelSubscription(markdownPanel)
+        }
+        if let codexPanel = detached.panel as? CodexAppServerPanel {
+            updateCodexAppServerPanelDisplay(codexPanel)
         }
         if let filePreviewPanel = detached.panel as? FilePreviewPanel,
            panelSubscriptions[filePreviewPanel.id] == nil {
@@ -14633,6 +14895,15 @@ final class Workspace: Identifiable, ObservableObject {
     func newTerminalSurfaceInFocusedPane(focus: Bool? = nil, initialInput: String? = nil) -> TerminalPanel? {
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
         return newTerminalSurface(inPane: focusedPaneId, focus: focus, initialInput: initialInput)
+    }
+
+    @discardableResult
+    func newTerminalSurfaceInFocusedPane(
+        focus: Bool? = nil,
+        sendingInputWhenReady text: String
+    ) -> TerminalPanel? {
+        guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
+        return newTerminalSurfaceAndSendInputWhenReady(text, inPane: focusedPaneId, focus: focus)
     }
 
     @discardableResult
@@ -16802,6 +17073,7 @@ extension Workspace: BonsplitDelegate {
         if !isDetaching, let cleanupConfiguration = closedRemoteCleanupConfiguration {
             Self.requestSSHControlMasterCleanupIfNeeded(configuration: cleanupConfiguration)
         }
+        syncCodexAppServerSidebarStatus()
 
         // Keep the workspace invariant for normal close paths.
         // Detach/move flows intentionally allow a temporary empty workspace so AppDelegate can
@@ -16968,6 +17240,9 @@ extension Workspace: BonsplitDelegate {
             }
 
             syncRemotePortScanTTYs()
+            syncCodexAppServerSidebarStatus()
+            let closedSet = Set(closedPanelIds)
+            surfaceIdToPanelId = surfaceIdToPanelId.filter { !closedSet.contains($0.value) }
             recomputeListeningPorts()
             clearRemoteConfigurationIfWorkspaceBecameLocal()
 
@@ -17242,6 +17517,8 @@ extension Workspace: BonsplitDelegate {
                     preferredWindow: presentingWindow,
                     debugSource: "surfaceTabBar.cloudVM"
                 )
+            case .newCodex:
+                _ = newCodexAppServerSurface(inPane: pane)
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }
@@ -17306,7 +17583,7 @@ extension Workspace: BonsplitDelegate {
             case .currentTerminal:
                 self.selectedTerminalPanel(inPane: pane)?.sendInput(shellInput)
             case .newTabInCurrentPane:
-                _ = self.newTerminalSurface(inPane: pane, focus: true, initialInput: shellInput)
+                _ = self.newTerminalSurfaceAndSendInputWhenReady(shellInput, inPane: pane, focus: true)
             }
         }
         guard didExecute else {
@@ -17320,6 +17597,8 @@ extension Workspace: BonsplitDelegate {
             _ = newTerminalSurface(inPane: pane)
         case "browser":
             _ = newBrowserSurface(inPane: pane)
+        case SurfaceKind.codexAppServer, "codex":
+            _ = newCodexAppServerSurface(inPane: pane)
         default:
             _ = newTerminalSurface(inPane: pane)
         }
@@ -17332,6 +17611,10 @@ extension Workspace: BonsplitDelegate {
             "pane=\(pane.id.uuidString.prefix(5)) identifier=\(identifier)"
         )
 #endif
+        if identifier == SurfaceKind.codexAppServer || identifier == "codex" || identifier == "cmux.newCodex" {
+            _ = newCodexAppServerSurface(inPane: pane)
+            return
+        }
         executeSurfaceTabBarCommandButton(identifier: identifier, inPane: pane)
     }
 

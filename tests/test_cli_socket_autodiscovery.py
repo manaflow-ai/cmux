@@ -15,6 +15,9 @@ import threading
 import time
 
 
+PING_COMMAND_TIMEOUT_SECONDS = float(os.environ.get("CMUX_CLI_SOCKET_PING_TIMEOUT", "20"))
+
+
 def resolve_cmux_cli() -> str:
     explicit = os.environ.get("CMUX_CLI_BIN") or os.environ.get("CMUX_CLI")
     if explicit and os.path.exists(explicit) and os.access(explicit, os.X_OK):
@@ -59,6 +62,15 @@ class PingServer:
 
     def join(self, timeout: float) -> None:
         self._thread.join(timeout=timeout)
+
+    def stop(self) -> None:
+        self._done.set()
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                client.settimeout(0.2)
+                client.connect(self.socket_path)
+        except OSError:
+            pass
 
     def _run(self) -> None:
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -205,7 +217,7 @@ def run_ping(
         text=True,
         capture_output=True,
         env=env,
-        timeout=8,
+        timeout=PING_COMMAND_TIMEOUT_SECONDS,
         check=False,
     )
 
@@ -228,6 +240,7 @@ def expect_ping_uses_socket(cli_path: str, home: str, socket_path: str, label: s
         print(f"FAIL: invoking {label} cmux ping failed: {exc}")
         return False
     finally:
+        server.stop()
         server.join(timeout=2.0)
         try:
             os.remove(socket_path)
@@ -283,6 +296,8 @@ def expect_ping_ignores_dev_tag(
         print(f"FAIL: invoking {label} cmux ping failed: {exc}")
         return False
     finally:
+        expected_server.stop()
+        rogue_server.stop()
         expected_server.join(timeout=2.0)
         rogue_server.join(timeout=2.0)
         for path in [expected_socket_path, rogue_socket_path]:
@@ -330,6 +345,7 @@ def expect_ping_does_not_use_socket(
         print(f"FAIL: invoking {label} cmux ping failed unexpectedly: {exc}")
         return False
     finally:
+        server.stop()
         server.join(timeout=2.0)
         try:
             os.remove(socket_path)
@@ -602,13 +618,14 @@ def test_base_debug_cli_discovers_cmux_tag(cli_path: str) -> bool:
                 text=True,
                 capture_output=True,
                 env=env,
-                timeout=8,
+                timeout=PING_COMMAND_TIMEOUT_SECONDS,
                 check=False,
             )
     except Exception as exc:
         print(f"FAIL: invoking cmux ping failed: {exc}")
         return False
     finally:
+        server.stop()
         server.join(timeout=2.0)
         try:
             os.remove(socket_path)

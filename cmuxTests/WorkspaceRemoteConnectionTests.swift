@@ -2854,18 +2854,60 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            return self.v2Response(
-                id: line,
-                ok: false,
-                error: ["code": "unexpected", "message": "Unexpected command \(line)"]
-            )
+            guard let data = line.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                if line.hasPrefix("set_agent_pid ") {
+                    return "OK"
+                }
+                return self.v2Response(
+                    id: "unknown",
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected command \(line)"]
+                )
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "surface.list":
+                guard params["workspace_id"] as? String == workspaceId else {
+                    return self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "not_found", "message": "Workspace not found"]
+                    )
+                }
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": surfaceId,
+                                "ref": "surface:1",
+                                "index": 0,
+                                "focused": true
+                            ]
+                        ]
+                    ]
+                )
+            case "surface.resume.set":
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
         }
 
         var environment = ProcessInfo.processInfo.environment
         for key in [
             "ANTHROPIC_MODEL",
             "CLAUDE_CONFIG_DIR",
-            "CMUX_CUSTOM_CLAUDE_PATH",
             "NODE_OPTIONS",
             "OPENCODE_CONFIG_DIR"
         ] {
