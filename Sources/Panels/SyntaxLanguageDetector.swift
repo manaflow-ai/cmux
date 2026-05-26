@@ -50,6 +50,8 @@ enum SyntaxLanguageDetector {
     // Cache by absolute path and, when no in-memory buffer size is available,
     // file metadata. Once the panel has loaded text, the current buffer byte
     // count is the size authority, so the hot typing path avoids filesystem stat.
+    // language(for:) is called synchronously from SwiftUI body, so an actor-owned
+    // cache would force async routing; this lock keeps the cache synchronous.
     private static let cacheLock = NSLock()
     nonisolated(unsafe) private static var cache: [String: CacheEntry] = [:]
 
