@@ -7,6 +7,8 @@ final class CLIForwardingLaunchArgumentTests: XCTestCase {
     func testCliSubcommandsForwardToBundledCLI() {
         XCTAssertTrue(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux", "wait-for", "workspace:1"]))
         XCTAssertTrue(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux", "hooks", "setup"]))
+        XCTAssertTrue(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux", "--version"]))
+        XCTAssertTrue(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux", "-h"]))
     }
 
     func testGuiLaunchArgumentsStayInApp() {
@@ -14,7 +16,15 @@ final class CLIForwardingLaunchArgumentTests: XCTestCase {
         XCTAssertFalse(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux STAGING", "STAGING"]))
         XCTAssertFalse(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux NIGHTLY", "NIGHTLY"]))
         XCTAssertFalse(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux", "-psn_0_12345"]))
+        XCTAssertFalse(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux", "-AppleLanguages", "(en)"]))
         XCTAssertFalse(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux", "cmux://workspace/foo"]))
+    }
+
+    func testFinderProcessSerialNumberIsNotForwardedToBundledCLI() {
+        let arguments = ["cmux", "-psn_0_12345", "welcome", "-psn_0_67890"]
+
+        XCTAssertTrue(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: arguments))
+        XCTAssertEqual(CLIForwardingLaunchRouter.forwardedCLIArguments(from: arguments), ["welcome"])
     }
 
     func testBundledCliResolverFallsBackToExecutablePath() throws {
