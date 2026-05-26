@@ -2278,6 +2278,8 @@ class TerminalController {
     }
 
     private nonisolated static let socketWorkerV2Methods: Set<String> = [
+        "system.ping",
+        "system.capabilities",
         "auth.status",
         "auth.begin_sign_in",
         "auth.sign_out",
@@ -2301,6 +2303,11 @@ class TerminalController {
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
         "workspace.remote.pty_resize",
+    ]
+
+    private nonisolated static let mainThreadCallableSocketWorkerV2Methods: Set<String> = [
+        "system.ping",
+        "system.capabilities",
     ]
 
     private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
@@ -2412,6 +2419,10 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
             }
+        case "system.ping":
+            return v2Ok(id: request.id, result: ["pong": true])
+        case "system.capabilities":
+            return v2Ok(id: request.id, result: v2Capabilities())
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
@@ -2914,7 +2925,8 @@ class TerminalController {
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
         if Thread.isMainThread,
            let request = parseV2SocketRequest(command),
-           Self.executionPolicy(forV2Method: request.method) == .socketWorker {
+           Self.executionPolicy(forV2Method: request.method) == .socketWorker,
+           !Self.mainThreadCallableSocketWorkerV2Methods.contains(request.method) {
             return v2Error(
                 id: request.id,
                 code: "invalid_dispatch",
@@ -3061,6 +3073,12 @@ class TerminalController {
 
         case "set_agent_pid":
             return setAgentPID(args)
+
+        case "set_agent_lifecycle":
+            return setAgentLifecycle(args)
+
+        case "agent_hibernation":
+            return agentHibernation(args)
 
         case "clear_agent_pid":
             return clearAgentPID(args)
@@ -3751,6 +3769,10 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugShortcutSimulate(params: params))
         case "debug.type":
             return v2Result(id: id, self.v2DebugType(params: params))
+        case "debug.textbox.inline_fixture":
+            return v2Result(id: id, self.v2DebugTextBoxInlineFixture(params: params))
+        case "debug.textbox.interact":
+            return v2Result(id: id, self.v2DebugTextBoxInteract(params: params))
         case "debug.app.activate":
             return v2Result(id: id, self.v2DebugActivateApp())
         case "debug.command_palette.toggle":
@@ -3821,7 +3843,7 @@ class TerminalController {
         }
     }
 
-    private func v2Capabilities() -> [String: Any] {
+    private nonisolated func v2Capabilities() -> [String: Any] {
         var methods: [String] = [
             "system.ping",
             "system.capabilities",
@@ -4026,6 +4048,8 @@ class TerminalController {
             "debug.shortcut.set",
             "debug.shortcut.simulate",
             "debug.type",
+            "debug.textbox.inline_fixture",
+            "debug.textbox.interact",
             "debug.app.activate",
             "debug.command_palette.toggle",
             "debug.command_palette.rename_tab.open",
@@ -7773,7 +7797,7 @@ class TerminalController {
                     if workspace.panels.count <= 1 {
                         break
                     }
-                    if workspace.closePanel(panelId, force: true) {
+                    if workspace.requestCloseTabRecordingHistory(tabId, force: true) {
                         closed += 1
                     }
                 }
@@ -7959,6 +7983,17 @@ class TerminalController {
     }
 
     // MARK: - V2 Surface Methods
+
+    @MainActor
+    @discardableResult
+    private func closeSurfaceRecordingHistory(in workspace: Workspace, surfaceId: UUID, force: Bool) -> Bool {
+        if let tabId = workspace.surfaceIdFromPanelId(surfaceId) {
+            return workspace.requestCloseTabRecordingHistory(tabId, force: force)
+        }
+
+        workspace.markCloseHistoryEligible(panelId: surfaceId)
+        return workspace.closePanel(surfaceId, force: force)
+    }
 
     func v2ResolveWorkspace(params: [String: Any], tabManager: TabManager) -> Workspace? {
         if let wsId = v2UUID(params, "workspace_id") {
@@ -8619,8 +8654,10 @@ class TerminalController {
             }
 
             // Socket API must be non-interactive: bypass close-confirmation gating.
-            ws.closePanel(surfaceId, force: true)
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+            let ok = closeSurfaceRecordingHistory(in: ws, surfaceId: surfaceId, force: true)
+            result = ok
+                ? .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+                : .err(code: "internal_error", message: "Failed to close surface", data: ["surface_id": surfaceId.uuidString])
         }
         return result
     }
@@ -9201,7 +9238,7 @@ class TerminalController {
             let sendStart = ProcessInfo.processInfo.systemUptime
             #endif
             let queued: Bool
-            switch terminalPanel.surface.sendInputResult(text) {
+            switch terminalPanel.sendInputResult(text) {
             case .sent:
                 // Ensure we present a new frame after injecting input so snapshot-based tests (and
                 // socket-driven agents) can observe the updated terminal without requiring a focus
@@ -9263,7 +9300,7 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            let sendResult = terminalPanel.surface.sendNamedKey(key)
+            let sendResult = terminalPanel.sendNamedKeyResult(key)
             switch sendResult {
             case .sent:
                 terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey")
@@ -9408,43 +9445,48 @@ class TerminalController {
         return result
     }
 
+    private func readTerminalSelectionText(terminalPanel: TerminalPanel, pointTag: ghostty_point_tag_e) -> String? {
+        guard let surface = terminalPanel.surface.surface else { return nil }
+        let topLeft = ghostty_point_s(
+            tag: pointTag,
+            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+            x: 0,
+            y: 0
+        )
+        let bottomRight = ghostty_point_s(
+            tag: pointTag,
+            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+            x: 0,
+            y: 0
+        )
+        let selection = ghostty_selection_s(
+            top_left: topLeft,
+            bottom_right: bottomRight,
+            rectangle: false
+        )
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else {
+            return nil
+        }
+        defer {
+            ghostty_surface_free_text(surface, &text)
+        }
+
+        guard let ptr = text.text, text.text_len > 0 else {
+            return ""
+        }
+        let rawData = Data(bytes: ptr, count: Int(text.text_len))
+        return String(decoding: rawData, as: UTF8.self)
+    }
+
     private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
-        guard let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") else {
+        guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
             return "ERROR: Terminal surface not found"
         }
 
         func readSelectionText(pointTag: ghostty_point_tag_e) -> String? {
-            let topLeft = ghostty_point_s(
-                tag: pointTag,
-                coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-                x: 0,
-                y: 0
-            )
-            let bottomRight = ghostty_point_s(
-                tag: pointTag,
-                coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-                x: 0,
-                y: 0
-            )
-            let selection = ghostty_selection_s(
-                top_left: topLeft,
-                bottom_right: bottomRight,
-                rectangle: false
-            )
-
-            var text = ghostty_text_s()
-            guard ghostty_surface_read_text(surface, selection, &text) else {
-                return nil
-            }
-            defer {
-                ghostty_surface_free_text(surface, &text)
-            }
-
-            guard let ptr = text.text, text.text_len > 0 else {
-                return ""
-            }
-            let rawData = Data(bytes: ptr, count: Int(text.text_len))
-            return String(decoding: rawData, as: UTF8.self)
+            readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: pointTag)
         }
 
         var output: String
@@ -9625,9 +9667,11 @@ class TerminalController {
     func readTerminalTextForSnapshot(
         terminalPanel: TerminalPanel,
         includeScrollback: Bool = false,
-        lineLimit: Int? = nil
+        lineLimit: Int? = nil,
+        allowVTExport: Bool = true
     ) -> String? {
         if includeScrollback,
+           allowVTExport,
            let vtOutput = readTerminalTextFromVTExportForSnapshot(
                terminalPanel: terminalPanel,
                lineLimit: lineLimit
@@ -9639,6 +9683,20 @@ class TerminalController {
             terminalPanel: terminalPanel,
             includeScrollback: includeScrollback,
             lineLimit: lineLimit
+        )
+    }
+
+    func readTerminalTextForHibernationFingerprint(
+        terminalPanel: TerminalPanel,
+        lineLimit: Int
+    ) -> String? {
+        // This runs from the periodic hibernation timer. Sample the visible tail
+        // only, rather than copying full scrollback every cycle.
+        readTerminalTextForSnapshot(
+            terminalPanel: terminalPanel,
+            includeScrollback: false,
+            lineLimit: lineLimit,
+            allowVTExport: false
         )
     }
 
@@ -14640,7 +14698,7 @@ class TerminalController {
                 return
             }
 
-            let ok = ws.closePanel(targetId, force: true)
+            let ok = closeSurfaceRecordingHistory(in: ws, surfaceId: targetId, force: true)
             result = ok
                 ? .ok([
                     "workspace_id": ws.id.uuidString,
@@ -15070,6 +15128,109 @@ class TerminalController {
         }
         return result
     }
+
+#if DEBUG
+    private func v2DebugTextBoxInlineFixture(params: [String: Any]) -> V2CallResult {
+        guard let tabManager else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        let rawPathValue = params["path"] as? String
+        let rawPath = rawPathValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let rawPathValue, rawPathValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .err(code: "invalid_params", message: "path cannot be empty", data: nil)
+        }
+        let hasAttachment = rawPath?.isEmpty == false
+        let beforeText = (params["before_text"] as? String) ?? (hasAttachment ? "hello " : "")
+        let afterText = (params["after_text"] as? String) ?? (hasAttachment ? "world" : "")
+        let rawSurfaceID = params["surface_id"] as? String
+        let target = rawSurfaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let rawSurfaceID,
+           rawSurfaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .err(code: "invalid_params", message: "surface_id cannot be empty", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Terminal panel not found", data: nil)
+        v2MainSync {
+            let panel: TerminalPanel?
+            if let target, !target.isEmpty {
+                panel = resolveTerminalPanel(from: target, tabManager: tabManager)
+            } else {
+                panel = tabManager.selectedTerminalPanel
+            }
+
+            guard let panel else {
+                return
+            }
+
+            let url = rawPath.map { URL(fileURLWithPath: $0).standardizedFileURL }
+            _ = panel.installDebugTextBoxInlineFixture(
+                localURL: url,
+                beforeText: beforeText,
+                afterText: afterText
+            )
+            let textView = panel.textBoxInputView
+            result = .ok([
+                "surface_id": panel.id.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
+                "path": url?.path ?? "",
+                "text_box_active": panel.isTextBoxActive,
+                "has_text_view": textView != nil,
+                "text_view_has_window": textView?.window != nil,
+                "text_view_matches_panel_window": textView?.window === panel.hostedView.window,
+                "panel_text": panel.textBoxContent,
+                "panel_attachment_count": panel.textBoxAttachments.count,
+                "text_view_text": textView?.plainText() ?? "",
+                "text_view_attachment_count": textView?.inlineAttachments().count ?? 0
+            ])
+        }
+        return result
+    }
+
+    private func v2DebugTextBoxInteract(params: [String: Any]) -> V2CallResult {
+        guard let tabManager else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let action = v2String(params, "action")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !action.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing action", data: nil)
+        }
+        let rawSurfaceID = params["surface_id"] as? String
+        let target = rawSurfaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let rawSurfaceID,
+           rawSurfaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .err(code: "invalid_params", message: "surface_id cannot be empty", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Terminal text box not found", data: nil)
+        v2MainSync {
+            let panel: TerminalPanel?
+            if let target, !target.isEmpty {
+                panel = resolveTerminalPanel(from: target, tabManager: tabManager)
+            } else {
+                panel = tabManager.selectedTerminalPanel
+            }
+
+            guard let panel,
+                  let textView = panel.textBoxInputView,
+                  let window = textView.window else {
+                return
+            }
+
+            if socketCommandAllowsInAppFocusMutations() {
+                NSApp.activate(ignoringOtherApps: true)
+                window.makeKeyAndOrderFront(nil)
+            }
+            let state = textView.debugInteract(action: action)
+            result = .ok([
+                "surface_id": panel.id.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
+                "action": action,
+                "state": state
+            ])
+        }
+        return result
+    }
+#endif
 
     private func v2DebugActivateApp() -> V2CallResult {
         let resp = activateApp()
@@ -15904,6 +16065,8 @@ class TerminalController {
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
           set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
+          set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] - Report coding-agent lifecycle for hibernation
+          agent_hibernation <on|off> - Enable or disable Agent Hibernation
           report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
           report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block
           clear_status <key> [--tab=X] - Remove a status entry
@@ -18090,7 +18253,7 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            switch terminalPanel.surface.sendInputResult(unescaped) {
+            switch terminalPanel.sendInputResult(unescaped) {
             case .sent:
                 terminalPanel.surface.forceRefresh(reason: "terminalController.sendInput")
                 success = true
@@ -18145,7 +18308,7 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            switch terminalPanel.surface.sendInputResult(unescaped) {
+            switch terminalPanel.sendInputResult(unescaped) {
             case .sent:
                 terminalPanel.surface.forceRefresh(reason: "terminalController.sendWorkspace")
                 success = true
@@ -18225,7 +18388,7 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            switch terminalPanel.surface.sendInputResult(unescaped) {
+            switch terminalPanel.sendInputResult(unescaped) {
             case .sent:
                 terminalPanel.surface.forceRefresh(reason: "terminalController.sendSurface")
                 success = true
@@ -18260,7 +18423,7 @@ class TerminalController {
                 return
             }
 
-            switch terminalPanel.surface.sendNamedKey(keyName) {
+            switch terminalPanel.sendNamedKeyResult(keyName) {
             case .sent:
                 terminalPanel.surface.forceRefresh(reason: "terminalController.sendKey")
                 success = true
@@ -18295,7 +18458,7 @@ class TerminalController {
                 error = "ERROR: Surface not found"
                 return
             }
-            switch terminalPanel.surface.sendNamedKey(keyName) {
+            switch terminalPanel.sendNamedKeyResult(keyName) {
             case .sent:
                 terminalPanel.surface.forceRefresh(reason: "terminalController.sendKeyToSurface")
                 success = true
@@ -19290,6 +19453,87 @@ class TerminalController {
             }
         }
         return "OK"
+    }
+
+    /// Record the lifecycle state of a restorable agent session.
+    /// Usage: set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>]
+    private func setAgentLifecycle(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>]"
+        guard parsed.positional.count >= 2 else {
+            return "ERROR: Usage: \(usage)"
+        }
+        let key = parsed.positional[0]
+        let rawLifecycle = parsed.positional[1]
+        guard let lifecycle = AgentHibernationLifecycleState.parseCLIValue(rawLifecycle) else {
+            return "ERROR: Invalid agent lifecycle '\(parsed.positional[1])' — usage: \(usage)"
+        }
+        let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
+        guard let target = targetResolution.target else {
+            return targetResolution.error ?? "ERROR: No tab selected"
+        }
+        let panelResolution = parseOptionalPanelIdOption(options: parsed.options, usage: usage)
+        if let error = panelResolution.error {
+            return error
+        }
+        guard isAllowedAgentLifecycleKey(
+            key,
+            target: target,
+            panelId: panelResolution.panelId
+        ) else {
+            return "ERROR: Unsupported agent lifecycle key '\(key)'"
+        }
+        scheduleSidebarMutation(target: target) { _, tab in
+            if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
+                return
+            }
+            tab.setAgentLifecycle(key: key, panelId: panelResolution.panelId, lifecycle: lifecycle)
+        }
+        return "OK"
+    }
+
+    private func isAllowedAgentLifecycleKey(
+        _ key: String,
+        target: SidebarMutationTabTarget,
+        panelId: UUID?
+    ) -> Bool {
+        if AgentHibernationLifecycleStatusKeys.isAllowed(key) {
+            return true
+        }
+        guard let tab = resolveSidebarMutationTab(target),
+              CmuxVaultAgentRegistration.isValidID(key) else {
+            return false
+        }
+        let registry = CmuxVaultAgentRegistry.load(
+            workingDirectory: agentLifecycleRegistryWorkingDirectory(tab: tab, panelId: panelId)
+        )
+        return registry.registration(id: key) != nil
+    }
+
+    private func agentLifecycleRegistryWorkingDirectory(tab: Tab, panelId: UUID?) -> String? {
+        let candidates = [
+            panelId.flatMap { tab.panelDirectories[$0] },
+            tab.focusedPanelId.flatMap { tab.panelDirectories[$0] },
+            tab.currentDirectory,
+        ]
+        return candidates.compactMap(normalizedOptionValue).first
+    }
+
+    private func agentHibernation(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        let subcommand = parsed.positional.first?.lowercased()
+        let usage = "agent_hibernation <on|off>"
+
+        switch subcommand {
+        case "on", "enable", "enabled", "true":
+            AgentHibernationSettings.setValues(enabled: true)
+            return "OK"
+        case "off", "disable", "disabled", "false":
+            AgentHibernationSettings.setValues(enabled: false)
+            return "OK"
+        default:
+            return "ERROR: Usage: \(usage)"
+        }
     }
 
     /// Unregister an agent PID. Usage: clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status]
@@ -20404,8 +20648,9 @@ class TerminalController {
             }
 
             // Socket commands must be non-interactive: bypass close-confirmation gating.
-            tab.closePanel(targetSurfaceId, force: true)
-            result = "OK"
+            result = closeSurfaceRecordingHistory(in: tab, surfaceId: targetSurfaceId, force: true)
+                ? "OK"
+                : "ERROR: Failed to close surface"
         }
         return result
     }
