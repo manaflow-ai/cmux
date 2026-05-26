@@ -744,6 +744,38 @@ final class AgentHibernationTests: XCTestCase {
     }
 
     @MainActor
+    func testHiddenMountedWorkspaceDoesNotAutoResumeHibernatedTerminal() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-hidden-mounted-resume",
+            workingDirectory: "/tmp/cmux-agent-hibernation",
+            launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
+        )
+
+        workspace.enterAgentHibernation(
+            panelId: panelId,
+            agent: snapshot,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        )
+        XCTAssertTrue(panel.isAgentHibernated)
+
+        workspace.setAgentHibernationAutoResumePresentationVisible(false)
+        XCTAssertEqual(workspace.agentHibernationVisiblePanelIdsForCurrentLayout(), [])
+
+        _ = workspace.debugReconcileTerminalPortalVisibilityForTesting()
+        XCTAssertTrue(panel.isAgentHibernated)
+        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .manualResumeAvailable)
+
+        workspace.setAgentHibernationAutoResumePresentationVisible(true)
+
+        XCTAssertFalse(panel.isAgentHibernated)
+        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
+    }
+
+    @MainActor
     func testAutosaveFingerprintTracksHibernationTransitions() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)

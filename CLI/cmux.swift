@@ -26036,6 +26036,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
                 return stopNotificationStatus == .idle ? .idle : .needsInput
             }()
+            let staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
+                hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -26043,7 +26045,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 cwd: cwd
             )
             let terminalActivePromptTurnIdsForStop: Set<String>
-            if def.name == "codex",
+            if !staleIdleStopHasNewerRunningSession,
+               def.name == "codex",
                let incomingTurnId = normalizedHookValue(input.turnId) {
                 let activePromptTurnStack = mapped?.activePromptTurnIds?
                     .compactMap({ normalizedHookValue($0) }) ?? []
@@ -26066,7 +26069,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 terminalActivePromptTurnIdsForStop = []
             }
             let nestedPromptStop: Bool
-            if !sessionId.isEmpty {
+            if !sessionId.isEmpty, !staleIdleStopHasNewerRunningSession {
                 nestedPromptStop = (try? store.recordPromptStop(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -26089,7 +26092,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 nestedPromptEvent: nestedPromptStop,
                 transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
                 env: env
-            )
+            ) || staleIdleStopHasNewerRunningSession
             let suppressCompletionNotification = suppressVisibleMutations
                 || codexSubagentSignals.hasSubagentNotificationRelay
 
@@ -26132,7 +26135,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let shouldPublishStopAlert = (shouldPublishStopNotification || shouldPublishGrokStopFallbackNotification)
                 && !suppressCompletionNotification
             if suppressVisibleMutations {
-                telemetry.breadcrumb("\(def.name)-hook.stop.nested-suppressed")
+                telemetry.breadcrumb(
+                    staleIdleStopHasNewerRunningSession
+                        ? "\(def.name)-hook.stop.stale-idle-suppressed"
+                        : "\(def.name)-hook.stop.nested-suppressed"
+                )
             } else if suppressCompletionNotification {
                 telemetry.breadcrumb("\(def.name)-hook.stop.subagent-notification-suppressed")
             }
@@ -26306,6 +26313,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.notification.skip agent=\(def.name) session=\(agentHookDebugShort(sessionId)) reason=backgroundWorkIdleDuplicate",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                sendAgentFeedTelemetry(workspaceId: workspaceId)
+                print("{}")
+                return
+            }
+
+            let staleIdleNotificationHasNewerRunningSession = summary.status == .idle &&
+                hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
+            if staleIdleNotificationHasNewerRunningSession {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.notification.skip agent=\(def.name) session=\(agentHookDebugShort(sessionId)) reason=staleIdleNewerRunning workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
                     socketPath: client.socketPath,
                     env: env
                 )

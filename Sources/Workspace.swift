@@ -9829,6 +9829,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpStalledAttemptCount = 0
     private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
     private var portalRenderingEnabled = true
+    private var agentHibernationAutoResumePresentationVisible = true
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
@@ -14344,6 +14345,13 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func setAgentHibernationAutoResumePresentationVisible(_ isVisible: Bool) {
+        guard agentHibernationAutoResumePresentationVisible != isVisible else { return }
+        agentHibernationAutoResumePresentationVisible = isVisible
+        guard isVisible else { return }
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+    }
+
     // MARK: - Utility
 
     /// Writes a small shell wrapper that prints a banner ("remote ssh ended — target X"),
@@ -15021,13 +15029,16 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func agentHibernationVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
-        renderedVisiblePanelIdsForCurrentLayout()
+        guard agentHibernationAutoResumePresentationVisible else { return [] }
+        return renderedVisiblePanelIdsForCurrentLayout()
     }
 
     @discardableResult
     private func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
-        var didChange = resumeVisibleAgentHibernationPanels(panelIds: visiblePanelIds)
+        var didChange = agentHibernationAutoResumePresentationVisible
+            ? resumeVisibleAgentHibernationPanels(panelIds: visiblePanelIds)
+            : false
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
