@@ -576,17 +576,27 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertFalse(store.notifications.last?.isRead ?? true)
     }
 
-    func testMarkLatestNotificationAsOldestUnreadFallsBackToManualUnreadWhenNoNotificationExists() {
+    func testMarkLatestNotificationAsOldestUnreadFallsBackToManualWorkspaceUnreadWhenNoSurfaceExists() {
+        let store = TerminalNotificationStore.shared
+        let workspaceId = UUID()
+
+        store.replaceNotificationsForTesting([])
+
+        XCTAssertNil(store.markLatestNotificationAsOldestUnread(forTabId: workspaceId, surfaceId: nil))
+        XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 1)
+    }
+
+    func testMarkLatestNotificationAsOldestUnreadDoesNotCreateWorkspaceUnreadForMissingPanelNotification() {
         let store = TerminalNotificationStore.shared
         let workspaceId = UUID()
 
         store.replaceNotificationsForTesting([])
 
         XCTAssertNil(store.markLatestNotificationAsOldestUnread(forTabId: workspaceId, surfaceId: UUID()))
-        XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 1)
+        XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 0)
     }
 
-    func testToggleFocusedNotificationUnreadTogglesCurrentWorkspaceWithoutJumping() {
+    func testToggleFocusedNotificationUnreadTogglesCurrentPanelWithoutJumping() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let store = TerminalNotificationStore.shared
 
@@ -603,15 +613,10 @@ final class WorkspaceManualUnreadTests: XCTestCase {
             appDelegate.notificationStore = originalNotificationStore
         }
 
-        guard let window = appDelegate.windowForMainWindowId(windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected test window and tab manager")
-            return
-        }
-        guard let currentWorkspace = manager.selectedWorkspace else {
-            XCTFail("Expected selected workspace")
-            return
-        }
+        let window = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let currentPanelId = try XCTUnwrap(currentWorkspace.focusedPanelId)
         let laterWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
         let currentNotificationId = UUID()
         let laterNotificationId = UUID()
@@ -646,13 +651,534 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(store.notifications.map(\.id), [currentNotificationId, laterNotificationId])
         XCTAssertEqual(store.notifications.map(\.isRead), [true, true])
         XCTAssertTrue(store.workspaceIsUnread(forTabId: currentWorkspace.id))
+        XCTAssertFalse(store.hasManualUnread(forTabId: currentWorkspace.id))
+        XCTAssertTrue(currentWorkspace.manualUnreadPanelIds.contains(currentPanelId))
         XCTAssertTrue(store.workspaceIsUnread(forTabId: laterWorkspace.id))
 
         XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
 
         XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
         XCTAssertFalse(store.workspaceIsUnread(forTabId: currentWorkspace.id))
+        XCTAssertFalse(currentWorkspace.manualUnreadPanelIds.contains(currentPanelId))
         XCTAssertTrue(store.workspaceIsUnread(forTabId: laterWorkspace.id))
+    }
+
+    func testToggleFocusedNotificationUnreadClearsWorkspaceNotificationWhenPanelIsFocused() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let window = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let notificationId = UUID()
+
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: notificationId,
+                tabId: workspace.id,
+                surfaceId: nil,
+                title: "Workspace",
+                subtitle: "",
+                body: "",
+                createdAt: Date(),
+                isRead: false
+            ),
+        ])
+
+        XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: nil))
+        XCTAssertFalse(workspace.manualUnreadPanelIds.contains(panelId))
+
+        XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+
+        XCTAssertEqual(store.notifications.first(where: { $0.id == notificationId })?.isRead, true)
+        XCTAssertFalse(store.workspaceIsUnread(forTabId: workspace.id))
+        XCTAssertFalse(workspace.manualUnreadPanelIds.contains(panelId))
+    }
+
+    func testToggleFocusedNotificationUnreadClearsFocusedReadIndicatorWhenPanelIsFocused() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let window = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        store.setFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)
+
+        XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
+
+        XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+
+        XCTAssertFalse(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
+        XCTAssertFalse(workspace.manualUnreadPanelIds.contains(panelId))
+
+        XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+
+        XCTAssertTrue(workspace.manualUnreadPanelIds.contains(panelId))
+    }
+
+    func testToggleFocusedNotificationUnreadClearsRestoredWorkspaceUnreadWhenPanelIsFocused() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let window = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.restorePanelUnreadIndicator(panelId)
+        store.restoreUnreadIndicator(forTabId: workspace.id)
+
+        XCTAssertTrue(workspace.hasRestoredUnreadIndicator(panelId: panelId))
+        XCTAssertTrue(store.hasRestoredUnreadIndicator(forTabId: workspace.id))
+        XCTAssertTrue(store.workspaceIsUnread(forTabId: workspace.id))
+
+        XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+
+        XCTAssertFalse(workspace.hasRestoredUnreadIndicator(panelId: panelId))
+        XCTAssertFalse(store.hasRestoredUnreadIndicator(forTabId: workspace.id))
+        XCTAssertFalse(store.workspaceIsUnread(forTabId: workspace.id))
+
+        XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+
+        XCTAssertTrue(workspace.manualUnreadPanelIds.contains(panelId))
+    }
+
+    func testToggleFocusedNotificationUnreadClearsWorkspaceOnlyRestoredUnreadBeforeMarkingPanel() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let window = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        store.restoreUnreadIndicator(forTabId: workspace.id)
+
+        XCTAssertFalse(workspace.hasRestoredUnreadIndicator(panelId: panelId))
+        XCTAssertTrue(store.hasRestoredUnreadIndicator(forTabId: workspace.id))
+
+        XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+
+        XCTAssertFalse(store.hasRestoredUnreadIndicator(forTabId: workspace.id))
+        XCTAssertFalse(store.workspaceIsUnread(forTabId: workspace.id))
+        XCTAssertFalse(workspace.manualUnreadPanelIds.contains(panelId))
+    }
+
+    func testToggleFocusedNotificationUnreadPreservesWorkspaceUnreadWhenClearingVisualOnlyRestoredPanel() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let window = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.restorePanelUnreadIndicator(panelId, contributesToWorkspaceUnread: false)
+        store.restoreUnreadIndicator(forTabId: workspace.id)
+
+        XCTAssertTrue(workspace.hasRestoredUnreadIndicator(panelId: panelId))
+        XCTAssertFalse(workspace.hasWorkspaceContributingRestoredUnreadIndicator)
+        XCTAssertTrue(store.hasRestoredUnreadIndicator(forTabId: workspace.id))
+
+        XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+
+        XCTAssertFalse(workspace.hasRestoredUnreadIndicator(panelId: panelId))
+        XCTAssertTrue(store.hasRestoredUnreadIndicator(forTabId: workspace.id))
+        XCTAssertTrue(store.workspaceIsUnread(forTabId: workspace.id))
+        XCTAssertFalse(workspace.manualUnreadPanelIds.contains(panelId))
+
+        XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+
+        XCTAssertFalse(store.hasRestoredUnreadIndicator(forTabId: workspace.id))
+        XCTAssertFalse(store.workspaceIsUnread(forTabId: workspace.id))
+        XCTAssertFalse(workspace.manualUnreadPanelIds.contains(panelId))
+    }
+
+    func testToggleFocusedNotificationUnreadKeepsManualUnreadOnOriginalPanelAfterFocusMoves() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let window = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false))
+        let leftTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(leftPanelId))
+        let rightTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(rightPanel.id))
+
+        workspace.focusPanel(leftPanelId)
+
+        XCTAssertFalse(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: nil))
+        XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+        XCTAssertTrue(workspace.manualUnreadPanelIds.contains(leftPanelId))
+        XCTAssertFalse(workspace.manualUnreadPanelIds.contains(rightPanel.id))
+        XCTAssertTrue(workspace.bonsplitController.tab(leftTabId)?.showsNotificationBadge ?? false)
+        XCTAssertFalse(workspace.bonsplitController.tab(rightTabId)?.showsNotificationBadge ?? true)
+
+        workspace.focusPanel(rightPanel.id)
+
+        XCTAssertTrue(workspace.manualUnreadPanelIds.contains(leftPanelId))
+        XCTAssertFalse(workspace.manualUnreadPanelIds.contains(rightPanel.id))
+        XCTAssertTrue(workspace.bonsplitController.tab(leftTabId)?.showsNotificationBadge ?? false)
+        XCTAssertFalse(workspace.bonsplitController.tab(rightTabId)?.showsNotificationBadge ?? true)
+    }
+
+    func testMarkOldestUnreadAndJumpNextExcludesNewManualWorkspaceUnread() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let window = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let currentPanelId = try XCTUnwrap(currentWorkspace.focusedPanelId)
+        let nextWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        store.markUnread(forTabId: nextWorkspace.id)
+
+        XCTAssertNil(appDelegate.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(preferredWindow: window))
+
+        XCTAssertEqual(manager.selectedTabId, nextWorkspace.id)
+        XCTAssertTrue(store.workspaceIsUnread(forTabId: currentWorkspace.id))
+        XCTAssertFalse(store.hasManualUnread(forTabId: currentWorkspace.id))
+        XCTAssertTrue(currentWorkspace.manualUnreadPanelIds.contains(currentPanelId))
+        XCTAssertFalse(store.workspaceIsUnread(forTabId: nextWorkspace.id))
+    }
+
+    func testMarkOldestUnreadDoesNotDuplicateExistingWorkspaceManualUnreadOnFocusedPanel() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let window = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let currentPanelId = try XCTUnwrap(currentWorkspace.focusedPanelId)
+        let nextWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+
+        store.markUnread(forTabId: currentWorkspace.id)
+        store.markUnread(forTabId: nextWorkspace.id)
+
+        XCTAssertNil(appDelegate.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(preferredWindow: window))
+
+        XCTAssertEqual(manager.selectedTabId, nextWorkspace.id)
+        XCTAssertTrue(store.hasManualUnread(forTabId: currentWorkspace.id))
+        XCTAssertTrue(store.workspaceIsUnread(forTabId: currentWorkspace.id))
+        XCTAssertFalse(currentWorkspace.manualUnreadPanelIds.contains(currentPanelId))
+        XCTAssertFalse(store.workspaceIsUnread(forTabId: nextWorkspace.id))
+    }
+
+    func testMarkOldestUnreadMarksFocusedPanelWhenDifferentPanelIsUnread() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let window = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let focusedPanelId = try XCTUnwrap(currentWorkspace.focusedPanelId)
+        let otherPanel = try XCTUnwrap(currentWorkspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal, focus: false))
+        let nextWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+
+        currentWorkspace.focusPanel(focusedPanelId)
+        currentWorkspace.markPanelUnread(otherPanel.id)
+        store.markUnread(forTabId: nextWorkspace.id)
+
+        XCTAssertNil(appDelegate.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(preferredWindow: window))
+
+        XCTAssertEqual(manager.selectedTabId, nextWorkspace.id)
+        XCTAssertTrue(currentWorkspace.manualUnreadPanelIds.contains(focusedPanelId))
+        XCTAssertTrue(currentWorkspace.manualUnreadPanelIds.contains(otherPanel.id))
+        XCTAssertFalse(store.workspaceIsUnread(forTabId: nextWorkspace.id))
+    }
+
+    func testJumpToLatestUnreadExcludesNotificationsFromExcludedWorkspace() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let currentPanelId = try XCTUnwrap(currentWorkspace.focusedPanelId)
+        let nextWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let nextPanelId = try XCTUnwrap(nextWorkspace.focusedPanelId)
+        let currentNotificationId = UUID()
+        let nextNotificationId = UUID()
+        let now = Date()
+
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: currentNotificationId,
+                tabId: currentWorkspace.id,
+                surfaceId: currentPanelId,
+                title: "Current",
+                subtitle: "",
+                body: "",
+                createdAt: now,
+                isRead: false
+            ),
+            TerminalNotification(
+                id: nextNotificationId,
+                tabId: nextWorkspace.id,
+                surfaceId: nextPanelId,
+                title: "Next",
+                subtitle: "",
+                body: "",
+                createdAt: now.addingTimeInterval(-1),
+                isRead: false
+            ),
+        ])
+
+        let opened = appDelegate.jumpToLatestUnread(excludingWorkspaceId: currentWorkspace.id)
+
+        XCTAssertEqual(opened?.id, nextNotificationId)
+        XCTAssertEqual(manager.selectedTabId, nextWorkspace.id)
+        XCTAssertEqual(store.notifications.first(where: { $0.id == currentNotificationId })?.isRead, false)
+        XCTAssertEqual(store.notifications.first(where: { $0.id == nextNotificationId })?.isRead, true)
+    }
+
+    func testJumpToLatestManualPanelUnreadFlashesAfterSwitchingAway() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+        let defaults = UserDefaults.standard
+
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let originalExperimentEnabled = defaults.object(forKey: TmuxOverlayExperimentSettings.enabledKey)
+        let originalExperimentTarget = defaults.object(forKey: TmuxOverlayExperimentSettings.targetKey)
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = true
+        defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
+        defaults.set(TmuxOverlayExperimentTarget.bonsplitPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let originalExperimentEnabled {
+                defaults.set(originalExperimentEnabled, forKey: TmuxOverlayExperimentSettings.enabledKey)
+            } else {
+                defaults.removeObject(forKey: TmuxOverlayExperimentSettings.enabledKey)
+            }
+            if let originalExperimentTarget {
+                defaults.set(originalExperimentTarget, forKey: TmuxOverlayExperimentSettings.targetKey)
+            } else {
+                defaults.removeObject(forKey: TmuxOverlayExperimentSettings.targetKey)
+            }
+        }
+
+        let window = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let unreadWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let unreadPanelId = try XCTUnwrap(unreadWorkspace.focusedPanelId)
+
+        XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+        XCTAssertTrue(store.workspaceIsUnread(forTabId: unreadWorkspace.id))
+        XCTAssertFalse(store.hasManualUnread(forTabId: unreadWorkspace.id))
+        XCTAssertTrue(unreadWorkspace.manualUnreadPanelIds.contains(unreadPanelId))
+
+        let otherWorkspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        XCTAssertEqual(manager.selectedTabId, otherWorkspace.id)
+        XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashToken, 0)
+
+        _ = appDelegate.jumpToLatestUnread()
+
+        XCTAssertEqual(manager.selectedTabId, unreadWorkspace.id)
+        XCTAssertFalse(store.workspaceIsUnread(forTabId: unreadWorkspace.id))
+        XCTAssertFalse(unreadWorkspace.manualUnreadPanelIds.contains(unreadPanelId))
+        XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashToken, 1)
+        XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashPanelId, unreadPanelId)
+        XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashReason, .unreadIndicatorDismiss)
+    }
+
+    func testJumpToLatestRestoredWorkspaceUnreadFlashesOnceAfterSwitchingAway() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+        let defaults = UserDefaults.standard
+
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let originalExperimentEnabled = defaults.object(forKey: TmuxOverlayExperimentSettings.enabledKey)
+        let originalExperimentTarget = defaults.object(forKey: TmuxOverlayExperimentSettings.targetKey)
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = true
+        defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
+        defaults.set(TmuxOverlayExperimentTarget.bonsplitPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let originalExperimentEnabled {
+                defaults.set(originalExperimentEnabled, forKey: TmuxOverlayExperimentSettings.enabledKey)
+            } else {
+                defaults.removeObject(forKey: TmuxOverlayExperimentSettings.enabledKey)
+            }
+            if let originalExperimentTarget {
+                defaults.set(originalExperimentTarget, forKey: TmuxOverlayExperimentSettings.targetKey)
+            } else {
+                defaults.removeObject(forKey: TmuxOverlayExperimentSettings.targetKey)
+            }
+        }
+
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let unreadWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let unreadPanelId = try XCTUnwrap(unreadWorkspace.focusedPanelId)
+
+        unreadWorkspace.restorePanelUnreadIndicator(unreadPanelId)
+        store.restoreUnreadIndicator(forTabId: unreadWorkspace.id)
+
+        let otherWorkspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        XCTAssertEqual(manager.selectedTabId, otherWorkspace.id)
+        XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashToken, 0)
+
+        _ = appDelegate.jumpToLatestUnread()
+
+        XCTAssertEqual(manager.selectedTabId, unreadWorkspace.id)
+        XCTAssertFalse(unreadWorkspace.hasRestoredUnreadIndicator(panelId: unreadPanelId))
+        XCTAssertFalse(store.hasRestoredUnreadIndicator(forTabId: unreadWorkspace.id))
+        XCTAssertFalse(store.workspaceIsUnread(forTabId: unreadWorkspace.id))
+        XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashToken, 1)
+        XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashPanelId, unreadPanelId)
+        XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashReason, .unreadIndicatorDismiss)
     }
 
     func testMarkLatestNotificationAsOldestUnreadAppendsWhenNoOtherUnreadNotificationsRemain() {
