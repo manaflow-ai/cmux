@@ -15797,7 +15797,9 @@ struct CMUXCLI {
                 if let index = intFromAny(pane["index"]) {
                     context["pane_index"] = String(index)
                 }
-                context["pane_pid"] = String(tmuxPanePID(from: pane, paneId: resolvedPaneId))
+                if let panePID = tmuxPanePID(from: pane) {
+                    context["pane_pid"] = String(panePID)
+                }
             }
         }
 

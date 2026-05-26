@@ -134,21 +134,13 @@ extension CMUXCLI {
         return format.contains("#{pane_start_command}") || format.contains("#{pane_current_command}")
     }
 
-    func tmuxPanePID(from pane: [String: Any], paneId: String) -> Int {
+    func tmuxPanePID(from pane: [String: Any]) -> Int? {
         for key in ["pane_pid", "pid", "foreground_pid", "pane_foreground_pid"] {
             if let pid = intFromAny(pane[key]), pid > 0 {
                 return pid
             }
         }
-
-        let compactPaneId = paneId.replacingOccurrences(of: "-", with: "")
-        let hexPrefix = String(compactPaneId.prefix(8))
-        if let parsed = UInt32(hexPrefix, radix: 16) {
-            return Int(parsed % 2_000_000_000) + 1
-        }
-
-        let index = max(intFromAny(pane["index"]) ?? 0, 0)
-        return 1_000_000 + index
+        return nil
     }
 
     func tmuxLegacyOMXHudStartCommand(
