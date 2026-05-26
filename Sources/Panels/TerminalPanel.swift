@@ -54,7 +54,6 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published private(set) var directory: String = ""
 
     @Published private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
-    @Published private(set) var tmuxControlState = TmuxControlState()
     @Published var isTextBoxActive: Bool = false
     @Published var textBoxContent: String = ""
     @Published var textBoxAttachments: [TextBoxAttachment] = []
@@ -152,12 +151,6 @@ final class TerminalPanel: Panel, ObservableObject {
             }
             .store(in: &cancellables)
 
-        surface.$tmuxControlState
-            .sink { [weak self] state in
-                guard self?.tmuxControlState != state else { return }
-                self?.tmuxControlState = state
-            }
-            .store(in: &cancellables)
     }
 
     /// Create a new terminal panel with a fresh surface

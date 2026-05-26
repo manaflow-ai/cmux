@@ -7985,7 +7985,7 @@ class TerminalController {
                     item["requested_working_directory"] = v2OrNull(v2NonEmptyString(terminalPanel.requestedWorkingDirectory))
                     item["initial_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugInitialCommand()))
                     item["tmux_start_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugTmuxStartCommand()))
-                    item["tmux_control_active"] = terminalPanel.tmuxControlState.active
+                    item["tmux_control_active"] = terminalPanel.surface.tmuxControlState.active
                     item["resume_binding"] = v2SurfaceResumeBindingPayload(ws.surfaceResumeBinding(panelId: panel.id))
                 }
                 return item
