@@ -17557,6 +17557,7 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Hide Browser Omnibar" } },
         "ja": { "stringUnit": { "state": "translated", "value": "ブラウザのオムニバーを非表示" } },
+        "km": { "stringUnit": { "state": "translated", "value": "Hide Browser Omnibar" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "隐藏浏览器全能栏" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "隱藏瀏覽器網址列" } },
         "ko": { "stringUnit": { "state": "translated", "value": "브라우저 옴니바 숨기기" } },
@@ -17581,6 +17582,7 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Show Browser Omnibar" } },
         "ja": { "stringUnit": { "state": "translated", "value": "ブラウザのオムニバーを表示" } },
+        "km": { "stringUnit": { "state": "translated", "value": "Show Browser Omnibar" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "显示浏览器全能栏" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "顯示瀏覽器網址列" } },
         "ko": { "stringUnit": { "state": "translated", "value": "브라우저 옴니바 보이기" } },

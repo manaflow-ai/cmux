@@ -47,10 +47,10 @@ enum CMUXAgentTurnDiffBaselineFile {
     private static func homeExpandedPath(_ rawPath: String, env: [String: String]) -> String {
         let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed == "~" || trimmed.hasPrefix("~/") else {
-            return NSString(string: trimmed).expandingTildeInPath
+            return trimmed
         }
         guard let home = normalized(env["HOME"]) else {
-            return NSString(string: trimmed).expandingTildeInPath
+            return trimmed
         }
         if trimmed == "~" {
             return home
@@ -1089,7 +1089,7 @@ extension CMUXCLI {
             } catch let error as CLIError {
                 throw error
             } catch {
-                throw CLIError(message: "Failed to fetch diff URL: \(url.absoluteString) (\(error.localizedDescription))")
+                throw CLIError(message: "Failed to fetch diff URL: \(url.absoluteString)")
             }
         }
 
@@ -1231,8 +1231,7 @@ extension CMUXCLI {
             throw CLIError(message: "Timed out fetching diff URL: \(url.absoluteString)")
         }
         guard result.status == 0 else {
-            let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw CLIError(message: "Failed to fetch diff URL: \(url.absoluteString)\(detail.isEmpty ? "" : " (\(detail))")")
+            throw CLIError(message: "Failed to fetch diff URL: \(url.absoluteString)")
         }
         return result.stdout
     }
@@ -1666,13 +1665,13 @@ extension CMUXCLI {
     }
 
     private func agentTurnDiffBaselineSnapshotRootURL(storePath: String) -> URL {
-        URL(fileURLWithPath: NSString(string: storePath).expandingTildeInPath)
+        URL(fileURLWithPath: storePath)
             .deletingLastPathComponent()
             .appendingPathComponent("agent-turn-diff-baseline-snapshots", isDirectory: true)
     }
 
     private func agentTurnDiffBaselineSnapshotStagingRootURL(storePath: String) -> URL {
-        URL(fileURLWithPath: NSString(string: storePath).expandingTildeInPath)
+        URL(fileURLWithPath: storePath)
             .deletingLastPathComponent()
             .appendingPathComponent("agent-turn-diff-baseline-snapshots-staging", isDirectory: true)
     }
@@ -1955,7 +1954,7 @@ extension CMUXCLI {
     }
 
     private func readAgentTurnDiffBaselineStore(path: String) throws -> CMUXAgentTurnDiffBaselineStore {
-        let url = URL(fileURLWithPath: NSString(string: path).expandingTildeInPath)
+        let url = URL(fileURLWithPath: path)
         guard FileManager.default.fileExists(atPath: url.path) else {
             return CMUXAgentTurnDiffBaselineStore()
         }
@@ -1968,10 +1967,9 @@ extension CMUXCLI {
         update: (inout CMUXAgentTurnDiffBaselineStore) throws -> Void,
         afterWrite: ((CMUXAgentTurnDiffBaselineStore) -> Void)? = nil
     ) throws {
-        let expandedPath = NSString(string: path).expandingTildeInPath
-        let url = URL(fileURLWithPath: expandedPath)
+        let url = URL(fileURLWithPath: path)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
-        let lockPath = expandedPath + ".lock"
+        let lockPath = path + ".lock"
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
             throw CLIError(message: "Failed to open diff baseline lock: \(lockPath)")
@@ -1979,11 +1977,11 @@ extension CMUXCLI {
         defer { Darwin.close(fd) }
 
         if flock(fd, LOCK_EX) != 0 {
-            throw CLIError(message: "Failed to lock diff baseline store: \(expandedPath)")
+            throw CLIError(message: "Failed to lock diff baseline store: \(path)")
         }
         defer { _ = flock(fd, LOCK_UN) }
 
-        var store = (try? readAgentTurnDiffBaselineStore(path: expandedPath)) ?? CMUXAgentTurnDiffBaselineStore()
+        var store = (try? readAgentTurnDiffBaselineStore(path: path)) ?? CMUXAgentTurnDiffBaselineStore()
         try update(&store)
 
         let encoder = JSONEncoder()
