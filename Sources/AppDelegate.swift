@@ -3783,8 +3783,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Task { @MainActor in await self.finishSessionAutosaveTick(source: source, generation: generation) }
     }
 
-    func requestSessionRecoverySnapshotSave(source: String) {
+    func requestSessionRecoverySnapshotSave(source: String, tabManager targetTabManager: TabManager? = nil) {
         guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp) else { return }
+        if let targetTabManager {
+            guard mainWindowContexts.values.contains(where: { $0.tabManager === targetTabManager }) else {
+                return
+            }
+        }
         saveSessionRecoverySnapshotIfNeeded(source: source)
     }
 
@@ -4281,6 +4286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             didApplyStartupSessionRestore: didApplyStartupSessionRestore,
             isApplyingSessionRestore: isApplyingSessionRestore
         ) {
+            requestSessionRecoverySnapshotSave(source: "mainWindow.register", tabManager: tabManager)
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }
     }

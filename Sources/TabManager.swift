@@ -2671,7 +2671,7 @@ class TabManager: ObservableObject {
                     userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
                 )
             }
-            AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.add")
+            AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.add", tabManager: self)
 #if DEBUG
             UITestRecorder.incrementInt("addTabInvocations")
             UITestRecorder.record([
@@ -5504,7 +5504,7 @@ class TabManager: ObservableObject {
             pinnedWorkspaceIds: tabs.filter(\.isPinned).map(\.id),
             source: "workspace.lifecycle"
         )
-        AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.reorder")
+        AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.reorder", tabManager: self)
     }
 
     @discardableResult
@@ -5901,7 +5901,7 @@ class TabManager: ObservableObject {
             }
         }
         publishCmuxWorkspaceClosed(workspace)
-        AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.close")
+        AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.close", tabManager: self)
     }
 
     /// Detach a workspace from this window without closing its panels.
@@ -5929,7 +5929,7 @@ class TabManager: ObservableObject {
             selectedTabId = tabs[nextIndex].id
         }
 
-        AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.detach")
+        AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.detach", tabManager: self)
         return removed
     }
 
@@ -5945,7 +5945,7 @@ class TabManager: ObservableObject {
         if select {
             selectedTabId = workspace.id
         }
-        AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.attach")
+        AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.attach", tabManager: self)
     }
 
     // Keep closeTab as convenience alias

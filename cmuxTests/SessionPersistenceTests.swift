@@ -578,6 +578,40 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(snapshot.windows.first?.tabManager.workspaces.last?.customTitle, "Recovered work")
     }
 
+    @MainActor
+    func testUnregisteredWorkspaceTopologyChangeDoesNotOverwriteRecoverySnapshot() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-recovery-guard-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        var sentinelSnapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        sentinelSnapshot.windows[0].sidebar.width = 321
+        XCTAssertTrue(SessionPersistenceStore.save(sentinelSnapshot, fileURL: snapshotURL))
+
+        let app = AppDelegate.shared ?? AppDelegate()
+        let originalSnapshotURL = app.debugSessionSnapshotFileURLForTesting
+        app.debugSessionSnapshotFileURLForTesting = snapshotURL
+        defer { app.debugSessionSnapshotFileURLForTesting = originalSnapshotURL }
+
+        let registeredManager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = app.registerMainWindowContextForTesting(tabManager: registeredManager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let unregisteredManager = TabManager(autoWelcomeIfNeeded: false)
+        _ = unregisteredManager.addWorkspace(
+            title: "Unregistered",
+            inheritWorkingDirectory: false,
+            autoWelcomeIfNeeded: false
+        )
+
+        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1))
+
+        let snapshot = try XCTUnwrap(SessionPersistenceStore.load(fileURL: snapshotURL))
+        XCTAssertEqual(snapshot.windows.first?.sidebar.width, 321)
+    }
+
     func testMainWindowRegistrationSnapshotSavePolicySkipsStartupRestore() {
         XCTAssertTrue(
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
