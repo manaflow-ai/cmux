@@ -158,6 +158,7 @@ _cmux_now() {
 
 typeset -g _CMUX_CLAUDE_WRAPPER=""
 typeset -g _CMUX_GROK_WRAPPER=""
+typeset -g _CMUX_OPENCODE_WRAPPER=""
 _cmux_install_cli_wrapper() {
     local command_name="$1"
     local wrapper_variable="$2"
@@ -177,6 +178,7 @@ _cmux_install_cli_wrapper() {
 }
 _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
+_cmux_install_cli_wrapper opencode _CMUX_OPENCODE_WRAPPER
 
 _cmux_normalize_claude_config_dir() {
     [[ -n "${CLAUDE_CONFIG_DIR:-}" && -n "${HOME:-}" ]] || return 0

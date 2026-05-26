@@ -17312,10 +17312,6 @@ struct CMUXCLI {
 
     // MARK: - cmux omo (OpenCode + oh-my-openagent)
 
-    private func resolveOpenCodeExecutable(searchPath: String?) -> String? {
-        resolveExecutableInSearchPath("opencode", searchPath: searchPath)
-    }
-
     private func createOMOShimDirectory() throws -> URL {
         // tmux shim: redirects tmux commands to cmux __tmux-compat
         // Handle -V locally (no socket needed) since __tmux-compat requires a connection.
@@ -23359,6 +23355,88 @@ function hookEnvironment(cwd) {
   return env;
 }
 
+function cmuxExecutable() {
+  return process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
+}
+
+function cmuxArguments(args) {
+  if (process.env.CMUX_SOCKET_PATH) {
+    return ["--socket", process.env.CMUX_SOCKET_PATH, ...args];
+  }
+  return args;
+}
+
+function runCmux(args, options = {}) {
+  return spawnSync(cmuxExecutable(), cmuxArguments(args), options);
+}
+
+const STATUS_DESCRIPTORS = {
+  running: { value: "Running", icon: "bolt.fill", color: "#4C8DFF" },
+  retrying: { value: "Retrying", icon: "arrow.triangle.2.circlepath", color: "#FF9500", priority: "100" },
+  needsInput: { value: "Needs input", icon: "bell.fill", color: "#4C8DFF", priority: "100" },
+  idle: { value: "Idle", icon: "pause.circle.fill", color: "#8E8E93" },
+  error: { value: "Error", icon: "exclamationmark.triangle.fill", color: "#FF3B30", priority: "100" },
+};
+
+function statusWords(value, depth = 0) {
+  if (depth > 2 || value == null) return [];
+  if (typeof value === "string") return [value];
+  if (typeof value === "number" || typeof value === "boolean") return [String(value)];
+  if (Array.isArray(value)) return value.flatMap((item) => statusWords(item, depth + 1));
+  if (typeof value === "object") {
+    return ["type", "status", "state", "phase", "reason", "message", "error"]
+      .flatMap((key) => statusWords(value[key], depth + 1));
+  }
+  return [];
+}
+
+function descriptorForOpenCodeStatus(rawStatus) {
+  const lower = statusWords(rawStatus).join(" ").toLowerCase();
+  if (!lower) return null;
+  if (/(retry|rate.?limit|throttl|backoff)/.test(lower)) return STATUS_DESCRIPTORS.retrying;
+  if (/(error|fail|failure|exception|crash|panic)/.test(lower)) return STATUS_DESCRIPTORS.error;
+  if (/(idle|ready|done|complete|completed|stopped)/.test(lower)) return STATUS_DESCRIPTORS.idle;
+  if (/(run|running|busy|active|work|working|stream|streaming|process|processing|execute|executing)/.test(lower)) {
+    return STATUS_DESCRIPTORS.running;
+  }
+  return null;
+}
+
+function setStatus(descriptor) {
+  if (!descriptor) return;
+  if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
+  if (!process.env.CMUX_SURFACE_ID) return;
+
+  const args = [
+    "set-status",
+    "opencode",
+    descriptor.value,
+    "--icon",
+    descriptor.icon,
+    "--color",
+    descriptor.color,
+    "--pid",
+    String(process.pid),
+  ];
+  if (descriptor.priority) {
+    args.push("--priority", descriptor.priority);
+  }
+  if (process.env.CMUX_WORKSPACE_ID) {
+    args.push("--workspace", process.env.CMUX_WORKSPACE_ID);
+  }
+  if (process.env.CMUX_SURFACE_ID) {
+    args.push("--panel", process.env.CMUX_SURFACE_ID);
+  }
+  try {
+    runCmux(args, {
+      encoding: "utf8",
+      env: hookEnvironment(process.cwd()),
+      stdio: ["ignore", "ignore", "ignore"],
+      timeout: 2000,
+    });
+  } catch (_) {}
+}
+
 function sendHook(subcommand, ctx, event, extra = {}) {
   if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
   if (!process.env.CMUX_SURFACE_ID) return;
@@ -23374,9 +23452,8 @@ function sendHook(subcommand, ctx, event, extra = {}) {
     hook_event_name: event && event.type,
     ...extra,
   };
-  const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
   try {
-    spawnSync(cmux, ["hooks", "opencode", subcommand], {
+    runCmux(["hooks", "opencode", subcommand], {
       input: JSON.stringify(payload),
       encoding: "utf8",
       env: hookEnvironment(cwd),
@@ -23404,12 +23481,31 @@ const CMUXSessionRestore = async (ctx) => {
           }
           break;
         case "session.status":
-          if (props.status && props.status.type === "idle") {
+          const descriptor = descriptorForOpenCodeStatus(props.status || props.info?.status || props);
+          setStatus(descriptor);
+          if (descriptor === STATUS_DESCRIPTORS.idle) {
             sendHook("stop", ctx, event);
+          } else if (descriptor === STATUS_DESCRIPTORS.error) {
+            sendHook("notification", ctx, event, {
+              message: firstString(props.message, props.error && props.error.message, props.reason) || "OpenCode reported an error",
+              status: "error",
+            });
           }
           break;
         case "session.idle":
+          setStatus(STATUS_DESCRIPTORS.idle);
           sendHook("stop", ctx, event);
+          break;
+        case "permission.asked":
+        case "question.asked":
+          setStatus(STATUS_DESCRIPTORS.needsInput);
+          break;
+        case "session.error":
+          setStatus(STATUS_DESCRIPTORS.error);
+          sendHook("notification", ctx, event, {
+            message: firstString(props.message, props.error && props.error.message, props.reason) || "OpenCode reported an error",
+            status: "error",
+          });
           break;
         case "session.deleted":
           sendHook("session-end", ctx, event);
@@ -26470,6 +26566,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case "cursor": envKey = "CMUX_CURSOR_PID"
         case "gemini": envKey = "CMUX_GEMINI_PID"
         case "antigravity": envKey = "CMUX_ANTIGRAVITY_PID"
+        case "opencode": envKey = "CMUX_OPENCODE_PID"
         case "rovodev": envKey = "CMUX_ROVODEV_PID"
         case "hermes-agent": envKey = "CMUX_HERMES_AGENT_PID"
         case "copilot": envKey = "CMUX_COPILOT_PID"

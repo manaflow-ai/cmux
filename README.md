@@ -268,8 +268,8 @@ cmux hooks setup --agent opencode
 `cmux hooks setup` installs supported agents it can find and prints a summary
 for skipped agents. Supported resume integrations include Claude Code, Codex,
 Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy,
-Factory, and Qoder. Claude Code is handled by the cmux Claude wrapper when Claude
-integration is enabled in Settings.
+Factory, and Qoder. Claude Code and OpenCode are handled by bundled wrappers
+inside cmux terminals.
 
 Advanced users and integrations can attach a custom resume command to the
 current terminal surface. This is useful for tools with their own durable state,

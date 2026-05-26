@@ -65,6 +65,112 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertFalse(result.stdout.contains("uninstall-hooks"), result.stdout)
     }
 
+    func testBundledOpenCodeWrapperInstallsHooksWhenSocketIsLive() throws {
+        let wrapperPath = try bundledOpenCodeWrapperPath()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-wrapper-\(UUID().uuidString)", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logURL = root.appendingPathComponent("calls.log", isDirectory: false)
+        let socketURL = root.appendingPathComponent("cmux.sock", isDirectory: false)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let socketFD = try createUnixSocket(at: socketURL.path)
+        defer {
+            close(socketFD)
+            unlink(socketURL.path)
+        }
+
+        let fakeCmuxURL = binDir.appendingPathComponent("cmux", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf 'cmux:%s\\n' "$*" >> "$CMUX_TEST_LOG"
+        if [ "$1" = "--socket" ]; then
+          shift 2
+        fi
+        if [ "$1" = "ping" ]; then
+          exit 0
+        fi
+        if [ "$1" = "hooks" ] && [ "$2" = "opencode" ] && [ "$3" = "install" ] && [ "$4" = "--yes" ]; then
+          exit 0
+        fi
+        exit 64
+        """.write(to: fakeCmuxURL, atomically: true, encoding: .utf8)
+        chmod(fakeCmuxURL.path, 0o755)
+
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf 'opencode:%s\\n' "$*" >> "$CMUX_TEST_LOG"
+        printf 'cmux-bin:%s\\n' "$CMUX_OPENCODE_CMUX_BIN" >> "$CMUX_TEST_LOG"
+        printf 'kind:%s\\n' "$CMUX_AGENT_LAUNCH_KIND" >> "$CMUX_TEST_LOG"
+        printf 'pid:%s\\n' "$CMUX_OPENCODE_PID" >> "$CMUX_TEST_LOG"
+        exit 23
+        """.write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(binDir.path):\(environment["PATH"] ?? "/usr/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCmuxURL.path
+        environment["CMUX_SOCKET_PATH"] = socketURL.path
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["CMUX_WORKSPACE_ID"] = UUID().uuidString
+        environment["CMUX_TEST_LOG"] = logURL.path
+
+        let result = runProcess(
+            executablePath: wrapperPath,
+            arguments: ["--model", "anthropic/claude-sonnet-4-6"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 23, result.stderr)
+        let log = try String(contentsOf: logURL, encoding: .utf8)
+        XCTAssertTrue(log.contains("cmux:--socket \(socketURL.path) ping"), log)
+        XCTAssertTrue(log.contains("cmux:--socket \(socketURL.path) hooks opencode install --yes"), log)
+        XCTAssertTrue(log.contains("opencode:--model anthropic/claude-sonnet-4-6"), log)
+        XCTAssertTrue(log.contains("cmux-bin:\(fakeCmuxURL.path)"), log)
+        XCTAssertTrue(log.contains("kind:opencode"), log)
+        XCTAssertTrue(log.range(of: #"pid:\d+"#, options: .regularExpression) != nil, log)
+    }
+
+    func testBundledOpenCodeWrapperPassesThroughOutsideCmux() throws {
+        let wrapperPath = try bundledOpenCodeWrapperPath()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-wrapper-passthrough-\(UUID().uuidString)", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logURL = root.appendingPathComponent("calls.log", isDirectory: false)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf 'opencode:%s\\n' "$*" >> "$CMUX_TEST_LOG"
+        printf 'kind:${CMUX_AGENT_LAUNCH_KIND:-unset}\\n' >> "$CMUX_TEST_LOG"
+        exit 17
+        """.write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(binDir.path):\(environment["PATH"] ?? "/usr/bin")"
+        environment["CMUX_TEST_LOG"] = logURL.path
+        environment.removeValue(forKey: "CMUX_SURFACE_ID")
+        environment.removeValue(forKey: "CMUX_SOCKET_PATH")
+        environment.removeValue(forKey: "CMUX_AGENT_LAUNCH_KIND")
+
+        let result = runProcess(
+            executablePath: wrapperPath,
+            arguments: ["--version"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 17, result.stderr)
+        let log = try String(contentsOf: logURL, encoding: .utf8)
+        XCTAssertEqual(log, "opencode:--version\nkind:unset\n")
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -74,6 +180,55 @@ final class OpenCodeHookRegressionTests: XCTestCase {
             return item.path
         }
         throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+    }
+
+    private func bundledOpenCodeWrapperPath() throws -> String {
+        let fileManager = FileManager.default
+        let appBundleURL = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let enumerator = fileManager.enumerator(at: appBundleURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+        while let item = enumerator?.nextObject() as? URL {
+            guard item.lastPathComponent == "opencode", item.path.contains(".app/Contents/Resources/bin/opencode") else { continue }
+            return item.path
+        }
+        throw XCTSkip("Bundled opencode wrapper not found in \(appBundleURL.path)")
+    }
+
+    private func createUnixSocket(at path: String) throws -> Int32 {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = Array(path.utf8)
+        try withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            guard pathBytes.count < buffer.count else {
+                throw POSIXError(.ENAMETOOLONG)
+            }
+            for index in pathBytes.indices {
+                buffer[index] = pathBytes[index]
+            }
+            buffer[pathBytes.count] = 0
+        }
+
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.bind(fd, sockaddrPointer, socklen_t(MemoryLayout<sa_family_t>.size + pathBytes.count + 1))
+            }
+        }
+        guard bindResult == 0 else {
+            let capturedErrno = errno
+            close(fd)
+            throw POSIXError(POSIXErrorCode(rawValue: capturedErrno) ?? .EIO)
+        }
+
+        guard listen(fd, 1) == 0 else {
+            let capturedErrno = errno
+            close(fd)
+            throw POSIXError(POSIXErrorCode(rawValue: capturedErrno) ?? .EIO)
+        }
+        return fd
     }
 
     private func runProcess(
