@@ -74,4 +74,27 @@ final class GitDiffReviewParserTests: XCTestCase {
         XCTAssertEqual(files[0].deletions, 0)
         XCTAssertTrue(files[0].hunks.isEmpty)
     }
+
+    func testParserKeepsQuotedDiffGitPathsContainingBoundaryText() {
+        let diffText = """
+        diff --git "a/src/tests b/helpers/foo.swift" "b/src/tests b/helpers/foo.swift"
+        index 1111111..2222222 100644
+        --- "a/src/tests b/helpers/foo.swift"
+        +++ "b/src/tests b/helpers/foo.swift"
+        @@ -1 +1 @@
+        -old
+        +new
+        """
+
+        let files = GitDiffReviewParser.parse(
+            diffText: diffText,
+            statusText: " M src/tests b/helpers/foo.swift\u{0}"
+        )
+
+        XCTAssertEqual(files.count, 1)
+        XCTAssertEqual(files[0].path, "src/tests b/helpers/foo.swift")
+        XCTAssertEqual(files[0].oldPath, "src/tests b/helpers/foo.swift")
+        XCTAssertEqual(files[0].additions, 1)
+        XCTAssertEqual(files[0].deletions, 1)
+    }
 }

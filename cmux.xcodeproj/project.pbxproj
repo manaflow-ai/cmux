@@ -161,6 +161,10 @@
 		D7AB00000000000000000003 /* ContentView+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */; };
 		C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */; };
 		C60900000000000000000001 /* CodeReviewPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000002 /* CodeReviewPanelView.swift */; };
+		C60900000000000000000010 /* GitDiffReviewModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000011 /* GitDiffReviewModels.swift */; };
+		C60900000000000000000012 /* GitDiffReviewParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000013 /* GitDiffReviewParser.swift */; };
+		C60900000000000000000014 /* GitDiffReviewLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000015 /* GitDiffReviewLoader.swift */; };
+		C60900000000000000000016 /* GitDiffReviewStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000017 /* GitDiffReviewStore.swift */; };
 		C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */; };
 		C60900000000000000000003 /* GitDiffReviewParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60900000000000000000004 /* GitDiffReviewParserTests.swift */; };
 		C0DEF4120000000000000001 /* CommandPaletteSettingsToggleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF4120000000000000002 /* CommandPaletteSettingsToggleTests.swift */; };
@@ -665,6 +669,10 @@
 		B37A00000000000000000004 /* RightSidebarMode+Availability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarMode+Availability.swift"; sourceTree = "<group>"; };
 		B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarRemoteCommand.swift; sourceTree = "<group>"; };
 		C60900000000000000000002 /* CodeReviewPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeReviewPanelView.swift; sourceTree = "<group>"; };
+		C60900000000000000000011 /* GitDiffReviewModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffReviewModels.swift; sourceTree = "<group>"; };
+		C60900000000000000000013 /* GitDiffReviewParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffReviewParser.swift; sourceTree = "<group>"; };
+		C60900000000000000000015 /* GitDiffReviewLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffReviewLoader.swift; sourceTree = "<group>"; };
+		C60900000000000000000017 /* GitDiffReviewStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitDiffReviewStore.swift; sourceTree = "<group>"; };
 		B37A00000000000000000006 /* MainWindowFocusTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusTypes.swift; sourceTree = "<group>"; };
 		A11EAB000000000000000001 /* AppearanceSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettings.swift; sourceTree = "<group>"; };
 		A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalAppearance.swift; sourceTree = "<group>"; };
@@ -1518,6 +1526,10 @@
 				B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */,
 				FE003003 /* RightSidebarPanelView.swift */,
 				FE0030A3 /* RightSidebarToolPanel.swift */,
+				C60900000000000000000011 /* GitDiffReviewModels.swift */,
+				C60900000000000000000013 /* GitDiffReviewParser.swift */,
+				C60900000000000000000015 /* GitDiffReviewLoader.swift */,
+				C60900000000000000000017 /* GitDiffReviewStore.swift */,
 				C60900000000000000000002 /* CodeReviewPanelView.swift */,
 				D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */,
 				D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */,
@@ -2277,6 +2289,10 @@
 				B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */,
 				FE003103 /* RightSidebarPanelView.swift in Sources */,
 				FE0031A3 /* RightSidebarToolPanel.swift in Sources */,
+				C60900000000000000000010 /* GitDiffReviewModels.swift in Sources */,
+				C60900000000000000000012 /* GitDiffReviewParser.swift in Sources */,
+				C60900000000000000000014 /* GitDiffReviewLoader.swift in Sources */,
+				C60900000000000000000016 /* GitDiffReviewStore.swift in Sources */,
 				C60900000000000000000001 /* CodeReviewPanelView.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */,
