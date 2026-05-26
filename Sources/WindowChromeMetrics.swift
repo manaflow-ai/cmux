@@ -118,7 +118,8 @@ enum SidebarWorkspaceScrollLayout {
         case .complete:
             break
         }
-        guard let rowsHeight, rowsHeight > 0 else { return true }
+        guard let rowsHeight else { return false }
+        guard rowsHeight > 0 else { return true }
         return contentOverflows(
             contentHeight: rowsHeight,
             viewportHeight: contentMinHeight,

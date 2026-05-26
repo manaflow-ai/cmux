@@ -310,6 +310,18 @@ final class SidebarWorkspaceScrollLayoutTests: XCTestCase {
         )
     }
 
+    func testCompleteRowsWithoutHeightDoNotShowTransientScroller() {
+        let contentMinHeight: CGFloat = 480
+
+        XCTAssertFalse(
+            SidebarWorkspaceScrollLayout.rowsOverflow(
+                rowsHeight: nil,
+                contentMinHeight: contentMinHeight,
+                rowsLayoutCompleteness: .complete
+            )
+        )
+    }
+
     func testEmptyWorkspaceRowsCanFillAvailableSidebarSpace() {
         let contentMinHeight: CGFloat = 480
 

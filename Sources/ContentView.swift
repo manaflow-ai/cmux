@@ -10065,7 +10065,6 @@ struct VerticalTabsSidebar: View {
                         emptyAreaHeight: emptyAreaHeight
                     )
                 }
-                .scrollIndicators(.automatic)
                 .background(
                     SidebarScrollViewResolver { scrollView in
                         configureSidebarScrollView(
@@ -10269,7 +10268,7 @@ struct VerticalTabsSidebar: View {
                 }
             }
             .background(
-                SidebarScrollViewResolver { scrollView in
+                SidebarScrollViewResolver(observesLayoutChanges: true) { scrollView in
                     configureSidebarScrollViewFromDocument(scrollView)
                     dragAutoScrollController.attach(scrollView: scrollView)
                 }
@@ -13423,22 +13422,40 @@ private struct SidebarDevFooter: View {
 #endif
 
 private struct SidebarScrollViewResolver: NSViewRepresentable {
+    var observesLayoutChanges = false
     let onResolve: (NSScrollView?) -> Void
 
     func makeNSView(context: Context) -> SidebarScrollViewResolverView {
         let view = SidebarScrollViewResolverView()
+        view.observesLayoutChanges = observesLayoutChanges
         view.onResolve = onResolve
         return view
     }
 
     func updateNSView(_ nsView: SidebarScrollViewResolverView, context: Context) {
+        nsView.observesLayoutChanges = observesLayoutChanges
         nsView.onResolve = onResolve
         nsView.resolveScrollView()
     }
 }
 
 private final class SidebarScrollViewResolverView: NSView {
+    var observesLayoutChanges = false {
+        didSet {
+            if !observesLayoutChanges {
+                clearLayoutObservers()
+            }
+        }
+    }
     var onResolve: ((NSScrollView?) -> Void)?
+    private weak var observedScrollView: NSScrollView?
+    private weak var observedDocumentView: NSView?
+    private var layoutObserverTokens: [NSObjectProtocol] = []
+    private var resolveScheduled = false
+
+    deinit {
+        clearLayoutObservers()
+    }
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
@@ -13451,10 +13468,71 @@ private final class SidebarScrollViewResolverView: NSView {
     }
 
     func resolveScrollView() {
+        guard !resolveScheduled else { return }
+        resolveScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            onResolve?(self.enclosingScrollView)
+            self.resolveScheduled = false
+            let scrollView = self.enclosingScrollView
+            self.onResolve?(scrollView)
+            self.updateLayoutObservers(scrollView)
         }
+    }
+
+    private func updateLayoutObservers(_ scrollView: NSScrollView?) {
+        guard observesLayoutChanges, let scrollView else {
+            clearLayoutObservers()
+            return
+        }
+
+        let documentView = scrollView.documentView
+        if observedScrollView === scrollView, observedDocumentView === documentView {
+            return
+        }
+
+        clearLayoutObservers()
+        observedScrollView = scrollView
+        observedDocumentView = documentView
+
+        observeLayoutChanges(in: scrollView.contentView)
+        if let documentView {
+            observeLayoutChanges(in: documentView)
+        }
+    }
+
+    private func observeLayoutChanges(in view: NSView) {
+        view.postsFrameChangedNotifications = true
+        view.postsBoundsChangedNotifications = true
+
+        let center = NotificationCenter.default
+        layoutObserverTokens.append(
+            center.addObserver(
+                forName: NSView.frameDidChangeNotification,
+                object: view,
+                queue: .main
+            ) { [weak self] _ in
+                self?.resolveScrollView()
+            }
+        )
+        layoutObserverTokens.append(
+            center.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: view,
+                queue: .main
+            ) { [weak self] _ in
+                self?.resolveScrollView()
+            }
+        )
+    }
+
+    private func clearLayoutObservers() {
+        let center = NotificationCenter.default
+        for token in layoutObserverTokens {
+            center.removeObserver(token)
+        }
+        layoutObserverTokens = []
+        observedScrollView = nil
+        observedDocumentView = nil
     }
 }
 
