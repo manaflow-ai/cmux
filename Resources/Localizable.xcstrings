@@ -22106,10 +22106,52 @@
     "agent.generic.notification.status.idle": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neaktivno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktiv"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktiv"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Idle"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inactivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inactif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inattivo"
           }
         },
         "ja": {
@@ -22117,22 +22159,196 @@
             "state": "translated",
             "value": "待機中"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំនេរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유휴"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktiv"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bezczynny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inativo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ожидание"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้ใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boşta"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очікування"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空闲"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閒置"
+          }
         }
       }
     },
     "agent.generic.notification.status.needsInput": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ يحتاج إلى إدخال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ treba unos"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kræver input"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ benötigt Eingabe"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ needs input"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ necesita entrada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ attend une saisie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ richiede input"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ 入力待ち"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ត្រូវការការបញ្ចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 입력 필요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ trenger inndata"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wymaga danych wejściowych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ precisa de entrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ожидает ввода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ต้องการข้อมูลป้อนเข้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ giriş bekliyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ очікує введення"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要输入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要輸入"
           }
         }
       }
@@ -22222,7 +22438,7 @@
         }
       }
     },
-    "agent.generic.status.running": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"translated","value":"Running"}},"bs":{"stringUnit":{"state":"translated","value":"Running"}},"da":{"stringUnit":{"state":"translated","value":"Running"}},"de":{"stringUnit":{"state":"translated","value":"Running"}},"en":{"stringUnit":{"state":"translated","value":"Running"}},"es":{"stringUnit":{"state":"translated","value":"Running"}},"fr":{"stringUnit":{"state":"translated","value":"Running"}},"it":{"stringUnit":{"state":"translated","value":"Running"}},"ja":{"stringUnit":{"state":"translated","value":"実行中"}},"ko":{"stringUnit":{"state":"translated","value":"Running"}},"nb":{"stringUnit":{"state":"translated","value":"Running"}},"pl":{"stringUnit":{"state":"translated","value":"Running"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Running"}},"ru":{"stringUnit":{"state":"translated","value":"Running"}},"th":{"stringUnit":{"state":"translated","value":"Running"}},"tr":{"stringUnit":{"state":"translated","value":"Running"}},"uk":{"stringUnit":{"state":"translated","value":"Running"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Running"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Running"}}} },
+    "agent.generic.status.running": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"translated","value":"Running"}},"bs":{"stringUnit":{"state":"translated","value":"Running"}},"da":{"stringUnit":{"state":"translated","value":"Running"}},"de":{"stringUnit":{"state":"translated","value":"Running"}},"en":{"stringUnit":{"state":"translated","value":"Running"}},"es":{"stringUnit":{"state":"translated","value":"Running"}},"fr":{"stringUnit":{"state":"translated","value":"Running"}},"it":{"stringUnit":{"state":"translated","value":"Running"}},"ja":{"stringUnit":{"state":"translated","value":"実行中"}},"km":{"stringUnit":{"state":"translated","value":"កំពុង​ដំណើរការ"}},"ko":{"stringUnit":{"state":"translated","value":"Running"}},"nb":{"stringUnit":{"state":"translated","value":"Running"}},"pl":{"stringUnit":{"state":"translated","value":"Running"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Running"}},"ru":{"stringUnit":{"state":"translated","value":"Running"}},"th":{"stringUnit":{"state":"translated","value":"Running"}},"tr":{"stringUnit":{"state":"translated","value":"Running"}},"uk":{"stringUnit":{"state":"translated","value":"Running"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Running"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Running"}}} },
     "agent.codex.error.subtitle.auth": {
       "extractionState": "manual",
       "localizations": {

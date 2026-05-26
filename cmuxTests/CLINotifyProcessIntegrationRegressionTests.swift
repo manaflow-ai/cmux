@@ -225,7 +225,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertFalse(idlePrompt.timedOut, idlePrompt.stderr)
         XCTAssertEqual(idlePrompt.status, 0, idlePrompt.stderr)
-        XCTAssertEqual(idlePrompt.stdout, "OK\n")
+        XCTAssertEqual(idlePrompt.stdout, "{}\n")
 
         let idlePromptCommands = Array(context.state.commands.dropFirst(idlePromptStart))
         XCTAssertFalse(

@@ -19729,7 +19729,7 @@ struct CMUXCLI {
                 mappedSession: mappedSession
             ) {
                 telemetry.breadcrumb("claude-hook.notification.idle-prompt-suppressed")
-                print("OK")
+                print("{}")
                 return
             }
 
