@@ -4268,6 +4268,49 @@ final class SidebarBackgroundConfigTests: XCTestCase {
                        "Should not overwrite opacity when config doesn't set sidebar-tint-opacity")
     }
 
+    func testApplyToUserDefaultsWritesSidebarThemeColorsFromGhosttyConfig() {
+        let defaults = UserDefaults.standard
+        let keys = [
+            "sidebarTintHex",
+            "sidebarSelectionColorHex",
+            "sidebarForegroundColorHex",
+            "sidebarMutedForegroundColorHex",
+            "sidebarSelectionForegroundColorHex",
+            "sidebarBorderColorHex",
+            "sidebarAccentColorHex",
+            "sidebarNotificationBadgeColorHex",
+        ]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
+
+        var config = GhosttyConfig()
+        config.parse("""
+        sidebar-background = #112233
+        sidebar-selection-background = #445566
+        sidebar-foreground = #ddeeff
+        sidebar-muted-foreground = #99aabb
+        sidebar-selection-foreground = #102030
+        sidebar-border-color = #223344
+        sidebar-accent-color = #33cc99
+        sidebar-notification-badge-color = #cc3366
+        """)
+        config.resolveSidebarBackground(preferredColorScheme: .dark)
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHex"), "#112233")
+        XCTAssertEqual(defaults.string(forKey: "sidebarSelectionColorHex"), "#445566")
+        XCTAssertEqual(defaults.string(forKey: "sidebarForegroundColorHex"), "#DDEEFF")
+        XCTAssertEqual(defaults.string(forKey: "sidebarMutedForegroundColorHex"), "#99AABB")
+        XCTAssertEqual(defaults.string(forKey: "sidebarSelectionForegroundColorHex"), "#102030")
+        XCTAssertEqual(defaults.string(forKey: "sidebarBorderColorHex"), "#223344")
+        XCTAssertEqual(defaults.string(forKey: "sidebarAccentColorHex"), "#33CC99")
+        XCTAssertEqual(defaults.string(forKey: "sidebarNotificationBadgeColorHex"), "#CC3366")
+    }
+
     private func restoreDefaultsValue(_ value: Any?, key: String, defaults: UserDefaults) {
         if let value = value {
             defaults.set(value, forKey: key)
