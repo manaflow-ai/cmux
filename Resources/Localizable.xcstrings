@@ -22238,6 +22238,23 @@
         }
       }
     },
+    "agent.generic.status.retrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retrying"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行中"
+          }
+        }
+      }
+    },
     "agent.generic.status.running": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"translated","value":"Running"}},"bs":{"stringUnit":{"state":"translated","value":"Running"}},"da":{"stringUnit":{"state":"translated","value":"Running"}},"de":{"stringUnit":{"state":"translated","value":"Running"}},"en":{"stringUnit":{"state":"translated","value":"Running"}},"es":{"stringUnit":{"state":"translated","value":"Running"}},"fr":{"stringUnit":{"state":"translated","value":"Running"}},"it":{"stringUnit":{"state":"translated","value":"Running"}},"ja":{"stringUnit":{"state":"translated","value":"実行中"}},"ko":{"stringUnit":{"state":"translated","value":"Running"}},"nb":{"stringUnit":{"state":"translated","value":"Running"}},"pl":{"stringUnit":{"state":"translated","value":"Running"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Running"}},"ru":{"stringUnit":{"state":"translated","value":"Running"}},"th":{"stringUnit":{"state":"translated","value":"Running"}},"tr":{"stringUnit":{"state":"translated","value":"Running"}},"uk":{"stringUnit":{"state":"translated","value":"Running"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Running"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Running"}}} },
     "agent.codex.error.subtitle.auth": {
       "extractionState": "manual",
