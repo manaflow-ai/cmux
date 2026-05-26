@@ -749,7 +749,8 @@ extension Workspace {
             from: anchorPanelId,
             orientation: placement.orientation,
             insertFirst: placement.insertFirst,
-            focus: false
+            focus: false,
+            allowDefaultTerminalSessionBackend: false
         ) else {
             return nil
         }
@@ -987,7 +988,11 @@ extension Workspace {
                 .first
 
             if anchorPanelId == nil {
-                anchorPanelId = newTerminalSurface(inPane: paneId, focus: false)?.id
+                anchorPanelId = newTerminalSurface(
+                    inPane: paneId,
+                    focus: false,
+                    allowDefaultTerminalSessionBackend: false
+                )?.id
             }
 
             guard let anchorPanelId,
@@ -995,7 +1000,8 @@ extension Workspace {
                     from: anchorPanelId,
                     orientation: split.orientation.splitOrientation,
                     insertFirst: false,
-                    focus: false
+                    focus: false,
+                    allowDefaultTerminalSessionBackend: false
                   ),
                   let secondPaneId = self.paneId(forPanelId: newSplitPanel.id) else {
                 leaves.append(
@@ -1451,7 +1457,11 @@ extension Workspace {
                 .first
 
             if anchorPanelId == nil {
-                anchorPanelId = newTerminalSurface(inPane: paneId, focus: false)?.id
+                anchorPanelId = newTerminalSurface(
+                    inPane: paneId,
+                    focus: false,
+                    allowDefaultTerminalSessionBackend: false
+                )?.id
             }
 
             guard let anchorPanelId,
@@ -1459,7 +1469,8 @@ extension Workspace {
                       from: anchorPanelId,
                       orientation: split.splitOrientation,
                       insertFirst: false,
-                      focus: false
+                      focus: false,
+                      allowDefaultTerminalSessionBackend: false
                   ),
                   let secondPaneId = self.paneId(forPanelId: newSplitPanel.id) else {
                 leaves.append((paneId: paneId, surfaces: []))
@@ -9871,7 +9882,9 @@ final class Workspace: Identifiable, ObservableObject {
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
-        initialTerminalEnvironment: [String: String] = [:], initialDetachedSurface: DetachedSurfaceTransfer? = nil
+        initialTerminalEnvironment: [String: String] = [:],
+        allowDefaultTerminalSessionBackend: Bool = true,
+        initialDetachedSurface: DetachedSurfaceTransfer? = nil
     ) {
         self.id = UUID()
         self.portOrdinal = portOrdinal
@@ -9946,6 +9959,7 @@ final class Workspace: Identifiable, ObservableObject {
                 portOrdinal: portOrdinal,
                 initialCommand: initialTerminalCommand,
                 initialInput: initialTerminalInput,
+                allowDefaultTerminalSessionBackend: allowDefaultTerminalSessionBackend,
                 initialEnvironmentOverrides: initialTerminalEnvironment
             )
             configureTerminalPanel(terminalPanel)
@@ -17122,7 +17136,8 @@ extension Workspace: BonsplitDelegate {
                         workspaceId: id,
                         context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                         configTemplate: inheritedConfig,
-                        portOrdinal: portOrdinal
+                        portOrdinal: portOrdinal,
+                        allowDefaultTerminalSessionBackend: false
                     )
                     configureTerminalPanel(replacementPanel)
                     panels[replacementPanel.id] = replacementPanel
@@ -17154,7 +17169,11 @@ extension Workspace: BonsplitDelegate {
                         "fallback=createTerminalAndDropPlaceholders"
                     )
 #endif
-                    _ = newTerminalSurface(inPane: originalPane, focus: false)
+                    _ = newTerminalSurface(
+                        inPane: originalPane,
+                        focus: false,
+                        allowDefaultTerminalSessionBackend: false
+                    )
                     for tab in controller.tabs(inPane: originalPane) {
                         if panelIdFromSurfaceId(tab.id) == nil {
                             bonsplitController.closeTab(tab.id)

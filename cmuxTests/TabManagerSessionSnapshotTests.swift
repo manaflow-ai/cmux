@@ -1717,6 +1717,54 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
     }
 
+    func testSessionRestoreScaffoldTerminalsDoNotUseDefaultZellijBackend() throws {
+        TerminalSessionBackendSettings.setBackend(.zellij)
+        defer { _ = TerminalSessionBackendSettings.reset() }
+
+        let emptyPane = SessionWorkspaceLayoutSnapshot.pane(SessionPaneLayoutSnapshot(
+            panelIds: [],
+            selectedPanelId: nil
+        ))
+        let workspaceSnapshot = SessionWorkspaceSnapshot(
+            processTitle: "Scaffold Restore",
+            customTitle: "Scaffold Restore",
+            customDescription: nil,
+            customColor: nil,
+            isPinned: false,
+            terminalScrollBarHidden: nil,
+            currentDirectory: "/tmp/current",
+            focusedPanelId: nil,
+            layout: .split(SessionSplitLayoutSnapshot(
+                orientation: .horizontal,
+                dividerPosition: 0.5,
+                first: emptyPane,
+                second: emptyPane
+            )),
+            panels: [],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil,
+            remote: nil
+        )
+        let manager = TabManager()
+
+        manager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [workspaceSnapshot]
+        ))
+
+        let restoredWorkspace = try XCTUnwrap(manager.tabs.first)
+        let restoredTerminals = restoredWorkspace.panels.values.compactMap { $0 as? TerminalPanel }
+        XCTAssertEqual(restoredTerminals.count, 2)
+        XCTAssertTrue(restoredTerminals.allSatisfy {
+            $0.surface.debugTerminalSessionIdentityForTesting() == nil
+        })
+        XCTAssertTrue(restoredTerminals.allSatisfy {
+            $0.surface.debugInitialCommand() == nil
+        })
+    }
+
     func testClosedHistorySkipsNonRestorableRemoteWorkspaces() {
         let manager = TabManager()
         let localWorkspace = manager.tabs[0]

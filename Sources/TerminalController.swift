@@ -10058,14 +10058,22 @@ class TerminalController {
             var sourcePlaceholder: UUID?
             var targetPlaceholder: UUID?
             if workspace.bonsplitController.tabs(inPane: sourcePane).count <= 1 {
-                sourcePlaceholder = workspace.newTerminalSurface(inPane: sourcePane, focus: false)?.id
+                sourcePlaceholder = workspace.newTerminalSurface(
+                    inPane: sourcePane,
+                    focus: false,
+                    allowDefaultTerminalSessionBackend: false
+                )?.id
                 if sourcePlaceholder == nil {
                     result = .err(code: "internal_error", message: "Failed to create source placeholder surface", data: nil)
                     return
                 }
             }
             if workspace.bonsplitController.tabs(inPane: targetPane).count <= 1 {
-                targetPlaceholder = workspace.newTerminalSurface(inPane: targetPane, focus: false)?.id
+                targetPlaceholder = workspace.newTerminalSurface(
+                    inPane: targetPane,
+                    focus: false,
+                    allowDefaultTerminalSessionBackend: false
+                )?.id
                 if targetPlaceholder == nil {
                     result = .err(code: "internal_error", message: "Failed to create target placeholder surface", data: nil)
                     return

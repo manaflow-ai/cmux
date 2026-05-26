@@ -73,6 +73,38 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         )
     }
 
+    func testTerminalSessionBackendSkipsZellijWhenDefaultBackendDisabled() {
+        let suiteName = "cmux.tests.session-backend.internal-scaffold.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        TerminalSessionBackendSettings.setBackend(.zellij, defaults: defaults)
+
+        XCTAssertNil(
+            TerminalSessionBackendSettings.resolvedIdentity(
+                explicit: nil,
+                defaultName: "cmux-internal-scaffold",
+                hasExplicitStartup: false,
+                allowDefaultBackend: false,
+                defaults: defaults,
+                environment: [:]
+            )
+        )
+
+        let explicitIdentity = TerminalSessionIdentity(backend: .zellij, name: "cmux-restored")
+        XCTAssertEqual(
+            TerminalSessionBackendSettings.resolvedIdentity(
+                explicit: explicitIdentity,
+                defaultName: "cmux-internal-scaffold",
+                hasExplicitStartup: false,
+                allowDefaultBackend: false,
+                defaults: defaults,
+                environment: [:]
+            ),
+            explicitIdentity
+        )
+    }
+
     func testZellijAttachCommandUsesStableSessionAndPreservationOptions() throws {
         let command = try XCTUnwrap(
             TerminalSessionBackendSettings.zellijAttachCommand(
