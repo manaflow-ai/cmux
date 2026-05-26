@@ -172,12 +172,13 @@ extension View {
     }
 
     func copyOnlyTextSelection(for text: String) -> some View {
-        contextMenu {
-            Button {
-                WorkspaceSurfaceIdentifierClipboardText.copy(text)
-            } label: {
-                Text(String(localized: "textSelection.copyText", defaultValue: "Copy Text"))
+        textSelection(.disabled)
+            .contextMenu {
+                Button {
+                    WorkspaceSurfaceIdentifierClipboardText.copy(text)
+                } label: {
+                    Text(String(localized: "textSelection.copyText", defaultValue: "Copy Text"))
+                }
             }
-        }
     }
 }
