@@ -61,14 +61,15 @@ nonisolated enum CmuxAppCLIForwarder {
             )
         }
 
+        let forwardedArguments = explicitCLIArguments(from: arguments)
         return .forward(
             cliURL: cliURL,
-            arguments: [cliURL.path] + Array(arguments.dropFirst())
+            arguments: [cliURL.path] + forwardedArguments
         )
     }
 
     private static func shouldForward(arguments: [String]) -> Bool {
-        let explicitArguments = arguments.dropFirst().filter { !$0.hasPrefix("-psn_") }
+        let explicitArguments = explicitCLIArguments(from: arguments)
         guard let first = explicitArguments.first else {
             return false
         }
@@ -82,6 +83,10 @@ nonisolated enum CmuxAppCLIForwarder {
             return false
         }
         return true
+    }
+
+    private static func explicitCLIArguments(from arguments: [String]) -> [String] {
+        arguments.dropFirst().filter { !$0.hasPrefix("-psn_") }
     }
 
     private static func exec(cliURL: URL, arguments: [String]) -> Never {

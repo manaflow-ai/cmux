@@ -69,6 +69,29 @@ final class BundledCLILinkageTests: XCTestCase {
         )
     }
 
+    func testAppExecutableForwarderDropsFinderProcessSerialNumberWhenForwarding() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-app-forwarder-tests-\(UUID().uuidString)", isDirectory: true)
+        let cliURL = root.appendingPathComponent("cmux.app/Contents/Resources/bin/cmux", isDirectory: false)
+        try fileManager.createDirectory(at: cliURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(to: cliURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cliURL.path)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let decision = CmuxAppCLIForwarder.decision(
+            arguments: ["/Applications/cmux.app/Contents/MacOS/cmux", "-psn_0_12345", "welcome", "-psn_0_67890"],
+            bundledCLIURL: cliURL,
+            expectedBundledCLIPath: cliURL.path,
+            fileManager: fileManager
+        )
+
+        XCTAssertEqual(
+            decision,
+            .forward(cliURL: cliURL.standardizedFileURL, arguments: [cliURL.standardizedFileURL.path, "welcome"])
+        )
+    }
+
     func testAppExecutableForwarderReportsMissingBundledCLIAsCommandNotFound() throws {
         let fileManager = FileManager.default
         let missingURL = fileManager.temporaryDirectory
