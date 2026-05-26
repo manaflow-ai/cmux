@@ -762,11 +762,11 @@ final class QuickTerminalController {
         }
 
         let snapshot = pendingSessionSnapshot
-        pendingSessionSnapshot = nil
         let windowId = dependencies.createMainWindow(appDelegate, placement, snapshot)
         guard let window = dependencies.windowForMainWindowId(appDelegate, windowId) else {
             return nil
         }
+        pendingSessionSnapshot = nil
         quickTerminalWindowId = windowId
         configure(window)
         window.setSoftHiddenForVisibilityController(true)
@@ -817,16 +817,25 @@ final class QuickTerminalController {
         placement: QuickTerminalPlacement,
         configuration: QuickTerminalConfiguration
     ) {
+        if placement.hiddenFrame.equalTo(placement.visibleFrame) {
+            completeHide(window, placement: placement)
+            return
+        }
+
         isAnimating = true
 #if DEBUG
         cmuxDebugLog("quickTerminal.hide frame={\(NSStringFromRect(placement.hiddenFrame))}")
 #endif
         dependencies.animateFrame(window, placement.hiddenFrame, configuration.animationDuration * 0.8) { [weak self, weak window] in
             guard let self, let window else { return }
-            window.orderOut(nil)
-            window.setFrame(placement.visibleFrame, display: false)
-            window.setSoftHiddenForVisibilityController(true)
-            self.isAnimating = false
+            self.completeHide(window, placement: placement)
         }
+    }
+
+    private func completeHide(_ window: CmuxMainWindow, placement: QuickTerminalPlacement) {
+        window.orderOut(nil)
+        window.setFrame(placement.visibleFrame, display: false)
+        window.setSoftHiddenForVisibilityController(true)
+        isAnimating = false
     }
 }
