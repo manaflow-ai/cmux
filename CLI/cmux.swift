@@ -2702,6 +2702,39 @@ struct CMUXCLI {
         return true
     }
 
+    private func resolveSocketTarget(
+        explicitSocketPath: String?,
+        processEnv: [String: String],
+        cliBundleIdentifier: String?
+    ) throws -> (requestedPath: String, resolvedPath: String) {
+        let envSocketPath = explicitSocketPath == nil
+            ? try CLISocketEnvironment.socketPath(in: processEnv)
+            : CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
+        let socketPath = explicitSocketPath ?? envSocketPath ?? CLISocketPathResolver.defaultSocketPath(
+            bundleIdentifier: cliBundleIdentifier,
+            environment: processEnv
+        )
+        let socketPathSource: CLISocketPathSource
+        if explicitSocketPath != nil {
+            socketPathSource = .explicitFlag
+        } else if let envSocketPath {
+            socketPathSource = CLISocketPathResolver.isImplicitDefaultPath(
+                envSocketPath,
+                bundleIdentifier: cliBundleIdentifier,
+                environment: processEnv
+            ) ? .implicitDefault : .environment
+        } else {
+            socketPathSource = .implicitDefault
+        }
+        let resolvedSocketPath = CLISocketPathResolver.resolve(
+            requestedPath: socketPath,
+            source: socketPathSource,
+            environment: processEnv,
+            bundleIdentifier: cliBundleIdentifier
+        )
+        return (socketPath, resolvedSocketPath)
+    }
+
     func run() throws {
         let processEnv = ProcessInfo.processInfo.environment
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
@@ -2762,11 +2795,14 @@ struct CMUXCLI {
             break
         }
 
-        guard index < args.count else {
-            throw CLIError(
-                message: "Missing command. Usage: cmux <path>|<command> [options]. Run 'cmux --help' for the full command list.",
-                exitCode: 2
+        if index >= args.count {
+            let socketTarget = try resolveSocketTarget(
+                explicitSocketPath: explicitSocketPath,
+                processEnv: processEnv,
+                cliBundleIdentifier: cliBundleIdentifier
             )
+            try openPath(".", socketPath: socketTarget.resolvedPath)
+            return
         }
 
         let command = args[index]
@@ -2829,36 +2865,18 @@ struct CMUXCLI {
             return
         }
 
-        let envSocketPath = explicitSocketPath == nil
-            ? try CLISocketEnvironment.socketPath(in: processEnv)
-            : CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
-        let socketPath = explicitSocketPath ?? envSocketPath ?? CLISocketPathResolver.defaultSocketPath(
-            bundleIdentifier: cliBundleIdentifier,
-            environment: processEnv
+        let socketTarget = try resolveSocketTarget(
+            explicitSocketPath: explicitSocketPath,
+            processEnv: processEnv,
+            cliBundleIdentifier: cliBundleIdentifier
         )
-        let socketPathSource: CLISocketPathSource
-        if explicitSocketPath != nil {
-            socketPathSource = .explicitFlag
-        } else if let envSocketPath {
-            socketPathSource = CLISocketPathResolver.isImplicitDefaultPath(
-                envSocketPath,
-                bundleIdentifier: cliBundleIdentifier,
-                environment: processEnv
-            ) ? .implicitDefault : .environment
-        } else {
-            socketPathSource = .implicitDefault
-        }
+        let socketPath = socketTarget.requestedPath
+        let resolvedSocketPath = socketTarget.resolvedPath
         let cliTelemetry = CLISocketSentryTelemetry(
             command: command,
             commandArgs: commandArgs,
             socketPath: socketPath,
             processEnv: processEnv
-        )
-        let resolvedSocketPath = CLISocketPathResolver.resolve(
-            requestedPath: socketPath,
-            source: socketPathSource,
-            environment: processEnv,
-            bundleIdentifier: cliBundleIdentifier
         )
 
         // If the argument looks like a path (not a known command), open a workspace there.
@@ -29733,7 +29751,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         cmux - control cmux via Unix socket
 
         Usage:
-          cmux <path>                Open a directory in a new workspace (launches cmux if needed)
+          cmux                       Open the current directory in a new workspace (launches cmux if needed)
+          cmux <path>                Open a directory or file parent in a new workspace
           cmux [global-options] <command> [options]
 
         Handle Inputs:
