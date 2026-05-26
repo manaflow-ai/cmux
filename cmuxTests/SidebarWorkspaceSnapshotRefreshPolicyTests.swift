@@ -208,28 +208,26 @@ final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
     }
 }
 
-final class SidebarWorkspaceShortcutHintFreezePolicyTests: XCTestCase {
+final class SidebarShortcutHintFreezePolicyTests: XCTestCase {
     func testFrozenContextMenuPresentationOverridesLiveShortcutHintForSameTab() {
         let tabId = UUID()
-        let frozen = SidebarTabItemPresentationSnapshot(
-            tabId: tabId,
-            showsModifierShortcutHints: true
-        )
 
-        let showsShortcutHints = SidebarWorkspaceShortcutHintFreezePolicy.showsModifierShortcutHints(
-            tabId: tabId,
-            liveModifierPressed: false,
-            frozenPresentation: frozen
+        let showsShortcutHints = SidebarShortcutHintFreezePolicy.resolved(
+            live: false,
+            currentTabId: tabId,
+            frozenTabId: tabId,
+            frozenValue: true
         )
 
         XCTAssertTrue(showsShortcutHints)
     }
 
     func testNoFrozenPresentationUsesLiveShortcutHint() {
-        let showsShortcutHints = SidebarWorkspaceShortcutHintFreezePolicy.showsModifierShortcutHints(
-            tabId: UUID(),
-            liveModifierPressed: true,
-            frozenPresentation: nil
+        let showsShortcutHints = SidebarShortcutHintFreezePolicy.resolved(
+            live: true,
+            currentTabId: UUID(),
+            frozenTabId: nil,
+            frozenValue: false
         )
 
         XCTAssertTrue(showsShortcutHints)
@@ -237,40 +235,34 @@ final class SidebarWorkspaceShortcutHintFreezePolicyTests: XCTestCase {
 
     func testFrozenPresentationHidesShortcutHintWhenLiveWouldShow() {
         let tabId = UUID()
-        let frozen = SidebarTabItemPresentationSnapshot(
-            tabId: tabId,
-            showsModifierShortcutHints: false
-        )
 
-        let showsShortcutHints = SidebarWorkspaceShortcutHintFreezePolicy.showsModifierShortcutHints(
-            tabId: tabId,
-            liveModifierPressed: true,
-            frozenPresentation: frozen
+        let showsShortcutHints = SidebarShortcutHintFreezePolicy.resolved(
+            live: true,
+            currentTabId: tabId,
+            frozenTabId: tabId,
+            frozenValue: false
         )
 
         XCTAssertFalse(showsShortcutHints)
     }
 
     func testNoFrozenPresentationHidesShortcutHintWhenLiveDoesNotShow() {
-        let showsShortcutHints = SidebarWorkspaceShortcutHintFreezePolicy.showsModifierShortcutHints(
-            tabId: UUID(),
-            liveModifierPressed: false,
-            frozenPresentation: nil
+        let showsShortcutHints = SidebarShortcutHintFreezePolicy.resolved(
+            live: false,
+            currentTabId: UUID(),
+            frozenTabId: nil,
+            frozenValue: true
         )
 
         XCTAssertFalse(showsShortcutHints)
     }
 
     func testNonMatchingTabIdUsesLiveShortcutHints() {
-        let frozen = SidebarTabItemPresentationSnapshot(
-            tabId: UUID(),
-            showsModifierShortcutHints: true
-        )
-
-        let showsShortcutHints = SidebarWorkspaceShortcutHintFreezePolicy.showsModifierShortcutHints(
-            tabId: UUID(),
-            liveModifierPressed: false,
-            frozenPresentation: frozen
+        let showsShortcutHints = SidebarShortcutHintFreezePolicy.resolved(
+            live: false,
+            currentTabId: UUID(),
+            frozenTabId: UUID(),
+            frozenValue: true
         )
 
         XCTAssertFalse(showsShortcutHints)
