@@ -15772,12 +15772,22 @@ class TerminalController {
         // times in that regime, which is exactly the SwiftUI invalidation
         // load the skill measures.
         let steps = max(1, requestedSteps ?? pathIndices.count)
-        let stepIndices: [Int] = (0..<steps).map { stepNumber in
-            let position = Int(round(Double(stepNumber) * Double(pathIndices.count - 1) / Double(max(1, steps - 1))))
-            return pathIndices[max(0, min(pathIndices.count - 1, position))]
+        // Resampler closure: maps step number (0..<steps) -> path index.
+        // Not pre-materialized; computed inline in the simulation loop so
+        // arbitrarily large --steps (e.g. 60Hz over hours) doesn't allocate
+        // a giant [Int] up front.
+        let pathCount = pathIndices.count
+        let stepDivisor = Double(max(1, steps - 1))
+        let resolveStepIndex: (Int) -> Int = { stepNumber in
+            let position = Int(round(Double(stepNumber) * Double(pathCount - 1) / stepDivisor))
+            return pathIndices[max(0, min(pathCount - 1, position))]
         }
         let stepIntervalMs = max(1, durationMs / steps)
         let edge: SidebarDropEdge = fromIndex < toIndex ? .bottom : .top
+        // Cap the response payload's path array so very large --steps don't
+        // serialize a giant JSON UUID list. The simulation still runs every
+        // requested step; the response is just informational.
+        let pathSampleLimit = 64
 
         // Start the drag. If the sidebar has already unregistered, fail loud
         // instead of silently sleeping through a no-op simulation.
@@ -15800,8 +15810,14 @@ class TerminalController {
         }
 
         var aborted = false
-        for tabIndex in stepIndices {
+        var pathSample: [String] = []
+        pathSample.reserveCapacity(min(steps, pathSampleLimit))
+        for stepNumber in 0..<steps {
+            let tabIndex = resolveStepIndex(stepNumber)
             let targetTabId = tabIds[tabIndex]
+            if pathSample.count < pathSampleLimit {
+                pathSample.append(targetTabId.uuidString)
+            }
             let tickOK: Bool = v2MainSync {
                 guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
                 dragState.dropIndicator = SidebarDropIndicator(tabId: targetTabId, edge: edge)
@@ -15831,7 +15847,7 @@ class TerminalController {
             )
         }
 
-        return .ok([
+        var payload: [String: Any] = [
             "window_id": windowId.uuidString,
             "from_tab_id": fromTabId.uuidString,
             "to_tab_id": toTabId.uuidString,
@@ -15839,8 +15855,13 @@ class TerminalController {
             "step_interval_ms": stepIntervalMs,
             "duration_ms": stepIntervalMs * steps,
             "edge": edge == .top ? "top" : "bottom",
-            "path": stepIndices.map { tabIds[$0].uuidString }
-        ])
+            "path": pathSample
+        ]
+        if steps > pathSampleLimit {
+            payload["path_truncated"] = true
+            payload["path_full_size"] = steps
+        }
+        return .ok(payload)
     }
 #endif
 
