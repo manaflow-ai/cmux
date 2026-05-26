@@ -236,15 +236,33 @@ cmux NIGHTLY là một app riêng với bundle ID riêng, nên có thể chạy 
 
 Báo lỗi nightly trên [GitHub Issues](https://github.com/manaflow-ai/cmux/issues) hoặc trong [#nightly-bugs trên Discord](https://discord.gg/xsgFEVrWCZ).
 
-## Khôi phục phiên (hành vi hiện tại)
+## Khôi phục phiên
 
-Khi mở lại, cmux hiện chỉ khôi phục bố cục app và metadata:
+Khi thoát, cmux lưu phiên hiện tại. Khi mở lại, cmux khôi phục trạng thái thuộc về app:
 - Bố cục cửa sổ/workspace/pane
 - Thư mục làm việc
 - Scrollback của terminal (cố gắng hết mức)
 - URL và lịch sử điều hướng của trình duyệt
 
-cmux **không** khôi phục trạng thái tiến trình đang chạy bên trong terminal. Ví dụ, các phiên Claude Code/tmux/vim đang hoạt động chưa được khôi phục sau khi restart.
+cmux không checkpoint trạng thái tiến trình đang chạy bất kỳ. tmux, vim, shell và app terminal chưa hỗ trợ sẽ mở lại như terminal bình thường.
+
+Các phiên agent được hỗ trợ có thể tiếp tục khi hooks đã lưu ID phiên gốc:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+Người dùng nâng cao và tích hợp có thể gắn lệnh khôi phục tùy chỉnh vào surface terminal hiện tại. Điều này hữu ích cho công cụ có trạng thái bền riêng, như phiên tmux hoặc CLI agent tùy chỉnh:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+Binding này vẫn gắn với surface của cmux. Binding tạo qua CLI công khai hoặc socket được lưu để kiểm tra và resume thủ công. cmux chỉ tự động chạy những resume binding được đánh dấu là đáng tin cậy, ví dụ binding tmux phát hiện từ process đang chạy. Các khóa môi trường nhạy cảm như token, mật khẩu, secret và API key sẽ bị loại bỏ trước khi lưu resume binding.
 
 ## Lịch sử sao
 
