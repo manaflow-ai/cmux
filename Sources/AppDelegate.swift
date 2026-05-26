@@ -918,6 +918,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
+    private var lastSessionRecoveryAutosaveFingerprint: Int?
+    private var lastSessionRecoveryAutosavePersistedAt: Date = .distantPast
     private var lastTypingActivityAt: TimeInterval = 0
 #if DEBUG
     var debugSessionSnapshotFileURLForTesting: URL?
@@ -3737,7 +3739,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func runSessionAutosaveTick(source: String) {
         guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp) else { return }
-        guard !sessionAutosaveTickInFlight else { return }
         if let remainingQuietPeriod = remainingSessionAutosaveTypingQuietPeriod() {
 #if DEBUG
             cmuxDebugLog(
@@ -3749,9 +3750,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
+        saveSessionRecoverySnapshotIfNeeded(source: source)
+
+        guard !sessionAutosaveTickInFlight else { return }
         sessionAutosaveTickInFlight = true
         let generation = nextProcessDetectedSessionSaveGeneration()
         Task { @MainActor in await self.finishSessionAutosaveTick(source: source, generation: generation) }
+    }
+
+    func requestSessionRecoverySnapshotSave(source: String) {
+        guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp) else { return }
+        saveSessionRecoverySnapshotIfNeeded(source: source)
+    }
+
+    private func saveSessionRecoverySnapshotIfNeeded(source: String) {
+        let now = Date()
+        let recoveryFingerprint = sessionAutosaveFingerprint(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+        if Self.shouldSkipSessionAutosaveForUnchangedFingerprint(
+            isTerminatingApp: isTerminatingApp,
+            includeScrollback: false,
+            previousFingerprint: lastSessionRecoveryAutosaveFingerprint,
+            currentFingerprint: recoveryFingerprint,
+            lastPersistedAt: lastSessionRecoveryAutosavePersistedAt,
+            now: now
+        ) {
+#if DEBUG
+            cmuxDebugLog(
+                "session.save.skipped reason=unchanged_recovery_autosave_fingerprint includeScrollback=0 source=\(source)"
+            )
+#endif
+            return
+        }
+
+        let didSave = saveSessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: nil,
+            surfaceResumeBindingIndex: nil
+        )
+        guard didSave else { return }
+        updateSessionRecoveryAutosaveSaveState(
+            includeScrollback: false,
+            persistedAt: now,
+            fingerprint: recoveryFingerprint
+        )
     }
 
     private func finishSessionAutosaveTick(source: String, generation: UInt64) async {
@@ -3923,6 +3968,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         lastSessionAutosavePersistedAt = persistedAt
     }
 
+    private func updateSessionRecoveryAutosaveSaveState(
+        includeScrollback: Bool,
+        persistedAt: Date,
+        fingerprint: Int?
+    ) {
+        guard !isTerminatingApp, !includeScrollback else { return }
+        lastSessionRecoveryAutosaveFingerprint = fingerprint
+        lastSessionRecoveryAutosavePersistedAt = persistedAt
+    }
+
     private nonisolated static func hashFrame(_ frame: NSRect, into hasher: inout Hasher) {
         let standardized = frame.standardized
         let quantized = [
@@ -3941,6 +3996,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         synchronously: Bool
     ) {
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
+#if DEBUG
+        let debugSessionSnapshotFileURL = debugSessionSnapshotFileURLForTesting
+#endif
 
         let writeBlock = {
             Self.removeLegacyPersistedWindowGeometry()
@@ -3952,9 +4010,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             #if DEBUG
             if let snapshot {
-                _ = SessionPersistenceStore.save(snapshot, fileURL: self.debugSessionSnapshotFileURLForTesting)
+                _ = SessionPersistenceStore.save(snapshot, fileURL: debugSessionSnapshotFileURL)
             } else if removeWhenEmpty {
-                SessionPersistenceStore.removeSnapshot(fileURL: self.debugSessionSnapshotFileURLForTesting)
+                SessionPersistenceStore.removeSnapshot(fileURL: debugSessionSnapshotFileURL)
             }
             #else
             if let snapshot {

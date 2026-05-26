@@ -2624,6 +2624,7 @@ class TabManager: ObservableObject {
                     userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
                 )
             }
+            AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.add")
 #if DEBUG
             UITestRecorder.incrementInt("addTabInvocations")
             UITestRecorder.record([
@@ -5456,6 +5457,7 @@ class TabManager: ObservableObject {
             pinnedWorkspaceIds: tabs.filter(\.isPinned).map(\.id),
             source: "workspace.lifecycle"
         )
+        AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.reorder")
     }
 
     @discardableResult
@@ -5835,6 +5837,7 @@ class TabManager: ObservableObject {
             }
         }
         publishCmuxWorkspaceClosed(workspace)
+        AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.close")
     }
 
     /// Detach a workspace from this window without closing its panels.
@@ -5861,6 +5864,7 @@ class TabManager: ObservableObject {
             selectedTabId = tabs[nextIndex].id
         }
 
+        AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.detach")
         return removed
     }
 
@@ -5876,6 +5880,7 @@ class TabManager: ObservableObject {
         if select {
             selectedTabId = workspace.id
         }
+        AppDelegate.shared?.requestSessionRecoverySnapshotSave(source: "workspace.attach")
     }
 
     // Keep closeTab as convenience alias
