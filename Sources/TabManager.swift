@@ -5458,7 +5458,7 @@ class TabManager: ObservableObject {
         let pinnedCount = tabs.filter { $0.isPinned }.count
         let insertIndex = tab.isPinned ? 0 : pinnedCount
         tabs.insert(tab, at: insertIndex)
-        postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
+        postWorkspaceOrderDidChangeAfterNormalizing(movedWorkspaceIds: [tabId])
     }
 
     func moveTabsToTop(_ tabIds: Set<UUID>) {
@@ -5473,7 +5473,7 @@ class TabManager: ObservableObject {
         let remainingUnpinned = remainingTabs.filter { !$0.isPinned }
         tabs = selectedPinned + remainingPinned + selectedUnpinned + remainingUnpinned
         if tabs.map(\.id) != previousOrder {
-            postWorkspaceOrderDidChange(movedWorkspaceIds: selectedTabs.map(\.id))
+            postWorkspaceOrderDidChangeAfterNormalizing(movedWorkspaceIds: selectedTabs.map(\.id))
         }
     }
 
@@ -5485,7 +5485,7 @@ class TabManager: ObservableObject {
         guard !tab.isPinned else { return }
         tabs.remove(at: index)
         tabs.insert(tab, at: pinnedCount)
-        postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
+        postWorkspaceOrderDidChangeAfterNormalizing(movedWorkspaceIds: [tabId])
     }
 
     @discardableResult
@@ -5495,12 +5495,7 @@ class TabManager: ObservableObject {
 
         let workspace = tabs.remove(at: plan.fromIndex)
         tabs.insert(workspace, at: plan.toIndex)
-        let normalizedMovedWorkspaceIds = normalizeWorkspaceGroupBlocks(postNotification: false)
-        var movedWorkspaceIds = [tabId]
-        for movedWorkspaceId in normalizedMovedWorkspaceIds where !movedWorkspaceIds.contains(movedWorkspaceId) {
-            movedWorkspaceIds.append(movedWorkspaceId)
-        }
-        postWorkspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
+        postWorkspaceOrderDidChangeAfterNormalizing(movedWorkspaceIds: [tabId])
         return true
     }
 
@@ -5528,6 +5523,16 @@ class TabManager: ObservableObject {
             pinnedWorkspaceIds: tabs.filter(\.isPinned).map(\.id),
             source: "workspace.lifecycle"
         )
+    }
+
+    private func postWorkspaceOrderDidChangeAfterNormalizing(movedWorkspaceIds: [UUID]) {
+        var normalizedMovedWorkspaceIds = movedWorkspaceIds
+        let normalizationMovedWorkspaceIds = normalizeWorkspaceGroupBlocks(postNotification: false)
+        for movedWorkspaceId in normalizationMovedWorkspaceIds {
+            guard !normalizedMovedWorkspaceIds.contains(movedWorkspaceId) else { continue }
+            normalizedMovedWorkspaceIds.append(movedWorkspaceId)
+        }
+        postWorkspaceOrderDidChange(movedWorkspaceIds: normalizedMovedWorkspaceIds)
     }
 
     @discardableResult
@@ -5594,7 +5599,7 @@ class TabManager: ObservableObject {
         let workspacesById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         let finalIds = batchWorkspaceReorderFinalIds(orderedWorkspaceIds: orderedWorkspaceIds)
         tabs = finalIds.compactMap { workspacesById[$0] }
-        postWorkspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
+        postWorkspaceOrderDidChangeAfterNormalizing(movedWorkspaceIds: movedWorkspaceIds)
         return result
     }
 
@@ -5900,7 +5905,7 @@ class TabManager: ObservableObject {
         guard tab.isPinned != pinned else { return }
         tab.isPinned = pinned
         reorderTabForPinnedState(tab)
-        postWorkspaceOrderDidChange(movedWorkspaceIds: [tab.id])
+        postWorkspaceOrderDidChangeAfterNormalizing(movedWorkspaceIds: [tab.id])
     }
 
     private func reorderTabForPinnedState(_ tab: Workspace) {

@@ -243,6 +243,41 @@ final class TabManagerWorkspaceGroupTests: XCTestCase {
         XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id, second.id, third.id])
     }
 
+    func testWorkspaceOrderMutationsPreserveWorkspaceGroupBlocks() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let first = try XCTUnwrap(manager.selectedWorkspace)
+        let second = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let third = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let fourth = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+
+        manager.createWorkspaceGroup(
+            title: "Grouped",
+            workspaceIds: [first.id, second.id, third.id]
+        )
+
+        manager.moveTabToTop(third.id)
+
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id, fourth.id])
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id, second.id, third.id])
+
+        manager.moveTabsToTop([second.id, fourth.id])
+
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id, fourth.id])
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id, second.id, third.id])
+
+        if case .failure = manager.reorderWorkspaces(orderedWorkspaceIds: [second.id, fourth.id]) {
+            XCTFail("Expected batch workspace reorder to succeed")
+        }
+
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id, fourth.id])
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id, second.id, third.id])
+
+        manager.setPinned(second, pinned: true)
+
+        XCTAssertEqual(manager.tabs.map(\.id), [second.id, first.id, third.id, fourth.id])
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [second.id, first.id, third.id])
+    }
+
     func testPreserveDropAssignmentDoesNotUngroupWorkspace() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let first = try XCTUnwrap(manager.selectedWorkspace)
