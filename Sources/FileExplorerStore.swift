@@ -474,8 +474,20 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                 process.terminate()
             }
 
-            let data = outPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            let data: Data
+            switch outPipe.fileHandleForReading.cmuxReadToEnd() {
+            case .success(let output):
+                data = output
+            case .failure:
+                data = Data()
+            }
+            let stderrData: Data
+            switch errPipe.fileHandleForReading.cmuxReadToEnd() {
+            case .success(let output):
+                stderrData = output
+            case .failure:
+                stderrData = Data()
+            }
             process.waitUntilExit()
             terminationGate.markFinished()
             lock.lock()
@@ -1275,7 +1287,13 @@ enum GitStatusProvider {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let data: Data
+            switch pipe.fileHandleForReading.cmuxReadToEnd() {
+            case .success(let output):
+                data = output
+            case .failure:
+                return nil
+            }
             process.waitUntilExit()
             guard process.terminationStatus == 0 else { return nil }
             return String(data: data, encoding: .utf8)
@@ -1302,7 +1320,13 @@ enum GitStatusProvider {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let data: Data
+            switch pipe.fileHandleForReading.cmuxReadToEnd() {
+            case .success(let output):
+                data = output
+            case .failure:
+                return nil
+            }
             process.waitUntilExit()
             guard process.terminationStatus == 0 else { return nil }
             return String(data: data, encoding: .utf8)

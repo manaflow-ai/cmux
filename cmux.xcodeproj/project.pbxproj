@@ -230,6 +230,7 @@
 		C4160A040000000000000001 /* AppDelegate+FocusHistoryContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A040000000000000002 /* AppDelegate+FocusHistoryContextMenu.swift */; };
 		C4160A050000000000000001 /* AppDelegate+HistoryPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A050000000000000002 /* AppDelegate+HistoryPane.swift */; };
 		C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00020000000000000002 /* CloudVMActionLauncher.swift */; };
+		F4711A010000000000000001 /* FileHandleSafeRead.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4711A020000000000000001 /* FileHandleSafeRead.swift */; };
 		A5001094 /* NotificationsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001091 /* NotificationsPage.swift */; };
 		A5001095 /* TerminalNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001092 /* TerminalNotificationStore.swift */; };
 		A5001096 /* TerminalNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001097 /* TerminalNotificationPolicy.swift */; };
@@ -818,6 +819,7 @@
 		C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ClosedItemHistory.swift"; sourceTree = "<group>"; };
 		C4160A040000000000000002 /* AppDelegate+FocusHistoryContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+FocusHistoryContextMenu.swift"; sourceTree = "<group>"; };
 		C4160A050000000000000002 /* AppDelegate+HistoryPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+HistoryPane.swift"; sourceTree = "<group>"; };
+		F4711A020000000000000001 /* FileHandleSafeRead.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileHandleSafeRead.swift; sourceTree = "<group>"; };
 		A5001091 /* NotificationsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPage.swift; sourceTree = "<group>"; };
 		A5001092 /* TerminalNotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationStore.swift; sourceTree = "<group>"; };
 		A5001097 /* TerminalNotificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationPolicy.swift; sourceTree = "<group>"; };
@@ -1435,6 +1437,7 @@
 				C4160A040000000000000002 /* AppDelegate+FocusHistoryContextMenu.swift */,
 				C4160A050000000000000002 /* AppDelegate+HistoryPane.swift */,
 				C10D00020000000000000002 /* CloudVMActionLauncher.swift */,
+				F4711A020000000000000001 /* FileHandleSafeRead.swift */,
 					B37A00000000000000000006 /* MainWindowFocusTypes.swift */,
 					2F0C05000000000000000001 /* MainWindowFocusController.swift */,
 					A5001091 /* NotificationsPage.swift */,
@@ -2204,6 +2207,7 @@
 				C4160A040000000000000001 /* AppDelegate+FocusHistoryContextMenu.swift in Sources */,
 				C4160A050000000000000001 /* AppDelegate+HistoryPane.swift in Sources */,
 				C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */,
+				F4711A010000000000000001 /* FileHandleSafeRead.swift in Sources */,
 					B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */,
 					2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */,
 					A5001094 /* NotificationsPage.swift in Sources */,

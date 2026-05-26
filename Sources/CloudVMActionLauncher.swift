@@ -242,10 +242,10 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
     func start() {
         stdoutHandle.readabilityHandler = { [weak self] handle in
-            self?.append(handle.availableData, to: .stdout)
+            self?.appendAvailableData(from: handle, to: .stdout)
         }
         stderrHandle.readabilityHandler = { [weak self] handle in
-            self?.append(handle.availableData, to: .stderr)
+            self?.appendAvailableData(from: handle, to: .stderr)
         }
     }
 
@@ -262,8 +262,8 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
-        append(stdoutHandle.readDataToEndOfFile(), to: .stdout)
-        append(stderrHandle.readDataToEndOfFile(), to: .stderr)
+        appendRemainingData(from: stdoutHandle, to: .stdout)
+        appendRemainingData(from: stderrHandle, to: .stderr)
         try? stdoutHandle.close()
         try? stderrHandle.close()
 
@@ -298,6 +298,25 @@ final class ProcessOutputCollector: @unchecked Sendable {
             appendBounded(data, to: &stdout)
         case .stderr:
             appendBounded(data, to: &stderr)
+        }
+    }
+
+    private func appendAvailableData(from handle: FileHandle, to stream: Stream) {
+        switch handle.cmuxReadAvailableData() {
+        case .success(let data):
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+            } else {
+                append(data, to: stream)
+            }
+        case .failure:
+            handle.readabilityHandler = nil
+        }
+    }
+
+    private func appendRemainingData(from handle: FileHandle, to stream: Stream) {
+        if case .success(let data) = handle.cmuxReadToEnd() {
+            append(data, to: stream)
         }
     }
 

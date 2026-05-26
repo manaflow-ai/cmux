@@ -4975,11 +4975,23 @@ class TabManager: ObservableObject {
             try? stderr.fileHandleForWriting.close()
 
             DispatchQueue.global(qos: .utility).async {
-                let data = stdout.fileHandleForReading.readDataToEndOfFile()
+                let data: Data
+                switch stdout.fileHandleForReading.cmuxReadToEnd() {
+                case .success(let output):
+                    data = output
+                case .failure:
+                    data = Data()
+                }
                 state.completeStdout(data)
             }
             DispatchQueue.global(qos: .utility).async {
-                let data = stderr.fileHandleForReading.readDataToEndOfFile()
+                let data: Data
+                switch stderr.fileHandleForReading.cmuxReadToEnd() {
+                case .success(let output):
+                    data = output
+                case .failure:
+                    data = Data()
+                }
                 state.completeStderr(data)
             }
             if let timeout,

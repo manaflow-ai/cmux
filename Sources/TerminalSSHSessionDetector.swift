@@ -309,14 +309,22 @@ struct DetectedSSHSession: Equatable {
             ])
         }
 
-        let stdout = String(
-            data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        ) ?? ""
-        let stderr = String(
-            data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        ) ?? ""
+        let stdoutData: Data
+        switch stdoutPipe.fileHandleForReading.cmuxReadToEnd() {
+        case .success(let data):
+            stdoutData = data
+        case .failure:
+            stdoutData = Data()
+        }
+        let stderrData: Data
+        switch stderrPipe.fileHandleForReading.cmuxReadToEnd() {
+        case .success(let data):
+            stderrData = data
+        case .failure:
+            stderrData = Data()
+        }
+        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         if operation?.isCancelled == true {
             throw TerminalImageTransferExecutionError.cancelled
         }
@@ -475,7 +483,13 @@ enum TerminalSSHSessionDetector {
             return []
         }
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let data: Data
+        switch pipe.fileHandleForReading.cmuxReadToEnd() {
+        case .success(let output):
+            data = output
+        case .failure:
+            return []
+        }
         process.waitUntilExit()
 
         guard process.terminationStatus == 0,

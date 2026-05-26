@@ -110,9 +110,16 @@ enum AgentForkSupport {
             process.standardOutput = pipe
             process.standardError = pipe
             pipe.fileHandleForReading.readabilityHandler = { [outputBuffer] handle in
-                let data = handle.availableData
-                guard !data.isEmpty else { return }
-                outputBuffer.append(data)
+                switch handle.cmuxReadAvailableData() {
+                case .success(let data):
+                    guard !data.isEmpty else {
+                        handle.readabilityHandler = nil
+                        return
+                    }
+                    outputBuffer.append(data)
+                case .failure:
+                    handle.readabilityHandler = nil
+                }
             }
             process.environment = AgentForkSupport.processEnvironmentForOpenCodeProbe(environment: environment)
             process.terminationHandler = { [weak self] _ in
@@ -272,7 +279,7 @@ enum AgentForkSupport {
             killTimer?.cancel()
             process?.terminationHandler = nil
             pipe?.fileHandleForReading.readabilityHandler = nil
-            if let remainingData = pipe?.fileHandleForReading.readDataToEndOfFile() {
+            if let pipe, case .success(let remainingData) = pipe.fileHandleForReading.cmuxReadToEnd() {
                 outputBuffer.append(remainingData)
             }
             guard !timedOut else {

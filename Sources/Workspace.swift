@@ -2000,13 +2000,27 @@ private final class WorkspaceRemoteDaemonRPCClient {
         process.standardError = stderrPipe
 
         stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
+            guard case .success(let data) = handle.cmuxReadAvailableData() else {
+                handle.readabilityHandler = nil
+                return
+            }
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
             self?.stateQueue.async {
                 self?.consumeStdoutData(data)
             }
         }
         stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
+            guard case .success(let data) = handle.cmuxReadAvailableData() else {
+                handle.readabilityHandler = nil
+                return
+            }
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
             self?.stateQueue.async {
                 self?.consumeStderrData(data)
             }
@@ -2053,7 +2067,14 @@ private final class WorkspaceRemoteDaemonRPCClient {
         process.standardError = stderrPipe
 
         stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
+            guard case .success(let data) = handle.cmuxReadAvailableData() else {
+                handle.readabilityHandler = nil
+                return
+            }
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
             self?.stateQueue.async {
                 self?.consumeStderrData(data)
             }
@@ -2100,7 +2121,14 @@ private final class WorkspaceRemoteDaemonRPCClient {
         }
 
         socketHandle.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
+            guard case .success(let data) = handle.cmuxReadAvailableData() else {
+                handle.readabilityHandler = nil
+                return
+            }
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
             self?.stateQueue.async {
                 self?.consumeStdoutData(data)
             }
@@ -2937,7 +2965,13 @@ private final class WorkspaceRemoteDaemonRPCClient {
                 return nil
             }
         }
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData: Data
+        switch stderrPipe.fileHandleForReading.cmuxReadToEnd() {
+        case .success(let data):
+            stderrData = data
+        case .failure:
+            stderrData = Data()
+        }
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         return bestErrorLine(stderr: stderr) ?? "status=\(process.terminationStatus)"
     }
@@ -6262,7 +6296,10 @@ final class WorkspaceRemoteSessionController {
 
     private func installReverseRelayStderrHandlerLocked(_ stderrPipe: Pipe) {
         stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
+            guard case .success(let data) = handle.cmuxReadAvailableData() else {
+                handle.readabilityHandler = nil
+                return
+            }
             guard !data.isEmpty else {
                 handle.readabilityHandler = nil
                 return
@@ -6804,7 +6841,7 @@ final class WorkspaceRemoteSessionController {
         captureGroup.enter()
         DispatchQueue.global(qos: .utility).async {
             defer { captureGroup.leave() }
-            let result = Self.readProcessPipeToEnd(stdoutHandle)
+            let result = stdoutHandle.cmuxReadToEnd()
             captureQueue.sync {
                 switch result {
                 case .success(let data):
@@ -6817,7 +6854,7 @@ final class WorkspaceRemoteSessionController {
         captureGroup.enter()
         DispatchQueue.global(qos: .utility).async {
             defer { captureGroup.leave() }
-            let result = Self.readProcessPipeToEnd(stderrHandle)
+            let result = stderrHandle.cmuxReadToEnd()
             captureQueue.sync {
                 switch result {
                 case .success(let data):
@@ -6920,20 +6957,6 @@ final class WorkspaceRemoteSessionController {
             "stderr=\(Self.debugLogSnippet(stderr))"
         )
         return CommandResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
-    }
-
-    private static func readProcessPipeToEnd(_ fileHandle: FileHandle) -> Result<Data, Error> {
-        var data = Data()
-        do {
-            while true {
-                guard let chunk = try fileHandle.read(upToCount: 64 * 1024), !chunk.isEmpty else {
-                    return .success(data)
-                }
-                data.append(chunk)
-            }
-        } catch {
-            return .failure(error)
-        }
     }
 
 #if DEBUG
@@ -7860,7 +7883,13 @@ final class WorkspaceRemoteSessionController {
 
         do {
             try process.run()
-            let outputData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            let outputData: Data
+            switch stdoutPipe.fileHandleForReading.cmuxReadToEnd() {
+            case .success(let data):
+                outputData = data
+            case .failure:
+                outputData = Data()
+            }
             process.waitUntilExit()
             guard process.terminationStatus == 0,
                   let output = String(data: outputData, encoding: .utf8),
@@ -8010,7 +8039,13 @@ final class WorkspaceRemoteSessionController {
 
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return "" }
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        let data: Data
+        switch stdout.fileHandleForReading.cmuxReadToEnd() {
+        case .success(let output):
+            data = output
+        case .failure:
+            data = Data()
+        }
         return String(data: data, encoding: .utf8) ?? ""
     }
 
@@ -8093,7 +8128,13 @@ final class WorkspaceRemoteSessionController {
                 return nil
             }
         }
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData: Data
+        switch stderrPipe.fileHandleForReading.cmuxReadToEnd() {
+        case .success(let data):
+            stderrData = data
+        case .failure:
+            stderrData = Data()
+        }
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         return bestErrorLine(stderr: stderr) ?? "status=\(process.terminationStatus)"
     }

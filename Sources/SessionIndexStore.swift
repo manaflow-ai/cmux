@@ -1340,12 +1340,18 @@ final class SessionIndexStore: ObservableObject {
             // Drain stdout BEFORE waitUntilExit. With many matches rg writes
             // more than the ~64 KB pipe buffer; reading until EOF lets rg
             // make progress and EOF arrives when rg closes its stdout on exit.
-            // Once readDataToEndOfFile returns, the process is already exiting,
-            // so waitUntilExit is essentially instant — we just need it to make
+            // Once EOF arrives, the process is already exiting, so waitUntilExit
+            // is essentially instant. We just need it to make
             // terminationStatus observable. (Setting terminationHandler here
             // would race: if rg already exited, the handler is registered too
             // late and never fires → deadlock.)
-            let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+            let data: Data
+            switch outPipe.fileHandleForReading.cmuxReadToEnd() {
+            case .success(let output):
+                data = output
+            case .failure:
+                data = Data()
+            }
             process.waitUntilExit()
             cancellation.markFinished(processIdentifier: process.processIdentifier)
             if Task.isCancelled { return [] }
@@ -1362,7 +1368,7 @@ final class SessionIndexStore: ObservableObject {
             }
         } onCancel: {
             // Fires synchronously when the awaiting Task is cancelled. SIGTERM
-            // closes stdout, lets readDataToEndOfFile return, and unblocks the
+            // closes stdout, lets the read reach EOF, and unblocks the
             // body so this call can complete cleanly.
             cancellation.cancel()
         }

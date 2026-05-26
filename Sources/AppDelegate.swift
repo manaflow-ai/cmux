@@ -50,8 +50,20 @@ private func runMultiWindowRouteCLI(
     }
     process.waitUntilExit()
 
-    let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+    let stdoutData: Data
+    switch stdoutPipe.fileHandleForReading.cmuxReadToEnd() {
+    case .success(let data):
+        stdoutData = data
+    case .failure:
+        stdoutData = Data()
+    }
+    let stderrData: Data
+    switch stderrPipe.fileHandleForReading.cmuxReadToEnd() {
+    case .success(let data):
+        stderrData = data
+    case .failure:
+        stderrData = Data()
+    }
     return MultiWindowRouteCLIResult(
         status: String(process.terminationStatus),
         stdout: String(data: stdoutData, encoding: .utf8) ?? "",
