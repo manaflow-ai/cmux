@@ -16,6 +16,61 @@ final class SidebarState: ObservableObject {
     }
 }
 
+enum SidebarPositionOption: String, CaseIterable, Identifiable {
+    case left
+    case top
+    case right
+    case bottom
+
+    var id: String { rawValue }
+
+    var isHorizontal: Bool {
+        switch self {
+        case .top, .bottom:
+            return true
+        case .left, .right:
+            return false
+        }
+    }
+}
+
+enum SidebarPositionSettings {
+    static let key = "sidebarPosition"
+    static let defaultPosition = SidebarPositionOption.left
+    static let horizontalBarHeight: CGFloat = 48
+
+    static func resolved(rawValue: String?) -> SidebarPositionOption {
+        guard let rawValue else { return defaultPosition }
+        return SidebarPositionOption(rawValue: rawValue) ?? defaultPosition
+    }
+}
+
+enum SidebarContentLayoutMode: Equatable {
+    case leftOverlay
+    case leftStack
+    case rightStack
+    case topStack
+    case bottomStack
+}
+
+enum SidebarContentLayoutPolicy {
+    static func mode(
+        position: SidebarPositionOption,
+        usesWithinWindowOverlay: Bool
+    ) -> SidebarContentLayoutMode {
+        switch position {
+        case .left:
+            return usesWithinWindowOverlay ? .leftOverlay : .leftStack
+        case .right:
+            return .rightStack
+        case .top:
+            return .topStack
+        case .bottom:
+            return .bottomStack
+        }
+    }
+}
+
 enum SidebarResizeInteraction {
     enum Edge {
         case leading

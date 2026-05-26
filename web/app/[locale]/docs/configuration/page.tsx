@@ -85,6 +85,10 @@ const settingsFileExample = `{
   //   "suppressSubagentNotifications": true
   // },
 
+  // "sidebar": {
+  //   "position": "left"
+  // },
+
   // "workspaceColors": {
   //   "colors": {
   //     "Red": "#C0392B",

@@ -110,6 +110,30 @@ final class SidebarWidthPolicyTests: XCTestCase {
         XCTAssertFalse(range.contains(675.9))
         XCTAssertFalse(range.contains(686.1))
     }
+
+    func testSidebarPositionDefaultsToLeftForMissingOrInvalidValues() {
+        XCTAssertEqual(SidebarPositionSettings.resolved(rawValue: nil), .left)
+        XCTAssertEqual(SidebarPositionSettings.resolved(rawValue: "floating"), .left)
+    }
+
+    func testSidebarLayoutPolicyKeepsWithinWindowOverlayOnlyForLeftPosition() {
+        XCTAssertEqual(
+            SidebarContentLayoutPolicy.mode(position: .left, usesWithinWindowOverlay: true),
+            .leftOverlay
+        )
+        XCTAssertEqual(
+            SidebarContentLayoutPolicy.mode(position: .right, usesWithinWindowOverlay: true),
+            .rightStack
+        )
+        XCTAssertEqual(
+            SidebarContentLayoutPolicy.mode(position: .top, usesWithinWindowOverlay: true),
+            .topStack
+        )
+        XCTAssertEqual(
+            SidebarContentLayoutPolicy.mode(position: .bottom, usesWithinWindowOverlay: true),
+            .bottomStack
+        )
+    }
 }
 
 final class SidebarWorkspaceSelectionColorTests: XCTestCase {
