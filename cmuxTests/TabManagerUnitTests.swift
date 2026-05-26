@@ -299,6 +299,106 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(workspace.panels.count, panelCountBefore - 1)
         XCTAssertNotNil(workspace.panels[initialPanelId], "Expected sibling panel to remain")
     }
+
+    func testChildExitWindowCloseRequestsNoClosedWindowHistory() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        var closeRequest: (tabId: UUID, recordHistory: Bool)?
+        appDelegate.closeMainWindowContainingTabIdObserverForTesting = { tabId, recordHistory in
+            closeRequest = (tabId, recordHistory)
+        }
+        defer {
+            appDelegate.closeMainWindowContainingTabIdObserverForTesting = nil
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        appDelegate.recordClosedWindowHistoryForTesting(windowId: windowId)
+        XCTAssertTrue(ClosedItemHistoryStore.shared.canReopen)
+        ClosedItemHistoryStore.shared.removeAll()
+
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panelId)
+        drainMainQueue()
+
+        XCTAssertEqual(closeRequest?.tabId, workspace.id)
+        XCTAssertEqual(closeRequest?.recordHistory, false)
+
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        appDelegate.recordClosedWindowHistoryForTesting(windowId: windowId)
+        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
+        XCTAssertFalse(appDelegate.isClosedWindowHistorySuppressedForTesting(windowId: windowId))
+    }
+
+    func testSessionSnapshotKeepsWindowWithNoRestorableWorkspaces() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "wss://remote.example.test",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        XCTAssertFalse(workspace.isRestorableInSessionSnapshot)
+        let snapshot = try XCTUnwrap(appDelegate.sessionSnapshotForTesting())
+        XCTAssertEqual(snapshot.windows.count, 1)
+        XCTAssertTrue(snapshot.windows[0].tabManager.workspaces.isEmpty)
+    }
+
+    func testClosedWindowHistorySkipsWindowWithNoRestorableWorkspaces() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "wss://remote.example.test",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        appDelegate.recordClosedWindowHistoryForTesting(windowId: windowId)
+
+        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
+    }
 }
 
 
@@ -2814,6 +2914,125 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, reopenedPanelId)
     }
 
+    func testReopenClosedItemFallsBackToLegacyClosedBrowserStack() {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+        defer {
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let expectedURL = URL(string: "https://example.com/self-close-item-fallback")
+        guard let workspace = manager.selectedWorkspace,
+              let closedBrowserId = manager.openBrowser(url: expectedURL),
+              let browserPanel = workspace.panels[closedBrowserId] as? BrowserPanel else {
+            XCTFail("Expected browser panel setup")
+            return
+        }
+
+        drainMainQueue()
+        browserPanel.webView.uiDelegate?.webViewDidClose?(browserPanel.webView)
+        drainMainQueue()
+
+        XCTAssertNil(workspace.panels[closedBrowserId])
+        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
+
+        XCTAssertTrue(appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: manager))
+        drainMainQueue()
+
+        guard let reopenedPanel = workspace.panels.values.compactMap({ $0 as? BrowserPanel }).first else {
+            XCTFail("Expected reopened browser panel")
+            return
+        }
+        XCTAssertEqual(reopenedPanel.currentURL, expectedURL)
+    }
+
+    func testReopenClosedItemUsesNewerLegacyBrowserBeforeOlderClosedStore() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+        defer {
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let expectedURL = URL(string: "https://example.com/newer-legacy-browser")
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        var olderPanelSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
+        olderPanelSnapshot.customTitle = "Older Stored Panel"
+        ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+            closedAt: Date(timeIntervalSince1970: 1),
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: workspace.id,
+                paneId: paneId.id,
+                tabIndex: 0,
+                snapshot: olderPanelSnapshot
+            ))
+        ))
+
+        guard let closedBrowserId = manager.openBrowser(url: expectedURL),
+              let browserPanel = workspace.panels[closedBrowserId] as? BrowserPanel else {
+            XCTFail("Expected browser panel setup")
+            return
+        }
+
+        drainMainQueue()
+        browserPanel.webView.uiDelegate?.webViewDidClose?(browserPanel.webView)
+        drainMainQueue()
+
+        XCTAssertNil(workspace.panels[closedBrowserId])
+        let panelIdsAfterClose = Set(workspace.panels.keys)
+
+        XCTAssertTrue(appDelegate.reopenMostRecentlyClosedItem(
+            preferredTabManager: manager,
+            shouldActivate: false
+        ))
+        drainMainQueue()
+
+        guard let reopenedPanelId = singleNewPanelId(in: workspace, comparedTo: panelIdsAfterClose),
+              let reopenedPanel = workspace.panels[reopenedPanelId] as? BrowserPanel else {
+            XCTFail("Expected Cmd+Shift+T to restore the newer self-closed browser before the older stored tab")
+            return
+        }
+        XCTAssertEqual(reopenedPanel.currentURL, expectedURL)
+        XCTAssertTrue(ClosedItemHistoryStore.shared.canReopen)
+    }
+
+    func testClearRecentlyClosedHistoryClearsLegacyBrowserStack() {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+        defer {
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let expectedURL = URL(string: "https://example.com/clear-legacy-reopen")
+        guard let workspace = manager.selectedWorkspace,
+              let closedBrowserId = manager.openBrowser(url: expectedURL),
+              let browserPanel = workspace.panels[closedBrowserId] as? BrowserPanel else {
+            XCTFail("Expected browser panel setup")
+            return
+        }
+
+        drainMainQueue()
+        browserPanel.webView.uiDelegate?.webViewDidClose?(browserPanel.webView)
+        drainMainQueue()
+
+        XCTAssertNil(workspace.panels[closedBrowserId])
+        appDelegate.clearRecentlyClosedHistory(preferredTabManager: manager)
+
+        XCTAssertFalse(appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: manager))
+    }
+
     func testReopenFromDifferentWorkspaceFocusesReopenedBrowser() {
         let manager = TabManager()
         guard let workspace1 = manager.selectedWorkspace,
@@ -2849,7 +3068,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         drainMainQueue()
 
         let currentWorkspace = manager.addWorkspace()
-        manager.closeWorkspace(originalWorkspace)
+        manager.closeWorkspace(originalWorkspace, recordHistory: false)
 
         XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
         XCTAssertFalse(manager.tabs.contains(where: { $0.id == originalWorkspace.id }))

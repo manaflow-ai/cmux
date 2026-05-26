@@ -2732,6 +2732,7 @@ final class CmuxConfigStore: ObservableObject {
                             id: "\(settingName).\(index).\(action.id)",
                             title: sanitizeConfigText(item.title ?? action.title, fallback: action.id),
                             icon: item.icon ?? action.icon,
+                            iconSourcePath: item.icon == nil ? action.iconSourcePath : settingSourcePath,
                             tooltip: (item.tooltip ?? action.tooltip).map(sanitizeConfigText),
                             action: action
                         )
