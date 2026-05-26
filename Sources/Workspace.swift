@@ -10221,7 +10221,7 @@ final class Workspace: Identifiable, ObservableObject {
         storedPageStates[activePageId] = captureActivePageStoredState(detachPanels: true)
         restoreStoredPage(pageId)
         activePageId = pageId
-        requestBackgroundTerminalSurfaceStartIfNeeded()
+        requestBackgroundPrimeTerminalSurfaceStartIfNeeded()
     }
 
     func selectNextPage() {
@@ -10307,7 +10307,7 @@ final class Workspace: Identifiable, ObservableObject {
             if let replacementPageId {
                 restoreStoredPage(replacementPageId)
                 activePageId = replacementPageId
-                requestBackgroundTerminalSurfaceStartIfNeeded()
+                requestBackgroundPrimeTerminalSurfaceStartIfNeeded()
             }
         } else {
             if let storedState = storedPageStates.removeValue(forKey: pageId) {
