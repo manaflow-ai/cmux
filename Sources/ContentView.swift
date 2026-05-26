@@ -1724,7 +1724,7 @@ struct ContentView: View {
     private func normalizedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
         let resolvedAvailableWidth = resolvedRightSidebarAvailableWidth(availableWidth)
         let workspaceSidebarTrailingInset = sidebarState.isVisible && sidebarPosition == .right ? sidebarWidth : 0
-        Self.clampedRightSidebarWidth(
+        return Self.clampedRightSidebarWidth(
             candidate,
             availableWidth: max(0, resolvedAvailableWidth - workspaceSidebarTrailingInset)
         )
