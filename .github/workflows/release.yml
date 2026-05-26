@@ -170,6 +170,15 @@ jobs:
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO build
 
+      - name: Stamp release commit into Info.plist
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          APP_PLIST="build-universal/Build/Products/Release/cmux.app/Contents/Info.plist"
+          SHORT_SHA="$(git rev-parse --short=9 HEAD)"
+          /usr/libexec/PlistBuddy -c "Delete :CMUXCommit" "$APP_PLIST" >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Add :CMUXCommit string ${SHORT_SHA}" "$APP_PLIST"
+
       - name: Verify binary architectures
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |

@@ -19,6 +19,29 @@ fi
 echo "Release app:"
 echo "  ${APP_PATH}"
 
+ENTITLEMENTS_PLIST="$(mktemp "${TMPDIR:-/tmp}/cmux-reloadp-entitlements.XXXXXX")"
+trap 'rm -f "$ENTITLEMENTS_PLIST"' EXIT
+if ! /usr/bin/codesign -d --entitlements :- "$APP_PATH" > "$ENTITLEMENTS_PLIST" 2>/dev/null || [[ ! -s "$ENTITLEMENTS_PLIST" ]]; then
+  rm -f "$ENTITLEMENTS_PLIST"
+  ENTITLEMENTS_PLIST=""
+fi
+
+INFO_PLIST="$APP_PATH/Contents/Info.plist"
+COMMIT="$(git -C "$PWD" rev-parse --short=9 HEAD 2>/dev/null || true)"
+if [[ -n "$COMMIT" && -f "$INFO_PLIST" ]]; then
+  /usr/libexec/PlistBuddy -c "Set :CMUXCommit $COMMIT" "$INFO_PLIST" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :CMUXCommit string $COMMIT" "$INFO_PLIST" 2>/dev/null \
+    || true
+fi
+RESIGN_ARGS=(--force --sign - --timestamp=none --generate-entitlement-der)
+if [[ -n "${ENTITLEMENTS_PLIST:-}" ]]; then
+  RESIGN_ARGS+=(--entitlements "$ENTITLEMENTS_PLIST")
+fi
+if ! /usr/bin/codesign "${RESIGN_ARGS[@]}" "$APP_PATH" >/dev/null 2>&1; then
+  echo "error: codesign failed for $APP_PATH" >&2
+  exit 1
+fi
+
 # Dev shells (including CI/Codex) often force-disable paging by exporting these.
 # Don't leak that into cmux, otherwise `git diff` won't page even with PAGER=less.
 env -u GIT_PAGER -u GH_PAGER open -g "$APP_PATH"
