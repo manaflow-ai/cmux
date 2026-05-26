@@ -1135,6 +1135,7 @@ class TabManager: ObservableObject {
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
+    private var backgroundWorkspaceLoadsIncludingIdleTerminals: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
@@ -2577,6 +2578,7 @@ class TabManager: ObservableObject {
         inheritWorkingDirectory: Bool = true,
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
+        eagerLoadIdleTerminalsForAutomation: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil,
         autoWelcomeIfNeeded: Bool = true
     ) -> Workspace {
@@ -2636,7 +2638,10 @@ class TabManager: ObservableObject {
             }
             wireClosedBrowserTracking(for: newWorkspace)
             if eagerLoadTerminal && !select {
-                requestBackgroundWorkspaceLoad(for: newWorkspace.id)
+                requestBackgroundWorkspaceLoad(
+                    for: newWorkspace.id,
+                    includeIdleTerminals: eagerLoadIdleTerminalsForAutomation
+                )
             }
             // Apply insertion to the current live array so post-snapshot closes/reorders
             // are preserved instead of reintroducing stale workspace instances.
@@ -5138,11 +5143,18 @@ class TabManager: ObservableObject {
         }
     }
 
-    func requestBackgroundWorkspaceLoad(for workspaceId: UUID) {
+    func requestBackgroundWorkspaceLoad(for workspaceId: UUID, includeIdleTerminals: Bool = false) {
+        if includeIdleTerminals {
+            backgroundWorkspaceLoadsIncludingIdleTerminals.insert(workspaceId)
+        }
         guard !pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
         var updated = pendingBackgroundWorkspaceLoadIds
         updated.insert(workspaceId)
         pendingBackgroundWorkspaceLoadIds = updated
+    }
+
+    func backgroundWorkspaceLoadIncludesIdleTerminals(for workspaceId: UUID) -> Bool {
+        backgroundWorkspaceLoadsIncludingIdleTerminals.contains(workspaceId)
     }
 
     func completeBackgroundWorkspaceLoad(for workspaceId: UUID) {
@@ -5150,6 +5162,7 @@ class TabManager: ObservableObject {
         var updated = pendingBackgroundWorkspaceLoadIds
         updated.remove(workspaceId)
         pendingBackgroundWorkspaceLoadIds = updated
+        backgroundWorkspaceLoadsIncludingIdleTerminals.remove(workspaceId)
         releaseBackgroundWorkspaceMount(for: workspaceId)
     }
 
@@ -5188,6 +5201,7 @@ class TabManager: ObservableObject {
         if pruned != pendingBackgroundWorkspaceLoadIds {
             pendingBackgroundWorkspaceLoadIds = pruned
         }
+        backgroundWorkspaceLoadsIncludingIdleTerminals.formIntersection(existingIds)
         let mounted = mountedBackgroundWorkspaceLoadIds.intersection(existingIds)
         if mounted != mountedBackgroundWorkspaceLoadIds {
             mountedBackgroundWorkspaceLoadIds = mounted

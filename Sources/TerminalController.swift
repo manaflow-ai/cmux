@@ -510,6 +510,30 @@ class TerminalController {
         }
     }
 
+    @MainActor
+    func v2EnsureTerminalAutomationReady(workspace: Workspace, surfaceId: UUID, reason: String) -> Bool {
+        guard let terminalPanel = workspace.terminalPanel(for: surfaceId) else { return false }
+        return terminalPanel.surface.ensureRuntimeSurfaceStartedForAutomationIfNeeded(reason: reason)
+    }
+
+    @MainActor
+    private func v1TerminalAutomationReadinessError(workspace: Workspace, surfaceId: UUID, reason: String) -> String? {
+        guard v2EnsureTerminalAutomationReady(workspace: workspace, surfaceId: surfaceId, reason: reason) else {
+            _ = workspace.closePanel(surfaceId, force: true)
+            return "ERROR: Failed to start terminal automation surface"
+        }
+        return nil
+    }
+
+    func v2TerminalAutomationReadinessFailure(workspace: Workspace, surfaceId: UUID, reason: String) -> V2CallResult {
+        _ = workspace.closePanel(surfaceId, force: true)
+        return .err(code: "internal_error", message: "Failed to start terminal automation surface", data: [
+            "surface_id": surfaceId.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+            "reason": reason
+        ])
+    }
+
     private nonisolated static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool, params: [String: Any] = [:]) -> Bool {
         if isV2 {
             return focusIntentV2Methods.contains(commandKey)
@@ -5514,8 +5538,10 @@ class TerminalController {
         }
 
         var newId: UUID?
+        var failure: V2CallResult?
         var initialSurfaceId: UUID?
         let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+        let startTerminalForAutomation = v2Bool(params, "start_terminal_for_automation") ?? false
         v2MainSync {
             let ws = tabManager.addWorkspace(
                 title: title,
@@ -5523,16 +5549,33 @@ class TerminalController {
                 initialTerminalCommand: layoutNode == nil ? initialCommand : nil,
                 initialTerminalEnvironment: layoutNode == nil ? initialEnv : [:],
                 select: shouldFocus,
-                eagerLoadTerminal: !shouldFocus
+                eagerLoadTerminal: !shouldFocus,
+                eagerLoadIdleTerminalsForAutomation: startTerminalForAutomation
             )
             ws.setCustomDescription(description)
             if let layoutNode {
                 ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
             }
+            if !shouldFocus {
+                guard ws.requestBackgroundPrimeTerminalSurfaceStartIfNeeded(
+                    includeIdleTerminals: startTerminalForAutomation
+                ) else {
+                    tabManager.closeWorkspace(ws)
+                    failure = .err(code: "internal_error", message: "Failed to start workspace terminal automation surfaces", data: [
+                        "workspace_id": ws.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                        "reason": "socket.workspace.create"
+                    ])
+                    return
+                }
+            }
             newId = ws.id
             initialSurfaceId = ws.focusedPanelId
         }
 
+        if let failure {
+            return failure
+        }
         guard let newId else {
             return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
         }
@@ -7789,6 +7832,19 @@ class TerminalController {
                     return
                 }
                 _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
+                let readinessReason = "socket.tab.action.new_terminal_right"
+                guard v2EnsureTerminalAutomationReady(
+                    workspace: workspace,
+                    surfaceId: newPanel.id,
+                    reason: readinessReason
+                ) else {
+                    result = v2TerminalAutomationReadinessFailure(
+                        workspace: workspace,
+                        surfaceId: newPanel.id,
+                        reason: readinessReason
+                    )
+                    return
+                }
                 finish([
                     "created_surface_id": newPanel.id.uuidString,
                     "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id),
@@ -8430,6 +8486,21 @@ class TerminalController {
             }
 
             if let newId {
+                if panelType == .terminal {
+                    let readinessReason = "socket.surface.split"
+                    guard v2EnsureTerminalAutomationReady(
+                        workspace: ws,
+                        surfaceId: newId,
+                        reason: readinessReason
+                    ) else {
+                        result = v2TerminalAutomationReadinessFailure(
+                            workspace: ws,
+                            surfaceId: newId,
+                            reason: readinessReason
+                        )
+                        return
+                    }
+                }
                 let paneUUID = ws.paneId(forPanelId: newId)?.id
                 let windowId = v2ResolveWindowId(tabManager: tabManager)
                 result = .ok([
@@ -8512,6 +8583,21 @@ class TerminalController {
             guard let newPanelId else {
                 result = .err(code: "internal_error", message: "Failed to create surface", data: nil)
                 return
+            }
+            if panelType == .terminal {
+                let readinessReason = "socket.surface.create"
+                guard v2EnsureTerminalAutomationReady(
+                    workspace: ws,
+                    surfaceId: newPanelId,
+                    reason: readinessReason
+                ) else {
+                    result = v2TerminalAutomationReadinessFailure(
+                        workspace: ws,
+                        surfaceId: newPanelId,
+                        reason: readinessReason
+                    )
+                    return
+                }
             }
 
             let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -8816,19 +8902,62 @@ class TerminalController {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
             let panels = orderedPanels(in: ws)
             let items: [[String: Any]] = panels.enumerated().map { index, panel in
-                var inWindow: Any = NSNull()
-                if let tp = panel as? TerminalPanel {
-                    inWindow = tp.surface.isViewInWindow
-                } else if let bp = panel as? BrowserPanel {
-                    inWindow = bp.webView.window != nil
-                }
-                return [
+                var item: [String: Any] = [
                     "index": index,
                     "id": panel.id.uuidString,
                     "ref": v2Ref(kind: .surface, uuid: panel.id),
-                    "type": panel.panelType.rawValue,
-                    "in_window": inWindow
+                    "type": panel.panelType.rawValue
                 ]
+                if let tp = panel as? TerminalPanel {
+                    let terminalSurface = tp.surface
+                    let hostedView = terminalSurface.hostedView
+                    let readiness = terminalSurface.runtimeReadinessSnapshot(reason: "surface.health")
+                    let ttyName = v2NonEmptyString(ws.surfaceTTYNames[panel.id]) ?? readiness.ttyName
+                    let terminalReady = readiness.runtimeSurfaceReady &&
+                        readiness.processExited == false &&
+                        readiness.foregroundPID != nil &&
+                        ttyName != nil
+                    let shellActivity = ws.panelShellActivityStates[panel.id] ?? .unknown
+                    let headlessBootstrapWindow = terminalSurface.isHeadlessStartupWindow(hostedView.window)
+                    let visibleInUI = !headlessBootstrapWindow &&
+                        hostedView.window != nil &&
+                        hostedView.debugPortalVisibleInUI &&
+                        !hostedView.isHidden &&
+                        !hostedView.isHiddenOrHasHiddenAncestor
+                    item["in_window"] = terminalSurface.isViewInWindow
+                    item["hosted_view_in_window"] = hostedView.window != nil
+                    item["runtime_surface_ready"] = readiness.runtimeSurfaceReady
+                    item["terminal_ready"] = terminalReady
+                    item["process_exited"] = v2OrNull(readiness.processExited)
+                    item["foreground_pid"] = v2OrNull(readiness.foregroundPID)
+                    item["tty"] = v2OrNull(ttyName)
+                    item["shell_activity"] = shellActivity.rawValue
+                    item["visible_in_ui"] = visibleInUI
+                    item["headless_bootstrap_window"] = headlessBootstrapWindow
+                } else if let bp = panel as? BrowserPanel {
+                    item["in_window"] = bp.webView.window != nil
+                    item["hosted_view_in_window"] = bp.webView.window != nil
+                    item["runtime_surface_ready"] = NSNull()
+                    item["terminal_ready"] = NSNull()
+                    item["process_exited"] = NSNull()
+                    item["foreground_pid"] = NSNull()
+                    item["tty"] = NSNull()
+                    item["shell_activity"] = NSNull()
+                    item["visible_in_ui"] = bp.webView.window != nil && !bp.webView.isHidden && !bp.webView.isHiddenOrHasHiddenAncestor
+                    item["headless_bootstrap_window"] = false
+                } else {
+                    item["in_window"] = NSNull()
+                    item["hosted_view_in_window"] = NSNull()
+                    item["runtime_surface_ready"] = NSNull()
+                    item["terminal_ready"] = NSNull()
+                    item["process_exited"] = NSNull()
+                    item["foreground_pid"] = NSNull()
+                    item["tty"] = NSNull()
+                    item["shell_activity"] = NSNull()
+                    item["visible_in_ui"] = NSNull()
+                    item["headless_bootstrap_window"] = false
+                }
+                return item
             }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             payload = [
@@ -9837,6 +9966,21 @@ class TerminalController {
             guard let newPanelId else {
                 result = .err(code: "internal_error", message: "Failed to create pane", data: nil)
                 return
+            }
+            if panelType == .terminal {
+                let readinessReason = "socket.pane.create"
+                guard v2EnsureTerminalAutomationReady(
+                    workspace: ws,
+                    surfaceId: newPanelId,
+                    reason: readinessReason
+                ) else {
+                    result = v2TerminalAutomationReadinessFailure(
+                        workspace: ws,
+                        surfaceId: newPanelId,
+                        reason: readinessReason
+                    )
+                    return
+                }
             }
             let paneUUID = ws.paneId(forPanelId: newPanelId)?.id
             let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -16983,13 +17127,24 @@ class TerminalController {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         let title: String? = trimmed.isEmpty ? nil : trimmed
 
-        var newTabId: UUID?
+        var result = "ERROR: Failed to create workspace"
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
-            let workspace = tabManager.addWorkspace(title: title, select: focus, eagerLoadTerminal: !focus)
-            newTabId = workspace.id
+            let workspace = tabManager.addWorkspace(
+                title: title,
+                select: focus,
+                eagerLoadTerminal: !focus,
+                eagerLoadIdleTerminalsForAutomation: !focus
+            )
+            if !focus,
+               !workspace.requestBackgroundPrimeTerminalSurfaceStartIfNeeded(includeIdleTerminals: true) {
+                tabManager.closeWorkspace(workspace)
+                result = "ERROR: Failed to start workspace terminal automation surfaces"
+                return
+            }
+            result = "OK \(workspace.id.uuidString)"
         }
-        return "OK \(newTabId?.uuidString ?? "unknown")"
+        return result
     }
 
     private func newSplit(_ args: String) -> String {
@@ -17033,6 +17188,14 @@ class TerminalController {
             }
 
             if let newPanelId = tabManager.newSplit(tabId: tabId, surfaceId: targetSurface, direction: direction) {
+                if let error = v1TerminalAutomationReadinessError(
+                    workspace: tab,
+                    surfaceId: newPanelId,
+                    reason: "socket.v1.new_split"
+                ) {
+                    result = error
+                    return
+                }
                 result = "OK \(newPanelId.uuidString)"
             }
         }
@@ -18789,6 +18952,15 @@ class TerminalController {
             }
 
             if let id = newPanelId {
+                if panelType == .terminal,
+                   let error = v1TerminalAutomationReadinessError(
+                       workspace: tab,
+                       surfaceId: id,
+                       reason: "socket.v1.new_pane"
+                   ) {
+                    result = error
+                    return
+                }
                 result = "OK \(id.uuidString)"
             }
         }
@@ -20453,6 +20625,15 @@ class TerminalController {
             }
 
             if let id = newPanelId {
+                if panelType == .terminal,
+                   let error = v1TerminalAutomationReadinessError(
+                       workspace: tab,
+                       surfaceId: id,
+                       reason: "socket.v1.new_surface"
+                   ) {
+                    result = error
+                    return
+                }
                 result = "OK \(id.uuidString)"
             }
         }

@@ -10609,32 +10609,66 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    private var allTerminalPanelsInStableOrder: [TerminalPanel] {
+        var result: [TerminalPanel] = []
+        var seenPanelIds = Set<UUID>()
+        for tabId in bonsplitController.allTabIds {
+            guard let panelId = panelIdFromSurfaceId(tabId),
+                  seenPanelIds.insert(panelId).inserted,
+                  let panel = panels[panelId] as? TerminalPanel else {
+                continue
+            }
+            result.append(panel)
+        }
+        let orphanPanels = panels.values
+            .compactMap { $0 as? TerminalPanel }
+            .filter { !seenPanelIds.contains($0.id) }
+            .sorted { $0.id.uuidString < $1.id.uuidString }
+        result.append(contentsOf: orphanPanels)
+        return result
+    }
+
+    private func backgroundPrimeTerminalPanelCandidates(
+        includeIdleTerminals: Bool = false
+    ) -> [TerminalPanel] {
+        includeIdleTerminals ? allTerminalPanelsInStableOrder : backgroundPrimeTerminalPanels
+    }
+
     private func hasBackgroundSurfaceStartWork(for panel: TerminalPanel) -> Bool {
         panel.surface.hasDeferredStartupWorkForBackgroundStart() ||
             pendingTerminalInputObserversByPanelId[panel.id]?.isEmpty == false
     }
 
-    private var backgroundPrimeTerminalPanelsNeedingSurfaceStart: [TerminalPanel] {
-        backgroundPrimeTerminalPanels.filter { panel in
-            panel.surface.surface == nil && hasBackgroundSurfaceStartWork(for: panel)
+    private func backgroundPrimeTerminalPanelsNeedingSurfaceStart(
+        includeIdleTerminals: Bool = false
+    ) -> [TerminalPanel] {
+        backgroundPrimeTerminalPanelCandidates(includeIdleTerminals: includeIdleTerminals).filter { panel in
+            !panel.surface.hasLiveSurface &&
+                (includeIdleTerminals || hasBackgroundSurfaceStartWork(for: panel))
         }
     }
 
-    func hasBackgroundPrimeTerminalSurfaceStartWork() -> Bool {
-        backgroundPrimeTerminalPanels.contains {
-            hasBackgroundSurfaceStartWork(for: $0)
-        }
+    func hasBackgroundPrimeTerminalSurfaceStartWork(includeIdleTerminals: Bool = false) -> Bool {
+        !backgroundPrimeTerminalPanelsNeedingSurfaceStart(
+            includeIdleTerminals: includeIdleTerminals
+        ).isEmpty
     }
 
-    func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() {
-        backgroundPrimeTerminalPanelsNeedingSurfaceStart.forEach {
-            $0.surface.requestBackgroundSurfaceStartIfNeeded()
+    @MainActor
+    @discardableResult
+    func requestBackgroundPrimeTerminalSurfaceStartIfNeeded(includeIdleTerminals: Bool = false) -> Bool {
+        let panels = backgroundPrimeTerminalPanelsNeedingSurfaceStart(includeIdleTerminals: includeIdleTerminals)
+        var startedAll = true
+        for panel in panels {
+            startedAll = panel.surface.ensureRuntimeSurfaceStartedForAutomationIfNeeded(reason: "workspace.backgroundPrime") && startedAll
         }
+        return startedAll
     }
 
-    func hasLoadedBackgroundPrimeTerminalSurface() -> Bool {
-        backgroundPrimeTerminalPanels.allSatisfy { panel in
-            panel.surface.surface != nil || !hasBackgroundSurfaceStartWork(for: panel)
+    func hasLoadedBackgroundPrimeTerminalSurface(includeIdleTerminals: Bool = false) -> Bool {
+        backgroundPrimeTerminalPanelCandidates(includeIdleTerminals: includeIdleTerminals).allSatisfy { panel in
+            panel.surface.hasLiveSurface ||
+                (!includeIdleTerminals && !hasBackgroundSurfaceStartWork(for: panel))
         }
     }
 
