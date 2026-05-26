@@ -94,6 +94,24 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertTrue(plan.usesTransparentWindow)
     }
 
+    func testTranslucentTerminalBackdropPlanIdentityChangesWithBlurRadius() {
+        let smallRadius = makeSnapshot(
+            unifySurfaceBackdrops: true,
+            backgroundOpacity: 0.5,
+            backgroundBlur: .radius(10)
+        )
+        let largeRadius = makeSnapshot(
+            unifySurfaceBackdrops: true,
+            backgroundOpacity: 0.5,
+            backgroundBlur: .radius(37)
+        )
+
+        XCTAssertNotEqual(
+            smallRadius.backdropPlan(glassEffectAvailable: false).appKitMutationID,
+            largeRadius.backdropPlan(glassEffectAvailable: false).appKitMutationID
+        )
+    }
+
     func testSidebarTintChangesDoNotDriveWindowBackdropPlanIdentity() {
         let red = makeSnapshot(
             unifySurfaceBackdrops: false,
