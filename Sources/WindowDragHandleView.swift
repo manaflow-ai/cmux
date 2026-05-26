@@ -201,7 +201,7 @@ func beginWindowDragHandleEventDispatch(
     event: NSEvent
 ) -> WindowDragHandleEventDispatchToken {
     dispatchPrecondition(condition: .onQueue(.main))
-    WindowDragHandleEventDispatchState.begin(window: window, event: event)
+    return WindowDragHandleEventDispatchState.begin(window: window, event: event)
 }
 
 func endWindowDragHandleEventDispatch(_ token: WindowDragHandleEventDispatchToken) {
