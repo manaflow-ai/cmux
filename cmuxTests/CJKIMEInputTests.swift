@@ -2353,5 +2353,11 @@ final class GhosttyOptionDeleteRegressionTests: XCTestCase {
             GHOSTTY_MODS_ALT_RIGHT.rawValue,
             "Right Option+Delete should include AltRight"
         )
+        XCTAssertEqual(
+            pressEvent.consumed_mods.rawValue,
+            GHOSTTY_MODS_NONE.rawValue,
+            "Right Option+Delete should not consume Option as text input"
+        )
+        XCTAssertNil(pressEvent.text, "Right Option+Delete should be encoded as a key event, not forwarded as DEL text")
     }
 }
