@@ -10564,7 +10564,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    private var hasWorkspaceContributingRestoredUnreadIndicator: Bool {
+    var hasWorkspaceContributingRestoredUnreadIndicator: Bool {
         restoredUnreadPanelIndicators.values.contains { $0.contributesToWorkspaceUnread }
     }
 
@@ -10760,8 +10760,11 @@ final class Workspace: Identifiable, ObservableObject {
         let notificationStore = AppDelegate.shared?.notificationStore
         notificationStore?.markRead(forTabId: id, surfaceId: panelId)
         _ = clearManualUnreadState(panelId: panelId)
+        let restoredIndicator = restoredUnreadPanelIndicators[panelId]
         let didClearRestored = clearRestoredUnreadIndicatorState(panelId: panelId)
-        if didClearRestored && !hasWorkspaceContributingRestoredUnreadIndicator {
+        if didClearRestored,
+           restoredIndicator?.contributesToWorkspaceUnread == true,
+           !hasWorkspaceContributingRestoredUnreadIndicator {
             _ = notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
         syncUnreadBadgeStateForPanel(panelId)

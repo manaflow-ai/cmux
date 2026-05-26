@@ -11228,7 +11228,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let panelTarget = focusedPanelNotificationTarget(target) {
             let panelId = panelTarget.panelId
             let workspace = panelTarget.workspace
-            if notificationStore.hasVisibleNotificationIndicator(forTabId: target.tabId, surfaceId: nil) {
+            let focusedPanelHasRestoredUnread = workspace.hasRestoredUnreadIndicator(panelId: panelId)
+            let hasWorkspaceOnlyRestoredUnread =
+                notificationStore.hasRestoredUnreadIndicator(forTabId: target.tabId) &&
+                !focusedPanelHasRestoredUnread &&
+                !workspace.hasWorkspaceContributingRestoredUnreadIndicator
+            if notificationStore.hasVisibleNotificationIndicator(forTabId: target.tabId, surfaceId: nil) ||
+                hasWorkspaceOnlyRestoredUnread {
                 notificationStore.markRead(forTabId: target.tabId)
                 return true
             }
@@ -11237,7 +11243,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 workspace.representativePanelIdForWorkspaceManualUnread() == panelId
             let isPanelUnread =
                 workspace.manualUnreadPanelIds.contains(panelId) ||
-                workspace.hasRestoredUnreadIndicator(panelId: panelId) ||
+                focusedPanelHasRestoredUnread ||
                 notificationStore.hasVisibleNotificationIndicator(forTabId: target.tabId, surfaceId: panelId) ||
                 hasWorkspaceManualUnreadOnPanel
             if isPanelUnread {
