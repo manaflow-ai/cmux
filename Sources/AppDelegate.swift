@@ -557,6 +557,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var cmuxThemePreviewReloadGeneration = 0
     private var cmuxThemePreviewReloadWorkItem: DispatchWorkItem?
+    private var hasConfiguredAgentHooksForQuitDialog: Bool?
 
     private static func detectRunningUnderXCTest(_ env: [String: String]) -> Bool {
         if env["XCTestConfigurationFilePath"] != nil { return true }
@@ -1071,6 +1072,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
 
+        refreshAgentHookSetupStatusForQuitDialog()
+
         claimAuthCallbackURLSchemes()
         StartupBreadcrumbLog.append("appDelegate.didFinish.authSchemes.claimed")
 
@@ -1547,6 +1550,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillBecomeActive(_ notification: Notification) { if !hasVisibleMainTerminalWindow() { _ = mainWindowVisibilityController.orderFrontApplicationWindowsBeforeActivation(windows: mainWindowsForVisibilityController(), reason: .applicationWillBecomeActive) } }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        refreshAgentHookSetupStatusForQuitDialog()
         let activationWindows = mainWindowsForVisibilityController()
         if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
             _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(windows: activationWindows, reason: .applicationDidBecomeActive)
@@ -1589,7 +1593,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog,
         // or policy skips the warning, avoid a second alert.
@@ -1607,6 +1610,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 reason = "policy"
             }
+            _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
             return .terminateNow
         }
@@ -1614,23 +1618,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Show the same confirmation dialog used by the Cmd+Q shortcut path,
         // then reply asynchronously so we can return .terminateLater now.
         DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
-            alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
-            alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
-            alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-            alert.showsSuppressionButton = true
-            alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
+            let result = self.runQuitConfirmationDialog()
 
-            let response = alert.runModal()
-            if alert.suppressionButton?.state == .on {
-                QuitWarningSettings.setEnabled(false)
-            }
-
-            let shouldQuit = response == .alertFirstButtonReturn
-            if shouldQuit {
+            if result.shouldQuit {
+                self.applyConfirmedQuitDialogChoices(result.choices)
                 self.isQuitWarningConfirmed = true
+                _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
                 self.closeAllWebInspectorsBeforeAppTeardown()
                 StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
             } else {
@@ -1638,7 +1631,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.isTerminatingApp = false
                 StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
             }
-            NSApp.reply(toApplicationShouldTerminate: shouldQuit)
+            NSApp.reply(toApplicationShouldTerminate: result.shouldQuit)
         }
         StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
@@ -2773,6 +2766,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
+        AgentSessionAutoResumeSettings.prepareCurrentLaunchAutoResumeOverride()
         SessionPersistenceStore.syncManualRestoreSnapshotCache()
         guard SessionRestorePolicy.shouldAttemptRestore() else { return }
         startupSessionSnapshot = SessionPersistenceStore.load()
@@ -11515,27 +11509,137 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
-        alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
-        alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
-        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
+        let result = runQuitConfirmationDialog()
 
-        let response = alert.runModal()
-        if alert.suppressionButton?.state == .on {
-            QuitWarningSettings.setEnabled(false)
-        }
-
-        if response == .alertFirstButtonReturn {
+        if result.shouldQuit {
+            applyConfirmedQuitDialogChoices(result.choices)
             // Mark as confirmed so applicationShouldTerminate does not show a
             // second alert when NSApp.terminate re-enters the delegate callback.
             isQuitWarningConfirmed = true
             NSApp.terminate(nil)
         }
         return true
+    }
+
+    private struct QuitDialogChoices {
+        var restoreLayoutOnNextLaunch: Bool
+        var autoResumeAgentSessions: Bool
+    }
+
+    private struct QuitDialogResult {
+        var shouldQuit: Bool
+        var choices: QuitDialogChoices
+    }
+
+    private func runQuitConfirmationDialog() -> QuitDialogResult {
+        let hasConfiguredAgentHooks = hasConfiguredAgentHooksForQuitDialog
+
+        let restoreLayoutButton = NSButton(
+            checkboxWithTitle: String(
+                localized: "dialog.quitCmux.restoreLayoutOnNextLaunch",
+                defaultValue: "Restore layout on next launch"
+            ),
+            target: nil,
+            action: nil
+        )
+        restoreLayoutButton.state = SessionRestorePolicy.shouldRestoreLayoutOnNextLaunch() ? .on : .off
+        restoreLayoutButton.setAccessibilityIdentifier("QuitDialogRestoreLayoutOnNextLaunchCheckbox")
+
+        let autoResumeButton = NSButton(
+            checkboxWithTitle: String(
+                localized: "dialog.quitCmux.restoreAgentSessionsOnNextLaunch",
+                defaultValue: "Restore coding agent sessions on next launch"
+            ),
+            target: nil,
+            action: nil
+        )
+        autoResumeButton.state = AgentSessionAutoResumeSettings.shouldResumeAgentSessionsOnNextLaunch() ? .on : .off
+        autoResumeButton.setAccessibilityIdentifier("QuitDialogRestoreAgentSessionsOnNextLaunchCheckbox")
+
+        let optionsStack = NSStackView(views: [restoreLayoutButton, autoResumeButton])
+        optionsStack.orientation = .vertical
+        optionsStack.alignment = .leading
+        optionsStack.spacing = 8
+
+        let docsButton = NSButton(
+            title: String(localized: "dialog.quitCmux.sessionDocs", defaultValue: "Session restore docs"),
+            target: self,
+            action: #selector(openSessionRestoreDocs)
+        )
+        docsButton.isBordered = false
+        docsButton.contentTintColor = .linkColor
+        docsButton.setButtonType(.momentaryPushIn)
+        docsButton.alignment = .left
+        docsButton.setAccessibilityIdentifier("QuitDialogSessionRestoreDocsButton")
+        optionsStack.addArrangedSubview(docsButton)
+
+        if hasConfiguredAgentHooks == false {
+            let warning = NSTextField(labelWithString: String(
+                localized: "dialog.quitCmux.hooksNotConfiguredWarning",
+                defaultValue: "Agent session restore needs hooks. Run `cmux hooks setup` for supported agents."
+            ))
+            warning.lineBreakMode = .byWordWrapping
+            warning.maximumNumberOfLines = 0
+            warning.textColor = .secondaryLabelColor
+            warning.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            warning.setAccessibilityIdentifier("QuitDialogHooksNotConfiguredWarning")
+            optionsStack.addArrangedSubview(warning)
+        }
+
+        optionsStack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            optionsStack.widthAnchor.constraint(equalToConstant: 360)
+        ])
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
+        alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
+        alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        alert.accessoryView = optionsStack
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
+
+        let response = alert.runModal()
+        let shouldQuit = response == .alertFirstButtonReturn
+        if shouldQuit && alert.suppressionButton?.state == .on {
+            QuitWarningSettings.setEnabled(false)
+        }
+        let choices = QuitDialogChoices(
+            restoreLayoutOnNextLaunch: restoreLayoutButton.state == .on,
+            autoResumeAgentSessions: autoResumeButton.state == .on
+        )
+        return QuitDialogResult(shouldQuit: shouldQuit, choices: choices)
+    }
+
+    private func applyConfirmedQuitDialogChoices(_ choices: QuitDialogChoices) {
+        SessionRestorePolicy.setRestoreLayoutOnNextLaunch(choices.restoreLayoutOnNextLaunch)
+        AgentSessionAutoResumeSettings.setResumeAgentSessionsOnNextLaunch(choices.autoResumeAgentSessions)
+        AgentSessionAutoResumeSettings.setCurrentLaunchAutoResumeOverride(choices.autoResumeAgentSessions)
+    }
+
+    @objc private func openSessionRestoreDocs() {
+        guard let url = URL(string: "https://github.com/manaflow-ai/cmux/blob/main/docs/agent-hooks.md#disable-automatic-resume") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func refreshAgentHookSetupStatusForQuitDialog() {
+        let homeDirectory = NSHomeDirectory()
+        let environment = ProcessInfo.processInfo.environment
+        let claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.hooksEnabled()
+        Task.detached(priority: .utility) { [homeDirectory, environment, claudeCodeHooksEnabled] in
+            let hasConfiguredAgentHooks = AgentHookSetupStatus.hasConfiguredAgentHooks(
+                homeDirectory: homeDirectory,
+                environment: environment,
+                claudeCodeHooksEnabled: claudeCodeHooksEnabled
+            )
+            await MainActor.run { [weak self] in
+                self?.hasConfiguredAgentHooksForQuitDialog = hasConfiguredAgentHooks
+            }
+        }
     }
 
     func promptRenameSelectedWorkspace() -> Bool {

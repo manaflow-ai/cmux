@@ -297,6 +297,73 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(shouldRestore)
     }
 
+    func testRestorePolicySkipsAndConsumesDisabledNextLaunchLayoutRestore() {
+        let suiteName = "SessionRestorePolicyTests.NextLaunch.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        SessionRestorePolicy.setRestoreLayoutOnNextLaunch(false, defaults: defaults)
+
+        XCTAssertFalse(
+            SessionRestorePolicy.shouldAttemptRestore(
+                arguments: ["/Applications/cmux.app/Contents/MacOS/cmux"],
+                environment: [:],
+                defaults: defaults
+            )
+        )
+        XCTAssertNil(defaults.object(forKey: SessionRestorePolicy.restoreLayoutOnNextLaunchKey))
+        XCTAssertTrue(
+            SessionRestorePolicy.shouldAttemptRestore(
+                arguments: ["/Applications/cmux.app/Contents/MacOS/cmux"],
+                environment: [:],
+                defaults: defaults
+            )
+        )
+    }
+
+    func testRestorePolicyConsumesDisabledNextLaunchLayoutRestoreWithExplicitArguments() {
+        let suiteName = "SessionRestorePolicyTests.NextLaunchExplicitArguments.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        SessionRestorePolicy.setRestoreLayoutOnNextLaunch(false, defaults: defaults)
+
+        XCTAssertFalse(
+            SessionRestorePolicy.shouldAttemptRestore(
+                arguments: ["/Applications/cmux.app/Contents/MacOS/cmux", "--window", "window:1"],
+                environment: [:],
+                defaults: defaults
+            )
+        )
+        XCTAssertNil(defaults.object(forKey: SessionRestorePolicy.restoreLayoutOnNextLaunchKey))
+    }
+
+    func testRestorePolicyAllowsExplicitEnabledNextLaunchLayoutRestore() {
+        let suiteName = "SessionRestorePolicyTests.EnabledNextLaunch.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        SessionRestorePolicy.setRestoreLayoutOnNextLaunch(true, defaults: defaults)
+
+        XCTAssertTrue(
+            SessionRestorePolicy.shouldAttemptRestore(
+                arguments: ["/Applications/cmux.app/Contents/MacOS/cmux"],
+                environment: [:],
+                defaults: defaults
+            )
+        )
+        XCTAssertEqual(defaults.object(forKey: SessionRestorePolicy.restoreLayoutOnNextLaunchKey) as? Bool, true)
+    }
+
     func testRestorePolicySkipsWhenRunningUnderXCTest() {
         let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
             arguments: ["/Applications/cmux.app/Contents/MacOS/cmux"],
@@ -1646,6 +1713,208 @@ final class SessionPersistenceTests: XCTestCase {
     private func fileNumber(for fileURL: URL) throws -> Int {
         let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
         return try XCTUnwrap(attributes[.systemFileNumber] as? Int)
+    }
+}
+
+final class AgentHookSetupStatusTests: XCTestCase {
+    func testDetectsConfiguredHookMarkerInDefaultConfig() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hooksURL = root.appendingPathComponent(".codex/hooks.json")
+        try FileManager.default.createDirectory(
+            at: hooksURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"{"hooks":{"Stop":[{"command":"cmux hooks codex stop"}]}}"#
+            .write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(AgentHookSetupStatus.hasConfiguredAgentHooks(homeDirectory: root.path, environment: [:]))
+    }
+
+    func testTreatsClaudeIntegrationAsConfiguredHooks() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        XCTAssertTrue(
+            AgentHookSetupStatus.hasConfiguredAgentHooks(
+                homeDirectory: root.path,
+                environment: [:],
+                claudeCodeHooksEnabled: true
+            )
+        )
+    }
+
+    func testDetectsConfiguredHookMarkerInEnvironmentOverride() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let codexHome = root.appendingPathComponent("custom-codex-home", isDirectory: true)
+        let hooksURL = codexHome.appendingPathComponent("hooks.json")
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try #"{"hooks":{"Stop":[{"command":"cmux hooks codex stop"}]}}"#
+            .write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(
+            AgentHookSetupStatus.hasConfiguredAgentHooks(
+                homeDirectory: root.path,
+                environment: ["CODEX_HOME": codexHome.path]
+            )
+        )
+    }
+
+    func testDetectsBundledCLIHookCommand() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hooksURL = root.appendingPathComponent(".codex/hooks.json")
+        try FileManager.default.createDirectory(
+            at: hooksURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"{"hooks":{"Stop":[{"command":"cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; \"$cmux_cli\" hooks codex stop"}]}}"#
+            .write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(AgentHookSetupStatus.hasConfiguredAgentHooks(homeDirectory: root.path, environment: [:]))
+    }
+
+    func testDetectsBundledCLIFeedHookCommand() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hooksURL = root.appendingPathComponent(".gemini/settings.json")
+        try FileManager.default.createDirectory(
+            at: hooksURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"{"hooks":{"Stop":[{"command":"cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; \"$cmux_cli\" hooks feed --source gemini"}]}}"#
+            .write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(AgentHookSetupStatus.hasConfiguredAgentHooks(homeDirectory: root.path, environment: [:]))
+    }
+
+    func testDetectsAntigravityHookConfig() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hooksURL = root.appendingPathComponent(".gemini/config/hooks.json")
+        try FileManager.default.createDirectory(
+            at: hooksURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"{"Stop":[{"command":"cmux hooks antigravity stop"}]}"#
+            .write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(AgentHookSetupStatus.hasConfiguredAgentHooks(homeDirectory: root.path, environment: [:]))
+    }
+
+    func testDetectsPinnedAntigravityHookConfig() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hooksURL = root.appendingPathComponent(".gemini/config/hooks.json")
+        try FileManager.default.createDirectory(
+            at: hooksURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"{"Stop":[{"command":": cmux-antigravity-hook-v2; command -v cmux >/dev/null 2>&1"}]}"#
+            .write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(AgentHookSetupStatus.hasConfiguredAgentHooks(homeDirectory: root.path, environment: [:]))
+    }
+
+    func testDetectsPinnedGrokHookConfig() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hooksURL = root.appendingPathComponent(".grok/hooks/cmux-session.json")
+        try FileManager.default.createDirectory(
+            at: hooksURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"{"hooks":{"Stop":[{"command":": cmux-grok-hook-v2; command -v cmux >/dev/null 2>&1"}]}}"#
+            .write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(AgentHookSetupStatus.hasConfiguredAgentHooks(homeDirectory: root.path, environment: [:]))
+    }
+
+    func testDetectsHermesHookConfig() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hooksURL = root.appendingPathComponent(".hermes/config.yaml")
+        try FileManager.default.createDirectory(
+            at: hooksURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "hooks:\n  session:\n    command: cmux hooks hermes-agent stop\n"
+            .write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(AgentHookSetupStatus.hasConfiguredAgentHooks(homeDirectory: root.path, environment: [:]))
+    }
+
+    func testDetectsHermesHookConfigInEnvironmentOverride() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hermesHome = root.appendingPathComponent("custom-hermes-home", isDirectory: true)
+        let hooksURL = hermesHome.appendingPathComponent("config.yaml")
+        try FileManager.default.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        try "hooks:\n  session:\n    command: cmux hooks hermes-agent stop\n"
+            .write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(
+            AgentHookSetupStatus.hasConfiguredAgentHooks(
+                homeDirectory: root.path,
+                environment: ["HERMES_HOME": hermesHome.path]
+            )
+        )
+    }
+
+    func testDetectsOpenCodeFeedHookConfigInEnvironmentOverride() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let opencodeConfigDir = root.appendingPathComponent("custom-opencode", isDirectory: true)
+        let hookURL = opencodeConfigDir.appendingPathComponent("plugins/cmux-feed.js")
+        try FileManager.default.createDirectory(
+            at: hookURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "export const cmuxFeedPluginMarker = 'cmux-feed-plugin-marker';\n"
+            .write(to: hookURL, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(
+            AgentHookSetupStatus.hasConfiguredAgentHooks(
+                homeDirectory: root.path,
+                environment: ["OPENCODE_CONFIG_DIR": opencodeConfigDir.path]
+            )
+        )
+    }
+
+    func testDetectsRecordedHookSessionStore() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storeDirectory = root.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
+        try "{}".write(
+            to: storeDirectory.appendingPathComponent("codex-hook-sessions.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(AgentHookSetupStatus.hasConfiguredAgentHooks(homeDirectory: root.path, environment: [:]))
+    }
+
+    func testIgnoresUnrelatedConfigFiles() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hooksURL = root.appendingPathComponent(".codex/hooks.json")
+        try FileManager.default.createDirectory(
+            at: hooksURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"{"hooks":{"Stop":[{"command":"echo done"}]}}"#
+            .write(to: hooksURL, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(AgentHookSetupStatus.hasConfiguredAgentHooks(homeDirectory: root.path, environment: [:]))
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hook-status-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 }
 

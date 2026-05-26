@@ -92,6 +92,22 @@ enum SessionPersistencePolicy {
 }
 
 enum SessionRestorePolicy {
+    // False is consumed as a one-time "skip restore" choice by shouldAttemptRestore.
+    // True and missing both keep the normal restore behavior for future launches.
+    static let restoreLayoutOnNextLaunchKey = "session.restoreLayoutOnNextLaunch"
+    static let defaultRestoreLayoutOnNextLaunch = true
+
+    static func shouldRestoreLayoutOnNextLaunch(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: restoreLayoutOnNextLaunchKey) != nil else {
+            return defaultRestoreLayoutOnNextLaunch
+        }
+        return defaults.bool(forKey: restoreLayoutOnNextLaunchKey)
+    }
+
+    static func setRestoreLayoutOnNextLaunch(_ shouldRestore: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(shouldRestore, forKey: restoreLayoutOnNextLaunchKey)
+    }
+
     static func isRunningUnderAutomatedTests(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Bool {
@@ -124,7 +140,8 @@ enum SessionRestorePolicy {
 
     static func shouldAttemptRestore(
         arguments: [String] = CommandLine.arguments,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        defaults: UserDefaults = .standard
     ) -> Bool {
         if environment["CMUX_DISABLE_SESSION_RESTORE"] == "1" {
             return false
@@ -137,8 +154,17 @@ enum SessionRestorePolicy {
             .dropFirst()
             .filter { !$0.hasPrefix("-psn_") }
 
+        // Consume the one-time restoreLayoutOnNextLaunchKey skip before the
+        // extraArgs guard. Otherwise a Finder/open-with launch would carry the
+        // skip into a later normal launch.
+        guard shouldRestoreLayoutOnNextLaunch(defaults: defaults) else {
+            defaults.removeObject(forKey: restoreLayoutOnNextLaunchKey)
+            return false
+        }
+
         // Any explicit launch argument is treated as an explicit open intent.
-        return extraArgs.isEmpty
+        guard extraArgs.isEmpty else { return false }
+        return true
     }
 }
 

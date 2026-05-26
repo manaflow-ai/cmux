@@ -193,8 +193,10 @@ enum TerminalManagedGhosttySettings {
 
 enum AgentSessionAutoResumeSettings {
     static let autoResumeAgentSessionsKey = "terminal.autoResumeAgentSessions"
+    static let resumeAgentSessionsOnNextLaunchKey = "session.resumeAgentSessionsOnNextLaunch"
     static let defaultAutoResumeAgentSessions = true
     static let didChangeNotification = Notification.Name("cmux.agentSessionAutoResumeSettingsDidChange")
+    nonisolated(unsafe) private static var currentLaunchAutoResumeAgentSessionsOverride: Bool?
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: autoResumeAgentSessionsKey) != nil else {
@@ -215,6 +217,34 @@ enum AgentSessionAutoResumeSettings {
         }
     }
 
+    static func shouldResumeAgentSessionsOnNextLaunch(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: resumeAgentSessionsOnNextLaunchKey) != nil else {
+            return isEnabled(defaults: defaults)
+        }
+        return defaults.bool(forKey: resumeAgentSessionsOnNextLaunchKey)
+    }
+
+    static func setResumeAgentSessionsOnNextLaunch(_ shouldResume: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(shouldResume, forKey: resumeAgentSessionsOnNextLaunchKey)
+    }
+
+    static func prepareCurrentLaunchAutoResumeOverride(defaults: UserDefaults = .standard) {
+        guard defaults.object(forKey: resumeAgentSessionsOnNextLaunchKey) != nil else {
+            currentLaunchAutoResumeAgentSessionsOverride = nil
+            return
+        }
+        currentLaunchAutoResumeAgentSessionsOverride = defaults.bool(forKey: resumeAgentSessionsOnNextLaunchKey)
+        defaults.removeObject(forKey: resumeAgentSessionsOnNextLaunchKey)
+    }
+
+    static func setCurrentLaunchAutoResumeOverride(_ enabled: Bool) {
+        currentLaunchAutoResumeAgentSessionsOverride = enabled
+    }
+
+    static func isEnabledForCurrentLaunch(defaults: UserDefaults = .standard) -> Bool {
+        currentLaunchAutoResumeAgentSessionsOverride ?? isEnabled(defaults: defaults)
+    }
+
     @discardableResult
     static func reset(
         defaults: UserDefaults = .standard,
@@ -222,6 +252,8 @@ enum AgentSessionAutoResumeSettings {
     ) -> Bool {
         let wasEnabled = isEnabled(defaults: defaults)
         defaults.removeObject(forKey: autoResumeAgentSessionsKey)
+        defaults.removeObject(forKey: resumeAgentSessionsOnNextLaunchKey)
+        currentLaunchAutoResumeAgentSessionsOverride = nil
         let didChange = wasEnabled != isEnabled(defaults: defaults)
         if didChange {
             notifyDidChange(notificationCenter: notificationCenter)
