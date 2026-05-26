@@ -230,7 +230,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let idlePromptCommands = Array(context.state.commands.dropFirst(idlePromptStart))
         XCTAssertFalse(
             idlePromptCommands.contains {
-                $0.hasPrefix("set_status claude_code Needs input ")
+                $0.hasPrefix("set_status claude_code ")
+                    && $0.lowercased().contains("needs input")
                     && $0.contains("--tab=\(context.workspaceId)")
             },
             "Idle prompt notifications after a stopped turn must not relight Needs input, saw \(idlePromptCommands)"

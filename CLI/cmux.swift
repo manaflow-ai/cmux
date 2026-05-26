@@ -19766,7 +19766,10 @@ struct CMUXCLI {
                 client: client,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                value: String(localized: "cli.claude-hook.status.needsInput", defaultValue: "Needs input"),
+                value: String.localizedStringWithFormat(
+                    String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
+                    title
+                ),
                 icon: "bell.fill",
                 color: "#4C8DFF"
             )
