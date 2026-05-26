@@ -493,7 +493,9 @@
         },
         "app": {
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
-          "warnBeforeQuit": "Eldre boolsk fallback for avslutningsbekreftelse. Bruk app.confirmQuit for nye konfigurasjoner."
+          "warnBeforeQuit": "Eldre boolsk fallback for avslutningsbekreftelse. Bruk app.confirmQuit for nye konfigurasjoner.",
+          "warnBeforeClosingTabXButton": "Vis en bekreftelse før en fane lukkes med fanens lukkeknapp.",
+          "hideTabCloseButton": "Skjul lukkeknapper for faner i faneraden i ruten."
         },
         "terminal": {
           "copyOnSelect": "Kopierer markert terminaltekst til systemutklippstavlen når markeringen bekreftes, inkludert ord- og linjemarkeringer fra dobbelt- og trippelklikk."
@@ -978,7 +980,7 @@
       "supportedNote": "Claude Code håndteres av cmux Claude-wrapperen når Claude-integrasjonen er aktivert i Settings. Antigravity godtar også agy som setup-alias, og Rovo Dev godtar rovo.",
       "manualTitle": "Manuell gjenoppretting",
       "manualDesc": "cmux gjenoppretter siste lagrede snapshot ved normal oppstart. Du kan også bruke forrige snapshot manuelt igjen:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "Slå av automatisk agent-gjenopptakelse",
       "disableDesc": "For å gjenopprette paneler uten å starte lagrede agent resume-kommandoer, slå av Settings > Terminal > Resume Agent Sessions on Reopen eller sett:",
       "disableNote": "Dette slår bare av agent resume-kommandoer. cmux gjenoppretter fortsatt layout, arbeidsmapper, scrollback og nettleserhistorikk.",
@@ -1003,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "Nok en dag, nok et libghostty-basert prosjekt, denne gangen en macOS-terminal med vertikale faner, bedre organisering/varsler, innebygd/skriptbar nettleser spesifikt rettet mot folk som bruker mange terminalbaserte agent-arbeidsflyter.",
+    "steipete": "Jeg er sent ute, men cmux er flott. Nåværende oppdeling: Codex Mac-appen for kunnskapsarbeid, læring og lesing; cmux + Codex CLI for koding.",
     "schrockn": "Dette er nøyaktig produktet jeg har lett etter. Etter to timer i morges er jeg forelsket.",
     "egrefen": "Jeg har brukt dette hele helgen og det er fantastisk.",
     "max4c": "dette har vært favorittverktøyet mitt de siste to ukene",

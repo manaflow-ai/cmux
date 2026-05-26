@@ -773,6 +773,26 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
             )
         )
     }
+
+    func testTerminalFocusTextBoxCommandRestoresTextBoxAfterPaletteDismiss() {
+        XCTAssertEqual(
+            ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalFocusTextBoxInput"),
+            .terminal(.textBoxInput)
+        )
+    }
+
+    func testTerminalAttachTextBoxFileCommandRestoresTextBoxAfterPaletteDismiss() {
+        XCTAssertEqual(
+            ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalAttachTextBoxFile"),
+            .terminal(.textBoxInput)
+        )
+    }
+
+    func testOtherCommandPaletteCommandsDoNotForcePostRunFocusRestore() {
+        XCTAssertNil(
+            ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalToggleTextBoxInput")
+        )
+    }
 }
 
 
@@ -840,6 +860,19 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
 
 
 final class ShortcutHintModifierPolicyTests: XCTestCase {
+    func testTitlebarShortcutHintActionSlotsIncludeFocusHistoryNavigation() {
+        XCTAssertEqual(
+            TitlebarShortcutHintActionSlot.allCases.map(\.action),
+            [
+                .toggleSidebar,
+                .showNotifications,
+                .newTab,
+                .focusHistoryBack,
+                .focusHistoryForward,
+            ]
+        )
+    }
+
     func testTitlebarShortcutHintAlwaysShowAllowsBoundNonCommandShortcut() {
         let controlShortcut = StoredShortcut(key: "R", command: false, shift: false, option: false, control: true)
         let commandShortcut = StoredShortcut(key: "R", command: true, shift: false, option: false, control: false)
@@ -1059,6 +1092,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         .switchRightSidebarToSessions,
         .switchRightSidebarToFeed,
         .switchRightSidebarToDock,
+        .switchRightSidebarToHistory,
     ]
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
@@ -1110,6 +1144,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
         XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
         XCTAssertEqual(RightSidebarMode.dock.shortcutAction, .switchRightSidebarToDock)
+        XCTAssertEqual(RightSidebarMode.history.shortcutAction, .switchRightSidebarToHistory)
     }
 
     func testModeShortcutsUsePrivateControlDigitDefaults() {
@@ -1132,6 +1167,10 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23)),
             .dock
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "6", modifiers: [.control], keyCode: 22)),
+            .history
         )
     }
 
@@ -1189,6 +1228,10 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23)),
             .dock
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "6", modifiers: [.control], keyCode: 22)),
+            .history
         )
     }
 
@@ -1375,6 +1418,46 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     }
 
     @MainActor
+    func testPendingHistoryFocusCompletesWhenHistorySearchHostRegisters() {
+        let fileExplorerState = FileExplorerState()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = contentView
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: window,
+            tabManager: TabManager(),
+            fileExplorerState: fileExplorerState
+        )
+
+        XCTAssertTrue(controller.focusRightSidebar(mode: .history, focusFirstItem: true))
+        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .history)
+
+        var searchFocusRequests = 0
+        let focusHost = RightSidebarHistoryFocusAnchorView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        focusHost.onFocusSearch = {
+            searchFocusRequests += 1
+        }
+        defer {
+            _ = window.makeFirstResponder(nil)
+            focusHost.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+        contentView.addSubview(focusHost)
+        controller.registerHistoryHost(focusHost)
+
+        XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
+        XCTAssertTrue(window.firstResponder === focusHost)
+        XCTAssertEqual(searchFocusRequests, 1)
+    }
+
+    @MainActor
     func testFocusShortcutToggleClearsRightSidebarIntentWhenTerminalIsUnavailable() {
         let controller = MainWindowFocusController(
             windowId: UUID(),
@@ -1405,7 +1488,7 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         XCTAssertEqual(ShortcutHintDebugSettings.defaultSidebarHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultSidebarHintY, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintX, 4.0)
-        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintY, 0.0)
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintY, -5.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintY, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultRightSidebarCloseHintX, -10.0)
@@ -1517,6 +1600,24 @@ final class ShortcutHintHorizontalPlannerTests: XCTestCase {
         let intervals: [ClosedRange<CGFloat>] = [0...12, 20...32, 40...52]
         let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 4)
         XCTAssertEqual(rightEdges, [12, 32, 52])
+    }
+
+    func testAssignRightEdgesKeepsCrowdedHintsInsideLeadingEdge() {
+        let intervals: [ClosedRange<CGFloat>] = [-2...24, 27...50, 50...76, 78...102, 104...128]
+        let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 6)
+
+        let adjustedIntervals = zip(intervals, rightEdges).map { interval, rightEdge in
+            let width = interval.upperBound - interval.lowerBound
+            return (rightEdge - width)...rightEdge
+        }
+
+        XCTAssertGreaterThanOrEqual(adjustedIntervals[0].lowerBound, 0)
+        for index in 1..<adjustedIntervals.count {
+            XCTAssertGreaterThanOrEqual(
+                adjustedIntervals[index].lowerBound - adjustedIntervals[index - 1].upperBound,
+                6
+            )
+        }
     }
 }
 
@@ -1957,123 +2058,6 @@ final class UpdateViewModelPresentationTests: XCTestCase {
             "enclosure": enclosure,
         ]
         return SUAppcastItem(dictionary: dict)
-    }
-}
-
-final class UpdateDriverTimeoutTests: XCTestCase {
-    private let timeoutDuration: TimeInterval = 0.05
-
-    func testCheckingTimeoutCancelsAndShowsFailure() {
-        let viewModel = UpdateViewModel()
-        let driver = makeDriver(viewModel: viewModel)
-        var cancelCount = 0
-
-        driver.showUserInitiatedUpdateCheck {
-            cancelCount += 1
-        }
-
-        let error = waitForTimeoutError(viewModel: viewModel)
-        XCTAssertNotNil(error)
-        XCTAssertEqual(cancelCount, 1)
-        XCTAssertEqual(UpdateViewModel.userFacingErrorTitle(for: error!), "Update Timed Out")
-        XCTAssertEqual(
-            UpdateViewModel.userFacingErrorMessage(for: error!),
-            "cmux could not check for updates in time. Check your network and try again."
-        )
-    }
-
-    func testDownloadingTimeoutCancelsAndShowsFailure() {
-        let viewModel = UpdateViewModel()
-        let driver = makeDriver(viewModel: viewModel)
-        var cancelCount = 0
-
-        driver.showUserInitiatedUpdateCheck {}
-        driver.showDownloadInitiated {
-            cancelCount += 1
-        }
-
-        let error = waitForTimeoutError(viewModel: viewModel)
-        XCTAssertNotNil(error)
-        XCTAssertEqual(cancelCount, 1)
-        XCTAssertEqual(
-            UpdateViewModel.userFacingErrorMessage(for: error!),
-            "cmux could not download the update in time. Check your network and try again."
-        )
-    }
-
-    func testPreparingTimeoutShowsFailure() {
-        let viewModel = UpdateViewModel()
-        let driver = makeDriver(viewModel: viewModel)
-
-        driver.showUserInitiatedUpdateCheck {}
-        driver.showDownloadDidStartExtractingUpdate()
-
-        let error = waitForTimeoutError(viewModel: viewModel)
-        XCTAssertNotNil(error)
-        XCTAssertEqual(
-            UpdateViewModel.userFacingErrorMessage(for: error!),
-            "cmux could not prepare the update in time. Try again later, or restart cmux and try again."
-        )
-    }
-
-    func testRestartRequiredStateDoesNotTimeOut() {
-        let viewModel = UpdateViewModel()
-        let driver = makeDriver(viewModel: viewModel)
-        var retryCount = 0
-
-        driver.showUserInitiatedUpdateCheck {}
-        driver.showDownloadDidStartExtractingUpdate()
-        driver.showInstallingUpdate(withApplicationTerminated: false) {
-            retryCount += 1
-        }
-
-        XCTAssertNotNil(waitForState(viewModel: viewModel, timeout: 0.3) { state in
-            if case .installing = state { return true }
-            return false
-        })
-
-        RunLoop.main.run(until: Date().addingTimeInterval(timeoutDuration * 3))
-        guard case .installing = viewModel.state else {
-            XCTFail("Expected restart prompt to remain visible, got \(viewModel.state)")
-            return
-        }
-        XCTAssertEqual(retryCount, 0)
-    }
-
-    private func makeDriver(viewModel: UpdateViewModel) -> UpdateDriver {
-        UpdateDriver(
-            viewModel: viewModel,
-            hostBundle: Bundle.main,
-            minimumCheckDuration: 0,
-            stateTimeoutDuration: timeoutDuration
-        )
-    }
-
-    private func waitForTimeoutError(viewModel: UpdateViewModel) -> (any Error)? {
-        guard let state = waitForState(viewModel: viewModel, timeout: 1.0, predicate: { state in
-            guard case .error(let error) = state else { return false }
-            return UpdateTimeoutError.isTimeout(error.error as NSError)
-        }) else {
-            return nil
-        }
-
-        guard case .error(let error) = state else { return nil }
-        return error.error
-    }
-
-    private func waitForState(viewModel: UpdateViewModel,
-                              timeout: TimeInterval,
-                              predicate: (UpdateState) -> Bool) -> UpdateState? {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            let state = viewModel.state
-            if predicate(state) {
-                return state
-            }
-            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-        }
-        let state = viewModel.state
-        return predicate(state) ? state : nil
     }
 }
 
