@@ -631,23 +631,74 @@ struct QuickTerminalPlacement: Equatable {
 
 @MainActor
 final class QuickTerminalController {
+    @MainActor
+    struct Dependencies {
+        var createMainWindow: @MainActor (AppDelegate, QuickTerminalPlacement, SessionWindowSnapshot?) -> UUID
+        var windowForMainWindowId: @MainActor (AppDelegate, UUID) -> CmuxMainWindow?
+        var focusQuickTerminalWindow: @MainActor (AppDelegate, CmuxMainWindow) -> Bool
+        var beep: @MainActor () -> Void
+        var animateFrame: @MainActor (
+            NSWindow,
+            NSRect,
+            TimeInterval,
+            @escaping @MainActor () -> Void
+        ) -> Void
+
+        static let live = Dependencies(
+            createMainWindow: { appDelegate, placement, snapshot in
+                appDelegate.createMainWindow(
+                    initialWorkspaceTitle: String(localized: "quickTerminal.windowTitle", defaultValue: "Quick Terminal"),
+                    sessionWindowSnapshot: snapshot,
+                    shouldActivate: false,
+                    initialFrame: placement.visibleFrame,
+                    initialSidebarVisible: false,
+                    shouldOrderFrontWhenNotActivating: false,
+                    isQuickTerminal: true
+                )
+            },
+            windowForMainWindowId: { appDelegate, windowId in
+                appDelegate.windowForMainWindowId(windowId) as? CmuxMainWindow
+            },
+            focusQuickTerminalWindow: { appDelegate, window in
+                appDelegate.focusQuickTerminalWindow(window)
+            },
+            beep: {
+                NSSound.beep()
+            },
+            animateFrame: { window, frame, duration, completion in
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = duration
+                    context.allowsImplicitAnimation = true
+                    window.animator().setFrame(frame, display: true)
+                } completionHandler: {
+                    Task { @MainActor in
+                        completion()
+                    }
+                }
+            }
+        )
+    }
+
     private weak var appDelegate: AppDelegate?
     private var quickTerminalWindowId: UUID?
     private var pendingSessionSnapshot: SessionWindowSnapshot?
     private var isAnimating = false
     private let configurationProvider: @MainActor () -> QuickTerminalConfiguration
     private let placementProvider: @MainActor (QuickTerminalConfiguration) -> QuickTerminalPlacement?
+    private let dependencies: Dependencies
 
     init(
         appDelegate: AppDelegate,
         configurationProvider: @escaping @MainActor () -> QuickTerminalConfiguration = { QuickTerminalConfiguration.current() },
         placementProvider: @escaping @MainActor (QuickTerminalConfiguration) -> QuickTerminalPlacement? = { configuration in
             QuickTerminalPlacement.current(configuration: configuration)
-        }
+        },
+        dependencies: Dependencies = .live
     ) {
         self.appDelegate = appDelegate
         self.configurationProvider = configurationProvider
         self.placementProvider = placementProvider
+        self.dependencies = dependencies
     }
 
     func toggle() {
@@ -659,7 +710,7 @@ final class QuickTerminalController {
         }
 
         guard let window = quickTerminalWindow(appDelegate: appDelegate, placement: placement) else {
-            NSSound.beep()
+            dependencies.beep()
             return
         }
 
@@ -712,16 +763,8 @@ final class QuickTerminalController {
 
         let snapshot = pendingSessionSnapshot
         pendingSessionSnapshot = nil
-        let windowId = appDelegate.createMainWindow(
-            initialWorkspaceTitle: String(localized: "quickTerminal.windowTitle", defaultValue: "Quick Terminal"),
-            sessionWindowSnapshot: snapshot,
-            shouldActivate: false,
-            initialFrame: placement.visibleFrame,
-            initialSidebarVisible: false,
-            shouldOrderFrontWhenNotActivating: false,
-            isQuickTerminal: true
-        )
-        guard let window = appDelegate.windowForMainWindowId(windowId) as? CmuxMainWindow else {
+        let windowId = dependencies.createMainWindow(appDelegate, placement, snapshot)
+        guard let window = dependencies.windowForMainWindowId(appDelegate, windowId) else {
             return nil
         }
         quickTerminalWindowId = windowId
@@ -753,18 +796,18 @@ final class QuickTerminalController {
         configure(window)
         if isShown(window) {
             window.setSoftHiddenForVisibilityController(false)
-            _ = appDelegate.focusQuickTerminalWindow(window)
+            _ = dependencies.focusQuickTerminalWindow(appDelegate, window)
             return
         }
 
         isAnimating = true
         window.setFrame(placement.hiddenFrame, display: false)
         window.setSoftHiddenForVisibilityController(false)
-        _ = appDelegate.focusQuickTerminalWindow(window)
+        _ = dependencies.focusQuickTerminalWindow(appDelegate, window)
 #if DEBUG
         cmuxDebugLog("quickTerminal.show frame={\(NSStringFromRect(placement.visibleFrame))}")
 #endif
-        animate(window: window, to: placement.visibleFrame, duration: configuration.animationDuration) { [weak self] in
+        dependencies.animateFrame(window, placement.visibleFrame, configuration.animationDuration) { [weak self] in
             self?.isAnimating = false
         }
     }
@@ -778,29 +821,12 @@ final class QuickTerminalController {
 #if DEBUG
         cmuxDebugLog("quickTerminal.hide frame={\(NSStringFromRect(placement.hiddenFrame))}")
 #endif
-        animate(window: window, to: placement.hiddenFrame, duration: configuration.animationDuration * 0.8) { [weak self, weak window] in
+        dependencies.animateFrame(window, placement.hiddenFrame, configuration.animationDuration * 0.8) { [weak self, weak window] in
             guard let self, let window else { return }
             window.orderOut(nil)
             window.setFrame(placement.visibleFrame, display: false)
             window.setSoftHiddenForVisibilityController(true)
             self.isAnimating = false
-        }
-    }
-
-    private func animate(
-        window: NSWindow,
-        to frame: NSRect,
-        duration: TimeInterval,
-        completion: @escaping @MainActor () -> Void
-    ) {
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = duration
-            context.allowsImplicitAnimation = true
-            window.animator().setFrame(frame, display: true)
-        } completionHandler: {
-            Task { @MainActor in
-                completion()
-            }
         }
     }
 }
