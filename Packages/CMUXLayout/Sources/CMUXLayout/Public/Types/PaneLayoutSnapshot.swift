@@ -142,8 +142,9 @@ public struct ExternalSplitNode: Codable, Sendable, Equatable {
     }
 
     private static func normalizedDividerPosition(_ dividerPosition: Double) -> Double {
+        let minimumDividerInset = 0.05
         guard dividerPosition.isFinite else { return 0.5 }
-        return min(max(dividerPosition, 0), 1)
+        return min(max(dividerPosition, minimumDividerInset), 1 - minimumDividerInset)
     }
 }
 

@@ -145,7 +145,7 @@ final class CMUXLayoutTests: XCTestCase {
         )
 
         XCTAssertEqual(oversized.orientation, "horizontal")
-        XCTAssertEqual(oversized.dividerPosition, 1)
+        XCTAssertEqual(oversized.dividerPosition, 0.95)
         XCTAssertEqual(nonFinite.orientation, "vertical")
         XCTAssertEqual(nonFinite.dividerPosition, 0.5)
     }
@@ -180,7 +180,7 @@ final class CMUXLayoutTests: XCTestCase {
         let split = try JSONDecoder().decode(ExternalSplitNode.self, from: data)
 
         XCTAssertEqual(split.orientation, "horizontal")
-        XCTAssertEqual(split.dividerPosition, 0)
+        XCTAssertEqual(split.dividerPosition, 0.05)
     }
 
     private func externalPaneNode(id: String) -> ExternalTreeNode {
@@ -1374,6 +1374,31 @@ final class CMUXLayoutTests: XCTestCase {
         }
 
         wait(for: [completed], timeout: 1)
+    }
+
+    @MainActor
+    func testSplitAnimatorCompletesWhenSplitViewDisappears() {
+        weak var releasedSplitView: NSSplitView?
+        let completed = expectation(description: "completion ran for stale split view")
+
+        autoreleasepool {
+            var splitView: NSSplitView? = makeAnimatableSplitView()
+            releasedSplitView = splitView
+
+            SplitAnimator.shared.animate(
+                splitView: splitView!,
+                from: 40,
+                to: 120,
+                duration: 10
+            ) {
+                completed.fulfill()
+            }
+
+            splitView = nil
+        }
+
+        wait(for: [completed], timeout: 1)
+        XCTAssertNil(releasedSplitView)
     }
 
     private func makeAnimatableSplitView() -> NSSplitView {

@@ -120,6 +120,9 @@ final class SplitAnimator {
         for (id, animation) in animations {
             guard let splitView = animation.splitView else {
                 completedIds.append(id)
+                if let onComplete = animation.onComplete {
+                    completions.append(onComplete)
+                }
                 continue
             }
 
