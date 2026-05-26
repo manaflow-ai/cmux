@@ -229,7 +229,12 @@ extension CMUXCLI {
 
     private func parseHTMLFileOpenModeOption(_ raw: String) throws -> HTMLFileOpenMode {
         guard let mode = HTMLFileOpenMode.parse(raw) else {
-            throw CLIError(message: "--html-mode must be browser|editor")
+            throw CLIError(
+                message: String(
+                    localized: "cli.open.error.invalidHTMLMode",
+                    defaultValue: "--html-mode must be browser|editor"
+                )
+            )
         }
         return mode
     }
