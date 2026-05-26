@@ -187,6 +187,36 @@ final class TabManagerWorkspaceGroupTests: XCTestCase {
         XCTAssertTrue(manager.deleteWorkspaceGroup(id: group.id))
         XCTAssertTrue(manager.workspaceGroups.isEmpty)
     }
+
+    func testPreserveDropAssignmentDoesNotUngroupWorkspace() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let first = try XCTUnwrap(manager.selectedWorkspace)
+        let second = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let group = manager.createWorkspaceGroup(
+            title: "Grouped",
+            workspaceIds: [first.id, second.id]
+        )
+
+        SidebarWorkspaceGroupDropAssignment.preserve.apply(to: second.id, in: manager)
+
+        XCTAssertEqual(manager.workspaceGroupId(containing: second.id), group.id)
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id, second.id])
+    }
+
+    func testExplicitNilDropAssignmentUngroupsWorkspace() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let first = try XCTUnwrap(manager.selectedWorkspace)
+        let second = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        manager.createWorkspaceGroup(
+            title: "Grouped",
+            workspaceIds: [first.id, second.id]
+        )
+
+        SidebarWorkspaceGroupDropAssignment.assign(nil).apply(to: second.id, in: manager)
+
+        XCTAssertNil(manager.workspaceGroupId(containing: second.id))
+        XCTAssertEqual(manager.workspaceGroups[0].workspaceIds, [first.id])
+    }
 }
 
 @MainActor

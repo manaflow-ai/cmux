@@ -10100,7 +10100,7 @@ struct VerticalTabsSidebar: View {
                             .frame(height: scrollInsets.top + 8)
                             .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
                                 targetTabId: firstWorkspaceId,
-                                targetGroupId: renderContext.workspaceGroupIdByWorkspaceId[firstWorkspaceId],
+                                groupAssignment: .assign(renderContext.workspaceGroupIdByWorkspaceId[firstWorkspaceId]),
                                 tabManager: tabManager,
                                 dragState: dragState,
                                 selectedTabIds: $selectedTabIds,
@@ -11227,7 +11227,7 @@ struct VerticalTabsSidebar: View {
         ] rowHeight in
             SidebarTabDropDelegate(
                 targetTabId: tabId,
-                targetGroupId: groupId,
+                groupAssignment: .assign(groupId),
                 tabManager: tabManager,
                 dragState: dragState,
                 selectedTabIds: selectedTabIds,
@@ -16333,10 +16333,25 @@ private struct SidebarBonsplitTabDropDelegate: DropDelegate {
     }
 }
 
+enum SidebarWorkspaceGroupDropAssignment {
+    case preserve
+    case assign(UUID?)
+
+    @MainActor
+    func apply(to workspaceId: UUID, in tabManager: TabManager) {
+        switch self {
+        case .preserve:
+            return
+        case .assign(let groupId):
+            tabManager.moveWorkspace(workspaceId, toGroup: groupId)
+        }
+    }
+}
+
 @MainActor
 private struct SidebarTabDropDelegate: DropDelegate {
     let targetTabId: UUID?
-    var targetGroupId: UUID? = nil
+    var groupAssignment: SidebarWorkspaceGroupDropAssignment = .preserve
     let tabManager: TabManager
     let dragState: SidebarDragState
     @Binding var selectedTabIds: Set<UUID>
@@ -16424,7 +16439,7 @@ private struct SidebarTabDropDelegate: DropDelegate {
 #if DEBUG
             cmuxDebugLog("sidebar.drop.noop from=\(fromIndex) to=\(targetIndex)")
 #endif
-            tabManager.moveWorkspace(draggedTabId, toGroup: targetGroupId)
+            groupAssignment.apply(to: draggedTabId, in: tabManager)
             syncSidebarSelection()
             return true
         }
@@ -16433,7 +16448,7 @@ private struct SidebarTabDropDelegate: DropDelegate {
         cmuxDebugLog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
 #endif
         _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex)
-        tabManager.moveWorkspace(draggedTabId, toGroup: targetGroupId)
+        groupAssignment.apply(to: draggedTabId, in: tabManager)
         if let selectedId = tabManager.selectedTabId {
             selectedTabIds = [selectedId]
             syncSidebarSelection(preferredSelectedTabId: selectedId)
