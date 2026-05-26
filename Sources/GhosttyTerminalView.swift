@@ -2266,6 +2266,22 @@ class GhosttyApp {
         )
     }
 
+    private func loadConditionalThemeOverrideIfNeeded(
+        _ config: ghostty_config_t,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
+        guard let contents = Self.conditionalThemeOverrideConfigContents(
+            preferredColorScheme: preferredColorScheme
+        ) else { return }
+
+        loadInlineGhosttyConfig(
+            contents,
+            into: config,
+            prefix: "cmux-conditional-theme",
+            logLabel: "conditional theme override"
+        )
+    }
+
     func loadDefaultConfigFilesWithLegacyFallback(
         _ config: ghostty_config_t,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference()
@@ -2277,6 +2293,10 @@ class GhosttyApp {
             loadLegacyGhosttyConfigIfNeeded(config)
             loadCmuxAppSupportGhosttyConfigIfNeeded(config)
             ghostty_config_load_recursive_files(config)
+            loadConditionalThemeOverrideIfNeeded(
+                config,
+                preferredColorScheme: preferredColorScheme
+            )
             if Self.shouldApplyManagedDefaultAppearance() {
                 loadCmuxDefaultAppearanceConfig(
                     config,
@@ -2295,6 +2315,10 @@ class GhosttyApp {
         loadLegacyGhosttyConfigIfNeeded(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
+        loadConditionalThemeOverrideIfNeeded(
+            config,
+            preferredColorScheme: preferredColorScheme
+        )
         if Self.shouldApplyManagedDefaultAppearance() {
             loadCmuxDefaultAppearanceConfig(
                 config,
@@ -2468,15 +2492,18 @@ class GhosttyApp {
     private struct UserAppearanceConfigSummary {
         var hasThemeDirective = false
         var hasExplicitTerminalColorDirective = false
+        var lastThemeDirective: String?
 
         var shouldApplyDefaultAppearance: Bool {
             !hasThemeDirective && !hasExplicitTerminalColorDirective
         }
 
-        mutating func recordDirective(key: String) {
+        mutating func recordDirective(key: String, value: String?) {
             switch key {
             case "theme":
                 hasThemeDirective = true
+                let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                lastThemeDirective = trimmedValue.isEmpty ? nil : trimmedValue
             case "background",
                  "foreground",
                  "palette",
@@ -2598,10 +2625,36 @@ class GhosttyApp {
     }
 
     static func conditionalThemeOverrideConfigContents(
-        preferredColorScheme _: GhosttyConfig.ColorSchemePreference,
-        configPaths _: [String] = loadedGhosttyConfigScanPaths()
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference,
+        configPaths: [String] = loadedGhosttyConfigScanPaths()
     ) -> String? {
-        nil
+        let summary = userAppearanceConfigSummary(configPaths: configPaths)
+        guard let rawThemeValue = summary.lastThemeDirective else { return nil }
+
+        let lightTheme = GhosttyConfig.resolveThemeName(
+            from: rawThemeValue,
+            preferredColorScheme: .light
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        let darkTheme = GhosttyConfig.resolveThemeName(
+            from: rawThemeValue,
+            preferredColorScheme: .dark
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !lightTheme.isEmpty,
+              !darkTheme.isEmpty,
+              lightTheme.caseInsensitiveCompare(darkTheme) != .orderedSame else {
+            return nil
+        }
+
+        let resolvedTheme = GhosttyConfig.resolveThemeName(
+            from: rawThemeValue,
+            preferredColorScheme: preferredColorScheme
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !resolvedTheme.isEmpty,
+              resolvedTheme.rangeOfCharacter(from: .newlines) == nil else {
+            return nil
+        }
+
+        return "theme = \(resolvedTheme)"
     }
 
     /// Resolve auto-injected CJK families through the regular-weight descriptor
@@ -2903,7 +2956,7 @@ class GhosttyApp {
                  "cursor-text",
                  "selection-background",
                  "selection-foreground":
-                summary.recordDirective(key: entry.key)
+                summary.recordDirective(key: entry.key, value: entry.value)
             case "config-file":
                 guard let value = entry.value else { continue }
                 applyConfigFileDirective(
