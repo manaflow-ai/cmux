@@ -1123,6 +1123,12 @@ final class TerminalNotificationStore: ObservableObject {
         indexes.unreadByTabSurface.contains(TabSurfaceKey(tabId: tabId, surfaceId: surfaceId))
     }
 
+    func hasWorkspaceScopedUnread(forTabId tabId: UUID) -> Bool {
+        manualUnreadWorkspaceIds.contains(tabId) ||
+            restoredUnreadWorkspaceIds.contains(tabId) ||
+            hasUnreadNotification(forTabId: tabId, surfaceId: nil)
+    }
+
     func hasUnreadNotificationRequiringPaneFlash(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
         notifications.contains { notification in
             notification.matches(tabId: tabId, surfaceId: surfaceId) &&
@@ -1607,6 +1613,32 @@ final class TerminalNotificationStore: ObservableObject {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
+    }
+
+    @discardableResult
+    func markWorkspaceScopedUnreadRead(forTabId tabId: UUID) -> Bool {
+        var didChange = false
+        var updated = notifications
+        var idsToClear: [String] = []
+        for index in updated.indices {
+            guard updated[index].matches(tabId: tabId, surfaceId: nil),
+                  !updated[index].isRead else {
+                continue
+            }
+            updated[index].isRead = true
+            idsToClear.append(updated[index].id.uuidString)
+        }
+        if !idsToClear.isEmpty {
+            notifications = updated
+            didChange = true
+        }
+        didChange = setWorkspaceManualUnread(false, forTabId: tabId) || didChange
+        didChange = setWorkspaceRestoredUnread(false, forTabId: tabId) || didChange
+        if !idsToClear.isEmpty {
+            center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
+            center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
+        }
+        return didChange
     }
 
     func markUnread(forTabId tabId: UUID) {

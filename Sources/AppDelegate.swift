@@ -11055,8 +11055,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   workspace.panels[panelId] != nil else {
                 return false
             }
-            if notificationStore.hasManualUnread(forTabId: target.tabId) {
-                notificationStore.markRead(forTabId: target.tabId)
+            if notificationStore.hasWorkspaceScopedUnread(forTabId: target.tabId) {
+                notificationStore.markWorkspaceScopedUnreadRead(forTabId: target.tabId)
                 return true
             }
             let hasPanelUnread = workspace.manualUnreadPanelIds.contains(panelId) ||
