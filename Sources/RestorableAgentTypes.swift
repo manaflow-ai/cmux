@@ -89,6 +89,27 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         return nil
     }
 
+    var displayName: String {
+        switch self {
+        case .claude: return "Claude Code"
+        case .codex: return "Codex"
+        case .grok: return "Grok"
+        case .pi: return "Pi"
+        case .amp: return "Amp"
+        case .cursor: return "Cursor"
+        case .gemini: return "Gemini"
+        case .antigravity: return "Antigravity"
+        case .opencode: return "OpenCode"
+        case .rovodev: return "Rovo Dev"
+        case .hermesAgent: return "Hermes Agent"
+        case .copilot: return "Copilot"
+        case .codebuddy: return "CodeBuddy"
+        case .factory: return "Factory"
+        case .qoder: return "Qoder"
+        case .custom(let id): return id
+        }
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let value = try container.decode(String.self)
