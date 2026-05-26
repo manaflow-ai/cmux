@@ -22,4 +22,26 @@ final class ProcessPipeReadCrashRegressionTests: XCTestCase {
 
         XCTAssertEqual(output, "")
     }
+
+    func testReadToEndPreservesPartialDataWhenLaterReadFails() {
+        let partialData = Data("partial output".utf8)
+        let readError = ProcessPipeReadError(
+            operation: "readDataToEndOfFile",
+            errnoCode: EIO
+        )
+        var reads: [Result<Data, ProcessPipeReadError>] = [
+            .success(partialData),
+            .failure(readError),
+        ]
+
+        let result = ProcessPipeReader.readDataToEndOfFile(
+            fileDescriptor: -1,
+            chunkSize: partialData.count
+        ) { _, _, _ in
+            reads.removeFirst()
+        }
+
+        XCTAssertEqual(result.data, partialData)
+        XCTAssertEqual(result.readError, readError)
+    }
 }

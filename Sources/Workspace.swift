@@ -6828,12 +6828,8 @@ final class WorkspaceRemoteSessionController {
             defer { captureGroup.leave() }
             let result = Self.readProcessPipeToEnd(stdoutHandle)
             captureQueue.sync {
-                switch result {
-                case .success(let data):
-                    stdoutData = data
-                case .failure(let error):
-                    stdoutReadError = error
-                }
+                stdoutData = result.data
+                stdoutReadError = result.readError
             }
         }
         captureGroup.enter()
@@ -6841,12 +6837,8 @@ final class WorkspaceRemoteSessionController {
             defer { captureGroup.leave() }
             let result = Self.readProcessPipeToEnd(stderrHandle)
             captureQueue.sync {
-                switch result {
-                case .success(let data):
-                    stderrData = data
-                case .failure(let error):
-                    stderrReadError = error
-                }
+                stderrData = result.data
+                stderrReadError = result.readError
             }
         }
 #if DEBUG
@@ -6944,8 +6936,8 @@ final class WorkspaceRemoteSessionController {
         return CommandResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
 
-    private static func readProcessPipeToEnd(_ fileHandle: FileHandle) -> Result<Data, Error> {
-        ProcessPipeReader.readDataToEndOfFile(from: fileHandle).mapError { $0 as Error }
+    private static func readProcessPipeToEnd(_ fileHandle: FileHandle) -> ProcessPipeEndRead {
+        ProcessPipeReader.readDataToEndOfFile(from: fileHandle)
     }
 
 #if DEBUG
