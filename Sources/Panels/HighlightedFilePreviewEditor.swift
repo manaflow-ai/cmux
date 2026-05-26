@@ -154,6 +154,7 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
         switch event.type {
         case .keyDown:
             guard let textView = textController?.textView,
+                  !textView.isHiddenOrHasHiddenAncestor,
                   textView.window?.firstResponder === textView,
                   event.window === textView.window else { return false }
             return handleSaveShortcut(event: event)
