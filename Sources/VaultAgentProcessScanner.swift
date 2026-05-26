@@ -80,12 +80,6 @@ extension RestorableAgentSessionIndex {
         )
         var resolved = openCodeResult.resolved
 
-        processOpenCodeCompletionNotifications(
-            resolved: resolved,
-            perPanelDBURLs: openCodeResult.perPanelDBURLs,
-            fileManager: fileManager
-        )
-
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
 
@@ -153,6 +147,7 @@ extension RestorableAgentSessionIndex {
     }
 
     static func pollOpenCodeCompletionNotifications(
+        currentSocketPath: String? = nil,
         fileManager: FileManager = .default
     ) {
         guard !OpenCodeCompletionTracker.isPolling else { return }
@@ -164,7 +159,8 @@ extension RestorableAgentSessionIndex {
         let openCodeResult = processDetectedOpenCodeSnapshots(
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,
-            fileManager: fileManager
+            fileManager: fileManager,
+            currentSocketPath: currentSocketPath
         )
         processOpenCodeCompletionNotifications(
             resolved: openCodeResult.resolved,
@@ -172,7 +168,6 @@ extension RestorableAgentSessionIndex {
             fileManager: fileManager
         )
     }
-
     static func processLooksLikeOpenCode(
         processName: String,
         processPath: String?,
@@ -255,7 +250,8 @@ extension RestorableAgentSessionIndex {
     private static func processDetectedOpenCodeSnapshots(
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
-        fileManager: FileManager
+        fileManager: FileManager,
+        currentSocketPath: String? = nil
     ) -> (
         resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)],
         perPanelDBURLs: [PanelKey: URL]
@@ -288,6 +284,13 @@ extension RestorableAgentSessionIndex {
                 environment: processArguments.environment
             )
             guard observed.isOpenCodeProcess else { continue }
+            if let currentSocketPath {
+                guard let processSocketPath = processArguments.environment["CMUX_SOCKET_PATH"],
+                      !processSocketPath.isEmpty,
+                      SocketControlSettings.pathsMatch(processSocketPath, currentSocketPath) else {
+                    continue
+                }
+            }
 
             let cwd = openCodeWorkingDirectory(observed: observed)
             let cwdKey = cwd.map { ($0 as NSString).standardizingPath } ?? ""

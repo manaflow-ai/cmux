@@ -858,12 +858,16 @@ final class TerminalNotificationStore: ObservableObject {
         openCodeCompletionPollTimer?.invalidate()
         openCodeCompletionPollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
             Task.detached(priority: .utility) {
-                RestorableAgentSessionIndex.pollOpenCodeCompletionNotifications()
+                let currentSocketPath = TerminalController.shared.activeSocketPath(
+                    preferredPath: SocketControlSettings.socketPath()
+                )
+                RestorableAgentSessionIndex.pollOpenCodeCompletionNotifications(
+                    currentSocketPath: currentSocketPath
+                )
             }
         }
         openCodeCompletionPollTimer?.tolerance = 1.0
     }
-
     static func dockBadgeLabel(unreadCount: Int, isEnabled: Bool, runTag: String? = nil) -> String? {
         let unreadLabel: String? = {
             guard isEnabled, unreadCount > 0 else { return nil }

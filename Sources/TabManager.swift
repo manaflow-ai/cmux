@@ -7970,26 +7970,41 @@ class TabManager: ObservableObject {
         let canDismissRestoredUnreadIndicator = context.canDismissRestoredUnreadIndicator &&
             (hasRestoredPanelUnread || hasRestoredWorkspaceUnread)
         let canDismissUnreadIndicator = canDismissManualUnreadIndicator || canDismissRestoredUnreadIndicator
+        let hasWorkspaceLevelUnread = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: nil)
+        let hasWorkspaceLevelFocused = notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: nil)
         let hasUnreadNotification: Bool
         let hasFocusedIndicator: Bool
         if notificationSurfaceIds.isEmpty {
-            hasUnreadNotification = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: nil)
-            hasFocusedIndicator = notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: nil)
+            hasUnreadNotification = hasWorkspaceLevelUnread
+            hasFocusedIndicator = hasWorkspaceLevelFocused
         } else {
             hasUnreadNotification = notificationSurfaceIds.contains {
                 notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: $0)
-            }
+            } || hasWorkspaceLevelUnread
             hasFocusedIndicator = notificationSurfaceIds.contains {
                 notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: $0)
             }
         }
         guard hasUnreadNotification || hasFocusedIndicator || canDismissUnreadIndicator else { return false }
+        let hasSurfaceTargetedNotification: Bool
+        if notificationSurfaceIds.isEmpty {
+            hasSurfaceTargetedNotification = hasWorkspaceLevelUnread || hasWorkspaceLevelFocused
+        } else {
+            hasSurfaceTargetedNotification = notificationSurfaceIds.contains {
+                notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: $0)
+            } || notificationSurfaceIds.contains {
+                notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: $0)
+            }
+        }
         if hasUnreadNotification {
             if notificationSurfaceIds.isEmpty {
                 notificationStore.markRead(forTabId: tabId, surfaceId: nil)
             } else {
                 for surfaceId in notificationSurfaceIds {
                     notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+                }
+                if hasWorkspaceLevelUnread {
+                    notificationStore.markRead(forTabId: tabId, surfaceId: nil)
                 }
             }
         }
@@ -8019,10 +8034,14 @@ class TabManager: ObservableObject {
             for surfaceId in notificationSurfaceIds {
                 notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
             }
+            if hasWorkspaceLevelFocused {
+                notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: nil)
+            }
         }
         if let targetPanelId,
            let workspace {
-            if hasUnreadNotification || hasFocusedIndicator {
+            let shouldFlashNotificationDismiss = hasSurfaceTargetedNotification
+            if shouldFlashNotificationDismiss {
                 workspace.triggerNotificationDismissFlash(panelId: targetPanelId)
             } else if didDismissUnreadIndicator {
                 workspace.triggerUnreadIndicatorDismissFlash(panelId: targetPanelId)
