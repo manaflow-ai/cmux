@@ -709,14 +709,13 @@ struct BrowserPanelView: View {
         visibleReason: String,
         hiddenReason: String
     ) {
-        let effectiveVisibility = visibleInUI && isCurrentPaneOwner
         panel.synchronizeWebViewVisibilityForPaneOwnership(
             isVisibleInUI: visibleInUI,
             isCurrentPaneOwner: isCurrentPaneOwner,
             visibleReason: visibleReason,
             hiddenReason: hiddenReason
         )
-        if effectiveVisibility {
+        if visibleInUI {
             panel.cancelPendingDeveloperToolsVisibilityLossCheck()
             return
         }
