@@ -166,6 +166,11 @@ enum PanelOverlayRingMetrics {
     static let cornerRadius: CGFloat = 6
     static let lineWidth: CGFloat = 2.5
 
+    static func cornerRadius(forWindowCornerRadius windowCornerRadius: CGFloat?) -> CGFloat {
+        guard let windowCornerRadius else { return cornerRadius }
+        return max(0, windowCornerRadius - inset)
+    }
+
     static func pathRect(in bounds: CGRect) -> CGRect {
         bounds.insetBy(dx: inset, dy: inset)
     }
