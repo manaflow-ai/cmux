@@ -164,6 +164,84 @@
         "featureSocketApiDesc": "可编程控制，用于创建标签页和发送输入",
         "featureGpuLabel": "GPU 加速",
         "featureGpuDesc": "由 libghostty 驱动，渲染流畅"
+      },
+      "passkeyAuth": {
+        "title": "cmux 浏览器中的通行密钥认证",
+        "summary": "cmux 内置浏览器支持通行密钥认证，并可通过 cmux browser import 从其他浏览器导入 Cookie。",
+        "date": "2026年5月22日",
+        "p1": "cmux 浏览器现在支持通行密钥认证。依赖通行密钥、WebAuthn、Touch ID 或硬件安全密钥的登录流程，可以在 cmux 浏览器窗格内完成。",
+        "p2": "如果你已经在其他浏览器中使用同一网站，可以一次性导入兼容的 Cookie：",
+        "p3": "需要 cmux v0.64+。当 Claude Code、Codex、OpenCode、Gemini CLI 或其他 agent 需要在不离开 cmux 的情况下测试已登录的本地应用时，这会很有用。"
+      },
+      "taskManager": {
+        "title": "cmux 中的任务管理器",
+        "summary": "使用 cmux top 或命令面板中的任务管理器，查看你的编程 agent 消耗了多少 CPU 和 RAM。",
+        "date": "2026年5月22日",
+        "p1": "cmux 现在有了任务管理器，可以检查你的编程 agent 和终端进程正在使用多少 CPU 和 RAM。",
+        "p2": "从 CLI 打开：",
+        "p3": "或者按 Cmd+Shift+P，在命令面板中选择任务管理器。",
+        "p4": "需要 cmux v0.64.4+。"
+      },
+      "sessionRestore": {
+        "seoP": "如果你想知道终端崩溃后如何恢复 Claude Code、OpenCode、opencode、Codex、Gemini CLI、Antigravity CLI、Grok Build CLI、Amp、Cursor CLI、Rovo Dev、Copilot、CodeBuddy、Factory、Qoder 或 Hermes Agent 会话，请安装 cmux hooks，并保持 agent 恢复功能开启。",
+        "summary": "cmux 如何恢复布局并继续 Claude Code、Codex、OpenCode、Gemini CLI、Antigravity CLI、Grok Build CLI 和其他 agent 会话。",
+        "agentP": "当 cmux 拥有原生会话 ID 时，Claude Code、Codex、Grok Build CLI、OpenCode、Pi、Amp、Cursor CLI、Gemini CLI、Antigravity CLI、Rovo Dev、Hermes Agent、Copilot、CodeBuddy、Factory 和 Qoder 都可以继续会话。对于大多数 agent，请用 <code>cmux hooks setup</code> 安装集成。",
+        "title": "cmux 中的会话恢复",
+        "date": "2026年5月13日",
+        "p1": "当应用可以重建你的工作结构时，终端工作流就更能承受中断。cmux 现在把工作区布局视为持久状态，而不是绑定到某个应用进程的临时状态。",
+        "p2": "关键边界是实时进程状态。cmux 会恢复它拥有的内容，以及受支持工具通过自身恢复 API 暴露的内容。它不会为任意终端进程做检查点。",
+        "baselineTitle": "始终会恢复的内容",
+        "baselineP": "正常重新启动后，cmux 会恢复应用级会话快照：",
+        "baselineItemLayout": "窗口、工作区和窗格布局",
+        "baselineItemCwd": "工作目录",
+        "baselineItemScrollback": "终端回滚内容，尽力恢复",
+        "baselineItemBrowser": "浏览器 URL 和导航历史",
+        "agentTitle": "代理会话需要 hooks",
+        "agentP2": "setup 命令会安装 PATH 中可找到的受支持代理，并跳过其余代理。启用 Settings 中的 Claude 集成后，Claude Code 由 cmux Claude 包装器处理。",
+        "implementationTitle": "工作原理",
+        "implementationP1": "cmux 会在 Application Support 下写入 JSON 会话快照，其中包含窗口树、工作区元数据、窗格布局、终端 cwd、回滚重放数据和浏览器导航状态。",
+        "implementationP2": "代理 hooks 会把会话映射写入 ~/.cmuxterm。恢复时，cmux 先重建 UI。如果启用了自动代理恢复，它会用保存的会话 ID 启动每个受支持代理的原生恢复命令。",
+        "limitsTitle": "不在范围内的内容",
+        "limitsP": "tmux、vim、shell 和不受支持的工具会作为普通终端重新打开，除非它们有 cmux 集成来记录安全的原生恢复命令。这让恢复保持可预测，并避免重放过期提示或密钥。",
+        "docsCta": "阅读<link>会话恢复文档</link>，了解设置命令、受支持代理和故障排查。"
+      },
+      "cmuxFinder": {
+        "title": "cmux Finder",
+        "summary": "cmux 现在有文件浏览器，可预览视频、图片、PDF 和 Markdown 文件。",
+        "date": "2026年5月22日",
+        "p1": "cmux 现在在侧边栏中提供 Finder 风格的文件浏览器。",
+        "p2": "它可以在 cmux 内预览视频、图片、PDF 和 Markdown 文件，让你无需离开工作区就能检查生成的产物。",
+        "p3": "我最常用它预览 Codex 在测试更改时录制的演示视频和截图。",
+        "p4": "按 Cmd+Shift+P 切换文件预览，然后选择 Enable Cmd-click File Previews 或 Disable Cmd-click File Previews。",
+        "p5": "需要 cmux v0.64+。"
+      },
+      "cmuxVault": {
+        "title": "cmux Vault 介绍",
+        "summary": "从 Vault 窗格搜索 Codex、Claude Code、OpenCode 和 Pi 会话，并拖入工作区。",
+        "date": "2026年5月22日",
+        "p1": "cmux 现在在右侧边栏提供 Vault 窗格，用于查看旧的代理会话。",
+        "p2": "它会索引 Codex、Claude Code、OpenCode 和 Pi 会话，并支持在记录中全文搜索。",
+        "p3": "把 Vault 中的会话拖到工作区，就能在当前工作位置重新打开。",
+        "p4": "需要 cmux v0.64+。"
+      },
+      "markdownViewer": {
+        "title": "cmux 中更好的 Markdown 查看器",
+        "summary": "用 cmux open 打开 README.md，或从右侧边栏拖入 Markdown 文件。",
+        "date": "2026年5月22日",
+        "p1": "cmux 为 README 文件、文档和生成报告提供了更好的 Markdown 查看器。",
+        "p2": "从 CLI 打开文件：",
+        "p3": "也可以从右侧边栏把 Markdown 文件拖入工作区。",
+        "p4": "感谢 <tobiLink>@tobi</tobiLink> 的贡献。"
+      },
+      "unreadShortcuts": {
+        "title": "cmux 未读工作区快捷键",
+        "summary": "Cmd+Control+U 在保留未读状态的同时循环未读工作区，Cmd+Option+U 切换已读状态。",
+        "date": "2026年5月22日",
+        "p1": "当多个代理同时完成时，cmux 新增了两个用于管理未读工作区的快捷键。",
+        "p2": "Cmd+Control+U 会把当前工作区标记为最旧的未读工作区，然后跳到最新的未读工作区。",
+        "p3": "这样会把当前工作区送到未读循环末尾，你可以继续查看未读工作区而不清除状态。",
+        "p4": "Cmd+Option+U 会切换当前工作区的已读或未读状态。",
+        "p5": "当你用 Cmd+Shift+U 跳到新的未读工作区，但想在回复前先切换上下文时很有用。"
       }
     },
     "zenOfCmux": {
@@ -181,6 +259,114 @@
     "introducingCmux": {
       "metaTitle": "cmux 介绍",
       "metaDescription": "我们为什么要做 cmux，一个全新的 macOS 终端。"
+    },
+    "passkeyAuth": {
+      "metaTitle": "cmux 浏览器中的通行密钥认证",
+      "metaDescription": "cmux v0.64+ 支持在浏览器窗格中使用通行密钥认证，并可通过 cmux browser import 从其他浏览器导入 Cookie。",
+      "metaKeywords": [
+        "cmux 浏览器通行密钥认证",
+        "通行密钥认证",
+        "WebAuthn",
+        "Touch ID",
+        "导入 Cookie",
+        "浏览器 Cookie",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "Gemini CLI",
+        "AI 编程 agent"
+      ]
+    },
+    "taskManager": {
+      "metaTitle": "cmux 中的任务管理器",
+      "metaDescription": "cmux v0.64.4+ 包含任务管理器，可通过 cmux top 或命令面板检查编程 agent 的 CPU 和 RAM 使用情况。",
+      "metaKeywords": [
+        "cmux 任务管理器",
+        "cmux top",
+        "编程 agent CPU 使用量",
+        "编程 agent RAM 使用量",
+        "终端进程监视器",
+        "Claude Code CPU",
+        "Codex CPU",
+        "OpenCode CPU",
+        "AI 编程 agent"
+      ]
+    },
+    "sessionRestore": {
+      "metaDescription": "如何用 cmux 在重新启动或终端崩溃后恢复 Claude Code、Codex、OpenCode、Gemini CLI、Antigravity CLI、Grok Build CLI 和其他编程 agent 会话。",
+      "metaKeywords": [
+        "cmux",
+        "会话恢复",
+        "终端崩溃后恢复",
+        "终端崩溃恢复",
+        "终端",
+        "macOS",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "opencode",
+        "Gemini CLI",
+        "Antigravity CLI",
+        "Grok Build CLI",
+        "AI 编程 agent"
+      ],
+      "metaTitle": "cmux 中的会话恢复"
+    },
+    "cmuxFinder": {
+      "metaTitle": "cmux Finder",
+      "metaDescription": "cmux v0.64+ 提供 Finder 风格文件浏览器，可在工作区内预览视频、图片、PDF 和 Markdown 文件。",
+      "metaKeywords": [
+        "cmux Finder",
+        "cmux 文件浏览器",
+        "终端文件浏览器",
+        "在终端中预览视频",
+        "在终端中预览截图",
+        "PDF 预览",
+        "Markdown 预览",
+        "AI 编程代理",
+        "Codex 演示视频"
+      ]
+    },
+    "cmuxVault": {
+      "metaTitle": "cmux Vault 介绍",
+      "metaDescription": "cmux v0.64+ 新增 Vault 窗格，可搜索 Codex、Claude Code、OpenCode 和 Pi 会话，并拖入你的工作区。",
+      "metaKeywords": [
+        "cmux Vault",
+        "Codex 会话",
+        "Claude Code 会话",
+        "OpenCode 会话",
+        "Pi 会话",
+        "AI 编程代理历史",
+        "代理会话搜索",
+        "恢复编程代理会话",
+        "全文搜索"
+      ]
+    },
+    "markdownViewer": {
+      "metaTitle": "cmux 中更好的 Markdown 查看器",
+      "metaDescription": "用 cmux open 打开 README.md，或从右侧边栏拖入 Markdown 文件，在改进的 cmux Markdown 查看器中查看。",
+      "metaKeywords": [
+        "cmux Markdown 查看器",
+        "cmux open README.md",
+        "Markdown 预览",
+        "README 查看器",
+        "终端 Markdown 查看器",
+        "开发者文档预览"
+      ]
+    },
+    "unreadShortcuts": {
+      "metaTitle": "cmux 未读工作区快捷键",
+      "metaDescription": "使用 Cmd+Control+U 和 Cmd+Option+U 循环查看未读 cmux 工作区，在回复前不会清除未读状态。",
+      "metaKeywords": [
+        "cmux 未读快捷键",
+        "Cmd+Control+U",
+        "Cmd+Option+U",
+        "Cmd+Shift+U",
+        "编程代理通知",
+        "终端通知",
+        "AI 编程代理",
+        "工作区未读"
+      ]
     }
   },
   "docs": {
@@ -300,7 +486,21 @@
       "browserHostsEmbed": "在内嵌浏览器中打开的主机：适用于从终端输出点击的链接。此列表中的主机在 cmux 中打开；其他主机在默认浏览器中打开。支持单个主机或通配符，每行一个（例如：example.com、*.internal.example）。",
       "browserHostsHttp": "内嵌浏览器允许的 HTTP 主机：仅适用于 HTTP（非 HTTPS）URL。此列表中的主机可以在 cmux 中打开而不显示警告提示。默认包括 localhost、*.localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。",
       "exampleConfig": "配置示例",
-      "metaTitle": "配置"
+      "metaTitle": "配置",
+      "schemaDescriptions": {
+        "automation": {
+          "suppressSubagentNotifications": "隐藏嵌套 Codex 或 Claude 子代理的可见完成通知和状态变更，同时将其事件保留在 Feed 遥测中。"
+        },
+        "app": {
+          "confirmQuit": "控制 cmux 在退出前何时请求确认。无论此设置如何，DEV 构建都会立即退出。旧的 app.warnBeforeQuit 仍作为布尔回退值接受。",
+          "warnBeforeQuit": "用于退出确认的旧布尔回退值。新配置请使用 app.confirmQuit。",
+          "warnBeforeClosingTabXButton": "使用标签关闭按钮关闭标签前显示确认。",
+          "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。"
+        },
+        "terminal": {
+          "copyOnSelect": "确认选择后，将所选终端文本复制到系统剪贴板，包括通过双击和三击选择的单词和整行。"
+        }
+      }
     },
     "customCommands": {
       "title": "自定义命令",
@@ -602,7 +802,12 @@
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux 透传",
       "tmuxDesc": "如果在 cmux 内使用 tmux，启用透传：",
-      "metaTitle": "通知"
+      "metaTitle": "通知",
+      "hooksTitle": "通知钩子",
+      "hooksIntro": "<config>cmux.json</config> 可以定义通知钩子，让每条通知策略以 JSON 形式从 stdin 传入。每个钩子通过 stdout 返回 JSON。钩子默认关闭；只有当 <hooksMode>notifications.hooks</hooksMode> 包含至少一个已启用的钩子时，cmux 才会运行它们。cmux 会应用返回的通知文本和效果，因此钩子可以过滤横幅、保留或跳过侧边栏历史、播放声音，或停止后续钩子。",
+      "hooksJsonTitle": "cmux.json",
+      "hooksIOTitle": "钩子输入和输出",
+      "hooksDetails": "钩子会从全局 <globalConfig>~/.config/cmux/cmux.json</globalConfig> 以及从父目录到当前 workspace 的项目 <projectConfig>.cmux/cmux.json</projectConfig> 文件继承。项目钩子运行前会使用与其他项目 <config>cmux.json</config> 命令相同的信任提示。Feed 审批横幅也会经过这些钩子；禁用 <desktop>desktop</desktop> 会抑制原生横幅，同时在 cmux 中保留 Feed 项。若要忽略继承的钩子，请在项目配置中将 <hooksMode>notifications.hooksMode</hooksMode> 设为 <replace>replace</replace>。如果钩子失败、超时或返回无效 JSON，cmux 会使用默认通知行为并显示钩子失败提醒。"
     },
     "browserAutomation": {
       "title": "浏览器自动化",
@@ -696,6 +901,7 @@
       "gettingStarted": "入门指南",
       "concepts": "核心概念",
       "configuration": "配置",
+      "sessionRestore": "会话恢复",
       "customCommands": "自定义命令",
       "keyboardShortcuts": "快捷键",
       "apiReference": "API 参考",
@@ -741,6 +947,51 @@
       "agentPromptIntro": "当你希望编码 agent 创建 Dock 控件时使用此提示。它会要求 agent 运行 `cmux docs dock`、检查项目，并在猜测前先提问。",
       "agentPromptCodeTitle": "Agent prompt",
       "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+    },
+    "sessionRestore": {
+      "title": "会话恢复",
+      "metaTitle": "会话恢复",
+      "metaDescription": "cmux 在重新启动后如何恢复窗口、workspace、pane、工作目录、scrollback、浏览器历史和受支持的 agent 会话。",
+      "intro": "cmux 会保存你的工作形态，让应用重新启动时能带回相同的窗口、workspace、pane、终端上下文和浏览器状态。",
+      "restoredTitle": "cmux 会恢复什么",
+      "restoredDesc": "重新启动后，cmux 会恢复应用拥有的布局和元数据：",
+      "restoredItemLayout": "窗口、workspace 和 pane 布局",
+      "restoredItemCwd": "工作目录",
+      "restoredItemScrollback": "终端 scrollback，尽力恢复",
+      "restoredItemBrowser": "浏览器 URL 和导航历史",
+      "liveProcessCallout": "cmux 不会 checkpoint 任意实时进程状态。tmux、vim、shell 和未支持的终端应用会作为普通终端重新打开，除非它们有自己的 cmux resume 集成。",
+      "agentResumeTitle": "Agent 会话恢复",
+      "agentResumeDesc": "受支持的 AI coding agent 在 cmux 捕获到 agent 的原生会话 ID 后可以恢复。请在安装 agent CLI 后安装 hooks，确保二进制在 PATH 上：",
+      "setupBehavior": "cmux hooks setup 会安装它能找到的所有受支持集成，并打印被跳过 agent 的摘要。只需要一个集成时请指定 agent 名称。",
+      "surfaceBindingsTitle": "自定义 surface resume 命令",
+      "surfaceBindingsDesc": "高级用户和集成可以把任意终端 surface 绑定到重启命令。cmux 会保存通过公开 CLI 或 socket 创建的绑定，用于检查和手动恢复。",
+      "surfaceBindingsNote": "已批准的前缀可在 Settings > Terminal > Resume Commands 中查看或编辑。cmux 只会自动运行被标记为可信的 resume 绑定，例如从运行中进程检测到的 tmux 绑定或用户批准的前缀。cmux 仍然不会 checkpoint 任意进程内存。 令牌、密码、密钥和 API key 等敏感环境变量键会在保存恢复绑定前被丢弃。 批准项也会绑定到工作目录以及存在时的精确环境变量值。",
+      "supportedTitle": "受支持的 agents",
+      "agentHeader": "Agent",
+      "binaryHeader": "二进制",
+      "resumeHeader": "Resume 命令",
+      "feedHeader": "Feed bridge",
+      "feedPermissionRequest": "PermissionRequest",
+      "feedPreToolUsePermissionRequest": "PreToolUse, PermissionRequest",
+      "feedBeforeShellExecution": "beforeShellExecution",
+      "feedPreToolUse": "PreToolUse",
+      "pluginEventBus": "plugin event bus",
+      "none": "无",
+      "supportedNote": "启用 Claude 集成时，Claude Code 由 cmux Claude wrapper 处理。Antigravity 也接受 agy 作为 setup 别名，Rovo Dev 接受 rovo。",
+      "manualTitle": "手动恢复",
+      "manualDesc": "cmux 正常启动时会恢复最后保存的 snapshot。你也可以手动重新应用上一个 snapshot：",
+      "manualItemMenu": "History > Restore Previous App Launch",
+      "disableTitle": "关闭 agent 自动恢复",
+      "disableDesc": "如需只恢复 pane 而不启动保存的 agent resume 命令，请关闭 Settings > Terminal > Resume Agent Sessions on Reopen 或设置：",
+      "disableNote": "这只会关闭 agent resume 命令。cmux 仍会恢复布局、工作目录、scrollback 和浏览器历史。",
+      "underHoodTitle": "工作原理",
+      "underHoodItemSnapshot": "cmux 会把带版本的 JSON snapshot 写入 ~/Library/Application Support/cmux/session-<bundle-id>.json，并保存一个 previous-session cache 供手动重新打开。",
+      "underHoodItemScrollback": "终端 scrollback 会作为有界文本保存，并在恢复时通过临时文件 replay。这是尽力恢复，因为终端应用可以重绘或清屏。",
+      "underHoodItemHooks": "Agent hooks 会写入 ~/.cmuxterm/<agent>-hook-sessions.json，其中包含 agent 会话 ID、cmux workspace ID、surface ID、cwd、可用时的进程 ID，以及经过清理的启动命令。",
+      "underHoodItemResume": "恢复时，cmux 会先重建窗口和 pane。如果 agent 自动恢复已启用，它会启动一个一次性 shell 命令，用保存的会话 ID 运行 agent 的原生 resume 命令。",
+      "underHoodMore": "常规<configLink>配置文档</configLink>介绍 cmux.json。会话恢复会把应用布局与 Ghostty 终端渲染设置分开保存。",
+      "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     }
   },
   "legal": {
@@ -754,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "又一个基于 libghostty 的项目，这次是一个带垂直标签页、更好的组织/通知、内置可编程浏览器的 macOS 终端，专门面向大量使用终端 agent 工作流的用户。",
+    "steipete": "来晚了，但 cmux 很棒。当前分工：Codex Mac 应用用于知识工作、学习和阅读；cmux + Codex CLI 用于编码。",
     "schrockn": "这正是我一直在找的产品。用了两小时就爱上了。",
     "egrefen": "整个周末都在用，太棒了。",
     "max4c": "过去两周最喜欢的工具",
