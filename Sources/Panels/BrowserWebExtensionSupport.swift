@@ -946,7 +946,9 @@ final class BrowserWebExtensionInstallStore {
             }
             records = decoded.compactMap(sanitizedRecord)
             if records.count != persisted.count || records != decoded {
-                try? persist()
+                Task { @MainActor [weak self] in
+                    try? await self?.persist()
+                }
             }
         } catch {
             records = []
@@ -987,7 +989,7 @@ final class BrowserWebExtensionInstallStore {
         grantedPermissionMatchPatterns: [String],
         profileID: UUID,
         installForAllProfiles: Bool = false
-    ) throws -> BrowserWebExtensionInstallRecord {
+    ) async throws -> BrowserWebExtensionInstallRecord {
         guard source.kind == .appExtensionBundle else {
             throw BrowserWebExtensionInstallError.unsupportedSource(source.url)
         }
@@ -1050,25 +1052,25 @@ final class BrowserWebExtensionInstallStore {
         }
 
         do {
-            try persist(nextRecords)
+            try await persist(nextRecords)
             records = nextRecords
         } catch {
             records = previousRecords
-            try? persist(previousRecords)
+            try? await persist(previousRecords)
             throw error
         }
         return record
     }
 
-    func setEnabled(_ isEnabled: Bool, for recordID: UUID) throws {
+    func setEnabled(_ isEnabled: Bool, for recordID: UUID) async throws {
         guard let index = records.firstIndex(where: { $0.id == recordID }) else { return }
         var nextRecords = records
         nextRecords[index].isEnabled = isEnabled
-        try persist(nextRecords)
+        try await persist(nextRecords)
         records = nextRecords
     }
 
-    func setEnabled(_ isEnabled: Bool, for recordID: UUID, profileID: UUID) throws {
+    func setEnabled(_ isEnabled: Bool, for recordID: UUID, profileID: UUID) async throws {
         guard let index = records.firstIndex(where: { $0.id == recordID }) else { return }
         var nextRecords = records
         var state = nextRecords[index].profileState(for: profileID)
@@ -1077,7 +1079,7 @@ final class BrowserWebExtensionInstallStore {
             state.lastError = nil
         }
         nextRecords[index].setProfileState(state, for: profileID)
-        try persist(nextRecords)
+        try await persist(nextRecords)
         records = nextRecords
     }
 
@@ -1088,7 +1090,7 @@ final class BrowserWebExtensionInstallStore {
         permissionMatchPatterns: [String] = [],
         for recordID: UUID,
         profileID: UUID
-    ) throws {
+    ) async throws {
         guard let index = records.firstIndex(where: { $0.id == recordID }) else { return }
         var nextRecords = records
         var state = nextRecords[index].profileState(for: profileID)
@@ -1129,28 +1131,28 @@ final class BrowserWebExtensionInstallStore {
         }
 
         nextRecords[index].setProfileState(state, for: profileID)
-        try persist(nextRecords)
+        try await persist(nextRecords)
         records = nextRecords
     }
 
-    func setLastError(_ error: String?, for recordID: UUID, profileID: UUID) throws {
+    func setLastError(_ error: String?, for recordID: UUID, profileID: UUID) async throws {
         guard let index = records.firstIndex(where: { $0.id == recordID }) else { return }
         var nextRecords = records
         var state = nextRecords[index].profileState(for: profileID)
         let trimmedError = error?.trimmingCharacters(in: .whitespacesAndNewlines)
         state.lastError = trimmedError?.isEmpty == false ? trimmedError : nil
         nextRecords[index].setProfileState(state, for: profileID)
-        try persist(nextRecords)
+        try await persist(nextRecords)
         records = nextRecords
     }
 
-    func remove(recordID: UUID) throws {
+    func remove(recordID: UUID) async throws {
         guard let index = records.firstIndex(where: { $0.id == recordID }) else { return }
         let previousRecords = records
         let record = previousRecords[index]
         var nextRecords = previousRecords
         nextRecords.remove(at: index)
-        try persist(nextRecords)
+        try await persist(nextRecords)
         records = nextRecords
         _ = record
     }
@@ -1358,27 +1360,34 @@ final class BrowserWebExtensionInstallStore {
     }
 
 
-    private func persist() throws {
-        try persist(records)
+    private func persist() async throws {
+        try await persist(records)
     }
 
-    private func persist(_ recordsToPersist: [BrowserWebExtensionInstallRecord]) throws {
+    private func persist(_ recordsToPersist: [BrowserWebExtensionInstallRecord]) async throws {
         do {
-            try fileManager.createDirectory(
-                at: registryURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
             let data = try Self.registryData(
                 supportedRecords: recordsToPersist,
                 unsupportedRecordObjects: unsupportedPersistedRecordObjects
             )
-            try data.write(to: registryURL, options: .atomic)
+            try await Self.writeRegistryData(data, to: registryURL)
         } catch {
             browserWebExtensionLogger.error(
                 "Failed to save extension registry: \(error.localizedDescription, privacy: .private)"
             )
             throw BrowserWebExtensionInstallError.persistFailed(error.localizedDescription)
         }
+    }
+
+    nonisolated private static func writeRegistryData(_ data: Data, to registryURL: URL) async throws {
+        try await Task.detached(priority: .utility) {
+            let fileManager = FileManager()
+            try fileManager.createDirectory(
+                at: registryURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(to: registryURL, options: .atomic)
+        }.value
     }
 
     private func quarantineCorruptRegistry(after error: Error) {
@@ -1699,11 +1708,11 @@ enum BrowserWebExtensionSupport {
         )
     }
 
-    static func removeExtension(id: UUID) throws {
+    static func removeExtension(id: UUID) async throws {
         guard #available(macOS 15.4, *) else {
             throw BrowserWebExtensionInstallError.unsupportedOS
         }
-        try BrowserWebExtensionRuntime.shared.removeExtension(id: id)
+        try await BrowserWebExtensionRuntime.shared.removeExtension(id: id)
     }
 
     static func resolveExtensionID(matching query: String) throws -> UUID {
@@ -1960,7 +1969,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         }
         try await promptForInstallConsent(webExtension: webExtension, source: source)
 
-        let record = try store.installRecord(
+        let record = try await store.installRecord(
             from: source,
             displayName: webExtension.displayName ?? url.deletingPathExtension().lastPathComponent,
             displayVersion: webExtension.displayVersion ?? webExtension.version,
@@ -2034,7 +2043,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         id: UUID,
         profileID: UUID
     ) async throws -> BrowserWebExtensionInstalledSummary {
-        try store.setEnabled(isEnabled, for: id, profileID: profileID)
+        try await store.setEnabled(isEnabled, for: id, profileID: profileID)
         if isEnabled, let record = store.records.first(where: { $0.id == id }) {
             try await load(record: record, profileID: profileID)
         } else {
@@ -2046,14 +2055,14 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         return try summary(for: id, profileID: profileID)
     }
 
-    func removeExtension(id: UUID) throws {
+    func removeExtension(id: UUID) async throws {
         cancelRuntimePermissionPrompts()
         closeAllActionPopups()
         closeAuxiliaryWindows(recordID: id)
         for runtimeKey in controllersByRuntimeKey.keys {
             unload(recordID: id, runtimeKey: runtimeKey)
         }
-        try store.remove(recordID: id)
+        try await store.remove(recordID: id)
         postDidChange()
     }
 
@@ -2288,7 +2297,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             do {
                 try await load(record: record, runtimeKey: runtimeKey, websiteDataStore: websiteDataStore)
             } catch {
-                try? store.setLastError(error.localizedDescription, for: record.id, profileID: runtimeKey.profileID)
+                try? await store.setLastError(error.localizedDescription, for: record.id, profileID: runtimeKey.profileID)
             }
         }
         loadedRuntimeKeys.insert(runtimeKey)
@@ -2400,10 +2409,10 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         } catch {
             contextsByRuntimeKey[runtimeKey]?[record.id] = nil
             let loadError = BrowserWebExtensionInstallError.loadFailed(error.localizedDescription)
-            try? store.setLastError(loadError.localizedDescription, for: record.id, profileID: profileID)
+            try? await store.setLastError(loadError.localizedDescription, for: record.id, profileID: profileID)
             throw loadError
         }
-        try? store.setLastError(nil, for: record.id, profileID: profileID)
+        try? await store.setLastError(nil, for: record.id, profileID: profileID)
         if webExtension.hasBackgroundContent {
             let task = Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -2418,7 +2427,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
                         "browser.extensions.background.loadFailed label=\(record.displayName) error=\(error.localizedDescription)"
                     )
 #endif
-                    try? self.store.setLastError(
+                    try? await self.store.setLastError(
                         BrowserWebExtensionInstallError.loadFailed(error.localizedDescription).localizedDescription,
                         for: record.id,
                         profileID: profileID
@@ -3008,18 +3017,20 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             metadata: metadata,
             isSensitive: browserWebExtensionContainsSensitivePermission(grantedPermissionNames)
         ) { [weak self] allowed in
-            if let self,
-               let recordID,
-               let profileID {
-                try? self.store.recordRuntimePermissionDecision(
-                    granted: allowed,
-                    permissions: grantedPermissionNames,
-                    for: recordID,
-                    profileID: profileID
-                )
-                self.postDidChange()
+            Task { @MainActor [weak self] in
+                if let self,
+                   let recordID,
+                   let profileID {
+                    try? await self.store.recordRuntimePermissionDecision(
+                        granted: allowed,
+                        permissions: grantedPermissionNames,
+                        for: recordID,
+                        profileID: profileID
+                    )
+                    self.postDidChange()
+                }
+                completionHandler(allowed ? grantablePermissions : [], nil)
             }
-            completionHandler(allowed ? grantablePermissions : [], nil)
         }
     }
 
@@ -3056,18 +3067,20 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             metadata: metadata,
             isSensitive: grantableURLs.contains { $0.isFileURL }
         ) { [weak self] allowed in
-            if let self,
-               let recordID,
-               let profileID {
-                try? self.store.recordRuntimePermissionDecision(
-                    granted: allowed,
-                    permissionURLs: grantableURLs.map(\.absoluteString),
-                    for: recordID,
-                    profileID: profileID
-                )
-                self.postDidChange()
+            Task { @MainActor [weak self] in
+                if let self,
+                   let recordID,
+                   let profileID {
+                    try? await self.store.recordRuntimePermissionDecision(
+                        granted: allowed,
+                        permissionURLs: grantableURLs.map(\.absoluteString),
+                        for: recordID,
+                        profileID: profileID
+                    )
+                    self.postDidChange()
+                }
+                completionHandler(allowed ? grantableURLs : [], nil)
             }
-            completionHandler(allowed ? grantableURLs : [], nil)
         }
     }
 
@@ -3092,18 +3105,20 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             metadata: metadata,
             isSensitive: browserWebExtensionHasHighRiskHostAccess(matchPatterns.map(\.string))
         ) { [weak self] allowed in
-            if let self,
-               let recordID,
-               let profileID {
-                try? self.store.recordRuntimePermissionDecision(
-                    granted: allowed,
-                    permissionMatchPatterns: sanitizedPatternStrings,
-                    for: recordID,
-                    profileID: profileID
-                )
-                self.postDidChange()
+            Task { @MainActor [weak self] in
+                if let self,
+                   let recordID,
+                   let profileID {
+                    try? await self.store.recordRuntimePermissionDecision(
+                        granted: allowed,
+                        permissionMatchPatterns: sanitizedPatternStrings,
+                        for: recordID,
+                        profileID: profileID
+                    )
+                    self.postDidChange()
+                }
+                completionHandler(allowed ? grantablePatterns : [], nil)
             }
-            completionHandler(allowed ? grantablePatterns : [], nil)
         }
     }
 

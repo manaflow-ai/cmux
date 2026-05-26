@@ -6182,13 +6182,15 @@ struct SettingsView: View {
     }
 
     private func removeBrowserExtension(id: UUID) {
-        do {
-            try BrowserWebExtensionSupport.removeExtension(id: id)
-            refreshBrowserExtensionSummaries()
-        } catch {
-            browserExtensionErrorAlertMessage = error.localizedDescription
-            showBrowserExtensionErrorAlert = true
-            refreshBrowserExtensionSummaries()
+        Task { @MainActor in
+            do {
+                try await BrowserWebExtensionSupport.removeExtension(id: id)
+                refreshBrowserExtensionSummaries()
+            } catch {
+                browserExtensionErrorAlertMessage = error.localizedDescription
+                showBrowserExtensionErrorAlert = true
+                refreshBrowserExtensionSummaries()
+            }
         }
     }
 

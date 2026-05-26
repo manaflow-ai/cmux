@@ -346,7 +346,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         )
     }
 
-    func testAppExtensionInstallGrantsNativeMessaging() throws {
+    func testAppExtensionInstallGrantsNativeMessaging() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -357,7 +357,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         try createAppExtension(at: appexURL, bundleIdentifier: "com.example.Bitwarden.Extension")
         let profileID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
 
-        let record = try store.installRecord(
+        let record = try await store.installRecord(
             from: try store.discoverSource(from: appexURL, developerModeEnabled: true),
             displayName: "Bitwarden",
             displayVersion: "1.0",
@@ -371,7 +371,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         XCTAssertEqual(record.profileState(for: profileID).grantedPermissions, ["nativeMessaging", "storage"])
     }
 
-    func testProfileScopedStateDoesNotLeakBetweenProfiles() throws {
+    func testProfileScopedStateDoesNotLeakBetweenProfiles() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -381,7 +381,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         try createAppExtension(at: appexURL, bundleIdentifier: "com.example.Bitwarden.Extension")
         let profileA = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
         let profileB = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
-        let record = try store.installRecord(
+        let record = try await store.installRecord(
             from: try store.discoverSource(from: appexURL, developerModeEnabled: true),
             displayName: "Bitwarden",
             displayVersion: "1.0",
@@ -390,8 +390,8 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
             profileID: profileA
         )
 
-        try store.setEnabled(false, for: record.id, profileID: profileA)
-        try store.setLastError(" crashed during load ", for: record.id, profileID: profileA)
+        try await store.setEnabled(false, for: record.id, profileID: profileA)
+        try await store.setLastError(" crashed during load ", for: record.id, profileID: profileA)
 
         let reloaded = BrowserWebExtensionInstallStore(registryURL: registryURL)
         let profileASummary = try XCTUnwrap(
@@ -410,11 +410,11 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         XCTAssertEqual(profileBSummary.grantedPermissions, [])
         XCTAssertEqual(profileBSummary.grantedPermissionMatchPatterns, [])
 
-        try reloaded.setEnabled(true, for: record.id, profileID: profileA)
+        try await reloaded.setEnabled(true, for: record.id, profileID: profileA)
         XCTAssertNil(reloaded.summaries(profileID: profileA).first?.lastError)
     }
 
-    func testRuntimePermissionDecisionsPersistPerProfile() throws {
+    func testRuntimePermissionDecisionsPersistPerProfile() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -424,7 +424,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         try createAppExtension(at: appexURL, bundleIdentifier: "com.example.Bitwarden.Extension")
         let profileA = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
         let profileB = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
-        let record = try store.installRecord(
+        let record = try await store.installRecord(
             from: try store.discoverSource(from: appexURL, developerModeEnabled: true),
             displayName: "Bitwarden",
             displayVersion: "1.0",
@@ -433,7 +433,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
             profileID: profileA
         )
 
-        try store.recordRuntimePermissionDecision(
+        try await store.recordRuntimePermissionDecision(
             granted: true,
             permissions: ["tabs", "madeUpPermission"],
             permissionURLs: ["https://vault.example/account", "file:///Users/lawrence/private.txt"],
@@ -441,7 +441,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
             for: record.id,
             profileID: profileA
         )
-        try store.recordRuntimePermissionDecision(
+        try await store.recordRuntimePermissionDecision(
             granted: false,
             permissions: ["clipboardRead"],
             permissionURLs: ["https://blocked.example/login"],
@@ -469,7 +469,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         XCTAssertTrue(profileBState.deniedPermissionMatchPatterns.isEmpty)
     }
 
-    func testReloadClearsRecordsWhenRegistryIsMissing() throws {
+    func testReloadClearsRecordsWhenRegistryIsMissing() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -477,7 +477,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         let store = BrowserWebExtensionInstallStore(registryURL: registryURL)
         let appexURL = root.appendingPathComponent("Bitwarden.appex", isDirectory: true)
         try createAppExtension(at: appexURL, bundleIdentifier: "com.example.Bitwarden.Extension")
-        _ = try store.installRecord(
+        _ = try await store.installRecord(
             from: try store.discoverSource(from: appexURL, developerModeEnabled: true),
             displayName: "Bitwarden",
             displayVersion: "1.0",
@@ -493,7 +493,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         XCTAssertTrue(store.records.isEmpty)
     }
 
-    func testReinstallUpdatesOnlyInstallingProfileState() throws {
+    func testReinstallUpdatesOnlyInstallingProfileState() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -504,7 +504,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         let source = try store.discoverSource(from: appexURL, developerModeEnabled: true)
         let profileA = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
         let profileB = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
-        let record = try store.installRecord(
+        let record = try await store.installRecord(
             from: source,
             displayName: "Bitwarden",
             displayVersion: "1.0",
@@ -512,16 +512,16 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
             grantedPermissionMatchPatterns: ["https://one.example/*"],
             profileID: profileA
         )
-        try store.setEnabled(false, for: record.id, profileID: profileA)
-        try store.setLastError("load failed", for: record.id, profileID: profileA)
-        try store.recordRuntimePermissionDecision(
+        try await store.setEnabled(false, for: record.id, profileID: profileA)
+        try await store.setLastError("load failed", for: record.id, profileID: profileA)
+        try await store.recordRuntimePermissionDecision(
             granted: false,
             permissions: ["clipboardRead"],
             for: record.id,
             profileID: profileB
         )
 
-        let reinstalled = try store.installRecord(
+        let reinstalled = try await store.installRecord(
             from: source,
             displayName: "Bitwarden",
             displayVersion: "2.0",
@@ -716,7 +716,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         }
     }
 
-    func testReloadClearsExistingRecordsAndQuarantinesCorruptRegistry() throws {
+    func testReloadClearsExistingRecordsAndQuarantinesCorruptRegistry() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -725,7 +725,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         try createAppExtension(at: appexURL, bundleIdentifier: "com.example.Sample.Extension")
 
         let store = BrowserWebExtensionInstallStore(registryURL: registryURL)
-        let record = try store.installRecord(
+        let record = try await store.installRecord(
             from: try store.discoverSource(from: appexURL, developerModeEnabled: true),
             displayName: "Sample Extension",
             displayVersion: "1.2.3",

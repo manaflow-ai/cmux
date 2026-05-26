@@ -389,7 +389,7 @@ jobs:
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
     env:
-      SWIFT_BACKTRACE: "enable=no,interactive=no,color=no"
+      SWIFT_BACKTRACE: "enable=yes,interactive=no,color=no"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

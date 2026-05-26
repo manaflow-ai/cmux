@@ -457,9 +457,7 @@ enum BrowserExtensionAutomation {
         let id = try await MainActor.run {
             try BrowserWebExtensionSupport.resolveExtensionID(matching: query)
         }
-        try await MainActor.run {
-            try BrowserWebExtensionSupport.removeExtension(id: id)
-        }
+        try await BrowserWebExtensionSupport.removeExtension(id: id)
         return [
             "removed": true,
             "extension_id": id.uuidString,
