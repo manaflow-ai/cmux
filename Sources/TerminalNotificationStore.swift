@@ -739,6 +739,39 @@ struct TerminalNotification: Identifiable, Hashable {
     }
 }
 
+struct WorkspaceUnreadIndicatorListItem: Identifiable, Equatable, Hashable {
+    let id: UUID
+    let title: String
+}
+
+enum WorkspaceUnreadIndicatorListBuilder {
+    static func make(
+        unreadWorkspaceIds: Set<UUID>,
+        orderedWorkspaceIds: [UUID],
+        titleForWorkspace: (UUID) -> String?
+    ) -> [WorkspaceUnreadIndicatorListItem] {
+        guard !unreadWorkspaceIds.isEmpty else { return [] }
+
+        var seen = Set<UUID>()
+        let orderedIds = orderedWorkspaceIds.filter { workspaceId in
+            unreadWorkspaceIds.contains(workspaceId) && seen.insert(workspaceId).inserted
+        }
+        let remainingIds = unreadWorkspaceIds
+            .filter { !seen.contains($0) }
+            .sorted { $0.uuidString < $1.uuidString }
+
+        return (orderedIds + remainingIds).map { workspaceId in
+            WorkspaceUnreadIndicatorListItem(
+                id: workspaceId,
+                title: titleForWorkspace(workspaceId) ?? String(
+                    localized: "notifications.unreadWorkspace.fallbackTitle",
+                    defaultValue: "Unread workspace"
+                )
+            )
+        }
+    }
+}
+
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
     private struct TabSurfaceKey: Hashable {
@@ -1663,12 +1696,16 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func markAllRead() {
+        let tabIdsToRefresh = Set(notifications.compactMap { notification in
+            notification.isRead ? nil : notification.tabId
+        })
+        .union(manualUnreadWorkspaceIds)
+        .union(panelDerivedUnreadWorkspaceIds)
+        .union(restoredUnreadWorkspaceIds)
         var updated = notifications
         var idsToClear: [String] = []
-        var tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds
         for index in updated.indices {
             if !updated[index].isRead {
-                tabIdsToClearPanelUnread.insert(updated[index].tabId)
                 updated[index].isRead = true
                 idsToClear.append(updated[index].id.uuidString)
             }
@@ -1677,7 +1714,7 @@ final class TerminalNotificationStore: ObservableObject {
             notifications = updated
         }
         clearWorkspaceManualUnread()
-        clearAllWorkspacePanelUnread(forTabIds: tabIdsToClearPanelUnread)
+        clearAllWorkspacePanelUnread(forTabIds: tabIdsToRefresh)
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         if !idsToClear.isEmpty {
@@ -1732,14 +1769,18 @@ final class TerminalNotificationStore: ObservableObject {
             !manualUnreadWorkspaceIds.isEmpty ||
             !panelDerivedUnreadWorkspaceIds.isEmpty ||
             !restoredUnreadWorkspaceIds.isEmpty else { return }
-        let tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds.union(notifications.map(\.tabId))
+        let tabIdsToRefresh = Set(notifications.map(\.tabId))
+            .union(focusedReadIndicatorByTabId.keys)
+            .union(manualUnreadWorkspaceIds)
+            .union(panelDerivedUnreadWorkspaceIds)
+            .union(restoredUnreadWorkspaceIds)
         let ids = notifications.map { $0.id.uuidString }
         replaceNotificationsForClear([])
         clearWorkspaceManualUnread()
-        clearAllWorkspacePanelUnread(forTabIds: tabIdsToClearPanelUnread)
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
+        clearAllWorkspacePanelUnread(forTabIds: tabIdsToRefresh)
         CmuxEventBus.shared.publishNotificationCleared(ids: ids, workspaceId: nil, surfaceId: nil)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)
