@@ -2122,6 +2122,16 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 }
 
+private enum NotificationsPopoverMetrics {
+    static let minWidth: CGFloat = 460
+    static let idealWidth: CGFloat = 560
+    static let maxWidth: CGFloat = 760
+    static let minHeight: CGFloat = 480
+    static let idealHeight: CGFloat = 620
+    static let maxHeight: CGFloat = 760
+    static let emptyMinHeight: CGFloat = 320
+}
+
 private struct NotificationsPopoverView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
@@ -2129,77 +2139,137 @@ private struct NotificationsPopoverView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(String(localized: "notifications.title", defaultValue: "Notifications"))
-                    .font(.headline)
-                Spacer()
-                Button(action: jumpToLatestUnread) {
-                    HStack(spacing: 6) {
-                        Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
-                        Text(jumpToUnreadShortcut.displayString)
-                    }
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("notificationsPopover.jumpToLatest")
-                .accessibilityValue(jumpToUnreadShortcut.displayString)
-                .safeHelp(
-                    KeyboardShortcutSettings.Action.jumpToUnread.tooltip(
-                        String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest")
-                    )
-                )
-                .disabled(!hasUnreadNotifications)
-
-                Button(String(localized: "notifications.clearAll", defaultValue: "Clear All")) {
-                    notificationStore.clearAll()
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("notificationsPopover.clearAll")
-                .disabled(notificationStore.notificationMenuSnapshot.hasNotifications == false)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-
+            header
             Divider()
+            content
+        }
+        .frame(
+            minWidth: NotificationsPopoverMetrics.minWidth,
+            idealWidth: NotificationsPopoverMetrics.idealWidth,
+            maxWidth: NotificationsPopoverMetrics.maxWidth,
+            minHeight: notificationStore.notifications.isEmpty
+                ? NotificationsPopoverMetrics.emptyMinHeight
+                : NotificationsPopoverMetrics.minHeight,
+            idealHeight: NotificationsPopoverMetrics.idealHeight,
+            maxHeight: NotificationsPopoverMetrics.maxHeight
+        )
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
 
-            if !notificationStore.notificationMenuSnapshot.hasNotifications {
-                VStack(spacing: 8) {
-                    Image(systemName: "bell.slash")
-                        .font(.system(size: 28))
-                        .foregroundColor(.secondary)
-                    Text(String(localized: "notifications.empty.title", defaultValue: "No notifications yet"))
-                        .font(.headline)
-                    Text(String(localized: "notifications.empty.subtitle", defaultValue: "Desktop notifications will appear here."))
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text(String(localized: "notifications.title", defaultValue: "Notifications"))
+                .font(.system(size: 14, weight: .semibold))
+            if unreadCount > 0 {
+                Text("\(unreadCount)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(cmuxAccentColor()))
+            }
+            Spacer()
+            Button(action: jumpToLatestUnread) {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.down.to.line")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
+                        .font(.system(size: 11))
                 }
-                .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 180)
-            } else if notificationStore.notifications.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "bell.badge")
-                        .font(.system(size: 28))
-                        .foregroundColor(.secondary)
-                    Text(notificationStore.notificationMenuSnapshot.stateHintTitle)
-                        .font(.headline)
-                }
-                .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 180)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(notificationStore.notifications) { notification in
-                            NotificationPopoverRow(
-                                notification: notification,
-                                tabTitle: tabTitle(for: notification.tabId),
-                                onOpen: { open(notification) },
-                                onClear: { notificationStore.remove(id: notification.id) }
-                            )
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color.secondary.opacity(hasUnreadNotifications ? 0.12 : 0.05))
+            )
+            .foregroundColor(hasUnreadNotifications ? .primary : .secondary)
+            .accessibilityIdentifier("notificationsPopover.jumpToLatest")
+            .accessibilityValue(jumpToUnreadShortcut.displayString)
+            .safeHelp(
+                KeyboardShortcutSettings.Action.jumpToUnread.tooltip(
+                    String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest")
+                )
+            )
+            .disabled(!hasUnreadNotifications)
+
+            Button(action: { notificationStore.clearAll() }) {
+                Text(String(localized: "notifications.clearAll", defaultValue: "Clear All"))
+                    .font(.system(size: 11))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color.secondary.opacity(notificationStore.notificationMenuSnapshot.hasNotifications ? 0.12 : 0.05))
+            )
+            .foregroundColor(notificationStore.notificationMenuSnapshot.hasNotifications ? .primary : .secondary)
+            .accessibilityIdentifier("notificationsPopover.clearAll")
+            .disabled(notificationStore.notificationMenuSnapshot.hasNotifications == false)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if !notificationStore.notificationMenuSnapshot.hasNotifications {
+            emptyState(
+                systemImage: "bell.slash",
+                title: String(localized: "notifications.empty.title", defaultValue: "No notifications yet"),
+                subtitle: String(localized: "notifications.empty.subtitle", defaultValue: "Desktop notifications will appear here.")
+            )
+        } else if notificationStore.notifications.isEmpty {
+            emptyState(
+                systemImage: "bell.badge",
+                title: notificationStore.notificationMenuSnapshot.stateHintTitle,
+                subtitle: nil
+            )
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(notificationStore.notifications.enumerated()), id: \.element.id) { index, notification in
+                        NotificationPopoverRow(
+                            notification: notification,
+                            tabTitle: tabTitle(for: notification.tabId),
+                            onOpen: { open(notification) },
+                            onClear: {
+                                withAnimation(.easeOut(duration: 0.18)) {
+                                    notificationStore.remove(id: notification.id)
+                                }
+                            }
+                        )
+                        if index < notificationStore.notifications.count - 1 {
+                            Divider()
+                                .opacity(0.4)
+                                .padding(.leading, 18)
                         }
                     }
-                    .padding(12)
                 }
-                .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 320, maxHeight: 480)
+                .padding(.vertical, 2)
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private func emptyState(systemImage: String, title: String, subtitle: String?) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.system(size: 30, weight: .light))
+                .foregroundColor(.secondary.opacity(0.7))
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.primary)
+            if let subtitle {
+                Text(subtitle)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
     }
 
     private func tabTitle(for tabId: UUID) -> String? {
@@ -2213,6 +2283,10 @@ private struct NotificationsPopoverView: View {
 
     private var hasUnreadNotifications: Bool {
         notificationStore.notificationMenuSnapshot.hasUnreadNotifications
+    }
+
+    private var unreadCount: Int {
+        notificationStore.notifications.reduce(0) { $0 + ($1.isRead ? 0 : 1) }
     }
 
     private func jumpToLatestUnread() {
@@ -2238,67 +2312,145 @@ private struct NotificationPopoverRow: View {
     let onOpen: () -> Void
     let onClear: () -> Void
 
+    @State private var dragOffset: CGFloat = 0
+    @State private var isHovering: Bool = false
+
+    private static let dismissThreshold: CGFloat = 80
+    private static let rowHeight: CGFloat = 56
+
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Button(action: onOpen) {
-                HStack(alignment: .top, spacing: 10) {
-                    Circle()
-                        .fill(notification.isRead ? Color.clear : cmuxAccentColor())
-                        .frame(width: 8, height: 8)
-                        .overlay(
-                            Circle()
-                                .stroke(cmuxAccentColor().opacity(notification.isRead ? 0.2 : 1), lineWidth: 1)
-                        )
-                        .padding(.top, 6)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(notification.title)
-                                .font(.headline)
-                                .foregroundColor(.primary)
-                            Spacer()
-                            Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+        ZStack {
+            dismissBackground
+            rowContent
+                .background(
+                    isHovering
+                        ? Color.primary.opacity(0.05)
+                        : Color.clear
+                )
+                .offset(x: dragOffset)
+                .gesture(
+                    DragGesture(minimumDistance: 6)
+                        .onChanged { value in
+                            // Only follow horizontal drags; ignore mostly-vertical drags.
+                            if abs(value.translation.width) > abs(value.translation.height) {
+                                dragOffset = value.translation.width
+                            }
                         }
-
-                        if !notification.body.isEmpty {
-                            Text(notification.body)
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                                .lineLimit(3)
+                        .onEnded { value in
+                            if abs(value.translation.width) > Self.dismissThreshold {
+                                let direction: CGFloat = value.translation.width > 0 ? 1 : -1
+                                withAnimation(.easeOut(duration: 0.18)) {
+                                    dragOffset = direction * 600
+                                }
+                                onClear()
+                            } else {
+                                withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.85)) {
+                                    dragOffset = 0
+                                }
+                            }
                         }
-
-                        if let tabTitle {
-                            Text(tabTitle)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    Spacer(minLength: 0)
-                }
-                .padding(.trailing, 6)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("NotificationPopoverRow.\(notification.id.uuidString)")
-            // XCUITest's `.click()` is not always reliable for SwiftUI `Button`s hosted in an `NSPopover`.
-            // Provide an explicit accessibility action so AXPress always routes to `onOpen`.
-            .accessibilityAction { onOpen() }
-
-            Button(action: onClear) {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundColor(.secondary)
-            }
-            .buttonStyle(.plain)
+                )
         }
-        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            isHovering = hovering
+        }
+        .onTapGesture {
+            onOpen()
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("NotificationPopoverRow.\(notification.id.uuidString)")
+        // XCUITest's `.click()` is not always reliable for SwiftUI button-like rows hosted in an
+        // `NSPopover`. Provide an explicit accessibility action so AXPress always routes to onOpen.
+        .accessibilityAction { onOpen() }
+    }
+
+    private var dismissBackground: some View {
+        HStack {
+            if dragOffset > 0 {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.leading, 18)
+                Spacer()
+            } else if dragOffset < 0 {
+                Spacer()
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.trailing, 18)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
+            Color.red.opacity(min(1.0, abs(dragOffset) / Self.dismissThreshold) * 0.7)
         )
+    }
+
+    private var rowContent: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Rectangle()
+                .fill(notification.isRead ? Color.clear : cmuxAccentColor())
+                .frame(width: 2.5)
+                .padding(.vertical, 6)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(notification.title)
+                        .font(.system(size: 12.5, weight: notification.isRead ? .regular : .semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
+                        .font(.system(size: 10.5))
+                        .foregroundColor(.secondary)
+                        .opacity(isHovering ? 0 : 1)
+                }
+
+                if !notification.body.isEmpty {
+                    Text(notification.body)
+                        .font(.system(size: 11.5))
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if let tabTitle, !tabTitle.isEmpty {
+                    Text(tabTitle)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary.opacity(0.85))
+                        .lineLimit(1)
+                }
+            }
+            .padding(.vertical, 8)
+
+            if isHovering {
+                Button(action: {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        dragOffset = -600
+                    }
+                    onClear()
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .frame(width: 18, height: 18)
+                        .background(
+                            Circle()
+                                .fill(Color.primary.opacity(0.08))
+                        )
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 8)
+                .padding(.trailing, 10)
+                .transition(.opacity)
+            } else {
+                Spacer().frame(width: 10)
+            }
+        }
+        .frame(minHeight: Self.rowHeight)
+        .padding(.leading, 4)
     }
 }
 
