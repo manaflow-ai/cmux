@@ -495,7 +495,8 @@
           "confirmQuit": "ควบคุมว่า cmux จะขอการยืนยันก่อนออกเมื่อใด บิลด์ DEV จะออกทันทีเสมอไม่ว่าค่านี้จะเป็นอย่างไร ค่า app.warnBeforeQuit แบบเดิมยังคงใช้เป็นตัวเลือกสำรองแบบบูลีนได้",
           "warnBeforeQuit": "ตัวเลือกสำรองแบบบูลีนเดิมสำหรับการยืนยันก่อนออก ใช้ app.confirmQuit สำหรับการกำหนดค่าใหม่",
           "warnBeforeClosingTabXButton": "แสดงการยืนยันก่อนปิดแท็บด้วยปุ่มปิดแท็บ",
-          "hideTabCloseButton": "ซ่อนปุ่มปิดแท็บในแถบแท็บของพาเนล"
+          "hideTabCloseButton": "ซ่อนปุ่มปิดแท็บในแถบแท็บของพาเนล",
+          "workspaceInheritWorkingDirectory": "When omitted, new workspaces follow Ghostty's window-inherit-working-directory setting. Set true to always inherit the current workspace directory, or false to leave the working directory unset so Ghostty's working-directory setting can provide the default."
         },
         "terminal": {
           "copyOnSelect": "คัดลอกข้อความเทอร์มินัลที่เลือกไปยังคลิปบอร์ดของระบบเมื่อยืนยันการเลือก รวมถึงการเลือกคำและบรรทัดจากการดับเบิลคลิกและทริปเปิลคลิก"

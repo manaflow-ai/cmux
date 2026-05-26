@@ -280,10 +280,17 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         _ home: URL,
         _ body: () throws -> Void
     ) rethrows {
+        let previousHome = getenv("HOME").map { String(cString: $0) }
         let previousFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("HOME", home.path, 1)
         setenv("CFFIXED_USER_HOME", home.path, 1)
         GhosttyConfig.invalidateLoadCache()
         defer {
+            if let previousHome {
+                setenv("HOME", previousHome, 1)
+            } else {
+                unsetenv("HOME")
+            }
             if let previousFixedHome {
                 setenv("CFFIXED_USER_HOME", previousFixedHome, 1)
             } else {

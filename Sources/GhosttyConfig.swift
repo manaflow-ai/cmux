@@ -20,7 +20,6 @@ struct GhosttyConfig {
     var theme: String?
     var workingDirectory: String?
     var windowInheritWorkingDirectory = true
-    var tabInheritWorkingDirectory = true
     // Ghostty measures scrollback-limit in bytes, not lines.
     var scrollbackLimit: Int = 10_000_000
     var unfocusedSplitOpacity: Double = 0.7
@@ -72,10 +71,6 @@ struct GhosttyConfig {
         unfocusedSplitFill ?? backgroundColor
     }
 
-    var workspaceInheritWorkingDirectory: Bool {
-        windowInheritWorkingDirectory && tabInheritWorkingDirectory
-    }
-
     var resolvedSplitDividerColor: NSColor {
         if let splitDividerColor {
             return splitDividerColor
@@ -83,6 +78,25 @@ struct GhosttyConfig {
 
         let isLightBackground = backgroundColor.isLightColor
         return backgroundColor.darken(by: isLightBackground ? 0.08 : 0.4)
+    }
+
+    func resolvedWorkingDirectoryPath(homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path) -> String? {
+        guard let workingDirectory else { return nil }
+        let trimmed = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed == "~" {
+            return homeDirectory
+        }
+        if trimmed.hasPrefix("~/") {
+            let suffix = String(trimmed.dropFirst(2))
+            return URL(fileURLWithPath: homeDirectory, isDirectory: true)
+                .appendingPathComponent(suffix)
+                .path
+        }
+        if trimmed.hasPrefix("/") {
+            return trimmed
+        }
+        return nil
     }
 
     static func load(
@@ -415,10 +429,6 @@ struct GhosttyConfig {
                 case "window-inherit-working-directory":
                     if let parsed = Self.parseBool(value) {
                         windowInheritWorkingDirectory = parsed
-                    }
-                case "tab-inherit-working-directory":
-                    if let parsed = Self.parseBool(value) {
-                        tabInheritWorkingDirectory = parsed
                     }
                 case "scrollback-limit":
                     if let limit = Self.parseIntegerLiteral(value) {

@@ -495,7 +495,8 @@
           "confirmQuit": "Управляет тем, когда cmux запрашивает подтверждение перед выходом. DEV-сборки всегда завершаются сразу независимо от этой настройки. Устаревший app.warnBeforeQuit по-прежнему принимается как булевый запасной вариант.",
           "warnBeforeQuit": "Устаревший булевый запасной вариант для подтверждения выхода. Для новых конфигураций используйте app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Показывать подтверждение перед закрытием вкладки кнопкой закрытия вкладки.",
-          "hideTabCloseButton": "Скрывать кнопки закрытия вкладок на панели вкладок области."
+          "hideTabCloseButton": "Скрывать кнопки закрытия вкладок на панели вкладок области.",
+          "workspaceInheritWorkingDirectory": "When omitted, new workspaces follow Ghostty's window-inherit-working-directory setting. Set true to always inherit the current workspace directory, or false to leave the working directory unset so Ghostty's working-directory setting can provide the default."
         },
         "terminal": {
           "copyOnSelect": "Копирует выделенный текст терминала в системный буфер обмена после подтверждения выделения, включая слова и строки, выбранные двойным или тройным щелчком."

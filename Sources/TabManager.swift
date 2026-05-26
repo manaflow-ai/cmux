@@ -442,11 +442,11 @@ enum WorkspaceWorkingDirectoryInheritanceSettings {
         if let explicit = explicitOverride(defaults: defaults) {
             return explicit
         }
-        return GhosttyConfig.load().workspaceInheritWorkingDirectory
+        return GhosttyConfig.load().windowInheritWorkingDirectory
     }
 
     static func isEnabled(defaults: UserDefaults, ghosttyConfig: GhosttyConfig) -> Bool {
-        explicitOverride(defaults: defaults) ?? ghosttyConfig.workspaceInheritWorkingDirectory
+        explicitOverride(defaults: defaults) ?? ghosttyConfig.windowInheritWorkingDirectory
     }
 }
 

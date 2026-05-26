@@ -239,13 +239,30 @@ final class GhosttyConfigTests: XCTestCase {
         config.parse(
             """
             window-inherit-working-directory = false
-            tab-inherit-working-directory = false
             """
         )
 
         XCTAssertFalse(config.windowInheritWorkingDirectory)
-        XCTAssertFalse(config.tabInheritWorkingDirectory)
-        XCTAssertFalse(config.workspaceInheritWorkingDirectory)
+    }
+
+    func testResolvedWorkingDirectoryPathExpandsSafePathValues() {
+        var absoluteConfig = GhosttyConfig()
+        absoluteConfig.parse("working-directory = /tmp/cmux-ghostty-default\n")
+        XCTAssertEqual(
+            absoluteConfig.resolvedWorkingDirectoryPath(homeDirectory: "/Users/tester"),
+            "/tmp/cmux-ghostty-default"
+        )
+
+        var tildeConfig = GhosttyConfig()
+        tildeConfig.parse("working-directory = ~/workspace\n")
+        XCTAssertEqual(
+            tildeConfig.resolvedWorkingDirectoryPath(homeDirectory: "/Users/tester"),
+            "/Users/tester/workspace"
+        )
+
+        var relativeConfig = GhosttyConfig()
+        relativeConfig.parse("working-directory = workspace\n")
+        XCTAssertNil(relativeConfig.resolvedWorkingDirectoryPath(homeDirectory: "/Users/tester"))
     }
 
     func testColorParseFlagsOnlyTrackValuesResolvedBySwiftParser() {

@@ -596,7 +596,8 @@
           "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
           "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs.",
           "warnBeforeClosingTabXButton": "Show a confirmation before closing a tab with the tab close button.",
-          "hideTabCloseButton": "Hide tab close buttons in the pane tab bar."
+          "hideTabCloseButton": "Hide tab close buttons in the pane tab bar.",
+          "workspaceInheritWorkingDirectory": "When omitted, new workspaces follow Ghostty's window-inherit-working-directory setting. Set true to always inherit the current workspace directory, or false to leave the working directory unset so Ghostty's working-directory setting can provide the default."
         },
         "terminal": {
           "copyOnSelect": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."

@@ -495,7 +495,8 @@
           "confirmQuit": "Controla quando o cmux pede confirmação antes de sair. Builds DEV sempre saem imediatamente, independentemente desta configuração. O app.warnBeforeQuit legado ainda é aceito como fallback booleano.",
           "warnBeforeQuit": "Fallback booleano legado para confirmação de saída. Use app.confirmQuit em novas configurações.",
           "warnBeforeClosingTabXButton": "Mostrar uma confirmação antes de fechar uma aba com o botão de fechar aba.",
-          "hideTabCloseButton": "Ocultar os botões de fechar aba na barra de abas do painel."
+          "hideTabCloseButton": "Ocultar os botões de fechar aba na barra de abas do painel.",
+          "workspaceInheritWorkingDirectory": "When omitted, new workspaces follow Ghostty's window-inherit-working-directory setting. Set true to always inherit the current workspace directory, or false to leave the working directory unset so Ghostty's working-directory setting can provide the default."
         },
         "terminal": {
           "copyOnSelect": "Copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada, incluindo seleções de palavras e linhas por clique duplo e triplo."
