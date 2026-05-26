@@ -493,7 +493,9 @@
         },
         "app": {
           "confirmQuit": "Керує тим, коли cmux запитує підтвердження перед виходом. DEV-збірки завжди завершуються одразу незалежно від цього налаштування. Застарілий app.warnBeforeQuit і надалі приймається як булевий запасний варіант.",
-          "warnBeforeQuit": "Застарілий булевий запасний варіант для підтвердження виходу. Для нових конфігурацій використовуйте app.confirmQuit."
+          "warnBeforeQuit": "Застарілий булевий запасний варіант для підтвердження виходу. Для нових конфігурацій використовуйте app.confirmQuit.",
+          "warnBeforeClosingTabXButton": "Показувати підтвердження перед закриттям вкладки кнопкою закриття вкладки.",
+          "hideTabCloseButton": "Приховувати кнопки закриття вкладок на панелі вкладок області."
         },
         "terminal": {
           "copyOnSelect": "Копіює вибраний текст термінала до системного буфера обміну після підтвердження виділення, зокрема слова й рядки, вибрані подвійним або потрійним клацанням."
@@ -1063,7 +1065,7 @@
       "supportedNote": "Claude Code обробляється cmux Claude wrapper, коли Claude integration увімкнена в Settings. Antigravity також приймає agy як setup alias, а Rovo Dev приймає rovo.",
       "manualTitle": "Ручне відновлення",
       "manualDesc": "cmux відновлює останній збережений snapshot під час звичайного запуску. Попередній snapshot також можна застосувати вручну:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "Вимкнути автоматичне відновлення агентів",
       "disableDesc": "Щоб відновити панелі без запуску збережених agent resume commands, вимкніть Settings > Terminal > Resume Agent Sessions on Reopen або задайте:",
       "disableNote": "Це вимикає лише команди resume агентів. cmux все одно відновлює layout, робочі каталоги, scrollback і історію браузера.",
@@ -1090,6 +1092,7 @@
   },
   "testimonials": {
     "mitchellh": "Another day another libghostty-based project, this time a macOS terminal with vertical tabs, better organization/notifications, embedded/scriptable browser specifically targeted towards people who use a ton of terminal-based agentic workflows.",
+    "steipete": "Я запізнився на вечірку, але cmux чудовий. Поточний поділ: застосунок Codex для Mac для роботи зі знаннями, навчання й читання; cmux + Codex CLI для кодування.",
     "schrockn": "This is exactly the product I've been looking for. After two hours this am I've in love.",
     "egrefen": "I've been using this all weekend and it's amazing.",
     "max4c": "this has been my favorite tool for past two weeks",
