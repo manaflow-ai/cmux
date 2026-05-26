@@ -980,7 +980,7 @@
       "supportedNote": "Claude Code håndteres af cmux Claude-wrapperen, når Claude-integration er aktiveret i Settings. Antigravity accepterer også agy som setup-alias, og Rovo Dev accepterer rovo.",
       "manualTitle": "Manuel gendannelse",
       "manualDesc": "cmux gendanner det senest gemte snapshot ved normal start. Du kan også genanvende det forrige snapshot manuelt:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "Slå automatisk agent-genoptagelse fra",
       "disableDesc": "For at gendanne paneler uden at starte gemte agent resume-kommandoer skal du slå Settings > Terminal > Resume Agent Sessions on Reopen fra eller sætte:",
       "disableNote": "Dette slår kun agent resume-kommandoer fra. cmux gendanner stadig layout, arbejdsmapper, scrollback og browserhistorik.",
