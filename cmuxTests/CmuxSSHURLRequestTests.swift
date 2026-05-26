@@ -163,6 +163,37 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
+    func testManualSSHWorkspaceRequestAcceptsBracketedIPv6Host() {
+        switch CmuxSSHURLRequest.manual(
+            destination: " alice@[::1] ",
+            port: "",
+            identityFile: "",
+            title: ""
+        ) {
+        case .success(let request):
+            XCTAssertEqual(request.destination, "alice@[::1]")
+            XCTAssertEqual(request.cliArguments, ["ssh", "alice@[::1]"])
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testManualSSHWorkspaceRequestRejectsUnbracketedIPv6Host() {
+        for destination in ["alice@::1", "::1"] {
+            switch CmuxSSHURLRequest.manual(
+                destination: destination,
+                port: "",
+                identityFile: "",
+                title: ""
+            ) {
+            case .failure(.destinationContainsUnsafeCharacters):
+                break
+            default:
+                XCTFail("Expected unbracketed IPv6 host rejection for \(destination)")
+            }
+        }
+    }
+
     func testManualSSHWorkspaceRequestRejectsHiddenIdentityFileCharacters() {
         switch CmuxSSHURLRequest.manual(
             destination: "dev.example.com",

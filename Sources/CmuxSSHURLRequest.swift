@@ -512,6 +512,13 @@ struct CmuxSSHURLRequest: Equatable {
     private static func isAllowedManualSSHHost(_ value: String) -> Bool {
         guard !containsUnsafeHiddenCharacter(value) else { return false }
         let disallowed = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "@"))
-        return value.unicodeScalars.allSatisfy { !disallowed.contains($0) }
+        guard value.unicodeScalars.allSatisfy({ !disallowed.contains($0) }) else { return false }
+        if value.contains(":") {
+            return isAllowedSSHHost(value)
+        }
+        if value.hasPrefix("[") || value.hasSuffix("]") {
+            return isAllowedSSHHost(value)
+        }
+        return true
     }
 }
