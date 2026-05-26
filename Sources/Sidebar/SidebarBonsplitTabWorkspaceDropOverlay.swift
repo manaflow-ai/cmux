@@ -12,6 +12,8 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
     @Binding var dropIndicator: SidebarDropIndicator?
     let updateAutoscroll: () -> Void
     let targets: [SidebarDropPlanner.WorkspaceDropTarget]
+    let workspaceCount: Int
+    let pinnedWorkspaceCount: Int
 
     func makeNSView(context: Context) -> SidebarBonsplitTabWorkspaceDropView {
         SidebarBonsplitTabWorkspaceDropView()
@@ -19,6 +21,8 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
 
     func updateNSView(_ nsView: SidebarBonsplitTabWorkspaceDropView, context: Context) {
         nsView.targets = targets
+        nsView.workspaceCount = workspaceCount
+        nsView.pinnedWorkspaceCount = pinnedWorkspaceCount
         nsView.canPerformAction = { action, transfer in
             guard let app = AppDelegate.shared else {
                 return false
@@ -62,10 +66,13 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
     }
 }
 
+@MainActor
 final class SidebarBonsplitTabWorkspaceDropView: NSView {
     private static let pasteboardType = NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier)
 
     var targets: [SidebarDropPlanner.WorkspaceDropTarget] = []
+    var workspaceCount = 0
+    var pinnedWorkspaceCount = 0
     var canPerformAction: (SidebarDropPlanner.WorkspaceDropAction, BonsplitTabDragPayload.Transfer) -> Bool = { _, _ in false }
     var updateAutoscroll: () -> Void = {}
     var setDropIndicator: (SidebarDropIndicator?) -> Void = { _ in }
@@ -197,7 +204,12 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     }
 
     private func action(for sender: any NSDraggingInfo) -> SidebarDropPlanner.WorkspaceDropAction? {
-        SidebarDropPlanner.workspaceAction(for: localPoint(sender), targets: targets)
+        SidebarDropPlanner.workspaceAction(
+            for: localPoint(sender),
+            targets: targets,
+            workspaceCount: workspaceCount,
+            pinnedWorkspaceCount: pinnedWorkspaceCount
+        )
     }
 
     private func shouldCaptureHitTest() -> Bool {
