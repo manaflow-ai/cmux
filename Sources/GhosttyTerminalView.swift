@@ -14107,6 +14107,25 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    private func localViewportMatches(_ anchor: ScrollViewportAnchor, documentHeight: CGFloat) -> Bool {
+        switch anchor {
+        case .tail:
+            let visibleRect = scrollView.contentView.documentVisibleRect
+            return scrollOffsetFromBottom(
+                visibleRect: visibleRect,
+                documentHeight: documentHeight
+            ) <= Self.scrollToBottomThreshold
+        case .row:
+            guard let originY = localOriginY(for: anchor, documentHeight: documentHeight) else {
+                return false
+            }
+            return pointApproximatelyEqual(
+                scrollView.contentView.bounds.origin,
+                CGPoint(x: 0, y: originY)
+            )
+        }
+    }
+
     private func consumePendingVisibilityRestoreSynchronization() {
         guard pendingVisibilityRestoreAnchor != nil else { return }
         pendingVisibilityRestoreSynchronizationsRemaining -= 1
@@ -14136,7 +14155,8 @@ final class GhosttySurfaceScrollView: NSView {
 
             if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
                 if let pendingVisibilityRestoreAnchor,
-                   pendingRestoreMatches(pendingVisibilityRestoreAnchor, scrollbar: scrollbar) {
+                   pendingRestoreMatches(pendingVisibilityRestoreAnchor, scrollbar: scrollbar),
+                   localViewportMatches(pendingVisibilityRestoreAnchor, documentHeight: targetDocumentHeight) {
                     clearPendingVisibilityRestore()
                 }
                 let offsetY =
@@ -14209,10 +14229,6 @@ final class GhosttySurfaceScrollView: NSView {
             pendingExplicitWheelScroll = false
         }
         surfaceView.scrollbar = scrollbar
-        if let pendingVisibilityRestoreAnchor,
-           pendingRestoreMatches(pendingVisibilityRestoreAnchor, scrollbar: scrollbar) {
-            clearPendingVisibilityRestore()
-        }
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent()

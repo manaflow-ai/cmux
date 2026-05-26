@@ -3346,6 +3346,11 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         hostedView.setVisibleInUI(true)
         scrollView.contentView.scroll(to: .zero)
         scrollView.reflectScrolledClipView(scrollView.contentView)
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 40, len: 10)]
+        )
         hostedView.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.01))
 
