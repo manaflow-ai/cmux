@@ -4277,6 +4277,76 @@ final class SidebarBackgroundConfigTests: XCTestCase {
     }
 }
 
+final class SidebarFontSizeConfigTests: XCTestCase {
+    func testDefaultSidebarFontSizeMatchesSidebarTitleBaseline() {
+        let config = GhosttyConfig()
+
+        XCTAssertEqual(config.sidebarFontSize, 12.5, accuracy: 0.0001)
+        XCTAssertEqual(config.sidebarFontSize, GhosttyConfig.defaultSidebarFontSize, accuracy: 0.0001)
+    }
+
+    func testParseSidebarFontSizeIntegerValue() {
+        var config = GhosttyConfig()
+
+        config.parse("sidebar-font-size = 14")
+
+        XCTAssertEqual(config.sidebarFontSize, 14, accuracy: 0.0001)
+    }
+
+    func testParseSidebarFontSizeFractionalValue() {
+        var config = GhosttyConfig()
+
+        config.parse("sidebar-font-size = 13.75")
+
+        XCTAssertEqual(config.sidebarFontSize, 13.75, accuracy: 0.0001)
+    }
+
+    func testParseSidebarFontSizeClampsBelowMinimum() {
+        var config = GhosttyConfig()
+
+        config.parse("sidebar-font-size = 4")
+
+        XCTAssertEqual(config.sidebarFontSize, GhosttyConfig.minSidebarFontSize, accuracy: 0.0001)
+    }
+
+    func testParseSidebarFontSizeClampsAboveMaximum() {
+        var config = GhosttyConfig()
+
+        config.parse("sidebar-font-size = 48")
+
+        XCTAssertEqual(config.sidebarFontSize, GhosttyConfig.maxSidebarFontSize, accuracy: 0.0001)
+    }
+
+    func testParseSidebarFontSizeIgnoresInvalidAndNonFiniteValues() {
+        var config = GhosttyConfig()
+
+        config.parse("sidebar-font-size = 14")
+        config.parse(
+            """
+            sidebar-font-size = not-a-number
+            sidebar-font-size = nan
+            sidebar-font-size = inf
+            """
+        )
+
+        XCTAssertEqual(config.sidebarFontSize, 14, accuracy: 0.0001)
+    }
+
+    func testLoadUsesParsedSidebarFontSizeFromInjectedLoader() {
+        let loaded = GhosttyConfig.load(
+            preferredColorScheme: .dark,
+            useCache: false,
+            loadFromDisk: { _ in
+                var config = GhosttyConfig()
+                config.parse("sidebar-font-size = 15")
+                return config
+            }
+        )
+
+        XCTAssertEqual(loaded.sidebarFontSize, 15, accuracy: 0.0001)
+    }
+}
+
 final class ZshShellIntegrationHandoffTests: XCTestCase {
     func testGhosttyPromptHooksLoadWhenCmuxRequestsZshIntegration() throws {
         let output = try runInteractiveZsh(cmuxLoadGhosttyIntegration: true)

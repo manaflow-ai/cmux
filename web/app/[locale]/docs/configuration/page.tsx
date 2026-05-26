@@ -264,6 +264,7 @@ touch ~/.config/ghostty/config`}</CodeBlock>
       <DocsHeading level={2} id="example-config">{t("exampleConfig")}</DocsHeading>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`font-family = SF Mono
 font-size = 13
+sidebar-font-size = 14
 theme = One Dark
 scrollback-limit = 50000000
 split-divider-color = #3e4451

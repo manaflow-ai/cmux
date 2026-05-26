@@ -13,10 +13,14 @@ struct GhosttyConfig {
 
     private static let loadCacheLock = NSLock()
     private static var cachedConfigsByColorScheme: [ColorSchemePreference: GhosttyConfig] = [:]
+    static let defaultSidebarFontSize: CGFloat = 12.5
+    static let minSidebarFontSize: CGFloat = 10
+    static let maxSidebarFontSize: CGFloat = 20
 
     var fontFamily: String = "Menlo"
     var fontSize: CGFloat = 12
     var surfaceTabBarFontSize: CGFloat = 11
+    var sidebarFontSize: CGFloat = Self.defaultSidebarFontSize
     var theme: String?
     var workingDirectory: String?
     // Ghostty measures scrollback-limit in bytes, not lines.
@@ -394,6 +398,10 @@ struct GhosttyConfig {
                     if let size = Double(value) {
                         surfaceTabBarFontSize = CGFloat(size)
                     }
+                case "sidebar-font-size":
+                    if let size = Double(value), size.isFinite {
+                        sidebarFontSize = Self.clampedSidebarFontSize(CGFloat(size))
+                    }
                 case "theme":
                     theme = value
                     if let preferredColorScheme {
@@ -653,6 +661,11 @@ struct GhosttyConfig {
             return nil
         }
         return parsed
+    }
+
+    static func clampedSidebarFontSize(_ value: CGFloat) -> CGFloat {
+        guard value.isFinite else { return defaultSidebarFontSize }
+        return min(max(value, minSidebarFontSize), maxSidebarFontSize)
     }
 
     private static func parseBackgroundBlur(_ value: String) -> GhosttyBackgroundBlur? {
