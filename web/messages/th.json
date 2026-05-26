@@ -499,8 +499,8 @@
         },
         "terminal": {
           "copyOnSelect": "คัดลอกข้อความเทอร์มินัลที่เลือกไปยังคลิปบอร์ดของระบบเมื่อยืนยันการเลือก รวมถึงการเลือกคำและบรรทัดจากการดับเบิลคลิกและทริปเปิลคลิก",
-          "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
-          "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
+          "showTextBoxOnNewTerminals": "แสดงอินพุต TextBox รุ่นเบต้าเป็นค่าเริ่มต้นสำหรับเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลที่สร้างใหม่",
+          "focusTextBoxOnNewTerminals": "โฟกัสอินพุต TextBox รุ่นเบต้าเป็นค่าเริ่มต้นสำหรับเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลที่สร้างใหม่ การโฟกัสจะแสดง TextBox ด้วย"
         }
       }
     },
@@ -917,7 +917,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)"
+      "textBox": "TextBox (เบต้า)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -997,19 +997,19 @@
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
     "textBox": {
-      "title": "TextBox (Beta)",
-      "metaTitle": "TextBox (Beta)",
-      "metaDescription": "Configure the beta cmux TextBox input for new terminal tabs, splits, and workspaces.",
-      "intro": "TextBox is cmux's rich terminal input surface for composing prompts before sending them to a terminal.",
-      "betaCallout": "TextBox is a beta feature. Its defaults and behavior may change while it is being tested.",
-      "defaultsTitle": "Defaults",
-      "defaultsDesc": "The TextBox settings live in Settings > TextBox:",
-      "showSetting": "Show TextBox on New Terminals opens new workspaces, terminal tabs, and terminal splits with the TextBox visible while keeping focus in the terminal.",
-      "focusSetting": "Focus TextBox on New Terminals puts keyboard focus in the TextBox. Focusing also shows the TextBox.",
-      "maxLinesSetting": "TextBox Max Lines caps the TextBox height before its content scrolls.",
+      "title": "TextBox (เบต้า)",
+      "metaTitle": "TextBox (เบต้า)",
+      "metaDescription": "กำหนดค่าอินพุต TextBox รุ่นเบต้าของ cmux สำหรับแท็บเทอร์มินัล การแบ่งหน้าต่าง และเวิร์กสเปซใหม่",
+      "intro": "TextBox คือพื้นผิวอินพุตเทอร์มินัลแบบ rich ของ cmux สำหรับเขียนพรอมป์ก่อนส่งไปยังเทอร์มินัล",
+      "betaCallout": "TextBox เป็นฟีเจอร์เบต้า ค่าเริ่มต้นและพฤติกรรมอาจเปลี่ยนแปลงระหว่างการทดสอบ",
+      "defaultsTitle": "ค่าเริ่มต้น",
+      "defaultsDesc": "การตั้งค่า TextBox อยู่ใน Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals จะเปิดเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลใหม่พร้อมแสดง TextBox โดยยังคงโฟกัสไว้ที่เทอร์มินัล",
+      "focusSetting": "Focus TextBox on New Terminals จะวางโฟกัสแป้นพิมพ์ไว้ใน TextBox การโฟกัสจะแสดง TextBox ด้วย",
+      "maxLinesSetting": "TextBox Max Lines จำกัดความสูงของ TextBox ก่อนที่เนื้อหาจะเริ่มเลื่อน",
       "configTitle": "cmux.json",
-      "configDesc": "Set the same defaults in ~/.config/cmux/cmux.json under terminal:",
-      "focusNote": "Restored sessions keep their saved TextBox visibility and focus state. These defaults apply only to newly created terminal surfaces."
+      "configDesc": "ตั้งค่าเริ่มต้นเดียวกันได้ใน ~/.config/cmux/cmux.json ภายใต้ terminal:",
+      "focusNote": "เซสชันที่กู้คืนจะเก็บสถานะการแสดงและโฟกัสของ TextBox ที่บันทึกไว้ ค่าเริ่มต้นเหล่านี้ใช้กับพื้นผิวเทอร์มินัลที่สร้างใหม่เท่านั้น"
     }
   },
   "legal": {

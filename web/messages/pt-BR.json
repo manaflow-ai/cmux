@@ -499,8 +499,8 @@
         },
         "terminal": {
           "copyOnSelect": "Copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada, incluindo seleções de palavras e linhas por clique duplo e triplo.",
-          "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
-          "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
+          "showTextBoxOnNewTerminals": "Mostra a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas.",
+          "focusTextBoxOnNewTerminals": "Foca a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas. Focar também mostra o TextBox."
         }
       }
     },
@@ -999,17 +999,17 @@
     "textBox": {
       "title": "TextBox (Beta)",
       "metaTitle": "TextBox (Beta)",
-      "metaDescription": "Configure the beta cmux TextBox input for new terminal tabs, splits, and workspaces.",
-      "intro": "TextBox is cmux's rich terminal input surface for composing prompts before sending them to a terminal.",
-      "betaCallout": "TextBox is a beta feature. Its defaults and behavior may change while it is being tested.",
-      "defaultsTitle": "Defaults",
-      "defaultsDesc": "The TextBox settings live in Settings > TextBox:",
-      "showSetting": "Show TextBox on New Terminals opens new workspaces, terminal tabs, and terminal splits with the TextBox visible while keeping focus in the terminal.",
-      "focusSetting": "Focus TextBox on New Terminals puts keyboard focus in the TextBox. Focusing also shows the TextBox.",
-      "maxLinesSetting": "TextBox Max Lines caps the TextBox height before its content scrolls.",
+      "metaDescription": "Configure a entrada TextBox beta do cmux para novas abas, divisões e áreas de trabalho de terminal.",
+      "intro": "TextBox é a superfície de entrada rica do cmux para compor prompts antes de enviá-los a um terminal.",
+      "betaCallout": "TextBox é um recurso beta. Seus padrões e comportamento podem mudar durante os testes.",
+      "defaultsTitle": "Padrões",
+      "defaultsDesc": "As configurações de TextBox ficam em Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals abre novas áreas de trabalho, abas e divisões de terminal com TextBox visível, mantendo o foco no terminal.",
+      "focusSetting": "Focus TextBox on New Terminals coloca o foco do teclado no TextBox. Focar também mostra o TextBox.",
+      "maxLinesSetting": "TextBox Max Lines limita a altura do TextBox antes que o conteúdo comece a rolar.",
       "configTitle": "cmux.json",
-      "configDesc": "Set the same defaults in ~/.config/cmux/cmux.json under terminal:",
-      "focusNote": "Restored sessions keep their saved TextBox visibility and focus state. These defaults apply only to newly created terminal surfaces."
+      "configDesc": "Defina os mesmos padrões em ~/.config/cmux/cmux.json dentro de terminal:",
+      "focusNote": "Sessões restauradas mantêm a visibilidade e o estado de foco do TextBox salvos. Esses padrões se aplicam apenas a superfícies de terminal recém-criadas."
     }
   },
   "legal": {

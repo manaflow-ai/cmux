@@ -499,8 +499,8 @@
         },
         "terminal": {
           "copyOnSelect": "确认选择后，将所选终端文本复制到系统剪贴板，包括通过双击和三击选择的单词和整行。",
-          "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
-          "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
+          "showTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中显示测试版 TextBox 输入。",
+          "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦测试版 TextBox 输入。聚焦也会显示 TextBox。"
         }
       }
     },
@@ -917,7 +917,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)"
+      "textBox": "TextBox（测试版）"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -997,19 +997,19 @@
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
     "textBox": {
-      "title": "TextBox (Beta)",
-      "metaTitle": "TextBox (Beta)",
-      "metaDescription": "Configure the beta cmux TextBox input for new terminal tabs, splits, and workspaces.",
-      "intro": "TextBox is cmux's rich terminal input surface for composing prompts before sending them to a terminal.",
-      "betaCallout": "TextBox is a beta feature. Its defaults and behavior may change while it is being tested.",
-      "defaultsTitle": "Defaults",
-      "defaultsDesc": "The TextBox settings live in Settings > TextBox:",
-      "showSetting": "Show TextBox on New Terminals opens new workspaces, terminal tabs, and terminal splits with the TextBox visible while keeping focus in the terminal.",
-      "focusSetting": "Focus TextBox on New Terminals puts keyboard focus in the TextBox. Focusing also shows the TextBox.",
-      "maxLinesSetting": "TextBox Max Lines caps the TextBox height before its content scrolls.",
+      "title": "TextBox（测试版）",
+      "metaTitle": "TextBox（测试版）",
+      "metaDescription": "为新的终端标签页、分屏和工作区配置 cmux 的测试版 TextBox 输入。",
+      "intro": "TextBox 是 cmux 的富文本终端输入界面，可在发送到终端前编写提示。",
+      "betaCallout": "TextBox 是测试版功能。在测试期间，默认值和行为可能会变化。",
+      "defaultsTitle": "默认值",
+      "defaultsDesc": "TextBox 设置位于 Settings > TextBox：",
+      "showSetting": "Show TextBox on New Terminals 会让新的工作区、终端标签页和终端分屏在打开时显示 TextBox，同时将焦点保留在终端中。",
+      "focusSetting": "Focus TextBox on New Terminals 会将键盘焦点放入 TextBox。启用焦点也会显示 TextBox。",
+      "maxLinesSetting": "TextBox Max Lines 会限制 TextBox 在内容滚动前的最大高度。",
       "configTitle": "cmux.json",
-      "configDesc": "Set the same defaults in ~/.config/cmux/cmux.json under terminal:",
-      "focusNote": "Restored sessions keep their saved TextBox visibility and focus state. These defaults apply only to newly created terminal surfaces."
+      "configDesc": "也可以在 ~/.config/cmux/cmux.json 的 terminal 下设置相同默认值：",
+      "focusNote": "恢复的会话会保留已保存的 TextBox 可见性和焦点状态。这些默认值只适用于新建的终端界面。"
     }
   },
   "legal": {
