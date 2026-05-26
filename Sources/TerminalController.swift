@@ -155,6 +155,8 @@ class TerminalController {
     private nonisolated(unsafe) var listenerReadSourceSuspended = false
     private nonisolated(unsafe) var socketPathWatchSource: DispatchSourceFileSystemObject?
     private nonisolated(unsafe) var pendingSocketFileRecoveryGeneration: UInt64?
+    private nonisolated(unsafe) var socketFileRecoveryTask: Task<Void, Never>?
+    private nonisolated(unsafe) var socketFileRecoveryTaskGeneration: UInt64?
     private nonisolated(unsafe) var acceptSourceConsecutiveFailures = 0
     private var clientHandlers: [Int32: Thread] = [:]
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
@@ -220,7 +222,7 @@ class TerminalController {
         "ERROR: \(terminalSurfaceUnavailableMessage)"
     }
 
-    struct ListenerStateSnapshot {
+    nonisolated struct ListenerStateSnapshot: Sendable {
         let socketPath: String
         let boundSocketPathIdentity: SocketPathIdentity?
         let serverSocket: Int32
@@ -573,15 +575,24 @@ class TerminalController {
     }
 
     nonisolated func clearPendingSocketFileRecovery(generation: UInt64) {
-        withListenerState {
-            if pendingSocketFileRecoveryGeneration == generation {
-                pendingSocketFileRecoveryGeneration = nil
+        let taskToCancel = withListenerState {
+            guard pendingSocketFileRecoveryGeneration == generation else {
+                return nil as Task<Void, Never>?
             }
+            pendingSocketFileRecoveryGeneration = nil
+            guard socketFileRecoveryTaskGeneration == generation else {
+                return nil
+            }
+            let task = socketFileRecoveryTask
+            socketFileRecoveryTask = nil
+            socketFileRecoveryTaskGeneration = nil
+            return task
         }
+        taskToCancel?.cancel()
     }
 
     nonisolated func clearPendingSocketFileRecoveryIfCurrentPathIsHealthy(expectedPath: String) {
-        withListenerState {
+        let taskToCancel = withListenerState {
             guard isRunning,
                   socketPath == expectedPath,
                   let identity = boundSocketPathIdentity,
@@ -589,9 +600,41 @@ class TerminalController {
                       path: socketPath,
                       expectedIdentity: identity
                   ) else {
-                return
+                return nil as Task<Void, Never>?
             }
             pendingSocketFileRecoveryGeneration = nil
+            let task = socketFileRecoveryTask
+            socketFileRecoveryTask = nil
+            socketFileRecoveryTaskGeneration = nil
+            return task
+        }
+        taskToCancel?.cancel()
+    }
+
+    nonisolated func replaceSocketFileRecoveryTask(
+        _ task: Task<Void, Never>,
+        generation: UInt64
+    ) -> (installed: Bool, previousTask: Task<Void, Never>?) {
+        withListenerState {
+            guard isRunning,
+                  activeAcceptLoopGeneration == generation,
+                  pendingSocketFileRecoveryGeneration == generation else {
+                return (false, nil)
+            }
+            let previousTask = socketFileRecoveryTask
+            socketFileRecoveryTask = task
+            socketFileRecoveryTaskGeneration = generation
+            return (true, previousTask)
+        }
+    }
+
+    nonisolated func clearSocketFileRecoveryTask(generation: UInt64) {
+        withListenerState {
+            guard socketFileRecoveryTaskGeneration == generation else {
+                return
+            }
+            socketFileRecoveryTask = nil
+            socketFileRecoveryTaskGeneration = nil
         }
     }
 
@@ -2104,6 +2147,7 @@ class TerminalController {
             sourceToCancel,
             sourceWasSuspended,
             socketPathWatchSourceToCancel,
+            socketFileRecoveryTaskToCancel,
             socketToShutdown,
             socketToClose,
             socketPathToUnlink,
@@ -2125,6 +2169,9 @@ class TerminalController {
             listenerReadSourceSuspended = false
             let socketPathWatchSourceToCancel = socketPathWatchSource
             socketPathWatchSource = nil
+            let socketFileRecoveryTaskToCancel = socketFileRecoveryTask
+            socketFileRecoveryTask = nil
+            socketFileRecoveryTaskGeneration = nil
             let socketToClose = serverSocket
             serverSocket = -1
             let socketPathIdentityToUnlink = boundSocketPathIdentity
@@ -2135,6 +2182,7 @@ class TerminalController {
                 sourceToCancel,
                 sourceWasSuspended,
                 socketPathWatchSourceToCancel,
+                socketFileRecoveryTaskToCancel,
                 socketToClose,
                 sourceToCancel == nil ? socketToClose : Int32(-1),
                 socketPath,
@@ -2149,6 +2197,7 @@ class TerminalController {
             sourceToCancel?.resume()
         }
         socketPathWatchSourceToCancel?.cancel()
+        socketFileRecoveryTaskToCancel?.cancel()
         sourceToCancel?.cancel()
         if socketToClose >= 0 {
             close(socketToClose)

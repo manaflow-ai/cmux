@@ -194,13 +194,33 @@ extension TerminalController {
             extra: recoveryData
         )
 
-        Task { @MainActor [weak self, recoveryPath] in
-            self?.recoverSocketListenerAfterSocketFileLoss(
+        let recoveryTask = Task { @MainActor [weak self, recoveryPath] in
+            await Task.yield()
+            guard !Task.isCancelled, let self else {
+                return
+            }
+            defer {
+                self.clearSocketFileRecoveryTask(generation: snapshot.activeGeneration)
+            }
+            guard !Task.isCancelled else {
+                return
+            }
+            self.recoverSocketListenerAfterSocketFileLoss(
                 generation: snapshot.activeGeneration,
                 recoveryPath: recoveryPath,
                 shouldUnlinkNonSocketReplacement: shouldUnlinkNonSocketReplacement,
                 nonSocketReplacementIdentity: nonSocketReplacementIdentity
             )
+        }
+        let recoveryTaskInstallResult = replaceSocketFileRecoveryTask(
+            recoveryTask,
+            generation: snapshot.activeGeneration
+        )
+        if recoveryTaskInstallResult.installed {
+            recoveryTaskInstallResult.previousTask?.cancel()
+        } else {
+            recoveryTask.cancel()
+            clearPendingSocketFileRecovery(generation: snapshot.activeGeneration)
         }
     }
 
