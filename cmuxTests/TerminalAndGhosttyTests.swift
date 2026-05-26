@@ -3344,6 +3344,8 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
 
         hostedView.setVisibleInUI(true)
+        scrollView.contentView.scroll(to: .zero)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
         hostedView.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.01))
 

@@ -13924,14 +13924,17 @@ final class GhosttySurfaceScrollView: NSView {
         return .row(Int(scrollbar.offset))
     }
 
-    private func updateScrollViewportAnchorFromVisibleRect(_ visibleRect: NSRect? = nil) {
+    private func updateScrollViewportAnchorFromVisibleRect(
+        _ visibleRect: NSRect? = nil,
+        replacingPendingRestore: Bool = false
+    ) {
         guard surfaceView.isVisibleInUI, !isHidden else { return }
+        if pendingVisibilityRestoreAnchor != nil {
+            guard replacingPendingRestore else { return }
+            pendingVisibilityRestoreAnchor = nil
+        }
         guard let anchor = viewportAnchor(visibleRect: visibleRect) else { return }
         scrollViewportAnchor = anchor
-        if let pendingVisibilityRestoreAnchor,
-           pendingVisibilityRestoreAnchor != anchor {
-            self.pendingVisibilityRestoreAnchor = nil
-        }
     }
 
     private func captureViewportAnchorBeforeHiding() {
@@ -14073,7 +14076,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func handleLiveScroll() {
         let visibleRect = scrollView.contentView.documentVisibleRect
-        updateScrollViewportAnchorFromVisibleRect(visibleRect)
+        updateScrollViewportAnchorFromVisibleRect(visibleRect, replacingPendingRestore: true)
         guard let row = currentScrollRow(visibleRect: visibleRect) else { return }
 
         guard row != lastSentRow else { return }
