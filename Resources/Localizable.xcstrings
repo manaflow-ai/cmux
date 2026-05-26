@@ -51946,6 +51946,23 @@
         }
       }
     },
+    "notifications.row.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear notification"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知をクリア"
+          }
+        }
+      }
+    },
     "notifications.markAsRead": {
       "extractionState": "manual",
       "localizations": {

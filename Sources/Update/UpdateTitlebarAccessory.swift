@@ -2211,6 +2211,9 @@ private struct NotificationsPopoverView: View {
                                 RoundedRectangle(cornerRadius: 3)
                                     .fill(Color.secondary.opacity(0.15))
                             )
+                            // The button already exposes the shortcut via .accessibilityValue;
+                            // hide this visual chip from VoiceOver so it isn't announced twice.
+                            .accessibilityHidden(true)
                     }
                 }
                 .padding(.horizontal, 8)
@@ -2329,7 +2332,7 @@ private struct NotificationsPopoverView: View {
     }
 
     private var unreadCount: Int {
-        notificationStore.notifications.reduce(0) { $0 + ($1.isRead ? 0 : 1) }
+        notificationStore.notificationMenuSnapshot.unreadCount
     }
 
     private func jumpToLatestUnread() {
@@ -2384,6 +2387,13 @@ private struct NotificationPopoverRow: View {
             // XCUITest's `.click()` is not always reliable for SwiftUI button-like rows hosted in an
             // `NSPopover`. Provide an explicit accessibility action so AXPress always routes to onOpen.
             .accessibilityAction { onOpen() }
+            // The clear button is hover-only for pointer users; expose dismiss as a row-level
+            // accessibility action so VoiceOver / keyboard / assistive tech can dismiss too.
+            .accessibilityAction(
+                named: Text(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
+            ) {
+                onClear()
+            }
             .contextMenu {
                 Button(String(localized: "notifications.open", defaultValue: "Open")) {
                     onOpen()
