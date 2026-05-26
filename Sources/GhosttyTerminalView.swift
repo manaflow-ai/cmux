@@ -1688,12 +1688,6 @@ class GhosttyApp {
         subsystem: releaseBundleIdentifier,
         category: "ghostty.initialization"
     )
-    // SAFETY: Ghostty C callbacks can run while GhosttyApp.shared is still initializing.
-    // cmux owns one process-lifetime GhosttyApp, so the registry avoids singleton re-entry
-    // without adding a teardown path for a ghostty_app_t that is never freed/recreated.
-    private static let appRegistryLock = NSLock()
-    private static var appRegistry: [UInt: GhosttyApp] = [:]
-    private static var initializingRuntimeApp: GhosttyApp?
     private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -2094,7 +2088,7 @@ class GhosttyApp {
             GhosttyApp.runtimeApp(from: userdata)?.scheduleTick()
         }
         runtimeConfig.action_cb = { app, target, action in
-            guard let runtimeApp = GhosttyApp.runtimeAppForActionCallback(app) else { return false }
+            guard let runtimeApp = GhosttyApp.runtimeApp(from: app) else { return false }
             return runtimeApp.handleAction(target: target, action: action)
         }
         // Some GhosttyKit builds import this callback as returning `Void` in Swift even
@@ -2184,14 +2178,9 @@ class GhosttyApp {
             }
         }
 
-        // Create app
-        Self.setInitializingRuntimeApp(self)
-        defer { Self.setInitializingRuntimeApp(nil) }
-
         if let created = ghostty_app_new(&runtimeConfig, primaryConfig) {
             self.app = created
             self.config = primaryConfig
-            Self.registerRuntimeApp(self, for: created)
         } else {
             #if DEBUG
             Self.initLog("ghostty_app_new(primary) failed; attempting fallback config")
@@ -2263,7 +2252,6 @@ class GhosttyApp {
 
             self.app = created
             self.config = fallbackConfig
-            Self.registerRuntimeApp(self, for: created)
         }
 
         // Notify observers that a usable config is available (initial load).
@@ -4221,43 +4209,10 @@ class GhosttyApp {
         return Unmanaged<GhosttyApp>.fromOpaque(userdata).takeUnretainedValue()
     }
 
-    private static func registerRuntimeApp(_ runtimeApp: GhosttyApp, for app: ghostty_app_t) {
-        let key = UInt(bitPattern: app)
-        appRegistryLock.lock()
-        appRegistry[key] = runtimeApp
-        appRegistryLock.unlock()
-    }
-
-    private static func setInitializingRuntimeApp(_ runtimeApp: GhosttyApp?) {
-        appRegistryLock.lock()
-        initializingRuntimeApp = runtimeApp
-        appRegistryLock.unlock()
-    }
-
-    private static func isInitializingRuntimeApp(_ runtimeApp: GhosttyApp) -> Bool {
-        appRegistryLock.lock()
-        defer { appRegistryLock.unlock() }
-        return initializingRuntimeApp === runtimeApp
-    }
-
-    private static func runtimeApp(for app: ghostty_app_t?) -> GhosttyApp? {
+    private static func runtimeApp(from app: ghostty_app_t?) -> GhosttyApp? {
         guard let app else { return nil }
-        let key = UInt(bitPattern: app)
-        appRegistryLock.lock()
-        defer { appRegistryLock.unlock() }
-        return appRegistry[key]
-    }
-
-    private static func runtimeAppForActionCallback(_ app: ghostty_app_t?) -> GhosttyApp? {
-        appRegistryLock.lock()
-        defer { appRegistryLock.unlock() }
-        if let app {
-            let key = UInt(bitPattern: app)
-            if let registered = appRegistry[key] {
-                return registered
-            }
-        }
-        return initializingRuntimeApp
+        guard let userdata = ghostty_app_userdata(app) else { return nil }
+        return runtimeApp(from: userdata)
     }
 
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
@@ -4307,7 +4262,7 @@ class GhosttyApp {
 
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG {
                 let soft = action.action.reload_config.soft
-                let reloadSettingsFromFile = !Self.isInitializingRuntimeApp(self)
+                let reloadSettingsFromFile = app != nil
                 logThemeAction("reload request target=app soft=\(soft)")
                 performOnMain {
                     guard self.shouldProcessGhosttyReloadAction(
@@ -4316,10 +4271,9 @@ class GhosttyApp {
                     ) else {
                         return
                     }
-                    // libghostty may request a reload while GhosttyApp.shared is still
-                    // being constructed. Startup is already inside the cmux settings
-                    // load path, so re-reading it here can recursively enter the
-                    // KeyboardShortcutSettings singleton initializer.
+                    // libghostty may request a reload from ghostty_app_new before
+                    // `self.app` is attached. Startup already loaded the cmux settings
+                    // file, so avoid recursively re-entering that settings load path.
                     self.reloadConfiguration(
                         soft: soft,
                         source: "action.reload_config.app",
