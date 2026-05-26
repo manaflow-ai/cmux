@@ -182,6 +182,25 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(entries.first?.resumeCommand, "'tmux' 'attach' '-t' 'scratch'")
     }
 
+    func testTmuxSessionIndexFallsBackToOnePanePerWindowWhenWindowListingIsMissing() {
+        let separator = "\u{1F}"
+        let entries = SessionIndexStore.tmuxEntriesForTesting(
+            sessionsOutput: "scratch\(separator)2\(separator)0\(separator)4000",
+            windowsOutput: "",
+            now: Date(timeIntervalSince1970: 5_000)
+        )
+
+        XCTAssertEqual(
+            entries.first?.displayTitle,
+            String.localizedStringWithFormat(
+                String(localized: "sessionIndex.tmux.sessionTitle.manyWindowsManyPanes", defaultValue: "%@ · %d windows, %d panes"),
+                "scratch",
+                2,
+                2
+            )
+        )
+    }
+
     func testCurrentDirectorySetterDoesNotPublishEqualValue() {
         let store = SessionIndexStore()
         var emittedValues: [String?] = []

@@ -1490,10 +1490,11 @@ final class SessionIndexStore: ObservableObject {
             let windowCount = max(Int(String(fields[1])) ?? 0, 0)
             let attachedCount = max(Int(String(fields[2])) ?? 0, 0)
             let createdSeconds = TimeInterval(String(fields[3])) ?? now.timeIntervalSince1970
+            let paneCount = paneCountsBySession[name].map { max($0, windowCount) } ?? windowCount
             return TmuxSessionDescriptor(
                 name: name,
                 windowCount: windowCount,
-                paneCount: paneCountsBySession[name] ?? 0,
+                paneCount: paneCount,
                 attachedCount: attachedCount,
                 createdAt: Date(timeIntervalSince1970: createdSeconds)
             )
