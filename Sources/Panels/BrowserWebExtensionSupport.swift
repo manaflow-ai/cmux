@@ -907,7 +907,14 @@ final class BrowserWebExtensionInstallStore {
     ) {
         self.registryURL = registryURL
         self.fileManager = fileManager
-        reload()
+        let needsPersistence = reloadFromDisk()
+        if needsPersistence,
+           let data = try? Self.registryData(
+               supportedRecords: records,
+               unsupportedRecordObjects: unsupportedPersistedRecordObjects
+           ) {
+            try? Self.writeRegistryData(data, to: registryURL)
+        }
     }
 
     nonisolated static func defaultSupportDirectoryURL() -> URL {
@@ -925,11 +932,20 @@ final class BrowserWebExtensionInstallStore {
         defaultSupportDirectoryURL().appendingPathComponent("installed_extensions.json", isDirectory: false)
     }
 
-    func reload() {
+    func reload() async {
+        await drainPendingPersistence()
+        let needsPersistence = reloadFromDisk()
+        if needsPersistence {
+            try? await persist(records)
+        }
+    }
+
+    @discardableResult
+    private func reloadFromDisk() -> Bool {
         guard fileManager.fileExists(atPath: registryURL.path) else {
             records = []
             unsupportedPersistedRecordObjects = []
-            return
+            return false
         }
 
         do {
@@ -947,18 +963,12 @@ final class BrowserWebExtensionInstallStore {
                 return record
             }
             records = decoded.compactMap(sanitizedRecord)
-            if records.count != persisted.count || records != decoded {
-                if let data = try? Self.registryData(
-                    supportedRecords: records,
-                    unsupportedRecordObjects: unsupportedPersistedRecordObjects
-                ) {
-                    try? Self.writeRegistryData(data, to: registryURL)
-                }
-            }
+            return records.count != persisted.count || records != decoded
         } catch {
             records = []
             unsupportedPersistedRecordObjects = []
             quarantineCorruptRegistry(after: error)
+            return false
         }
     }
 
@@ -1355,6 +1365,13 @@ final class BrowserWebExtensionInstallStore {
 
     private func persist() async throws {
         try await persist(records)
+    }
+
+    private func drainPendingPersistence() async {
+        while let pendingPersistTask {
+            _ = try? await pendingPersistTask.value
+            await Task.yield()
+        }
     }
 
     private func persist(_ recordsToPersist: [BrowserWebExtensionInstallRecord]) async throws {
@@ -2039,7 +2056,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         }
         contextsByRuntimeKey.removeAll()
         loadedRuntimeKeys.removeAll()
-        store.reload()
+        await store.reload()
         for (runtimeKey, dataStore) in websiteDataStoresByRuntimeKey {
             await loadInstalledRecordsIfNeeded(runtimeKey: runtimeKey, websiteDataStore: dataStore)
         }
