@@ -1999,6 +1999,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     @State private var activeCanvasDragItemID: LayoutItemID?
     @State private var activeAlignmentGuides: [CanvasAlignmentGuide] = []
     @State private var canvasPreviewImages: [SurfaceID: NSImage] = [:]
+    @State private var canvasPreviewImageGenerations: [SurfaceID: UInt64] = [:]
     @State private var canvasPreviewSnapshotRequests: Set<SurfaceID> = []
 
     private let canvasPadding: CGFloat = 24
@@ -2376,18 +2377,36 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     ) -> [CanvasSurfaceTextureSource] {
         items.compactMap { item in
             guard renderModes[item.id] == .previewTexture,
-                  let selected = selectedTab(for: item),
-                  let terminalPanel = workspace.panel(for: selected.id) as? TerminalPanel,
-                  let surface = terminalPanel.hostedView.currentCanvasIOSurface() else {
+                  let selected = selectedTab(for: item) else {
                 return nil
             }
-            return CanvasSurfaceTextureSource(id: item.id, surface: surface, contentMode: .fit)
+            if let terminalPanel = workspace.panel(for: selected.id) as? TerminalPanel,
+               let surface = terminalPanel.hostedView.currentCanvasIOSurface() {
+                return CanvasSurfaceTextureSource(id: item.id, surface: surface, contentMode: .fit)
+            }
+            if let image = canvasPreviewImages[selected.id],
+               let cgImage = Self.cgImage(from: image) {
+                return CanvasSurfaceTextureSource(
+                    id: item.id,
+                    image: cgImage,
+                    generation: canvasPreviewImageGenerations[selected.id] ?? 0,
+                    contentMode: .fit
+                )
+            }
+            return nil
         }
     }
 
     private func hasCanvasSurfaceTexture(for selected: SurfaceTab) -> Bool {
-        guard let terminalPanel = workspace.panel(for: selected.id) as? TerminalPanel else { return false }
-        return terminalPanel.hostedView.currentCanvasIOSurface() != nil
+        if let terminalPanel = workspace.panel(for: selected.id) as? TerminalPanel,
+           terminalPanel.hostedView.currentCanvasIOSurface() != nil {
+            return true
+        }
+        if let image = canvasPreviewImages[selected.id],
+           Self.cgImage(from: image) != nil {
+            return true
+        }
+        return false
     }
 
     private func canvasSurfaceRenderMode(for renderMode: CanvasRenderMode) -> CanvasSurfaceRenderMode {
@@ -2873,6 +2892,9 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             if hasCanvasSurfaceTexture(for: selected) {
                 Color.clear
                     .allowsHitTesting(false)
+                if selected.kind == "browser" {
+                    canvasBrowserPreviewOmnibar(selected: selected)
+                }
             } else if let image = canvasPreviewImages[selected.id] {
                 Image(nsImage: image)
                     .resizable()
@@ -2941,7 +2963,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         guard let panel = workspace.panel(for: selected.id) else { return }
         if let terminalPanel = panel as? TerminalPanel {
             guard let image = Self.snapshotImage(of: terminalPanel.hostedView) else { return }
-            canvasPreviewImages[selected.id] = image
+            setCanvasPreviewImage(image, for: selected.id)
             return
         }
 
@@ -2953,10 +2975,26 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 Task { @MainActor in
                     canvasPreviewSnapshotRequests.remove(surfaceID)
                     guard let image else { return }
-                    canvasPreviewImages[surfaceID] = image
+                    setCanvasPreviewImage(image, for: surfaceID)
                 }
             }
         }
+    }
+
+    private func setCanvasPreviewImage(_ image: NSImage, for surfaceID: SurfaceID) {
+        canvasPreviewImages[surfaceID] = image
+        canvasPreviewImageGenerations[surfaceID] = (canvasPreviewImageGenerations[surfaceID] ?? 0) + 1
+    }
+
+    private static func cgImage(from image: NSImage) -> CGImage? {
+        var proposedRect = CGRect(origin: .zero, size: image.size)
+        guard proposedRect.width > 1,
+              proposedRect.height > 1,
+              proposedRect.width.isFinite,
+              proposedRect.height.isFinite else {
+            return nil
+        }
+        return image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil)
     }
 
     private static func snapshotImage(of view: NSView) -> NSImage? {

@@ -7,8 +7,13 @@ import simd
 import SwiftUI
 
 public struct CanvasSurfaceTextureSource {
+    public enum Backing {
+        case ioSurface(IOSurfaceRef)
+        case bitmap(CGImage, generation: UInt64)
+    }
+
     public var id: LayoutItemID
-    public var surface: IOSurfaceRef
+    public var backing: Backing
     public var contentMode: CanvasTextureContentMode
 
     public init(
@@ -17,7 +22,18 @@ public struct CanvasSurfaceTextureSource {
         contentMode: CanvasTextureContentMode = .fit
     ) {
         self.id = id
-        self.surface = surface
+        self.backing = .ioSurface(surface)
+        self.contentMode = contentMode
+    }
+
+    public init(
+        id: LayoutItemID,
+        image: CGImage,
+        generation: UInt64,
+        contentMode: CanvasTextureContentMode = .fit
+    ) {
+        self.id = id
+        self.backing = .bitmap(image, generation: generation)
         self.contentMode = contentMode
     }
 }
@@ -177,11 +193,19 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
     private var surfaceTextures: [CanvasSurfaceTextureSource]
     private let device: MTLDevice?
     private let commandQueue: MTLCommandQueue?
+    private let textureLoader: MTKTextureLoader?
     private var pipelineState: MTLRenderPipelineState?
     private var pipelinePixelFormat: MTLPixelFormat?
     private var texturePipelineState: MTLRenderPipelineState?
     private var texturePipelinePixelFormat: MTLPixelFormat?
     private var iosurfaceTextureCache: [IOSurfaceID: CanvasMetalIOSurfaceTexture] = [:]
+    private var bitmapTextureCache: [CanvasMetalBitmapTextureKey: CanvasMetalBitmapTexture] = [:]
+    private var shellVertexBufferRing = CanvasMetalBufferRing<CanvasMetalVertex>()
+    private var overlayVertexBufferRing = CanvasMetalBufferRing<CanvasMetalVertex>()
+    private var textureVertexBufferRing = CanvasMetalBufferRing<CanvasMetalTextureVertex>()
+    private var shellVertices: [CanvasMetalVertex] = []
+    private var overlayVertices: [CanvasMetalVertex] = []
+    private var textureVertices: [CanvasMetalTextureVertex] = []
     private var scheduler = CanvasFrameScheduler()
 
     init(
@@ -197,6 +221,7 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
         self.surfaceTextures = surfaceTextures
         self.device = device
         self.commandQueue = device?.makeCommandQueue()
+        self.textureLoader = device.map(MTKTextureLoader.init(device:))
         super.init()
     }
 
@@ -255,23 +280,23 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
             Float(max(1, view.bounds.height))
         )
         if let pipelineState = pipelineState(for: view),
-           let buffer = vertexBuffer(for: plan) {
+           let vertexBuffer = vertexBuffer(for: plan) {
             var viewport = viewport
             encoder.setRenderPipelineState(pipelineState)
-            encoder.setVertexBuffer(buffer, offset: 0, index: 0)
+            encoder.setVertexBuffer(vertexBuffer.buffer, offset: 0, index: 0)
             encoder.setVertexBytes(&viewport, length: MemoryLayout<SIMD2<Float>>.stride, index: 1)
-            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: buffer.length / MemoryLayout<CanvasMetalVertex>.stride)
+            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertexBuffer.vertexCount)
         }
 
         drawSurfaceTextures(for: plan, viewport: viewport, encoder: encoder, view: view)
 
         if let pipelineState = pipelineState(for: view),
-           let buffer = overlayVertexBuffer(for: plan) {
+           let vertexBuffer = overlayVertexBuffer(for: plan) {
             var viewport = viewport
             encoder.setRenderPipelineState(pipelineState)
-            encoder.setVertexBuffer(buffer, offset: 0, index: 0)
+            encoder.setVertexBuffer(vertexBuffer.buffer, offset: 0, index: 0)
             encoder.setVertexBytes(&viewport, length: MemoryLayout<SIMD2<Float>>.stride, index: 1)
-            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: buffer.length / MemoryLayout<CanvasMetalVertex>.stride)
+            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertexBuffer.vertexCount)
         }
 
         encoder.endEncoding()
@@ -335,37 +360,29 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
         }
     }
 
-    private func vertexBuffer(for plan: CanvasShellRenderPlan) -> MTLBuffer? {
+    private func vertexBuffer(for plan: CanvasShellRenderPlan) -> CanvasMetalVertexBuffer? {
         guard let device else { return nil }
-        var vertices: [CanvasMetalVertex] = []
-        vertices.reserveCapacity(plan.primitives.count * 6)
+        shellVertices.removeAll(keepingCapacity: true)
+        shellVertices.reserveCapacity(plan.primitives.count * 6)
         for primitive in plan.primitives {
-            append(primitive, to: &vertices)
+            append(primitive, to: &shellVertices)
         }
-        guard !vertices.isEmpty else { return nil }
-        return vertices.withUnsafeBytes { bytes in
-            guard let baseAddress = bytes.baseAddress else { return nil }
-            return device.makeBuffer(bytes: baseAddress, length: bytes.count, options: .storageModeShared)
-        }
+        return shellVertexBufferRing.nextBuffer(device: device, vertices: shellVertices)
     }
 
-    private func overlayVertexBuffer(for plan: CanvasShellRenderPlan) -> MTLBuffer? {
+    private func overlayVertexBuffer(for plan: CanvasShellRenderPlan) -> CanvasMetalVertexBuffer? {
         guard let device else { return nil }
-        var vertices: [CanvasMetalVertex] = []
-        vertices.reserveCapacity(plan.surfaces.count * 24)
+        overlayVertices.removeAll(keepingCapacity: true)
+        overlayVertices.reserveCapacity(plan.surfaces.count * 24)
         for surface in plan.surfaces {
-            append(.fill(CanvasShellRect(rect: surface.headerFrame, color: style.headerFill)), to: &vertices)
+            append(.fill(CanvasShellRect(rect: surface.headerFrame, color: style.headerFill)), to: &overlayVertices)
             append(.stroke(
                 rect: surface.frame,
                 width: surface.isFocused ? style.focusedBorderWidth : style.borderWidth,
                 color: surface.isFocused ? style.focusedBorder : style.border
-            ), to: &vertices)
+            ), to: &overlayVertices)
         }
-        guard !vertices.isEmpty else { return nil }
-        return vertices.withUnsafeBytes { bytes in
-            guard let baseAddress = bytes.baseAddress else { return nil }
-            return device.makeBuffer(bytes: baseAddress, length: bytes.count, options: .storageModeShared)
-        }
+        return overlayVertexBufferRing.nextBuffer(device: device, vertices: overlayVertices)
     }
 
     private func drawSurfaceTextures(
@@ -374,27 +391,48 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
         encoder: MTLRenderCommandEncoder,
         view: MTKView
     ) {
-        guard let pipelineState = texturePipelineState(for: view) else { return }
+        guard let device,
+              let pipelineState = texturePipelineState(for: view) else { return }
         let sources = Dictionary(uniqueKeysWithValues: surfaceTextures.map { ($0.id, $0) })
         guard !sources.isEmpty else { return }
 
-        encoder.setRenderPipelineState(pipelineState)
+        textureVertices.removeAll(keepingCapacity: true)
+        var draws: [CanvasMetalTextureDraw] = []
+        draws.reserveCapacity(plan.surfaces.count)
         for surface in plan.surfaces where surface.renderMode != .nativeOverlay {
             guard let source = sources[surface.id],
-                  let texture = metalTexture(for: source.surface),
-                  let buffer = textureVertexBuffer(
-                    frame: textureFrame(
-                        in: surface.contentFrame,
-                        textureSize: CGSize(width: texture.width, height: texture.height),
-                        contentMode: source.contentMode
-                    )
-                  ) else { continue }
+                  let texture = metalTexture(for: source) else { continue }
+            let frame = textureFrame(
+                in: surface.contentFrame,
+                textureSize: CGSize(width: texture.width, height: texture.height),
+                contentMode: source.contentMode
+            )
+            let vertexStart = textureVertices.count
+            appendTextureRect(frame, to: &textureVertices)
+            let vertexCount = textureVertices.count - vertexStart
+            guard vertexCount > 0 else { continue }
+            draws.append(CanvasMetalTextureDraw(texture: texture, vertexStart: vertexStart, vertexCount: vertexCount))
+        }
 
-            var viewport = viewport
-            encoder.setVertexBuffer(buffer, offset: 0, index: 0)
-            encoder.setVertexBytes(&viewport, length: MemoryLayout<SIMD2<Float>>.stride, index: 1)
-            encoder.setFragmentTexture(texture, index: 0)
-            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: buffer.length / MemoryLayout<CanvasMetalTextureVertex>.stride)
+        guard let vertexBuffer = textureVertexBufferRing.nextBuffer(device: device, vertices: textureVertices),
+              !draws.isEmpty else { return }
+
+        var viewport = viewport
+        encoder.setRenderPipelineState(pipelineState)
+        encoder.setVertexBuffer(vertexBuffer.buffer, offset: 0, index: 0)
+        encoder.setVertexBytes(&viewport, length: MemoryLayout<SIMD2<Float>>.stride, index: 1)
+        for draw in draws {
+            encoder.setFragmentTexture(draw.texture, index: 0)
+            encoder.drawPrimitives(type: .triangle, vertexStart: draw.vertexStart, vertexCount: draw.vertexCount)
+        }
+    }
+
+    private func metalTexture(for source: CanvasSurfaceTextureSource) -> MTLTexture? {
+        switch source.backing {
+        case .ioSurface(let surface):
+            return metalTexture(for: surface)
+        case .bitmap(let image, let generation):
+            return metalTexture(for: image, sourceID: source.id, generation: generation)
         }
     }
 
@@ -427,9 +465,42 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
         return texture
     }
 
+    private func metalTexture(for image: CGImage, sourceID: LayoutItemID, generation: UInt64) -> MTLTexture? {
+        let key = CanvasMetalBitmapTextureKey(sourceID: sourceID, generation: generation)
+        if let cached = bitmapTextureCache[key],
+           cached.width == image.width,
+           cached.height == image.height {
+            return cached.texture
+        }
+
+        guard let texture = try? textureLoader?.newTexture(
+            cgImage: image,
+            options: [
+                MTKTextureLoader.Option.SRGB: false,
+                MTKTextureLoader.Option.textureUsage: MTLTextureUsage.shaderRead.rawValue,
+            ]
+        ) else {
+            bitmapTextureCache.removeValue(forKey: key)
+            return nil
+        }
+
+        bitmapTextureCache[key] = CanvasMetalBitmapTexture(texture: texture, width: image.width, height: image.height)
+        return texture
+    }
+
     private func pruneTextureCache(keeping sources: [CanvasSurfaceTextureSource]) {
-        let surfaceIDs = Set(sources.map { IOSurfaceGetID($0.surface) })
+        var surfaceIDs: Set<IOSurfaceID> = []
+        var bitmapKeys: Set<CanvasMetalBitmapTextureKey> = []
+        for source in sources {
+            switch source.backing {
+            case .ioSurface(let surface):
+                surfaceIDs.insert(IOSurfaceGetID(surface))
+            case .bitmap(_, let generation):
+                bitmapKeys.insert(CanvasMetalBitmapTextureKey(sourceID: source.id, generation: generation))
+            }
+        }
         iosurfaceTextureCache = iosurfaceTextureCache.filter { surfaceIDs.contains($0.key) }
+        bitmapTextureCache = bitmapTextureCache.filter { bitmapKeys.contains($0.key) }
     }
 
     private func textureFrame(
@@ -462,22 +533,15 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
         )
     }
 
-    private func textureVertexBuffer(frame: CGRect) -> MTLBuffer? {
-        guard let device else { return nil }
+    private func appendTextureRect(_ frame: CGRect, to vertices: inout [CanvasMetalTextureVertex]) {
         let rect = frame.standardized
-        guard rect.width > 0.5, rect.height > 0.5 else { return nil }
-        let vertices = [
-            CanvasMetalTextureVertex(position: SIMD2<Float>(Float(rect.minX), Float(rect.minY)), texCoord: SIMD2<Float>(0, 0)),
-            CanvasMetalTextureVertex(position: SIMD2<Float>(Float(rect.maxX), Float(rect.minY)), texCoord: SIMD2<Float>(1, 0)),
-            CanvasMetalTextureVertex(position: SIMD2<Float>(Float(rect.minX), Float(rect.maxY)), texCoord: SIMD2<Float>(0, 1)),
-            CanvasMetalTextureVertex(position: SIMD2<Float>(Float(rect.minX), Float(rect.maxY)), texCoord: SIMD2<Float>(0, 1)),
-            CanvasMetalTextureVertex(position: SIMD2<Float>(Float(rect.maxX), Float(rect.minY)), texCoord: SIMD2<Float>(1, 0)),
-            CanvasMetalTextureVertex(position: SIMD2<Float>(Float(rect.maxX), Float(rect.maxY)), texCoord: SIMD2<Float>(1, 1)),
-        ]
-        return vertices.withUnsafeBytes { bytes in
-            guard let baseAddress = bytes.baseAddress else { return nil }
-            return device.makeBuffer(bytes: baseAddress, length: bytes.count, options: .storageModeShared)
-        }
+        guard rect.width > 0.5, rect.height > 0.5 else { return }
+        vertices.append(CanvasMetalTextureVertex(position: SIMD2<Float>(Float(rect.minX), Float(rect.minY)), texCoord: SIMD2<Float>(0, 0)))
+        vertices.append(CanvasMetalTextureVertex(position: SIMD2<Float>(Float(rect.maxX), Float(rect.minY)), texCoord: SIMD2<Float>(1, 0)))
+        vertices.append(CanvasMetalTextureVertex(position: SIMD2<Float>(Float(rect.minX), Float(rect.maxY)), texCoord: SIMD2<Float>(0, 1)))
+        vertices.append(CanvasMetalTextureVertex(position: SIMD2<Float>(Float(rect.minX), Float(rect.maxY)), texCoord: SIMD2<Float>(0, 1)))
+        vertices.append(CanvasMetalTextureVertex(position: SIMD2<Float>(Float(rect.maxX), Float(rect.minY)), texCoord: SIMD2<Float>(1, 0)))
+        vertices.append(CanvasMetalTextureVertex(position: SIMD2<Float>(Float(rect.maxX), Float(rect.maxY)), texCoord: SIMD2<Float>(1, 1)))
     }
 
     private func append(_ primitive: CanvasShellPrimitive, to vertices: inout [CanvasMetalVertex]) {
@@ -615,12 +679,60 @@ private struct CanvasMetalVertex {
     var color: SIMD4<Float>
 }
 
+private struct CanvasMetalVertexBuffer {
+    var buffer: MTLBuffer
+    var vertexCount: Int
+}
+
+private struct CanvasMetalBufferRing<Vertex> {
+    private var buffers: [MTLBuffer?] = Array(repeating: nil, count: 3)
+    private var index = 0
+
+    mutating func nextBuffer(device: MTLDevice, vertices: [Vertex]) -> CanvasMetalVertexBuffer? {
+        guard !vertices.isEmpty else { return nil }
+        index = (index + 1) % buffers.count
+        let byteCount = vertices.count * MemoryLayout<Vertex>.stride
+        if buffers[index] == nil || buffers[index]!.length < byteCount {
+            let capacity = Self.alignedCapacity(for: byteCount)
+            buffers[index] = device.makeBuffer(length: capacity, options: .storageModeShared)
+        }
+        guard let buffer = buffers[index] else { return nil }
+        vertices.withUnsafeBytes { bytes in
+            guard let baseAddress = bytes.baseAddress else { return }
+            buffer.contents().copyMemory(from: baseAddress, byteCount: bytes.count)
+        }
+        return CanvasMetalVertexBuffer(buffer: buffer, vertexCount: vertices.count)
+    }
+
+    private static func alignedCapacity(for byteCount: Int) -> Int {
+        let alignment = 4_096
+        return ((max(1, byteCount) + alignment - 1) / alignment) * alignment
+    }
+}
+
 private struct CanvasMetalTextureVertex {
     var position: SIMD2<Float>
     var texCoord: SIMD2<Float>
 }
 
+private struct CanvasMetalTextureDraw {
+    var texture: MTLTexture
+    var vertexStart: Int
+    var vertexCount: Int
+}
+
 private struct CanvasMetalIOSurfaceTexture {
+    var texture: MTLTexture
+    var width: Int
+    var height: Int
+}
+
+private struct CanvasMetalBitmapTextureKey: Hashable {
+    var sourceID: LayoutItemID
+    var generation: UInt64
+}
+
+private struct CanvasMetalBitmapTexture {
     var texture: MTLTexture
     var width: Int
     var height: Int
