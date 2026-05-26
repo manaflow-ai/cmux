@@ -2141,6 +2141,12 @@ private struct NotificationsPopoverView: View {
     @AppStorage("cmux.notifications.popover.height")
     private var savedHeight: Double = Double(NotificationsPopoverMetrics.defaultHeight)
 
+    // Live size while the user drags the resize handle. We avoid writing through @AppStorage
+    // on every mouseDragged event because each write hits UserDefaults and posts
+    // UserDefaults.didChangeNotification, which wakes up every observer in the app.
+    @State private var liveWidth: CGFloat?
+    @State private var liveHeight: CGFloat?
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -2157,11 +2163,13 @@ private struct NotificationsPopoverView: View {
     }
 
     private var clampedWidth: CGFloat {
-        min(NotificationsPopoverMetrics.maxWidth, max(NotificationsPopoverMetrics.minWidth, CGFloat(savedWidth)))
+        let raw = liveWidth ?? CGFloat(savedWidth)
+        return min(NotificationsPopoverMetrics.maxWidth, max(NotificationsPopoverMetrics.minWidth, raw))
     }
 
     private var clampedHeight: CGFloat {
-        min(NotificationsPopoverMetrics.maxHeight, max(NotificationsPopoverMetrics.minHeight, CGFloat(savedHeight)))
+        let raw = liveHeight ?? CGFloat(savedHeight)
+        return min(NotificationsPopoverMetrics.maxHeight, max(NotificationsPopoverMetrics.minHeight, raw))
     }
 
     // Invisible bottom-right corner resize region. NSPopover has no native resize chrome and
@@ -2171,12 +2179,27 @@ private struct NotificationsPopoverView: View {
     // representable that tracks `NSEvent.mouseLocation` in stable global screen coordinates.
     private var resizeHandle: some View {
         ResizeGripperRepresentable(
-            onBegin: { (CGFloat(savedWidth), CGFloat(savedHeight)) },
+            onBegin: {
+                // Always start from the currently displayed (clamped) size so a drag begins
+                // at the visible corner even if stored defaults fall outside the bounds.
+                (clampedWidth, clampedHeight)
+            },
             onDrag: { startW, startH, dx, dy in
-                let newW = startW + dx
-                let newH = startH + dy
-                savedWidth = Double(min(NotificationsPopoverMetrics.maxWidth, max(NotificationsPopoverMetrics.minWidth, newW)))
-                savedHeight = Double(min(NotificationsPopoverMetrics.maxHeight, max(NotificationsPopoverMetrics.minHeight, newH)))
+                let newW = min(NotificationsPopoverMetrics.maxWidth, max(NotificationsPopoverMetrics.minWidth, startW + dx))
+                let newH = min(NotificationsPopoverMetrics.maxHeight, max(NotificationsPopoverMetrics.minHeight, startH + dy))
+                liveWidth = newW
+                liveHeight = newH
+            },
+            onEnd: {
+                // Persist exactly once on mouseUp instead of hammering UserDefaults during drag.
+                if let w = liveWidth {
+                    savedWidth = Double(w)
+                    liveWidth = nil
+                }
+                if let h = liveHeight {
+                    savedHeight = Double(h)
+                    liveHeight = nil
+                }
             }
         )
         .frame(width: 16, height: 16)
@@ -2485,6 +2508,7 @@ private struct NotificationPopoverRow: View {
 private struct ResizeGripperRepresentable: NSViewRepresentable {
     let onBegin: () -> (CGFloat, CGFloat)
     let onDrag: (CGFloat, CGFloat, CGFloat, CGFloat) -> Void
+    let onEnd: () -> Void
 
     func makeNSView(context: Context) -> ResizeGripperNSView {
         ResizeGripperNSView()
@@ -2493,12 +2517,14 @@ private struct ResizeGripperRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: ResizeGripperNSView, context: Context) {
         nsView.onBegin = onBegin
         nsView.onDrag = onDrag
+        nsView.onEnd = onEnd
     }
 }
 
 private final class ResizeGripperNSView: NSView {
     var onBegin: () -> (CGFloat, CGFloat) = { (0, 0) }
     var onDrag: (CGFloat, CGFloat, CGFloat, CGFloat) -> Void = { _, _, _, _ in }
+    var onEnd: () -> Void = {}
 
     private var pressLocation: NSPoint?
     private var pressStartWidth: CGFloat = 0
@@ -2541,6 +2567,7 @@ private final class ResizeGripperNSView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         pressLocation = nil
+        onEnd()
     }
 }
 
