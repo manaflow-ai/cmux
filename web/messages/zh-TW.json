@@ -164,6 +164,84 @@
         "featureSocketApiDesc": "透過程式控制建立分頁和傳送輸入",
         "featureGpuLabel": "GPU 加速",
         "featureGpuDesc": "由 libghostty 驅動，提供流暢的渲染效果"
+      },
+      "passkeyAuth": {
+        "title": "cmux 瀏覽器中的通行密鑰驗證",
+        "summary": "cmux 內建瀏覽器支援通行密鑰驗證，並可透過 cmux browser import 從其他瀏覽器匯入 Cookie。",
+        "date": "2026年5月22日",
+        "p1": "cmux 瀏覽器現在支援通行密鑰驗證。依賴通行密鑰、WebAuthn、Touch ID 或硬體安全金鑰的登入流程，可以在 cmux 瀏覽器窗格內完成。",
+        "p2": "如果你已經在其他瀏覽器使用同一個網站，可以一次匯入相容的 Cookie：",
+        "p3": "需要 cmux v0.64+。當 Claude Code、Codex、OpenCode、Gemini CLI 或其他 agent 需要在不離開 cmux 的情況下測試已登入的本機 app 時，這會很有用。"
+      },
+      "taskManager": {
+        "title": "cmux 中的工作管理員",
+        "summary": "使用 cmux top 或命令面板中的工作管理員，查看你的編程 agent 使用了多少 CPU 和 RAM。",
+        "date": "2026年5月22日",
+        "p1": "cmux 現在有工作管理員，可以檢查你的編程 agent 和終端機程序正在使用多少 CPU 和 RAM。",
+        "p2": "從 CLI 開啟：",
+        "p3": "或按 Cmd+Shift+P，並在命令面板中選擇工作管理員。",
+        "p4": "需要 cmux v0.64.4+。"
+      },
+      "sessionRestore": {
+        "seoP": "如果你想知道終端機當機後如何復原 Claude Code、OpenCode、opencode、Codex、Gemini CLI、Antigravity CLI、Grok Build CLI、Amp、Cursor CLI、Rovo Dev、Copilot、CodeBuddy、Factory、Qoder 或 Hermes Agent 工作階段，請安裝 cmux hooks，並保持 agent 復原功能開啟。",
+        "summary": "cmux 如何復原版面並繼續 Claude Code、Codex、OpenCode、Gemini CLI、Antigravity CLI、Grok Build CLI 和其他 agent 工作階段。",
+        "agentP": "當 cmux 擁有原生工作階段 ID 時，Claude Code、Codex、Grok Build CLI、OpenCode、Pi、Amp、Cursor CLI、Gemini CLI、Antigravity CLI、Rovo Dev、Hermes Agent、Copilot、CodeBuddy、Factory 和 Qoder 都可以繼續工作階段。對大多數 agent，請用 <code>cmux hooks setup</code> 安裝整合。",
+        "title": "cmux 中的工作階段還原",
+        "date": "2026年5月13日",
+        "p1": "當應用程式可以重建你的工作形狀時，終端機工作流程就更能承受中斷。cmux 現在把工作區版面視為持久狀態，而不是綁定到某個應用程式程序的暫時狀態。",
+        "p2": "重要的界線是即時程序狀態。cmux 會還原自己擁有的內容，以及支援工具透過自身還原 API 暴露的內容。它不會為任意終端機程序建立檢查點。",
+        "baselineTitle": "一定會回來的內容",
+        "baselineP": "正常重新啟動後，cmux 會還原應用程式層級的工作階段快照：",
+        "baselineItemLayout": "視窗、工作區與窗格版面",
+        "baselineItemCwd": "工作目錄",
+        "baselineItemScrollback": "終端機捲動記錄，盡力還原",
+        "baselineItemBrowser": "瀏覽器 URL 與導覽歷史",
+        "agentTitle": "代理工作階段需要 hooks",
+        "agentP2": "setup 指令會安裝 PATH 中找得到的支援代理，並略過其他代理。啟用 Settings 中的 Claude 整合後，Claude Code 由 cmux Claude 包裝器處理。",
+        "implementationTitle": "運作方式",
+        "implementationP1": "cmux 會在 Application Support 下寫入 JSON 工作階段快照，其中包含視窗樹、工作區中繼資料、窗格版面、終端機 cwd、捲動記錄重播資料與瀏覽器導覽狀態。",
+        "implementationP2": "代理 hooks 會把工作階段對應寫入 ~/.cmuxterm。還原時，cmux 會先重建 UI。若已啟用自動代理還原，它會使用儲存的工作階段 ID 啟動每個支援代理的原生還原指令。",
+        "limitsTitle": "不在範圍內的內容",
+        "limitsP": "tmux、vim、shell 與未支援工具會以一般終端機重新開啟，除非它們有 cmux 整合可記錄安全的原生還原指令。這讓還原保持可預期，並避免重播過期提示或密鑰。",
+        "docsCta": "閱讀<link>工作階段還原文件</link>，了解設定指令、支援代理與疑難排解。"
+      },
+      "cmuxFinder": {
+        "title": "cmux Finder",
+        "summary": "cmux 現在有檔案瀏覽器，可預覽影片、圖片、PDF 與 Markdown 檔案。",
+        "date": "2026年5月22日",
+        "p1": "cmux 現在在側邊欄中提供 Finder 風格的檔案瀏覽器。",
+        "p2": "它可以在 cmux 內預覽影片、圖片、PDF 與 Markdown 檔案，讓你不用離開工作區就能檢查產出的成品。",
+        "p3": "我最常用它預覽 Codex 在測試變更時錄製的示範影片和截圖。",
+        "p4": "按 Cmd+Shift+P 切換檔案預覽，然後選擇 Enable Cmd-click File Previews 或 Disable Cmd-click File Previews。",
+        "p5": "需要 cmux v0.64+。"
+      },
+      "cmuxVault": {
+        "title": "cmux Vault 介紹",
+        "summary": "從 Vault 窗格搜尋 Codex、Claude Code、OpenCode 與 Pi 工作階段，並拖入工作區。",
+        "date": "2026年5月22日",
+        "p1": "cmux 現在在右側邊欄提供 Vault 窗格，用來查看舊的代理工作階段。",
+        "p2": "它會索引 Codex、Claude Code、OpenCode 與 Pi 工作階段，並支援在逐字稿中全文搜尋。",
+        "p3": "把 Vault 中的工作階段拖到工作區，就能在目前工作位置重新開啟。",
+        "p4": "需要 cmux v0.64+。"
+      },
+      "markdownViewer": {
+        "title": "cmux 中更好的 Markdown 檢視器",
+        "summary": "用 cmux open 開啟 README.md，或從右側邊欄拖入 Markdown 檔案。",
+        "date": "2026年5月22日",
+        "p1": "cmux 為 README 檔案、文件和產生的報告提供更好的 Markdown 檢視器。",
+        "p2": "從 CLI 開啟檔案：",
+        "p3": "你也可以從右側邊欄把 Markdown 檔案拖入工作區。",
+        "p4": "感謝 <tobiLink>@tobi</tobiLink> 的貢獻。"
+      },
+      "unreadShortcuts": {
+        "title": "cmux 未讀工作區快捷鍵",
+        "summary": "Cmd+Control+U 在保留未讀狀態的同時循環未讀工作區，Cmd+Option+U 切換已讀狀態。",
+        "date": "2026年5月22日",
+        "p1": "當多個代理同時完成時，cmux 新增了兩個管理未讀工作區的快捷鍵。",
+        "p2": "Cmd+Control+U 會把目前工作區標記為最舊的未讀工作區，然後跳到最新的未讀工作區。",
+        "p3": "這會把目前工作區送到未讀循環的最後面，讓你可以繼續查看未讀工作而不清除狀態。",
+        "p4": "Cmd+Option+U 會切換目前工作區的已讀或未讀狀態。",
+        "p5": "當你用 Cmd+Shift+U 跳到新的未讀工作區，但想在回覆前先切換情境時很有用。"
       }
     },
     "zenOfCmux": {
@@ -181,6 +259,114 @@
     "introducingCmux": {
       "metaTitle": "cmux 介紹",
       "metaDescription": "我們為什麼要做 cmux，一個全新的 macOS 終端。"
+    },
+    "passkeyAuth": {
+      "metaTitle": "cmux 瀏覽器中的通行密鑰驗證",
+      "metaDescription": "cmux v0.64+ 支援在瀏覽器窗格中使用通行密鑰驗證，並可透過 cmux browser import 從其他瀏覽器匯入 Cookie。",
+      "metaKeywords": [
+        "cmux 瀏覽器通行密鑰驗證",
+        "通行密鑰驗證",
+        "WebAuthn",
+        "Touch ID",
+        "匯入 Cookie",
+        "瀏覽器 Cookie",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "Gemini CLI",
+        "AI 編程 agent"
+      ]
+    },
+    "taskManager": {
+      "metaTitle": "cmux 中的工作管理員",
+      "metaDescription": "cmux v0.64.4+ 包含工作管理員，可透過 cmux top 或命令面板檢查編程 agent 的 CPU 和 RAM 使用量。",
+      "metaKeywords": [
+        "cmux 工作管理員",
+        "cmux top",
+        "編程 agent CPU 使用量",
+        "編程 agent RAM 使用量",
+        "終端機程序監視器",
+        "Claude Code CPU",
+        "Codex CPU",
+        "OpenCode CPU",
+        "AI 編程 agent"
+      ]
+    },
+    "sessionRestore": {
+      "metaDescription": "如何用 cmux 在重新啟動或終端機當機後復原 Claude Code、Codex、OpenCode、Gemini CLI、Antigravity CLI、Grok Build CLI 和其他編程 agent 工作階段。",
+      "metaKeywords": [
+        "cmux",
+        "工作階段復原",
+        "終端機當機後復原",
+        "終端機當機復原",
+        "終端機",
+        "macOS",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "opencode",
+        "Gemini CLI",
+        "Antigravity CLI",
+        "Grok Build CLI",
+        "AI 編程 agent"
+      ],
+      "metaTitle": "cmux 中的工作階段還原"
+    },
+    "cmuxFinder": {
+      "metaTitle": "cmux Finder",
+      "metaDescription": "cmux v0.64+ 提供 Finder 風格檔案瀏覽器，可在工作區內預覽影片、圖片、PDF 與 Markdown 檔案。",
+      "metaKeywords": [
+        "cmux Finder",
+        "cmux 檔案瀏覽器",
+        "終端機檔案瀏覽器",
+        "在終端機預覽影片",
+        "在終端機預覽截圖",
+        "PDF 預覽",
+        "Markdown 預覽",
+        "AI 編程代理",
+        "Codex 示範影片"
+      ]
+    },
+    "cmuxVault": {
+      "metaTitle": "cmux Vault 介紹",
+      "metaDescription": "cmux v0.64+ 新增 Vault 窗格，可搜尋 Codex、Claude Code、OpenCode 與 Pi 工作階段，並拖入工作區。",
+      "metaKeywords": [
+        "cmux Vault",
+        "Codex 工作階段",
+        "Claude Code 工作階段",
+        "OpenCode 工作階段",
+        "Pi 工作階段",
+        "AI 編程代理歷史",
+        "代理工作階段搜尋",
+        "還原編程代理工作階段",
+        "全文搜尋"
+      ]
+    },
+    "markdownViewer": {
+      "metaTitle": "cmux 中更好的 Markdown 檢視器",
+      "metaDescription": "用 cmux open 開啟 README.md，或從右側邊欄拖入 Markdown 檔案，在改進的 cmux Markdown 檢視器中查看。",
+      "metaKeywords": [
+        "cmux Markdown 檢視器",
+        "cmux open README.md",
+        "Markdown 預覽",
+        "README 檢視器",
+        "終端機 Markdown 檢視器",
+        "開發者文件預覽"
+      ]
+    },
+    "unreadShortcuts": {
+      "metaTitle": "cmux 未讀工作區快捷鍵",
+      "metaDescription": "使用 Cmd+Control+U 與 Cmd+Option+U 循環查看未讀 cmux 工作區，在回覆前不會清除未讀狀態。",
+      "metaKeywords": [
+        "cmux 未讀快捷鍵",
+        "Cmd+Control+U",
+        "Cmd+Option+U",
+        "Cmd+Shift+U",
+        "編程代理通知",
+        "終端機通知",
+        "AI 編程代理",
+        "工作區未讀"
+      ]
     }
   },
   "docs": {
@@ -304,6 +490,15 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "隱藏巢狀 Codex 或 Claude 子代理的可見完成通知和狀態變更，同時將其事件保留在 Feed 遙測中。"
+        },
+        "app": {
+          "confirmQuit": "控制 cmux 在退出前何時要求確認。無論此設定為何，DEV 建置都會立即退出。舊的 app.warnBeforeQuit 仍會作為布林後備值接受。",
+          "warnBeforeQuit": "用於退出確認的舊版布林後備值。新設定請使用 app.confirmQuit。",
+          "warnBeforeClosingTabXButton": "使用分頁關閉按鈕關閉分頁前顯示確認。",
+          "hideTabCloseButton": "在窗格分頁列中隱藏分頁關閉按鈕。"
+        },
+        "terminal": {
+          "copyOnSelect": "確認選取後，將所選終端機文字複製到系統剪貼簿，包括透過按兩下和按三下選取的單字與整行。"
         }
       }
     },
@@ -782,10 +977,10 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "plugin event bus",
       "none": "無",
-      "supportedNote": "啟用 Claude 整合時，Claude Code 由 cmux Claude wrapper 處理。Rovo Dev 也接受 rovo 作為 setup 別名。",
+      "supportedNote": "啟用 Claude 整合時，Claude Code 由 cmux Claude wrapper 處理。Antigravity 也接受 agy 作為 setup 別名，Rovo Dev 接受 rovo。",
       "manualTitle": "手動還原",
       "manualDesc": "cmux 正常啟動時會還原最後儲存的 snapshot。你也可以手動重新套用上一個 snapshot：",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "停用 agent 自動還原",
       "disableDesc": "若要還原 pane 而不啟動已儲存的 agent resume 命令，請關閉 Settings > Terminal > Resume Agent Sessions on Reopen 或設定：",
       "disableNote": "這只會停用 agent resume 命令。cmux 仍會還原佈局、工作目錄、scrollback 和瀏覽器歷史。",
@@ -794,7 +989,9 @@
       "underHoodItemScrollback": "終端機 scrollback 會以有界文字儲存，並在還原時透過暫存檔 replay。這是盡力還原，因為終端機應用程式可以重繪或清除畫面。",
       "underHoodItemHooks": "Agent hooks 會寫入 ~/.cmuxterm/<agent>-hook-sessions.json，內容包含 agent 工作階段 ID、cmux workspace ID、surface ID、cwd、可用時的程序 ID，以及清理過的啟動命令。",
       "underHoodItemResume": "還原時，cmux 會先重建視窗和 pane。如果 agent 自動還原已啟用，它會啟動一次性 shell 命令，用儲存的工作階段 ID 執行 agent 的原生 resume 命令。",
-      "underHoodMore": "一般<configLink>設定文件</configLink>說明 cmux.json。工作階段還原會將應用程式佈局與 Ghostty 終端機渲染設定分開保存。"
+      "underHoodMore": "一般<configLink>設定文件</configLink>說明 cmux.json。工作階段還原會將應用程式佈局與 Ghostty 終端機渲染設定分開保存。",
+      "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     }
   },
   "legal": {
@@ -808,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "又一個基於 libghostty 的專案，這次是一個帶垂直分頁、更好的組織/通知、內建可編寫腳本瀏覽器的 macOS 終端機，專門針對大量使用終端機 agent 工作流程的使用者。",
+    "steipete": "來晚了，但 cmux 很棒。目前分工：Codex Mac App 用於知識工作、學習和閱讀；cmux + Codex CLI 用於寫程式。",
     "schrockn": "這正是我一直在找的產品。用了兩小時就愛上了。",
     "egrefen": "整個週末都在用，太棒了。",
     "max4c": "過去兩週最喜歡的工具",

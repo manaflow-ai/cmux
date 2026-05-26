@@ -164,6 +164,84 @@
         "featureGpuDesc": "libghosttyによるスムーズなレンダリング",
         "getStartedTitle": "はじめに",
         "getStartedP": "Homebrewでインストールするか、<link>はじめにガイド</link>からDMGをダウンロードしてください。"
+      },
+      "passkeyAuth": {
+        "title": "cmuxブラウザのパスキー認証",
+        "summary": "cmuxの内蔵ブラウザはパスキー認証に対応し、cmux browser importで他のブラウザからCookieをインポートできます。",
+        "date": "2026年5月22日",
+        "p1": "cmuxのブラウザはパスキー認証に対応しました。パスキー、WebAuthn、Touch ID、ハードウェアセキュリティキーに依存するサインインフローを、cmuxのブラウザペイン内で完了できます。",
+        "p2": "同じサイトを別のブラウザですでに使っている場合は、互換性のあるCookieを一度だけインポートしてください：",
+        "p3": "cmux v0.64+が必要です。Claude Code、Codex、OpenCode、Gemini CLIなどのエージェントが、cmuxを離れずに認証済みのローカルアプリをテストしやすくなります。"
+      },
+      "taskManager": {
+        "title": "cmuxのタスクマネージャ",
+        "summary": "cmux topまたはコマンドパレットのタスクマネージャで、コーディングエージェントのCPUとRAM使用量を確認できます。",
+        "date": "2026年5月22日",
+        "p1": "cmuxにタスクマネージャが追加され、コーディングエージェントやターミナルプロセスがどれだけCPUとRAMを使っているか確認できるようになりました。",
+        "p2": "CLIから開くには：",
+        "p3": "またはCmd+Shift+Pを押して、コマンドパレットからタスクマネージャを選びます。",
+        "p4": "cmux v0.64.4+が必要です。"
+      },
+      "sessionRestore": {
+        "seoP": "ターミナルのクラッシュ後にClaude Code、OpenCode、opencode、Codex、Gemini CLI、Antigravity CLI、Grok Build CLI、Amp、Cursor CLI、Rovo Dev、Copilot、CodeBuddy、Factory、Qoder、Hermes Agentのセッションを復元する方法を探している場合は、cmux hooksをインストールし、エージェント再開を有効にしておいてください。",
+        "summary": "cmuxがレイアウトを復元し、Claude Code、Codex、OpenCode、Gemini CLI、Antigravity CLI、Grok Build CLIなどのエージェントセッションを再開する仕組み。",
+        "agentP": "Claude Code、Codex、Grok Build CLI、OpenCode、Pi、Amp、Cursor CLI、Gemini CLI、Antigravity CLI、Rovo Dev、Hermes Agent、Copilot、CodeBuddy、Factory、Qoderは、cmuxがネイティブのセッションIDを取得している場合に再開できます。ほとんどのエージェントでは、<code>cmux hooks setup</code>で連携をインストールします。",
+        "title": "cmuxのセッション復元",
+        "date": "2026年5月13日",
+        "p1": "ターミナルの作業は、アプリが作業の形を再構築できると中断に強くなります。cmuxはワークスペースのレイアウトを、単一のアプリプロセスに結びついたものではなく、永続的な状態として扱うようになりました。",
+        "p2": "重要な境界はライブプロセスの状態です。cmuxは自分が所有するものと、対応ツールが独自の再開APIで公開するものを復元します。任意のターミナルプロセスをチェックポイント化するわけではありません。",
+        "baselineTitle": "常に戻るもの",
+        "baselineP": "通常の再起動後、cmuxはアプリレベルのセッションスナップショットを復元します。",
+        "baselineItemLayout": "ウィンドウ、ワークスペース、ペインのレイアウト",
+        "baselineItemCwd": "作業ディレクトリ",
+        "baselineItemScrollback": "ターミナルのスクロールバック、ベストエフォート",
+        "baselineItemBrowser": "ブラウザURLとナビゲーション履歴",
+        "agentTitle": "エージェントセッションにはhooksが必要です",
+        "agentP2": "setupコマンドはPATH上にある対応エージェントをインストールし、それ以外はスキップします。Claude CodeはSettingsでClaude連携が有効な場合、cmux Claudeラッパーで処理されます。",
+        "implementationTitle": "仕組み",
+        "implementationP1": "cmuxはApplication Support内に、ウィンドウツリー、ワークスペースメタデータ、ペインレイアウト、ターミナルcwd、スクロールバック再生データ、ブラウザのナビゲーション状態を含むJSONセッションスナップショットを書き込みます。",
+        "implementationP2": "エージェントhooksは~/.cmuxtermにセッション対応表を書き込みます。復元時、cmuxはまずUIを再構築します。自動エージェント再開が有効なら、保存されたセッションIDを使って各対応エージェントのネイティブ再開コマンドを起動します。",
+        "limitsTitle": "対象外のもの",
+        "limitsP": "tmux、vim、シェル、未対応ツールは、安全なネイティブ再開コマンドを記録するcmux連携がない限り、通常のターミナルとして再び開きます。これにより復元は予測可能になり、古いプロンプトやシークレットの再生を避けられます。",
+        "docsCta": "設定コマンド、対応エージェント、トラブルシューティングは<link>セッション復元ドキュメント</link>を読んでください。"
+      },
+      "cmuxFinder": {
+        "title": "cmux Finder",
+        "summary": "cmuxに動画、画像、PDF、Markdownファイルをプレビューできるファイルエクスプローラが追加されました。",
+        "date": "2026年5月22日",
+        "p1": "cmuxのサイドバーにFinder風のファイルエクスプローラが追加されました。",
+        "p2": "動画、画像、PDF、Markdownファイルをcmux内でプレビューできるため、ワークスペースを離れずに生成された成果物を確認できます。",
+        "p3": "私はCodexが変更をテストしながら記録するデモ動画やスクリーンショットの確認に一番よく使っています。",
+        "p4": "Cmd+Shift+Pからファイルプレビューを切り替え、Enable Cmd-click File PreviewsまたはDisable Cmd-click File Previewsを選びます。",
+        "p5": "cmux v0.64+が必要です。"
+      },
+      "cmuxVault": {
+        "title": "cmux Vaultの紹介",
+        "summary": "VaultペインからCodex、Claude Code、OpenCode、Piのセッションを検索し、ワークスペースへドラッグできます。",
+        "date": "2026年5月22日",
+        "p1": "cmuxの右サイドバーに、古いエージェントセッション用のVaultペインが追加されました。",
+        "p2": "Codex、Claude Code、OpenCode、Piのセッションをインデックスし、トランスクリプト全体を全文検索できます。",
+        "p3": "Vaultからセッションをワークスペースへドラッグすると、作業中の場所で再び開けます。",
+        "p4": "cmux v0.64+が必要です。"
+      },
+      "markdownViewer": {
+        "title": "cmuxの改善されたMarkdownビューア",
+        "summary": "cmux openでREADME.mdを開くか、右サイドバーからMarkdownファイルをドラッグできます。",
+        "date": "2026年5月22日",
+        "p1": "cmuxにはREADME、ドキュメント、生成レポート向けの改善されたMarkdownビューアがあります。",
+        "p2": "CLIからファイルを開くには：",
+        "p3": "右サイドバーからMarkdownファイルをワークスペースへドラッグすることもできます。",
+        "p4": "貢献してくれた<tobiLink>@tobi</tobiLink>に感謝します。"
+      },
+      "unreadShortcuts": {
+        "title": "cmuxの未読ワークスペースショートカット",
+        "summary": "Cmd+Control+Uは未読状態を保ったまま未読ワークスペースを巡回し、Cmd+Option+Uは既読状態を切り替えます。",
+        "date": "2026年5月22日",
+        "p1": "複数のエージェントが同時に完了したときに未読ワークスペースを管理するため、cmuxに2つのショートカットが追加されました。",
+        "p2": "Cmd+Control+Uは現在のワークスペースを最古の未読としてマークし、最新の未読ワークスペースへ移動します。",
+        "p3": "これにより現在のワークスペースが未読サイクルの後ろへ送られ、未読を消さずに巡回できます。",
+        "p4": "Cmd+Option+Uは現在のワークスペースの既読と未読を切り替えます。",
+        "p5": "Cmd+Shift+Uで新しい未読ワークスペースに移動したものの、返信前に別の作業へ切り替えたいときに便利です。"
       }
     },
     "zenOfCmux": {
@@ -181,6 +259,114 @@
     "introducingCmux": {
       "metaTitle": "cmuxのご紹介",
       "metaDescription": "macOS向け新ターミナル、cmuxを作った理由。"
+    },
+    "passkeyAuth": {
+      "metaTitle": "cmuxブラウザのパスキー認証",
+      "metaDescription": "cmux v0.64+はブラウザペインでのパスキー認証に対応し、cmux browser importで他のブラウザからCookieをインポートできます。",
+      "metaKeywords": [
+        "cmuxブラウザ パスキー認証",
+        "パスキー認証",
+        "WebAuthn",
+        "Touch ID",
+        "Cookieインポート",
+        "ブラウザCookie",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "Gemini CLI",
+        "AIコーディングエージェント"
+      ]
+    },
+    "taskManager": {
+      "metaTitle": "cmuxのタスクマネージャ",
+      "metaDescription": "cmux v0.64.4+には、cmux topまたはコマンドパレットからコーディングエージェントのCPUとRAM使用量を確認できるタスクマネージャが含まれます。",
+      "metaKeywords": [
+        "cmux タスクマネージャ",
+        "cmux top",
+        "コーディングエージェント CPU使用量",
+        "コーディングエージェント RAM使用量",
+        "ターミナルプロセス監視",
+        "Claude Code CPU",
+        "Codex CPU",
+        "OpenCode CPU",
+        "AIコーディングエージェント"
+      ]
+    },
+    "sessionRestore": {
+      "metaDescription": "cmuxで再起動後やターミナルのクラッシュ後にClaude Code、Codex、OpenCode、Gemini CLI、Antigravity CLI、Grok Build CLIなどのコーディングエージェントセッションを復元する方法。",
+      "metaKeywords": [
+        "cmux",
+        "セッション復元",
+        "クラッシュ後のターミナル復元",
+        "ターミナルクラッシュ復旧",
+        "ターミナル",
+        "macOS",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "opencode",
+        "Gemini CLI",
+        "Antigravity CLI",
+        "Grok Build CLI",
+        "AIコーディングエージェント"
+      ],
+      "metaTitle": "cmuxのセッション復元"
+    },
+    "cmuxFinder": {
+      "metaTitle": "cmux Finder",
+      "metaDescription": "cmux v0.64+には、ワークスペース内で動画、画像、PDF、MarkdownファイルをプレビューできるFinder風ファイルエクスプローラが含まれます。",
+      "metaKeywords": [
+        "cmux Finder",
+        "cmux ファイルエクスプローラ",
+        "ターミナル ファイルエクスプローラ",
+        "ターミナルで動画プレビュー",
+        "ターミナルでスクリーンショットプレビュー",
+        "PDFプレビュー",
+        "Markdownプレビュー",
+        "AIコーディングエージェント",
+        "Codexデモ動画"
+      ]
+    },
+    "cmuxVault": {
+      "metaTitle": "cmux Vaultの紹介",
+      "metaDescription": "cmux v0.64+ではVaultペインでCodex、Claude Code、OpenCode、Piのセッションを検索し、ワークスペースへドラッグできます。",
+      "metaKeywords": [
+        "cmux Vault",
+        "Codexセッション",
+        "Claude Codeセッション",
+        "OpenCodeセッション",
+        "Piセッション",
+        "AIコーディングエージェント履歴",
+        "エージェントセッション検索",
+        "コーディングエージェントセッション復元",
+        "全文検索"
+      ]
+    },
+    "markdownViewer": {
+      "metaTitle": "cmuxの改善されたMarkdownビューア",
+      "metaDescription": "cmux openでREADME.mdを開くか、右サイドバーからMarkdownファイルをドラッグして改善されたcmux Markdownビューアで表示できます。",
+      "metaKeywords": [
+        "cmux Markdownビューア",
+        "cmux open README.md",
+        "Markdownプレビュー",
+        "READMEビューア",
+        "ターミナルMarkdownビューア",
+        "開発者ドキュメントプレビュー"
+      ]
+    },
+    "unreadShortcuts": {
+      "metaTitle": "cmuxの未読ワークスペースショートカット",
+      "metaDescription": "Cmd+Control+UとCmd+Option+Uで、返信前に未読状態を消さずにcmuxの未読ワークスペースを巡回できます。",
+      "metaKeywords": [
+        "cmux 未読ショートカット",
+        "Cmd+Control+U",
+        "Cmd+Option+U",
+        "Cmd+Shift+U",
+        "コーディングエージェント通知",
+        "ターミナル通知",
+        "AIコーディングエージェント",
+        "ワークスペース未読"
+      ]
     }
   },
   "docs": {
@@ -257,10 +443,10 @@
       "feedPreToolUse": "PreToolUse",
       "pluginEventBus": "プラグインイベントバス",
       "none": "なし",
-      "supportedNote": "Claude Codeは、設定でClaude連携が有効な場合にcmux Claudeラッパーで処理されます。Rovo Devはセットアップエイリアスとしてrovoも受け付けます。",
+      "supportedNote": "Claude Codeは、設定でClaude連携が有効な場合にcmux Claudeラッパーで処理されます。Antigravityはセットアップエイリアスとしてagyも受け付け、Rovo Devはrovoを受け付けます。",
       "manualTitle": "手動復元",
       "manualDesc": "cmuxは通常起動時に最後に保存したスナップショットを復元します。以前のスナップショットを手動で再適用することもできます：",
-      "manualItemMenu": "ファイル > 前回のセッションを再度開く",
+      "manualItemMenu": "履歴 > 前回のアプリ起動を復元",
       "disableTitle": "エージェント自動復元を無効にする",
       "disableDesc": "保存されたエージェント復元コマンドを起動せずにペインだけを復元するには、設定 > ターミナル > 再オープン時にエージェントセッションを復元 をオフにするか、次を設定します：",
       "disableNote": "これはエージェント復元コマンドだけを無効にします。cmuxはレイアウト、作業ディレクトリ、スクロールバック、ブラウザ履歴を引き続き復元します。",
@@ -269,7 +455,9 @@
       "underHoodItemScrollback": "ターミナルのスクロールバックは上限付きテキストとして保存され、復元時に一時ファイル経由で再生されます。ターミナルアプリが画面を再描画またはクリアできるため、これはベストエフォートです。",
       "underHoodItemHooks": "エージェントフックは ~/.cmuxterm/<agent>-hook-sessions.json に、エージェントセッションID、cmuxワークスペースID、サーフェスID、cwd、利用可能な場合はプロセスID、サニタイズ済み起動コマンドを書き込みます。",
       "underHoodItemResume": "復元時、cmuxはまずウィンドウとペインを再構築します。エージェント自動復元が有効な場合、保存されたセッションIDでエージェント固有の復元コマンドを実行する一度限りのシェルコマンドを起動します。",
-      "underHoodMore": "通常の<configLink>設定ドキュメント</configLink>ではcmux.jsonを扱います。セッション復元は、アプリのレイアウトをGhosttyのターミナル描画設定とは別に保存します。"
+      "underHoodMore": "通常の<configLink>設定ドキュメント</configLink>ではcmux.jsonを扱います。セッション復元は、アプリのレイアウトをGhosttyのターミナル描画設定とは別に保存します。",
+      "feedPrePostToolUse": "PreToolUse, PostToolUse",
+      "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
     "concepts": {
       "title": "コンセプト",
@@ -362,6 +550,15 @@
       "schemaDescriptions": {
         "automation": {
           "suppressSubagentNotifications": "ネストされた Codex または Claude の子エージェントからの表示される完了通知とステータス変更を抑制し、それらのイベントは Feed テレメトリに残します。"
+        },
+        "app": {
+          "confirmQuit": "cmux の終了前に確認を求めるタイミングを制御します。DEV ビルドではこの設定に関係なく常にすぐ終了します。従来の app.warnBeforeQuit も boolean フォールバックとして引き続き受け付けます。",
+          "warnBeforeQuit": "終了確認用の従来の boolean フォールバックです。新しい設定では app.confirmQuit を使ってください。",
+          "warnBeforeClosingTabXButton": "タブの閉じるボタンでタブを閉じる前に確認を表示します。",
+          "hideTabCloseButton": "ペインのタブバーでタブの閉じるボタンを非表示にします。"
+        },
+        "terminal": {
+          "copyOnSelect": "選択が確定したとき、ダブルクリックやトリプルクリックによる単語・行の選択を含め、選択したターミナルテキストをシステムクリップボードへコピーします。"
         }
       }
     },
@@ -1044,6 +1241,7 @@
   },
   "testimonials": {
     "mitchellh": "またlibghosttyベースのプロジェクトが登場。今回は縦タブ付きのmacOSターミナルで、ターミナルベースのAIエージェントワークフローを大量に使う人向けに、整理・通知機能や組み込み・スクリプタブルなブラウザを搭載。",
+    "steipete": "出遅れたけど、cmuxは素晴らしい。今の使い分け：Codex Macアプリは知識作業、学習、読書。cmux + Codex CLIはコーディング。",
     "schrockn": "まさに探していた製品です。今朝2時間使って、もう夢中です。",
     "egrefen": "週末ずっと使ってたけど、すごくいい。",
     "max4c": "この2週間で一番お気に入りのツール",
