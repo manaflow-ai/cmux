@@ -488,7 +488,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         XCTAssertEqual(store.records.count, 1)
 
         try FileManager.default.removeItem(at: registryURL)
-        store.reload()
+        await store.reload()
 
         XCTAssertTrue(store.records.isEmpty)
     }
@@ -735,7 +735,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         )
 
         try Data("{ broken json".utf8).write(to: registryURL)
-        store.reload()
+        await store.reload()
 
         XCTAssertFalse(store.records.contains(record))
         XCTAssertTrue(store.records.isEmpty)
