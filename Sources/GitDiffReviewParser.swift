@@ -273,7 +273,7 @@ nonisolated enum GitDiffReviewParser {
     }
 
     private static func parseQuotedPathToken(_ body: String, startingAt start: String.Index) -> (token: String, nextIndex: String.Index) {
-        var token = ""
+        var bytes: [UInt8] = []
         var index = start
 
         while index < body.endIndex {
@@ -281,42 +281,42 @@ nonisolated enum GitDiffReviewParser {
             index = body.index(after: index)
 
             if character == "\"" {
-                return (token, index)
+                return (decodeQuotedPathBytes(bytes), index)
             }
 
             if character == "\\", index < body.endIndex {
                 let parsed = parseQuotedEscape(body, startingAt: index)
-                token.append(parsed.character)
+                bytes.append(contentsOf: parsed.bytes)
                 index = parsed.nextIndex
             } else {
-                token.append(character)
+                bytes.append(contentsOf: String(character).utf8)
             }
         }
 
-        return (token, index)
+        return (decodeQuotedPathBytes(bytes), index)
     }
 
-    private static func parseQuotedEscape(_ body: String, startingAt start: String.Index) -> (character: Character, nextIndex: String.Index) {
+    private static func parseQuotedEscape(_ body: String, startingAt start: String.Index) -> (bytes: [UInt8], nextIndex: String.Index) {
         let escaped = body[start]
         let nextIndex = body.index(after: start)
 
         switch escaped {
-        case "n": return ("\n", nextIndex)
-        case "r": return ("\r", nextIndex)
-        case "t": return ("\t", nextIndex)
-        case "\"": return ("\"", nextIndex)
-        case "\\": return ("\\", nextIndex)
+        case "n": return (Array("\n".utf8), nextIndex)
+        case "r": return (Array("\r".utf8), nextIndex)
+        case "t": return (Array("\t".utf8), nextIndex)
+        case "\"": return (Array("\"".utf8), nextIndex)
+        case "\\": return (Array("\\".utf8), nextIndex)
         default:
             if let scalar = escaped.unicodeScalars.first,
                scalar.value >= 48,
                scalar.value <= 55 {
                 return parseOctalEscape(body, startingAt: start)
             }
-            return (escaped, nextIndex)
+            return (Array(String(escaped).utf8), nextIndex)
         }
     }
 
-    private static func parseOctalEscape(_ body: String, startingAt start: String.Index) -> (character: Character, nextIndex: String.Index) {
+    private static func parseOctalEscape(_ body: String, startingAt start: String.Index) -> (bytes: [UInt8], nextIndex: String.Index) {
         var digits = ""
         var index = start
 
@@ -330,11 +330,23 @@ nonisolated enum GitDiffReviewParser {
         }
 
         guard let value = UInt32(digits, radix: 8),
-              let scalar = UnicodeScalar(value) else {
-            return (body[start], body.index(after: start))
+              value <= UInt8.max else {
+            return (Array(String(body[start]).utf8), body.index(after: start))
         }
 
-        return (Character(scalar), index)
+        return ([UInt8(value)], index)
+    }
+
+    private static func decodeQuotedPathBytes(_ bytes: [UInt8]) -> String {
+        if let decoded = String(data: Data(bytes), encoding: .utf8) {
+            return decoded
+        }
+
+        return bytes.reduce(into: "") { result, byte in
+            if let scalar = UnicodeScalar(UInt32(byte)) {
+                result.unicodeScalars.append(scalar)
+            }
+        }
     }
 
     private static func stripDiffPathPrefix(_ path: String) -> String {

@@ -97,4 +97,26 @@ final class GitDiffReviewParserTests: XCTestCase {
         XCTAssertEqual(files[0].additions, 1)
         XCTAssertEqual(files[0].deletions, 1)
     }
+
+    func testParserDecodesQuotedOctalPathEscapesAsUTF8() {
+        let path = "r\u{00E9}sum\u{00E9}.txt"
+        let diffText = """
+        diff --git "a/r\\303\\251sum\\303\\251.txt" "b/r\\303\\251sum\\303\\251.txt"
+        index 1111111..2222222 100644
+        --- "a/r\\303\\251sum\\303\\251.txt"
+        +++ "b/r\\303\\251sum\\303\\251.txt"
+        @@ -1 +1 @@
+        -old
+        +new
+        """
+
+        let files = GitDiffReviewParser.parse(
+            diffText: diffText,
+            statusText: " M \(path)\u{0}"
+        )
+
+        XCTAssertEqual(files.count, 1)
+        XCTAssertEqual(files[0].path, path)
+        XCTAssertEqual(files[0].status, .modified)
+    }
 }
