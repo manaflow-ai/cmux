@@ -168,6 +168,52 @@ def main() -> int:
                 f"system.tree selected page did not mirror active duplicated page: {workspace}",
             )
 
+            after_reordered = _run_cli_json(
+                cli,
+                [
+                    "reorder-page",
+                    "--workspace",
+                    workspace_id,
+                    "--page",
+                    second_page_ref,
+                    "--after",
+                    duplicate_page_ref,
+                ],
+            )
+            _must(
+                int(after_reordered.get("page_index", -1)) == 1,
+                f"reorder-page --after should move editor immediately after database: {after_reordered}",
+            )
+            after_list = _run_cli_json(cli, ["list-pages", "--workspace", workspace_id])
+            after_titles, _ = _page_titles_and_selected(after_list)
+            _must(
+                after_titles == ["database", "editor", "agents"],
+                f"reorder-page --after should preserve the anchor-before-page order: {after_list}",
+            )
+
+            restored_reorder = _run_cli_json(
+                cli,
+                [
+                    "reorder-page",
+                    "--workspace",
+                    workspace_id,
+                    "--page",
+                    second_page_ref,
+                    "--after",
+                    first_page_ref,
+                ],
+            )
+            _must(
+                int(restored_reorder.get("page_index", -1)) == 2,
+                f"reorder-page --after should restore editor after agents: {restored_reorder}",
+            )
+            restored_list = _run_cli_json(cli, ["list-pages", "--workspace", workspace_id])
+            restored_titles, _ = _page_titles_and_selected(restored_list)
+            _must(
+                restored_titles == ["database", "agents", "editor"],
+                f"reorder-page --after should restore the expected final order: {restored_list}",
+            )
+
             last_page = c._call("page.last", {"workspace_id": workspace_id}) or {}
             _must(str(last_page.get("page_id") or "") == second_page_id, f"page.last should select editor: {last_page}")
 

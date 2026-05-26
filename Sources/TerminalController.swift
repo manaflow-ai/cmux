@@ -8027,13 +8027,15 @@ class TerminalController {
         var moved = false
         var newIndex: Int?
         v2MainSync {
-            guard workspace.pageIndex(pageId: pageId) != nil else { return }
+            guard let currentIndex = workspace.pageIndex(pageId: pageId) else { return }
             if let index {
                 moved = workspace.movePage(pageId: pageId, toIndex: index)
             } else if let beforeId, let beforeIndex = workspace.pageIndex(pageId: beforeId) {
-                moved = workspace.movePage(pageId: pageId, toIndex: beforeIndex)
+                let targetIndex = currentIndex < beforeIndex ? beforeIndex - 1 : beforeIndex
+                moved = workspace.movePage(pageId: pageId, toIndex: targetIndex)
             } else if let afterId, let afterIndex = workspace.pageIndex(pageId: afterId) {
-                moved = workspace.movePage(pageId: pageId, toIndex: afterIndex)
+                let targetIndex = currentIndex < afterIndex + 1 ? afterIndex : afterIndex + 1
+                moved = workspace.movePage(pageId: pageId, toIndex: targetIndex)
             }
             newIndex = workspace.pageIndex(pageId: pageId)
         }
