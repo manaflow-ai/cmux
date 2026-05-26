@@ -254,7 +254,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         }
     }
 
-    func testBundledStableCLIKeepsUserScopedStableEnvSocketExplicit() throws {
+    func testBundledStableCLIPreservesLiveUserScopedStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
@@ -267,7 +267,9 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let defaultStableSocketPath = socketDirectoryURL
             .appendingPathComponent("cmux.sock", isDirectory: false)
             .path
-        let userScopedStableSocketPath = "/tmp/cmux-\(getuid()).sock"
+        let userScopedStableSocketPath = socketDirectoryURL
+            .appendingPathComponent("cmux-\(getuid()).sock", isDirectory: false)
+            .path
         if FileManager.default.fileExists(atPath: userScopedStableSocketPath) {
             throw XCTSkip("User-scoped stable cmux socket already exists at \(userScopedStableSocketPath)")
         }
@@ -307,9 +309,148 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             result.stdout
         )
         XCTAssertEqual(defaultResponder.receivedRequests, [])
+        XCTAssertEqual(
+            userScopedResponder.receivedRequests.count,
+            1,
+            userScopedResponder.receivedRequests.joined(separator: "\n")
+        )
+        XCTAssertTrue(
+            userScopedResponder.receivedRequests.contains { $0.contains("ping") },
+            userScopedResponder.receivedRequests.joined(separator: "\n")
+        )
     }
 
-    func testBundledStableCLITreatsLegacyStableEnvSocketAsImplicitDefault() throws {
+    func testBundledStableCLIFallsBackFromStaleUserScopedStableEnvSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
+        let socketDirectoryURL = fixedHomeURL
+            .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: socketDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let defaultStableSocketPath = socketDirectoryURL
+            .appendingPathComponent("cmux.sock", isDirectory: false)
+            .path
+        let userScopedStableSocketPath = socketDirectoryURL
+            .appendingPathComponent("cmux-\(getuid()).sock", isDirectory: false)
+            .path
+        if FileManager.default.fileExists(atPath: userScopedStableSocketPath) {
+            throw XCTSkip("User-scoped stable cmux socket already exists at \(userScopedStableSocketPath)")
+        }
+
+        let fakeStableCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: "stable-\(UUID().uuidString.lowercased())",
+            bundleIdentifier: "com.cmuxterm.app",
+            bundleName: "cmux"
+        )
+        let defaultResponder = try UnixSocketResponder(path: defaultStableSocketPath, response: "OK DEFAULT")
+        defer { defaultResponder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
+        environment["CMUX_SOCKET_PATH"] = userScopedStableSocketPath
+        environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
+
+        let result = runProcess(
+            executablePath: fakeStableCLIPath,
+            arguments: ["ping"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "OK DEFAULT",
+            result.stdout
+        )
+        XCTAssertEqual(
+            defaultResponder.receivedRequests.count,
+            1,
+            defaultResponder.receivedRequests.joined(separator: "\n")
+        )
+        XCTAssertTrue(
+            defaultResponder.receivedRequests.contains { $0.contains("ping") },
+            defaultResponder.receivedRequests.joined(separator: "\n")
+        )
+    }
+
+    func testBundledStableCLIFallsBackFromSymlinkedLegacyStableEnvSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
+        let socketDirectoryURL = fixedHomeURL
+            .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: socketDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let defaultStableSocketPath = socketDirectoryURL
+            .appendingPathComponent("cmux.sock", isDirectory: false)
+            .path
+        let legacyStableSocketPath = "/tmp/cmux.sock"
+        let symlinkTargetSocketPath = "/tmp/cmux-symlink-target-\(UUID().uuidString).sock"
+        if lstatPathExists(legacyStableSocketPath) {
+            throw XCTSkip("Legacy stable cmux socket already exists at \(legacyStableSocketPath)")
+        }
+
+        let fakeStableCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: "stable-\(UUID().uuidString.lowercased())",
+            bundleIdentifier: "com.cmuxterm.app",
+            bundleName: "cmux"
+        )
+        let defaultResponder = try UnixSocketResponder(path: defaultStableSocketPath, response: "OK DEFAULT")
+        defer { defaultResponder.stop() }
+        let targetResponder = try UnixSocketResponder(path: symlinkTargetSocketPath, response: "OK TARGET")
+        defer { targetResponder.stop() }
+        XCTAssertEqual(symlink(symlinkTargetSocketPath, legacyStableSocketPath), 0)
+        defer { unlink(legacyStableSocketPath) }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
+        environment["CMUX_SOCKET_PATH"] = legacyStableSocketPath
+        environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
+
+        let result = runProcess(
+            executablePath: fakeStableCLIPath,
+            arguments: ["ping"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "OK DEFAULT",
+            result.stdout
+        )
+        XCTAssertEqual(
+            defaultResponder.receivedRequests.count,
+            1,
+            defaultResponder.receivedRequests.joined(separator: "\n")
+        )
+        XCTAssertTrue(
+            defaultResponder.receivedRequests.contains { $0.contains("ping") },
+            defaultResponder.receivedRequests.joined(separator: "\n")
+        )
+        XCTAssertEqual(targetResponder.receivedRequests, [])
+    }
+
+    func testBundledStableCLIPreservesLiveLegacyStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
@@ -358,10 +499,19 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stdout)
         XCTAssertEqual(
             result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
-            "OK DEFAULT",
+            "OK LEGACY",
             result.stdout
         )
-        XCTAssertEqual(legacyResponder.receivedRequests, [])
+        XCTAssertEqual(defaultResponder.receivedRequests, [])
+        XCTAssertEqual(
+            legacyResponder.receivedRequests.count,
+            1,
+            legacyResponder.receivedRequests.joined(separator: "\n")
+        )
+        XCTAssertTrue(
+            legacyResponder.receivedRequests.contains { $0.contains("ping") },
+            legacyResponder.receivedRequests.joined(separator: "\n")
+        )
     }
 
     func testBundledCLISkipsIdentifierlessNestedAppWhenResolvingTaggedSocket() throws {
@@ -962,6 +1112,11 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     private func shellSingleQuote(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\"'\"'"))'"
+    }
+
+    private func lstatPathExists(_ path: String) -> Bool {
+        var st = stat()
+        return lstat(path, &st) == 0
     }
 
     private func runShell(_ command: String, timeout: TimeInterval) -> ProcessRunResult {
