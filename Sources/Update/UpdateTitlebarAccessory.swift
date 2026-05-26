@@ -2170,11 +2170,22 @@ private struct NotificationsPopoverView: View {
             }
             Spacer()
             Button(action: jumpToLatestUnread) {
-                HStack(spacing: 4) {
+                HStack(spacing: 5) {
                     Image(systemName: "arrow.down.to.line")
                         .font(.system(size: 10, weight: .semibold))
                     Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
                         .font(.system(size: 11))
+                    if !jumpToUnreadShortcut.displayString.isEmpty {
+                        Text(jumpToUnreadShortcut.displayString)
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.secondary.opacity(0.15))
+                            )
+                    }
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
