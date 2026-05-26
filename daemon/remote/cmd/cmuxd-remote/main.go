@@ -304,8 +304,9 @@ type persistentDaemonPaths struct {
 }
 
 const (
-	persistentDaemonAuthMethod = "daemon.auth"
-	persistentDaemonReadyFDEnv = "CMUX_REMOTE_DAEMON_READY_FD"
+	persistentDaemonAuthMethod  = "daemon.auth"
+	persistentDaemonReadyFDEnv  = "CMUX_REMOTE_DAEMON_READY_FD"
+	persistentDaemonAuthTimeout = 5 * time.Second
 )
 
 func persistentDaemonPathsForSlot(rawSlot string) (persistentDaemonPaths, error) {
@@ -785,6 +786,17 @@ func dialPersistentDaemon(socketPath string, token string) (net.Conn, error) {
 }
 
 func authenticatePersistentDaemonClient(conn net.Conn, token string) error {
+	return authenticatePersistentDaemonClientWithTimeout(conn, token, persistentDaemonAuthTimeout)
+}
+
+func authenticatePersistentDaemonClientWithTimeout(conn net.Conn, token string, timeout time.Duration) error {
+	if timeout > 0 {
+		if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+			return err
+		}
+		defer conn.SetDeadline(time.Time{})
+	}
+
 	writer := bufio.NewWriter(conn)
 	request := rpcRequest{
 		ID:     "auth",

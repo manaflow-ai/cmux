@@ -411,6 +411,35 @@ func TestPersistentDaemonRejectsBadToken(t *testing.T) {
 	}
 }
 
+func TestAuthenticatePersistentDaemonClientReadDeadline(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	requestRead := make(chan error, 1)
+	go func() {
+		_, err := bufio.NewReader(server).ReadString('\n')
+		requestRead <- err
+	}()
+
+	start := time.Now()
+	err := authenticatePersistentDaemonClientWithTimeout(client, "token", 50*time.Millisecond)
+	if err == nil {
+		t.Fatalf("authenticatePersistentDaemonClientWithTimeout succeeded, want timeout error")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("authenticatePersistentDaemonClientWithTimeout took %s, want bounded deadline", elapsed)
+	}
+	select {
+	case readErr := <-requestRead:
+		if readErr != nil {
+			t.Fatalf("server failed to read auth request: %v", readErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("server did not receive auth request")
+	}
+}
+
 func TestPersistentDaemonPTYReattachSurvivesClientDisconnect(t *testing.T) {
 	socketPath, stop := startPersistentDaemonForTest(t, "reattach-token")
 	defer stop()
