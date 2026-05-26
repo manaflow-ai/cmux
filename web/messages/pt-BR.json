@@ -493,7 +493,9 @@
         },
         "app": {
           "confirmQuit": "Controla quando o cmux pede confirmação antes de sair. Builds DEV sempre saem imediatamente, independentemente desta configuração. O app.warnBeforeQuit legado ainda é aceito como fallback booleano.",
-          "warnBeforeQuit": "Fallback booleano legado para confirmação de saída. Use app.confirmQuit em novas configurações."
+          "warnBeforeQuit": "Fallback booleano legado para confirmação de saída. Use app.confirmQuit em novas configurações.",
+          "warnBeforeClosingTabXButton": "Mostrar uma confirmação antes de fechar uma aba com o botão de fechar aba.",
+          "hideTabCloseButton": "Ocultar os botões de fechar aba na barra de abas do painel."
         },
         "terminal": {
           "copyOnSelect": "Copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada, incluindo seleções de palavras e linhas por clique duplo e triplo."
@@ -978,7 +980,7 @@
       "supportedNote": "Claude Code é tratado pelo wrapper Claude do cmux quando a integração Claude está ativada em Settings. Antigravity também aceita agy como alias de setup, e Rovo Dev aceita rovo.",
       "manualTitle": "Restauração manual",
       "manualDesc": "O cmux restaura o último snapshot salvo na inicialização normal. Você também pode reaplicar manualmente o snapshot anterior:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "Desativar retomada automática de agentes",
       "disableDesc": "Para restaurar painéis sem iniciar comandos de resume de agentes salvos, desative Settings > Terminal > Resume Agent Sessions on Reopen ou defina:",
       "disableNote": "Isso desativa apenas comandos de resume de agentes. O cmux ainda restaura layout, diretórios de trabalho, scrollback e histórico do navegador.",
@@ -1003,6 +1005,7 @@
   },
   "testimonials": {
     "mitchellh": "Mais um dia, mais um projeto baseado em libghostty, desta vez um terminal macOS com abas verticais, melhor organização/notificações, navegador integrado/programável voltado especificamente para quem usa muitos workflows de agentes baseados em terminal.",
+    "steipete": "Cheguei atrasado, mas o cmux é ótimo. Divisão atual: app Codex para Mac para trabalho de conhecimento, aprendizado e leitura; cmux + Codex CLI para programar.",
     "schrockn": "Isso é exatamente o produto que eu estava procurando. Depois de duas horas esta manhã, estou apaixonado.",
     "egrefen": "Estou usando isso o fim de semana inteiro e é incrível.",
     "max4c": "essa tem sido minha ferramenta favorita nas últimas duas semanas",

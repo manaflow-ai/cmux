@@ -301,8 +301,12 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testNextPreviousWorkspaceShortcutDefaultsAndMetadata() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.nextSidebarTab.label, "Next Workspace")
         XCTAssertEqual(KeyboardShortcutSettings.Action.prevSidebarTab.label, "Previous Workspace")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryBack.label, "Focus Back")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryForward.label, "Focus Forward")
         XCTAssertEqual(KeyboardShortcutSettings.Action.nextSidebarTab.defaultsKey, "shortcut.nextSidebarTab")
         XCTAssertEqual(KeyboardShortcutSettings.Action.prevSidebarTab.defaultsKey, "shortcut.prevSidebarTab")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryBack.defaultsKey, "shortcut.focusHistoryBack")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryForward.defaultsKey, "shortcut.focusHistoryForward")
 
         let nextShortcut = KeyboardShortcutSettings.Action.nextSidebarTab.defaultShortcut
         XCTAssertEqual(nextShortcut.key, "]")
@@ -317,6 +321,23 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(prevShortcut.shift)
         XCTAssertFalse(prevShortcut.option)
         XCTAssertTrue(prevShortcut.control)
+
+        let focusBackShortcut = KeyboardShortcutSettings.Action.focusHistoryBack.defaultShortcut
+        XCTAssertEqual(focusBackShortcut.key, "[")
+        XCTAssertTrue(focusBackShortcut.command)
+        XCTAssertFalse(focusBackShortcut.shift)
+        XCTAssertFalse(focusBackShortcut.option)
+        XCTAssertFalse(focusBackShortcut.control)
+
+        let focusForwardShortcut = KeyboardShortcutSettings.Action.focusHistoryForward.defaultShortcut
+        XCTAssertEqual(focusForwardShortcut.key, "]")
+        XCTAssertTrue(focusForwardShortcut.command)
+        XCTAssertFalse(focusForwardShortcut.shift)
+        XCTAssertFalse(focusForwardShortcut.option)
+        XCTAssertFalse(focusForwardShortcut.control)
+
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.focusHistoryBack))
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.focusHistoryForward))
     }
 
     func testNextPreviousWorkspaceShortcutsConvertToMenuShortcut() {
@@ -402,6 +423,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
             (.switchRightSidebarToSessions, "3"),
             (.switchRightSidebarToFeed, "4"),
             (.switchRightSidebarToDock, "5"),
+            (.switchRightSidebarToHistory, "6"),
         ]
 
         for (action, key) in modeSwitchActions {
@@ -970,7 +992,8 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 "switchRightSidebarToFind": "ctrl+5",
                 "switchRightSidebarToSessions": "ctrl+6",
                 "switchRightSidebarToFeed": "ctrl+7",
-                "switchRightSidebarToDock": "ctrl+8"
+                "switchRightSidebarToDock": "ctrl+8",
+                "switchRightSidebarToHistory": "ctrl+9"
               }
             }
             """,
@@ -1006,6 +1029,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(
             store.override(for: .switchRightSidebarToDock),
             StoredShortcut(key: "8", command: false, shift: false, option: false, control: true)
+        )
+        XCTAssertEqual(
+            store.override(for: .switchRightSidebarToHistory),
+            StoredShortcut(key: "9", command: false, shift: false, option: false, control: true)
         )
     }
 
@@ -1975,6 +2002,67 @@ final class StoredShortcutMatchingTests: XCTestCase {
                 modifierFlags: [.command],
                 eventCharacter: "q",
                 layoutCharacterProvider: { _, _ in nil }
+            )
+        )
+    }
+
+    func testCommandShortcutUsesPrintableEventLetterBeforePhysicalPunctuationFallback() {
+        let jumpToUnread = StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
+        let nextSurface = StoredShortcut(key: "]", command: true, shift: true, option: false, control: false)
+
+        XCTAssertTrue(
+            jumpToUnread.matches(
+                keyCode: 30,
+                modifierFlags: [.command, .shift],
+                eventCharacter: "u",
+                layoutCharacterProvider: { _, _ in "]" }
+            )
+        )
+        XCTAssertFalse(
+            nextSurface.matches(
+                keyCode: 30,
+                modifierFlags: [.command, .shift],
+                eventCharacter: "u",
+                layoutCharacterProvider: { _, _ in "]" }
+            )
+        )
+    }
+
+    func testCommandControlLetterCanUseLayoutFallbackForControlCharacter() {
+        let markUnreadAndJump = StoredShortcut(key: "u", command: true, shift: false, option: false, control: true)
+
+        XCTAssertTrue(
+            markUnreadAndJump.matches(
+                keyCode: 32,
+                modifierFlags: [.command, .control],
+                eventCharacter: "\u{15}",
+                layoutCharacterProvider: { keyCode, _ in keyCode == 32 ? "u" : nil }
+            )
+        )
+    }
+
+    func testCommandControlLetterCanUseLayoutFallbackForPrintableEventCharacter() {
+        let markUnreadAndJump = StoredShortcut(key: "u", command: true, shift: false, option: false, control: true)
+
+        XCTAssertTrue(
+            markUnreadAndJump.matches(
+                keyCode: 32,
+                modifierFlags: [.command, .control],
+                eventCharacter: "g",
+                layoutCharacterProvider: { keyCode, _ in keyCode == 32 ? "u" : nil }
+            )
+        )
+    }
+
+    func testCommandControlPunctuationDoesNotStealPrintableLetterShortcut() {
+        let nextWorkspace = StoredShortcut(key: "]", command: true, shift: false, option: false, control: true)
+
+        XCTAssertFalse(
+            nextWorkspace.matches(
+                keyCode: 30,
+                modifierFlags: [.command, .control],
+                eventCharacter: "u",
+                layoutCharacterProvider: { _, _ in "]" }
             )
         )
     }
@@ -5068,6 +5156,45 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             1
         )
         XCTAssertEqual(workspace.focusedPanelId, firstPanel.id)
+    }
+
+    func testHistoryToolSurfaceOpensAsReusableBonsplitPane() {
+        let workspace = Workspace()
+        guard let paneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected focused pane")
+            return
+        }
+
+        guard let firstPanel = workspace.openOrFocusRightSidebarToolSurface(
+            inPane: paneId,
+            mode: .history,
+            focus: true
+        ) else {
+            XCTFail("Expected History tool surface to be created")
+            return
+        }
+        guard let secondPanel = workspace.openOrFocusRightSidebarToolSurface(
+            inPane: paneId,
+            mode: .history,
+            focus: true
+        ) else {
+            XCTFail("Expected existing History tool surface to be focused")
+            return
+        }
+
+        XCTAssertEqual(firstPanel.id, secondPanel.id)
+        XCTAssertEqual(firstPanel.displayTitle, String(localized: "rightSidebar.mode.history", defaultValue: "History"))
+        XCTAssertEqual(firstPanel.displayIcon, "clock.arrow.circlepath")
+        XCTAssertGreaterThanOrEqual(firstPanel.historySearchFocusToken, 1)
+        XCTAssertEqual(
+            workspace.surfaceIdFromPanelId(firstPanel.id).flatMap { workspace.bonsplitController.tab($0)?.kind },
+            Workspace.SurfaceKind.rightSidebarTool
+        )
+        XCTAssertEqual(workspace.focusedPanelId, firstPanel.id)
+
+        let previousFocusToken = firstPanel.historySearchFocusToken
+        workspace.focusPanel(firstPanel.id)
+        XCTAssertGreaterThan(firstPanel.historySearchFocusToken, previousFocusToken)
     }
 
     func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {
