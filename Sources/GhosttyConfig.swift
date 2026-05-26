@@ -21,7 +21,6 @@ struct GhosttyConfig {
     var workingDirectory: String?
     var windowInheritWorkingDirectory = true
     var tabInheritWorkingDirectory = true
-    var splitInheritWorkingDirectory = true
     // Ghostty measures scrollback-limit in bytes, not lines.
     var scrollbackLimit: Int = 10_000_000
     var unfocusedSplitOpacity: Double = 0.7
@@ -71,6 +70,10 @@ struct GhosttyConfig {
 
     var unfocusedSplitOverlayFill: NSColor {
         unfocusedSplitFill ?? backgroundColor
+    }
+
+    var workspaceInheritWorkingDirectory: Bool {
+        windowInheritWorkingDirectory && tabInheritWorkingDirectory
     }
 
     var resolvedSplitDividerColor: NSColor {
@@ -416,10 +419,6 @@ struct GhosttyConfig {
                 case "tab-inherit-working-directory":
                     if let parsed = Self.parseBool(value) {
                         tabInheritWorkingDirectory = parsed
-                    }
-                case "split-inherit-working-directory":
-                    if let parsed = Self.parseBool(value) {
-                        splitInheritWorkingDirectory = parsed
                     }
                 case "scrollback-limit":
                     if let limit = Self.parseIntegerLiteral(value) {

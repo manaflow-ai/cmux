@@ -240,13 +240,12 @@ final class GhosttyConfigTests: XCTestCase {
             """
             window-inherit-working-directory = false
             tab-inherit-working-directory = false
-            split-inherit-working-directory = false
             """
         )
 
         XCTAssertFalse(config.windowInheritWorkingDirectory)
         XCTAssertFalse(config.tabInheritWorkingDirectory)
-        XCTAssertFalse(config.splitInheritWorkingDirectory)
+        XCTAssertFalse(config.workspaceInheritWorkingDirectory)
     }
 
     func testColorParseFlagsOnlyTrackValuesResolvedBySwiftParser() {

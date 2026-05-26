@@ -2515,6 +2515,25 @@ final class WorkspaceWorkingDirectoryInheritanceSettingsTests: XCTestCase {
             )
         )
     }
+
+    func testUnsetValueUsesGhosttyTabInheritanceSetting() {
+        let suiteName = "WorkspaceWorkingDirectoryInheritanceSettingsTests.GhosttyTab.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var ghosttyConfig = GhosttyConfig()
+        ghosttyConfig.parse("tab-inherit-working-directory = false")
+
+        XCTAssertFalse(
+            WorkspaceWorkingDirectoryInheritanceSettings.isEnabled(
+                defaults: defaults,
+                ghosttyConfig: ghosttyConfig
+            )
+        )
+    }
 }
 
 @MainActor
