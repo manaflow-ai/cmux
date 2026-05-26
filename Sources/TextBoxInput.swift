@@ -127,7 +127,8 @@ private struct TextBoxInputGlassPillBackground: View {
         let shape = RoundedRectangle(cornerRadius: TextBoxLayout.pillCornerRadius, style: .continuous)
 
 #if compiler(>=6.2)
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, *),
+           TextBoxInputChromeBackgroundPolicy.style(glassEffectAvailable: true) == .swiftUIGlass {
             shape
                 .fill(Color.clear)
                 .glassEffect(.regular.interactive(true), in: shape)

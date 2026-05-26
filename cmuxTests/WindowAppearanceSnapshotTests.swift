@@ -9,6 +9,13 @@ import SwiftUI
 #endif
 
 final class WindowAppearanceSnapshotTests: XCTestCase {
+    func testTextBoxChromeUsesStableMaterialWhenGlassEffectIsAvailable() {
+        XCTAssertEqual(
+            TextBoxInputChromeBackgroundPolicy.style(glassEffectAvailable: true),
+            .materialFallback
+        )
+    }
+
     func testUnifiedSurfaceBackdropsUseSingleWindowRootBackdrop() {
         let snapshot = makeSnapshot(unifySurfaceBackdrops: true)
 
