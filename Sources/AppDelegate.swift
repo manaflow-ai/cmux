@@ -919,6 +919,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastSessionAutosavePersistedAt: Date = .distantPast
     private var lastSessionRecoveryAutosaveFingerprint: Int?
     private var lastSessionRecoveryAutosavePersistedAt: Date = .distantPast
+    private enum DeferredSessionRecoverySnapshotSave {
+        case none
+        case pending(source: String)
+    }
+    private var sessionRecoverySnapshotMutationDepth = 0
+    private var deferredSessionRecoverySnapshotSave: DeferredSessionRecoverySnapshotSave = .none
     private var lastTypingActivityAt: TimeInterval = 0
 #if DEBUG
     var debugSessionSnapshotFileURLForTesting: URL?
@@ -3790,6 +3796,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
         }
+        if sessionRecoverySnapshotMutationDepth > 0 {
+            deferredSessionRecoverySnapshotSave = .pending(source: source)
+            return
+        }
+        saveSessionRecoverySnapshotIfNeeded(source: source)
+    }
+
+    @discardableResult
+    func performSessionRecoverySnapshotMutation<Result>(_ mutation: () throws -> Result) rethrows -> Result {
+        sessionRecoverySnapshotMutationDepth += 1
+        defer {
+            sessionRecoverySnapshotMutationDepth -= 1
+            guard sessionRecoverySnapshotMutationDepth == 0 else { return }
+            flushDeferredSessionRecoverySnapshotSave()
+        }
+        return try mutation()
+    }
+
+    private func flushDeferredSessionRecoverySnapshotSave() {
+        guard case .pending(let source) = deferredSessionRecoverySnapshotSave else { return }
+        deferredSessionRecoverySnapshotSave = .none
+        guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp) else { return }
         saveSessionRecoverySnapshotIfNeeded(source: source)
     }
 
@@ -4397,49 +4425,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func moveWorkspaceToWindow(workspaceId: UUID, windowId: UUID, focus: Bool = true) -> Bool {
-        guard let sourceManager = tabManagerFor(tabId: workspaceId),
-              let destinationManager = tabManagerFor(windowId: windowId) else {
-            return false
-        }
+        return performSessionRecoverySnapshotMutation {
+            guard let sourceManager = tabManagerFor(tabId: workspaceId),
+                  let destinationManager = tabManagerFor(windowId: windowId) else {
+                return false
+            }
 
-        if sourceManager === destinationManager {
+            if sourceManager === destinationManager {
+                if focus {
+                    destinationManager.focusTab(workspaceId, suppressFlash: true)
+                    _ = focusMainWindow(windowId: windowId)
+                    TerminalController.shared.setActiveTabManager(destinationManager)
+                }
+                return true
+            }
+
+            guard let workspace = sourceManager.detachWorkspace(tabId: workspaceId) else { return false }
+            destinationManager.attachWorkspace(workspace, select: focus)
+
             if focus {
-                destinationManager.focusTab(workspaceId, suppressFlash: true)
                 _ = focusMainWindow(windowId: windowId)
                 TerminalController.shared.setActiveTabManager(destinationManager)
             }
             return true
         }
-
-        guard let workspace = sourceManager.detachWorkspace(tabId: workspaceId) else { return false }
-        destinationManager.attachWorkspace(workspace, select: focus)
-
-        if focus {
-            _ = focusMainWindow(windowId: windowId)
-            TerminalController.shared.setActiveTabManager(destinationManager)
-        }
-        return true
     }
 
     @discardableResult
     func moveWorkspaceToNewWindow(workspaceId: UUID, focus: Bool = true) -> UUID? {
-        let windowId = createMainWindow()
-        guard let destinationManager = tabManagerFor(windowId: windowId) else { return nil }
-        let bootstrapWorkspaceId = destinationManager.tabs.first?.id
+        return performSessionRecoverySnapshotMutation {
+            let windowId = createMainWindow()
+            guard let destinationManager = tabManagerFor(windowId: windowId) else { return nil }
+            let bootstrapWorkspaceId = destinationManager.tabs.first?.id
 
-        guard moveWorkspaceToWindow(workspaceId: workspaceId, windowId: windowId, focus: focus) else {
-            _ = closeMainWindow(windowId: windowId, recordHistory: false)
-            return nil
-        }
+            guard moveWorkspaceToWindow(workspaceId: workspaceId, windowId: windowId, focus: focus) else {
+                _ = closeMainWindow(windowId: windowId, recordHistory: false)
+                return nil
+            }
 
-        // Remove the bootstrap workspace from the new window once the moved workspace arrives.
-        if let bootstrapWorkspaceId,
-           bootstrapWorkspaceId != workspaceId,
-           let bootstrapWorkspace = destinationManager.tabs.first(where: { $0.id == bootstrapWorkspaceId }),
-           destinationManager.tabs.count > 1 {
-            destinationManager.closeWorkspace(bootstrapWorkspace, recordHistory: false)
+            // Remove the bootstrap workspace from the new window once the moved workspace arrives.
+            if let bootstrapWorkspaceId,
+               bootstrapWorkspaceId != workspaceId,
+               let bootstrapWorkspace = destinationManager.tabs.first(where: { $0.id == bootstrapWorkspaceId }),
+               destinationManager.tabs.count > 1 {
+                destinationManager.closeWorkspace(bootstrapWorkspace, recordHistory: false)
+            }
+            return windowId
         }
-        return windowId
     }
 
     func locateBonsplitSurface(tabId: UUID) -> (windowId: UUID, workspaceId: UUID, panelId: UUID, tabManager: TabManager)? {

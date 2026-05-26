@@ -5692,23 +5692,21 @@ class TerminalController {
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to move workspace", data: nil)
         v2MainSync {
-            guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId) else {
+            guard let appDelegate = AppDelegate.shared else {
+                result = .err(code: "unavailable", message: "App delegate not available", data: nil)
+                return
+            }
+            guard appDelegate.tabManagerFor(tabId: wsId) != nil else {
                 result = .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": wsId.uuidString])
                 return
             }
-            guard let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId) else {
+            guard appDelegate.tabManagerFor(windowId: windowId) != nil else {
                 result = .err(code: "not_found", message: "Window not found", data: ["window_id": windowId.uuidString])
                 return
             }
-            guard let ws = srcTM.detachWorkspace(tabId: wsId) else {
-                result = .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": wsId.uuidString])
+            guard appDelegate.moveWorkspaceToWindow(workspaceId: wsId, windowId: windowId, focus: focus) else {
+                result = .err(code: "internal_error", message: "Failed to move workspace", data: nil)
                 return
-            }
-
-            dstTM.attachWorkspace(ws, select: focus)
-            if focus {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(dstTM)
             }
             result = .ok([
                 "workspace_id": wsId.uuidString,
@@ -17212,18 +17210,11 @@ class TerminalController {
         var ok = false
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
-            guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId),
-                  let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId),
-                  let ws = srcTM.detachWorkspace(tabId: wsId) else {
+            guard let appDelegate = AppDelegate.shared else {
                 ok = false
                 return
             }
-            dstTM.attachWorkspace(ws, select: focus)
-            if focus {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(dstTM)
-            }
-            ok = true
+            ok = appDelegate.moveWorkspaceToWindow(workspaceId: wsId, windowId: windowId, focus: focus)
         }
 
         return ok ? "OK" : "ERROR: Move failed"
