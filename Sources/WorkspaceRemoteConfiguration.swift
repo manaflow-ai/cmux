@@ -10,14 +10,25 @@ private enum WorkspaceRemoteSSHOptionFilter {
         "controlpath",
         "controlpersist",
     ]
+    private static let relayScopedControlSocketKeys: Set<String> = [
+        "controlpath",
+    ]
 
     static func durableOptions(_ options: [String]) -> [String] {
+        filteredOptions(options, droppingKeys: transientControlSocketKeys)
+    }
+
+    static func forkedWorkspaceOptions(_ options: [String]) -> [String] {
+        filteredOptions(options, droppingKeys: relayScopedControlSocketKeys)
+    }
+
+    private static func filteredOptions(_ options: [String], droppingKeys keys: Set<String>) -> [String] {
         options.compactMap { option in
             let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }.filter { option in
             guard let key = optionKey(option) else { return true }
-            return !transientControlSocketKeys.contains(key)
+            return !keys.contains(key)
         }
     }
 
@@ -181,7 +192,7 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         return arguments.map(shellQuote).joined(separator: " ")
     }
 
-    static func sshOptionsWithRestoreControlDefaults(_ options: [String]) -> [String] {
+    static func sshOptionsWithRestoreControlDefaults(_ options: [String], relayPort: Int? = nil) -> [String] {
         var merged = options.compactMap(normalized)
         let controlMaster = sshOptionValue(named: "ControlMaster", in: merged)
         let controlMasterDisabled = sshOptionValueIsDisabled(controlMaster)
@@ -193,10 +204,17 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
                 merged.append("ControlPersist=600")
             }
             if !hasSSHOptionKey(merged, key: "ControlPath") {
-                merged.append("ControlPath=/tmp/cmux-ssh-\(getuid())-%C")
+                merged.append("ControlPath=\(restoreControlPathTemplate(relayPort: relayPort))")
             }
         }
         return merged
+    }
+
+    private static func restoreControlPathTemplate(relayPort: Int?) -> String {
+        if let relayPort, relayPort > 0 {
+            return "/tmp/cmux-ssh-\(getuid())-\(relayPort)-%C"
+        }
+        return "/tmp/cmux-ssh-\(getuid())-%C"
     }
 
     static func sshOptionsSupportReusableForegroundAuth(_ options: [String]) -> Bool {
@@ -385,13 +403,16 @@ extension SessionRemoteWorkspaceSnapshot {
             (1...65535).contains(port) ? port : nil
         }
 
-        let normalizedOptions = Self.normalizedSSHOptions(sshOptions)
-        let optionsWithRestoreControlDefaults = SSHPTYAttachStartupCommandBuilder.sshOptionsWithRestoreControlDefaults(normalizedOptions)
         let normalizedPersistentDaemonSlot = WorkspaceRemoteSSHOptionFilter.normalizedOptional(persistentDaemonSlot)
         let normalizedLocalSocketPath = WorkspaceRemoteSSHOptionFilter.normalizedOptional(localSocketPath)
         let normalizedRelayPort = relayPort.flatMap { port in
             (1...65535).contains(port) ? port : nil
         }
+        let normalizedOptions = Self.normalizedSSHOptions(sshOptions)
+        let optionsWithRestoreControlDefaults = SSHPTYAttachStartupCommandBuilder.sshOptionsWithRestoreControlDefaults(
+            normalizedOptions,
+            relayPort: normalizedRelayPort
+        )
         let preservePTYSession =
             allowPersistentPTYRestore &&
             preserveAfterTerminalExit == true &&
@@ -501,7 +522,11 @@ extension SessionRemoteWorkspaceSnapshot {
 }
 
 extension WorkspaceRemoteConfiguration {
-    func sessionSnapshot() -> SessionRemoteWorkspaceSnapshot? {
+    static func forkedAgentSSHOptions(_ options: [String]) -> [String] {
+        WorkspaceRemoteSSHOptionFilter.forkedWorkspaceOptions(options)
+    }
+
+    func sessionSnapshot(sshOptionsOverride: [String]? = nil) -> SessionRemoteWorkspaceSnapshot? {
         guard transport == .ssh else { return nil }
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedDestination.isEmpty else { return nil }
@@ -511,7 +536,7 @@ extension WorkspaceRemoteConfiguration {
             destination: normalizedDestination,
             port: port,
             identityFile: WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile),
-            sshOptions: WorkspaceRemoteSSHOptionFilter.durableOptions(sshOptions),
+            sshOptions: sshOptionsOverride ?? WorkspaceRemoteSSHOptionFilter.durableOptions(sshOptions),
             preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
             skipDaemonBootstrap: skipDaemonBootstrap,
             relayPort: preserveAfterTerminalExit ? relayPort : nil,

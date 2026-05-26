@@ -16062,7 +16062,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func forkAgentRemoteConfigurationForNewWorkspace(fromPanelId panelId: UUID) -> WorkspaceRemoteConfiguration? {
         guard forkAgentRemoteStartupCommand(fromPanelId: panelId) != nil else { return nil }
-        return remoteConfiguration?.sessionSnapshot()?.workspaceConfiguration(
+        let forkedSSHOptions = remoteConfiguration
+            .map { WorkspaceRemoteConfiguration.forkedAgentSSHOptions($0.sshOptions) }
+        return remoteConfiguration?.sessionSnapshot(sshOptionsOverride: forkedSSHOptions)?.workspaceConfiguration(
             localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore(),
             allowPersistentPTYRestore: false
         ) ?? remoteConfiguration

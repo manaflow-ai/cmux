@@ -1811,6 +1811,9 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.relayPort, 64003)
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.persistentDaemonSlot, persistentDaemonSlot)
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.localSocketPath, TerminalController.shared.currentSocketPathForRemoteRestore())
+        XCTAssertTrue(
+            restoredWorkspace.remoteConfiguration?.sshOptions.contains("ControlPath=/tmp/cmux-ssh-\(getuid())-64003-%C") == true
+        )
         XCTAssertNotEqual(restoredWorkspace.remoteConfiguration?.relayID, "relay-persist-test")
         XCTAssertNotEqual(restoredWorkspace.remoteConfiguration?.relayToken, String(repeating: "e", count: 64))
         let restoredRelayToken = try XCTUnwrap(restoredWorkspace.remoteConfiguration?.relayToken)
