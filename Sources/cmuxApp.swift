@@ -30,8 +30,9 @@ struct cmuxApp: App {
         // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
         // share the name `cmux`, so if the GUI's Contents/MacOS leaks onto $PATH
         // (which happens for any shell descended from this process), bare `cmux`
-        // resolves here instead of the CLI. See issue #4678.
-        Self.forwardToBundledCLIIfNeeded()
+        // resolves here instead of the CLI. See
+        // https://github.com/manaflow-ai/cmux/issues/4678.
+        CLIForwardingLaunchRouter.forwardToBundledCLIIfNeeded()
 
         StartupBreadcrumbLog.append("app.init.begin")
         UITestLaunchManifest.applyIfPresent()
@@ -101,66 +102,6 @@ struct cmuxApp: App {
         fflush(stderr)
         NSLog("%@", message)
         Darwin.exit(64)
-    }
-
-    /// If `argv` looks like a CLI invocation, exec the bundled CLI at
-    /// `Contents/Resources/bin/cmux` and never return. macOS-launch arguments
-    /// (`-psn_…`, other `-` flags) and `cmux://` URLs are left to the GUI.
-    private static func forwardToBundledCLIIfNeeded() {
-        // Re-entry guard so the exec'd CLI (which is a different binary, but
-        // belt-and-suspenders) can't loop back through here.
-        let guardKey = "CMUX_CLI_FORWARDED"
-        if getenv(guardKey) != nil { return }
-
-        let argv = CommandLine.arguments
-        guard shouldForwardToBundledCLI(arguments: argv) else { return }
-
-        guard let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
-              FileManager.default.isExecutableFile(atPath: cliURL.path) else {
-            return
-        }
-
-        setenv(guardKey, "1", 1)
-
-        // Build argv for execv: replace argv[0] with the CLI path so $0 inside
-        // the CLI is sensible, keep the rest verbatim.
-        var cArgs: [UnsafeMutablePointer<CChar>?] = []
-        cArgs.append(strdup(cliURL.path))
-        for arg in argv.dropFirst() {
-            cArgs.append(strdup(arg))
-        }
-        cArgs.append(nil)
-
-        _ = cliURL.path.withCString { execPath in
-            cArgs.withUnsafeMutableBufferPointer { buffer in
-                Darwin.execv(execPath, buffer.baseAddress)
-            }
-        }
-
-        // execv only returns on error. Free the dups so leak detectors stay
-        // quiet on the fall-through path, then continue into the GUI.
-        for ptr in cArgs where ptr != nil { free(ptr) }
-        #if DEBUG
-        let err = String(cString: strerror(errno))
-        NSLog("cmux: failed to exec bundled CLI at %@: %@", cliURL.path, err)
-        #endif
-    }
-
-    static func shouldForwardToBundledCLI(arguments argv: [String]) -> Bool {
-        guard argv.count > 1 else { return false }
-
-        // Forward only if the first arg is a positional, non-flag, non-URL token.
-        let first = argv[1]
-        if first.isEmpty || first.hasPrefix("-") { return false }
-        if first.contains("://") { return false }
-
-        // App launch paths can surface product-name fragments as argv tokens
-        // before SwiftUI initialization. Those are GUI launches, not CLI
-        // subcommands.
-        let guiLaunchSentinels: Set<String> = ["DEV", "STAGING", "NIGHTLY"]
-        if guiLaunchSentinels.contains(first) { return false }
-
-        return true
     }
 
     private static func configureGhosttyEnvironment() {

@@ -4,14 +4,14 @@ import XCTest
 
 final class CLIForwardingLaunchArgumentTests: XCTestCase {
     func testCliSubcommandsForwardToBundledCLI() {
-        XCTAssertTrue(cmuxApp.shouldForwardToBundledCLI(arguments: ["cmux", "wait-for", "workspace:1"]))
-        XCTAssertTrue(cmuxApp.shouldForwardToBundledCLI(arguments: ["cmux", "hooks", "setup"]))
+        XCTAssertTrue(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux", "wait-for", "workspace:1"]))
+        XCTAssertTrue(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux", "hooks", "setup"]))
     }
 
     func testGuiLaunchArgumentsStayInApp() {
-        XCTAssertFalse(cmuxApp.shouldForwardToBundledCLI(arguments: ["cmux DEV", "DEV"]))
-        XCTAssertFalse(cmuxApp.shouldForwardToBundledCLI(arguments: ["cmux", "-psn_0_12345"]))
-        XCTAssertFalse(cmuxApp.shouldForwardToBundledCLI(arguments: ["cmux", "cmux://workspace/foo"]))
+        XCTAssertFalse(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux DEV", "DEV"]))
+        XCTAssertFalse(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux", "-psn_0_12345"]))
+        XCTAssertFalse(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux", "cmux://workspace/foo"]))
     }
 }
 #endif
