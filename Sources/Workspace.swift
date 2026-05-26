@@ -10995,6 +10995,9 @@ final class Workspace: Identifiable, ObservableObject {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         if !isRemoteWorkspace, panelRemoteSessions[panelId] != nil {
+            guard panelShellActivityStates[panelId] == .promptIdle else {
+                return
+            }
             panelRemoteSessions.removeValue(forKey: panelId)
             syncPanelPresentationTitle(panelId: panelId)
         }

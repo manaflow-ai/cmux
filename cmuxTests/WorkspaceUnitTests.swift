@@ -6193,6 +6193,15 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(workspace.sidebarFinderDirectory())
 
         workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        workspace.updatePanelDirectory(panelId: panelId, directory: "/srv/remote-project")
+
+        XCTAssertEqual(
+            workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [panelId]),
+            ["ssh devbox.example"]
+        )
+        XCTAssertEqual(workspace.panelTitle(panelId: panelId), "ssh devbox.example")
+        XCTAssertNil(workspace.sidebarFinderDirectory())
+
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
 
         XCTAssertEqual(

@@ -2104,6 +2104,21 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertNil(TerminalSSHSessionDetector.detectRemoteSession(commandLine: "ssh -W db.internal:5432 bastion.example.com"))
     }
 
+    func testDetectsSSHForegroundCommandWithRedirectAmpersand() {
+        let session = TerminalSSHSessionDetector.detectRemoteSession(
+            commandLine: "ssh lawrence@example.com 2>&1"
+        )
+
+        XCTAssertEqual(
+            session,
+            DetectedRemoteTerminalSession(
+                transport: .ssh,
+                destination: "lawrence@example.com",
+                directory: nil
+            )
+        )
+    }
+
     func testIgnoresBackgroundSSHForegroundCommand() {
         XCTAssertNil(
             TerminalSSHSessionDetector.detectRemoteSession(

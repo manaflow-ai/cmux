@@ -863,8 +863,14 @@ enum TerminalSSHSessionDetector {
                     continue
                 }
             }
+            let nextIndex = trimmed.index(after: index)
+            if character == "&",
+               current.last == ">" || current.last == "<" || (nextIndex < trimmed.endIndex && trimmed[nextIndex] == ">") {
+                current.append(character)
+                index = nextIndex
+                continue
+            }
             if character == ";" || character == "|" || character == "&" {
-                let nextIndex = trimmed.index(after: index)
                 let isDoubleSeparator = nextIndex < trimmed.endIndex && trimmed[nextIndex] == character
                 flushSegment(runsInBackground: character == "&" && !isDoubleSeparator)
                 index = isDoubleSeparator ? trimmed.index(after: nextIndex) : nextIndex
