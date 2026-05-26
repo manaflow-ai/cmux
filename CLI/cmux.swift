@@ -20077,18 +20077,26 @@ struct CMUXCLI {
     }
 
     private func isIdlePromptNotification(_ parsedInput: ClaudeHookParsedInput) -> Bool {
-        guard let object = parsedInput.object else {
-            return false
-        }
+        let signalParts = notificationSignalParts(in: parsedInput.object)
+            + notificationSignalParts(in: parsedInput.rawObject)
+        return signalParts.contains(where: notificationSignalIsIdlePrompt)
+    }
+
+    private func notificationSignalParts(in object: [String: Any]?) -> [String] {
+        guard let object else { return [] }
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
-        let signalParts = [
+        return [
             firstString(in: object, keys: ["notification_type", "notificationType", "matcher", "reason", "type", "kind"]),
             firstString(in: nested, keys: ["notification_type", "notificationType", "matcher", "reason", "type", "kind"]),
-        ]
-        return signalParts.compactMap { $0 }.contains { signal in
-            let tokens = notificationCueTokens(signal.lowercased())
-            return tokens.count == 2 && tokens[0] == "idle" && tokens[1] == "prompt"
-        }
+        ].compactMap { $0 }
+    }
+
+    private func notificationSignalIsIdlePrompt(_ signal: String) -> Bool {
+        let lower = signal.lowercased()
+        let tokens = notificationCueTokens(lower)
+        let compact = lower.filter { $0.isLetter || $0.isNumber }
+        return (tokens.count == 2 && tokens[0] == "idle" && tokens[1] == "prompt")
+            || compact == "idleprompt"
     }
 
     private func socketPanelOption(_ surfaceId: String?) -> String {

@@ -240,6 +240,30 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             idlePromptCommands.contains { $0.hasPrefix("notify_target_async ") },
             "Idle prompt notifications after a stopped turn must not fire a user-facing alert, saw \(idlePromptCommands)"
         )
+
+        let nestedIdlePromptStart = context.state.commands.count
+        let nestedIdlePrompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","data":{"notification_type":"idle_prompt"},"message":"Claude needs your input"}"#
+        )
+        XCTAssertFalse(nestedIdlePrompt.timedOut, nestedIdlePrompt.stderr)
+        XCTAssertEqual(nestedIdlePrompt.status, 0, nestedIdlePrompt.stderr)
+        XCTAssertEqual(nestedIdlePrompt.stdout, "{}\n")
+
+        let nestedIdlePromptCommands = Array(context.state.commands.dropFirst(nestedIdlePromptStart))
+        XCTAssertFalse(
+            nestedIdlePromptCommands.contains {
+                $0.hasPrefix("set_status claude_code ")
+                    && $0.lowercased().contains("needs input")
+                    && $0.contains("--tab=\(context.workspaceId)")
+            },
+            "Nested idle prompt notifications after a stopped turn must not relight Needs input, saw \(nestedIdlePromptCommands)"
+        )
+        XCTAssertFalse(
+            nestedIdlePromptCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Nested idle prompt notifications after a stopped turn must not fire a user-facing alert, saw \(nestedIdlePromptCommands)"
+        )
     }
 
     func testClaudePromptSubmitResumeBindingPersistsAuthSelectionMarkersWithoutValues() throws {
