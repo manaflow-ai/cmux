@@ -201,4 +201,69 @@ final class GlobalHotkeyPanelControllerTests: XCTestCase {
         XCTAssertNil(appDelegate.tabManager)
         XCTAssertFalse(appDelegate.tabManager === hotkeyManager)
     }
+
+    func testCloseWarningCountsOnlySessionRestorableMainWindowContexts() {
+        _ = NSApplication.shared
+        let appDelegate = AppDelegate()
+        let firstStandardWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let secondStandardWindow = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 800, height: 600),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let panel = GlobalHotkeyPanel(
+            contentRect: NSRect(x: 20, y: 20, width: 800, height: 600),
+            styleMask: GlobalHotkeyPanelConfiguration.styleMask,
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            firstStandardWindow.orderOut(nil)
+            secondStandardWindow.orderOut(nil)
+            panel.orderOut(nil)
+            firstStandardWindow.close()
+            secondStandardWindow.close()
+            panel.close()
+        }
+
+        appDelegate.registerMainWindow(
+            firstStandardWindow,
+            windowId: UUID(),
+            tabManager: TabManager(autoWelcomeIfNeeded: false),
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState(),
+            role: .standard
+        )
+        appDelegate.registerMainWindow(
+            panel,
+            windowId: UUID(),
+            tabManager: TabManager(autoWelcomeIfNeeded: false),
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState(),
+            role: .globalHotkeyPanel
+        )
+
+        XCTAssertTrue(appDelegate.shouldPromptBeforeClosingMainTerminalWindowForTesting())
+        XCTAssertFalse(appDelegate.shouldPromptBeforeClosingMainTerminalWindowForTesting(isRunningUnderXCTest: true))
+
+        appDelegate.registerMainWindow(
+            secondStandardWindow,
+            windowId: UUID(),
+            tabManager: TabManager(autoWelcomeIfNeeded: false),
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState(),
+            role: .standard
+        )
+
+        XCTAssertFalse(appDelegate.shouldPromptBeforeClosingMainTerminalWindowForTesting())
+    }
 }

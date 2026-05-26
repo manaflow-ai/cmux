@@ -5611,9 +5611,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func firstSessionRestorableMainWindowContext(allowWindowlessFallback: Bool = false) -> MainWindowContext? {
-        mainWindowContexts.values.first { context in
+        Array(mainWindowContexts.values).first { context in
             context.role.isSessionRestorable && resolvedWindow(for: context) != nil
         } ?? (allowWindowlessFallback ? mainWindowContexts.values.first { $0.role.isSessionRestorable } : nil)
+    }
+
+    private var liveSessionRestorableMainWindowContextCount: Int {
+        Array(mainWindowContexts.values).reduce(0) { count, context in
+            guard context.role.isSessionRestorable, resolvedWindow(for: context) != nil else { return count }
+            return count + 1
+        }
     }
 
 #if DEBUG
@@ -14833,13 +14840,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleMainTerminalWindowShouldClose() -> Bool {
-        // XCTest has no UI for the warn-before-quit dialog and would either block
-        // on runModal or have NSApp.terminate kill the test process.
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return true }
-        guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
+        guard shouldPromptBeforeClosingMainTerminalWindow() else { return true }
         _ = handleQuitShortcutWarning()
         return false
     }
+
+    private func shouldPromptBeforeClosingMainTerminalWindow(
+        isRunningUnderXCTest: Bool = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    ) -> Bool {
+        // XCTest has no UI for the warn-before-quit dialog and would either block
+        // on runModal or have NSApp.terminate kill the test process.
+        guard !isRunningUnderXCTest else { return false }
+        guard !isTerminatingApp else { return false }
+        return liveSessionRestorableMainWindowContextCount <= 1
+    }
+
+#if DEBUG
+    func shouldPromptBeforeClosingMainTerminalWindowForTesting(isRunningUnderXCTest: Bool = false) -> Bool {
+        shouldPromptBeforeClosingMainTerminalWindow(isRunningUnderXCTest: isRunningUnderXCTest)
+    }
+#endif
 
     private func unregisterMainWindow(_ window: NSWindow) {
         // Reset cascade point so the next new window appears near the closing
