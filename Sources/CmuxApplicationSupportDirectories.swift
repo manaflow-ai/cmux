@@ -255,33 +255,25 @@ enum CmuxGhosttyConfigPathResolver {
             return false
         }
 
-        let releaseConfigURL = editableConfigURL(
-            currentBundleIdentifier: releaseBundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        )
-        guard let existingContents = try readOptionalConfigContents(at: releaseConfigURL) else {
-            return false
-        }
-
-        let strippedContents = removingManagedThemeOverride(from: existingContents)
-        guard strippedContents != existingContents else {
-            return false
-        }
-
-        let normalizedContents = strippedContents.trimmingCharacters(in: .whitespacesAndNewlines)
-        if normalizedContents.isEmpty {
-            do {
-                try fileManager.removeItem(at: releaseConfigURL)
-            } catch {
-                guard !isConfigFileNotFoundError(error) else {
-                    return true
-                }
-                throw error
+        var didRemoveManagedThemeOverride = false
+        for releaseConfigURL in releaseManagedThemeOverrideCleanupURLs(appSupportDirectory: appSupportDirectory) {
+            guard let existingContents = try readOptionalConfigContents(at: releaseConfigURL) else {
+                continue
             }
-        } else {
-            try normalizedContents.appending("\n").write(to: releaseConfigURL, atomically: true, encoding: .utf8)
+
+            let strippedContents = removingManagedThemeOverride(from: existingContents)
+            guard strippedContents != existingContents else {
+                continue
+            }
+
+            try writeConfigContentsAfterRemovingManagedThemeOverride(
+                strippedContents,
+                to: releaseConfigURL,
+                fileManager: fileManager
+            )
+            didRemoveManagedThemeOverride = true
         }
-        return true
+        return didRemoveManagedThemeOverride
     }
 
     static func removingManagedThemeOverride(from contents: String) -> String {
@@ -293,6 +285,37 @@ enum CmuxGhosttyConfigPathResolver {
         }
         let fullRange = NSRange(contents.startIndex..<contents.endIndex, in: contents)
         return regex.stringByReplacingMatches(in: contents, options: [], range: fullRange, withTemplate: "")
+    }
+
+    private static func releaseManagedThemeOverrideCleanupURLs(appSupportDirectory: URL) -> [URL] {
+        let directory = configDirectoryURL(
+            currentBundleIdentifier: releaseBundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        )
+        return [
+            directory.appendingPathComponent("config.ghostty", isDirectory: false),
+            directory.appendingPathComponent("config", isDirectory: false),
+        ]
+    }
+
+    private static func writeConfigContentsAfterRemovingManagedThemeOverride(
+        _ strippedContents: String,
+        to configURL: URL,
+        fileManager: FileManager
+    ) throws {
+        let normalizedContents = strippedContents.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedContents.isEmpty {
+            do {
+                try fileManager.removeItem(at: configURL)
+            } catch {
+                guard !isConfigFileNotFoundError(error) else {
+                    return
+                }
+                throw error
+            }
+        } else {
+            try normalizedContents.appending("\n").write(to: configURL, atomically: true, encoding: .utf8)
+        }
     }
 
     private static func readOptionalConfigContents(at url: URL) throws -> String? {
