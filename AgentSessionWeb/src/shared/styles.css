@@ -1,6 +1,38 @@
+@import "tailwindcss" source(none);
+
+@source "../react/**/*.ts";
+@source "../solid/**/*.ts";
+
+@theme {
+  --font-sans: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  --font-mono: var(--vscode-editor-font-family, ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace);
+  --color-token-foreground: var(--agent-text);
+  --color-token-description-foreground: var(--agent-muted);
+  --color-token-input-background: var(--agent-input-bg);
+  --color-token-dropdown-background: var(--agent-surface-elevated);
+  --color-token-border: var(--agent-border);
+  --color-token-border-heavy: var(--agent-border-strong);
+  --color-token-focus-border: var(--agent-accent);
+  --color-token-button-foreground: var(--agent-text);
+  --color-token-button-background: var(--agent-accent);
+  --color-token-input-placeholder-foreground: var(--agent-muted);
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --radius-2xs: 0.125rem;
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.25rem;
+  --radius-4xl: 1.5rem;
+}
+
 :root {
   color-scheme: dark;
-  font-family: "DM Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  font-family: var(--font-sans);
   color: var(--agent-text, #f1f0e8);
   background: transparent;
   --agent-page-bg: transparent;
@@ -16,8 +48,8 @@
   --agent-accent-soft: rgba(138, 180, 248, 0.2);
   --agent-danger: #ff8d7e;
   --agent-shadow: rgba(0, 0, 0, 0.2);
-  --agent-card: color-mix(in srgb, var(--agent-surface) 92%, transparent);
-  --agent-card-hover: var(--agent-card);
+  --agent-card: color-mix(in srgb, var(--agent-input-bg) 90%, transparent);
+  --agent-card-hover: color-mix(in srgb, var(--agent-input-bg) 96%, transparent);
   --agent-control: color-mix(in srgb, var(--agent-input-bg) 44%, transparent);
   --agent-control-hover: color-mix(in srgb, var(--agent-soft) 8%, transparent);
   --agent-primary: color-mix(in srgb, var(--agent-accent) 90%, var(--agent-text));
@@ -40,6 +72,9 @@ body {
   min-width: 0;
   overflow: hidden;
   color: var(--agent-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  font-weight: 400;
 }
 
 button,
@@ -63,16 +98,19 @@ select {
   background: var(--agent-page-bg);
 }
 
+.agent-log,
 .log {
   overflow: auto;
   min-height: 0;
-  width: min(100%, 52rem);
+  width: min(100%, 48rem);
   margin: 0 auto;
   padding: 6px 2px 18px;
   background: transparent;
   scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--agent-muted) 28%, transparent) transparent;
 }
 
+.agent-log-line,
 .log-line {
   display: grid;
   grid-template-columns: 4.5rem minmax(0, 1fr);
@@ -80,15 +118,17 @@ select {
   padding: 9px 0;
   border-bottom: 1px solid color-mix(in srgb, var(--agent-border) 55%, transparent);
   color: var(--agent-soft);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
 }
 
+.agent-log-line:last-child,
 .log-line:last-child {
   border-bottom-color: transparent;
 }
 
+.agent-log-label,
 .log-label {
   overflow: hidden;
   color: var(--agent-muted);
@@ -96,15 +136,19 @@ select {
   text-transform: uppercase;
 }
 
+.agent-log-line.stdout .agent-log-label,
 .log-line.stdout .log-label {
   color: var(--agent-accent);
 }
 
+.agent-log-line.stderr .agent-log-label,
+.agent-log-line.error .agent-log-label,
 .log-line.stderr .log-label,
 .log-line.error .log-label {
   color: var(--agent-danger);
 }
 
+.agent-log-text,
 .log-text {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -112,47 +156,35 @@ select {
   word-break: normal;
 }
 
+.agent-composer-stack,
 .composer-stack {
   display: grid;
   gap: 6px;
-  width: min(100%, 52rem);
+  width: min(100%, 48rem);
   margin: 0 auto;
 }
 
-.composer {
+.composer,
+.composer-frame {
   width: 100%;
   min-width: 0;
   margin: 0;
 }
 
-.composer-frame {
-  width: 100%;
-  padding: 1px;
-  border-radius: 22px;
-  background: transparent;
-  transition: background-color 200ms ease;
-}
-
 .composer-surface {
   display: grid;
   min-height: 128px;
-  border: 1px solid var(--agent-border);
-  border-radius: 20px;
+  border: 0;
+  border-radius: var(--radius-3xl);
   color: var(--agent-text);
-  background: var(--agent-card);
-  transition:
-    border-color 200ms ease,
-    background-color 200ms ease;
-}
-
-.composer-surface:focus-within {
-  border-color: color-mix(in srgb, var(--agent-accent) 45%, transparent);
-  background: var(--agent-card-hover);
+  background: color-mix(in srgb, var(--agent-input-bg) 90%, transparent);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 4px 16px rgba(0, 0, 0, 0.05);
+  backdrop-filter: blur(16px);
 }
 
 .composer-body {
   min-width: 0;
-  padding: 16px 16px 8px;
+  padding: 16px 12px 4px;
 }
 
 .prompt-input {
@@ -174,6 +206,46 @@ select {
   color: color-mix(in srgb, var(--agent-muted) 35%, transparent);
 }
 
+.ProseMirror {
+  min-width: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  color: var(--agent-text);
+  background: transparent;
+  caret-color: var(--agent-text);
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ProseMirror p {
+  margin: 0;
+}
+
+.ProseMirror p + p {
+  margin-top: 4px;
+}
+
+.ProseMirror .placeholder {
+  pointer-events: none;
+  user-select: none;
+  position: relative;
+}
+
+.ProseMirror .placeholder::after {
+  color: var(--color-token-input-placeholder-foreground);
+  content: attr(data-placeholder);
+  opacity: 0.5;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  position: absolute;
+  inset: 0 0 auto;
+  overflow: hidden;
+}
+
 .composer-footer,
 .codex-left-rail,
 .codex-right-rail,
@@ -188,6 +260,10 @@ select {
   justify-content: space-between;
   gap: 8px;
   padding: 0 12px 12px;
+}
+
+.composer-footer-codex {
+  container: composer-footer / inline-size;
 }
 
 .codex-left-rail {
@@ -225,11 +301,7 @@ select {
   color: color-mix(in srgb, var(--agent-muted) 92%, transparent);
   background: transparent;
   font-weight: 500;
-  transition:
-    background-color 150ms ease,
-    border-color 150ms ease,
-    color 150ms ease,
-    opacity 150ms ease;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease;
 }
 
 .codex-tool,
@@ -317,10 +389,6 @@ select {
   content: "";
 }
 
-.codex-mic {
-  font-size: 18px;
-}
-
 .send-button {
   width: 32px;
   height: 32px;
@@ -391,6 +459,18 @@ select {
   background: var(--agent-danger);
 }
 
+@container composer-footer (width <= 480px) {
+  .model-label,
+  .model-chevron {
+    display: none;
+  }
+
+  .model-picker {
+    min-width: 36px;
+    padding: 0 5px;
+  }
+}
+
 @media (max-width: 720px) {
   .agent-shell {
     padding: 10px;
@@ -436,6 +516,7 @@ select {
 }
 
 @media (max-width: 520px) {
+  .agent-log-line,
   .log-line {
     grid-template-columns: 1fr;
     gap: 2px;

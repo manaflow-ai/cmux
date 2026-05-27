@@ -1,7 +1,6 @@
 import React, { useEffect, useReducer, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { subscribeToAgentEvents } from "../shared/bridge";
-import { insertComposerToken } from "../shared/composerTokens";
 import {
   initialState,
   autoStartProvider,
@@ -17,6 +16,9 @@ import {
   type SessionState,
 } from "../shared/sessionModel";
 import type { ProviderId } from "../shared/types";
+import { PromptEditor, type PromptEditorHandle } from "./proseMirrorPromptEditor";
+
+const h = React.createElement;
 
 function useInitialData(dispatch: React.Dispatch<Action>) {
   useEffect(() => {
@@ -39,7 +41,7 @@ function App() {
   useInitialData(dispatch);
   useNativeEvents(dispatch);
   useAutoStart(state, dispatch);
-  return React.createElement(SessionSurface, { state, dispatch, renderer: "React" });
+  return h(SessionSurface, { state, dispatch, renderer: "React" });
 }
 
 function SessionSurface({
@@ -59,79 +61,67 @@ function SessionSurface({
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
   const modelLabel = provider ? codexModelLabel(provider.displayName) : "GPT-5.5";
   const modelBadge = provider ? providerBadgeLabel(provider.displayName) : "C";
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const insertToken = (token: "@" | "$") => {
-    const textarea = textareaRef.current;
-    const insertion = insertComposerToken({
-      text: state.input,
-      selectionStart: textarea?.selectionStart ?? state.input.length,
-      selectionEnd: textarea?.selectionEnd ?? state.input.length,
-      token,
-    });
-    dispatch({ type: "setInput", input: insertion.text });
-    queueMicrotask(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(insertion.cursor, insertion.cursor);
-    });
-  };
-  return React.createElement(
+  const editorRef = useRef<PromptEditorHandle | null>(null);
+  const submit = () => void sendInput(state, dispatch);
+
+  return h(
     "section",
     { className: "agent-shell" },
-    React.createElement(
+    h(
       "div",
-      { className: "log" },
+      { className: "agent-log" },
       state.log.map((entry) =>
-        React.createElement(
+        h(
           "div",
-          { className: `log-line ${entry.level}`, key: entry.id },
-          React.createElement("span", { className: "log-label" }, entry.level),
-          React.createElement("span", { className: "log-text" }, entry.text),
+          { className: `agent-log-line ${entry.level}`, key: entry.id },
+          h("span", { className: "agent-log-label" }, entry.level),
+          h("span", { className: "agent-log-text" }, entry.text),
         ),
       ),
     ),
-    React.createElement(
+    h(
       "div",
-      { className: "composer-stack" },
-      React.createElement(
+      { className: "agent-composer-stack" },
+      h(
         "form",
         {
-          className: "composer",
+          className: "w-full min-w-0",
           onSubmit: (event: React.FormEvent) => {
             event.preventDefault();
-            void sendInput(state, dispatch);
+            submit();
           },
         },
-        React.createElement(
+        h(
           "div",
-          { className: "composer-frame" },
-          React.createElement(
+          {
+            className:
+              "relative flex flex-col overflow-y-auto rounded-3xl bg-token-input-background/90 text-token-foreground ring ring-black/10 backdrop-blur-lg shadow-[0_4px_16px_0_rgba(0,0,0,0.05)]",
+          },
+          h(
             "div",
-            { className: "composer-surface" },
-            React.createElement(
+            { className: "relative z-10 flex min-h-0 flex-1 flex-col" },
+            h(PromptEditor, {
+              ref: editorRef,
+              className: "mb-1 flex-grow overflow-y-auto px-3 pt-4 text-base [&_.ProseMirror]:leading-5",
+              minHeight: "2.75rem",
+              value: state.input,
+              placeholder: state.context?.copy.promptPlaceholder ?? "",
+              onTextChange: (input: string) => dispatch({ type: "setInput", input }),
+              onSubmit: submit,
+            }),
+            h(
               "div",
-              { className: "composer-body" },
-              React.createElement("textarea", {
-                ref: textareaRef,
-                className: "prompt-input",
-                value: state.input,
-                placeholder: state.context?.copy.promptPlaceholder ?? "",
-                onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) =>
-                  dispatch({ type: "setInput", input: event.target.value }),
-              }),
-            ),
-            React.createElement(
-              "div",
-              { className: "composer-footer" },
-              React.createElement(
+              { className: "composer-footer composer-footer-codex" },
+              h(
                 "div",
-                { className: "codex-left-rail" },
-                React.createElement(
+                { className: "flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1 py-1 [scrollbar-width:none]" },
+                h(
                   "label",
                   { className: "model-picker" },
-                  React.createElement("span", { className: "model-icon", "aria-hidden": true }, modelBadge),
-                  React.createElement("span", { className: "model-label" }, modelLabel),
-                  React.createElement("span", { className: "model-chevron", "aria-hidden": true }, "⌄"),
-                  React.createElement(
+                  h("span", { className: "model-icon", "aria-hidden": true }, modelBadge),
+                  h("span", { className: "model-label" }, modelLabel),
+                  h("span", { className: "model-chevron", "aria-hidden": true }, "⌄"),
+                  h(
                     "select",
                     {
                       className: "provider-select",
@@ -142,20 +132,20 @@ function SessionSurface({
                         dispatch({ type: "selectProvider", providerId: event.target.value as ProviderId }),
                     },
                     state.providers.map((item) =>
-                      React.createElement("option", { key: item.id, value: item.id }, item.displayName),
+                      h("option", { key: item.id, value: item.id }, item.displayName),
                     ),
                   ),
                 ),
-                React.createElement("span", { className: "composer-separator", "aria-hidden": true }),
+                h("span", { className: "composer-separator", "aria-hidden": true }),
                 codexIconButton("plus", "+"),
-                codexIconButton("mention", "@", () => insertToken("@")),
-                codexIconButton("skill", "$", () => insertToken("$")),
+                codexIconButton("mention", "@", () => editorRef.current?.insertToken("@")),
+                codexIconButton("skill", "$", () => editorRef.current?.insertToken("$")),
               ),
-              React.createElement(
+              h(
                 "div",
-                { className: "codex-right-rail" },
+                { className: "flex shrink-0 items-center justify-end gap-2" },
                 showStart
-                  ? React.createElement(
+                  ? h(
                       "button",
                       {
                         className: "codex-action codex-start",
@@ -166,7 +156,7 @@ function SessionSurface({
                       state.context?.copy.start ?? "Start",
                     )
                   : null,
-                React.createElement(
+                h(
                   "button",
                   {
                     className: "codex-action codex-circle-action",
@@ -177,14 +167,24 @@ function SessionSurface({
                   },
                   "",
                 ),
-                React.createElement(
+                h(
                   "button",
-                  { className: "codex-action codex-mic", type: "button", disabled: true, "aria-label": state.context?.copy.voiceInput ?? "" },
-                  "♩",
+                  {
+                    className: "codex-action codex-mic",
+                    type: "button",
+                    disabled: true,
+                    "aria-label": state.context?.copy.voiceInput ?? "",
+                  },
+                  micIcon(),
                 ),
-                React.createElement(
+                h(
                   "button",
-                  { className: "codex-action send-button", type: "submit", disabled: !canSend, "aria-label": state.context?.copy.send ?? "Send" },
+                  {
+                    className: "codex-action send-button",
+                    type: "submit",
+                    disabled: !canSend,
+                    "aria-label": state.context?.copy.send ?? "Send",
+                  },
                   sendIcon(),
                 ),
               ),
@@ -192,13 +192,13 @@ function SessionSurface({
           ),
         ),
       ),
-      React.createElement(
+      h(
         "div",
         { className: "rate-line" },
-        React.createElement("span", { className: `status-dot ${state.status}`, "aria-hidden": true }),
-        React.createElement("span", null, `${provider?.displayName ?? renderer} ${statusLabel(state)}`),
-        React.createElement("span", { className: "rate-dot", "aria-hidden": true }, "•"),
-        React.createElement("span", null, provider?.transportKind ?? "stdio-jsonrpc"),
+        h("span", { className: `status-dot ${state.status}`, "aria-hidden": true }),
+        h("span", null, `${provider?.displayName ?? renderer} ${statusLabel(state)}`),
+        h("span", { className: "rate-dot", "aria-hidden": true }, "•"),
+        h("span", null, provider?.transportKind ?? "stdio-jsonrpc"),
       ),
     ),
   );
@@ -226,15 +226,28 @@ function providerBadgeLabel(displayName: string): string {
 }
 
 function sendIcon() {
-  return React.createElement(
+  return h(
     "svg",
     { width: "14", height: "14", viewBox: "0 0 14 14", fill: "none", "aria-hidden": true },
-    React.createElement("path", {
+    h("path", {
       d: "M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5",
       stroke: "currentColor",
       strokeWidth: "1.8",
       strokeLinecap: "round",
       strokeLinejoin: "round",
+    }),
+  );
+}
+
+function micIcon() {
+  return h(
+    "svg",
+    { width: "16", height: "16", viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
+    h("path", {
+      d: "M8 2.25a2 2 0 0 0-2 2v3.25a2 2 0 1 0 4 0V4.25a2 2 0 0 0-2-2ZM4 7.5a4 4 0 0 0 8 0M8 11.5v2.25",
+      stroke: "currentColor",
+      strokeWidth: "1.4",
+      strokeLinecap: "round",
     }),
   );
 }
@@ -250,14 +263,10 @@ function codexIconButton(kind: string, text: string, onClick?: () => void) {
     props.disabled = true;
     props["aria-hidden"] = true;
   }
-  return React.createElement(
-    "button",
-    props,
-    text,
-  );
+  return h("button", props, text);
 }
 
 const root = document.getElementById("root");
 if (root) {
-  createRoot(root).render(React.createElement(App));
+  createRoot(root).render(h(App));
 }

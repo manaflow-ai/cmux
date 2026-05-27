@@ -25,8 +25,16 @@ bun build "$ROOT/AgentSessionWeb/src/solid/main.ts" \
   --minify \
   --outfile "$OUT_SOLID/assets/app.js"
 
-cp "$ROOT/AgentSessionWeb/src/shared/styles.css" "$OUT_REACT/assets/styles.css"
-cp "$ROOT/AgentSessionWeb/src/shared/styles.css" "$OUT_SOLID/assets/styles.css"
+if ! command -v bunx >/dev/null 2>&1; then
+  echo "error: bunx is required to build AgentSessionWeb styles" >&2
+  exit 1
+fi
+
+bunx tailwindcss \
+  -i "$ROOT/AgentSessionWeb/src/shared/styles.css" \
+  -o "$OUT_REACT/assets/styles.css" \
+  --minify
+cp "$OUT_REACT/assets/styles.css" "$OUT_SOLID/assets/styles.css"
 
 write_index() {
   out_dir="$1"
