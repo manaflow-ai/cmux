@@ -650,4 +650,32 @@ struct AgentLaunchSanitizerTests {
             ) == ["amp", "--mode", "geppetto"]
         )
     }
+
+    @Test("Removes cwd options that duplicate the saved working directory")
+    func removesSavedWorkingDirectoryOptions() {
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["codex", "resume", "session", "--cd", "/tmp/project", "--model", "gpt-5.4"],
+                workingDirectory: "/tmp/project"
+            ) == ["codex", "resume", "session", "--model", "gpt-5.4"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["grok", "-r", "session", "--cwd=/tmp/project", "--model", "grok-4"],
+                workingDirectory: "/tmp/project"
+            ) == ["grok", "-r", "session", "--model", "grok-4"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["qoder", "--workspace", "/tmp/other", "--cwd", "/tmp/project"],
+                workingDirectory: "/tmp/project"
+            ) == ["qoder", "--workspace", "/tmp/other"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["qoder", "-w", "/tmp/project", "--model", "best"],
+                workingDirectory: "/tmp/project"
+            ) == ["qoder", "--model", "best"]
+        )
+    }
 }
