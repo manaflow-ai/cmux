@@ -1034,7 +1034,9 @@ actor MobileHostConnection {
                     guard !isClosed else {
                         return
                     }
-                    await respond(to: frame)
+                    Task { [weak self] in
+                        await self?.respond(to: frame)
+                    }
                 }
                 guard !isClosed else {
                     return

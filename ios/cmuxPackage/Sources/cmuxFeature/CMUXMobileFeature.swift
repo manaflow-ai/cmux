@@ -1554,7 +1554,9 @@ struct WorkspaceShellView: View {
                 host: store.connectedHostName,
                 navigationStyle: .push,
                 selectWorkspace: selectWorkspace,
-                createWorkspace: createWorkspaceInCompactStack
+                createWorkspace: createWorkspaceInCompactStack,
+                rescanQR: { store.disconnectAndForgetActiveMac() },
+                signOut: { Task { await AuthManager.shared.signOut() } }
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -1601,7 +1603,9 @@ struct WorkspaceShellView: View {
                 host: store.connectedHostName,
                 navigationStyle: .sidebar,
                 selectWorkspace: selectWorkspace,
-                createWorkspace: store.createWorkspace
+                createWorkspace: store.createWorkspace,
+                rescanQR: { store.disconnectAndForgetActiveMac() },
+                signOut: { Task { await AuthManager.shared.signOut() } }
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
@@ -1766,6 +1770,11 @@ struct WorkspaceListView: View {
     let navigationStyle: WorkspaceNavigationStyle
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
+    /// Optional: when present, the toolbar shows a "settings" menu offering
+    /// "Rescan QR" (disconnect + re-pair) and "Sign out". When nil (e.g.
+    /// previews), the menu is hidden.
+    var rescanQR: (() -> Void)?
+    var signOut: (() -> Void)?
     @State private var searchText = ""
 
     private var filteredWorkspaces: [MobileWorkspacePreview] {
@@ -1802,6 +1811,11 @@ struct WorkspaceListView: View {
         .searchable(text: $searchText)
         .toolbar {
             #if os(iOS)
+            if rescanQR != nil || signOut != nil {
+                ToolbarItem(placement: .topBarLeading) {
+                    settingsMenu
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 newWorkspaceButton
             }
@@ -1820,6 +1834,37 @@ struct WorkspaceListView: View {
         }
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileNewWorkspaceButton")
+    }
+
+    private var settingsMenu: some View {
+        Menu {
+            if let rescanQR {
+                Button {
+                    rescanQR()
+                } label: {
+                    Label(
+                        L10n.string("mobile.workspaces.rescan", defaultValue: "Rescan QR"),
+                        systemImage: "qrcode.viewfinder"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceRescanQRMenuItem")
+            }
+            if let signOut {
+                Button(role: .destructive) {
+                    signOut()
+                } label: {
+                    Label(
+                        L10n.string("mobile.signOut", defaultValue: "Sign Out"),
+                        systemImage: "rectangle.portrait.and.arrow.right"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceSignOutMenuItem")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
+        .accessibilityIdentifier("MobileWorkspaceSettingsMenu")
     }
 }
 

@@ -250,11 +250,11 @@ public struct CMUXMobileRuntime: Sendable {
     public var rpcRequestTimeoutNanoseconds: UInt64
     public var pairingRequestTimeoutNanoseconds: UInt64
     public var now: @Sendable () -> Date
-    /// When false, `MobileShellStore` skips the `mobile.events.subscribe`
-    /// activation step and goes straight to the legacy 750ms poll. Tests
-    /// that drive scripted transport responses set this off so the new
-    /// subscribe RPC doesn't consume a scripted response intended for a
-    /// regular method. Production sets it on (the default).
+    /// When false, `MobileShellStore` skips background terminal refresh.
+    /// Scripted transport tests set this off so background subscribe/poll
+    /// requests don't consume responses intended for foreground methods.
+    /// Production sets it on (the default), and falls back to the legacy
+    /// 750ms poll only when a connected Mac does not support events.
     public var supportsServerPushEvents: Bool
 
     private static var defaultStackAccessTokenProvider: @Sendable () async throws -> String {
@@ -819,6 +819,25 @@ public final class CMUXMobileShellStore {
         connectionError = nil
         connectionState = .disconnected
         clearRemoteConnectionContext()
+    }
+
+    /// Disconnect from the currently paired Mac and forget it so the next
+    /// session starts from a fresh QR scan. Clears in-memory state and the
+    /// persisted active flag (other macs in SQLite stay, but none are marked
+    /// active so reconnect-on-launch is a no-op until the user pairs again).
+    public func disconnectAndForgetActiveMac() {
+        let staleMacID = activeTicket?.macDeviceID
+        pairingAttemptID = UUID()
+        connectionError = nil
+        connectionState = .disconnected
+        clearRemoteConnectionContext()
+        if let pairedMacStore, let macID = staleMacID {
+            do {
+                try pairedMacStore.remove(macDeviceID: macID)
+            } catch {
+                mobileShellLog.error("forgetActiveMac removal failed: \(String(describing: error), privacy: .private)")
+            }
+        }
     }
 
     private static func normalizedPairingURL(_ rawValue: String) -> String {
@@ -1839,7 +1858,6 @@ public final class CMUXMobileShellStore {
         // one response per request) skip subscribe entirely.
         guard terminalEventListenerTask == nil, terminalRefreshPollTask == nil else { return }
         guard runtime?.supportsServerPushEvents ?? true else {
-            startLegacyTerminalRefreshPolling()
             return
         }
         terminalEventListenerTask = Task { @MainActor [weak self] in

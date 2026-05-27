@@ -3064,10 +3064,8 @@ private func testRuntime(
     supportsServerPushEvents: Bool = false
 ) -> CMUXMobileRuntime {
     // Tests script every response and assert on exact request order, so by
-    // default they opt out of the new mobile.events.subscribe activation
-    // step — otherwise the subscribe RPC would swallow scripted responses
-    // meant for the next workspace/snapshot call. New tests that exercise
-    // the event path should pass `supportsServerPushEvents: true`.
+    // default they opt out of background subscribe/poll refreshes. New tests
+    // that exercise the event path should pass `supportsServerPushEvents: true`.
     CMUXMobileRuntime(
         supportedRouteKinds: supportedRouteKinds,
         transportFactory: transportFactory,
