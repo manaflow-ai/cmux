@@ -840,6 +840,9 @@ class TerminalController {
     /// Update which window's TabManager receives socket commands.
     /// This is used when the user switches between multiple terminal windows.
     func setActiveTabManager(_ tabManager: TabManager?) {
+        if let tabManager {
+            AppDelegate.shared?.ensureMobileWorkspaceListObserver(for: tabManager)
+        }
         self.tabManager = tabManager
     }
 

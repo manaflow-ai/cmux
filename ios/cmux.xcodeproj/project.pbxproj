@@ -3,10 +3,15 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
+		8B8A10012DF5000000A66F90 /* cmuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10172DF5000000A66F90 /* cmuxApp.swift */; };
+		8B8A10022DF5000000A66F90 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A10192DF5000000A66F90 /* Assets.xcassets */; };
+		8B8A10032DF5000000A66F90 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A101A2DF5000000A66F90 /* InfoPlist.xcstrings */; };
+		8B8A10042DF5000000A66F90 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */; };
+		8B8A10052DF5000000A66F90 /* cmuxUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */; };
 		8B41F6832DEDD23B001A66F9 /* cmuxFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* cmuxFeature */; };
 		8B41F6852DEDD25C001A66F9 /* cmuxFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* cmuxFeature */; };
 		8B7E20012DF3A00100A66F90 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20032DF3A00100A66F90 /* CMUXMobileCore */; };
@@ -26,42 +31,19 @@
 /* Begin PBXFileReference section */
 		8B41F6452DEDD0D5001A66F9 /* cmux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8B41F65C2DEDD0D6001A66F9 /* cmux.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmux.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		8B8A10112DF5000000A66F90 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		8B8A10122DF5000000A66F90 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		8B8A10132DF5000000A66F90 /* Tests.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Tests.xcconfig; sourceTree = "<group>"; };
+		8B8A10142DF5000000A66F90 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
+		8B8A10152DF5000000A66F90 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		8B8A10162DF5000000A66F90 /* cmux.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = cmux.entitlements; sourceTree = "<group>"; };
+		8B8A10172DF5000000A66F90 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
+		8B8A10182DF5000000A66F90 /* cmux.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = file; path = cmux.xctestplan; sourceTree = "<group>"; };
+		8B8A10192DF5000000A66F90 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		8B8A101A2DF5000000A66F90 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
+		8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		8BD71C0A2DEE41E000CEDD92 /* Exceptions for "Config" folder in "cmux" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Debug.xcconfig,
-				Info.plist,
-				Release.xcconfig,
-				Shared.xcconfig,
-				Tests.xcconfig,
-			);
-			target = 8B41F6442DEDD0D5001A66F9 /* cmux */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
-/* Begin PBXFileSystemSynchronizedRootGroup section */
-		8B41F6472DEDD0D5001A66F9 /* cmux */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = cmux;
-			sourceTree = "<group>";
-		};
-		8B41F65F2DEDD0D6001A66F9 /* cmuxUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = cmuxUITests;
-			sourceTree = "<group>";
-		};
-		8BD71C052DEE41D800CEDD92 /* Config */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				8BD71C0A2DEE41E000CEDD92 /* Exceptions for "Config" folder in "cmux" target */,
-			);
-			path = Config;
-			sourceTree = "<group>";
-		};
-/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		8B41F6422DEDD0D5001A66F9 /* Frameworks */ = {
@@ -85,6 +67,25 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		8B41F6472DEDD0D5001A66F9 /* cmux */ = {
+			isa = PBXGroup;
+			children = (
+				8B8A10192DF5000000A66F90 /* Assets.xcassets */,
+				8B8A10212DF5000000A66F90 /* Resources */,
+				8B8A10172DF5000000A66F90 /* cmuxApp.swift */,
+				8B8A10182DF5000000A66F90 /* cmux.xctestplan */,
+			);
+			path = cmux;
+			sourceTree = "<group>";
+		};
+		8B41F65F2DEDD0D6001A66F9 /* cmuxUITests */ = {
+			isa = PBXGroup;
+			children = (
+				8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */,
+			);
+			path = cmuxUITests;
+			sourceTree = "<group>";
+		};
 		8B41F63C2DEDD0D5001A66F9 = {
 			isa = PBXGroup;
 			children = (
@@ -112,6 +113,28 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		8B8A10212DF5000000A66F90 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				8B8A101A2DF5000000A66F90 /* InfoPlist.xcstrings */,
+				8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		8BD71C052DEE41D800CEDD92 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				8B8A10112DF5000000A66F90 /* Debug.xcconfig */,
+				8B8A10122DF5000000A66F90 /* Release.xcconfig */,
+				8B8A10132DF5000000A66F90 /* Tests.xcconfig */,
+				8B8A10142DF5000000A66F90 /* Shared.xcconfig */,
+				8B8A10152DF5000000A66F90 /* Info.plist */,
+				8B8A10162DF5000000A66F90 /* cmux.entitlements */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -126,10 +149,6 @@
 			buildRules = (
 			);
 			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				8B41F6472DEDD0D5001A66F9 /* cmux */,
-				8BD71C052DEE41D800CEDD92 /* Config */,
 			);
 			name = cmux;
 			packageProductDependencies = (
@@ -152,9 +171,6 @@
 			);
 			dependencies = (
 				8B41F65E2DEDD0D6001A66F9 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				8B41F65F2DEDD0D6001A66F9 /* cmuxUITests */,
 			);
 			name = cmuxUITests;
 			packageProductDependencies = (
@@ -194,7 +210,6 @@
 			);
 			mainGroup = 8B41F63C2DEDD0D5001A66F9;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
 			productRefGroup = 8B41F6462DEDD0D5001A66F9 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -210,6 +225,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8B8A10022DF5000000A66F90 /* Assets.xcassets in Resources */,
+				8B8A10032DF5000000A66F90 /* InfoPlist.xcstrings in Resources */,
+				8B8A10042DF5000000A66F90 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -227,6 +245,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8B8A10012DF5000000A66F90 /* cmuxApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -234,6 +253,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8B8A10052DF5000000A66F90 /* cmuxUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -371,8 +391,7 @@
 		};
 		8B41F6672DEDD0D6001A66F9 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
-			baseConfigurationReferenceRelativePath = Debug.xcconfig;
+			baseConfigurationReference = 8B8A10112DF5000000A66F90 /* Debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -395,8 +414,7 @@
 		};
 		8B41F6682DEDD0D6001A66F9 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
-			baseConfigurationReferenceRelativePath = Release.xcconfig;
+			baseConfigurationReference = 8B8A10122DF5000000A66F90 /* Release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -419,8 +437,7 @@
 		};
 		8B41F66D2DEDD0D6001A66F9 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
-			baseConfigurationReferenceRelativePath = Tests.xcconfig;
+			baseConfigurationReference = 8B8A10132DF5000000A66F90 /* Tests.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -433,8 +450,7 @@
 		};
 		8B41F66E2DEDD0D6001A66F9 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
-			baseConfigurationReferenceRelativePath = Tests.xcconfig;
+			baseConfigurationReference = 8B8A10132DF5000000A66F90 /* Tests.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;

@@ -3043,6 +3043,8 @@ private actor MobileCoreRPCSession {
 
     private let makeTransport: TransportFactory
     private var transport: (any CmxByteTransport)?
+    private var connectionTask: (id: UUID, task: Task<any CmxByteTransport, Error>)?
+    private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
     private var pending: [String: PendingContinuation] = [:]
     private var listeners: [UUID: EventListener] = [:]
@@ -3059,6 +3061,7 @@ private actor MobileCoreRPCSession {
     }
 
     deinit {
+        connectionTask?.task.cancel()
         readerTask?.cancel()
         writerTask?.cancel()
         writeQueue?.finish()
@@ -3133,6 +3136,9 @@ private actor MobileCoreRPCSession {
         writeQueue = nil
         writerTask?.cancel()
         writerTask = nil
+        connectionTask?.task.cancel()
+        connectionTask = nil
+        installedConnectionID = nil
         if let transport {
             await transport.close()
         }
@@ -3146,8 +3152,46 @@ private actor MobileCoreRPCSession {
 
     private func ensureConnected() async throws -> any CmxByteTransport {
         if let transport { return transport }
-        let candidate = try makeTransport()
-        try await candidate.connect()
+
+        let connectionID: UUID
+        let task: Task<any CmxByteTransport, Error>
+        if let existing = connectionTask {
+            connectionID = existing.id
+            task = existing.task
+        } else {
+            let candidate = try makeTransport()
+            connectionID = UUID()
+            task = Task {
+                try await candidate.connect()
+                return candidate
+            }
+            connectionTask = (id: connectionID, task: task)
+        }
+
+        let candidate: any CmxByteTransport
+        do {
+            candidate = try await task.value
+        } catch {
+            if connectionTask?.id == connectionID {
+                connectionTask = nil
+            }
+            throw error
+        }
+
+        if let transport {
+            if installedConnectionID != connectionID {
+                await candidate.close()
+            }
+            return transport
+        }
+
+        guard connectionTask?.id == connectionID else {
+            await candidate.close()
+            throw MobileShellConnectionError.connectionClosed
+        }
+
+        connectionTask = nil
+        installedConnectionID = connectionID
         transport = candidate
         // Reader: dispatches inbound frames by id (response) or topic (event).
         readerTask = Task { [weak self] in
