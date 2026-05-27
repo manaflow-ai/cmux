@@ -7111,6 +7111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if shouldBringToFront {
             workspace.focusPanel(terminalPanel.id)
         }
+        terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
         sendTextWhenReady(text, to: workspace, preferredPanelId: terminalPanel.id)
         return true
     }
