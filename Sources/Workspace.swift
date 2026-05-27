@@ -1239,7 +1239,7 @@ extension Workspace {
 
         if let selectedPanelId,
            let selectedTabId = surfaceIdFromPanelId(selectedPanelId) {
-           controller.focusPane(paneId)
+            controller.focusPane(paneId)
             controller.selectTab(selectedTabId)
         }
     }

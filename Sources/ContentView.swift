@@ -2371,7 +2371,6 @@ struct ContentView: View {
 
                 if let selectedWorkspace = tabManager.selectedWorkspace {
                     WorkspaceDockToggleCluster(layout: selectedWorkspace.dockLayout)
-                        .frame(width: 58, height: 18)
                 }
             }
             .frame(height: titlebarContentHeight)
