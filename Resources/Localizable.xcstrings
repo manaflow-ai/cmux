@@ -56421,6 +56421,57 @@
         }
       }
     },
+    "settings.app.wrapWorkspaceTitles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wrap Workspace Titles in Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのワークスペースタイトルを折り返す"
+          }
+        }
+      }
+    },
+    "settings.app.wrapWorkspaceTitles.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace titles stay on one line and truncate at the end."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースタイトルは1行で表示され、末尾で省略されます。"
+          }
+        }
+      }
+    },
+    "settings.app.wrapWorkspaceTitles.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Long workspace titles can use as many lines as they need."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長いワークスペースタイトルは必要な行数で表示されます。"
+          }
+        }
+      }
+    },
     "settings.app.showWorkspaceDescription": {
       "extractionState": "manual",
       "localizations": {
@@ -79154,6 +79205,23 @@
                     "state": "translated",
                     "value": "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail програма загальні параметри поведінка док рядок меню статус бічна панель навігація ліворуч деталі приховати макет Лівий рейл"
                 }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.wrap-workspace-titles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request ワークスペース タイトル 折り返し 複数行 PR プルリクエスト"
+          }
         }
       }
     },
