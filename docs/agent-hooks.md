@@ -128,6 +128,25 @@ Pi uses Pi's extension system, not the legacy Pi hooks API. The installed extens
 
 When Subrouter points `PI_CODING_AGENT_DIR` at `~/.subrouter/codex/pi/...`, cmux prefers the matching `~/.codex-accounts/pi/...` alias when it exists. The same normalization is applied to hook installation, terminal startup, and saved resume commands.
 
+For Subrouter account routing, Pi also needs its Codex provider URL pointed at the Subrouter backend. `PI_CODING_AGENT_DIR` controls which Pi config directory is read, but it does not change the OpenAI Codex endpoint by itself. Add this to `~/.pi/agent/models.json` or the active `$PI_CODING_AGENT_DIR/models.json`, replacing the host with the selected Subrouter server when needed:
+
+```json
+{
+  "providers": {
+    "openai-codex": {
+      "baseUrl": "http://subrouter-team:31415/backend-api",
+      "api": "openai-codex-responses",
+      "headers": {
+        "X-Subrouter-Agent": "pi",
+        "X-Subrouter-Session": "!printf 'pir-%s-%s\\n' \"${CMUX_WORKSPACE_ID:-standalone}\" \"${CMUX_SURFACE_ID:-$PPID}\""
+      }
+    }
+  }
+}
+```
+
+Pi normalizes the `backend-api` URL to the Codex responses endpoint. The session header keeps all turns from the same cmux pane on the same Subrouter account while still allowing standalone `pir` runs to get their own session key.
+
 ## Troubleshooting
 
 Run `cmux hooks <agent> install --yes` to reinstall one integration. Run `cmux hooks <agent> uninstall --yes` before editing generated files by hand.
