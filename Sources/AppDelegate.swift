@@ -1013,6 +1013,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if handleCmuxSSHURLs(from: urls) {
             return
         }
+        if handleCmuxNavigationURLs(from: urls) {
+            return
+        }
 
         let authCallbacks = urls.filter(AuthCallbackRouter.isAuthCallbackURL)
         for url in authCallbacks {
