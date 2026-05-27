@@ -5216,6 +5216,7 @@ struct SettingsView: View {
     @State private var searchHighlightToken = 0
     @State private var searchHighlightStartedAt: Date?
     @State private var settingsNavigationGeneration = 0
+    @State private var agentHibernationMissingHooksWarning: String?
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -5568,6 +5569,7 @@ struct SettingsView: View {
             set: { newValue in
                 AgentHibernationSettings.setValues(enabled: newValue)
                 agentHibernationEnabled = newValue
+                refreshAgentHibernationPrerequisiteWarning()
             }
         )
     }
@@ -5592,6 +5594,12 @@ struct SettingsView: View {
                 agentHibernationMaxLiveTerminals = sanitized
             }
         )
+    }
+
+    private func refreshAgentHibernationPrerequisiteWarning() {
+        agentHibernationMissingHooksWarning = agentHibernationEnabled
+            ? AgentHibernationHookPrerequisites.missingHooksWarning()
+            : nil
     }
 
     private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
@@ -6832,6 +6840,13 @@ struct SettingsView: View {
                                 )
                         }
 
+                        if let agentHibernationMissingHooksWarning {
+                            SettingsCardDivider()
+
+                            SettingsCardNote(agentHibernationMissingHooksWarning)
+                                .accessibilityIdentifier("SettingsTerminalAgentHibernationMissingHooksWarning")
+                        }
+
                         SettingsCardDivider()
 
                         SettingsCardRow(
@@ -7929,6 +7944,7 @@ struct SettingsView: View {
             browserHistoryEntryCount = didLoadBrowserHistoryForSettings ? BrowserHistoryStore.shared.entries.count : 0
             draftState.syncBrowserInsecureHTTPAllowlistFromSavedValue(browserInsecureHTTPAllowlist)
             reloadWorkspaceTabColorSettings()
+            refreshAgentHibernationPrerequisiteWarning()
             refreshNotificationCustomSoundStatus()
             let target = SettingsWindowPresenter.consumePendingContentNavigationTarget()
                 ?? SettingsNavigationTarget(rawValue: selectedSettingsSectionRaw)
@@ -7951,6 +7967,9 @@ struct SettingsView: View {
         .onChange(of: browserInsecureHTTPAllowlist) { _, newValue in
             // Keep draft in sync with external changes unless the user has local unsaved edits.
             draftState.syncBrowserInsecureHTTPAllowlistFromSavedValue(newValue)
+        }
+        .onChange(of: agentHibernationEnabled) { _, _ in
+            refreshAgentHibernationPrerequisiteWarning()
         }
         .onReceive(BrowserHistoryStore.shared.$entries) { entries in
             guard BrowserHistoryStore.shared.isLoaded else { return }

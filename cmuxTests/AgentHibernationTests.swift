@@ -125,6 +125,81 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertEqual(notificationCount, 2)
     }
 
+    func testHookPrerequisitesWarnWhenNoHooksAreInstalled() throws {
+        let root = try temporaryDirectory(named: "cmux-agent-hibernation-hooks-missing")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let environment = ["HOME": root.path]
+
+        XCTAssertFalse(
+            AgentHibernationHookPrerequisites.hasAnyInstalledAgentHook(environment: environment)
+        )
+        let warning = try XCTUnwrap(
+            AgentHibernationHookPrerequisites.missingHooksWarning(environment: environment)
+        )
+        XCTAssertTrue(warning.contains("cmux hooks setup"))
+        XCTAssertTrue(
+            AgentHibernationHookPrerequisites.enablementResponse(environment: environment)
+                .hasPrefix("OK\nWARNING: ")
+        )
+    }
+
+    func testHookPrerequisitesDetectInstalledCodexHooks() throws {
+        let root = try temporaryDirectory(named: "cmux-agent-hibernation-codex-hooks")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let codexDirectory = root.appendingPathComponent(".codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexDirectory, withIntermediateDirectories: true)
+        try """
+        {
+          "hooks": {
+            "SessionStart": [
+              {
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "cmux_cli=\\"${CMUX_BUNDLED_CLI_PATH:-}\\"; if [ -n \\"$CMUX_SURFACE_ID\\" ]; then \\"$cmux_cli\\" hooks codex session-start; else echo '{}'; fi"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """.write(to: codexDirectory.appendingPathComponent("hooks.json", isDirectory: false), atomically: true, encoding: .utf8)
+
+        let environment = ["HOME": root.path]
+
+        XCTAssertTrue(
+            AgentHibernationHookPrerequisites.hasAnyInstalledAgentHook(environment: environment)
+        )
+        XCTAssertNil(
+            AgentHibernationHookPrerequisites.missingHooksWarning(environment: environment)
+        )
+        XCTAssertEqual(
+            AgentHibernationHookPrerequisites.enablementResponse(environment: environment),
+            "OK"
+        )
+    }
+
+    func testHookPrerequisitesDetectInstalledPluginHooks() throws {
+        let root = try temporaryDirectory(named: "cmux-agent-hibernation-plugin-hooks")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pluginDirectory = root
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("opencode", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+        try FileManager.default.createDirectory(at: pluginDirectory, withIntermediateDirectories: true)
+        try """
+        // cmux-opencode-session-plugin-marker v1
+        export default function cmuxSessionPlugin() {}
+        """.write(to: pluginDirectory.appendingPathComponent("cmux-session.js", isDirectory: false), atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(
+            AgentHibernationHookPrerequisites.hasAnyInstalledAgentHook(
+                environment: ["HOME": root.path]
+            )
+        )
+    }
+
     func testPlannerOnlySelectsIdleUnprotectedExcessLiveAgents() {
         let workspaceId = UUID()
         let now: TimeInterval = 1_000
@@ -1005,5 +1080,12 @@ final class AgentHibernationTests: XCTestCase {
             capturedAt: nil,
             source: nil
         )
+    }
+
+    private func temporaryDirectory(named prefix: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 }

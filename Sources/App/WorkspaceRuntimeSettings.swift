@@ -340,6 +340,198 @@ enum AgentHibernationSettings {
     }
 }
 
+enum AgentHibernationHookPrerequisites {
+    struct HookProbe: Sendable {
+        let configDir: String
+        let configFile: String
+        let envOverride: String?
+        let envOverrideSubpath: String?
+        let markers: [String]
+    }
+
+    typealias FileExists = (String) -> Bool
+    typealias ReadFile = (String) -> String?
+
+    private static let probes: [HookProbe] = [
+        HookProbe(
+            configDir: ".codex",
+            configFile: "hooks.json",
+            envOverride: "CODEX_HOME",
+            envOverrideSubpath: nil,
+            markers: ["hooks codex", "codex-hook"]
+        ),
+        HookProbe(
+            configDir: ".grok/hooks",
+            configFile: "cmux-session.json",
+            envOverride: "GROK_HOME",
+            envOverrideSubpath: "hooks",
+            markers: ["cmux-grok-hook-v2", "hooks grok"]
+        ),
+        HookProbe(
+            configDir: ".config/opencode",
+            configFile: "plugins/cmux-session.js",
+            envOverride: "OPENCODE_CONFIG_DIR",
+            envOverrideSubpath: nil,
+            markers: ["cmux-opencode-session-plugin-marker"]
+        ),
+        HookProbe(
+            configDir: ".pi/agent",
+            configFile: "extensions/cmux-session.ts",
+            envOverride: "PI_CODING_AGENT_DIR",
+            envOverrideSubpath: nil,
+            markers: ["cmux-pi-session-extension-marker"]
+        ),
+        HookProbe(
+            configDir: ".config/amp",
+            configFile: "plugins/cmux-session.ts",
+            envOverride: nil,
+            envOverrideSubpath: nil,
+            markers: ["cmux-amp-session-extension-marker"]
+        ),
+        HookProbe(
+            configDir: ".cursor",
+            configFile: "hooks.json",
+            envOverride: nil,
+            envOverrideSubpath: nil,
+            markers: ["hooks cursor"]
+        ),
+        HookProbe(
+            configDir: ".gemini",
+            configFile: "settings.json",
+            envOverride: nil,
+            envOverrideSubpath: nil,
+            markers: ["hooks gemini"]
+        ),
+        HookProbe(
+            configDir: ".gemini/config",
+            configFile: "hooks.json",
+            envOverride: nil,
+            envOverrideSubpath: nil,
+            markers: ["cmux-antigravity-hook-v2", "hooks antigravity"]
+        ),
+        HookProbe(
+            configDir: ".rovodev",
+            configFile: "config.yml",
+            envOverride: nil,
+            envOverrideSubpath: nil,
+            markers: ["hooks rovodev"]
+        ),
+        HookProbe(
+            configDir: ".hermes",
+            configFile: "config.yaml",
+            envOverride: "HERMES_HOME",
+            envOverrideSubpath: nil,
+            markers: ["hooks hermes-agent", "cmux hooks hermes-agent begin"]
+        ),
+        HookProbe(
+            configDir: ".copilot",
+            configFile: "config.json",
+            envOverride: "COPILOT_HOME",
+            envOverrideSubpath: nil,
+            markers: ["hooks copilot"]
+        ),
+        HookProbe(
+            configDir: ".codebuddy",
+            configFile: "settings.json",
+            envOverride: "CODEBUDDY_CONFIG_DIR",
+            envOverrideSubpath: nil,
+            markers: ["hooks codebuddy"]
+        ),
+        HookProbe(
+            configDir: ".factory",
+            configFile: "settings.json",
+            envOverride: nil,
+            envOverrideSubpath: nil,
+            markers: ["hooks factory"]
+        ),
+        HookProbe(
+            configDir: ".qoder",
+            configFile: "settings.json",
+            envOverride: "QODER_CONFIG_DIR",
+            envOverrideSubpath: nil,
+            markers: ["hooks qoder"]
+        ),
+    ]
+
+    static func hasAnyInstalledAgentHook(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileExists: FileExists = { FileManager.default.fileExists(atPath: $0) },
+        readFile: ReadFile = { try? String(contentsOfFile: $0, encoding: .utf8) }
+    ) -> Bool {
+        probes.contains { probe in
+            let path = hookConfigPath(for: probe, environment: environment)
+            guard fileExists(path), let contents = readFile(path) else { return false }
+            return probe.markers.contains { contents.contains($0) }
+        }
+    }
+
+    static func missingHooksWarning(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileExists: FileExists = { FileManager.default.fileExists(atPath: $0) },
+        readFile: ReadFile = { try? String(contentsOfFile: $0, encoding: .utf8) }
+    ) -> String? {
+        guard !hasAnyInstalledAgentHook(
+            environment: environment,
+            fileExists: fileExists,
+            readFile: readFile
+        ) else { return nil }
+
+        return String(
+            localized: "settings.terminal.agentHibernation.warning.missingHooks",
+            defaultValue: "No installed cmux agent hooks were found. Agent Hibernation only affects agents with captured session hooks or trusted resume bindings. Run `cmux hooks setup`, then restart your agent sessions."
+        )
+    }
+
+    static func enablementResponse(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileExists: FileExists = { FileManager.default.fileExists(atPath: $0) },
+        readFile: ReadFile = { try? String(contentsOfFile: $0, encoding: .utf8) }
+    ) -> String {
+        guard let warning = missingHooksWarning(
+            environment: environment,
+            fileExists: fileExists,
+            readFile: readFile
+        ) else { return "OK" }
+
+        return "OK\nWARNING: \(warning)"
+    }
+
+    private static func hookConfigPath(
+        for probe: HookProbe,
+        environment: [String: String]
+    ) -> String {
+        let configDir: URL
+        if let envOverride = probe.envOverride,
+           let rawValue = normalizedEnvironmentValue(environment[envOverride]) {
+            var url = URL(
+                fileURLWithPath: NSString(string: rawValue).expandingTildeInPath,
+                isDirectory: true
+            )
+            if let subpath = probe.envOverrideSubpath,
+               !subpath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                url.appendPathComponent(subpath, isDirectory: true)
+            }
+            configDir = url
+        } else {
+            let home = normalizedEnvironmentValue(environment["HOME"]) ?? NSHomeDirectory()
+            configDir = URL(fileURLWithPath: home, isDirectory: true)
+                .appendingPathComponent(probe.configDir, isDirectory: true)
+        }
+
+        return configDir
+            .appendingPathComponent(probe.configFile, isDirectory: false)
+            .path
+    }
+
+    private static func normalizedEnvironmentValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+}
+
 enum AgentHibernationTrackingGate {
     private static let lock = NSLock()
     private static var enabled = AgentHibernationSettings.isEnabled()

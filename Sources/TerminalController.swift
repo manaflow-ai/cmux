@@ -19604,7 +19604,7 @@ class TerminalController {
         switch subcommand {
         case "on", "enable", "enabled", "true":
             AgentHibernationSettings.setValues(enabled: true)
-            return "OK"
+            return AgentHibernationHookPrerequisites.enablementResponse()
         case "off", "disable", "disabled", "false":
             AgentHibernationSettings.setValues(enabled: false)
             return "OK"

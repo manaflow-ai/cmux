@@ -20206,8 +20206,18 @@ struct CMUXCLI {
         }
 
         if jsonOutput {
-            let ok = response == "OK"
+            let lines = response
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .map(String.init)
+            let ok = lines.first == "OK"
             var fallback: [String: Any] = ["ok": ok]
+            let warnings = lines.dropFirst().compactMap { line -> String? in
+                guard line.hasPrefix("WARNING: ") else { return nil }
+                return String(line.dropFirst("WARNING: ".count))
+            }
+            if !warnings.isEmpty {
+                fallback["warnings"] = Array(warnings)
+            }
             if !ok {
                 fallback["message"] = response
             }
