@@ -5,7 +5,7 @@ import Bonsplit
 /// Bonsplit tab strip rendered underneath them.
 enum BonsplitTabBarPassThrough {
     static func isPassThroughPointerEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        WindowInputRoutingContext.allowsPortalPointerHitTesting(eventType: eventType)
+        WindowInputRoutingContext.allowsTabBarPassThroughHitTesting(eventType: eventType)
     }
 
     static func titlebarInteractionBandMinY(in window: NSWindow) -> CGFloat {

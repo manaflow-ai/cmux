@@ -332,6 +332,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
         XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.applicationDefined))
         XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.systemDefined))
         XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.periodic))
+        XCTAssertFalse(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.scrollWheel))
     }
 
     func testWindowInputRoutingContextRejectsKeyboardForPointerOnlyRoutes() {
@@ -345,6 +346,14 @@ final class PortalTabDragRoutingTests: XCTestCase {
         XCTAssertFalse(context.allowsDragPasteboardLookup)
         XCTAssertFalse(context.allowsBrowserPortalDragRouting)
         XCTAssertFalse(context.allowsTerminalPortalDragRouting)
+    }
+
+    func testWindowInputRoutingContextKeepsScrollOutOfTabBarPassThrough() {
+        let context = WindowInputRoutingContext(eventType: .scrollWheel)
+
+        XCTAssertTrue(context.allowsPortalPointerHitTesting)
+        XCTAssertFalse(context.allowsTabBarPassThroughHitTesting)
+        XCTAssertFalse(context.allowsDragPasteboardLookup)
     }
 
     func testTerminalPaneDropTargetDefersToUnderlyingTabStrip() {

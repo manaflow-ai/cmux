@@ -141,6 +141,20 @@ struct WindowInputRoutingContext: Equatable {
         }
     }
 
+    var allowsTabBarPassThroughHitTesting: Bool {
+        switch eventKind {
+        case .noEvent,
+             .pointerDown,
+             .pointerDrag,
+             .pointerUp,
+             .pointerHover,
+             .appKitRouting:
+            return true
+        case .keyboard, .scroll, .other:
+            return false
+        }
+    }
+
     var allowsPaneDropHitTesting: Bool {
         switch eventKind {
         case .pointerDrag,
@@ -197,6 +211,10 @@ struct WindowInputRoutingContext: Equatable {
 
     static func allowsPortalPointerHitTesting(eventType: NSEvent.EventType?) -> Bool {
         WindowInputRoutingContext(eventType: eventType).allowsPortalPointerHitTesting
+    }
+
+    static func allowsTabBarPassThroughHitTesting(eventType: NSEvent.EventType?) -> Bool {
+        WindowInputRoutingContext(eventType: eventType).allowsTabBarPassThroughHitTesting
     }
 
     static func allowsPaneDropHitTesting(eventType: NSEvent.EventType?) -> Bool {

@@ -16640,7 +16640,7 @@ private extension NSWindow {
         return webView
     }
 
-    private static func cmuxIsPointerDownEvent(_ event: NSEvent) -> Bool {
+    private static func cmuxEventAllowsFirstResponderHitTesting(_ event: NSEvent) -> Bool {
         WindowInputRoutingContext(event: event).allowsFirstResponderHitTesting
     }
 
@@ -16655,7 +16655,7 @@ private extension NSWindow {
     }
 
     private static func cmuxPointerHitWebView(in window: NSWindow, event: NSEvent) -> CmuxWebView? {
-        guard cmuxIsPointerDownEvent(event) else { return nil }
+        guard cmuxEventAllowsFirstResponderHitTesting(event) else { return nil }
         guard cmuxPointerEventTargetsWindow(event, window) else { return nil }
         if let portalWebView = BrowserWindowPortalRegistry.webViewAtWindowPoint(
             event.locationInWindow,
@@ -16670,7 +16670,7 @@ private extension NSWindow {
     }
 
     private static func cmuxPointerHitGhosttyView(in window: NSWindow, event: NSEvent) -> GhosttyNSView? {
-        guard cmuxIsPointerDownEvent(event) else { return nil }
+        guard cmuxEventAllowsFirstResponderHitTesting(event) else { return nil }
         guard cmuxPointerEventTargetsWindow(event, window) else { return nil }
         guard let hitView = cmuxHitViewForCurrentEvent(in: window, event: event) else {
             return nil
