@@ -24016,11 +24016,11 @@ function lastAssistantMessage(event: AgentEndEvent): string | undefined {
   return undefined;
 }
 
-function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): void {
+async function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): Promise<void> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
   if (!process.env.CMUX_SURFACE_ID) return;
 
-  const sessionId = firstString(ctx.sessionManager.getSessionId());
+  const sessionId = firstString(await Promise.resolve(ctx.sessionManager.getSessionId()));
   if (!sessionId) return;
 
   const cwd = firstString(ctx.cwd, process.cwd()) || process.cwd();
@@ -24045,15 +24045,15 @@ function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<strin
 
 export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
-    sendHook("session-start", ctx);
+    await sendHook("session-start", ctx);
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
-    sendHook("prompt-submit", ctx, { prompt: event.prompt });
+    await sendHook("prompt-submit", ctx, { prompt: event.prompt });
   });
 
   pi.on("agent_end", async (event, ctx) => {
-    sendHook("stop", ctx, { last_assistant_message: lastAssistantMessage(event) });
+    await sendHook("stop", ctx, { last_assistant_message: lastAssistantMessage(event) });
   });
 }
 """#
