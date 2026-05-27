@@ -7100,16 +7100,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let workspace = context.tabManager.selectedWorkspace
-            ?? context.tabManager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+            ?? context.tabManager.addWorkspace(select: shouldBringToFront, autoWelcomeIfNeeded: false)
         let terminalPanel = workspace.focusedTerminalPanel
             ?? workspace.panels.values.compactMap { $0 as? TerminalPanel }.first
-            ?? workspace.newTerminalSurfaceInFocusedPane(focus: true)
+            ?? workspace.newTerminalSurfaceInFocusedPane(focus: shouldBringToFront)
         guard let terminalPanel else { return false }
 
 #if DEBUG
         cmuxDebugLog("textURL.paste source=\(debugSource) workspace=\(workspace.id.uuidString.prefix(8)) surface=\(terminalPanel.id.uuidString.prefix(8)) chars=\(text.count)")
 #endif
-        workspace.focusPanel(terminalPanel.id)
+        if shouldBringToFront {
+            workspace.focusPanel(terminalPanel.id)
+        }
         sendTextWhenReady(text, to: workspace, preferredPanelId: terminalPanel.id)
         return true
     }
