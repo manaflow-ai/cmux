@@ -56,8 +56,9 @@ final class SplitViewController {
     /// Callback for container frame changes that need to synchronize public layout state.
     @ObservationIgnored var onContainerFrameChange: ((CGRect) -> Void)?
 
-    /// Flag to prevent notification loops during external updates
-    var isExternalUpdateInProgress: Bool = false
+    /// Programmatic geometry updates can trigger a follow-up NSSplitView resize notification.
+    /// Suppress only the notification whose tree still matches that external write.
+    var externalUpdateSuppressedTree: ExternalTreeNode?
 
     /// Timestamp of last geometry notification for debouncing
     var lastGeometryNotificationTime: TimeInterval = 0

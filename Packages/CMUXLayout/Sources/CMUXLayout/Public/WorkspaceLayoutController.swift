@@ -1200,20 +1200,13 @@ public final class WorkspaceLayoutController {
     public func setDividerPosition(_ position: CGFloat, forSplit splitId: UUID, fromExternal: Bool = false) -> Bool {
         guard let split = internalController.findSplit(splitId) else { return false }
 
-        if fromExternal {
-            internalController.isExternalUpdateInProgress = true
-        }
-
         // Clamp position to valid range
         let clampedPosition = min(max(position, 0.1), 0.9)
         split.dividerPosition = clampedPosition
         syncCanvasDocumentWithCurrentLayout()
 
         if fromExternal {
-            // Use a slight delay to allow the UI to update before re-enabling notifications
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                self?.internalController.isExternalUpdateInProgress = false
-            }
+            internalController.externalUpdateSuppressedTree = treeSnapshot()
         }
 
         return true
@@ -1227,7 +1220,13 @@ public final class WorkspaceLayoutController {
     /// Notify geometry change to delegate (internal use)
     /// - Parameter isDragging: Whether the change is due to active divider dragging
     internal func notifyGeometryChange(isDragging: Bool = false) {
-        guard !internalController.isExternalUpdateInProgress else { return }
+        let currentTree = treeSnapshot()
+        if let suppressedTree = internalController.externalUpdateSuppressedTree {
+            internalController.externalUpdateSuppressedTree = nil
+            if suppressedTree == currentTree {
+                return
+            }
+        }
 
         // If dragging, check if delegate wants notifications during drag
         if isDragging {

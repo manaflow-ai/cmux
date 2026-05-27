@@ -125,6 +125,36 @@ final class CMUXLayoutTests: XCTestCase {
         }
     }
 
+    private final class GeometryDelegateSpy: WorkspaceLayoutDelegate {
+        var snapshots: [PaneLayoutSnapshot] = []
+
+        func splitTabBar(_ controller: WorkspaceLayoutController, didChangeGeometry snapshot: PaneLayoutSnapshot) {
+            snapshots.append(snapshot)
+        }
+    }
+
+    @MainActor
+    func testExternalDividerUpdateSuppressesOnlyMatchingFollowUpGeometryNotification() {
+        let controller = WorkspaceLayoutController()
+        XCTAssertNotNil(controller.splitPane(orientation: .horizontal))
+
+        guard case .split(let splitNode) = controller.treeSnapshot(),
+              let splitId = UUID(uuidString: splitNode.id) else {
+            XCTFail("Expected split tree after splitting initial pane")
+            return
+        }
+
+        let delegate = GeometryDelegateSpy()
+        controller.delegate = delegate
+
+        XCTAssertTrue(controller.setDividerPosition(0.25, forSplit: splitId, fromExternal: true))
+        controller.notifyGeometryChange()
+        XCTAssertEqual(delegate.snapshots.count, 0)
+
+        controller.notifyGeometryChange()
+        XCTAssertEqual(delegate.snapshots.count, 1)
+    }
+
     func testExternalSplitNodeNormalizesInvalidInitializerState() {
         let first = externalPaneNode(id: "first")
         let second = externalPaneNode(id: "second")
