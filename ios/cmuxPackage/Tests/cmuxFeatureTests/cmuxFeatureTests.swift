@@ -3974,6 +3974,10 @@ private actor ScriptedTransportResponses {
         return responses
     }
 
+    func hasRemainingFrames() -> Bool {
+        !frames.isEmpty
+    }
+
     func sentRequests() throws -> [RecordedRPCRequest] {
         try sentPayloads.map { payload in
             let request = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
@@ -4080,6 +4084,9 @@ private actor ScriptedTransport: CmxByteTransport {
         if isClosed {
             return nil
         }
+        guard await responses.hasRemainingFrames() else {
+            return nil
+        }
         return await withCheckedContinuation { continuation in
             receiveWaiters.append(continuation)
         }
@@ -4156,6 +4163,9 @@ private actor FailingRouteTransport: CmxByteTransport {
             return pendingResponses.removeFirst()
         }
         if isClosed {
+            return nil
+        }
+        guard await responses.hasRemainingFrames() else {
             return nil
         }
         return await withCheckedContinuation { continuation in
