@@ -9,6 +9,8 @@ class UpdateDriver: NSObject, SPUUserDriver {
     private var pendingCheckTransition: DispatchWorkItem?
     private var checkTimeoutWorkItem: DispatchWorkItem?
     private var lastFeedURLString: String?
+    private var extractionTimeoutWorkItem: DispatchWorkItem?
+    private var extractionStartDate: Date?
 
     init(viewModel: UpdateViewModel, hostBundle _: Bundle) {
         self.viewModel = viewModel
@@ -117,21 +119,23 @@ class UpdateDriver: NSObject, SPUUserDriver {
 
     func showDownloadDidStartExtractingUpdate() {
         UpdateLogStore.shared.append("show extraction started")
-        setState(.extracting(.init(progress: 0)))
+        beginExtraction(progress: 0)
     }
 
     func showExtractionReceivedProgress(_ progress: Double) {
         UpdateLogStore.shared.append(String(format: "show extraction progress: %.2f", progress))
-        setState(.extracting(.init(progress: progress)))
+        beginExtraction(progress: progress)
     }
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
-        UpdateLogStore.shared.append("show ready to install")
+        let elapsed = extractionStartDate.map { String(format: "%.1fs", Date().timeIntervalSince($0)) } ?? "unknown"
+        UpdateLogStore.shared.append("show ready to install (extractionElapsed=\(elapsed))")
         reply(.install)
     }
 
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
-        UpdateLogStore.shared.append("show installing update")
+        let elapsed = extractionStartDate.map { String(format: "%.1fs", Date().timeIntervalSince($0)) } ?? "unknown"
+        UpdateLogStore.shared.append("show installing update (appTerminated=\(applicationTerminated), extractionElapsed=\(elapsed))")
         setState(.installing(.init(
             retryTerminatingApplication: retryTerminatingApplication,
             dismiss: { [weak viewModel] in
@@ -222,6 +226,9 @@ class UpdateDriver: NSObject, SPUUserDriver {
             checkTimeoutWorkItem?.cancel()
             checkTimeoutWorkItem = nil
             lastCheckStart = nil
+            extractionTimeoutWorkItem?.cancel()
+            extractionTimeoutWorkItem = nil
+            extractionStartDate = nil
             applyState(newState)
         }
     }
@@ -234,6 +241,61 @@ class UpdateDriver: NSObject, SPUUserDriver {
         }
         checkTimeoutWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + UpdateTiming.checkTimeoutDuration, execute: workItem)
+    }
+
+    private func beginExtraction(progress: Double) {
+        runOnMain { [weak self] in
+            guard let self else { return }
+            pendingCheckTransition?.cancel()
+            pendingCheckTransition = nil
+            checkTimeoutWorkItem?.cancel()
+            checkTimeoutWorkItem = nil
+            lastCheckStart = nil
+            extractionTimeoutWorkItem?.cancel()
+            extractionTimeoutWorkItem = nil
+            if extractionStartDate == nil {
+                extractionStartDate = Date()
+            }
+            let cancel: () -> Void = { [weak self] in
+                self?.cancelExtraction()
+            }
+            applyState(.extracting(.init(progress: progress, cancel: cancel)))
+            scheduleExtractionTimeout()
+        }
+    }
+
+    private func scheduleExtractionTimeout() {
+        extractionTimeoutWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard case .extracting = self.viewModel.state else { return }
+            let elapsed = self.extractionStartDate.map { String(format: "%.0fs", Date().timeIntervalSince($0)) } ?? "unknown"
+            UpdateLogStore.shared.append("extraction timed out after \(elapsed)")
+            self.setState(.error(.init(
+                error: NSError(
+                    domain: "cmux.update",
+                    code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: String(localized: "update.error.extractionStalled", defaultValue: "The update appears to be stuck. Try checking for updates again.")]
+                ),
+                retry: { [weak viewModel = self.viewModel] in
+                    viewModel?.state = .idle
+                    DispatchQueue.main.async {
+                        guard let delegate = NSApp.delegate as? AppDelegate else { return }
+                        delegate.checkForUpdates(nil)
+                    }
+                },
+                dismiss: { [weak viewModel = self.viewModel] in
+                    viewModel?.state = .idle
+                }
+            )))
+        }
+        extractionTimeoutWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + UpdateTiming.extractionTimeoutDuration, execute: workItem)
+    }
+
+    private func cancelExtraction() {
+        UpdateLogStore.shared.append("extraction cancelled by user")
+        setState(.idle)
     }
 
     private func applyState(_ newState: UpdateState) {

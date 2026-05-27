@@ -457,6 +457,8 @@ enum UpdateState: Equatable {
             available.reply(.dismiss)
         case .downloading(let downloading):
             downloading.cancel()
+        case .extracting(let extracting):
+            extracting.cancel()
         case .notFound(let notFound):
             notFound.acknowledgement()
         case .error(let err):
@@ -607,6 +609,7 @@ enum UpdateState: Equatable {
 
     struct Extracting {
         let progress: Double
+        let cancel: () -> Void
     }
 
     struct Installing {

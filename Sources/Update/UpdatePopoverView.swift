@@ -39,7 +39,7 @@ struct UpdatePopoverView: View {
                 DownloadingView(download: download, dismiss: dismiss)
 
             case .extracting(let extracting):
-                ExtractingView(extracting: extracting)
+                ExtractingView(extracting: extracting, dismiss: dismiss)
 
             case .installing(let installing):
                 InstallingView(installing: installing, dismiss: dismiss)
@@ -351,17 +351,30 @@ fileprivate struct DownloadingView: View {
 
 fileprivate struct ExtractingView: View {
     let extracting: UpdateState.Extracting
+    let dismiss: DismissAction
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(String(localized: "update.popover.preparingUpdate", defaultValue: "Preparing Update"))
-                .font(.system(size: 13, weight: .semibold))
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(String(localized: "update.popover.preparingUpdate", defaultValue: "Preparing Update"))
+                    .font(.system(size: 13, weight: .semibold))
 
-            VStack(alignment: .leading, spacing: 6) {
-                ProgressView(value: min(1, max(0, extracting.progress)), total: 1.0)
-                Text(String(format: "%.0f%%", min(1, max(0, extracting.progress)) * 100))
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    ProgressView(value: min(1, max(0, extracting.progress)), total: 1.0)
+                    Text(String(format: "%.0f%%", min(1, max(0, extracting.progress)) * 100))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            HStack {
+                Spacer()
+                Button(String(localized: "common.cancel", defaultValue: "Cancel")) {
+                    extracting.cancel()
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                .controlSize(.small)
             }
         }
         .padding(16)

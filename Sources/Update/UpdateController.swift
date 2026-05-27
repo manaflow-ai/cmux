@@ -99,6 +99,7 @@ class UpdateController {
     /// Start the updater. If startup fails, the error is shown via the custom UI.
     func startUpdaterIfNeeded() {
         guard !didStartUpdater else { return }
+        cleanStaleInstallationCache()
         ensureSparkleInstallationCache()
 #if DEBUG
         // Keep the permission-related defaults resettable for UI tests even though the
@@ -335,6 +336,29 @@ class UpdateController {
             try? data.write(to: url)
         }
 #endif
+    }
+
+    private func cleanStaleInstallationCache() {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return }
+        guard let cachesURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
+
+        let installURL = cachesURL
+            .appendingPathComponent(bundleIdentifier)
+            .appendingPathComponent("org.sparkle-project.Sparkle")
+            .appendingPathComponent("Installation")
+
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(at: installURL, includingPropertiesForKeys: nil),
+              !contents.isEmpty else { return }
+
+        for item in contents {
+            do {
+                try fm.removeItem(at: item)
+                UpdateLogStore.shared.append("cleaned stale installation cache: \(item.lastPathComponent)")
+            } catch {
+                UpdateLogStore.shared.append("failed to clean installation cache item \(item.lastPathComponent): \(error)")
+            }
+        }
     }
 
     private func ensureSparkleInstallationCache() {
