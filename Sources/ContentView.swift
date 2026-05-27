@@ -2502,12 +2502,12 @@ struct ContentView: View {
             return
         }
 
-        sidebarSelectionState.selection = .tabs
-        workspace.clearSplitZoom()
         guard workspace.openOrFocusRightSidebarToolSurfaceInFocusedPane(mode: mode, focus: true) != nil else {
             NSSound.beep()
             return
         }
+        sidebarSelectionState.selection = .tabs
+        workspace.clearSplitZoom()
     }
 
     private func openFilePreviewFromSidebar(filePath: String) {

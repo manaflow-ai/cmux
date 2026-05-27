@@ -14152,6 +14152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             switch builtIn {
             case .newWorkspace:
                 if let cmuxConfigStore = context.cmuxConfigStore,
+                   cmuxConfigStore.resolvedNewWorkspaceAction() == nil,
                    let workspaceDefinition = cmuxConfigStore.resolvedNewWorkspaceDefinition() {
                     let rawCwd = context.tabManager.selectedWorkspace?.currentDirectory
                     let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
