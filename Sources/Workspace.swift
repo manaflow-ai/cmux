@@ -17649,12 +17649,17 @@ extension Workspace: BonsplitDelegate {
                 NSSound.beep()
                 return
             }
-            _ = forkAgentConversationToNewTab(
+            // Beep on a silent failure (e.g. terminal surface creation rejected by the
+            // workspace) so the user gets the same feedback as the other guard paths in
+            // this action handler.
+            if forkAgentConversationToNewTab(
                 fromPanelId: panelId,
                 snapshot: snapshot,
                 anchorTabId: tab.id,
                 paneId: pane
-            )
+            ) == nil {
+                NSSound.beep()
+            }
         @unknown default:
             break
         }
