@@ -115,7 +115,6 @@ private final class CanvasIOSurfacePreviewRenderer: NSObject, MTKViewDelegate {
     private let device: MTLDevice?
     private let commandQueue: MTLCommandQueue?
     private let pipelineState: MTLRenderPipelineState?
-    private var surface: IOSurfaceRef?
     private var cachedTexture: MTLTexture?
     private var cachedSurfaceID: IOSurfaceID = 0
     private var cachedWidth = 0

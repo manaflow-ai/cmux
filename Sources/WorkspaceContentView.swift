@@ -705,6 +705,7 @@ private final class CanvasDragEventMonitorView: NSView {
 
 private struct CanvasPanEventMonitorLayer: NSViewRepresentable {
     var scrollPassthroughFrames: [CGRect]
+    var onCameraInteraction: (CanvasCameraInteractionEvent) -> Void
     var onPan: (CGSize) -> Void
     var onZoom: (Double, CGPoint) -> Void
     var onMagnify: (Double, CGPoint) -> Void
@@ -718,6 +719,7 @@ private struct CanvasPanEventMonitorLayer: NSViewRepresentable {
 
     func updateNSView(_ nsView: CanvasPanEventMonitorView, context: Context) {
         nsView.scrollPassthroughFrames = scrollPassthroughFrames
+        nsView.onCameraInteraction = onCameraInteraction
         nsView.onPan = onPan
         nsView.onZoom = onZoom
         nsView.onMagnify = onMagnify
@@ -732,6 +734,7 @@ private struct CanvasPanEventMonitorLayer: NSViewRepresentable {
 
 private final class CanvasPanEventMonitorView: NSView {
     var scrollPassthroughFrames: [CGRect] = []
+    var onCameraInteraction: ((CanvasCameraInteractionEvent) -> Void)?
     var onPan: ((CGSize) -> Void)?
     var onZoom: ((Double, CGPoint) -> Void)?
     var onMagnify: ((Double, CGPoint) -> Void)?
@@ -790,6 +793,7 @@ private final class CanvasPanEventMonitorView: NSView {
         case .otherMouseDown:
             guard event.buttonNumber == 2 else { return event }
             activeMiddlePanPointInWindow = event.locationInWindow
+            onCameraInteraction?(.began(.panning))
             return nil
         case .otherMouseDragged:
             guard event.buttonNumber == 2,
@@ -798,6 +802,7 @@ private final class CanvasPanEventMonitorView: NSView {
             }
             let currentPoint = event.locationInWindow
             activeMiddlePanPointInWindow = currentPoint
+            onCameraInteraction?(.changed(.panning))
             onPan?(
                 CGSize(
                     width: currentPoint.x - previousPoint.x,
@@ -811,10 +816,18 @@ private final class CanvasPanEventMonitorView: NSView {
                 return event
             }
             activeMiddlePanPointInWindow = nil
+            onCameraInteraction?(.ended)
             return nil
         case .scrollWheel:
             let delta = CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY)
-            guard abs(delta.width) > 0.01 || abs(delta.height) > 0.01 else { return event }
+            let hasDelta = abs(delta.width) > 0.01 || abs(delta.height) > 0.01
+            if !hasDelta {
+                if Self.isCameraGestureEnd(event) {
+                    onCameraInteraction?(.ended)
+                    return nil
+                }
+                return event
+            }
             let isMomentum = event.momentumPhase != [] && event.momentumPhase != .mayBegin
             let didEndMomentum = event.momentumPhase == .ended || event.momentumPhase == .cancelled
             let isCommandWheel = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
@@ -830,24 +843,72 @@ private final class CanvasPanEventMonitorView: NSView {
                 didEndMomentum: didEndMomentum
             ) {
             case .zoom:
+                onCameraInteraction?(Self.cameraInteractionUpdateEvent(for: event, phase: .zooming))
                 onZoom?(Double(delta.height), localPoint)
+                if Self.isCameraGestureEnd(event) {
+                    onCameraInteraction?(.ended)
+                }
                 return nil
             case .consume:
+                if Self.isCameraGestureEnd(event) {
+                    onCameraInteraction?(.ended)
+                }
                 return nil
             case .pan:
+                onCameraInteraction?(Self.cameraInteractionUpdateEvent(for: event, phase: .panning))
                 onPan?(delta)
+                if Self.isCameraGestureEnd(event) {
+                    onCameraInteraction?(.ended)
+                }
                 return nil
             }
         case .magnify:
-            guard abs(event.magnification) > 0.0001 else { return event }
+            guard abs(event.magnification) > 0.0001 else {
+                if Self.isCameraGestureEnd(event) {
+                    onCameraInteraction?(.ended)
+                    return nil
+                }
+                return event
+            }
+            onCameraInteraction?(Self.cameraInteractionUpdateEvent(for: event, phase: .zooming))
             onMagnify?(Double(event.magnification), localPoint)
+            if Self.isCameraGestureEnd(event) {
+                onCameraInteraction?(.ended)
+            }
             return nil
         case .smartMagnify:
+            onCameraInteraction?(.unphasedUpdate(.zooming))
             onSmartZoom?(localPoint)
             return nil
         default:
             return event
         }
+    }
+
+    private static func cameraInteractionUpdateEvent(
+        for event: NSEvent,
+        phase: CanvasInteractionPhase
+    ) -> CanvasCameraInteractionEvent {
+        let eventPhase = activeCameraEventPhase(for: event)
+        if eventPhase.contains(.began) || eventPhase.contains(.mayBegin) {
+            return .began(phase)
+        }
+        if eventPhase.contains(.changed) ||
+            eventPhase.contains(.stationary) ||
+            eventPhase.contains(.ended) ||
+            eventPhase.contains(.cancelled) {
+            return .changed(phase)
+        }
+        return .unphasedUpdate(phase)
+    }
+
+    private static func isCameraGestureEnd(_ event: NSEvent) -> Bool {
+        let eventPhase = activeCameraEventPhase(for: event)
+        return eventPhase.contains(.ended) || eventPhase.contains(.cancelled)
+    }
+
+    private static func activeCameraEventPhase(for event: NSEvent) -> NSEvent.Phase {
+        event.momentumPhase != [] ? event.momentumPhase : event.phase
     }
 
     deinit {
@@ -2209,8 +2270,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     @State private var canvasPreviewSnapshotRequests: Set<SurfaceID> = []
     @State private var canvasViewportPresentation = CanvasViewportPresentationState()
     @State private var canvasAnimationClockToken: UInt64 = 0
-    @State private var canvasCameraInteractionPhase: CanvasInteractionPhase = .idle
-    @State private var canvasCameraInteractionHoldFrames = 0
+    @State private var canvasCameraInteraction = CanvasCameraInteractionState()
 
     private let canvasPadding: CGFloat = 24
     private let canvasResizeEdgeHitSize: CGFloat = 8
@@ -2218,7 +2278,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     private let canvasHeaderActionHitWidth: CGFloat = 104
     private let minimumFreeformCardWidth: CGFloat = 240
     private let minimumFreeformCardHeight: CGFloat = 170
-    private let canvasCameraInteractionHoldFrameCount = 8
 
     private struct CanvasDragState {
         let baseFrame: PixelRect
@@ -2362,31 +2421,28 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         if activeCanvasDragItemID != nil {
             return .draggingSurface
         }
-        return canvasCameraInteractionPhase
+        return canvasCameraInteraction.phase
     }
 
-    private func markCanvasCameraInteraction(_ phase: CanvasInteractionPhase) {
-        switch phase {
-        case .panning, .zooming:
-            canvasCameraInteractionPhase = phase
-            canvasCameraInteractionHoldFrames = canvasCameraInteractionHoldFrameCount
-            canvasAnimationClockToken &+= 1
-        case .idle, .draggingSurface, .resizingSurface:
-            break
+    private func applyCanvasCameraInteraction(_ event: CanvasCameraInteractionEvent) {
+        let didEnd = canvasCameraInteraction.apply(event)
+        canvasAnimationClockToken &+= 1
+        if didEnd {
+            WorkspaceCanvasSurfaceMountManager.synchronizeAll()
         }
     }
 
     private func tickCanvasCameraInteractionHold() {
-        guard canvasCameraInteractionHoldFrames > 0 else { return }
-        canvasCameraInteractionHoldFrames -= 1
-        guard canvasCameraInteractionHoldFrames == 0 else { return }
-        canvasCameraInteractionPhase = .idle
-        WorkspaceCanvasSurfaceMountManager.synchronizeAll()
+        if canvasCameraInteraction.tickDisplayFrame() {
+            canvasAnimationClockToken &+= 1
+            WorkspaceCanvasSurfaceMountManager.synchronizeAll()
+        }
     }
 
     private func resetCanvasCameraInteraction() {
-        canvasCameraInteractionPhase = .idle
-        canvasCameraInteractionHoldFrames = 0
+        if canvasCameraInteraction.apply(.ended) {
+            WorkspaceCanvasSurfaceMountManager.synchronizeAll()
+        }
     }
 
     private func canvasViewport(_ items: [CanvasItem], activeItemID: LayoutItemID?) -> some View {
@@ -2474,7 +2530,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
                 CanvasAnimationFrameClockLayer(
                     token: canvasAnimationClockToken,
-                    isActive: canvasViewportPresentation.isAnimating || canvasCameraInteractionHoldFrames > 0,
+                    isActive: canvasViewportPresentation.isAnimating || canvasCameraInteraction.needsFrameClock,
                     onFrame: tickCanvasViewportAnimation
                 )
                 .frame(width: 1, height: 1)
@@ -2483,9 +2539,11 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
                 CanvasPanEventMonitorLayer(
                     scrollPassthroughFrames: scrollPassthroughFrames,
+                    onCameraInteraction: { event in
+                        applyCanvasCameraInteraction(event)
+                    },
                     onPan: { delta in
                         parkCanvasNativeSurfaces(in: presentation)
-                        markCanvasCameraInteraction(.panning)
                         let baseViewport = displayedCanvasViewport()
                         cancelCanvasViewportAnimation(stableViewport: baseViewport)
                         controller.setCanvasViewport(baseViewport)
@@ -2499,7 +2557,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                     },
                     onZoom: { delta, anchor in
                         parkCanvasNativeSurfaces(in: presentation)
-                        markCanvasCameraInteraction(.zooming)
                         let baseViewport = displayedCanvasViewport()
                         cancelCanvasViewportAnimation(stableViewport: baseViewport)
                         controller.setCanvasViewport(baseViewport)
@@ -2513,7 +2570,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                     },
                     onMagnify: { magnification, anchor in
                         parkCanvasNativeSurfaces(in: presentation)
-                        markCanvasCameraInteraction(.zooming)
                         let baseViewport = displayedCanvasViewport()
                         cancelCanvasViewportAnimation(stableViewport: baseViewport)
                         controller.setCanvasViewport(baseViewport)
@@ -2527,7 +2583,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                     },
                     onSmartZoom: { anchor in
                         parkCanvasNativeSurfaces(in: presentation)
-                        markCanvasCameraInteraction(.zooming)
                         let baseViewport = displayedCanvasViewport()
                         cancelCanvasViewportAnimation(stableViewport: baseViewport)
                         controller.setCanvasViewport(baseViewport)

@@ -329,11 +329,17 @@ struct UnifiedPaneDropDelegate: DropDelegate {
     @Binding var activeDropZone: DropZone?
     @Binding var dropLifecycle: PaneDropLifecycle
 
-    // Calculate zone based on position within the view
-    private func zoneForLocation(_ location: CGPoint) -> DropZone {
+    static func edgeDropZoneSize(for length: CGFloat) -> CGFloat {
+        guard length.isFinite, length > 1 else { return 0 }
         let edgeRatio: CGFloat = 0.25
-        let horizontalEdge = max(80, size.width * edgeRatio)
-        let verticalEdge = max(80, size.height * edgeRatio)
+        let preferredEdge = max(80, length * edgeRatio)
+        let minimumCenter = min(44, max(1, length * 0.34))
+        return min(preferredEdge, max(0, (length - minimumCenter) / 2))
+    }
+
+    static func zone(forLocation location: CGPoint, in size: CGSize) -> DropZone {
+        let horizontalEdge = edgeDropZoneSize(for: size.width)
+        let verticalEdge = edgeDropZoneSize(for: size.height)
 
         // Check edges first (left/right take priority at corners)
         if location.x < horizontalEdge {
@@ -347,6 +353,41 @@ struct UnifiedPaneDropDelegate: DropDelegate {
         } else {
             return .center
         }
+    }
+
+    static func adjacentPaneMoveZone(
+        draggedTabKind: String,
+        sourcePaneId: PaneID,
+        targetPaneId: PaneID,
+        defaultZone: DropZone,
+        adjacentPane: (PaneID, NavigationDirection) -> PaneID?
+    ) -> DropZone? {
+        guard draggedTabKind == "terminal",
+              sourcePaneId != targetPaneId else {
+            return nil
+        }
+        if defaultZone == .left,
+           adjacentPane(sourcePaneId, .right) == targetPaneId {
+            return .center
+        }
+        if defaultZone == .right,
+           adjacentPane(sourcePaneId, .left) == targetPaneId {
+            return .center
+        }
+        if defaultZone == .top,
+           adjacentPane(sourcePaneId, .down) == targetPaneId {
+            return .center
+        }
+        if defaultZone == .bottom,
+           adjacentPane(sourcePaneId, .up) == targetPaneId {
+            return .center
+        }
+        return nil
+    }
+
+    // Calculate zone based on position within the view
+    private func zoneForLocation(_ location: CGPoint) -> DropZone {
+        Self.zone(forLocation: location, in: size)
     }
 
     private func effectiveZone(for info: DropInfo) -> DropZone {
@@ -377,17 +418,14 @@ struct UnifiedPaneDropDelegate: DropDelegate {
               sourcePaneId != pane.id else {
             return nil
         }
-        if defaultZone == .left,
-           layoutController.adjacentPane(to: sourcePaneId, direction: .right) == pane.id {
-            // Preserve the outer edge as a split affordance while treating the shared edge
-            // between adjacent panes as "drop into this pane".
-            return .center
+        return Self.adjacentPaneMoveZone(
+            draggedTabKind: draggedTab.kind ?? "",
+            sourcePaneId: sourcePaneId,
+            targetPaneId: pane.id,
+            defaultZone: defaultZone
+        ) { paneID, direction in
+            layoutController.adjacentPane(to: paneID, direction: direction)
         }
-        if defaultZone == .right,
-           layoutController.adjacentPane(to: sourcePaneId, direction: .left) == pane.id {
-            return .center
-        }
-        return nil
     }
 
     func performDrop(info: DropInfo) -> Bool {

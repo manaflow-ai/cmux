@@ -2043,6 +2043,79 @@ final class CMUXLayoutTests: XCTestCase {
         )
     }
 
+    func testPaneDropZoneKeepsCenterReachableInNarrowPanes() {
+        let size = CGSize(width: 100, height: 100)
+
+        XCTAssertEqual(
+            UnifiedPaneDropDelegate.zone(forLocation: CGPoint(x: 50, y: 50), in: size),
+            .center
+        )
+        XCTAssertEqual(
+            UnifiedPaneDropDelegate.zone(forLocation: CGPoint(x: 3, y: 50), in: size),
+            .left
+        )
+        XCTAssertEqual(
+            UnifiedPaneDropDelegate.zone(forLocation: CGPoint(x: 97, y: 50), in: size),
+            .right
+        )
+        XCTAssertEqual(
+            UnifiedPaneDropDelegate.zone(forLocation: CGPoint(x: 50, y: 3), in: size),
+            .top
+        )
+        XCTAssertEqual(
+            UnifiedPaneDropDelegate.zone(forLocation: CGPoint(x: 50, y: 97), in: size),
+            .bottom
+        )
+    }
+
+    func testAdjacentPaneMoveZoneMergesOnSharedVerticalEdges() {
+        let source = PaneID()
+        let targetBelow = PaneID()
+        let targetAbove = PaneID()
+
+        func adjacentPane(_ paneID: PaneID, _ direction: NavigationDirection) -> PaneID? {
+            guard paneID == source else { return nil }
+            switch direction {
+            case .down:
+                return targetBelow
+            case .up:
+                return targetAbove
+            case .left, .right:
+                return nil
+            }
+        }
+
+        XCTAssertEqual(
+            UnifiedPaneDropDelegate.adjacentPaneMoveZone(
+                draggedTabKind: "terminal",
+                sourcePaneId: source,
+                targetPaneId: targetBelow,
+                defaultZone: .top,
+                adjacentPane: adjacentPane
+            ),
+            .center
+        )
+        XCTAssertEqual(
+            UnifiedPaneDropDelegate.adjacentPaneMoveZone(
+                draggedTabKind: "terminal",
+                sourcePaneId: source,
+                targetPaneId: targetAbove,
+                defaultZone: .bottom,
+                adjacentPane: adjacentPane
+            ),
+            .center
+        )
+        XCTAssertNil(
+            UnifiedPaneDropDelegate.adjacentPaneMoveZone(
+                draggedTabKind: "browser",
+                sourcePaneId: source,
+                targetPaneId: targetBelow,
+                defaultZone: .top,
+                adjacentPane: adjacentPane
+            )
+        )
+    }
+
     func testFileURLPasteboardReaderReturnsFileURLs() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmuxlayout-file-drop-\(UUID().uuidString)", isDirectory: true)
@@ -4570,6 +4643,48 @@ final class CMUXLayoutTests: XCTestCase {
             .pan
         )
         XCTAssertFalse(state.isConsumingCommandWheelMomentum)
+    }
+
+    func testCanvasCameraInteractionStaysActiveUntilPhasedScrollEnds() {
+        var state = CanvasCameraInteractionState()
+
+        XCTAssertFalse(state.apply(.began(.panning)))
+        XCTAssertEqual(state.phase, .panning)
+        XCTAssertFalse(state.needsFrameClock)
+
+        for _ in 0..<60 {
+            XCTAssertFalse(state.tickDisplayFrame())
+            XCTAssertEqual(state.phase, .panning)
+        }
+
+        XCTAssertTrue(state.apply(.ended))
+        XCTAssertEqual(state.phase, .idle)
+        XCTAssertFalse(state.needsFrameClock)
+    }
+
+    func testCanvasCameraInteractionUsesDisplayFrameHoldOnlyForUnphasedWheels() {
+        var state = CanvasCameraInteractionState(unphasedHoldFrameCount: 2)
+
+        XCTAssertFalse(state.apply(.unphasedUpdate(.zooming)))
+        XCTAssertEqual(state.phase, .zooming)
+        XCTAssertTrue(state.needsFrameClock)
+
+        XCTAssertFalse(state.tickDisplayFrame())
+        XCTAssertEqual(state.phase, .zooming)
+        XCTAssertTrue(state.needsFrameClock)
+
+        XCTAssertTrue(state.tickDisplayFrame())
+        XCTAssertEqual(state.phase, .idle)
+        XCTAssertFalse(state.needsFrameClock)
+    }
+
+    func testCanvasCameraInteractionIgnoresNonCameraPhases() {
+        var state = CanvasCameraInteractionState()
+
+        XCTAssertFalse(state.apply(.began(.draggingSurface)))
+
+        XCTAssertEqual(state.phase, .idle)
+        XCTAssertFalse(state.needsFrameClock)
     }
 
     @MainActor

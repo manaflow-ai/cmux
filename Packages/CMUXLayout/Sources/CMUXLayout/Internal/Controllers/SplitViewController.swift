@@ -371,30 +371,6 @@ final class SplitViewController {
         }
     }
 
-    /// Move a tab from one pane to another
-    func moveTab(_ tab: SurfaceItem, from sourcePaneId: PaneID, to targetPaneId: PaneID, atIndex index: Int? = nil) {
-        guard let sourcePane = rootNode.findPane(sourcePaneId),
-              let targetPane = rootNode.findPane(targetPaneId) else { return }
-
-        // Remove from source
-        sourcePane.removeTab(tab.id)
-
-        // Add to target
-        if let index {
-            targetPane.insertTab(tab, at: index)
-        } else {
-            targetPane.addTab(tab)
-        }
-
-        // Focus target pane
-        focusPane(targetPaneId)
-
-        // If source pane is now empty and not the only pane, close it
-        if sourcePane.tabs.isEmpty && rootNode.allPaneIds.count > 1 {
-            closePane(sourcePaneId)
-        }
-    }
-
     /// Close a tab in a specific pane
     func closeTab(_ tabId: UUID, inPane paneId: PaneID) {
         guard let pane = rootNode.findPane(paneId) else { return }
