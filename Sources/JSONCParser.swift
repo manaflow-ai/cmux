@@ -491,7 +491,7 @@ enum JSONCObjectEditor {
         var lineStart = index
         while lineStart > source.startIndex {
             let previous = source.index(before: lineStart)
-            if source[previous] == "\n" || source[previous] == "\r" {
+            if JSONCParser.isLineTerminator(source[previous]) {
                 break
             }
             lineStart = previous
