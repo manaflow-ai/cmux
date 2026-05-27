@@ -1231,6 +1231,23 @@
         }
       }
     },
+    "debug.cefBrowserDebug.runtimeUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CEF runtime unavailable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CEF ランタイムを利用できません。"
+          }
+        }
+      }
+    },
     "debug.menu.browserProfilePopoverDebug": {
       "extractionState": "manual",
       "localizations": {
@@ -1256,6 +1273,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "브라우저 프로필 팝오버 디버그…"
+          }
+        }
+      }
+    },
+    "debug.menu.cefBrowserDebug": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CEF Browser Debug..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CEF ブラウザーデバッグ..."
           }
         }
       }

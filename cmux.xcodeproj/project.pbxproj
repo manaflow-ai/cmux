@@ -30,6 +30,8 @@
 		3865A0063865A0063865A006 /* AppDelegate+GlobalSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */; };
 		3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */; };
 		3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0083865B0083865B008 /* GlobalSearchPanelCaptureManager.swift */; };
+		CEF000000000000000000001 /* CMUXCEFBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = CEF000000000000000000101 /* CMUXCEFBridge.mm */; };
+		CEF000000000000000000002 /* CMUXCEFBrowserDebugWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF000000000000000000102 /* CMUXCEFBrowserDebugWindow.swift */; };
 		C2B6A97D1F2E4C71A8B9D001 /* BrowserOmnibarPerformanceSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */; };
 		3023A1003023A1003023A100 /* ConfigSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1003023B1003023B100 /* ConfigSource.swift */; };
 		3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1013023B1013023B101 /* ConfigSettingsView.swift */; };
@@ -785,6 +787,10 @@
 		A5001016 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
+		CEF000000000000000000101 /* CMUXCEFBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = CMUXCEFBridge.mm; sourceTree = "<group>"; };
+		CEF000000000000000000102 /* CMUXCEFBrowserDebugWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCEFBrowserDebugWindow.swift; sourceTree = "<group>"; };
+		CEF000000000000000000103 /* CMUXCEFBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CMUXCEFBridge.h; sourceTree = "<group>"; };
+		CEF000000000000000000104 /* CMUXCEFProcessHelper.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = CMUXCEFProcessHelper.cc; sourceTree = "<group>"; };
 		A5001019 /* TerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController.swift; sourceTree = "<group>"; };
 		E7E000000000000000000006 /* CmuxEventBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventBus.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000E /* CmuxEventLogWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventLogWriter.swift; sourceTree = "<group>"; };
@@ -1246,6 +1252,18 @@
 			path = Cloud;
 			sourceTree = "<group>";
 		};
+		CEF000000000000000000100 /* CEF */ = {
+			isa = PBXGroup;
+			children = (
+				CEF000000000000000000101 /* CMUXCEFBridge.mm */,
+				CEF000000000000000000102 /* CMUXCEFBrowserDebugWindow.swift */,
+				CEF000000000000000000103 /* CMUXCEFBridge.h */,
+				CEF000000000000000000104 /* CMUXCEFProcessHelper.cc */,
+			);
+			name = CEF;
+			path = CEF;
+			sourceTree = "<group>";
+		};
 		A5001040 = {
 			isa = PBXGroup;
 			children = (
@@ -1288,6 +1306,7 @@
 				B37A00000000000000000008 /* SettingsCardNote.swift */,
 				C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */,
 				A5001012 /* ContentView.swift */,
+				CEF000000000000000000100 /* CEF */,
 				E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */,
 				E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */,
 				C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */,
@@ -1751,12 +1770,14 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A5001060 /* Build configuration list for PBXNativeTarget "cmux" */;
 			buildPhases = (
+				CEF000000000000000000010 /* Vendor CEF Runtime */,
 				A5001051 /* Sources */,
 				A5001030 /* Frameworks */,
 				A5001102 /* Resources */,
 				D3664003D3664003D3664003 /* Compress Markdown Viewer Assets */,
 				D1320AA0D1320AA0D1320AA6 /* Copy Dock Tile Plugin */,
 				A5001020 /* Embed Frameworks */,
+				CEF000000000000000000011 /* Copy CEF Runtime */,
 				B900000AA1B2C3D4E5F60719 /* Copy CLI */,
 				C0DEFF100000000000000003 /* Build Command Palette Nucleo FFI */,
 				A5001300A1B2C3D4E5F60719 /* ShellScript */,
@@ -1971,6 +1992,44 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		CEF000000000000000000010 /* Vendor CEF Runtime */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Vendor CEF Runtime";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n\"${SRCROOT}/scripts/vendor-cef.sh\" --archs \"${ARCHS:-}\" --link-root \"${CEF_ROOT:-${SRCROOT}/Vendor/cef-active}\" >/dev/null\n";
+		};
+		CEF000000000000000000011 /* Copy CEF Runtime */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy CEF Runtime";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n\"${SRCROOT}/scripts/copy-cef-runtime.sh\"\n";
+		};
 		D3664003D3664003D3664003 /* Compress Markdown Viewer Assets */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -2061,6 +2120,8 @@
 				B37A00000000000000000007 /* SettingsCardNote.swift in Sources */,
 				C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */,
 				A5001002 /* ContentView.swift in Sources */,
+				CEF000000000000000000001 /* CMUXCEFBridge.mm in Sources */,
+				CEF000000000000000000002 /* CMUXCEFBrowserDebugWindow.swift in Sources */,
 				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
 				E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */,
 				C0DE36230000000000000001 /* WorkspaceFinderDirectoryResolver.swift in Sources */,
@@ -2666,6 +2727,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Debug";
+				CEF_ROOT = "$(SRCROOT)/Vendor/cef-active";
+				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
+				CLANG_ENABLE_OBJC_ARC = YES;
 				CMUX_AUTH_CALLBACK_SCHEME = "cmux-dev";
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_STYLE = Automatic;
@@ -2673,11 +2737,23 @@
 				CURRENT_PROJECT_VERSION = 90;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(CEF_ROOT)/Release",
+				);
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(CEF_ROOT)",
+				);
 				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(CEF_ROOT)/build/libcef_dll_wrapper",
 				);
 				MARKETING_VERSION = 0.64.10;
 				OTHER_LDFLAGS = (
@@ -2692,6 +2768,8 @@
 					UniformTypeIdentifiers,
 					"-framework",
 					Carbon,
+					"-Wl,-weak_framework,Chromium\\ Embedded\\ Framework",
+					"-lcef_dll_wrapper",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.debug;
 				PRODUCT_NAME = "cmux DEV";
@@ -2706,6 +2784,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CEF_ROOT = "$(SRCROOT)/Vendor/cef-active";
+				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
+				CLANG_ENABLE_OBJC_ARC = YES;
 				CMUX_AUTH_CALLBACK_SCHEME = cmux;
 				CODE_SIGN_ENTITLEMENTS = Resources/cmux.entitlements;
 				CODE_SIGN_STYLE = Automatic;
@@ -2713,11 +2794,23 @@
 				CURRENT_PROJECT_VERSION = 90;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(CEF_ROOT)/Release",
+				);
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(CEF_ROOT)",
+				);
 				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(CEF_ROOT)/build/libcef_dll_wrapper",
 				);
 				MARKETING_VERSION = 0.64.10;
 				ONLY_ACTIVE_ARCH = NO;
@@ -2733,6 +2826,8 @@
 					UniformTypeIdentifiers,
 					"-framework",
 					Carbon,
+					"-Wl,-weak_framework,Chromium\\ Embedded\\ Framework",
+					"-lcef_dll_wrapper",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app;
 				PRODUCT_NAME = cmux;

@@ -35,6 +35,11 @@ struct cmuxApp: App {
         CLIForwardingLaunchRouter.forwardToBundledCLIIfNeeded()
 
         StartupBreadcrumbLog.append("app.init.begin")
+        let preparedCEFApplication = CMUXCEFPrepareApplication()
+        StartupBreadcrumbLog.append(
+            "app.init.cefApplication.prepared",
+            fields: ["prepared": preparedCEFApplication ? "1" : "0"]
+        )
         UITestLaunchManifest.applyIfPresent()
         StartupBreadcrumbLog.append("app.init.uiTestManifest.applied")
 
@@ -42,6 +47,15 @@ struct cmuxApp: App {
             StartupBreadcrumbLog.append("app.init.blockUntaggedDebugLaunch")
             Self.terminateForMissingLaunchTag()
         }
+
+        let initializedCEF = preparedCEFApplication && CMUXCEFInitialize(CommandLine.argc, CommandLine.unsafeArgv)
+        StartupBreadcrumbLog.append(
+            "app.init.cef.initialized",
+            fields: [
+                "initialized": initializedCEF ? "1" : "0",
+                "remoteDebuggingPort": String(CMUXCEFRemoteDebuggingPort())
+            ]
+        )
 
         Self.configureGhosttyEnvironment()
         StartupBreadcrumbLog.append("app.init.ghosttyEnvironment.configured")
@@ -432,6 +446,14 @@ struct cmuxApp: App {
                         )
                     ) {
                         TitlebarLayoutDebugWindowController.shared.show()
+                    }
+                    Button(
+                        String(
+                            localized: "debug.menu.cefBrowserDebug",
+                            defaultValue: "CEF Browser Debug..."
+                        )
+                    ) {
+                        CMUXCEFBrowserDebugWindowController.shared.show()
                     }
                     Button("Sidebar Debug…") {
                         SidebarDebugWindowController.shared.show()

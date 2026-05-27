@@ -18,9 +18,10 @@
 #   1. CLI helpers under Contents/Resources/bin/* with minimal
 #      hardened-runtime entitlements (no application-identifier).
 #   2. Each nested plugin under Contents/PlugIns/* with --deep.
-#   3. Each nested framework under Contents/Frameworks/* with --deep
+#   3. CEF dylibs/frameworks/helper apps with Chromium JIT entitlements.
+#   4. Each remaining nested framework under Contents/Frameworks/* with --deep
 #      (covers Sparkle's XPCServices and Updater.app).
-#   4. The main app bundle with the provided app-level entitlements,
+#   5. The main app bundle with the provided app-level entitlements,
 #      WITHOUT --deep. --deep here would overwrite helper/plugin
 #      signatures and re-introduce the app-id mismatch that amfi on
 #      notarized macOS 26 Tahoe rejects with errno 163.
@@ -58,6 +59,7 @@ else
 fi
 
 COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
+FRAMEWORKS_PATH="$APP_PATH/Contents/Frameworks"
 
 # 1. CLI helpers
 for helper in "$APP_PATH/Contents/Resources/bin"/*; do
@@ -74,15 +76,52 @@ if [[ -d "$APP_PATH/Contents/PlugIns" ]]; then
   done < <(find "$APP_PATH/Contents/PlugIns" -mindepth 1 -maxdepth 1 -print0)
 fi
 
-# 3. Frameworks
-if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
-  while IFS= read -r -d '' framework; do
-    echo "==> signing framework $(basename "$framework")"
-    /usr/bin/codesign "${COMMON[@]}" --deep "$framework"
-  done < <(find "$APP_PATH/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0)
+# 3. CEF runtime
+if [[ -d "$FRAMEWORKS_PATH/Chromium Embedded Framework.framework" ]]; then
+  find "$FRAMEWORKS_PATH/Chromium Embedded Framework.framework/Libraries" \
+    -name '*.dylib' \
+    -type f \
+    -print0 2>/dev/null |
+    while IFS= read -r -d '' dylib_path; do
+      echo "==> signing CEF dylib $(basename "$dylib_path")"
+      /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$dylib_path"
+    done
+
+  echo "==> signing CEF framework"
+  /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$FRAMEWORKS_PATH/Chromium Embedded Framework.framework"
+
+  find "$FRAMEWORKS_PATH" \
+    -mindepth 1 \
+    -maxdepth 1 \
+    -name 'cmux Helper*.app' \
+    -type d \
+    -print0 |
+    while IFS= read -r -d '' helper_app; do
+      helper_name="$(basename "$helper_app" .app)"
+      helper_executable="$helper_app/Contents/MacOS/$helper_name"
+      if [[ -x "$helper_executable" ]]; then
+        echo "==> signing CEF helper executable $helper_name"
+        /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper_executable"
+      fi
+      echo "==> signing CEF helper app $helper_name"
+      /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper_app"
+    done
 fi
 
-# 4. Main app bundle (no --deep).
+# 4. Frameworks
+if [[ -d "$FRAMEWORKS_PATH" ]]; then
+  while IFS= read -r -d '' framework; do
+    case "$(basename "$framework")" in
+      "Chromium Embedded Framework.framework"|cmux\ Helper*.app)
+        continue
+        ;;
+    esac
+    echo "==> signing framework $(basename "$framework")"
+    /usr/bin/codesign "${COMMON[@]}" --deep "$framework"
+  done < <(find "$FRAMEWORKS_PATH" -mindepth 1 -maxdepth 1 -print0)
+fi
+
+# 5. Main app bundle (no --deep).
 echo "==> signing main bundle"
 /usr/bin/codesign "${COMMON[@]}" --entitlements "$APP_ENTITLEMENTS" "$APP_PATH"
 
@@ -114,5 +153,15 @@ for helper in "$APP_PATH/Contents/Resources/bin"/*; do
     exit 1
   fi
 done
+while IFS= read -r -d '' helper_app; do
+  helper_name="$(basename "$helper_app" .app)"
+  helper_executable="$helper_app/Contents/MacOS/$helper_name"
+  [[ -f "$helper_executable" && -x "$helper_executable" ]] || continue
+  if /usr/bin/codesign -d --entitlements :- "$helper_executable" 2>&1 \
+       | grep -q "application-identifier"; then
+    echo "error: CEF helper $helper_name unexpectedly carries application-identifier" >&2
+    exit 1
+  fi
+done < <(find "$FRAMEWORKS_PATH" -maxdepth 1 -type d -name "cmux Helper*.app" -print0 2>/dev/null || true)
 
 echo "==> signing OK: $APP_PATH"

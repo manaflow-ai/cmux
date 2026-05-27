@@ -21,6 +21,11 @@ xcuserdata/
 GhosttyKit.xcframework
 GhosttyKit.xcframework.bak-*/
 
+# CEF binary runtime (downloaded by scripts/vendor-cef.sh)
+Vendor/cef-*/
+Vendor/cef-active
+Vendor/cmake/
+
 # Release artifacts
 cmux-*.zip
 cmux-macos.dmg
