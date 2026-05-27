@@ -6304,6 +6304,150 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertTrue(workspace.bonsplitController.closePane(leftPaneId))
         XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["branch2"])
     }
+
+    // MARK: - Fork Conversation (new sibling tab)
+
+    private func makeForkableClaudeSnapshot(
+        sessionId: String = "019dad34-d218-7943-b81a-eddac5c87951",
+        workingDirectory: String = "/tmp/fork repo"
+    ) -> SessionRestorableAgentSnapshot {
+        SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: workingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/opt/homebrew/bin/claude",
+                arguments: ["/opt/homebrew/bin/claude"],
+                workingDirectory: workingDirectory,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+    }
+
+    func testForkAgentConversationToNewTabCreatesSiblingTabWithForkStartupInput() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId))
+        let anchorTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanelId))
+        let snapshot = makeForkableClaudeSnapshot()
+
+        let forkPanel = try XCTUnwrap(
+            workspace.forkAgentConversationToNewTab(
+                fromPanelId: sourcePanelId,
+                snapshot: snapshot,
+                anchorTabId: anchorTabId,
+                paneId: sourcePaneId
+            )
+        )
+
+        XCTAssertNotEqual(forkPanel.id, sourcePanelId)
+        XCTAssertEqual(
+            workspace.paneId(forPanelId: forkPanel.id),
+            sourcePaneId,
+            "Fork should land in the same pane as the source tab, not a split pane"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.allPaneIds.count,
+            1,
+            "Fork creates a sibling tab, not a new pane"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.tabs(inPane: sourcePaneId).count,
+            2,
+            "Pane should now host both the source and forked tabs"
+        )
+        XCTAssertEqual(workspace.focusedPanelId, forkPanel.id, "Fork should focus the new tab")
+        XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/fork repo")
+        XCTAssertEqual(
+            forkPanel.surface.initialInput,
+            snapshot.forkCommand.map { $0 + "\n" },
+            "Forked tab should boot with the snapshot's --fork-session command"
+        )
+    }
+
+    func testForkAgentConversationToNewTabPlacesForkImmediatelyRightOfAnchor() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId))
+        let anchorTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanelId))
+
+        // Drop a second unrelated terminal tab to the right of the source so we can
+        // verify the fork lands *between* the source and the unrelated tab, not at the
+        // end of the strip.
+        let trailingPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(inPane: sourcePaneId, focus: false)
+        )
+        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: sourcePaneId).count, 2)
+
+        let snapshot = makeForkableClaudeSnapshot()
+        let forkPanel = try XCTUnwrap(
+            workspace.forkAgentConversationToNewTab(
+                fromPanelId: sourcePanelId,
+                snapshot: snapshot,
+                anchorTabId: anchorTabId,
+                paneId: sourcePaneId
+            )
+        )
+
+        let tabIdsInOrder = workspace.bonsplitController.tabs(inPane: sourcePaneId).map { $0.id }
+        let sourceTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanelId)).id
+        let forkTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(forkPanel.id)).id
+        let trailingTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(trailingPanel.id)).id
+        XCTAssertEqual(
+            tabIdsInOrder,
+            [sourceTabId, forkTabId, trailingTabId],
+            "Fork should be inserted immediately to the right of its source tab"
+        )
+    }
+
+    func testCanForkAgentConversationFromPanelReturnsTrueForRestoredClaudeSnapshot() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertFalse(
+            workspace.canForkAgentConversationFromPanel(panelId),
+            "Vanilla shell tab without an agent snapshot should not advertise fork"
+        )
+
+        workspace.setRestoredAgentSnapshotForTesting(makeForkableClaudeSnapshot(), panelId: panelId)
+        XCTAssertTrue(
+            workspace.canForkAgentConversationFromPanel(panelId),
+            "Tab hosting a restored Claude snapshot should advertise fork"
+        )
+    }
+
+    func testCanForkAgentConversationFromPanelReturnsFalseForUnknownPanel() {
+        let workspace = Workspace()
+        XCTAssertFalse(workspace.canForkAgentConversationFromPanel(UUID()))
+    }
+
+    func testForkConversationContextMenuActionCreatesSiblingTab() throws {
+        // Drive the same code path the bonsplit context menu triggers, end-to-end,
+        // to lock in that the menu wiring stays connected.
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId))
+        let anchorTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanelId))
+        workspace.setRestoredAgentSnapshotForTesting(makeForkableClaudeSnapshot(), panelId: sourcePanelId)
+
+        let tabs = workspace.bonsplitController.tabs(inPane: sourcePaneId)
+        let anchorTab = try XCTUnwrap(tabs.first { $0.id == anchorTabId.id })
+
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestTabContextAction: .forkConversation,
+            for: anchorTab,
+            inPane: sourcePaneId
+        )
+
+        XCTAssertEqual(
+            workspace.bonsplitController.tabs(inPane: sourcePaneId).count,
+            2,
+            "Fork Conversation context action should spawn a sibling tab"
+        )
+    }
 }
 
 
