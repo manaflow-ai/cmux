@@ -3210,30 +3210,38 @@ extension CMUXCLI {
               return true;
             }
 
-            function pollForReplacementFallback() {
-              const startedAt = Date.now();
-              async function poll() {
-                try {
-                  if (await applyReplacementFrom(await fetch(location.href, { cache: "reload" }))) {
-                    return;
-                  }
-                } catch {}
-                if (Date.now() - startedAt < 30000) {
-                  setTimeout(poll, 500);
-                }
-              }
-              setTimeout(poll, 500);
+            function scheduleReplacementWait(delay = 500) {
+              setTimeout(waitForReplacement, delay);
             }
 
-            (async function waitForReplacement() {
+            function scheduleLegacyPollFallback(delay = 500) {
+              setTimeout(pollLegacyReplacement, delay);
+            }
+
+            async function pollLegacyReplacement() {
+              try {
+                if (await applyReplacementFrom(await fetch(location.href, { cache: "reload" }))) {
+                  return;
+                }
+              } catch {}
+              scheduleLegacyPollFallback(1000);
+            }
+
+            async function waitForReplacement() {
               try {
                 const response = await fetch("/__cmux_diff_viewer_wait" + location.pathname, { cache: "no-store" });
                 if (await applyReplacementFrom(response)) {
                   return;
                 }
+                if (response.status === 404 || response.status === 405) {
+                  scheduleLegacyPollFallback();
+                  return;
+                }
               } catch {}
-              pollForReplacementFallback();
-            })();
+              scheduleReplacementWait();
+            }
+
+            waitForReplacement();
           </script>
         """ : ""
         let html = """
