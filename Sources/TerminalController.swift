@@ -5628,7 +5628,8 @@ class TerminalController {
                 autoResume: true,
                 updatedAt: Date().timeIntervalSince1970
             )
-            _ = workspace.setSurfaceResumeBinding(binding, panelId: surfaceId)
+            let effectiveBinding = Self.tmuxControlResumeBindingWithPersistedAutoApproval(binding)
+            _ = workspace.setSurfaceResumeBinding(effectiveBinding, panelId: surfaceId)
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
@@ -5640,10 +5641,43 @@ class TerminalController {
                 "session_name": sessionName,
                 "mode": "local",
                 "tmux_command": command,
-                "resume_binding": v2SurfaceResumeBindingPayload(binding),
+                "resume_binding": v2SurfaceResumeBindingPayload(effectiveBinding),
             ])
         }
         return result
+    }
+
+    nonisolated static func tmuxControlResumeBindingWithPersistedAutoApproval(
+        _ binding: SurfaceResumeBindingSnapshot,
+        approvalStoreURL: URL = SurfaceResumeApprovalStore.defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecret: Data? = nil
+    ) -> SurfaceResumeBindingSnapshot {
+        guard let record = SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            fileURL: approvalStoreURL,
+            fileManager: fileManager,
+            signingSecret: signingSecret
+        ) else {
+            return SurfaceResumeApprovalStore.applyingStoredApproval(
+                to: binding,
+                fileURL: approvalStoreURL,
+                fileManager: fileManager,
+                signingSecret: signingSecret
+            )
+        }
+
+        var effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: approvalStoreURL,
+            fileManager: fileManager,
+            signingSecret: signingSecret
+        )
+        effectiveBinding.approvalPolicy = record.policy
+        effectiveBinding.approvalRecordId = record.id
+        effectiveBinding.autoResume = record.policy == .auto
+        return effectiveBinding
     }
 
     private static func tmuxControlAttachCommand(
