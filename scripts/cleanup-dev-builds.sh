@@ -68,9 +68,14 @@ done
 # reload.sh always creates one there.
 discover_tags() {
     [[ -d "$DERIVED_DATA_ROOT" ]] || return 0
-    find "$DERIVED_DATA_ROOT" -maxdepth 1 -type d -name 'cmux-*' -print0 \
-        | xargs -0 -n1 basename \
-        | sed 's/^cmux-//'
+    local d name
+    for d in "$DERIVED_DATA_ROOT"/cmux-*/; do
+        # The glob leaves the literal pattern if no matches exist on macOS.
+        [[ -d "$d" ]] || continue
+        name="${d%/}"
+        name="${name##*/}"
+        printf '%s\n' "${name#cmux-}"
+    done
 }
 
 artifact_paths_for_tag() {
@@ -116,13 +121,14 @@ derived_data_mtime_days() {
 
 # ---- safety probes ----------------------------------------------------------
 
-# Active tag (most recent reload) per the CLI symlink target.
+# Active tag (most recent reload) per the CLI symlink target. Match
+# `/cmux-<tag>/` anywhere in the path so we cover paths under DerivedData,
+# /tmp, or other locations reload.sh may emit.
 active_tag=""
 if [[ -r "$LAST_CLI_PATH_FILE" ]]; then
     last_path="$(cat "$LAST_CLI_PATH_FILE" 2>/dev/null || true)"
-    if [[ "$last_path" == "$DERIVED_DATA_ROOT/cmux-"* ]]; then
-        rest="${last_path#$DERIVED_DATA_ROOT/cmux-}"
-        active_tag="${rest%%/*}"
+    if [[ "$last_path" =~ /cmux-([A-Za-z0-9._-]+)/ ]]; then
+        active_tag="${BASH_REMATCH[1]}"
     fi
 fi
 
@@ -164,7 +170,11 @@ while IFS= read -r tag; do
     fi
     if (( older_than_days > 0 )); then
         age="$(derived_data_mtime_days "$DERIVED_DATA_ROOT/cmux-${tag}")"
-        if (( age < older_than_days )); then
+        # age == -1 means the DerivedData dir is gone (e.g., manually
+        # deleted while orphan sockets/logs remain). Treat as "no age
+        # signal, age filter does not apply" so the residue still gets
+        # cleaned. Otherwise apply the threshold normally.
+        if (( age >= 0 && age < older_than_days )); then
             reasons+=("age ${age}d < ${older_than_days}d")
         fi
     fi
@@ -224,4 +234,8 @@ for entry in "${plan_delete[@]}"; do
     done < <(artifact_paths_for_tag "$tag")
     printf '  removed: %s\n' "$tag"
 done
-printf '\nfreed: %s\n' "$(human_bytes "$total_bytes")"
+# Estimated because total_bytes was measured during planning. If a
+# concurrent process (e.g., Xcode's "Delete Derived Data") removed a
+# planned path between then and now, rm -rf skips it but the byte
+# count still includes those bytes.
+printf '\nfreed (estimated): %s\n' "$(human_bytes "$total_bytes")"

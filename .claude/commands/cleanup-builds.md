@@ -5,9 +5,11 @@ Reclaim disk space taken by tagged dev artifacts produced by `./scripts/reload.s
 ## Steps
 
 1. **Preview first.**
+
    ```bash
    ./scripts/cleanup-dev-builds.sh
    ```
+
    Shows what would be deleted, what is skipped, and total reclaimable bytes. Dry-run by default; nothing is deleted yet.
 
 2. **Read the preview to the user.** Confirm the active tag and any tag they care about appears under `skipping:` (running, or most recent reload via `/tmp/cmux-last-cli-path`).
@@ -15,9 +17,11 @@ Reclaim disk space taken by tagged dev artifacts produced by `./scripts/reload.s
 3. **Ask the user before deleting.** Do not run `--apply` without explicit user confirmation. Surface any tags they may want to keep so they can add `--keep <tag>`.
 
 4. **Apply.** Once confirmed:
+
    ```bash
    ./scripts/cleanup-dev-builds.sh --apply
    ```
+
    Optional: `--keep <tag>` (repeatable) to protect specific tags, `--older-than <DAYS>` to skip anything touched recently.
 
 5. **Report.** Show the freed-bytes total from the script's final line.
