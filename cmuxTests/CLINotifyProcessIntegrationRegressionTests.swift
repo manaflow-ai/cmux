@@ -548,27 +548,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(record["agentLifecycle"] as? String, "idle")
     }
 
-    func testClaudeWaitingNotificationWhenRunningMapsToNeedsInput() throws {
-        // When Claude fires a "waiting for input" notification while actively running (mid-task),
-        // the lifecycle should be needsInput — Claude is genuinely blocked.
-        let context = try makeClaudeHookContext(name: "claude-waiting-running")
+    func testClaudePermissionNotificationAlwaysMapsToNeedsInput() throws {
+        // "Permission" type notifications are genuine blocks — Claude needs approval to continue.
+        // This must set needsInput regardless of current session lifecycle.
+        let context = try makeClaudeHookContext(name: "claude-permission-notif")
         defer { context.cleanup() }
 
-        let sessionId = "waiting-running-session"
-
-        let prompt = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "prompt-submit"],
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PromptSubmit"}"#
-        )
-        XCTAssertFalse(prompt.timedOut, prompt.stderr)
-        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+        let sessionId = "permission-notif-session"
 
         let notifStart = context.state.commands.count
         let notification = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "notification"],
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude is waiting for your input"}"#
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"permission approval required"}"#
         )
         XCTAssertFalse(notification.timedOut, notification.stderr)
         XCTAssertEqual(notification.status, 0, notification.stderr)
@@ -579,11 +571,58 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 $0.hasPrefix("set_agent_lifecycle claude_code needsInput --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
-            "Mid-task waiting notification must set needsInput, saw \(notifCommands)"
+            "Permission notification must set needsInput, saw \(notifCommands)"
         )
         XCTAssertTrue(
             notifCommands.contains { $0.hasPrefix("set_status claude_code Needs input") },
-            "Mid-task waiting notification must display 'Needs input', saw \(notifCommands)"
+            "Permission notification must display 'Needs input', saw \(notifCommands)"
+        )
+
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["agentLifecycle"] as? String, "needsInput")
+    }
+
+    func testClaudeAskUserQuestionPreToolUseFollowedByNotificationMapsToNeedsInput() throws {
+        // AskUserQuestion fires pre-tool-use (setting .needsInput in session store) and then
+        // the notification hook fires immediately after to display the question text.
+        // The notification handler must preserve needsInput when the session is already in that state.
+        let context = try makeClaudeHookContext(name: "claude-askuser-notif")
+        defer { context.cleanup() }
+
+        let sessionId = "askuser-notif-session"
+
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PromptSubmit"}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let preToolUse = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"question":"Should I proceed?"}}"#
+        )
+        XCTAssertFalse(preToolUse.timedOut, preToolUse.stderr)
+        XCTAssertEqual(preToolUse.status, 0, preToolUse.stderr)
+
+        let notifStart = context.state.commands.count
+        let notification = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Should I proceed?"}"#
+        )
+        XCTAssertFalse(notification.timedOut, notification.stderr)
+        XCTAssertEqual(notification.status, 0, notification.stderr)
+
+        let notifCommands = Array(context.state.commands.dropFirst(notifStart))
+        XCTAssertTrue(
+            notifCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle claude_code needsInput --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "AskUserQuestion notification must preserve needsInput, saw \(notifCommands)"
         )
 
         let record = try readClaudeHookSession(sessionId, context: context)

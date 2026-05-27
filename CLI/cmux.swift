@@ -20182,20 +20182,19 @@ struct CMUXCLI {
             )
             let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
 
-            // Only treat this notification as a genuine mid-task block requiring user action if:
-            // - it is not a task-completion signal ("Completed"), and
-            // - for "Waiting" signals, Claude was actively running (not just sitting at its idle prompt).
-            // Startup and post-task "waiting at prompt" notifications map to standby instead.
+            // Decide whether this notification is a genuine block requiring user action.
+            // Three paths to needsInput:
+            //   1. "Permission" or "Error" subtitle — explicit block regardless of session state.
+            //   2. Session is already .needsInput — pre-tool-use fired for AskUserQuestion first;
+            //      the notification hook follows immediately to display the question text.
+            // Everything else (Waiting, Completed, Attention at turn end) is a standby signal:
+            // the notification fires to report Claude is done and at its idle prompt, which is
+            // not an alert the user needs to act on.
             let currentLifecycle = mappedSession?.agentLifecycle ?? .unknown
-            let isGenuineBlock: Bool
-            switch summary.subtitle {
-            case "Completed":
-                isGenuineBlock = false
-            case "Waiting":
-                isGenuineBlock = currentLifecycle == .running
-            default:
-                isGenuineBlock = true
-            }
+            let isGenuineBlock =
+                summary.subtitle == "Permission"
+                || summary.subtitle == "Error"
+                || currentLifecycle == .needsInput
             let notifLifecycle: AgentHibernationLifecycleState = isGenuineBlock ? .needsInput : .idle
 
             if let sessionId = parsedInput.sessionId {
@@ -20211,14 +20210,17 @@ struct CMUXCLI {
                 )
             }
 
-            setAgentLifecycle(
-                client: client,
-                key: Self.claudeCodeStatusKey,
-                lifecycle: notifLifecycle,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
-            )
+            // Only push UI updates for genuine blocks. For turn-end notifications
+            // (Waiting, Completed, Attention), the stop hook fires immediately after
+            // and owns the idle transition — updating here causes a visible flicker.
             if isGenuineBlock {
+                setAgentLifecycle(
+                    client: client,
+                    key: Self.claudeCodeStatusKey,
+                    lifecycle: .needsInput,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
                 _ = try? setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
@@ -20226,15 +20228,6 @@ struct CMUXCLI {
                     value: "Needs input",
                     icon: "bell.fill",
                     color: "#4C8DFF"
-                )
-            } else {
-                _ = try? setClaudeStatus(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    value: "Standby",
-                    icon: "circle.fill",
-                    color: "#8E8E93"
                 )
             }
             let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
