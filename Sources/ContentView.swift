@@ -11040,7 +11040,7 @@ struct VerticalTabsSidebar: View {
             ForEach(renderItems) { item in
                 switch item {
                 case .groupHeader(let group, let memberCount):
-                    sidebarWorkspaceGroupHeader(group: group, memberCount: memberCount)
+                    sidebarWorkspaceGroupHeader(group: group, memberCount: memberCount, renderContext: renderContext)
                 case .workspace(let tab):
                     workspaceRow(tab, renderContext: renderContext)
                 }
@@ -11248,7 +11248,8 @@ struct VerticalTabsSidebar: View {
     @ViewBuilder
     private func sidebarWorkspaceGroupHeader(
         group: WorkspaceGroup,
-        memberCount: Int
+        memberCount: Int,
+        renderContext: WorkspaceListRenderContext
     ) -> some View {
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
         let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
@@ -11256,6 +11257,13 @@ struct VerticalTabsSidebar: View {
         let effectiveColor = group.customColor ?? resolvedConfig?.color
         let effectiveIcon = group.iconSymbol ?? resolvedConfig?.iconSymbol ?? "folder.fill"
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
+        let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
+        let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
+            at: anchorIndex,
+            workspaceCount: renderContext.workspaceCount
+        )
+        let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
+        let showsHintForAnchor = modifierKeyMonitor.isModifierPressed
         SidebarWorkspaceGroupHeaderView(
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
@@ -11266,6 +11274,9 @@ struct VerticalTabsSidebar: View {
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
             memberCount: memberCount,
+            shortcutDigit: shortcutDigit,
+            shortcutModifierSymbol: modifierSymbol,
+            showsShortcutHint: showsHintForAnchor,
             cwdContextMenuItems: cwdContextMenuItems,
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
@@ -11319,6 +11330,20 @@ struct VerticalTabsSidebar: View {
         )
         .id("workspaceGroupHeader.\(group.id.uuidString)")
         .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
+        .onDrag { [groupId = group.id] in
+            SidebarWorkspaceGroupDragPayload.provider(for: groupId)
+        }
+        .onDrop(
+            of: SidebarWorkspaceGroupDragPayload.dropContentTypes,
+            isTargeted: nil
+        ) { providers in
+            SidebarWorkspaceGroupDragPayload.loadGroupId(from: providers) { [weak tabManager, targetGroupId = group.id] draggedId in
+                guard let draggedId, draggedId != targetGroupId, let tabManager else { return }
+                guard let targetIndex = tabManager.workspaceGroups.firstIndex(where: { $0.id == targetGroupId }) else { return }
+                tabManager.moveWorkspaceGroup(groupId: draggedId, toIndex: targetIndex)
+            }
+            return true
+        }
     }
 
     private func presentSidebarWorkspaceGroupRenamePrompt(
@@ -11381,6 +11406,9 @@ private struct SidebarWorkspaceGroupHeaderView: View {
     let isPinned: Bool
     let isAnchorActive: Bool
     let memberCount: Int
+    let shortcutDigit: Int?
+    let shortcutModifierSymbol: String?
+    let showsShortcutHint: Bool
     let cwdContextMenuItems: [CmuxResolvedConfigContextMenuItem]
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: () -> Void
@@ -11429,6 +11457,19 @@ private struct SidebarWorkspaceGroupHeaderView: View {
                         .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
                         .lineLimit(1)
                         .truncationMode(.tail)
+                    if showsShortcutHint,
+                       let shortcutDigit,
+                       let shortcutModifierSymbol {
+                        Text("\(shortcutModifierSymbol)\(shortcutDigit)")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                    .fill(Color.primary.opacity(0.08))
+                            )
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -16388,6 +16429,47 @@ private final class SidebarDragAutoScrollController: ObservableObject {
         clipView.scroll(to: CGPoint(x: clipView.bounds.origin.x, y: targetY))
         scrollView.reflectScrolledClipView(clipView)
         return true
+    }
+}
+
+enum SidebarWorkspaceGroupDragPayload {
+    static let typeIdentifier = "com.cmux.sidebar-group-reorder"
+    static let dropContentType = UTType(exportedAs: typeIdentifier)
+    static let dropContentTypes: [UTType] = [dropContentType]
+    private static let prefix = "cmux.sidebar-group."
+
+    static func provider(for groupId: UUID) -> NSItemProvider {
+        let provider = NSItemProvider()
+        let payload = "\(prefix)\(groupId.uuidString)"
+        provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .ownProcess) { completion in
+            let data = payload.data(using: .utf8)
+            Task { @MainActor in
+                completion(data, nil)
+            }
+            return nil
+        }
+        return provider
+    }
+
+    /// Block-style decode from NSItemProvider drop payload to a group UUID.
+    static func loadGroupId(
+        from providers: [NSItemProvider],
+        completion: @escaping (UUID?) -> Void
+    ) {
+        guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(typeIdentifier) }) else {
+            completion(nil)
+            return
+        }
+        _ = provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
+            guard let data,
+                  let raw = String(data: data, encoding: .utf8),
+                  raw.hasPrefix(prefix),
+                  let uuid = UUID(uuidString: String(raw.dropFirst(prefix.count))) else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            DispatchQueue.main.async { completion(uuid) }
+        }
     }
 }
 
