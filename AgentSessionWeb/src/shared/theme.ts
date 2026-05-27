@@ -23,7 +23,13 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   }
   const root = document.documentElement;
   root.dataset.theme = theme.isDark ? "dark" : "light";
+  root.dataset.codexWindowType = "electron";
+  root.classList.toggle("dark", theme.isDark);
+  root.classList.toggle("light", !theme.isDark);
   root.style.colorScheme = theme.isDark ? "dark" : "light";
+  if (document.body) {
+    document.body.dataset.codexWindowType = "electron";
+  }
   for (const [key, variable] of Object.entries(cssVariables) as Array<
     [keyof AgentSessionTheme, string | null]
   >) {

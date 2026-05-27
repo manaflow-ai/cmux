@@ -3,6 +3,8 @@
 @source "../react/**/*.ts";
 @source "../solid/**/*.ts";
 
+@custom-variant electron (&:where([data-codex-window-type="electron"], [data-codex-window-type="electron"] *));
+
 @theme {
   --font-sans: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
   --font-mono: var(--vscode-editor-font-family, ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace);
@@ -16,6 +18,16 @@
   --color-token-button-foreground: var(--agent-text);
   --color-token-button-background: var(--agent-accent);
   --color-token-input-placeholder-foreground: var(--agent-muted);
+  --color-token-text-primary: var(--agent-text);
+  --color-token-text-secondary: var(--agent-soft);
+  --color-token-text-tertiary: var(--agent-muted);
+  --color-token-bg-primary: var(--agent-surface-elevated);
+  --color-token-bg-secondary: var(--agent-card);
+  --color-token-list-hover-background: var(--agent-control-hover);
+  --color-token-side-bar-background: var(--agent-surface-elevated);
+  --color-token-main-surface-primary: transparent;
+  --color-token-text-link-foreground: var(--agent-accent);
+  --color-token-text-link-active-foreground: var(--agent-accent);
   --text-xs: 11px;
   --text-sm: 12px;
   --text-base: 14px;
@@ -28,6 +40,8 @@
   --radius-2xl: 1rem;
   --radius-3xl: 1.25rem;
   --radius-4xl: 1.5rem;
+  --spacing-token-button-composer: 2rem;
+  --spacing-token-button-composer-sm: 1.75rem;
 }
 
 :root {
@@ -54,6 +68,25 @@
   --agent-control-hover: color-mix(in srgb, var(--agent-soft) 8%, transparent);
   --agent-primary: color-mix(in srgb, var(--agent-accent) 90%, var(--agent-text));
   --agent-primary-text: #ffffff;
+  --vscode-foreground: var(--agent-text);
+  --vscode-descriptionForeground: var(--agent-muted);
+  --vscode-input-background: var(--agent-input-bg);
+  --vscode-dropdown-background: var(--agent-surface-elevated);
+  --vscode-input-placeholderForeground: var(--agent-muted);
+  --vscode-textLink-foreground: var(--agent-accent);
+  --vscode-textLink-activeForeground: var(--agent-accent);
+  --vscode-list-hoverBackground: var(--agent-control-hover);
+  --color-background-surface: transparent;
+  --color-token-side-bar-background: var(--agent-surface-elevated);
+  --color-token-main-surface-primary: transparent;
+  --color-token-bg-primary: var(--agent-surface-elevated);
+  --color-token-bg-secondary: var(--agent-card);
+  --color-token-list-hover-background: var(--agent-control-hover);
+  --padding-row-x: calc(var(--spacing) * 2);
+  --padding-row-y: calc(var(--spacing) * 1.5);
+  --height-token-nav-row: 32px;
+  --codex-chat-font-size: 14px;
+  --codex-chat-code-font-size: 12px;
 }
 
 * {
@@ -164,6 +197,59 @@ select {
   margin: 0 auto;
 }
 
+.codex-composer-frame {
+  --composer-top-tray-inline-padding: 12px;
+  --composer-top-tray-top-padding: 14px;
+  --composer-top-tray-max-height: 177px;
+}
+
+.codex-composer-surface {
+  min-height: 122px;
+  color: var(--color-token-foreground);
+  background: color-mix(in srgb, var(--color-token-input-background) 90%, transparent);
+}
+
+.h-token-button-composer {
+  height: var(--spacing-token-button-composer);
+}
+
+.size-token-button-composer {
+  width: var(--spacing-token-button-composer);
+  height: var(--spacing-token-button-composer);
+}
+
+.size-token-button-composer-sm {
+  width: var(--spacing-token-button-composer-sm);
+  height: var(--spacing-token-button-composer-sm);
+}
+
+.icon-2xs {
+  width: 12px;
+  height: 12px;
+}
+
+.icon-xs {
+  width: 14px;
+  height: 14px;
+}
+
+.icon-sm {
+  width: 16px;
+  height: 16px;
+}
+
+.cursor-interaction {
+  cursor: default;
+}
+
+.hide-scrollbar {
+  scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 .composer,
 .composer-frame {
   width: 100%;
@@ -246,7 +332,6 @@ select {
   overflow: hidden;
 }
 
-.composer-footer,
 .codex-left-rail,
 .codex-right-rail,
 .model-picker,
@@ -256,6 +341,8 @@ select {
 }
 
 .composer-footer {
+  display: flex;
+  align-items: center;
   min-width: 0;
   justify-content: space-between;
   gap: 8px;
@@ -264,15 +351,18 @@ select {
 
 .composer-footer-codex {
   container: composer-footer / inline-size;
+  display: grid;
+  justify-content: normal;
+  padding: 0 0.5rem;
 }
 
 .codex-left-rail {
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   gap: 4px;
-  margin: -4px;
+  margin: 0;
   overflow-x: auto;
-  padding: 4px;
+  padding: 0;
   scrollbar-width: none;
 }
 
@@ -296,7 +386,6 @@ select {
   justify-content: center;
   height: 28px;
   border: 1px solid transparent;
-  border-radius: 10px;
   outline: none;
   color: color-mix(in srgb, var(--agent-muted) 92%, transparent);
   background: transparent;
@@ -306,17 +395,15 @@ select {
 
 .codex-tool,
 .codex-action {
-  width: 28px;
   padding: 0;
   font-size: 12px;
   line-height: 1;
 }
 
 .model-picker {
-  min-width: 118px;
-  max-width: 220px;
+  min-width: 0;
+  max-width: 10rem;
   gap: 6px;
-  padding: 0 9px;
   color: color-mix(in srgb, var(--agent-muted) 70%, transparent);
   font-size: 13px;
   font-weight: 500;
@@ -373,7 +460,6 @@ select {
 .codex-start {
   width: auto;
   min-width: 56px;
-  padding: 0 12px;
   border-color: transparent;
   color: var(--agent-soft);
   background: transparent;
@@ -390,11 +476,9 @@ select {
 }
 
 .send-button {
-  width: 32px;
-  height: 32px;
   border-radius: 999px;
-  color: var(--agent-primary-text);
-  background: color-mix(in srgb, var(--agent-primary) 90%, transparent);
+  color: var(--color-token-dropdown-background);
+  background: var(--color-token-foreground);
 }
 
 .model-picker:focus-within,
@@ -406,8 +490,7 @@ select {
 }
 
 .send-button:not(:disabled):hover {
-  background: var(--agent-primary);
-  transform: scale(1.05);
+  background: color-mix(in srgb, var(--color-token-foreground) 88%, transparent);
 }
 
 .codex-action:disabled,
@@ -417,8 +500,8 @@ select {
 }
 
 .send-button:disabled {
-  color: var(--agent-primary-text);
-  background: color-mix(in srgb, var(--agent-primary) 90%, transparent);
+  color: var(--color-token-dropdown-background);
+  background: var(--color-token-foreground);
   opacity: 0.3;
 }
 
@@ -459,9 +542,124 @@ select {
   background: var(--agent-danger);
 }
 
+.codex-top-tray-shell {
+  width: calc(var(--composer-top-tray-inline-padding, 12px) * 2 + 100% + 8px);
+  min-width: 0;
+  left: 50%;
+  bottom: var(--composer-top-tray-top-padding, 14px);
+  transform: translate(-50%);
+}
+
+.codex-top-tray-panel,
+.codex-top-tray-panel[data-cmdk-root] {
+  display: flex;
+  flex-direction: column;
+  max-height: var(--composer-top-tray-max-height, 177px);
+  padding: calc(var(--spacing) * 3) calc(var(--spacing) * 2) calc(var(--spacing) * 2);
+  border: 1px solid color-mix(in srgb, var(--color-token-border) 72%, transparent);
+  border-top-color: transparent;
+  border-bottom: none;
+  border-top-left-radius: var(--radius-3xl);
+  border-top-right-radius: var(--radius-3xl);
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+  color: var(--color-token-foreground);
+  background: color-mix(in oklab, var(--color-token-side-bar-background) 94%, transparent);
+  box-shadow: none;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.codex-top-tray-title {
+  padding: 0 var(--padding-row-x) calc(var(--spacing) * 1.25);
+  color: var(--color-token-description-foreground);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.codex-top-tray-list,
+.codex-top-tray-panel [data-cmdk-list] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--spacing);
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.codex-top-tray-list::-webkit-scrollbar {
+  display: none;
+}
+
+.codex-top-tray-item,
+.codex-top-tray-item[cmdk-item] {
+  display: flex;
+  width: calc(100% - var(--spacing) * 2);
+  min-height: calc(var(--spacing) * 8);
+  align-items: center;
+  gap: calc(var(--spacing) * 2);
+  padding: var(--padding-row-y) var(--padding-row-x);
+  border: 0;
+  border-radius: var(--radius-lg);
+  outline: none;
+  color: var(--color-token-foreground);
+  background: transparent;
+  opacity: 0.75;
+  text-align: left;
+}
+
+.codex-top-tray-item:hover,
+.codex-top-tray-item:focus-visible {
+  background: var(--color-token-list-hover-background);
+  opacity: 1;
+}
+
+.codex-top-tray-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--color-token-border) 75%, transparent);
+  border-radius: 999px;
+  color: var(--color-token-foreground);
+  background: color-mix(in srgb, var(--color-token-dropdown-background) 70%, transparent);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.codex-top-tray-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.codex-top-tray-label,
+.codex-top-tray-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-top-tray-label {
+  color: var(--color-token-foreground);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.codex-top-tray-detail {
+  color: var(--color-token-description-foreground);
+  font-size: var(--text-xs);
+}
+
 @container composer-footer (width <= 480px) {
-  .model-label,
-  .model-chevron {
+  .composer-footer__label--sm,
+  .composer-footer__secondary-chevron {
     display: none;
   }
 
@@ -495,15 +693,27 @@ select {
     padding: 0 10px 10px;
   }
 
+  .composer-footer-codex {
+    display: grid;
+    flex-wrap: nowrap;
+    gap: 5px;
+    padding: 0 0.5rem;
+  }
+
   .model-picker,
   .codex-tool,
   .codex-action {
-    height: 32px;
+    height: var(--spacing-token-button-composer);
   }
 
   .codex-tool,
   .codex-action {
-    width: 32px;
+    width: var(--spacing-token-button-composer);
+  }
+
+  .codex-tool {
+    width: var(--spacing-token-button-composer-sm);
+    height: var(--spacing-token-button-composer-sm);
   }
 
   .codex-left-rail {

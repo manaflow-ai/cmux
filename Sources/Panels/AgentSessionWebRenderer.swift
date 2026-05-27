@@ -479,6 +479,27 @@ extension AgentSessionWebRenderer {
                             localized: "agentSession.web.promptPlaceholder",
                             defaultValue: "Ask anything"
                         ),
+                        "mentionMenuTitle": String(
+                            localized: "agentSession.web.mentionMenuTitle",
+                            defaultValue: "Mention"
+                        ),
+                        "mentionCurrentWorkspace": String(
+                            localized: "agentSession.web.mentionCurrentWorkspace",
+                            defaultValue: "Current workspace"
+                        ),
+                        "skillMenuTitle": String(
+                            localized: "agentSession.web.skillMenuTitle",
+                            defaultValue: "Skills"
+                        ),
+                        "skillPlan": String(localized: "agentSession.web.skillPlan", defaultValue: "Plan"),
+                        "skillCodeReview": String(
+                            localized: "agentSession.web.skillCodeReview",
+                            defaultValue: "Code review"
+                        ),
+                        "skillResearch": String(
+                            localized: "agentSession.web.skillResearch",
+                            defaultValue: "Research"
+                        ),
                         "loadingStatus": String(localized: "agentSession.web.status.loading", defaultValue: "Loading"),
                         "idleStatus": String(localized: "agentSession.web.status.idle", defaultValue: "Idle"),
                         "startingStatus": String(localized: "agentSession.web.status.starting", defaultValue: "Starting"),

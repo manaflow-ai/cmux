@@ -23,6 +23,7 @@ const placeholderKey = new PluginKey<string>("agentPromptPlaceholder");
 export type PromptEditorHandle = {
   focus: () => void;
   insertToken: (token: "@" | "$") => void;
+  insertText: (text: string) => void;
 };
 
 type PromptEditorProps = {
@@ -30,22 +31,25 @@ type PromptEditorProps = {
   minHeight?: string;
   onSubmit: () => void;
   onTextChange: (text: string) => void;
+  onTriggerToken?: (token: "@" | "$") => void;
   placeholder: string;
   value: string;
 };
 
 export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorProps>(
   function PromptEditor(
-    { className, minHeight = "2.75rem", onSubmit, onTextChange, placeholder, value },
+    { className, minHeight = "2.75rem", onSubmit, onTextChange, onTriggerToken, placeholder, value },
     ref,
   ) {
     const hostRef = useRef<HTMLDivElement | null>(null);
     const viewRef = useRef<EditorView | null>(null);
     const latestSubmitRef = useRef(onSubmit);
     const latestTextChangeRef = useRef(onTextChange);
+    const latestTriggerTokenRef = useRef(onTriggerToken);
     const latestTextRef = useRef(value);
     latestSubmitRef.current = onSubmit;
     latestTextChangeRef.current = onTextChange;
+    latestTriggerTokenRef.current = onTriggerToken;
 
     useImperativeHandle(ref, () => ({
       focus() {
@@ -56,7 +60,14 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
         if (!view) {
           return;
         }
-        insertTokenAtSelection(view, token);
+        insertPromptTextAtSelection(view, token);
+      },
+      insertText(text) {
+        const view = viewRef.current;
+        if (!view) {
+          return;
+        }
+        insertPromptTextAtSelection(view, text);
       },
     }), []);
 
@@ -100,6 +111,12 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
           event.preventDefault();
           latestSubmitRef.current();
           return true;
+        },
+        handleTextInput(_view, _from, _to, text) {
+          if (text === "@" || text === "$") {
+            latestTriggerTokenRef.current?.(text);
+          }
+          return false;
         },
       });
       viewRef.current = view;
@@ -185,14 +202,14 @@ function replaceEditorText(view: EditorView, text: string): void {
   view.dispatch(transaction);
 }
 
-function insertTokenAtSelection(view: EditorView, token: "@" | "$"): void {
+function insertPromptTextAtSelection(view: EditorView, text: string): void {
   const { state } = view;
   const { from, to } = state.selection;
   const before = state.doc.textBetween(Math.max(0, from - 2), from, "\n", "\n");
   const after = state.doc.textBetween(to, Math.min(state.doc.content.size, to + 2), "\n", "\n");
   const prefix = before.length > 0 && !/\s$/.test(before) ? " " : "";
   const suffix = after.length > 0 && !/^\s/.test(after) ? " " : " ";
-  const inserted = `${prefix}${token}${suffix}`;
+  const inserted = `${prefix}${text}${suffix}`;
   const transaction = state.tr.insertText(inserted, from, to);
   const cursor = from + inserted.length;
   transaction.setSelection(TextSelection.create(transaction.doc, cursor));
