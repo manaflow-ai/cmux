@@ -21,6 +21,16 @@ export const testimonials = [
     platform: "x" as const,
   },
   {
+    key: "davidondrej1",
+    name: "David Ondrej",
+    handle: "@DavidOndrej1",
+    avatar: "/avatars/davidondrej1.jpg",
+    text: "> learn cmux\n> trust me",
+    lang: "en",
+    url: "https://x.com/DavidOndrej1/status/2059360111336865901",
+    platform: "x" as const,
+  },
+  {
     key: "schrockn",
     name: "Nick Schrock",
     handle: "@schrockn",
@@ -317,7 +327,7 @@ export function TestimonialCard({
         </div>
         <PlatformIcon platform={testimonial.platform} />
       </div>
-      <p className="text-[15px] leading-relaxed text-muted group-hover:text-foreground transition-colors">
+      <p className="text-[15px] leading-relaxed text-muted whitespace-pre-line group-hover:text-foreground transition-colors">
         {testimonial.text}
       </p>
       {translation && (
