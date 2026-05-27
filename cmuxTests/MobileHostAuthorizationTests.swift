@@ -821,7 +821,8 @@ final class MobileHostAuthorizationTests: XCTestCase {
         await session.subscribe(streamID: "events", topics: ["terminal.updated"])
         await session.debugStartIdleTimeoutAfterFrameForTesting()
         try await Task.sleep(nanoseconds: 25_000_000)
-        XCTAssertTrue(await recorder.recordedIDs().isEmpty)
+        let subscribedCloseIDs = await recorder.recordedIDs()
+        XCTAssertTrue(subscribedCloseIDs.isEmpty)
 
         _ = await session.unsubscribe(streamID: "events")
         for _ in 0..<100 {
@@ -886,7 +887,7 @@ final class MobileHostAuthorizationTests: XCTestCase {
             id: connectionID,
             connection: connection,
             authorizeRequest: { request in
-                if request.id == "second" {
+                if request.id as? String == "second" {
                     do {
                         try await Task.sleep(nanoseconds: 100_000_000)
                     } catch {}
