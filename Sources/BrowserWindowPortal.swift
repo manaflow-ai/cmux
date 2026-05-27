@@ -3176,20 +3176,6 @@ final class WindowBrowserPortal: NSObject {
         synchronizeWebView(withId: webViewId, source: "canvasPresentation")
     }
 
-    func translateCanvasSurfacePresentations(dx: CGFloat, dy: CGFloat) {
-        guard dx.isFinite, dy.isFinite, abs(dx) > 0.01 || abs(dy) > 0.01 else { return }
-        let webViewIds = Array(canvasSurfacePresentationsByWebViewId.keys)
-        guard !webViewIds.isEmpty else { return }
-
-        for webViewId in webViewIds {
-            guard var presentation = canvasSurfacePresentationsByWebViewId[webViewId] else { continue }
-            presentation.frameInWindow = presentation.frameInWindow.offsetBy(dx: dx, dy: dy)
-            presentation.visibleFrameInWindow = presentation.visibleFrameInWindow.offsetBy(dx: dx, dy: dy)
-            canvasSurfacePresentationsByWebViewId[webViewId] = presentation
-            synchronizeWebView(withId: webViewId, source: "canvasTranslate")
-        }
-    }
-
     func clearInteractiveFrameOverrides() {
         let webViewIds = Array(Set(interactiveFrameOverridesInWindowByWebViewId.keys).union(canvasSurfacePresentationsByWebViewId.keys))
         interactiveFrameOverridesInWindowByWebViewId.removeAll()
@@ -4352,13 +4338,6 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.setCanvasSurfacePresentation(forWebViewId: webViewId, presentation: presentation)
-    }
-
-    static func translateCanvasSurfacePresentations(dx: CGFloat, dy: CGFloat) {
-        guard dx.isFinite, dy.isFinite, abs(dx) > 0.01 || abs(dy) > 0.01 else { return }
-        for portal in portalsByWindowId.values {
-            portal.translateCanvasSurfacePresentations(dx: dx, dy: dy)
-        }
     }
 
     static func clearInteractiveFrameOverridesForAllWindows() {

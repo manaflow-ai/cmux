@@ -68,48 +68,44 @@ final class CMUXCanvasTests: XCTestCase {
     }
 
     func testInputPanMatchesWorkspaceViewportMathAndReturnsScreenDelta() {
-        let controller = CanvasInputController(
+        let camera = CanvasCamera(
             viewport: CanvasViewport(
                 visibleRect: PixelRect(x: 100, y: 50, width: 600, height: 400),
                 scale: 0.5
-            )
-        )
-
-        let update = controller.pan(
-            screenDelta: CGSize(width: 40, height: -20),
-            scale: 0.5,
+            ),
             viewportSize: CGSize(width: 500, height: 300)
         )
 
-        XCTAssertEqual(update.phase, .panning)
-        XCTAssertEqual(update.surfaceScreenDelta.width, 40)
-        XCTAssertEqual(update.surfaceScreenDelta.height, -20)
-        XCTAssertEqual(update.viewport.visibleRect.x, 20)
-        XCTAssertEqual(update.viewport.visibleRect.y, 90)
-        XCTAssertEqual(update.viewport.visibleRect.width, 1_000)
-        XCTAssertEqual(update.viewport.visibleRect.height, 600)
+        let next = CanvasPresentationEngine.camera(
+            byApplying: .pan(screenDelta: CGSize(width: 40, height: -20)),
+            to: camera
+        ).viewport
+
+        XCTAssertEqual(next.visibleRect.x, 20)
+        XCTAssertEqual(next.visibleRect.y, 90)
+        XCTAssertEqual(next.visibleRect.width, 1_000)
+        XCTAssertEqual(next.visibleRect.height, 600)
     }
 
     func testInputZoomKeepsAnchorStable() {
-        let controller = CanvasInputController(
+        let camera = CanvasCamera(
             viewport: CanvasViewport(
                 visibleRect: PixelRect(x: 100, y: 200, width: 500, height: 300),
                 scale: 1
-            )
+            ),
+            viewportSize: CGSize(width: 500, height: 300)
         )
 
-        let update = controller.setScale(
-            0.5,
-            viewportSize: CGSize(width: 500, height: 300),
-            anchorScreenPoint: CGPoint(x: 100, y: 50)
-        )
+        let next = CanvasPresentationEngine.camera(
+            byApplying: .zoom(scale: 0.5, anchorScreenPoint: CGPoint(x: 100, y: 50)),
+            to: camera
+        ).viewport
 
-        XCTAssertEqual(update.phase, .zooming)
-        XCTAssertEqual(update.viewport.scale, 0.5)
-        XCTAssertEqual(update.viewport.visibleRect.x, 0)
-        XCTAssertEqual(update.viewport.visibleRect.y, 150)
-        XCTAssertEqual(update.viewport.visibleRect.width, 1_000)
-        XCTAssertEqual(update.viewport.visibleRect.height, 600)
+        XCTAssertEqual(next.scale, 0.5)
+        XCTAssertEqual(next.visibleRect.x, 0)
+        XCTAssertEqual(next.visibleRect.y, 150)
+        XCTAssertEqual(next.visibleRect.width, 1_000)
+        XCTAssertEqual(next.visibleRect.height, 600)
     }
 
     func testFrameSchedulerCoalescesFrames() {
@@ -128,97 +124,146 @@ final class CMUXCanvasTests: XCTestCase {
     func testNativeOverlayManagerUsesNativeOnlyForActiveSurfaceAtNativeScale() {
         let activeID = LayoutItemID()
         let previewID = LayoutItemID()
-        let scene = CanvasScene(
+        let document = CanvasDocument(
+            policy: .freeform,
             viewport: CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 800, height: 600), scale: 1),
-            viewportSize: CGSize(width: 800, height: 600),
-            scale: 1,
-            surfaces: [
-                CanvasSurfaceDescriptor(
+            items: [
+                CanvasItem(
                     id: activeID,
-                    kind: .terminal,
+                    content: .pane(PaneID()),
                     frame: PixelRect(x: 100, y: 120, width: 400, height: 300),
-                    isFocused: true,
-                    renderMode: .nativeOverlay
+                    isNativeResolution: true
                 ),
-                CanvasSurfaceDescriptor(
+                CanvasItem(
                     id: previewID,
-                    kind: .browser,
+                    content: .pane(PaneID()),
                     frame: PixelRect(x: 520, y: 120, width: 400, height: 300),
-                    isFocused: false,
-                    renderMode: .nativeOverlay
+                    isNativeResolution: true
                 ),
             ]
         )
 
-        let manager = NativeSurfaceOverlayManager(
-            configuration: CanvasNativeOverlayConfiguration(activeSurfaceID: activeID)
+        let presentation = CanvasPresentationEngine.presentation(
+            document: document,
+            viewportSize: CGSize(width: 800, height: 600),
+            focusedItemID: activeID,
+            activeItemID: activeID,
+            contentKinds: [activeID: .terminal, previewID: .browser],
+            configuration: CanvasPresentationConfiguration(
+                nativeOverlayConfiguration: CanvasNativeOverlayConfiguration(activeSurfaceID: activeID)
+            )
         )
-        let plan = manager.plan(scene: scene)
 
-        XCTAssertEqual(plan.nativeOverlays.map(\.id), [activeID])
-        XCTAssertEqual(plan.textureSurfaces.map(\.id), [previewID])
-        XCTAssertEqual(plan.nativeOverlays.first?.frameInWindow, CGRect(x: 100, y: 120, width: 400, height: 300))
+        XCTAssertEqual(presentation.nativeOverlays.map(\.id), [activeID])
+        XCTAssertEqual(presentation.textureSurfaces.map(\.id), [previewID])
+        XCTAssertEqual(presentation.nativeOverlays.first?.frameInWindow, CGRect(x: 100, y: 120, width: 400, height: 300))
     }
 
     func testNativeOverlayManagerFallsBackToTexturesWhenZoomedOut() {
         let activeID = LayoutItemID()
-        let scene = CanvasScene(
+        let document = CanvasDocument(
+            policy: .freeform,
             viewport: CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 800, height: 600), scale: 0.5),
-            viewportSize: CGSize(width: 800, height: 600),
-            scale: 0.5,
-            surfaces: [
-                CanvasSurfaceDescriptor(
+            items: [
+                CanvasItem(
                     id: activeID,
-                    kind: .terminal,
+                    content: .pane(PaneID()),
                     frame: PixelRect(x: 100, y: 120, width: 400, height: 300),
-                    isFocused: true,
-                    renderMode: .nativeOverlay
+                    isNativeResolution: true
                 ),
             ]
         )
 
-        let plan = NativeSurfaceOverlayManager().plan(scene: scene)
+        let presentation = CanvasPresentationEngine.presentation(
+            document: document,
+            viewportSize: CGSize(width: 800, height: 600),
+            focusedItemID: activeID,
+            activeItemID: activeID,
+            contentKinds: [activeID: .terminal]
+        )
 
-        XCTAssertTrue(plan.nativeOverlays.isEmpty)
-        XCTAssertEqual(plan.textureSurfaces.map(\.id), [activeID])
+        XCTAssertTrue(presentation.nativeOverlays.isEmpty)
+        XCTAssertEqual(presentation.textureSurfaces.map(\.id), [activeID])
     }
 
     func testNativeOverlayManagerUsesSharedNativeThreshold() {
         let activeID = LayoutItemID()
-        let descriptor = CanvasSurfaceDescriptor(
+        let item = CanvasItem(
             id: activeID,
-            kind: .terminal,
+            content: .pane(PaneID()),
             frame: PixelRect(x: 100, y: 120, width: 400, height: 300),
-            isFocused: true,
-            renderMode: .nativeOverlay
-        )
-        let manager = NativeSurfaceOverlayManager(
-            configuration: CanvasNativeOverlayConfiguration(activeSurfaceID: activeID)
+            isNativeResolution: true
         )
 
-        let previewPlan = manager.plan(scene: CanvasScene(
-            viewport: CanvasViewport(
-                visibleRect: PixelRect(x: 0, y: 0, width: 800, height: 600),
-                scale: CanvasViewportZoom.nativeOverlayMinimumScale - 0.001
+        let previewPlan = CanvasPresentationEngine.presentation(
+            document: CanvasDocument(
+                policy: .freeform,
+                viewport: CanvasViewport(
+                    visibleRect: PixelRect(x: 0, y: 0, width: 800, height: 600),
+                    scale: CanvasViewportZoom.nativeOverlayMinimumScale - 0.001
+                ),
+                items: [item]
             ),
             viewportSize: CGSize(width: 800, height: 600),
-            scale: CGFloat(CanvasViewportZoom.nativeOverlayMinimumScale - 0.001),
-            surfaces: [descriptor]
-        ))
-        let nativePlan = manager.plan(scene: CanvasScene(
-            viewport: CanvasViewport(
-                visibleRect: PixelRect(x: 0, y: 0, width: 800, height: 600),
-                scale: CanvasViewportZoom.nativeOverlayMinimumScale
+            focusedItemID: activeID,
+            activeItemID: activeID,
+            contentKinds: [activeID: .terminal],
+            configuration: CanvasPresentationConfiguration(
+                nativeOverlayConfiguration: CanvasNativeOverlayConfiguration(activeSurfaceID: activeID)
+            )
+        )
+        let nativePlan = CanvasPresentationEngine.presentation(
+            document: CanvasDocument(
+                policy: .freeform,
+                viewport: CanvasViewport(
+                    visibleRect: PixelRect(x: 0, y: 0, width: 800, height: 600),
+                    scale: CanvasViewportZoom.nativeOverlayMinimumScale
+                ),
+                items: [item]
             ),
             viewportSize: CGSize(width: 800, height: 600),
-            scale: CGFloat(CanvasViewportZoom.nativeOverlayMinimumScale),
-            surfaces: [descriptor]
-        ))
+            focusedItemID: activeID,
+            activeItemID: activeID,
+            contentKinds: [activeID: .terminal],
+            configuration: CanvasPresentationConfiguration(
+                nativeOverlayConfiguration: CanvasNativeOverlayConfiguration(activeSurfaceID: activeID)
+            )
+        )
 
         XCTAssertTrue(previewPlan.nativeOverlays.isEmpty)
         XCTAssertEqual(previewPlan.textureSurfaces.map(\.id), [activeID])
         XCTAssertEqual(nativePlan.nativeOverlays.map(\.id), [activeID])
         XCTAssertTrue(nativePlan.textureSurfaces.isEmpty)
+    }
+
+    func testSceneCanConsumePresentationStateWithoutRecomputingPolicy() {
+        let activeID = LayoutItemID()
+        let document = CanvasDocument(
+            policy: .freeform,
+            viewport: CanvasViewport(
+                visibleRect: PixelRect(x: 0, y: 0, width: 800, height: 600),
+                scale: 1
+            ),
+            items: [
+                CanvasItem(
+                    id: activeID,
+                    content: .pane(PaneID()),
+                    frame: PixelRect(x: 40, y: 80, width: 320, height: 220)
+                )
+            ]
+        )
+        let presentation = CanvasPresentationEngine.presentation(
+            document: document,
+            viewportSize: CGSize(width: 800, height: 600),
+            focusedItemID: activeID,
+            activeItemID: activeID,
+            contentKinds: [activeID: .terminal]
+        )
+
+        let scene = CanvasScene(presentation: presentation, padding: 0)
+
+        XCTAssertEqual(scene.visibleSurfaces.map(\.id), [activeID])
+        XCTAssertEqual(scene.surfaceScreenFrame(for: scene.surfaces[0]), CGRect(x: 40, y: 80, width: 320, height: 220))
     }
 
     func testShellRenderPlanBuildsGridAndSurfaceChrome() {

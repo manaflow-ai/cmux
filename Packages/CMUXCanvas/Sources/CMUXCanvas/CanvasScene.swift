@@ -2,44 +2,6 @@ import CMUXLayout
 import CoreGraphics
 import Foundation
 
-public enum CanvasSurfaceKind: String, Codable, Sendable {
-    case terminal
-    case browser
-    case generic
-}
-
-public enum CanvasSurfaceRenderMode: String, Codable, Sendable {
-    case liveTexture
-    case snapshotTexture
-    case nativeOverlay
-    case placeholder
-}
-
-public struct CanvasSurfaceDescriptor: Identifiable, Codable, Sendable, Equatable {
-    public var id: LayoutItemID
-    public var kind: CanvasSurfaceKind
-    public var frame: PixelRect
-    public var zIndex: Int
-    public var isFocused: Bool
-    public var renderMode: CanvasSurfaceRenderMode
-
-    public init(
-        id: LayoutItemID,
-        kind: CanvasSurfaceKind,
-        frame: PixelRect,
-        zIndex: Int = 0,
-        isFocused: Bool = false,
-        renderMode: CanvasSurfaceRenderMode = .nativeOverlay
-    ) {
-        self.id = id
-        self.kind = kind
-        self.frame = frame
-        self.zIndex = zIndex
-        self.isFocused = isFocused
-        self.renderMode = renderMode
-    }
-}
-
 public struct CanvasScene: Sendable, Equatable {
     public var viewport: CanvasViewport
     public var viewportSize: CGSize
@@ -75,6 +37,22 @@ public struct CanvasScene: Sendable, Equatable {
         self.grid = grid
         self.surfaces = surfaces.sorted(by: Self.surfaceSort)
         self.alignmentGuides = alignmentGuides
+    }
+
+    public init(
+        presentation: CanvasPresentationState,
+        padding: CGFloat? = nil
+    ) {
+        self.init(
+            viewport: presentation.viewport,
+            viewportSize: presentation.viewportSize,
+            scale: presentation.scale,
+            padding: padding ?? presentation.padding,
+            minimumSurfaceDisplaySize: presentation.minimumSurfaceDisplaySize,
+            grid: presentation.grid,
+            surfaces: presentation.surfaces,
+            alignmentGuides: presentation.alignmentGuides
+        )
     }
 
     public var documentBounds: CGRect {

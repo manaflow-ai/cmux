@@ -769,6 +769,10 @@ public final class WorkspaceLayoutController {
         canvasDocument.viewport
     }
 
+    public func canvasCamera(viewportSize: CGSize) -> CanvasCamera {
+        CanvasCamera(viewport: canvasDocument.viewport, viewportSize: viewportSize)
+    }
+
     public func setCanvasLayoutPolicy(_ policy: CanvasLayoutPolicy) {
         canvasDocument.policy = policy
         syncCanvasDocumentWithCurrentLayout()
@@ -787,46 +791,34 @@ public final class WorkspaceLayoutController {
         viewportSize: CGSize,
         anchorScreenPoint: CGPoint? = nil
     ) {
-        let oldScale = max(CanvasViewport.minimumScale, canvasDocument.viewport.scale)
-        var viewport = canvasDocument.viewport
-        viewport.setScale(scale)
-        let newScale = max(CanvasViewport.minimumScale, viewport.scale)
-        let anchor = anchorScreenPoint ?? CGPoint(
-            x: max(1, viewportSize.width) / 2,
-            y: max(1, viewportSize.height) / 2
-        )
-        let documentAnchor = CGPoint(
-            x: CGFloat(canvasDocument.viewport.visibleRect.x) + (anchor.x / CGFloat(oldScale)),
-            y: CGFloat(canvasDocument.viewport.visibleRect.y) + (anchor.y / CGFloat(oldScale))
-        )
-        viewport.setVisibleRect(
-            PixelRect(
-                x: Double(documentAnchor.x - (anchor.x / CGFloat(newScale))),
-                y: Double(documentAnchor.y - (anchor.y / CGFloat(newScale))),
-                width: max(1, Double(viewportSize.width / CGFloat(newScale))),
-                height: max(1, Double(viewportSize.height / CGFloat(newScale)))
-            )
-        )
-        canvasDocument.viewport = viewport
+        applyCanvasViewportCommand(.zoom(scale: scale, anchorScreenPoint: anchorScreenPoint), viewportSize: viewportSize)
     }
 
     public func requestCanvasViewportAnimation() {
         canvasViewportAnimationRevision &+= 1
     }
 
-    public func panCanvasViewport(screenDelta: CGSize, scale: CGFloat, viewportSize: CGSize) {
-        let safeScale = max(0.0001, scale)
-        var viewport = canvasDocument.viewport
-        viewport.setScale(Double(safeScale))
-        viewport.setVisibleRect(
-            PixelRect(
-                x: viewport.visibleRect.x - Double(screenDelta.width / safeScale),
-                y: viewport.visibleRect.y - Double(screenDelta.height / safeScale),
-                width: max(1, Double(viewportSize.width / safeScale)),
-                height: max(1, Double(viewportSize.height / safeScale))
+    public func applyCanvasViewportCommand(_ command: CanvasViewportCommand, viewportSize: CGSize? = nil) {
+        let camera = CanvasCamera(
+            viewport: canvasDocument.viewport,
+            viewportSize: viewportSize ?? CGSize(
+                width: CGFloat(max(1, canvasDocument.viewport.visibleRect.width * canvasDocument.viewport.scale)),
+                height: CGFloat(max(1, canvasDocument.viewport.visibleRect.height * canvasDocument.viewport.scale))
             )
         )
-        canvasDocument.viewport = viewport
+        canvasDocument.viewport = CanvasPresentationEngine.camera(
+            byApplying: command,
+            to: camera
+        ).viewport
+    }
+
+    public func panCanvasViewport(screenDelta: CGSize, scale: CGFloat, viewportSize: CGSize) {
+        var camera = CanvasCamera(viewport: canvasDocument.viewport, viewportSize: viewportSize)
+        camera = CanvasCamera(origin: camera.origin, scale: Double(scale), viewportSize: viewportSize)
+        canvasDocument.viewport = CanvasPresentationEngine.camera(
+            byApplying: .pan(screenDelta: screenDelta),
+            to: camera
+        ).viewport
     }
 
     public func enterCanvasOverview(
@@ -987,6 +979,28 @@ public final class WorkspaceLayoutController {
             document: canvasDocument,
             focusedItemID: focusedCanvasItemID,
             activeItemID: activeItemID
+        )
+    }
+
+    public func canvasPresentationState(
+        viewportSize: CGSize,
+        activeItemID: LayoutItemID? = nil,
+        contentKinds: [LayoutItemID: CanvasSurfaceKind] = [:],
+        itemFrameOverrides: [LayoutItemID: PixelRect] = [:],
+        alignmentGuides: [CanvasAlignmentGuide] = [],
+        interactionPhase: CanvasInteractionPhase = .idle,
+        configuration: CanvasPresentationConfiguration = CanvasPresentationConfiguration()
+    ) -> CanvasPresentationState {
+        CanvasPresentationEngine.presentation(
+            document: canvasDocument,
+            viewportSize: viewportSize,
+            focusedItemID: focusedCanvasItemID,
+            activeItemID: activeItemID,
+            contentKinds: contentKinds,
+            itemFrameOverrides: itemFrameOverrides,
+            alignmentGuides: alignmentGuides,
+            interactionPhase: interactionPhase,
+            configuration: configuration
         )
     }
 

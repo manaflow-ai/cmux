@@ -4636,4 +4636,228 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertEqual(nativeScene.activeMountDirective?.itemID, firstID)
         XCTAssertEqual(nativeScene.activeMountDirective?.renderMode, .liveNative1x)
     }
+
+    func testCanvasCameraRoundTripsViewportAndDocumentCoordinates() {
+        let viewport = CanvasViewport(
+            visibleRect: PixelRect(x: -320, y: 240, width: 2_400, height: 1_600),
+            scale: 0.5
+        )
+
+        let camera = CanvasCamera(viewport: viewport, viewportSize: CGSize(width: 1_200, height: 800))
+        let screenPoint = camera.screenPoint(forDocumentPoint: CGPoint(x: 80, y: 440))
+        let documentPoint = camera.documentPoint(forScreenPoint: screenPoint)
+
+        XCTAssertEqual(camera.viewport, viewport)
+        XCTAssertEqual(screenPoint.x, 200, accuracy: 0.0001)
+        XCTAssertEqual(screenPoint.y, 100, accuracy: 0.0001)
+        XCTAssertEqual(documentPoint.x, 80, accuracy: 0.0001)
+        XCTAssertEqual(documentPoint.y, 440, accuracy: 0.0001)
+    }
+
+    func testCanvasViewportCommandsPanUnboundedAndZoomAroundAnchor() {
+        let camera = CanvasCamera(
+            origin: CGPoint(x: 100, y: 50),
+            scale: 1,
+            viewportSize: CGSize(width: 800, height: 600)
+        )
+        let anchor = CGPoint(x: 200, y: 150)
+        let anchorBefore = camera.documentPoint(forScreenPoint: anchor)
+
+        let panned = CanvasPresentationEngine.camera(
+            byApplying: .pan(screenDelta: CGSize(width: 500, height: -200)),
+            to: camera
+        )
+        let zoomed = CanvasPresentationEngine.camera(
+            byApplying: .zoom(scale: 0.5, anchorScreenPoint: anchor),
+            to: camera
+        )
+        let anchorAfter = zoomed.documentPoint(forScreenPoint: anchor)
+
+        XCTAssertEqual(panned.origin.x, -400, accuracy: 0.0001)
+        XCTAssertEqual(panned.origin.y, 250, accuracy: 0.0001)
+        XCTAssertEqual(anchorAfter.x, anchorBefore.x, accuracy: 0.0001)
+        XCTAssertEqual(anchorAfter.y, anchorBefore.y, accuracy: 0.0001)
+        XCTAssertEqual(zoomed.viewport.visibleRect.width, 1_600, accuracy: 0.0001)
+        XCTAssertEqual(zoomed.viewport.visibleRect.height, 1_200, accuracy: 0.0001)
+    }
+
+    func testCanvasViewportPresentationStateOwnsDisplayedAnimationViewport() {
+        let start = CanvasViewport(
+            visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800),
+            scale: 1
+        )
+        let target = CanvasViewport(
+            visibleRect: PixelRect(x: 600, y: 200, width: 2_400, height: 1_600),
+            scale: 0.5
+        )
+        var state = CanvasViewportPresentationState(stableViewport: start)
+
+        XCTAssertTrue(state.startAnimation(to: target, now: 10, duration: 2))
+        XCTAssertEqual(state.displayedViewport(fallback: target), start)
+        state.tick(at: 11)
+        XCTAssertTrue(state.isAnimating)
+        XCTAssertNotEqual(state.displayedViewport(fallback: target), start)
+        state.tick(at: 12)
+        XCTAssertFalse(state.isAnimating)
+        XCTAssertEqual(state.displayedViewport(fallback: start), target)
+
+        state.cancel(stableViewport: start)
+        XCTAssertEqual(state.stableViewport, start)
+        XCTAssertEqual(state.displayedViewport(fallback: start), start)
+    }
+
+    func testCanvasPresentationEngineOwnsRenderModesNativeFramesAndPadding() {
+        let activeID = LayoutItemID()
+        let previewID = LayoutItemID()
+        let farID = LayoutItemID()
+        let document = CanvasDocument(
+            policy: .freeform,
+            viewport: CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800), scale: 1),
+            items: [
+                CanvasItem(
+                    id: activeID,
+                    content: .pane(PaneID()),
+                    frame: PixelRect(x: 40, y: 60, width: 400, height: 300),
+                    zIndex: 1,
+                    isNativeResolution: true
+                ),
+                CanvasItem(
+                    id: previewID,
+                    content: .surface(SurfaceID()),
+                    frame: PixelRect(x: 520, y: 60, width: 400, height: 300),
+                    zIndex: 0,
+                    isNativeResolution: true
+                ),
+                CanvasItem(
+                    id: farID,
+                    content: .pane(PaneID()),
+                    frame: PixelRect(x: 20_000, y: 0, width: 400, height: 300),
+                    zIndex: 2,
+                    isNativeResolution: true
+                ),
+            ]
+        )
+
+        let presentation = CanvasPresentationEngine.presentation(
+            document: document,
+            viewportSize: CGSize(width: 1_200, height: 800),
+            focusedItemID: activeID,
+            activeItemID: activeID,
+            contentKinds: [activeID: .terminal, previewID: .browser, farID: .terminal],
+            configuration: CanvasPresentationConfiguration(
+                padding: 24,
+                headerHeight: 20,
+                nativeOverlayConfiguration: CanvasNativeOverlayConfiguration(activeSurfaceID: activeID),
+                overscanScreenPoints: 0
+            )
+        )
+
+        XCTAssertEqual(presentation.visibleItems.map(\.id), [previewID, activeID])
+        XCTAssertEqual(presentation.nativeOverlays.map(\.id), [activeID])
+        XCTAssertEqual(presentation.textureSurfaces.map(\.id), [previewID])
+        XCTAssertEqual(presentation.nativeOverlays.first?.frameInCanvas, CGRect(x: 64, y: 84, width: 400, height: 300))
+        XCTAssertEqual(presentation.nativeOverlays.first?.contentFrameInCanvas, CGRect(x: 64, y: 104, width: 400, height: 280))
+        XCTAssertEqual(presentation.nativeOverlays.first?.nativeContentSize, CGSize(width: 400, height: 280))
+    }
+
+    func testCanvasPresentationEngineUsesTexturePathDuringCameraInteraction() {
+        let activeID = LayoutItemID()
+        let document = CanvasDocument(
+            policy: .freeform,
+            viewport: CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 1_000, height: 700), scale: 1),
+            items: [
+                CanvasItem(
+                    id: activeID,
+                    content: .pane(PaneID()),
+                    frame: PixelRect(x: 40, y: 60, width: 400, height: 300),
+                    zIndex: 1,
+                    isNativeResolution: true
+                )
+            ]
+        )
+
+        func presentation(phase: CanvasInteractionPhase) -> CanvasPresentationState {
+            CanvasPresentationEngine.presentation(
+                document: document,
+                viewportSize: CGSize(width: 1_000, height: 700),
+                focusedItemID: activeID,
+                activeItemID: activeID,
+                contentKinds: [activeID: .terminal],
+                interactionPhase: phase,
+                configuration: CanvasPresentationConfiguration(
+                    padding: 24,
+                    headerHeight: 20,
+                    nativeOverlayConfiguration: CanvasNativeOverlayConfiguration(activeSurfaceID: activeID),
+                    overscanScreenPoints: 0
+                )
+            )
+        }
+
+        let idle = presentation(phase: .idle)
+        XCTAssertEqual(idle.nativeOverlays.map(\.id), [activeID])
+        XCTAssertEqual(idle.textureSurfaces.map(\.id), [])
+
+        let panning = presentation(phase: .panning)
+        XCTAssertTrue(panning.nativeOverlays.isEmpty)
+        XCTAssertEqual(panning.textureSurfaces.map(\.id), [activeID])
+        XCTAssertEqual(panning.surfaces.first?.renderMode, .snapshotTexture)
+
+        let zooming = presentation(phase: .zooming)
+        XCTAssertTrue(zooming.nativeOverlays.isEmpty)
+        XCTAssertEqual(zooming.textureSurfaces.map(\.id), [activeID])
+        XCTAssertEqual(zooming.surfaces.first?.renderMode, .snapshotTexture)
+    }
+
+    func testCanvasPresentationEngineAppliesInteractionOverridesAndGuides() {
+        let itemID = LayoutItemID()
+        let document = CanvasDocument(
+            policy: .freeform,
+            viewport: CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 800, height: 600), scale: 1),
+            items: [
+                CanvasItem(
+                    id: itemID,
+                    content: .pane(PaneID()),
+                    frame: PixelRect(x: 40, y: 60, width: 300, height: 200)
+                )
+            ]
+        )
+        let guide = CanvasAlignmentGuide(axis: .vertical, position: 400, rangeStart: 0, rangeEnd: 600)
+
+        let presentation = CanvasPresentationEngine.presentation(
+            document: document,
+            viewportSize: CGSize(width: 800, height: 600),
+            focusedItemID: itemID,
+            activeItemID: itemID,
+            itemFrameOverrides: [
+                itemID: PixelRect(x: 200, y: 160, width: 360, height: 240)
+            ],
+            alignmentGuides: [guide],
+            interactionPhase: .draggingSurface
+        )
+
+        XCTAssertEqual(presentation.interactionPhase, .draggingSurface)
+        XCTAssertEqual(presentation.visibleItems.first?.frame, PixelRect(x: 200, y: 160, width: 360, height: 240))
+        XCTAssertEqual(presentation.alignmentGuides, [guide])
+        XCTAssertEqual(presentation.presentationSurfaces.first?.frameInCanvas, CGRect(x: 200, y: 160, width: 360, height: 240))
+    }
+
+    @MainActor
+    func testWorkspaceControllerPublishesCanvasPresentationState() throws {
+        let controller = WorkspaceLayoutController()
+        controller.setContainerFrame(CGRect(x: 0, y: 0, width: 1_000, height: 700))
+        let itemID = try XCTUnwrap(controller.canvasSnapshot().items.first?.id)
+        XCTAssertTrue(controller.focusCanvasItem(itemID))
+
+        let presentation = controller.canvasPresentationState(
+            viewportSize: CGSize(width: 1_000, height: 700),
+            activeItemID: itemID,
+            contentKinds: [itemID: .terminal],
+            configuration: CanvasPresentationConfiguration(headerHeight: 20)
+        )
+
+        XCTAssertEqual(presentation.focusedItemID, itemID)
+        XCTAssertEqual(presentation.activeItemID, itemID)
+        XCTAssertEqual(presentation.nativeOverlays.map(\.id), [itemID])
+        XCTAssertEqual(presentation.surfaces.first?.kind, .terminal)
+    }
 }
