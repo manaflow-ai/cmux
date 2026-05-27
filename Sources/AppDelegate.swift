@@ -1694,7 +1694,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
         if TelemetrySettings.enabledForCurrentLaunch {
-            PostHogAnalytics.shared.flush()
+            PostHogAnalytics.shared.flushForApplicationTermination()
         }
         ghosttyCrashBreadcrumbTask?.cancel()
         ghosttyCrashBreadcrumbTask = nil
