@@ -5909,6 +5909,26 @@ struct ContentView: View {
         fallbackFingerprint ?? commandPaletteForkSnapshotFingerprint(snapshot)
     }
 
+    static func commandPaletteShouldReuseForkableAgentProbeResult(
+        panelKey: String,
+        supportedPanelKeys: Set<String>,
+        supportedRemoteContextsByPanelKey: [String: Bool],
+        snapshotFingerprintsByPanelKey: [String: String],
+        expectedSnapshotFingerprint: String?,
+        isRemoteTerminal: Bool,
+        panelChanged: Bool
+    ) -> Bool {
+        guard supportedPanelKeys.contains(panelKey),
+              supportedRemoteContextsByPanelKey[panelKey] == isRemoteTerminal,
+              !panelChanged else {
+            return false
+        }
+        guard let expectedSnapshotFingerprint else {
+            return true
+        }
+        return snapshotFingerprintsByPanelKey[panelKey] == expectedSnapshotFingerprint
+    }
+
     static func commandPalettePanelHasForkableAgent(
         workspaceId: UUID,
         panelId: UUID,
@@ -5988,12 +6008,21 @@ struct ContentView: View {
                 commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
                 return
             case .requiresProbe:
-                if commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey),
-                   commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] == fallbackFingerprint,
-                   commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] == isRemoteTerminal,
-                   !panelChanged {
+                if Self.commandPaletteShouldReuseForkableAgentProbeResult(
+                    panelKey: panelKey,
+                    supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
+                    supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
+                    snapshotFingerprintsByPanelKey: commandPaletteForkableAgentSnapshotFingerprintsByPanelKey,
+                    expectedSnapshotFingerprint: fallbackFingerprint,
+                    isRemoteTerminal: isRemoteTerminal,
+                    panelChanged: panelChanged
+                ) {
                     return
                 }
+                commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+                commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
                 startCommandPaletteForkableAgentAvailabilityProbe(
                     panelKey: panelKey,
                     workspaceId: workspaceId,
@@ -6006,12 +6035,22 @@ struct ContentView: View {
             }
         }
 
-        if commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey),
-           commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] == isRemoteTerminal,
-           !panelChanged {
+        if Self.commandPaletteShouldReuseForkableAgentProbeResult(
+            panelKey: panelKey,
+            supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
+            supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
+            snapshotFingerprintsByPanelKey: commandPaletteForkableAgentSnapshotFingerprintsByPanelKey,
+            expectedSnapshotFingerprint: nil,
+            isRemoteTerminal: isRemoteTerminal,
+            panelChanged: panelChanged
+        ) {
             return
         }
 
+        commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+        commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
         startCommandPaletteForkableAgentAvailabilityProbe(
             panelKey: panelKey,
             workspaceId: workspaceId,

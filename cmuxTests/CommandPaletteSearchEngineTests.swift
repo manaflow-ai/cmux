@@ -1080,6 +1080,61 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testForkableAgentProbeResultReuseRequiresCurrentPanelSession() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fingerprint = "verified-fingerprint"
+
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldReuseForkableAgentProbeResult(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                panelChanged: false
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldReuseForkableAgentProbeResult(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                panelChanged: true
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldReuseForkableAgentProbeResult(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: "stale-fingerprint"],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                panelChanged: false
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldReuseForkableAgentProbeResult(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: true],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                panelChanged: false
+            )
+        )
+    }
+
     func testCommandPreviewSearchUsesFullCommandCorpus() {
         let entries = [
             FixtureEntry(
