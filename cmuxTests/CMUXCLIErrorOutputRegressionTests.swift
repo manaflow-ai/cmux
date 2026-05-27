@@ -972,6 +972,49 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(openArguments.last, workingDirectory.standardizedFileURL.path)
     }
 
+    func testKnownCommandStillUsesSocketWhenMatchingBareRelativePathExists() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-command-path-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("ping", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fakeOpenURL = root.appendingPathComponent("open", isDirectory: false)
+        let openLogURL = root.appendingPathComponent("open-args.txt", isDirectory: false)
+        try fakeOpenScript().write(to: fakeOpenURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeOpenURL.path)
+
+        let socketPath = "/tmp/cmux-command-path-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: "PONG")
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TEST_OPEN_TOOL_PATH"] = fakeOpenURL.path
+        environment["CMUX_TEST_OPEN_LOG"] = openLogURL.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["ping"],
+            environment: environment,
+            currentDirectoryURL: root,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "PONG")
+        XCTAssertEqual(responder.receivedRequests, ["ping"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: openLogURL.path))
+    }
+
     func testExplicitSocketPathOpenUsesRequestedSocket() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory

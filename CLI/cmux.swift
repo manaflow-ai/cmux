@@ -2829,8 +2829,8 @@ struct CMUXCLI {
             return
         }
 
-        // If the argument looks like a path (not a known command), open a workspace there.
-        if looksLikePath(command), explicitSocketPath == nil {
+        // If the argument is a path (not a known command), open a workspace there.
+        if shouldOpenAsPathArgument(command), explicitSocketPath == nil {
             try openPath(command)
             return
         }
@@ -2867,7 +2867,7 @@ struct CMUXCLI {
             bundleIdentifier: cliBundleIdentifier
         )
 
-        if looksLikePath(command) {
+        if shouldOpenAsPathArgument(command) {
             try openPathViaExplicitSocket(command, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg)
             return
         }
@@ -4697,6 +4697,169 @@ struct CMUXCLI {
         if arg.contains("/") { return true }
         return false
     }
+
+    private func shouldOpenAsPathArgument(_ arg: String) -> Bool {
+        if looksLikePath(arg) {
+            return true
+        }
+        guard !arg.hasPrefix("-"),
+              !Self.topLevelCommandNames.contains(arg.lowercased()) else {
+            return false
+        }
+        return FileManager.default.fileExists(atPath: resolvePath(arg))
+    }
+
+    private static let topLevelCommandNames: Set<String> = [
+        "__codex-teams-watch",
+        "__tmux-compat",
+        "agent-hibernation",
+        "auth",
+        "bind-key",
+        "break-pane",
+        "browser",
+        "browser-back",
+        "browser-forward",
+        "browser-reload",
+        "browser-status",
+        "capabilities",
+        "capture-pane",
+        "claude-hook",
+        "claude-teams",
+        "clear-history",
+        "clear-log",
+        "clear-notifications",
+        "clear-progress",
+        "clear-status",
+        "close-surface",
+        "close-window",
+        "close-workspace",
+        "cloud",
+        "codex",
+        "codex-hook",
+        "codex-teams",
+        "config",
+        "copy-mode",
+        "current-window",
+        "current-workspace",
+        "debug-terminals",
+        "detach-tab",
+        "disable-browser",
+        "dismiss-notification",
+        "display-message",
+        "docs",
+        "drag-surface-to-split",
+        "enable-browser",
+        "events",
+        "feedback",
+        "feed",
+        "feed-hook",
+        "find-window",
+        "focus-pane",
+        "focus-panel",
+        "focus-webview",
+        "focus-window",
+        "get-url",
+        "help",
+        "hooks",
+        "identify",
+        "is-webview-focused",
+        "join-pane",
+        "jump-to-unread",
+        "last-pane",
+        "last-window",
+        "list-buffers",
+        "list-log",
+        "list-notifications",
+        "list-pane-surfaces",
+        "list-panels",
+        "list-panes",
+        "list-status",
+        "list-windows",
+        "list-workspaces",
+        "log",
+        "login",
+        "logout",
+        "markdown",
+        "mark-notification-read",
+        "memory",
+        "move-surface",
+        "move-tab-to-new-workspace",
+        "move-workspace-to-window",
+        "navigate",
+        "new-pane",
+        "new-split",
+        "new-surface",
+        "new-window",
+        "new-workspace",
+        "next-window",
+        "notify",
+        "omc",
+        "omo",
+        "omx",
+        "open",
+        "open-browser",
+        "open-notification",
+        "paste-buffer",
+        "ping",
+        "pipe-pane",
+        "popup",
+        "previous-window",
+        "read-screen",
+        "reload-config",
+        "remote-daemon-status",
+        "rename-tab",
+        "rename-window",
+        "rename-workspace",
+        "reorder-surface",
+        "reorder-workspace",
+        "reorder-workspaces",
+        "resize-pane",
+        "respawn-pane",
+        "restore-session",
+        "right-sidebar",
+        "rpc",
+        "select-workspace",
+        "send",
+        "send-key",
+        "send-key-panel",
+        "send-panel",
+        "set-app-focus",
+        "set-buffer",
+        "set-hook",
+        "set-progress",
+        "set-status",
+        "settings",
+        "setup-hooks",
+        "shortcuts",
+        "simulate-app-active",
+        "sidebar-state",
+        "split-off",
+        "ssh",
+        "ssh-pty-attach",
+        "ssh-session-attach",
+        "ssh-session-cleanup",
+        "ssh-session-end",
+        "ssh-session-list",
+        "surface",
+        "surface-health",
+        "surface-resume",
+        "swap-pane",
+        "tab-action",
+        "themes",
+        "top",
+        "tree",
+        "trigger-flash",
+        "unbind-key",
+        "uninstall-hooks",
+        "version",
+        "vm",
+        "vm-pty-attach",
+        "vm-pty-connect",
+        "vm-ssh-attach",
+        "wait-for",
+        "welcome",
+        "workspace-action",
+    ]
 
     /// Open a path in cmux by asking LaunchServices to deliver a directory URL to the app.
     private func openPath(_ path: String) throws {
