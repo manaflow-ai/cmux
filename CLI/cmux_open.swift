@@ -4721,11 +4721,11 @@ extension CMUXCLI {
             const codeViewItems = [];
             let codeViewItemIds = new Set();
             let fileTreeSource = null;
+            let currentTreeSource = null;
             let fileTreeStatsByPath = new Map();
             let patchTextPromise = { value: null };
             let activeFileId = "";
             let activeTreePath = "";
-            let activeFileScrollFrame = { value: 0 };
             let suppressTreeSelectionChange = false;
             let itemIdByTreePath = new Map();
             let treePathByItemId = new Map();
@@ -4768,7 +4768,6 @@ extension CMUXCLI {
               codeView = new CodeView(codeViewOptions(), workerPool ?? undefined);
               codeView.setup(viewerElement);
               codeView.render(true);
-              codeView.subscribeToScroll(scheduleActiveFileFromScroll);
               setupJumpSelector(diffItems);
               updateToolbarState();
               window.__cmuxDiffViewer = { codeView, items: diffItems, state: appState, workerPool };
@@ -4892,11 +4891,12 @@ extension CMUXCLI {
                 const treePath = uniqueDiffTreePath(diffModel, path);
                 const stats = fileStats(fileDiff);
                 const hasDiffHunks = (fileDiff.hunks?.length ?? 0) > 0;
+                const status = gitStatus(fileDiff);
                 const item = {
                   id: treePath,
                   type: "diff",
                   fileDiff,
-                  gitStatus: gitStatus(fileDiff),
+                  gitStatus: status,
                   renderable: hasDiffHunks,
                   stats,
                   treePath,
@@ -4909,6 +4909,20 @@ extension CMUXCLI {
                 diffModel.diffStats.deletedLines += stats.deleted;
                 diffModel.diffStats.fileCount += 1;
                 diffModel.diffStats.totalLinesOfCode += fileDiff.unifiedLineCount ?? fileDiff.splitLineCount ?? 0;
+                diffModel.treeEntries.push({ item, path: treePath, status, stats });
+                diffModel.paths.push(treePath);
+                diffModel.pathToItemId.set(treePath, item.id);
+                if (status === "modified") {
+                  if (diffModel.gitStatusByPath.delete(treePath)) {
+                    diffModel.pendingGitStatusRemovePaths.add(treePath);
+                  }
+                  diffModel.pendingGitStatusSetByPath.delete(treePath);
+                } else {
+                  const entry = { path: treePath, status };
+                  diffModel.gitStatusByPath.set(treePath, entry);
+                  diffModel.pendingGitStatusRemovePaths.delete(treePath);
+                  diffModel.pendingGitStatusSetByPath.set(treePath, entry);
+                }
                 return item;
               }
 
@@ -4963,6 +4977,7 @@ extension CMUXCLI {
                 }
                 appendJumpOptions(batch);
                 updateDiffStatsFromModel(diffModel);
+                currentTreeSource = createFileTreeSourceFromModel(diffModel);
                 scheduleNavigationRefresh(treesModule, false);
                 streamMetrics.flushCount += 1;
                 streamMetrics.maxBatchSize = Math.max(streamMetrics.maxBatchSize, batch.length);
@@ -5017,8 +5032,7 @@ extension CMUXCLI {
                 navigationRefreshState.dirtyCount = 0;
                 navigationRefreshState.lastRefreshAt = performance.now();
                 streamMetrics.treeRefreshCount += 1;
-                refreshFileExplorer(diffItems, treesModule);
-                setupJumpSelector(diffItems);
+                refreshFileExplorerSource(currentTreeSource ?? createFileTreeSource(diffItems), treesModule);
                 updateToolbarState();
                 recordStreamMetrics(streamMetrics);
               }
@@ -5227,10 +5241,50 @@ extension CMUXCLI {
                   totalLinesOfCode: 0,
                 },
                 fileIndex: 0,
+                gitStatusByPath: new Map(),
                 itemIdByTreePath: new Map(),
+                lastTreeSource: undefined,
                 nextCollisionSuffixByBase: new Map(),
+                paths: [],
+                pathToItemId: new Map(),
+                pendingGitStatusRemovePaths: new Set(),
+                pendingGitStatusSetByPath: new Map(),
+                treeEntries: [],
                 treePathByItemId: new Map(),
               };
+            }
+
+            function createFileTreeSourceFromModel(model) {
+              const previousSource = model.lastTreeSource;
+              const gitStatusPatch = buildGitStatusPatch(model);
+              const source = {
+                entries: model.treeEntries,
+                diffStats: { ...model.diffStats },
+                gitStatus: Array.from(model.gitStatusByPath.values()),
+                gitStatusPatch,
+                pathCount: model.paths.length,
+                paths: model.paths,
+                pathToItemId: model.pathToItemId,
+                previousSource,
+              };
+              model.lastTreeSource = source;
+              return source;
+            }
+
+            function buildGitStatusPatch(model) {
+              if (model.pendingGitStatusRemovePaths.size === 0 && model.pendingGitStatusSetByPath.size === 0) {
+                return undefined;
+              }
+              const patch = {};
+              if (model.pendingGitStatusRemovePaths.size > 0) {
+                patch.remove = Array.from(model.pendingGitStatusRemovePaths);
+                model.pendingGitStatusRemovePaths.clear();
+              }
+              if (model.pendingGitStatusSetByPath.size > 0) {
+                patch.set = Array.from(model.pendingGitStatusSetByPath.values());
+                model.pendingGitStatusSetByPath.clear();
+              }
+              return patch;
             }
 
             function uniqueDiffTreePath(model, path) {
@@ -5669,51 +5723,62 @@ extension CMUXCLI {
             }
 
             function setupFileExplorer(items, treesModule) {
+              setupFileExplorerSource(createFileTreeSource(items), treesModule);
+            }
+
+            function setupFileExplorerSource(source, treesModule) {
+              const itemCount = source.pathCount ?? source.entries.length;
+              const entries = sourceEntries(source);
               if (fileTree) {
                 fileTree.cleanUp?.();
                 fileTree = null;
               }
               fileTreeSource = null;
               appState.fileSearchOpen = false;
-              resetTreePathMaps();
               fileList.textContent = "";
-              filesCount.textContent = `${items.length}`;
-              updateDiffStats(items);
+              filesCount.textContent = `${itemCount}`;
+              updateDiffStatsFromSource(source);
               if (treesModule?.FileTree && treesModule?.preparePresortedFileTreeInput) {
                 try {
-                  setupPierreFileTree(items, treesModule);
+                  setupPierreFileTree(source, treesModule);
                   updateToolbarState();
                   return;
                 } catch (error) {
                   console.warn("cmux diff file tree setup failed", error);
                 }
               }
-              setupFlatFileExplorer(items);
+              setupFlatFileExplorer(entries);
               updateToolbarState();
             }
 
             function refreshFileExplorer(items, treesModule) {
-              filesCount.textContent = `${items.length}`;
-              updateDiffStats(items);
+              refreshFileExplorerSource(createFileTreeSource(items), treesModule);
+            }
+
+            function refreshFileExplorerSource(source, treesModule) {
+              const itemCount = source.pathCount ?? source.entries.length;
+              const entries = sourceEntries(source);
+              filesCount.textContent = `${itemCount}`;
+              updateDiffStatsFromSource(source);
               if (fileTree && fileList.dataset.treeMode === "pierre" && treesModule?.preparePresortedFileTreeInput) {
-                refreshPierreFileTree(items, treesModule);
+                refreshPierreFileTree(source, treesModule);
                 return;
               }
               if (fileTree || fileList.childElementCount === 0) {
-                setupFileExplorer(items, treesModule);
+                setupFileExplorerSource(source, treesModule);
                 return;
               }
-              resetTreePathMaps();
               fileList.textContent = "";
-              setupFlatFileExplorer(items);
+              setupFlatFileExplorer(entries);
             }
 
-            function setupPierreFileTree(items, treesModule) {
+            function setupPierreFileTree(source, treesModule) {
               const { FileTree, preparePresortedFileTreeInput } = treesModule;
-              const source = createFileTreeSource(items);
+              const entries = sourceEntries(source);
+              const paths = sourcePaths(source);
               fileTreeSource = source;
-              const initialSelectedPath = source.entries[0]?.path;
-              replaceFileTreeStats(source.entries);
+              const initialSelectedPath = entries[0]?.path;
+              replaceFileTreeStats(entries);
               fileList.dataset.treeMode = "pierre";
               fileTree = new FileTree({
                 flattenEmptyDirectories: true,
@@ -5723,7 +5788,7 @@ extension CMUXCLI {
                 initialVisibleRowCount: getInitialFileTreeRowCount(),
                 itemHeight: 24,
                 overscan: 12,
-                preparedInput: preparePresortedFileTreeInput(source.paths),
+                preparedInput: preparePresortedFileTreeInput(paths),
                 presorted: true,
                 search: true,
                 searchBlurBehavior: "retain",
@@ -5758,43 +5823,72 @@ extension CMUXCLI {
               fileTree.render({ containerWrapper: fileList });
             }
 
-            function refreshPierreFileTree(items, treesModule) {
+            function refreshPierreFileTree(source, treesModule) {
               const previousSource = fileTreeSource;
-              const source = createFileTreeSource(items);
+              const entries = sourceEntries(source);
+              const paths = sourcePaths(source);
               fileTreeSource = source;
-              replaceFileTreeStats(source.entries);
-              if (previousSource && isPathPrefix(previousSource.paths, source.paths) && source.pathCount >= previousSource.pathCount) {
-                const addedPaths = source.paths.slice(previousSource.pathCount);
+              replaceFileTreeStats(entries);
+              if (previousSource && (source.previousSource === previousSource || isPathPrefix(previousSource, source)) && source.pathCount >= previousSource.pathCount) {
+                const addedPaths = source.paths.slice(previousSource.pathCount, source.pathCount);
                 if (addedPaths.length > 0) {
-                  fileTree.batch(addedPaths.map((path) => ({ type: "add", path })));
+                  try {
+                    fileTree.batch(addedPaths.map((path) => ({ type: "add", path })));
+                  } catch (error) {
+                    console.warn("cmux diff file tree incremental update failed; resetting paths", error);
+                    fileTree.resetPaths(paths, {
+                      preparedInput: treesModule.preparePresortedFileTreeInput(paths),
+                    });
+                  }
                 }
               } else {
-                fileTree.resetPaths(source.paths, {
-                  preparedInput: treesModule.preparePresortedFileTreeInput(source.paths),
+                fileTree.resetPaths(paths, {
+                  preparedInput: treesModule.preparePresortedFileTreeInput(paths),
                 });
               }
-              fileTree.setGitStatus(source.gitStatus);
+              if (source.gitStatusPatch && typeof fileTree.applyGitStatusPatch === "function") {
+                fileTree.applyGitStatusPatch(source.gitStatusPatch);
+              } else {
+                fileTree.setGitStatus(source.gitStatus);
+              }
             }
 
             function createFileTreeSource(items) {
               const entries = buildTreeEntries(items);
-              const sortedEntries = [...entries].sort(compareTreeEntryPaths);
-              const paths = sortedEntries.map((entry) => entry.path);
-              const pathToItemId = new Map(sortedEntries.map((entry) => [entry.path, entry.item.id]));
+              const paths = entries.map((entry) => entry.path);
+              const pathToItemId = new Map(entries.map((entry) => [entry.path, entry.item.id]));
               return {
                 entries,
-                gitStatus: sortedEntries.map((entry) => ({ path: entry.path, status: entry.status })),
+                gitStatus: entries
+                  .filter((entry) => entry.status !== "modified")
+                  .map((entry) => ({ path: entry.path, status: entry.status })),
                 pathCount: paths.length,
                 paths,
                 pathToItemId,
               };
             }
 
-            function isPathPrefix(previousPaths, nextPaths) {
-              if (!Array.isArray(previousPaths) || !Array.isArray(nextPaths) || previousPaths.length > nextPaths.length) {
+            function sourceEntries(source) {
+              const count = source?.pathCount ?? source?.entries?.length ?? 0;
+              const entries = source?.entries ?? [];
+              return entries.length === count ? entries : entries.slice(0, count);
+            }
+
+            function sourcePaths(source) {
+              const count = source?.pathCount ?? source?.paths?.length ?? 0;
+              const paths = source?.paths ?? [];
+              return paths.length === count ? paths : paths.slice(0, count);
+            }
+
+            function isPathPrefix(previousSource, nextSource) {
+              const previousPaths = previousSource?.paths;
+              const nextPaths = nextSource?.paths;
+              const previousCount = previousSource?.pathCount ?? previousPaths?.length ?? 0;
+              const nextCount = nextSource?.pathCount ?? nextPaths?.length ?? 0;
+              if (!Array.isArray(previousPaths) || !Array.isArray(nextPaths) || previousCount > nextCount) {
                 return false;
               }
-              for (let index = 0; index < previousPaths.length; index += 1) {
+              for (let index = 0; index < previousCount; index += 1) {
                 if (previousPaths[index] !== nextPaths[index]) {
                   return false;
                 }
@@ -5809,21 +5903,12 @@ extension CMUXCLI {
               }
             }
 
-            function compareTreeEntryPaths(left, right) {
-              if (left.path < right.path) {
-                return -1;
-              }
-              if (left.path > right.path) {
-                return 1;
-              }
-              return 0;
-            }
-
-            function setupFlatFileExplorer(items) {
+            function setupFlatFileExplorer(entries) {
               delete fileList.dataset.treeMode;
-              for (const item of items) {
+              for (const entry of entries) {
+                const item = entry.item;
                 const fileDiff = item.fileDiff ?? {};
-                const stats = fileStats(fileDiff);
+                const stats = entry.stats ?? fileStats(fileDiff);
                 const button = document.createElement("button");
                 button.type = "button";
                 button.className = "file-entry";
@@ -5912,13 +5997,31 @@ extension CMUXCLI {
             }
 
             function updateDiffStats(items) {
-              const totals = items.reduce((sum, item) => {
-                const stats = fileStats(item.fileDiff ?? {});
+              updateDiffStatsFromEntries(items.map((item) => ({
+                item,
+                stats: item.stats ?? fileStats(item.fileDiff ?? {}),
+              })));
+            }
+
+            function updateDiffStatsFromSource(source) {
+              const stats = source?.diffStats;
+              if (stats && Number.isFinite(stats.addedLines) && Number.isFinite(stats.deletedLines) && Number.isFinite(stats.fileCount)) {
+                statsFiles.textContent = `${stats.fileCount}`;
+                statsAdded.textContent = `+${stats.addedLines}`;
+                statsDeleted.textContent = `-${stats.deletedLines}`;
+                return;
+              }
+              updateDiffStatsFromEntries(source?.entries ?? []);
+            }
+
+            function updateDiffStatsFromEntries(entries) {
+              const totals = entries.reduce((sum, entry) => {
+                const stats = entry.stats ?? fileStats(entry.item?.fileDiff ?? {});
                 sum.added += stats.added;
                 sum.deleted += stats.deleted;
                 return sum;
               }, { added: 0, deleted: 0 });
-              statsFiles.textContent = `${items.length}`;
+              statsFiles.textContent = `${entries.length}`;
               statsAdded.textContent = `+${totals.added}`;
               statsDeleted.textContent = `-${totals.deleted}`;
             }
@@ -6000,58 +6103,6 @@ extension CMUXCLI {
                 }
               }
               return "";
-            }
-
-            function scheduleActiveFileFromScroll() {
-              if (activeFileScrollFrame.value !== 0) {
-                return;
-              }
-              activeFileScrollFrame.value = window.requestAnimationFrame(() => {
-                activeFileScrollFrame.value = 0;
-                updateActiveFileFromScroll();
-              });
-            }
-
-            function updateActiveFileFromScroll() {
-              if (!codeView || codeViewItems.length === 0) {
-                return;
-              }
-              const scrollTop = viewerElement.scrollTop + 8;
-              const current = activeItemIdForScrollTop(scrollTop);
-              updateActiveFile(current);
-            }
-
-            function activeItemIdForScrollTop(scrollTop) {
-              let current = codeViewItems[0].id;
-              let low = 0;
-              let high = codeViewItems.length - 1;
-              while (low <= high) {
-                const mid = (low + high) >> 1;
-                const top = codeView.getTopForItem(codeViewItems[mid].id);
-                if (typeof top !== "number") {
-                  return activeItemIdForScrollTopLinear(scrollTop);
-                }
-                if (top <= scrollTop) {
-                  current = codeViewItems[mid].id;
-                  low = mid + 1;
-                } else {
-                  high = mid - 1;
-                }
-              }
-              return current;
-            }
-
-            function activeItemIdForScrollTopLinear(scrollTop) {
-              let current = codeViewItems[0].id;
-              for (const item of codeViewItems) {
-                const top = codeView.getTopForItem(item.id);
-                if (typeof top === "number" && top <= scrollTop) {
-                  current = item.id;
-                } else if (typeof top === "number") {
-                  break;
-                }
-              }
-              return current;
             }
 
             function updateActiveFile(itemId) {
