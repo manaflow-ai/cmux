@@ -5624,7 +5624,7 @@ class TerminalController {
                 command: command,
                 cwd: workingDirectory,
                 checkpointId: sessionName,
-                source: "process-detected",
+                source: "cli",
                 autoResume: true,
                 updatedAt: Date().timeIntervalSince1970
             )

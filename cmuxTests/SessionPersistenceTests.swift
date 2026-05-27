@@ -3878,6 +3878,50 @@ extension SessionPersistenceTests {
     }
 
     @MainActor
+    func testSnapshotPreservesCliTmuxControlBindingOverProcessDetectedAttach() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let controlCommand = "tmux -CC new -A -s cmuxcc"
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "tmux cmuxcc",
+                    kind: "tmux",
+                    command: controlCommand,
+                    cwd: "/tmp/cmuxcc",
+                    checkpointId: "cmuxcc",
+                    source: "cli",
+                    autoResume: true,
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t cmuxcc",
+                cwd: "/tmp/cmuxcc",
+                checkpointId: "cmuxcc",
+                source: "process-detected",
+                updatedAt: 20
+            ),
+        ])
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+        let resumeBinding = try XCTUnwrap(snapshot.panels.first?.terminal?.resumeBinding)
+
+        XCTAssertEqual(resumeBinding.source, "cli")
+        XCTAssertEqual(resumeBinding.command, controlCommand)
+        XCTAssertEqual(resumeBinding.autoResume, true)
+        XCTAssertTrue(resumeBinding.command.contains("-CC"))
+    }
+
+    @MainActor
     func testSnapshotUsesProcessDetectedSurfaceResumeBindingAfterWorkspaceMove() throws {
         let originalWorkspaceId = UUID()
         let workspace = Workspace()
