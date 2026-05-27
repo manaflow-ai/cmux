@@ -16095,6 +16095,38 @@ private struct SidebarBonsplitTabDropDelegate: DropDelegate {
 }
 
 @MainActor
+enum SidebarWorkspaceSelectionSyncPolicy {
+    static func reconciledSelection(
+        previousSelectionIds: Set<UUID>,
+        liveWorkspaceIds: [UUID],
+        fallbackSelectedWorkspaceId: UUID?
+    ) -> Set<UUID> {
+        let liveIdSet = Set(liveWorkspaceIds)
+        let liveSelectionIds = previousSelectionIds.filter { liveIdSet.contains($0) }
+        if !liveSelectionIds.isEmpty {
+            return liveSelectionIds
+        }
+        if let fallbackSelectedWorkspaceId, liveIdSet.contains(fallbackSelectedWorkspaceId) {
+            return [fallbackSelectedWorkspaceId]
+        }
+        return []
+    }
+
+    static func anchorIndex(
+        preferredWorkspaceId: UUID?,
+        selectedWorkspaceIds: Set<UUID>,
+        liveWorkspaceIds: [UUID]
+    ) -> Int? {
+        if let preferredWorkspaceId,
+           selectedWorkspaceIds.contains(preferredWorkspaceId),
+           let preferredIndex = liveWorkspaceIds.firstIndex(of: preferredWorkspaceId) {
+            return preferredIndex
+        }
+        return liveWorkspaceIds.firstIndex { selectedWorkspaceIds.contains($0) }
+    }
+}
+
+@MainActor
 private struct SidebarTabDropDelegate: DropDelegate {
     let targetTabId: UUID?
     let tabManager: TabManager
@@ -16191,14 +16223,9 @@ private struct SidebarTabDropDelegate: DropDelegate {
 #if DEBUG
         cmuxDebugLog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
 #endif
+        let selectionBeforeReorder = selectedTabIds
         _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex)
-        if let selectedId = tabManager.selectedTabId {
-            selectedTabIds = [selectedId]
-            syncSidebarSelection(preferredSelectedTabId: selectedId)
-        } else {
-            selectedTabIds = []
-            syncSidebarSelection()
-        }
+        syncSidebarSelection(preserving: selectionBeforeReorder)
         return true
     }
 
@@ -16224,6 +16251,21 @@ private struct SidebarTabDropDelegate: DropDelegate {
         } else {
             lastSidebarSelectionIndex = nil
         }
+    }
+
+    private func syncSidebarSelection(preserving previousSelectionIds: Set<UUID>) {
+        let liveWorkspaceIds = tabManager.tabs.map(\.id)
+        let nextSelectionIds = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+            previousSelectionIds: previousSelectionIds,
+            liveWorkspaceIds: liveWorkspaceIds,
+            fallbackSelectedWorkspaceId: tabManager.selectedTabId
+        )
+        selectedTabIds = nextSelectionIds
+        lastSidebarSelectionIndex = SidebarWorkspaceSelectionSyncPolicy.anchorIndex(
+            preferredWorkspaceId: tabManager.selectedTabId,
+            selectedWorkspaceIds: nextSelectionIds,
+            liveWorkspaceIds: liveWorkspaceIds
+        )
     }
 
     private func debugIndicator(_ indicator: SidebarDropIndicator?) -> String {

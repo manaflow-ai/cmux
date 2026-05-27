@@ -3582,6 +3582,49 @@ final class SidebarWorkspaceAuxiliaryDetailVisibilityTests: XCTestCase {
 }
 
 
+final class SidebarWorkspaceSelectionSyncPolicyTests: XCTestCase {
+    @MainActor
+    func testReconciledSelectionPreservesMultiSelectionAfterReorder() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let fourth = UUID()
+        let previousSelection: Set<UUID> = [second, third]
+
+        let result = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+            previousSelectionIds: previousSelection,
+            liveWorkspaceIds: [first, third, fourth, second],
+            fallbackSelectedWorkspaceId: second
+        )
+
+        XCTAssertEqual(result, previousSelection)
+        XCTAssertEqual(
+            SidebarWorkspaceSelectionSyncPolicy.anchorIndex(
+                preferredWorkspaceId: second,
+                selectedWorkspaceIds: result,
+                liveWorkspaceIds: [first, third, fourth, second]
+            ),
+            3
+        )
+    }
+
+    @MainActor
+    func testReconciledSelectionFallsBackToActiveWorkspaceWhenPreviousSelectionIsGone() {
+        let first = UUID()
+        let second = UUID()
+        let removed = UUID()
+
+        let result = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+            previousSelectionIds: [removed],
+            liveWorkspaceIds: [first, second],
+            fallbackSelectedWorkspaceId: second
+        )
+
+        XCTAssertEqual(result, [second])
+    }
+}
+
+
 final class WorkspaceReorderTests: XCTestCase {
     @MainActor
     func testReorderWorkspacePostsMovedWorkspaceId() {
