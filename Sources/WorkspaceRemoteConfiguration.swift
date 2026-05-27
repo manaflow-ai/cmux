@@ -61,6 +61,7 @@ nonisolated struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable 
     var sshOptions: [String]
     var preserveAfterTerminalExit: Bool?
     var skipDaemonBootstrap: Bool?
+    var remotePTYCommand: String? = nil
 }
 
 struct WorkspaceRemoteWebSocketDaemonEndpoint: Equatable {
@@ -90,6 +91,7 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
     }
 
     static func command(
+        command: String? = nil,
         sessionID: String? = nil,
         foregroundAuth: ForegroundAuth? = nil,
         requireExisting: Bool = true
@@ -113,7 +115,13 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
             lines += foregroundAuthLines(foregroundAuth)
         }
         let requireExistingFlag = requireExisting ? " --require-existing" : ""
-        let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\""
+        let commandFlag: String
+        if let command = normalized(command) {
+            commandFlag = " --command-b64 \(shellQuote(Data(command.utf8).base64EncodedString()))"
+        } else {
+            commandFlag = ""
+        }
+        let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"\(commandFlag)"
         lines += retryingAttachLines(command: attachCommand)
         return lines.joined(separator: "\n")
     }
@@ -287,6 +295,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
     let foregroundAuthToken: String?
     let daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint?
     let preserveAfterTerminalExit: Bool
+    let remotePTYCommand: String?
     /// True for cloud-VM remotes (Freestyle snapshots) where cmuxd-remote is pre-baked in
     /// the image and started via systemd. Skip the upload+exec bootstrap entirely and synthesize
     /// a `DaemonHello`. Reverse-relay still stays off, but SSH-backed VM workspaces can talk to
@@ -308,6 +317,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         foregroundAuthToken: String? = nil,
         daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
         preserveAfterTerminalExit: Bool = false,
+        remotePTYCommand: String? = nil,
         skipDaemonBootstrap: Bool = false
     ) {
         self.transport = transport
@@ -324,6 +334,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         self.foregroundAuthToken = foregroundAuthToken
         self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
         self.preserveAfterTerminalExit = preserveAfterTerminalExit
+        self.remotePTYCommand = WorkspaceRemoteSSHOptionFilter.normalizedOptional(remotePTYCommand)
         self.skipDaemonBootstrap = skipDaemonBootstrap
     }
 
@@ -371,6 +382,7 @@ extension SessionRemoteWorkspaceSnapshot {
         }
 
         let normalizedOptions = Self.normalizedSSHOptions(sshOptions)
+        let normalizedRemotePTYCommand = WorkspaceRemoteSSHOptionFilter.normalizedOptional(remotePTYCommand)
         let optionsWithRestoreControlDefaults = SSHPTYAttachStartupCommandBuilder.sshOptionsWithRestoreControlDefaults(normalizedOptions)
         let preservePTYSession =
             preserveAfterTerminalExit == true &&
@@ -400,6 +412,7 @@ extension SessionRemoteWorkspaceSnapshot {
             localSocketPath: nil,
             terminalStartupCommand: preservePTYSession
                 ? SSHPTYAttachStartupCommandBuilder.command(
+                    command: normalizedRemotePTYCommand,
                     foregroundAuth: foregroundAuth,
                     requireExisting: false
                 )
@@ -410,6 +423,7 @@ extension SessionRemoteWorkspaceSnapshot {
             foregroundAuthToken: foregroundAuthToken,
             daemonWebSocketEndpoint: nil,
             preserveAfterTerminalExit: preservePTYSession,
+            remotePTYCommand: preservePTYSession ? normalizedRemotePTYCommand : nil,
             skipDaemonBootstrap: skipDaemonBootstrap == true
         )
     }
@@ -470,7 +484,10 @@ extension WorkspaceRemoteConfiguration {
             identityFile: WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile),
             sshOptions: WorkspaceRemoteSSHOptionFilter.durableOptions(sshOptions),
             preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
-            skipDaemonBootstrap: skipDaemonBootstrap
+            skipDaemonBootstrap: skipDaemonBootstrap,
+            remotePTYCommand: preserveAfterTerminalExit
+                ? WorkspaceRemoteSSHOptionFilter.normalizedOptional(remotePTYCommand)
+                : nil
         )
     }
 }

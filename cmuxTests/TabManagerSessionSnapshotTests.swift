@@ -1907,6 +1907,72 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(roundTrip.panels.first?.terminal?.remotePTYSessionID)
     }
 
+    func testSessionSnapshotRestoresPersistentSSHTmuxPTYCommandAfterRelaunch() throws {
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("Remote tmux")
+        let tmuxCommand = "tmux -CC new -A -s cmuxcc"
+        let encodedTmuxCommand = Data(tmuxCommand.utf8).base64EncodedString()
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "dev@example.com",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64005,
+            relayID: "relay-tmux-test",
+            relayToken: String(repeating: "f", count: 64),
+            localSocketPath: "/tmp/cmux-tmux-test.sock",
+            terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(command: tmuxCommand),
+            preserveAfterTerminalExit: true,
+            remotePTYCommand: tmuxCommand
+        )
+        remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+
+        let snapshotURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-pty-tmux-restore-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: snapshotURL) }
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [
+                SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: manager.sessionSnapshot(includeScrollback: false),
+                    sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+                ),
+            ]
+        )
+        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        let persistedTabManager = try XCTUnwrap(
+            SessionPersistenceStore.load(fileURL: snapshotURL)?.windows.first?.tabManager
+        )
+        let persistedWorkspace = try XCTUnwrap(
+            persistedTabManager.workspaces.first { $0.customTitle == "Remote tmux" }
+        )
+        XCTAssertEqual(persistedWorkspace.remote?.remotePTYCommand, tmuxCommand)
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(persistedTabManager)
+
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Remote tmux" })
+        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.remotePTYCommand, tmuxCommand)
+        let terminalStartupCommand = try XCTUnwrap(restoredWorkspace.remoteConfiguration?.terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.contains("--command-b64"), terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.contains(encodedTmuxCommand), terminalStartupCommand)
+        XCTAssertFalse(terminalStartupCommand.contains("--require-existing"), terminalStartupCommand)
+
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+        let restoredInitialCommand = try XCTUnwrap(
+            restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()
+        )
+        XCTAssertTrue(restoredInitialCommand.contains("--command-b64"), restoredInitialCommand)
+        XCTAssertTrue(restoredInitialCommand.contains(encodedTmuxCommand), restoredInitialCommand)
+    }
+
     func testSessionRemoteWorkspaceSnapshotDropsInvalidSSHPortFromReconnectCommand() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,

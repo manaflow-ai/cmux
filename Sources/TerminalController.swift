@@ -3386,6 +3386,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceList(params: params))
         case "workspace.create":
             return v2Result(id: id, self.v2WorkspaceCreate(params: params))
+        case "workspace.tmux.attach":
+            return v2Result(id: id, self.v2WorkspaceTmuxAttach(params: params))
         case "workspace.select":
             return v2Result(id: id, self.v2WorkspaceSelect(params: params))
         case "workspace.current":
@@ -3837,6 +3839,7 @@ class TerminalController {
             "window.close",
             "workspace.list",
             "workspace.create",
+            "workspace.tmux.attach",
             "workspace.select",
             "workspace.current",
             "workspace.close",
@@ -5566,6 +5569,109 @@ class TerminalController {
             "surface_ref": v2Ref(kind: .surface, uuid: initialSurfaceId)
         ])
     }
+
+    private func v2WorkspaceTmuxAttach(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let sessionName = v2RawString(params, "session_name")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionName.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing session_name", data: nil)
+        }
+        if v2HasNonNullParam(params, "create"), v2Bool(params, "create") == nil {
+            return .err(code: "invalid_params", message: "create must be a boolean", data: nil)
+        }
+        if v2HasNonNullParam(params, "focus"), v2Bool(params, "focus") == nil {
+            return .err(code: "invalid_params", message: "focus must be a boolean", data: nil)
+        }
+        let socketName = v2OptionalTrimmedRawString(params, "socket_name")
+        let socketPath = v2OptionalTrimmedRawString(params, "socket_path")
+        if socketName != nil && socketPath != nil {
+            return .err(code: "invalid_params", message: "socket_name and socket_path cannot both be set", data: nil)
+        }
+
+        let tmuxPath = v2OptionalTrimmedRawString(params, "tmux_path") ?? "tmux"
+        let create = v2Bool(params, "create") ?? true
+        let command = Self.tmuxControlAttachCommand(
+            tmuxPath: tmuxPath,
+            sessionName: sessionName,
+            create: create,
+            socketName: socketName,
+            socketPath: socketPath
+        )
+        let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
+        let title = v2OptionalTrimmedRawString(params, "title") ?? "tmux \(sessionName)"
+        let description = v2OptionalTrimmedRawString(params, "description")
+        let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to create tmux workspace", data: nil)
+        v2MainSync {
+            let workspace = tabManager.addWorkspace(
+                title: title,
+                workingDirectory: workingDirectory,
+                initialTerminalCommand: command,
+                select: shouldFocus,
+                eagerLoadTerminal: !shouldFocus
+            )
+            workspace.setCustomDescription(description)
+            guard let surfaceId = workspace.focusedPanelId else {
+                return
+            }
+            let binding = SurfaceResumeBindingSnapshot(
+                name: title,
+                kind: "tmux",
+                command: command,
+                cwd: workingDirectory,
+                checkpointId: sessionName,
+                source: "process-detected",
+                autoResume: true,
+                updatedAt: Date().timeIntervalSince1970
+            )
+            _ = workspace.setSurfaceResumeBinding(binding, panelId: surfaceId)
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "session_name": sessionName,
+                "mode": "local",
+                "tmux_command": command,
+                "resume_binding": v2SurfaceResumeBindingPayload(binding),
+            ])
+        }
+        return result
+    }
+
+    private static func tmuxControlAttachCommand(
+        tmuxPath: String,
+        sessionName: String,
+        create: Bool,
+        socketName: String?,
+        socketPath: String?
+    ) -> String {
+        var argv = [tmuxPath, "-CC"]
+        if let socketName {
+            argv += ["-L", socketName]
+        }
+        if let socketPath {
+            argv += ["-S", socketPath]
+        }
+        if create {
+            argv += ["new", "-A", "-s", sessionName]
+        } else {
+            argv += ["attach", "-t", sessionName]
+        }
+        return argv.map(Self.shellSingleQuoted).joined(separator: " ")
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
     private func v2WorkspaceSelect(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -6214,6 +6320,8 @@ class TerminalController {
         let localSocketPath = v2RawString(params, "local_socket_path")
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let remotePTYCommand = v2RawString(params, "remote_pty_command")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let daemonWebSocketURL = v2RawString(params, "daemon_websocket_url")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let daemonWebSocketToken = v2RawString(params, "daemon_websocket_token")?
@@ -6301,6 +6409,7 @@ class TerminalController {
                 foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
                 daemonWebSocketEndpoint: daemonWebSocketEndpoint,
                 preserveAfterTerminalExit: preserveAfterTerminalExit,
+                remotePTYCommand: remotePTYCommand?.isEmpty == true ? nil : remotePTYCommand,
                 skipDaemonBootstrap: skipDaemonBootstrap
             )
             workspace.configureRemoteConnection(config, autoConnect: autoConnect)
