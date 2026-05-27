@@ -48,12 +48,11 @@ struct cmuxApp: App {
             Self.terminateForMissingLaunchTag()
         }
 
-        let initializedCEF = preparedCEFApplication && CMUXCEFInitialize(CommandLine.argc, CommandLine.unsafeArgv)
+        let cefRuntimeAvailable = preparedCEFApplication && CMUXCEFIsRuntimeAvailable()
         StartupBreadcrumbLog.append(
-            "app.init.cef.initialized",
+            "app.init.cefRuntime.available",
             fields: [
-                "initialized": initializedCEF ? "1" : "0",
-                "remoteDebuggingPort": String(CMUXCEFRemoteDebuggingPort())
+                "available": cefRuntimeAvailable ? "1" : "0"
             ]
         )
 
