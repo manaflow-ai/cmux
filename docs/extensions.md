@@ -72,13 +72,12 @@ to the built-in sidebar.
 You can also load a sidebar from the CLI:
 
 ```bash
-cmux custom-sidebar load ./Sidebar.swift
-cmux custom-sidebar load ~/.config/cmux/sidebars/my-sidebar
-cmux load-custom-sidebar ./Sidebar.swift
+cmux sidebar load ./Sidebar.swift
+cmux sidebar load ~/.config/cmux/sidebars/my-sidebar
 ```
 
-`cmux custom-sidebar path` prints the standard source directory, and
-`cmux custom-sidebar docs` prints this docs URL.
+`cmux sidebar path` prints the standard source directory, and
+`cmux sidebar docs` prints this docs URL.
 
 For multiple files, put them in a folder and include either a `main.swift` file
 with the executable bridge call or an `@main` type. cmux copies Swift source files

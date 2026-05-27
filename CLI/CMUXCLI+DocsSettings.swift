@@ -117,7 +117,7 @@ extension CMUXCLI {
         ),
         DocsReference(
             topic: "extensions",
-            aliases: ["extension", "custom-sidebar", "sidebars", "swift-sidebar", "swift-sidebars"],
+            aliases: ["extension", "sidebar", "sidebars", "custom-sidebar", "swift-sidebar", "swift-sidebars"],
             summary: "Custom left sidebar sources, CmuxExtensionKit, and CLI loading.",
             webURL: "https://github.com/manaflow-ai/cmux/blob/main/docs/extensions.md#custom-sidebars",
             rawResources: [
@@ -125,9 +125,9 @@ extension CMUXCLI {
                 DocsResource(label: "CmuxExtensionKit package manifest", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/Packages/CmuxExtensionKit/Package.swift"),
             ],
             commands: [
-                "cmux custom-sidebar path",
-                "cmux custom-sidebar load ~/.config/cmux/sidebars/my-sidebar",
-                "cmux load-custom-sidebar ./Sidebar.swift",
+                "cmux sidebar path",
+                "cmux sidebar load ~/.config/cmux/sidebars/my-sidebar",
+                "cmux sidebar docs",
             ]
         ),
     ]

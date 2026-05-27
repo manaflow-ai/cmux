@@ -16,7 +16,7 @@ The executable receives `CmuxExtensionSidebarSnapshot` JSON on stdin and returns
 You can also load it from the CLI:
 
 ```bash
-cmux custom-sidebar load Examples/CmuxUserSwiftSidebar/CompactUnreadSidebar.swift
+cmux sidebar load Examples/CmuxUserSwiftSidebar/CompactUnreadSidebar.swift
 ```
 
 cmux imports loaded sources into `~/.config/cmux/sidebars/`. A folder can contain

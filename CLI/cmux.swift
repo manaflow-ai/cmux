@@ -2816,7 +2816,7 @@ struct CMUXCLI {
             return
         }
 
-        if (command == "custom-sidebar" || command == "load-custom-sidebar"),
+        if (command == "sidebar" || command == "custom-sidebar" || command == "load-custom-sidebar"),
            customSidebarCommandDoesNotNeedSocket(command: command, commandArgs: commandArgs) {
             try runCustomSidebarCommand(
                 command: command,
@@ -4426,7 +4426,7 @@ struct CMUXCLI {
             )
             print(response)
 
-        case "custom-sidebar", "load-custom-sidebar":
+        case "sidebar", "custom-sidebar", "load-custom-sidebar":
             try runCustomSidebarCommand(
                 command: command,
                 commandArgs: commandArgs,
@@ -13302,13 +13302,12 @@ struct CMUXCLI {
               cmux sidebar-state
               cmux sidebar-state --workspace workspace:2
             """
-        case "custom-sidebar", "load-custom-sidebar":
+        case "sidebar", "custom-sidebar", "load-custom-sidebar":
             return """
             Usage:
-              cmux custom-sidebar load <swift-file-or-folder>
-              cmux load-custom-sidebar <swift-file-or-folder>
-              cmux custom-sidebar path
-              cmux custom-sidebar docs
+              cmux sidebar load <swift-file-or-folder>
+              cmux sidebar path
+              cmux sidebar docs
 
             Load a custom left sidebar without rebuilding cmux.
 
@@ -13318,8 +13317,8 @@ struct CMUXCLI {
               cmux builds a small executable that links against bundled CmuxExtensionKit.
 
             Examples:
-              cmux custom-sidebar load ./Sidebar.swift
-              cmux custom-sidebar load ~/.config/cmux/sidebars/my-sidebar
+              cmux sidebar load ./Sidebar.swift
+              cmux sidebar load ~/.config/cmux/sidebars/my-sidebar
             """
         case "right-sidebar":
             return String(localized: "cli.rightSidebar.usage", defaultValue: """
@@ -13755,10 +13754,10 @@ struct CMUXCLI {
         switch subcommand {
         case "load":
             guard args.count == 2 else {
-                throw CLIError(message: "Usage: cmux custom-sidebar load <swift-file-or-folder>")
+                throw CLIError(message: "Usage: cmux sidebar load <swift-file-or-folder>")
             }
             guard let client else {
-                throw CLIError(message: "custom-sidebar load requires a running cmux app.")
+                throw CLIError(message: "sidebar load requires a running cmux app.")
             }
             let sourcePath = resolvePath(args[1])
             let payload = try client.sendV2(
@@ -13778,7 +13777,7 @@ struct CMUXCLI {
 
         case "path":
             guard args.count == 1 else {
-                throw CLIError(message: "Usage: cmux custom-sidebar path")
+                throw CLIError(message: "Usage: cmux sidebar path")
             }
             if jsonOutput {
                 print(jsonString(["path": "~/.config/cmux/sidebars"]))
@@ -13788,7 +13787,7 @@ struct CMUXCLI {
 
         case "docs":
             guard args.count == 1 else {
-                throw CLIError(message: "Usage: cmux custom-sidebar docs")
+                throw CLIError(message: "Usage: cmux sidebar docs")
             }
             let url = "https://github.com/manaflow-ai/cmux/blob/main/docs/extensions.md#custom-sidebars"
             if jsonOutput {
@@ -13798,10 +13797,10 @@ struct CMUXCLI {
             }
 
         case "help", "--help", "-h":
-            print(subcommandUsage("custom-sidebar") ?? "")
+            print(subcommandUsage("sidebar") ?? "")
 
         default:
-            throw CLIError(message: "Unknown custom-sidebar subcommand '\(subcommand)'. Run 'cmux custom-sidebar --help'.")
+            throw CLIError(message: "Unknown sidebar subcommand '\(subcommand)'. Run 'cmux sidebar --help'.")
         }
     }
 
@@ -30046,8 +30045,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           open-notification --id <uuid>
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
-          custom-sidebar load <swift-file-or-folder> | path | docs
-          load-custom-sidebar <swift-file-or-folder>
+          sidebar load <swift-file-or-folder> | path | docs
           right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]
