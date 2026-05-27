@@ -80,7 +80,8 @@ function missingParams(params: SearchParams, requiredParams: readonly string[]) 
 }
 
 function normalizedParam(params: SearchParams, name: string) {
-  return firstString(params[name])?.trim() ?? null;
+  const value = firstString(params[name])?.trim();
+  return value ? value : null;
 }
 
 function conflictingParams(kind: LinkKind, params: SearchParams) {
