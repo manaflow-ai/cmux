@@ -280,11 +280,15 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #if DEBUG
             NSLog("MarkdownPanel.pushMarkdown bytes=\(markdown.utf8.count)")
 #endif
-            guard let js = Self.renderMarkdownScript(markdown) else { return }
-            webView.evaluateJavaScript(js) { _, error in
+            webView.callAsyncJavaScript(
+                Self.renderMarkdownBridgeScript,
+                arguments: ["markdown": markdown],
+                in: nil,
+                in: .page
+            ) { result in
 #if DEBUG
-                if let error {
-                    NSLog("MarkdownPanel: pushMarkdown evaluateJavaScript failed: \(error)")
+                if case .failure(let error) = result {
+                    NSLog("MarkdownPanel: pushMarkdown callAsyncJavaScript failed: \(error)")
                 }
 #endif
             }
@@ -292,41 +296,58 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         private func renderMarkdownForExport(_ markdown: String) async -> Bool {
             guard let webView, isLoaded else { return false }
-            guard let js = Self.renderMarkdownScript(markdown) else { return false }
             do {
-                _ = try await webView.evaluateJavaScript(js)
+                _ = try await webView.callAsyncJavaScript(
+                    Self.renderMarkdownForExportBridgeScript,
+                    arguments: ["markdown": markdown],
+                    in: nil,
+                    contentWorld: .page
+                )
                 lastMarkdown = markdown
                 pendingMarkdown = markdown
                 return true
             } catch {
 #if DEBUG
-                NSLog("MarkdownPanel: renderMarkdownForExport evaluateJavaScript failed: \(error)")
+                NSLog("MarkdownPanel: renderMarkdownForExport callAsyncJavaScript failed: \(error)")
 #endif
                 return false
             }
         }
 
-        private static func renderMarkdownScript(_ markdown: String) -> String? {
-            // Send the raw markdown through a JSON literal so we don't have
-            // to hand-escape backticks/backslashes/quotes for JS.
-            guard let data = try? JSONSerialization.data(withJSONObject: [markdown]),
-                  let arrayLiteral = String(data: data, encoding: .utf8) else { return nil }
-            return """
-            (function(md) {
-              if (window.__cmuxRenderMarkdown) {
-                window.__cmuxRenderMarkdown(md);
-                return;
-              }
-              var el = document.getElementById('content') || document.body;
-              function esc(s) {
-                var div = document.createElement('div');
-                div.textContent = String(s == null ? '' : s);
-                return div.innerHTML;
-              }
-              el.innerHTML = '<pre style=\"color:#f85149;white-space:pre-wrap\">Markdown renderer failed to initialize. Showing raw source.\\n\\n' + esc(md) + '</pre>';
-            })(\(arrayLiteral)[0]);
-            """
+        private static let renderMarkdownBridgeScript = """
+        const md = String(markdown == null ? '' : markdown);
+        if (window.__cmuxRenderMarkdown) {
+          window.__cmuxRenderMarkdown(md);
+          return true;
         }
+        const el = document.getElementById('content') || document.body;
+        function esc(s) {
+          const div = document.createElement('div');
+          div.textContent = String(s == null ? '' : s);
+          return div.innerHTML;
+        }
+        el.innerHTML = '<pre style="color:#f85149;white-space:pre-wrap">Markdown renderer failed to initialize. Showing raw source.\\n\\n' + esc(md) + '</pre>';
+        return false;
+        """
+
+        private static let renderMarkdownForExportBridgeScript = """
+        const md = String(markdown == null ? '' : markdown);
+        if (window.__cmuxRenderMarkdown) {
+          window.__cmuxRenderMarkdown(md);
+          if (window.__cmuxWhenMarkdownRenderComplete) {
+            await window.__cmuxWhenMarkdownRenderComplete();
+          }
+          return true;
+        }
+        const el = document.getElementById('content') || document.body;
+        function esc(s) {
+          const div = document.createElement('div');
+          div.textContent = String(s == null ? '' : s);
+          return div.innerHTML;
+        }
+        el.innerHTML = '<pre style="color:#f85149;white-space:pre-wrap">Markdown renderer failed to initialize. Showing raw source.\\n\\n' + esc(md) + '</pre>';
+        return false;
+        """
 
         // MARK: WKScriptMessageHandler
 
