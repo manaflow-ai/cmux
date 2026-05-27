@@ -4594,6 +4594,46 @@ extension SessionPersistenceTests {
         ))
     }
 
+    func testTmuxControlResumeBindingPersistsAutoApprovalRecord() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux cmuxcc",
+            kind: "tmux",
+            command: "tmux -CC new -A -s cmuxcc",
+            cwd: "/tmp/cmuxcc",
+            checkpointId: "cmuxcc",
+            source: "cli",
+            autoResume: true
+        )
+
+        let effectiveBinding = TerminalController.tmuxControlResumeBindingWithPersistedAutoApproval(
+            binding,
+            approvalStoreURL: storeURL,
+            signingSecret: secret
+        )
+
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
+        XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
+
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.matchingRecord(
+            for: binding,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        XCTAssertEqual(record.policy, .auto)
+        XCTAssertEqual(effectiveBinding.approvalRecordId, record.id)
+
+        let restoredBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(restoredBinding.approvalPolicy, .auto)
+        XCTAssertEqual(restoredBinding.approvalRecordId, record.id)
+        XCTAssertTrue(restoredBinding.allowsAutomaticResume)
+    }
+
     func testSurfaceResumeApprovalWritesRecordsIntoCmuxJSON() throws {
         let settingsURL = try makeSurfaceResumeApprovalCmuxSettingsURL()
         let secret = Data("approval-secret".utf8)
