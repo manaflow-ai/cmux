@@ -36,6 +36,13 @@ public struct CanvasSurfaceTextureSource {
         self.backing = .bitmap(image, generation: generation)
         self.contentMode = contentMode
     }
+
+    public var requiresContinuousRendering: Bool {
+        if case .ioSurface = backing {
+            return true
+        }
+        return false
+    }
 }
 
 public final class CanvasHostView: NSView {
@@ -282,7 +289,9 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
 
     func draw(in view: MTKView) {
         let renderState: RenderState? = stateLock.withLock {
-            let hasLiveSurfaceTextures = !self.state.surfaceTextures.isEmpty
+            let hasLiveSurfaceTextures = self.state.surfaceTextures.contains {
+                $0.requiresContinuousRendering
+            }
             guard scheduler.consumeFrame() || hasLiveSurfaceTextures else { return nil }
             return self.state
         }

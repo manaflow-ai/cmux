@@ -13784,7 +13784,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     private func performCanvasZoomShortcut(_ action: CanvasZoomShortcutAction, event: NSEvent) -> Bool {
-        guard let workspace = canvasShortcutWorkspace(event: event) else {
+        guard isCanvasZoomShortcutAvailable(event: event),
+              let workspace = canvasShortcutWorkspace(event: event) else {
             return false
         }
 

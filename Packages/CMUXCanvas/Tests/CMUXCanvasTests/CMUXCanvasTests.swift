@@ -121,6 +121,13 @@ final class CMUXCanvasTests: XCTestCase {
         XCTAssertFalse(scheduler.consumeFrame())
     }
 
+    func testBitmapTextureSourceDoesNotRequireContinuousRendering() throws {
+        let image = try XCTUnwrap(Self.makeTestImage())
+        let source = CanvasSurfaceTextureSource(id: LayoutItemID(), image: image, generation: 1)
+
+        XCTAssertFalse(source.requiresContinuousRendering)
+    }
+
     func testNativeOverlayManagerUsesNativeOnlyForActiveSurfaceAtNativeScale() {
         let activeID = LayoutItemID()
         let previewID = LayoutItemID()
@@ -157,6 +164,28 @@ final class CMUXCanvasTests: XCTestCase {
         XCTAssertEqual(presentation.nativeOverlays.map(\.id), [activeID])
         XCTAssertEqual(presentation.textureSurfaces.map(\.id), [previewID])
         XCTAssertEqual(presentation.nativeOverlays.first?.frameInWindow, CGRect(x: 100, y: 120, width: 400, height: 300))
+    }
+
+    private static func makeTestImage() -> CGImage? {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        var pixels: [UInt8] = [
+            255, 0, 0, 255,
+            0, 255, 0, 255,
+            0, 0, 255, 255,
+            255, 255, 255, 255,
+        ]
+        return pixels.withUnsafeMutableBytes { bytes in
+            let context = CGContext(
+                data: bytes.baseAddress,
+                width: 2,
+                height: 2,
+                bitsPerComponent: 8,
+                bytesPerRow: 8,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+            return context?.makeImage()
+        }
     }
 
     func testNativeOverlayManagerFallsBackToTexturesWhenZoomedOut() {

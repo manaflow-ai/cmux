@@ -240,8 +240,8 @@ struct SplitContainerView<Content: View, EmptyContent: View>: NSViewRepresentabl
             context.coordinator.initialDividerApplyAttempts = 0
 
             if animationOrigin != nil {
-                let targetPosition = availableSize * 0.5
-                splitState.dividerPosition = 0.5
+                let targetRatio = splitState.dividerPosition
+                let targetPosition = availableSize * targetRatio
 
                 if shouldAnimate {
                     // Position at edge while new pane is hidden
@@ -268,9 +268,9 @@ struct SplitContainerView<Content: View, EmptyContent: View>: NSViewRepresentabl
                             duration: duration
                         ) {
                             context.coordinator.isAnimating = false
-                            // Re-assert exact 0.5 ratio to prevent pixel-rounding drift
-                            splitState.dividerPosition = 0.5
-                            context.coordinator.lastAppliedPosition = 0.5
+                            // Re-assert the model ratio to prevent pixel-rounding drift.
+                            splitState.dividerPosition = targetRatio
+                            context.coordinator.lastAppliedPosition = targetRatio
 #if DEBUG
                             dlog(
                                 "split.entry.complete split=\(splitDebugToken) orientation=\(orientationToken) " +

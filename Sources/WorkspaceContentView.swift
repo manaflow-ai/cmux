@@ -9,6 +9,23 @@ import WebKit
 
 private let workspaceCanvasFreeformCoordinateSpace = "WorkspaceCanvasFreeformCoordinateSpace"
 
+private struct WorkspaceCanvasCardSnapshot: Identifiable {
+    var id: LayoutItemID { item.id }
+    let item: CanvasItem
+    let canvasRect: CGRect
+    let displaySize: CGSize
+    let renderMode: CanvasRenderMode
+    let zIndex: Double
+    let title: String
+    let tabs: [SurfaceTab]
+    let selected: SurfaceTab?
+    let paneID: PaneID?
+    let paneActionsEnabled: Bool
+    let hasSurfaceTexture: Bool
+    let previewImage: NSImage?
+    let browserPreviewAddressText: String
+}
+
 @MainActor
 private enum WorkspaceCanvasSurfaceMountManager {
     static func apply(
@@ -2400,12 +2417,18 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 renderModes: renderModes
             )
             let metalScene = CanvasScene(presentation: presentation)
-            let documentBounds = presentation.camera.visibleDocumentRect
             let visibleItems = presentation.presentationSurfaces.map(\.item)
             let transform = metalScene.transform
             let scrollPassthroughFrames = presentation.nativeOverlays.map(\.contentFrameInCanvas)
             let nativePresentationRequests = canvasSurfacePortalRequests(
                 presentation: presentation
+            )
+            let cardSnapshots = canvasCardSnapshots(
+                for: visibleItems,
+                transform: transform,
+                scale: scale,
+                renderModes: renderModes,
+                activeItemID: activeItemID
             )
 
             ZStack(alignment: .topLeading) {
@@ -2420,27 +2443,14 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
 
-                ForEach(visibleItems) { item in
-                    let itemFrame = item.frame
-                    let canvasRect = transform.canvasRect(forDocumentFrame: itemFrame)
-                    let size = freeformCardSize(for: itemFrame, scale: scale)
-
-                    canvasCard(
-                        item,
-                        dragScale: scale,
-                        documentBounds: documentBounds,
-                        renderMode: renderModes[item.id] ?? .previewTexture
-                    )
-                        .frame(width: size.width, height: size.height)
+                ForEach(cardSnapshots) { card in
+                    canvasCard(card, dragScale: scale)
+                        .frame(width: card.displaySize.width, height: card.displaySize.height)
                         .position(
-                            x: canvasRect.minX + (size.width / 2),
-                            y: canvasRect.minY + (size.height / 2)
+                            x: card.canvasRect.minX + (card.displaySize.width / 2),
+                            y: card.canvasRect.minY + (card.displaySize.height / 2)
                         )
-                        .zIndex(canvasCardZIndex(
-                            for: item,
-                            renderMode: renderModes[item.id] ?? .previewTexture,
-                            activeItemID: activeItemID
-                        ))
+                        .zIndex(card.zIndex)
                 }
 
                 CanvasSurfacePortalLayer(
@@ -2648,20 +2658,56 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         })
     }
 
-    private func canvasCardZIndex(
-        for item: CanvasItem,
-        renderMode: CanvasRenderMode,
+    private func canvasCardSnapshots(
+        for items: [CanvasItem],
+        transform: CanvasTransform,
+        scale: CGFloat,
+        renderModes: [LayoutItemID: CanvasRenderMode],
         activeItemID: LayoutItemID?
-    ) -> Double {
-        Double(canvasSurfaceZIndex(for: item, renderMode: renderMode, activeItemID: activeItemID))
+    ) -> [WorkspaceCanvasCardSnapshot] {
+        let focusedCanvasItemID = controller.focusedCanvasItemID
+        let paneActionsEnabled = controller.configuration.allowSplits
+        return items.map { item in
+            let tabs = paneTabs(for: item)
+            let selected = selectedTab(for: item) ?? tabs.first
+            let paneID = paneID(for: item)
+            let title = selected?.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                ?? String(localized: "canvas.card.untitled", defaultValue: "Untitled Surface")
+            let renderMode = renderModes[item.id] ?? .previewTexture
+            let previewImage = selected.flatMap { canvasPreviewImages[$0.id] }
+            let hasSurfaceTexture = selected.map { hasCanvasSurfaceTexture(for: $0) } ?? false
+            let addressText = selected.map { browserPreviewAddressText(for: $0) } ?? "about:blank"
+            let itemFrame = item.frame
+            return WorkspaceCanvasCardSnapshot(
+                item: item,
+                canvasRect: transform.canvasRect(forDocumentFrame: itemFrame),
+                displaySize: freeformCardSize(for: itemFrame, scale: scale),
+                renderMode: renderMode,
+                zIndex: Double(canvasSurfaceZIndex(
+                    for: item,
+                    renderMode: renderMode,
+                    activeItemID: activeItemID,
+                    focusedItemID: focusedCanvasItemID
+                )),
+                title: title,
+                tabs: tabs,
+                selected: selected,
+                paneID: paneID,
+                paneActionsEnabled: paneID != nil && paneActionsEnabled,
+                hasSurfaceTexture: hasSurfaceTexture,
+                previewImage: previewImage,
+                browserPreviewAddressText: addressText
+            )
+        }
     }
 
     private func canvasSurfaceZIndex(
         for item: CanvasItem,
         renderMode: CanvasRenderMode,
-        activeItemID: LayoutItemID?
+        activeItemID: LayoutItemID?,
+        focusedItemID: LayoutItemID?
     ) -> Int {
-        let isActive = item.id == activeItemID || item.id == controller.focusedCanvasItemID
+        let isActive = item.id == activeItemID || item.id == focusedItemID
         if isActive {
             return item.zIndex + 20_000
         }
@@ -2740,56 +2786,45 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     }
 
     private func canvasCard(
-        _ item: CanvasItem,
-        dragScale: CGFloat? = nil,
-        documentBounds: CGRect = .zero,
-        renderMode: CanvasRenderMode = .previewTexture
+        _ card: WorkspaceCanvasCardSnapshot,
+        dragScale: CGFloat? = nil
     ) -> some View {
-        let tabs = paneTabs(for: item)
-        let selected = selectedTab(for: item) ?? tabs.first
-        let paneID = paneID(for: item)
-        let title = selected?.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-            ?? String(localized: "canvas.card.untitled", defaultValue: "Untitled Surface")
         let registersFreeformDrag = dragScale != nil
 
         return VStack(alignment: .leading, spacing: 0) {
             cardHeader(
-                item: item,
-                title: title,
-                tabs: tabs,
-                selected: selected,
-                paneID: paneID,
+                card: card,
                 registersFreeformDrag: registersFreeformDrag,
                 dragScale: dragScale
             )
 
-            livePaneContent(item: item, selected: selected, paneID: paneID, renderMode: renderMode)
+            livePaneContent(card: card)
         }
         .background(Color.clear)
         .clipped()
         .overlay {
             if let dragScale {
-                canvasResizeHitTargets(item: item, scale: dragScale)
+                canvasResizeHitTargets(item: card.item, scale: dragScale)
             }
         }
         .overlay {
-            if dragScale != nil, renderMode != .liveNative1x {
-                CanvasDragRegistrationLayer(itemID: item.id)
+            if dragScale != nil, card.renderMode != .liveNative1x {
+                CanvasDragRegistrationLayer(itemID: card.item.id)
                     .accessibilityHidden(true)
             }
         }
         .overlay(alignment: .topLeading) {
             canvasHeaderDragHitTarget(
-                item: item,
-                title: title,
-                tabs: tabs,
-                paneID: paneID,
+                item: card.item,
+                title: card.title,
+                tabs: card.tabs,
+                paneID: card.paneID,
                 dragScale: dragScale
             )
         }
         .contentShape(Rectangle())
-        .accessibilityIdentifier(accessibilityIdentifier(for: item))
-        .accessibilityLabel(title)
+        .accessibilityIdentifier(accessibilityIdentifier(for: card.item))
+        .accessibilityLabel(card.title)
     }
 
     @ViewBuilder
@@ -2826,45 +2861,33 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
     @ViewBuilder
     private func cardHeader(
-        item: CanvasItem,
-        title: String,
-        tabs: [SurfaceTab],
-        selected: SurfaceTab?,
-        paneID: PaneID?,
+        card: WorkspaceCanvasCardSnapshot,
         registersFreeformDrag: Bool,
         dragScale: CGFloat?
     ) -> some View {
         cardHeaderContent(
-            item: item,
-            title: title,
-            tabs: tabs,
-            selected: selected,
-            paneID: paneID,
+            card: card,
             registersFreeformDrag: registersFreeformDrag,
             dragScale: dragScale
         )
     }
 
     private func cardHeaderContent(
-        item: CanvasItem,
-        title: String,
-        tabs: [SurfaceTab],
-        selected: SurfaceTab?,
-        paneID: PaneID?,
+        card: WorkspaceCanvasCardSnapshot,
         registersFreeformDrag: Bool,
         dragScale: CGFloat?
     ) -> some View {
         HStack(spacing: 4) {
-            if tabs.count > 1 {
+            if card.tabs.count > 1 {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 2) {
-                        ForEach(tabs, id: \.id) { tab in
-                            canvasTabChip(tab, selected: tab.id == selected?.id, paneID: paneID, item: item)
+                        ForEach(card.tabs, id: \.id) { tab in
+                            canvasTabChip(tab, selected: tab.id == card.selected?.id, paneID: card.paneID, item: card.item)
                         }
                     }
                 }
             } else {
-                Text(title)
+                Text(card.title)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(canvasForegroundColor.opacity(0.52))
                     .lineLimit(1)
@@ -2873,7 +2896,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
             Spacer(minLength: 0)
 
-            canvasPaneHeaderControls(item: item, selected: selected, paneID: paneID)
+            canvasPaneHeaderControls(card: card)
         }
         .frame(height: 20)
         .padding(.leading, 6)
@@ -2881,47 +2904,51 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         .background(Color.clear)
         .contentShape(Rectangle())
         .onTapGesture {
-            focusCanvasHeader(item: item, paneID: paneID)
+            focusCanvasHeader(item: card.item, paneID: card.paneID)
         }
     }
 
-    private func canvasPaneHeaderControls(item: CanvasItem, selected: SurfaceTab?, paneID: PaneID?) -> some View {
+    private func canvasPaneHeaderControls(card: WorkspaceCanvasCardSnapshot) -> some View {
         HStack(spacing: 1) {
             canvasPaneActionButton(
                 systemName: "terminal",
                 label: String(localized: "workspace.tooltip.newTerminal", defaultValue: "New Terminal"),
-                item: item,
-                paneID: paneID,
+                item: card.item,
+                paneID: card.paneID,
+                isEnabled: card.paneActionsEnabled,
                 accessibilityID: "WorkspaceCanvasNewTerminal"
             ) {
-                createCanvasTerminalPane(item: item, paneID: paneID)
+                createCanvasTerminalPane(item: card.item, paneID: card.paneID)
             }
             canvasPaneActionButton(
                 systemName: "globe",
                 label: String(localized: "workspace.tooltip.newBrowser", defaultValue: "New Browser"),
-                item: item,
-                paneID: paneID,
+                item: card.item,
+                paneID: card.paneID,
+                isEnabled: card.paneActionsEnabled,
                 accessibilityID: "WorkspaceCanvasNewBrowser"
             ) {
-                createCanvasBrowserPane(item: item, selected: selected, paneID: paneID)
+                createCanvasBrowserPane(item: card.item, selected: card.selected, paneID: card.paneID)
             }
             canvasPaneActionButton(
                 systemName: "rectangle.split.2x1",
                 label: String(localized: "workspace.tooltip.splitRight", defaultValue: "Split Right"),
-                item: item,
-                paneID: paneID,
+                item: card.item,
+                paneID: card.paneID,
+                isEnabled: card.paneActionsEnabled,
                 accessibilityID: "WorkspaceCanvasSplitRight"
             ) {
-                splitCanvasPane(item: item, paneID: paneID, orientation: .horizontal)
+                splitCanvasPane(item: card.item, paneID: card.paneID, orientation: .horizontal)
             }
             canvasPaneActionButton(
                 systemName: "rectangle.split.1x2",
                 label: String(localized: "workspace.tooltip.splitDown", defaultValue: "Split Down"),
-                item: item,
-                paneID: paneID,
+                item: card.item,
+                paneID: card.paneID,
+                isEnabled: card.paneActionsEnabled,
                 accessibilityID: "WorkspaceCanvasSplitDown"
             ) {
-                splitCanvasPane(item: item, paneID: paneID, orientation: .vertical)
+                splitCanvasPane(item: card.item, paneID: card.paneID, orientation: .vertical)
             }
         }
         .background {
@@ -2935,6 +2962,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         label: String,
         item: CanvasItem,
         paneID: PaneID?,
+        isEnabled: Bool,
         accessibilityID: String,
         action: @escaping () -> Void
     ) -> some View {
@@ -2945,8 +2973,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(canvasForegroundColor.opacity(paneID == nil || !controller.configuration.allowSplits ? 0.22 : 0.50))
-        .disabled(paneID == nil || !controller.configuration.allowSplits)
+        .foregroundStyle(canvasForegroundColor.opacity(isEnabled ? 0.50 : 0.22))
+        .disabled(!isEnabled)
         .help(label)
         .accessibilityLabel(label)
         .accessibilityIdentifier("\(accessibilityID).\(paneID?.id.uuidString ?? item.id.description)")
@@ -3112,10 +3140,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
     @ViewBuilder
     private func livePaneContent(
-        item: CanvasItem,
-        selected: SurfaceTab?,
-        paneID: PaneID?,
-        renderMode: CanvasRenderMode
+        card: WorkspaceCanvasCardSnapshot
     ) -> some View {
         GeometryReader { proxy in
             let visualBounds = CGSize(
@@ -3124,15 +3149,15 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             )
 
             ZStack(alignment: .topLeading) {
-                if let paneID {
-                    if let selected {
-                        switch renderMode {
+                if let paneID = card.paneID {
+                    if let selected = card.selected {
+                        switch card.renderMode {
                         case .liveNative1x:
                             contentBuilder(selected, paneID)
                                 .frame(width: visualBounds.width, height: visualBounds.height, alignment: .topLeading)
                                 .clipped()
                         case .previewTexture:
-                            canvasPreviewPaneContent(item: item, selected: selected, paneID: paneID)
+                            canvasPreviewPaneContent(card: card, selected: selected, paneID: paneID)
                                 .frame(width: proxy.size.width, height: proxy.size.height)
                                 .onAppear {
                                     captureCanvasPreviewSnapshot(for: selected)
@@ -3171,15 +3196,19 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         .clipped()
     }
 
-    private func canvasPreviewPaneContent(item: CanvasItem, selected: SurfaceTab, paneID: PaneID) -> some View {
+    private func canvasPreviewPaneContent(
+        card: WorkspaceCanvasCardSnapshot,
+        selected: SurfaceTab,
+        paneID: PaneID
+    ) -> some View {
         ZStack(alignment: .topLeading) {
-            if hasCanvasSurfaceTexture(for: selected) {
+            if card.hasSurfaceTexture {
                 Color.clear
                     .allowsHitTesting(false)
                 if selected.kind == "browser" {
-                    canvasBrowserPreviewOmnibar(selected: selected)
+                    canvasBrowserPreviewOmnibar(text: card.browserPreviewAddressText)
                 }
-            } else if let image = canvasPreviewImages[selected.id] {
+            } else if let image = card.previewImage {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
@@ -3188,7 +3217,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                     .opacity(0.88)
                     .allowsHitTesting(false)
                 if selected.kind == "browser" {
-                    canvasBrowserPreviewOmnibar(selected: selected)
+                    canvasBrowserPreviewOmnibar(text: card.browserPreviewAddressText)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 4) {
@@ -3205,12 +3234,11 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             }
         }
         .clipped()
-        .accessibilityIdentifier("WorkspaceCanvasPreview.\(item.id.description).\(paneID.id.uuidString)")
+        .accessibilityIdentifier("WorkspaceCanvasPreview.\(card.item.id.description).\(paneID.id.uuidString)")
     }
 
-    private func canvasBrowserPreviewOmnibar(selected: SurfaceTab) -> some View {
-        let text = browserPreviewAddressText(for: selected)
-        return HStack(spacing: 5) {
+    private func canvasBrowserPreviewOmnibar(text: String) -> some View {
+        HStack(spacing: 5) {
             Image(systemName: "chevron.left")
                 .font(.system(size: 8, weight: .semibold))
             Image(systemName: "chevron.right")
