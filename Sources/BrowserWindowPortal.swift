@@ -3874,6 +3874,19 @@ final class WindowBrowserPortal: NSObject {
                 return
             }
         }
+        if shouldHide, !containerView.isHidden, !shouldPreserveVisibleOnTransientGeometry {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
+                "web=\(browserPortalDebugToken(webView)) value=1 " +
+                "visibleInUI=\(entry.visibleInUI ? 1 : 0) anchorHidden=\(anchorHidden ? 1 : 0) " +
+                "tiny=\(tinyFrame ? 1 : 0) finite=\(hasFiniteFrame ? 1 : 0) " +
+                    "outside=\(outsideHostBounds ? 1 : 0) frame=\(browserPortalDebugFrame(targetFrame)) " +
+                    "host=\(browserPortalDebugFrame(hostBounds))"
+            )
+#endif
+            hideContainerView(reason: transientRecoveryReason ?? "geometryHidden")
+        }
         let frameSizeChanged =
             abs(oldFrame.size.width - targetFrame.size.width) > 0.01 ||
             abs(oldFrame.size.height - targetFrame.size.height) > 0.01
@@ -3989,19 +4002,7 @@ final class WindowBrowserPortal: NSObject {
         }
 
         let revealedForDisplay = !shouldHide && containerView.isHidden
-        if shouldHide, !containerView.isHidden, !shouldPreserveVisibleOnTransientGeometry {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
-                "web=\(browserPortalDebugToken(webView)) value=\(shouldHide ? 1 : 0) " +
-                "visibleInUI=\(entry.visibleInUI ? 1 : 0) anchorHidden=\(anchorHidden ? 1 : 0) " +
-                "tiny=\(tinyFrame ? 1 : 0) finite=\(hasFiniteFrame ? 1 : 0) " +
-                    "outside=\(outsideHostBounds ? 1 : 0) frame=\(browserPortalDebugFrame(targetFrame)) " +
-                    "host=\(browserPortalDebugFrame(hostBounds))"
-            )
-#endif
-            hideContainerView(reason: transientRecoveryReason ?? "geometryHidden")
-        } else if !shouldHide, containerView.isHidden {
+        if !shouldHide, containerView.isHidden {
 #if DEBUG
             cmuxDebugLog(
                 "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
