@@ -11341,7 +11341,7 @@ private struct SidebarWorkspaceGroupHeaderView: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
-            .padding(.leading, 16)
+            .padding(.leading, 14)
             .padding(.trailing, 10)
             .padding(.vertical, 5)
             .contentShape(Rectangle())
