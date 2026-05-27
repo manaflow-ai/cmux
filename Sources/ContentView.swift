@@ -9712,6 +9712,7 @@ struct VerticalTabsSidebar: View {
     let observedWindow: NSWindow?
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
+    @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
@@ -11250,16 +11251,22 @@ struct VerticalTabsSidebar: View {
         memberCount: Int
     ) -> some View {
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
+        let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+        let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
+        let effectiveColor = group.customColor ?? resolvedConfig?.color
+        let effectiveIcon = group.iconSymbol ?? resolvedConfig?.iconSymbol ?? "folder.fill"
+        let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         SidebarWorkspaceGroupHeaderView(
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
             name: group.name,
-            iconSymbol: group.iconSymbol ?? "folder.fill",
-            tintHex: group.customColor,
+            iconSymbol: effectiveIcon,
+            tintHex: effectiveColor,
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
             memberCount: memberCount,
+            cwdContextMenuItems: cwdContextMenuItems,
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
@@ -11280,6 +11287,14 @@ struct VerticalTabsSidebar: View {
                     autoWelcomeIfNeeded: false
                 )
                 tabManager.addWorkspaceToGroup(workspaceId: newWorkspace.id, groupId: groupId)
+            },
+            onRunResolvedItem: { [weak tabManager, groupId = group.id] item in
+                guard let tabManager else { return }
+                SidebarWorkspaceGroupContextMenuRunner.run(
+                    item: item,
+                    tabManager: tabManager,
+                    groupId: groupId
+                )
             },
             onRename: { [weak tabManager, groupId = group.id, currentName = group.name] in
                 guard let tabManager else { return }
@@ -11347,11 +11362,11 @@ struct VerticalTabsSidebar: View {
 
 private enum SidebarWorkspaceGroupingMetrics {
     /// Leading inset applied to workspace rows that belong to a group, so members
-    /// visually nest under the group header (like Dia's tab groups).
+    /// visually nest under the group header.
     static let memberIndent: CGFloat = 12
 }
 
-/// Dia-style collapsible group header that doubles as the anchor workspace's
+/// Collapsible group header that doubles as the anchor workspace's
 /// representation. Anatomy: chevron (collapse), folder icon + name (focus
 /// anchor), trailing + (visible on hover; creates a new workspace in this
 /// group). Conforms to the snapshot-boundary rule: receives values + closures
@@ -11366,9 +11381,11 @@ private struct SidebarWorkspaceGroupHeaderView: View {
     let isPinned: Bool
     let isAnchorActive: Bool
     let memberCount: Int
+    let cwdContextMenuItems: [CmuxResolvedConfigContextMenuItem]
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: () -> Void
     let onTapPlus: () -> Void
+    let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
     let onRename: () -> Void
     let onTogglePinned: () -> Void
     let onUngroup: () -> Void
@@ -11444,6 +11461,19 @@ private struct SidebarWorkspaceGroupHeaderView: View {
                         ),
                         action: onTapPlus
                     )
+                    if !cwdContextMenuItems.isEmpty {
+                        Divider()
+                        ForEach(cwdContextMenuItems) { item in
+                            switch item {
+                            case .separator:
+                                Divider()
+                            case .action(let action):
+                                Button(action.title) {
+                                    onRunResolvedItem(action)
+                                }
+                            }
+                        }
+                    }
                     Divider()
                     Button(
                         String(
@@ -11519,6 +11549,25 @@ private struct SidebarWorkspaceGroupHeaderView: View {
                 action: onUngroup
             )
         }
+    }
+}
+
+/// Dispatcher for cwd-driven context-menu items invoked from the sidebar
+/// group header's `+` button. Calls AppDelegate's configured-action runner
+/// and, on success, joins the newly-created workspace to the group.
+@MainActor
+enum SidebarWorkspaceGroupContextMenuRunner {
+    static func run(
+        item: CmuxResolvedConfigMenuAction,
+        tabManager: TabManager,
+        groupId: UUID
+    ) {
+        guard let appDelegate = AppDelegate.shared else { return }
+        _ = appDelegate.runWorkspaceGroupConfiguredAction(
+            item.action,
+            tabManager: tabManager,
+            groupId: groupId
+        )
     }
 }
 

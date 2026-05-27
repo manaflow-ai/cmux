@@ -13950,7 +13950,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// Public entry for the sidebar group `+` right-click context menu: runs a
+    /// resolved configured action and, on success for "new workspace" style
+    /// builtIns, joins the newly-created workspace to the given group.
     @discardableResult
+    func runWorkspaceGroupConfiguredAction(
+        _ action: CmuxResolvedConfigAction,
+        tabManager: TabManager,
+        groupId: UUID
+    ) -> Bool {
+        guard let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager })
+            ?? mainWindowContexts.values.first else {
+            return false
+        }
+        let beforeIds = Set(tabManager.tabs.map(\.id))
+        let didRun = executeConfiguredCmuxAction(
+            action,
+            context: context,
+            preferredWindow: resolvedWindow(for: context)
+        )
+        guard didRun else { return false }
+        // Best-effort: if exactly one new workspace appeared, join it to the group.
+        let afterIds = tabManager.tabs.map(\.id)
+        for id in afterIds where !beforeIds.contains(id) {
+            tabManager.addWorkspaceToGroup(workspaceId: id, groupId: groupId)
+            break
+        }
+        return true
+    }
+
     private func executeConfiguredCmuxAction(
         _ action: CmuxResolvedConfigAction,
         context: MainWindowContext,

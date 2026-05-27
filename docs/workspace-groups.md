@@ -1,6 +1,6 @@
 # Workspace Groups
 
-Workspace groups let you nest workspaces into collapsible named sections in the sidebar, in the style of Dia browser's tab groups. Each group has an implicit "anchor workspace," a customizable `+` button for spawning new workspaces inside it, and right-click actions for renaming, pinning, ungrouping, and editing its configuration.
+Workspace groups let you nest workspaces into collapsible named sections in the sidebar. Each group has an implicit "anchor workspace," a customizable `+` button for spawning new workspaces inside it, and right-click actions for renaming, pinning, ungrouping, and editing its configuration.
 
 ## Concepts
 
