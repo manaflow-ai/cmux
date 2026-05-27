@@ -84,7 +84,7 @@
   },
   "community": {
     "title": "커뮤니티",
-    "description": "다른 cmux 사용자 및 개발팀과 소통하세요.",
+    "description": "에이전트 훅, 멀티 에이전트 오케스트레이션, 원격 접속까지 cmux 커뮤니티가 만든 프로젝트를 둘러보세요.",
     "discord": "Discord",
     "discordAction": "Discord 참여하기",
     "discordDesc": "커뮤니티와 대화하고, 도움을 받고, 피드백을 공유하세요",
@@ -100,7 +100,17 @@
     "linkedinAction": "팔로우하기",
     "linkedinDesc": "회사 소식 및 엔지니어링 업데이트",
     "metaTitle": "커뮤니티 — cmux",
-    "metaDescription": "Discord, Twitter, GitHub 등에서 cmux 커뮤니티에 참여하세요"
+    "metaDescription": "cmux 커뮤니티 페이지에서 awesome-cmux의 모든 프로젝트를 둘러보세요",
+    "sourceAction": "awesome-cmux 보기",
+    "sourceRowsLabel": "README 항목 색인됨",
+    "projectsLabel": "프로젝트",
+    "areasLabel": "영역",
+    "placementsLabel": "카테고리 매칭",
+    "areasTitle": "영역",
+    "projectsTitle": "프로젝트",
+    "projectAction": "열기",
+    "starsLabel": "스타",
+    "officialLinksTitle": "공식 링크"
   },
   "blog": {
     "title": "블로그",

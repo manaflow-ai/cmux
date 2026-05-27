@@ -84,7 +84,7 @@
   },
   "community": {
     "title": "Comunidade",
-    "description": "Conecte-se com outros usuários do cmux e a equipe por trás dele.",
+    "description": "Explore projetos criados pela comunidade cmux, de hooks de agentes a orquestração multiagente e acesso remoto.",
     "discord": "Discord",
     "discordAction": "Entre no nosso Discord",
     "discordDesc": "Converse com a comunidade, obtenha ajuda e compartilhe feedback",
@@ -100,7 +100,17 @@
     "linkedinAction": "Siga-nos",
     "linkedinDesc": "Notícias da empresa e atualizações de engenharia",
     "metaTitle": "Comunidade — cmux",
-    "metaDescription": "Junte-se à comunidade cmux no Discord, Twitter, GitHub e mais"
+    "metaDescription": "Explore todos os projetos do awesome-cmux na página da comunidade cmux",
+    "sourceAction": "Ver awesome-cmux",
+    "sourceRowsLabel": "entradas do README indexadas",
+    "projectsLabel": "projetos",
+    "areasLabel": "áreas",
+    "placementsLabel": "correspondências de categoria",
+    "areasTitle": "Áreas",
+    "projectsTitle": "Projetos",
+    "projectAction": "Abrir",
+    "starsLabel": "estrelas",
+    "officialLinksTitle": "Links oficiais"
   },
   "blog": {
     "title": "Blog",

@@ -84,7 +84,7 @@
   },
   "community": {
     "title": "社群",
-    "description": "與其他 cmux 使用者和團隊交流。",
+    "description": "瀏覽 cmux 社群打造的專案，涵蓋代理掛鉤、多代理編排和遠端存取。",
     "discord": "Discord",
     "discordAction": "加入我們的 Discord",
     "discordDesc": "與社群聊天、獲得協助並分享回饋",
@@ -100,7 +100,17 @@
     "linkedinAction": "追蹤我們",
     "linkedinDesc": "公司新聞和工程更新",
     "metaTitle": "社群 — cmux",
-    "metaDescription": "在 Discord、Twitter、GitHub 等平台加入 cmux 社群"
+    "metaDescription": "在 cmux 社群頁面瀏覽 awesome-cmux 中的所有專案",
+    "sourceAction": "查看 awesome-cmux",
+    "sourceRowsLabel": "已索引 README 項目",
+    "projectsLabel": "專案",
+    "areasLabel": "領域",
+    "placementsLabel": "分類符合",
+    "areasTitle": "領域",
+    "projectsTitle": "專案",
+    "projectAction": "開啟",
+    "starsLabel": "星標",
+    "officialLinksTitle": "官方連結"
   },
   "blog": {
     "title": "部落格",

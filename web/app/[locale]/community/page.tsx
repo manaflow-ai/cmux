@@ -1,7 +1,14 @@
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../i18n/seo";
 import { SiteHeader } from "../components/site-header";
+import {
+  awesomeCmuxCategoryOrder,
+  awesomeCmuxProjectRows,
+  awesomeCmuxProjects,
+  awesomeCmuxSourceUrl,
+  type AwesomeCmuxProject,
+} from "./awesome-cmux-projects";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -31,7 +38,7 @@ function CommunityLink({
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="group flex items-start gap-4 rounded-xl border border-border p-5 hover:bg-code-bg transition-colors"
+      className="group flex items-start gap-4 rounded-lg border border-border p-5 hover:bg-code-bg transition-colors"
     >
       <div className="shrink-0 mt-0.5 text-muted group-hover:text-foreground transition-colors">
         {icon}
@@ -47,8 +54,101 @@ function CommunityLink({
   );
 }
 
+const categorySummaries = awesomeCmuxCategoryOrder
+  .map((category) => ({
+    category,
+    count: awesomeCmuxProjects.filter((project) =>
+      (project.categories as readonly string[]).includes(category),
+    ).length,
+  }))
+  .filter(({ count }) => count > 0);
+
+const categoryPlacementCount = awesomeCmuxProjects.reduce(
+  (total, project) => total + project.categories.length,
+  0,
+);
+
+function ProjectCard({
+  project,
+  numberFormatter,
+  openLabel,
+  starsLabel,
+}: {
+  project: AwesomeCmuxProject;
+  numberFormatter: Intl.NumberFormat;
+  openLabel: string;
+  starsLabel: string;
+}) {
+  return (
+    <a
+      href={project.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group flex h-full flex-col rounded-lg border border-border p-4 transition-colors hover:bg-code-bg"
+    >
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <h3 className="break-words text-[15px] font-medium leading-6">
+          {project.name}
+        </h3>
+        <span className="shrink-0 text-xs font-medium text-muted transition-colors group-hover:text-foreground">
+          {openLabel} &rarr;
+        </span>
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-1.5 text-xs text-muted">
+        {project.agent && (
+          <span className="rounded-md bg-code-bg px-2 py-1">
+            {project.agent}
+          </span>
+        )}
+        {project.language && (
+          <span className="rounded-md bg-code-bg px-2 py-1">
+            {project.language}
+          </span>
+        )}
+        {typeof project.stars === "number" && (
+          <span className="rounded-md bg-code-bg px-2 py-1">
+            {numberFormatter.format(project.stars)} {starsLabel}
+          </span>
+        )}
+      </div>
+
+      <p className="mt-3 flex-1 text-sm leading-6 text-muted">
+        {project.description}
+      </p>
+
+      <div className="mt-4 flex flex-wrap gap-1.5">
+        {project.categories.map((category) => (
+          <span
+            key={category}
+            className="rounded-md border border-border px-2 py-1 text-[11px] text-muted"
+          >
+            {category}
+          </span>
+        ))}
+      </div>
+    </a>
+  );
+}
+
 export default function CommunityPage() {
   const t = useTranslations("community");
+  const locale = useLocale();
+  const numberFormatter = new Intl.NumberFormat(locale);
+  const stats = [
+    {
+      value: awesomeCmuxProjects.length,
+      label: t("projectsLabel"),
+    },
+    {
+      value: categorySummaries.length,
+      label: t("areasLabel"),
+    },
+    {
+      value: categoryPlacementCount,
+      label: t("placementsLabel"),
+    },
+  ];
 
   return (
     <div className="min-h-screen">
@@ -57,11 +157,83 @@ export default function CommunityPage() {
         <h1 className="text-2xl font-semibold tracking-tight mb-2">
           {t("title")}
         </h1>
-        <p className="text-muted text-[15px] mb-8">
+        <p className="max-w-3xl text-muted text-[15px] mb-6">
           {t("description")}
         </p>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="mb-8 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+          <a
+            href={awesomeCmuxSourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium underline underline-offset-2 decoration-border transition-colors hover:decoration-foreground"
+          >
+            {t("sourceAction")}
+          </a>
+          <span className="text-muted">
+            {numberFormatter.format(awesomeCmuxProjectRows)}{" "}
+            {t("sourceRowsLabel")}
+          </span>
+        </div>
+
+        <div className="mb-10 grid grid-cols-3 border-y border-border text-sm">
+          {stats.map((stat, index) => (
+            <div
+              key={stat.label}
+              className={`py-4 ${index > 0 ? "border-l border-border pl-4 sm:pl-6" : "pr-4 sm:pr-6"}`}
+            >
+              <div className="text-xl font-semibold tracking-tight">
+                {numberFormatter.format(stat.value)}
+              </div>
+              <div className="mt-1 text-xs text-muted">{stat.label}</div>
+            </div>
+          ))}
+        </div>
+
+        <section className="mb-10">
+          <h2 className="mb-3 text-xs font-medium tracking-tight text-muted">
+            {t("areasTitle")}
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {categorySummaries.map(({ category, count }) => (
+              <span
+                key={category}
+                className="rounded-md border border-border px-2.5 py-1.5 text-xs text-muted"
+              >
+                {category} ({numberFormatter.format(count)})
+              </span>
+            ))}
+          </div>
+        </section>
+
+        <section className="mb-12">
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <h2 className="text-xs font-medium tracking-tight text-muted">
+              {t("projectsTitle")}
+            </h2>
+            <span className="text-xs text-muted">
+              {numberFormatter.format(awesomeCmuxProjects.length)}{" "}
+              {t("projectsLabel")}
+            </span>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {awesomeCmuxProjects.map((project) => (
+              <ProjectCard
+                key={project.url}
+                project={project}
+                numberFormatter={numberFormatter}
+                openLabel={t("projectAction")}
+                starsLabel={t("starsLabel")}
+              />
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="mb-4 text-xs font-medium tracking-tight text-muted">
+            {t("officialLinksTitle")}
+          </h2>
+          <div className="grid gap-4 sm:grid-cols-2">
           <CommunityLink
             href="https://discord.gg/xsgFEVrWCZ"
             name={t("discord")}
@@ -121,7 +293,8 @@ export default function CommunityPage() {
               </svg>
             }
           />
-        </div>
+          </div>
+        </section>
       </main>
     </div>
   );

@@ -84,7 +84,7 @@
   },
   "community": {
     "title": "社区",
-    "description": "与其他 cmux 用户和开发团队交流。",
+    "description": "浏览 cmux 社区构建的项目，涵盖代理钩子、多代理编排和远程访问。",
     "discord": "Discord",
     "discordAction": "加入 Discord",
     "discordDesc": "与社区交流、获取帮助、分享反馈",
@@ -100,7 +100,17 @@
     "linkedinAction": "关注我们",
     "linkedinDesc": "公司动态和工程更新",
     "metaTitle": "社区 — cmux",
-    "metaDescription": "在 Discord、Twitter、GitHub 等平台加入 cmux 社区"
+    "metaDescription": "在 cmux 社区页面浏览 awesome-cmux 中的所有项目",
+    "sourceAction": "查看 awesome-cmux",
+    "sourceRowsLabel": "已索引 README 条目",
+    "projectsLabel": "项目",
+    "areasLabel": "领域",
+    "placementsLabel": "分类匹配",
+    "areasTitle": "领域",
+    "projectsTitle": "项目",
+    "projectAction": "打开",
+    "starsLabel": "星标",
+    "officialLinksTitle": "官方链接"
   },
   "blog": {
     "title": "博客",

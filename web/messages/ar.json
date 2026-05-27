@@ -84,7 +84,7 @@
   },
   "community": {
     "title": "المجتمع",
-    "description": "تواصل مع مستخدمي cmux الآخرين والفريق الذي يقف وراءه.",
+    "description": "تصفح مشاريع بناها مجتمع cmux، من خطافات الوكلاء إلى تنسيق عدة وكلاء والوصول عن بعد.",
     "discord": "Discord",
     "discordAction": "انضم إلى Discord",
     "discordDesc": "تحدث مع المجتمع، احصل على المساعدة، وشارك ملاحظاتك",
@@ -100,7 +100,17 @@
     "linkedinAction": "تابعنا",
     "linkedinDesc": "أخبار الشركة وتحديثات هندسية",
     "metaTitle": "المجتمع — cmux",
-    "metaDescription": "انضم إلى مجتمع cmux على Discord وTwitter وGitHub والمزيد"
+    "metaDescription": "تصفح كل مشاريع awesome-cmux في صفحة مجتمع cmux",
+    "sourceAction": "عرض awesome-cmux",
+    "sourceRowsLabel": "عناصر README مفهرسة",
+    "projectsLabel": "مشاريع",
+    "areasLabel": "مجالات",
+    "placementsLabel": "مطابقات الفئات",
+    "areasTitle": "المجالات",
+    "projectsTitle": "المشاريع",
+    "projectAction": "فتح",
+    "starsLabel": "نجوم",
+    "officialLinksTitle": "روابط رسمية"
   },
   "blog": {
     "title": "المدونة",

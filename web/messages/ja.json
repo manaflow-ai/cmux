@@ -84,7 +84,7 @@
   },
   "community": {
     "title": "コミュニティ",
-    "description": "cmuxのユーザーや開発チームとつながりましょう。",
+    "description": "エージェント連携、マルチエージェント運用、リモートアクセスまで、cmuxコミュニティが作ったプロジェクトを紹介します。",
     "discord": "Discord",
     "discordAction": "Discordに参加",
     "discordDesc": "コミュニティとチャット、ヘルプの取得、フィードバックの共有",
@@ -100,7 +100,17 @@
     "linkedinAction": "フォローする",
     "linkedinDesc": "企業ニュースとエンジニアリングの最新情報",
     "metaTitle": "コミュニティ — cmux",
-    "metaDescription": "Discord、Twitter、GitHubなどでcmuxコミュニティに参加"
+    "metaDescription": "awesome-cmuxの全プロジェクトをcmuxコミュニティページで紹介",
+    "sourceAction": "awesome-cmuxを見る",
+    "sourceRowsLabel": "README項目を掲載",
+    "projectsLabel": "プロジェクト",
+    "areasLabel": "分野",
+    "placementsLabel": "カテゴリ一致",
+    "areasTitle": "分野",
+    "projectsTitle": "プロジェクト",
+    "projectAction": "開く",
+    "starsLabel": "スター",
+    "officialLinksTitle": "公式リンク"
   },
   "blog": {
     "title": "ブログ",

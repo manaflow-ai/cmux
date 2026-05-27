@@ -84,7 +84,7 @@
   },
   "community": {
     "title": "Zajednica",
-    "description": "Povežite se sa drugim cmux korisnicima i timom iza njega.",
+    "description": "Pregledajte projekte koje je napravila cmux zajednica, od agent hookova do multi-agent orkestracije i udaljenog pristupa.",
     "discord": "Discord",
     "discordAction": "Pridružite se našem Discord-u",
     "discordDesc": "Razgovarajte sa zajednicom, dobijte pomoć i podijelite povratne informacije",
@@ -100,7 +100,17 @@
     "linkedinAction": "Pratite nas",
     "linkedinDesc": "Vijesti o kompaniji i inženjerska ažuriranja",
     "metaTitle": "Zajednica — cmux",
-    "metaDescription": "Pridružite se cmux zajednici na Discordu, Twitteru, GitHubu i više"
+    "metaDescription": "Pregledajte sve projekte iz awesome-cmux na cmux stranici zajednice",
+    "sourceAction": "Pogledaj awesome-cmux",
+    "sourceRowsLabel": "README unosa indeksirano",
+    "projectsLabel": "projekti",
+    "areasLabel": "oblasti",
+    "placementsLabel": "poklapanja kategorija",
+    "areasTitle": "Oblasti",
+    "projectsTitle": "Projekti",
+    "projectAction": "Otvori",
+    "starsLabel": "zvjezdica",
+    "officialLinksTitle": "Zvanični linkovi"
   },
   "blog": {
     "title": "Blog",

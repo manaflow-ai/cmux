@@ -84,7 +84,7 @@
   },
   "community": {
     "title": "សហគមន៍",
-    "description": "ភ្ជាប់ជាមួយអ្នកប្រើ cmux ផ្សេងទៀតនិងក្រុមដែលនៅពីក្រោយវា។",
+    "description": "រកមើលគម្រោងដែលសហគមន៍ cmux បានបង្កើត ចាប់ពី agent hooks ដល់ multi-agent orchestration និងការចូលប្រើពីចម្ងាយ។",
     "discord": "Discord",
     "discordAction": "ចូលរួម Discord របស់យើង",
     "discordDesc": "ជជែកជាមួយសហគមន៍, ទទួលបានជំនួយ, និងចែករំលែកមតិកែលម្អ",
@@ -100,7 +100,17 @@
     "linkedinAction": "តាមដានយើង",
     "linkedinDesc": "ព័ត៌មានក្រុមហ៊ុននិងព័ត៌មានថ្មីផ្នែកវិស្វកម្ម",
     "metaTitle": "សហគមន៍ — cmux",
-    "metaDescription": "ចូលរួមសហគមន៍ cmux នៅលើ Discord, Twitter, GitHub និងច្រើនទៀត"
+    "metaDescription": "រកមើលគម្រោងទាំងអស់ពី awesome-cmux នៅលើទំព័រសហគមន៍ cmux",
+    "sourceAction": "មើល awesome-cmux",
+    "sourceRowsLabel": "ធាតុ README ត្រូវបានធ្វើលិបិក្រម",
+    "projectsLabel": "គម្រោង",
+    "areasLabel": "ផ្នែក",
+    "placementsLabel": "ការផ្គូផ្គងប្រភេទ",
+    "areasTitle": "ផ្នែក",
+    "projectsTitle": "គម្រោង",
+    "projectAction": "បើក",
+    "starsLabel": "ផ្កាយ",
+    "officialLinksTitle": "តំណផ្លូវការ"
   },
   "blog": {
     "title": "ប្លក់",

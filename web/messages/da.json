@@ -84,7 +84,7 @@
   },
   "community": {
     "title": "Fællesskab",
-    "description": "Forbind med andre cmux-brugere og teamet bag det.",
+    "description": "Gennemse projekter bygget af cmux-communityet, fra agent-hooks til multi-agent-orkestrering og fjernadgang.",
     "discord": "Discord",
     "discordAction": "Deltag i vores Discord",
     "discordDesc": "Chat med fællesskabet, få hjælp og del feedback",
@@ -100,7 +100,17 @@
     "linkedinAction": "Følg os",
     "linkedinDesc": "Virksomhedsnyheder og tekniske opdateringer",
     "metaTitle": "Fællesskab — cmux",
-    "metaDescription": "Bliv en del af cmux-fællesskabet på Discord, Twitter, GitHub og mere"
+    "metaDescription": "Gennemse alle projekter fra awesome-cmux på cmux-communitysiden",
+    "sourceAction": "Se awesome-cmux",
+    "sourceRowsLabel": "README-poster indekseret",
+    "projectsLabel": "projekter",
+    "areasLabel": "områder",
+    "placementsLabel": "kategori-matches",
+    "areasTitle": "Områder",
+    "projectsTitle": "Projekter",
+    "projectAction": "Åbn",
+    "starsLabel": "stjerner",
+    "officialLinksTitle": "Officielle links"
   },
   "blog": {
     "title": "Blog",

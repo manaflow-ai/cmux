@@ -84,9 +84,9 @@
   },
   "community": {
     "title": "Спільнота",
-    "description": "Спілкуйтеся з іншими користувачами cmux та командою розробників.",
+    "description": "Переглядайте проєкти спільноти cmux: від хуків агентів до багатоагентної оркестрації та віддаленого доступу.",
     "metaTitle": "Спільнота — cmux",
-    "metaDescription": "Приєднуйтесь до спільноти cmux у Discord, Twitter, GitHub та інших платформах",
+    "metaDescription": "Перегляньте всі проєкти awesome-cmux на сторінці спільноти cmux",
     "discord": "Discord",
     "discordAction": "Приєднатися до Discord",
     "discordDesc": "Спілкуйтеся зі спільнотою, отримуйте допомогу та діліться відгуками",
@@ -100,7 +100,17 @@
     "youtubeDesc": "Демонстрації, навчальні матеріали та покрокові інструкції",
     "linkedin": "LinkedIn",
     "linkedinAction": "Підписатися",
-    "linkedinDesc": "Новини компанії та інженерні оновлення"
+    "linkedinDesc": "Новини компанії та інженерні оновлення",
+    "sourceAction": "Переглянути awesome-cmux",
+    "sourceRowsLabel": "записів README індексовано",
+    "projectsLabel": "проєкти",
+    "areasLabel": "напрями",
+    "placementsLabel": "збіги категорій",
+    "areasTitle": "Напрями",
+    "projectsTitle": "Проєкти",
+    "projectAction": "Відкрити",
+    "starsLabel": "зірок",
+    "officialLinksTitle": "Офіційні посилання"
   },
   "blog": {
     "title": "Блог",
