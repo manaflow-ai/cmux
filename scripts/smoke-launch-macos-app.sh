@@ -22,11 +22,13 @@ OPEN_LOG="$(mktemp -t cmux-smoke-open.XXXXXX)"
 APP_PID=""
 PREEXISTING_PIDS="$(pgrep -f "$EXECUTABLE_PATH" 2>/dev/null || true)"
 DEBUG_LOGS="${CMUX_SMOKE_DEBUG_LOGS:-0}"
+DISABLE_ICON_PERSISTENCE_KEY="cmuxDisableBundleIconPersistence"
 
 cleanup() {
   if [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" 2>/dev/null; then
     kill "$APP_PID" 2>/dev/null || true
   fi
+  /usr/bin/defaults delete "$BUNDLE_ID" "$DISABLE_ICON_PERSISTENCE_KEY" >/dev/null 2>&1 || true
   rm -f "$OPEN_LOG"
 }
 trap cleanup EXIT
@@ -63,7 +65,10 @@ dump_system_log() {
 }
 
 echo "==> smoke launching $APP_PATH"
-/usr/bin/open -n -g "$APP_PATH" --args -ApplePersistenceIgnoreState YES >"$OPEN_LOG" 2>&1 &
+# The Dock tile plugin can run in the Dock process, so seed the shared app
+# defaults domain before LaunchServices starts the app.
+/usr/bin/defaults write "$BUNDLE_ID" "$DISABLE_ICON_PERSISTENCE_KEY" -bool YES
+/usr/bin/open -n -g "$APP_PATH" --args -ApplePersistenceIgnoreState YES --cmux-disable-bundle-icon-persistence >"$OPEN_LOG" 2>&1 &
 OPEN_PID=$!
 
 # CI-only LaunchServices smoke: open returns before the app process is visible.

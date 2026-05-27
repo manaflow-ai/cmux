@@ -307,6 +307,58 @@ final class TerminalNotificationQueueTests: XCTestCase {
         XCTAssertEqual(deliveredTitles, ["Second"])
     }
 
+    func testNotifyTargetAsyncCommandDoesNotCoalesceRepeatedEventsForSameSurface() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        var deliveredTitles: [String] = []
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            deliveredTitles.append(notification.title)
+        }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        guard let focusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with a focused panel")
+            return
+        }
+
+        TerminalMutationBus.shared.setDrainsSuspendedForTesting(true)
+        defer { TerminalMutationBus.shared.setDrainsSuspendedForTesting(false) }
+
+        for title in ["First", "Second"] {
+            let response = TerminalController.debugNotifyTargetQueuedResponseForTesting(
+                "\(workspace.id.uuidString) \(focusedPanelId.uuidString) \(title)|Completed|Body"
+            )
+            XCTAssertEqual(response, "OK")
+        }
+
+        TerminalMutationBus.shared.drainForTesting()
+
+        let workspaceNotifications = store.notifications.filter { $0.tabId == workspace.id }
+        XCTAssertEqual(workspaceNotifications.map(\.title), ["Second"])
+        XCTAssertEqual(deliveredTitles, ["First", "Second"])
+    }
+
     func testScopedDiscardDoesNotSplitUnrelatedNotificationCoalescing() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()

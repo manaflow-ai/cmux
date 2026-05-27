@@ -18,7 +18,8 @@ PANE_ID = "22222222-2222-4222-8222-222222222222"
 SURFACE_ID = "33333333-3333-4333-8333-333333333333"
 NEW_PANE_ID = "44444444-4444-4444-8444-444444444444"
 NEW_SURFACE_ID = "55555555-5555-4555-8555-555555555555"
-WINDOW_ID = "window:7"
+WINDOW_ID = "66666666-6666-4666-8666-666666666666"
+WINDOW_REF = "window:7"
 
 
 class FakeCmuxState:
@@ -28,6 +29,16 @@ class FakeCmuxState:
     def handle(self, method: str, params: dict[str, object]) -> dict[str, object]:
         self.calls.append((method, params))
 
+        if method == "window.list":
+            return {
+                "windows": [
+                    {
+                        "id": WINDOW_ID,
+                        "ref": WINDOW_REF,
+                        "index": 7,
+                    },
+                ],
+            }
         if method == "workspace.create":
             return {
                 "workspace_id": WORKSPACE_ID,
@@ -195,7 +206,7 @@ def main() -> int:
             run_cli(
                 cli,
                 socket_path,
-                ["new-workspace", "--window", WINDOW_ID, "--name", "explicit-window"],
+                ["new-workspace", "--window", WINDOW_REF, "--name", "explicit-window"],
                 env_overrides={
                     "CMUX_WORKSPACE_ID": WORKSPACE_ID,
                     "CMUX_SURFACE_ID": SURFACE_ID,

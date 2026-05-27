@@ -359,6 +359,110 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Drops Antigravity conversation selectors without replaying prompts")
+    func dropsAntigravityConversationSelectorsWithoutReplayingPrompts() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "agy",
+                    "--conversation",
+                    "old-conversation",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--add-dir",
+                    "/tmp/extra repo",
+                    "initial prompt should not replay",
+                ],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == [
+                "agy",
+                "--sandbox",
+                "danger-full-access",
+                "--add-dir",
+                "/tmp/extra repo",
+            ]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "--conversation=old-conversation", "--log-file", "/tmp/agy.log"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == ["agy", "--log-file", "/tmp/agy.log"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "--conversation", "--sandbox", "danger-full-access"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == ["agy"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "--continue", "old-conversation", "--sandbox", "danger-full-access"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == ["agy", "--sandbox", "danger-full-access"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "-c", "--sandbox", "danger-full-access"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == ["agy", "--sandbox", "danger-full-access"]
+        )
+    }
+
+    @Test("Rejects noninteractive Antigravity launches")
+    func rejectsNoninteractiveAntigravityLaunches() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "--print", "--prompt", "summarize"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "--prompt", "summarize"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "-i", "--prompt", "summarize"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "-p", "summarize"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == nil
+        )
+    }
+
+    @Test("Drops Grok optional selectors without swallowing later options")
+    func dropsGrokOptionalSelectorsWithoutSwallowingLaterOptions() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["grok", "--resume", "--model", "grok-4", "--worktree", "--permission-mode", "auto"],
+                launcher: "grok",
+                fallbackKind: "grok"
+            ) == ["grok", "--model", "grok-4", "--permission-mode", "auto"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["grok", "-r", "old-session", "-w", "scratch", "--sandbox", "danger-full-access"],
+                launcher: "grok",
+                fallbackKind: "grok"
+            ) == ["grok", "--sandbox", "danger-full-access"]
+        )
+    }
+
     @Test("Preserves Cursor options after resume subcommand")
     func preservesCursorOptionsAfterResumeSubcommand() {
         #expect(

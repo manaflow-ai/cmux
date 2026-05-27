@@ -44,12 +44,24 @@ extension TerminalController {
         return nil
     }
 
+    func v2TrimmedStringMap(_ params: [String: Any], keys: [String]) -> [String: String] {
+        for key in keys {
+            guard let raw = v2StringMap(params, key) else { continue }
+            return raw.reduce(into: [String: String]()) { result, pair in
+                let normalizedKey = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !normalizedKey.isEmpty else { return }
+                result[normalizedKey] = pair.value
+            }
+        }
+        return [:]
+    }
+
     func v2ActionKey(_ params: [String: Any], _ key: String = "action") -> String? {
         guard let action = v2String(params, key) else { return nil }
         return action.lowercased().replacingOccurrences(of: "-", with: "_")
     }
 
-    func v2RawString(_ params: [String: Any], _ key: String) -> String? {
+    nonisolated func v2RawString(_ params: [String: Any], _ key: String) -> String? {
         params[key] as? String
     }
 
@@ -90,7 +102,7 @@ extension TerminalController {
         return v2ResolveHandleRef(trimmed)
     }
 
-    func v2Bool(_ params: [String: Any], _ key: String) -> Bool? {
+    nonisolated func v2Bool(_ params: [String: Any], _ key: String) -> Bool? {
         if let b = params[key] as? Bool { return b }
         if let n = params[key] as? NSNumber { return n.boolValue }
         if let s = params[key] as? String {
@@ -135,16 +147,16 @@ extension TerminalController {
         return nil
     }
 
-    func v2HasNonNullParam(_ params: [String: Any], _ key: String) -> Bool {
+    nonisolated func v2HasNonNullParam(_ params: [String: Any], _ key: String) -> Bool {
         guard let raw = params[key] else { return false }
         return !(raw is NSNull)
     }
 
-    func v2StrictInt(_ params: [String: Any], _ key: String) -> Int? {
+    nonisolated func v2StrictInt(_ params: [String: Any], _ key: String) -> Int? {
         v2StrictIntAny(params[key])
     }
 
-    func v2StrictIntAny(_ raw: Any?) -> Int? {
+    nonisolated func v2StrictIntAny(_ raw: Any?) -> Int? {
         guard let raw else { return nil }
 
         if let numberValue = raw as? NSNumber {

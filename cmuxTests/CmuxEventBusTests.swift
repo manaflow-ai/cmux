@@ -172,6 +172,50 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(payload["is_main_window"] as? Bool, true)
     }
 
+    func testWorkspaceReorderSocketMapperDoesNotDuplicateLifecycleEvent() throws {
+        CmuxEventBus.shared.resetForTesting()
+        let snapshot = CmuxEventBus.shared.subscribe(
+            afterSequence: nil,
+            names: ["workspace.reordered"],
+            categories: []
+        )
+        defer {
+            CmuxEventBus.shared.unsubscribe(snapshot.subscription)
+            CmuxEventBus.shared.resetForTesting()
+        }
+
+        let windowId = UUID()
+        let workspaceId = UUID()
+        let commandObject: [String: Any] = [
+            "id": "reorder-test",
+            "method": "workspace.reorder",
+            "params": ["workspace_id": workspaceId.uuidString]
+        ]
+        let responseObject: [String: Any] = [
+            "id": "reorder-test",
+            "ok": true,
+            "result": [
+                "dry_run": false,
+                "events": [[
+                    "workspace_id": workspaceId.uuidString,
+                    "workspace_ref": "workspace:11",
+                    "window_id": windowId.uuidString,
+                    "window_ref": "window:1",
+                    "from_index": 12,
+                    "to_index": 1
+                ]]
+            ]
+        ]
+        let commandData = try JSONSerialization.data(withJSONObject: commandObject)
+        let responseData = try JSONSerialization.data(withJSONObject: responseObject)
+        let command = try XCTUnwrap(String(data: commandData, encoding: .utf8))
+        let response = try XCTUnwrap(String(data: responseData, encoding: .utf8))
+
+        CmuxSocketEventMapper.publish(command: command, response: response)
+
+        XCTAssertNil(snapshot.subscription.next(timeout: 0.2))
+    }
+
     func testNotificationReplacementPublishesRemovedThenCreatedWithReplacedIds() throws {
         let bus = CmuxEventBus(retainedEventLimit: 8)
         let workspaceId = UUID()

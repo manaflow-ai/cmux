@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workspace
+   version = "1.0">
+   <FileRef
+      location = "group:cmux.xcodeproj">
+   </FileRef>
+   <Group
+      location = "container:Packages"
+      name = "Packages">
+      <FileRef
+         location = "group:CMUXAgentLaunch">
+      </FileRef>
+      <FileRef
+         location = "group:CMUXAgentVault">
+      </FileRef>
+      <FileRef
+         location = "group:CMUXAuthCore">
+      </FileRef>
+      <FileRef
+         location = "group:CMUXDebugLog">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxExtensionKit">
+      </FileRef>
+      <FileRef
+         location = "group:CMUXPasteboardFidelity">
+      </FileRef>
+      <FileRef
+         location = "group:CMUXSocketPathDomain">
+      </FileRef>
+      <FileRef
+         location = "group:CMUXWorkstream">
+      </FileRef>
+   </Group>
+</Workspace>

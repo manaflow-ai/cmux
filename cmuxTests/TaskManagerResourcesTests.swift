@@ -7,6 +7,42 @@ import XCTest
 #endif
 
 final class TaskManagerResourcesTests: XCTestCase {
+    func testGrokCodingAgentDefinitionMatchesSymlinkLaunch() throws {
+        let definition = try XCTUnwrap(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: "grok",
+            processPath: "/Users/example/.grok/bin/grok",
+            arguments: ["/Users/example/.grok/bin/grok", "--no-alt-screen"],
+            environment: [:]
+        ))
+
+        XCTAssertEqual(definition.id, "grok")
+        XCTAssertTrue(definition.directBasenames.contains("grok"))
+        XCTAssertTrue(definition.argumentNeedles.contains("grok-build"))
+    }
+
+    func testGrokCodingAgentDefinitionMatchesResolvedBinaryLaunch() throws {
+        let definition = try XCTUnwrap(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: "grok-macos-aarch",
+            processPath: "/Users/example/.grok/downloads/grok-macos-aarch64",
+            arguments: ["/Users/example/.grok/downloads/grok-macos-aarch64"],
+            environment: [:]
+        ))
+
+        XCTAssertEqual(definition.id, "grok")
+    }
+
+    func testAntigravityCodingAgentDefinitionUsesBrandedIconAsset() throws {
+        let definition = try XCTUnwrap(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: "agy",
+            processPath: "/Users/example/.local/bin/agy",
+            arguments: ["/Users/example/.local/bin/agy", "--conversation", "conversation-123"],
+            environment: [:]
+        ))
+
+        XCTAssertEqual(definition.id, "antigravity")
+        XCTAssertEqual(definition.assetName, "AgentIcons/Antigravity")
+    }
+
     func testAttributedPayloadProratesSharedResourceMeasurements() {
         let summary = resourceSummary()
 
@@ -523,6 +559,8 @@ final class TaskManagerResourcesTests: XCTestCase {
             ("amp", "amp"),
             ("cursor-agent", "cursor"),
             ("gemini", "gemini"),
+            ("agy", "antigravity"),
+            ("antigravity", "antigravity"),
             ("hermes", "hermes-agent"),
             ("hermes-agent", "hermes-agent"),
             ("copilot", "copilot"),

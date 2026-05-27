@@ -62,11 +62,19 @@ struct TmuxWorkspacePaneOverlayView: View {
 
     private func drawUnreadRing(in context: inout GraphicsContext, rect: CGRect) {
         guard let path = ringPath(for: rect) else { return }
+        let presentation = WorkspaceAttentionCoordinator.notificationRingStyle
+        let strokeColor = Color(nsColor: presentation.accent.strokeColor)
+
         var glowContext = context
-        glowContext.addFilter(.shadow(color: Color.blue.opacity(0.35), radius: 3))
+        glowContext.addFilter(
+            .shadow(
+                color: strokeColor.opacity(presentation.glowOpacity),
+                radius: presentation.glowRadius
+            )
+        )
         glowContext.stroke(
             path,
-            with: .color(Color.blue),
+            with: .color(strokeColor),
             style: StrokeStyle(lineWidth: PanelOverlayRingMetrics.lineWidth, lineJoin: .round)
         )
     }

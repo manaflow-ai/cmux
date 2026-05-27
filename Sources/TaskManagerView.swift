@@ -1,9 +1,17 @@
+import Observation
 import SwiftUI
 
 struct CmuxTaskManagerView: View {
-    @ObservedObject var model: CmuxTaskManagerModel
+    @Bindable var model: CmuxTaskManagerModel
 
     var body: some View {
+        // Outer view observes the model so the toolbar/summary/sort
+        // header repaint on snapshot or sort changes. The lazy list
+        // subtree is intentionally isolated below this boundary: it
+        // receives value-typed snapshots and a closure action bundle so
+        // row body re-evaluation can't be triggered by orthogonal model
+        // mutations. See repo/CLAUDE.md "Snapshot boundary for list
+        // subtrees" rule and issues #2586 / #4529.
         VStack(spacing: 0) {
             toolbar
             Divider()
@@ -11,7 +19,15 @@ struct CmuxTaskManagerView: View {
             Divider()
             tableHeader
             Divider()
-            tableBody
+            CmuxTaskManagerListView(
+                errorMessage: model.errorMessage,
+                isInitialLoading: model.isInitialLoading,
+                rows: model.sortedRows,
+                agentRows: model.sortedAgentRows,
+                aggregateRows: model.sortedAggregateRows,
+                childMemoryRows: model.sortedChildMemoryRows,
+                actions: CmuxTaskManagerRowActions.bound(to: model)
+            )
         }
         .frame(minWidth: 820, minHeight: 480)
         .onAppear {
@@ -61,6 +77,16 @@ struct CmuxTaskManagerView: View {
                 title: String(localized: "taskManager.summary.memory", defaultValue: "Memory"),
                 value: CmuxTaskManagerFormat.bytes(model.snapshot.total.memoryBytes)
             )
+            if let memoryDiagnostic = model.snapshot.memoryDiagnostic {
+                metric(
+                    title: String(localized: "taskManager.summary.appFootprint", defaultValue: "App Footprint"),
+                    value: CmuxTaskManagerFormat.bytes(memoryDiagnostic.appFootprintBytes)
+                )
+                metric(
+                    title: String(localized: "taskManager.summary.childRSS", defaultValue: "Child RSS"),
+                    value: CmuxTaskManagerFormat.bytes(memoryDiagnostic.childRSSBytes)
+                )
+            }
             metric(
                 title: String(localized: "taskManager.summary.processes", defaultValue: "Processes"),
                 value: "\(model.snapshot.total.processCount)"
@@ -153,20 +179,53 @@ struct CmuxTaskManagerView: View {
             .frame(width: 8)
             .accessibilityHidden(true)
     }
+}
 
-    @ViewBuilder
-    private var tableBody: some View {
-        let rows = model.sortedRows
-        let agentRows = model.sortedAgentRows
-        let aggregateRows = model.sortedAggregateRows
-        if let errorMessage = model.errorMessage {
+/// Closure bundle handed down to row views so they never reference the
+/// `@Observable` `CmuxTaskManagerModel`. Matches the
+/// `IndexSectionActions` / `SectionGapActions` reference pattern in
+/// `Sources/SessionIndexView.swift`. See repo/CLAUDE.md
+/// "Snapshot boundary for list subtrees" rule and issues #2586 / #4529.
+struct CmuxTaskManagerRowActions {
+    let viewWorkspace: @MainActor (CmuxTaskManagerRow) -> Void
+    let viewTerminal: @MainActor (CmuxTaskManagerRow) -> Void
+    let killProcess: @MainActor (CmuxTaskManagerRow) -> Void
+    let activate: @MainActor (CmuxTaskManagerRow) -> Void
+
+    @MainActor
+    static func bound(to model: CmuxTaskManagerModel) -> CmuxTaskManagerRowActions {
+        CmuxTaskManagerRowActions(
+            viewWorkspace: { row in model.viewWorkspace(for: row) },
+            viewTerminal: { row in model.viewTerminal(for: row) },
+            killProcess: { row in model.killProcess(for: row) },
+            activate: { row in model.viewBestTarget(for: row) }
+        )
+    }
+}
+
+/// Lazy list subtree. Receives value-typed row arrays plus a closure
+/// action bundle so SwiftUI can prove rows never observe the
+/// `CmuxTaskManagerModel`. Combined with the `Equatable` conformance on
+/// `CmuxTaskManagerRowView`, this stops the 3 s refresh timer from
+/// invalidating every row on every tick.
+struct CmuxTaskManagerListView: View {
+    let errorMessage: String?
+    let isInitialLoading: Bool
+    let rows: [CmuxTaskManagerRow]
+    let agentRows: [CmuxTaskManagerRow]
+    let aggregateRows: [CmuxTaskManagerRow]
+    let childMemoryRows: [CmuxTaskManagerRow]
+    let actions: CmuxTaskManagerRowActions
+
+    var body: some View {
+        if let errorMessage {
             CmuxTaskManagerMessageView(
                 title: String(localized: "taskManager.error.title", defaultValue: "Unable to load resource usage"),
                 detail: errorMessage
             )
-        } else if model.isInitialLoading {
+        } else if isInitialLoading {
             CmuxTaskManagerLoadingView()
-        } else if rows.isEmpty && agentRows.isEmpty && aggregateRows.isEmpty {
+        } else if rows.isEmpty && agentRows.isEmpty && aggregateRows.isEmpty && childMemoryRows.isEmpty {
             CmuxTaskManagerMessageView(
                 title: String(localized: "taskManager.empty.title", defaultValue: "No resource usage"),
                 detail: String(localized: "taskManager.empty.detail", defaultValue: "Open a workspace, terminal, or browser surface to see it here.")
@@ -177,17 +236,15 @@ struct CmuxTaskManagerView: View {
                     if !agentRows.isEmpty {
                         CmuxTaskManagerSectionHeaderView(
                             title: String(localized: "taskManager.section.codingAgents", defaultValue: "Coding Agents")
-                        )
+                        ).equatable()
                         ForEach(agentRows) { row in
                             CmuxTaskManagerRowView(
                                 row: row,
                                 onViewWorkspace: {},
                                 onViewTerminal: {},
-                                onKillProcess: {
-                                    model.killProcess(for: row)
-                                },
+                                onKillProcess: { actions.killProcess(row) },
                                 onActivate: {}
-                            )
+                            ).equatable()
                             Divider()
                                 .padding(.leading, 16)
                         }
@@ -195,42 +252,48 @@ struct CmuxTaskManagerView: View {
                     if !aggregateRows.isEmpty {
                         CmuxTaskManagerSectionHeaderView(
                             title: String(localized: "taskManager.section.programTotals", defaultValue: "Program Totals")
-                        )
+                        ).equatable()
                         ForEach(aggregateRows) { row in
                             CmuxTaskManagerRowView(
                                 row: row,
                                 onViewWorkspace: {},
                                 onViewTerminal: {},
-                                onKillProcess: {
-                                    model.killProcess(for: row)
-                                },
+                                onKillProcess: { actions.killProcess(row) },
                                 onActivate: {}
-                            )
+                            ).equatable()
                             Divider()
                                 .padding(.leading, 16)
                         }
                     }
-                    if !rows.isEmpty && (!agentRows.isEmpty || !aggregateRows.isEmpty) {
+                    if !childMemoryRows.isEmpty {
+                        CmuxTaskManagerSectionHeaderView(
+                            title: String(localized: "taskManager.section.childProcessRSS", defaultValue: "Child Process RSS")
+                        ).equatable()
+                        ForEach(childMemoryRows) { row in
+                            CmuxTaskManagerRowView(
+                                row: row,
+                                onViewWorkspace: { actions.viewWorkspace(row) },
+                                onViewTerminal: { actions.viewTerminal(row) },
+                                onKillProcess: { actions.killProcess(row) },
+                                onActivate: { actions.activate(row) }
+                            ).equatable()
+                            Divider()
+                                .padding(.leading, 16)
+                        }
+                    }
+                    if !rows.isEmpty && (!agentRows.isEmpty || !aggregateRows.isEmpty || !childMemoryRows.isEmpty) {
                         CmuxTaskManagerSectionHeaderView(
                             title: String(localized: "taskManager.section.hierarchy", defaultValue: "Hierarchy")
-                        )
+                        ).equatable()
                     }
                     ForEach(rows) { row in
                         CmuxTaskManagerRowView(
                             row: row,
-                            onViewWorkspace: {
-                                model.viewWorkspace(for: row)
-                            },
-                            onViewTerminal: {
-                                model.viewTerminal(for: row)
-                            },
-                            onKillProcess: {
-                                model.killProcess(for: row)
-                            },
-                            onActivate: {
-                                model.viewBestTarget(for: row)
-                            }
-                        )
+                            onViewWorkspace: { actions.viewWorkspace(row) },
+                            onViewTerminal: { actions.viewTerminal(row) },
+                            onKillProcess: { actions.killProcess(row) },
+                            onActivate: { actions.activate(row) }
+                        ).equatable()
                         Divider()
                             .padding(.leading, 16)
                     }
@@ -240,8 +303,12 @@ struct CmuxTaskManagerView: View {
     }
 }
 
-private struct CmuxTaskManagerSectionHeaderView: View {
+private struct CmuxTaskManagerSectionHeaderView: View, Equatable {
     let title: String
+
+    static func == (lhs: CmuxTaskManagerSectionHeaderView, rhs: CmuxTaskManagerSectionHeaderView) -> Bool {
+        lhs.title == rhs.title
+    }
 
     var body: some View {
         Text(title)
@@ -288,12 +355,29 @@ private struct CmuxTaskManagerMessageView: View {
     }
 }
 
-private struct CmuxTaskManagerRowView: View {
+/// Row view rendered inside the lazy list subtree. Conforms to
+/// `Equatable` so SwiftUI can skip body re-evaluation when the `row`
+/// snapshot is unchanged, even if the parent rebuilt the closure
+/// bundle on a refresh tick. Closures are intentionally excluded from
+/// `==`; they're expected to be stable in semantics (capture the same
+/// model above the snapshot boundary) but their identity changes every
+/// render. Comparing closure identity would defeat the optimization
+/// and re-introduce the 0.64.8 memory leak (issue #4529).
+struct CmuxTaskManagerRowView: View, Equatable {
     let row: CmuxTaskManagerRow
-    let onViewWorkspace: () -> Void
-    let onViewTerminal: () -> Void
-    let onKillProcess: () -> Void
-    let onActivate: () -> Void
+    let onViewWorkspace: @MainActor () -> Void
+    let onViewTerminal: @MainActor () -> Void
+    let onKillProcess: @MainActor () -> Void
+    let onActivate: @MainActor () -> Void
+
+    static func == (lhs: CmuxTaskManagerRowView, rhs: CmuxTaskManagerRowView) -> Bool {
+        // Closures excluded on purpose: the parent rebuilds the action
+        // bundle on every render tick, but the row payload is what
+        // actually drives visible state. Comparing closure identity
+        // would defeat `.equatable()` at the ForEach call site and
+        // re-introduce the 0.64.8 memory leak.
+        lhs.row == rhs.row
+    }
 
     var body: some View {
         Group {

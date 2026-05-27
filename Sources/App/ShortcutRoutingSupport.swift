@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Foundation
 
 func browserOmnibarSelectionDeltaForControlNavigation(
@@ -95,13 +96,18 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
     guard !firstResponderHasMarkedText else { return false }
     guard (123...126).contains(keyCode) else { return false }
 
-    // Keep this narrow to avoid stealing app/browser shortcuts that layer onto
-    // modified arrow keys. Plain arrows should always flow through keyDown so
-    // web content such as Google Docs receives the event directly.
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function, .capsLock])
-    return normalizedFlags.isEmpty
+
+    if normalizedFlags.isEmpty {
+        return true
+    }
+
+    // Keep modified arrow routing narrow to avoid stealing cmux shortcuts such
+    // as Cmd+Option+Arrow pane focus. Browser document editors own Cmd+Up/Down
+    // as trusted keyDown navigation to the start/end of the document.
+    return normalizedFlags == [.command] && (keyCode == 125 || keyCode == 126)
 }
 
 func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
@@ -152,6 +158,27 @@ func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
     guard firstResponderIsCommandPaletteFieldEditor else { return false }
     guard !firstResponderHasMarkedText else { return false }
     guard keyCode == 123 || keyCode == 124 else { return false }
+
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    switch normalizedFlags {
+    case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
+        return true
+    default:
+        return false
+    }
+}
+
+func shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderIsTextBoxInput: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard firstResponderIsTextBoxInput else { return false }
+    guard !firstResponderHasMarkedText else { return false }
+    guard (123...126).contains(keyCode) else { return false }
 
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
@@ -755,4 +782,53 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
     let contentPoint = contentView.convert(event.locationInWindow, from: nil)
     let hitView = contentView.hitTest(contentPoint)
     return shouldSuppressWindowMoveForFolderDrag(hitView: hitView)
+}
+
+enum WindowMoveSuppressionReason: String {
+    case folderDrag
+    case bonsplitPaneTabDrag
+}
+
+func shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: NSWindow, event: NSEvent) -> Bool {
+    guard event.type == .leftMouseDown else {
+        return false
+    }
+
+    return BonsplitTabItemHitRegionRegistry.containsWindowPoint(event.locationInWindow, in: window)
+}
+
+func windowMoveSuppressionReason(window: NSWindow, event: NSEvent) -> WindowMoveSuppressionReason? {
+    if shouldSuppressWindowMoveForFolderDrag(window: window, event: event) {
+        return .folderDrag
+    }
+    if shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: window, event: event) {
+        return .bonsplitPaneTabDrag
+    }
+    return nil
+}
+
+func beginOrContinueWindowMoveSuppressionSequenceForEvent(
+    window: NSWindow,
+    event: NSEvent,
+    pressedMouseButtons: Int = NSEvent.pressedMouseButtons
+) -> WindowMoveSuppressionReason? {
+    if let activeReason = activeWindowMoveSuppressionSequenceReason(window: window) {
+        if event.type == .leftMouseDown {
+            _ = finishWindowMoveSuppressionSequence(window: window)
+        } else if event.type == .leftMouseUp || event.type == .leftMouseDragged || (pressedMouseButtons & 0x1) != 0 {
+            ensureWindowMoveSuppressionSequenceIsImmovable(window: window)
+            return activeReason
+        } else {
+            _ = finishWindowMoveSuppressionSequence(window: window)
+        }
+    }
+
+    guard let reason = windowMoveSuppressionReason(window: window, event: event) else {
+        return nil
+    }
+    return beginWindowMoveSuppressionSequence(window: window, reason: reason)
+}
+
+func shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: NSWindow, event: NSEvent) -> Bool {
+    activeWindowMoveSuppressionSequenceReason(window: window) != nil && event.type == .leftMouseUp
 }

@@ -42,8 +42,17 @@ export default function SessionRestorePage() {
       <p>{t("agentResumeDesc")}</p>
       <CodeBlock lang="bash">{`cmux hooks setup
 cmux hooks setup codex
+cmux hooks setup grok
+cmux hooks setup antigravity
 cmux hooks setup --agent opencode`}</CodeBlock>
       <p>{t("setupBehavior")}</p>
+
+      <h2>{t("surfaceBindingsTitle")}</h2>
+      <p>{t("surfaceBindingsDesc")}</p>
+      <CodeBlock lang="bash">{`cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work`}</CodeBlock>
+      <p>{t("surfaceBindingsNote")}</p>
 
       <h2>{t("supportedTitle")}</h2>
       <table>
@@ -67,6 +76,12 @@ cmux hooks setup --agent opencode`}</CodeBlock>
             <td><code>codex</code></td>
             <td><code>codex resume &lt;id&gt;</code></td>
             <td>{t("feedPreToolUsePermissionRequest")}</td>
+          </tr>
+          <tr>
+            <td>Grok / Grok Build CLI</td>
+            <td><code>grok</code></td>
+            <td><code>grok -r &lt;id&gt;</code></td>
+            <td>{t("feedPreToolUse")}</td>
           </tr>
           <tr>
             <td>OpenCode</td>
@@ -99,10 +114,22 @@ cmux hooks setup --agent opencode`}</CodeBlock>
             <td>{t("feedPreToolUse")}</td>
           </tr>
           <tr>
+            <td>Antigravity CLI</td>
+            <td><code>agy</code></td>
+            <td><code>agy --conversation &lt;id&gt;</code></td>
+            <td>{t("feedPrePostToolUse")}</td>
+          </tr>
+          <tr>
             <td>Rovo Dev</td>
             <td><code>acli</code></td>
             <td><code>acli rovodev run --restore &lt;id&gt;</code></td>
             <td>{t("none")}</td>
+          </tr>
+          <tr>
+            <td>Hermes Agent</td>
+            <td><code>hermes</code></td>
+            <td><code>hermes --resume &lt;id&gt;</code></td>
+            <td>{t("feedHermes")}</td>
           </tr>
           <tr>
             <td>Copilot</td>

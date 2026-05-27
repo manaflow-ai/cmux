@@ -21,6 +21,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
     override func tearDown() {
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppIconSettings.resetLiveEnvironmentProviderForTesting()
+        AppearanceSettings.resetLiveEnvironmentProviderForTesting()
         KeyboardShortcutSettings.resetAll()
         super.tearDown()
     }
@@ -200,6 +201,158 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 0)
     }
 
+    func testManagedAppearanceReplayUpdatesDefaultWithoutLiveAppearanceApplication() throws {
+        let defaults = UserDefaults.standard
+        let key = AppearanceSettings.appearanceModeKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "appearance": "dark"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            var appliedAppearanceNames: [NSAppearance.Name?] = []
+            var synchronizedAppearanceNames: [(appearance: NSAppearance.Name?, source: String)] = []
+            AppearanceSettings.setLiveEnvironmentProviderForTesting {
+                AppearanceSettings.LiveApplyEnvironment(
+                    setApplicationAppearance: { appearance in
+                        appliedAppearanceNames.append(appearance?.bestMatch(from: [.darkAqua, .aqua]))
+                    },
+                    synchronizeTerminalThemeWithAppearance: { appearance, source in
+                        synchronizedAppearanceNames.append((
+                            appearance: appearance?.bestMatch(from: [.darkAqua, .aqua]),
+                            source: source
+                        ))
+                    },
+                    systemAppearance: {
+                        NSAppearance(named: .aqua)
+                    }
+                )
+            }
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.dark.rawValue)
+            XCTAssertTrue(appliedAppearanceNames.isEmpty)
+            XCTAssertTrue(synchronizedAppearanceNames.isEmpty)
+
+            store.applyDeferredManagedDefaultSideEffects()
+
+            XCTAssertTrue(appliedAppearanceNames.isEmpty)
+            XCTAssertTrue(synchronizedAppearanceNames.isEmpty)
+
+            try withExtendedLifetime(store) {
+                try writeSettingsFile(
+                    """
+                    {
+                      "app": {
+                        "appearance": "light"
+                      }
+                    }
+                    """,
+                    to: settingsFileURL
+                )
+                store.reload()
+            }
+
+            XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.light.rawValue)
+            XCTAssertTrue(appliedAppearanceNames.isEmpty)
+            XCTAssertTrue(synchronizedAppearanceNames.isEmpty)
+        }
+    }
+
+    func testSettingsFileStoreDoesNotReachTerminalReloadThroughManagedAppearanceReplay() throws {
+        let defaults = UserDefaults.standard
+        let key = AppearanceSettings.appearanceModeKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "appearance": "dark"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            var storeInitInProgress = true
+            var reachedTerminalReloadDuringInit = false
+            var terminalReloadSources: [String] = []
+            AppearanceSettings.setLiveEnvironmentProviderForTesting {
+                AppearanceSettings.LiveApplyEnvironment(
+                    setApplicationAppearance: { _ in },
+                    synchronizeTerminalThemeWithAppearance: { _, source in
+                        if storeInitInProgress {
+                            reachedTerminalReloadDuringInit = true
+                        }
+                        terminalReloadSources.append(source)
+                    },
+                    systemAppearance: {
+                        NSAppearance(named: .aqua)
+                    }
+                )
+            }
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+            storeInitInProgress = false
+
+            XCTAssertFalse(reachedTerminalReloadDuringInit)
+            XCTAssertTrue(terminalReloadSources.isEmpty)
+
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "appearance": "light"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+            store.reload()
+
+            XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.light.rawValue)
+            XCTAssertTrue(
+                terminalReloadSources.isEmpty,
+                "CmuxSettingsFileStore must not synchronously route managed appearance replay into Ghostty reloadConfiguration"
+            )
+        }
+    }
+
     func testSidebarMatchTerminalBackgroundUserDefaultSurvivesSettingsFileReapply() throws {
         let defaults = UserDefaults.standard
         let key = SidebarMatchTerminalBackgroundSettings.userDefaultsKey
@@ -345,6 +498,86 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testSettingsFileStoreInitialAppearanceImportDoesNotApplyLiveAppearance() throws {
+        let defaults = UserDefaults.standard
+        let key = AppearanceSettings.appearanceModeKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "appearance": "dark"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            var appliedAppearanceName: NSAppearance.Name?
+            var synchronizedAppearanceName: NSAppearance.Name?
+            var synchronizedSources: [String] = []
+            AppearanceSettings.setLiveEnvironmentProviderForTesting {
+                AppearanceSettings.LiveApplyEnvironment(
+                    setApplicationAppearance: { appearance in
+                        appliedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
+                    },
+                    synchronizeTerminalThemeWithAppearance: { appearance, source in
+                        synchronizedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
+                        synchronizedSources.append(source)
+                    },
+                    systemAppearance: {
+                        NSAppearance(named: .aqua)
+                    }
+                )
+            }
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.dark.rawValue)
+            XCTAssertNil(appliedAppearanceName)
+            XCTAssertNil(synchronizedAppearanceName)
+            XCTAssertTrue(synchronizedSources.isEmpty)
+
+            store.applyDeferredManagedDefaultSideEffects()
+
+            XCTAssertNil(appliedAppearanceName)
+            XCTAssertNil(synchronizedAppearanceName)
+            XCTAssertTrue(synchronizedSources.isEmpty)
+
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "appearance": "light"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+            store.reload()
+
+            XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.light.rawValue)
+            XCTAssertNil(appliedAppearanceName)
+            XCTAssertNil(synchronizedAppearanceName)
+            XCTAssertTrue(synchronizedSources.isEmpty)
+        }
+    }
+
     func testManagedBoolUserDefaultSurvivesSettingsFileReapplyUntilFileChanges() throws {
         let defaults = UserDefaults.standard
         let key = QuitWarningSettings.warnBeforeQuitKey
@@ -408,6 +641,260 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testConfirmQuitImportsEnumFromCmuxJSON() throws {
+        let defaults = UserDefaults.standard
+        let key = QuitWarningSettings.confirmQuitKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "confirmQuit": "dirty-only"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: key), QuitConfirmationMode.dirtyOnly.rawValue)
+            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .dirtyOnly)
+        }
+    }
+
+    func testLegacyWarnBeforeQuitMapsToConfirmQuitWhenConfirmQuitIsAbsent() throws {
+        let defaults = UserDefaults.standard
+        let confirmQuitKey = QuitWarningSettings.confirmQuitKey
+        let warnBeforeQuitKey = QuitWarningSettings.warnBeforeQuitKey
+
+        try preservingDefaults(keys: [
+            confirmQuitKey,
+            warnBeforeQuitKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.set(QuitConfirmationMode.always.rawValue, forKey: confirmQuitKey)
+            defaults.removeObject(forKey: warnBeforeQuitKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "warnBeforeQuit": false
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: confirmQuitKey), QuitConfirmationMode.never.rawValue)
+            XCTAssertEqual(defaults.object(forKey: warnBeforeQuitKey) as? Bool, false)
+            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .never)
+        }
+    }
+
+    func testLegacyWarnBeforeQuitMigrationPreservesUserOverride() throws {
+        let defaults = UserDefaults.standard
+        let confirmQuitKey = QuitWarningSettings.confirmQuitKey
+        let warnBeforeQuitKey = QuitWarningSettings.warnBeforeQuitKey
+
+        try preservingDefaults(keys: [
+            confirmQuitKey,
+            warnBeforeQuitKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: confirmQuitKey)
+            defaults.set(true, forKey: warnBeforeQuitKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.set(
+                Data(#"{"warnBeforeQuitShortcut":{"bool":{"_0":false}}}"#.utf8),
+                forKey: importedManagedDefaultsKey
+            )
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "warnBeforeQuit": false
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertNil(defaults.string(forKey: confirmQuitKey))
+            XCTAssertEqual(defaults.object(forKey: warnBeforeQuitKey) as? Bool, true)
+            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .always)
+
+            try writeSettingsFile("{}", to: settingsFileURL)
+            store.reload()
+
+            XCTAssertNil(defaults.string(forKey: confirmQuitKey))
+            XCTAssertEqual(defaults.object(forKey: warnBeforeQuitKey) as? Bool, true)
+            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .always)
+        }
+    }
+
+    func testInvalidConfirmQuitDoesNotAbortRemainingAppSettings() throws {
+        let defaults = UserDefaults.standard
+        let confirmQuitKey = QuitWarningSettings.confirmQuitKey
+        let warnBeforeQuitKey = QuitWarningSettings.warnBeforeQuitKey
+
+        try preservingDefaults(keys: [
+            confirmQuitKey,
+            warnBeforeQuitKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: confirmQuitKey)
+            defaults.removeObject(forKey: warnBeforeQuitKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "confirmQuit": "sometimes",
+                    "warnBeforeQuit": false
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: confirmQuitKey), QuitConfirmationMode.never.rawValue)
+            XCTAssertEqual(defaults.object(forKey: warnBeforeQuitKey) as? Bool, false)
+            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .never)
+        }
+    }
+
+    @MainActor
+    func testInitialSettingsFileLoadImportsDefaultsWithoutLiveDefaultNotifications() throws {
+        let defaults = UserDefaults.standard
+        let scrollBarKey = TerminalScrollBarSettings.showScrollBarKey
+        let autoResumeKey = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+
+        try preservingDefaults(keys: [
+            scrollBarKey,
+            autoResumeKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: scrollBarKey)
+            defaults.removeObject(forKey: autoResumeKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "showScrollBar": false,
+                    "autoResumeAgentSessions": false
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            let notificationCenter = NotificationCenter()
+            var scrollBarNotificationCount = 0
+            var autoResumeNotificationCount = 0
+            let scrollBarObserver = notificationCenter.addObserver(
+                forName: TerminalScrollBarSettings.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                scrollBarNotificationCount += 1
+            }
+            let autoResumeObserver = notificationCenter.addObserver(
+                forName: AgentSessionAutoResumeSettings.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                autoResumeNotificationCount += 1
+            }
+            defer {
+                notificationCenter.removeObserver(scrollBarObserver)
+                notificationCenter.removeObserver(autoResumeObserver)
+            }
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                notificationCenter: notificationCenter,
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.object(forKey: scrollBarKey) as? Bool, false)
+            XCTAssertEqual(defaults.object(forKey: autoResumeKey) as? Bool, false)
+            XCTAssertEqual(scrollBarNotificationCount, 0)
+            XCTAssertEqual(autoResumeNotificationCount, 0)
+
+            store.applyDeferredManagedDefaultSideEffects()
+
+            XCTAssertEqual(scrollBarNotificationCount, 1)
+            XCTAssertEqual(autoResumeNotificationCount, 1)
+        }
+    }
+
     func testSettingsFileStoreAppliesTerminalAgentAutoResumeSetting() throws {
         let defaults = UserDefaults.standard
         let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
@@ -459,6 +946,158 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         )
 
         XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
+    }
+
+    func testSettingsFileStoreAppliesTerminalTextBoxMaxLinesSetting() throws {
+        let defaults = UserDefaults.standard
+        try preservingDefaults(keys: [
+            TerminalTextBoxInputSettings.maxLinesKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: TerminalTextBoxInputSettings.maxLinesKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "textBoxMaxLines": 14
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.object(forKey: TerminalTextBoxInputSettings.maxLinesKey) as? Int, 14)
+            XCTAssertEqual(TerminalTextBoxInputSettings.maxLines(defaults: defaults), 14)
+        }
+    }
+
+    func testSettingsFileStoreAppliesTerminalCopyOnSelectSetting() throws {
+        let defaults = UserDefaults.standard
+        let key = TerminalCopyOnSelectSettings.copyOnSelectKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "copyOnSelect": true
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.object(forKey: key) as? Bool, true)
+            XCTAssertEqual(
+                TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
+                "copy-on-select = clipboard"
+            )
+        }
+    }
+
+    func testSettingsFileStoreAppliesAutomationRipgrepBinaryPath() throws {
+        let defaults = UserDefaults.standard
+        let key = "ripgrepCustomBinaryPath"
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "automation": {
+                    "ripgrepBinaryPath": "/etc/profiles/per-user/nixuser/bin/rg"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: key), "/etc/profiles/per-user/nixuser/bin/rg")
+        }
+    }
+
+    func testSettingsFileStoreRejectsInvalidTerminalTextBoxMaxLinesSetting() throws {
+        let defaults = UserDefaults.standard
+        try preservingDefaults(keys: [
+            TerminalTextBoxInputSettings.maxLinesKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: TerminalTextBoxInputSettings.maxLinesKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "textBoxMaxLines": 100
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+
+            XCTAssertNil(defaults.object(forKey: TerminalTextBoxInputSettings.maxLinesKey))
+            XCTAssertEqual(
+                TerminalTextBoxInputSettings.maxLines(defaults: defaults),
+                TerminalTextBoxInputSettings.defaultMaxLines
+            )
+        }
     }
 
     private func makeTemporaryDirectory() throws -> URL {

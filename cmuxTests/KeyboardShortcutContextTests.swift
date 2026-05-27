@@ -141,6 +141,86 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
     }
 
+    func testFocusHistoryMenuShortcutsSuppressDuplicateBrowserHistoryKeys() throws {
+        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        let directoryURL = try makeTemporaryDirectory()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile("{}", to: settingsFileURL)
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        KeyboardShortcutSettings.resetAll()
+
+        let focusBack = KeyboardShortcutSettings.shortcut(for: .focusHistoryBack)
+        let focusForward = KeyboardShortcutSettings.shortcut(for: .focusHistoryForward)
+
+        XCTAssertEqual(focusBack, KeyboardShortcutSettings.shortcut(for: .browserBack))
+        XCTAssertEqual(focusForward, KeyboardShortcutSettings.shortcut(for: .browserForward))
+        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryBack), focusBack)
+        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryForward), focusForward)
+        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserBack), .unbound)
+        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserForward), .unbound)
+
+        KeyboardShortcutSettings.clearShortcut(for: .focusHistoryBack)
+        KeyboardShortcutSettings.clearShortcut(for: .focusHistoryForward)
+
+        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserBack), KeyboardShortcutSettings.shortcut(for: .browserBack))
+        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserForward), KeyboardShortcutSettings.shortcut(for: .browserForward))
+    }
+
+    func testFocusHistoryTitlebarHintUsesConfiguredShortcutAndCanBeUnbound() throws {
+        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        let directoryURL = try makeTemporaryDirectory()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile("{}", to: settingsFileURL)
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        KeyboardShortcutSettings.resetAll()
+
+        let remappedShortcut = StoredShortcut(key: "b", command: true, shift: true, option: false, control: false)
+        KeyboardShortcutSettings.setShortcut(remappedShortcut, for: .focusHistoryBack)
+
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryBack), remappedShortcut)
+        XCTAssertTrue(
+            titlebarShortcutHintShouldShow(
+                shortcut: KeyboardShortcutSettings.shortcut(for: .focusHistoryBack),
+                alwaysShowShortcutHints: false,
+                modifierPressed: true
+            )
+        )
+        XCTAssertTrue(KeyboardShortcutSettings.Action.focusHistoryBack.tooltip("Focus Back").contains(remappedShortcut.displayString))
+
+        KeyboardShortcutSettings.clearShortcut(for: .focusHistoryBack)
+
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryBack), .unbound)
+        XCTAssertFalse(
+            titlebarShortcutHintShouldShow(
+                shortcut: KeyboardShortcutSettings.shortcut(for: .focusHistoryBack),
+                alwaysShowShortcutHints: false,
+                modifierPressed: true
+            )
+        )
+    }
+
     func testShortcutSettingsFilePreservesConfiguredShortcutWithoutGlobalConflictLookup() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }

@@ -285,9 +285,9 @@ cmux list-notifications --json`}
       <Cmd
         name="set-status"
         desc={t("setStatusDesc")}
-        cli={`cmux set-status build "compiling" --icon hammer --color "#ff9500"
+        cli={`cmux set-status build "compiling" --icon hammer --color "#ff9500" --priority 80
 cmux set-status deploy "v1.2.3" --workspace workspace:2`}
-        socket={`set_status build compiling --icon=hammer --color=#ff9500 --tab=<workspace-uuid>`}
+        socket={`set_status build compiling --icon=hammer --color=#ff9500 --priority=80 --tab=<workspace-uuid>`}
       />
       <Cmd
         name="clear-status"

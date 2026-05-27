@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | Deutsch | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | Deutsch | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
@@ -236,15 +236,33 @@ Tastenkürzel für Browser-Entwicklertools folgen den Safari-Standardeinstellung
 
 cmux NIGHTLY ist eine separate App mit eigener Bundle-ID, die neben der stabilen Version läuft. Wird automatisch vom neuesten `main`-Commit gebaut und aktualisiert sich über einen eigenen Sparkle-Feed.
 
-## Sitzungswiederherstellung (aktuelles Verhalten)
+## Sitzungswiederherstellung
 
-Beim Neustart stellt cmux derzeit nur App-Layout und Metadaten wieder her:
+Beim Beenden speichert cmux die aktuelle Sitzung. Beim Neustart stellt cmux den von der App verwalteten Zustand wieder her:
 - Fenster-/Arbeitsbereich-/Bereichs-Layout
 - Arbeitsverzeichnisse
 - Terminal-Scrollback (bestmöglich)
 - Browser-URL und Navigationsverlauf
 
-cmux stellt **keine** laufenden Prozesse in Terminal-Apps wieder her. Zum Beispiel werden aktive Claude Code-/tmux-/vim-Sitzungen nach einem Neustart noch nicht fortgesetzt.
+cmux erstellt keine Prüfpunkte für beliebige laufende Prozesse. tmux, vim, Shells und nicht unterstützte Terminal-Apps werden als normale Terminals erneut geöffnet.
+
+Unterstützte Agent-Sitzungen können fortgesetzt werden, wenn Hooks eine native Sitzungs-ID gespeichert haben:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+Fortgeschrittene Nutzer und Integrationen können einen eigenen Wiederaufnahmebefehl an die aktuelle Terminal-Surface binden. Das ist nützlich für Werkzeuge mit eigenem dauerhaftem Zustand, etwa tmux-Sitzungen oder eigene Agent-CLIs:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+Die Bindung bleibt mit der cmux-Surface verknüpft. Über öffentliche CLI oder Socket erstellte Bindungen werden zur Prüfung und manuellen Wiederaufnahme gespeichert. cmux startet nur Wiederaufnahme-Bindungen automatisch, die als vertrauenswürdig markiert sind, zum Beispiel aus laufenden Prozessen erkannte tmux-Bindungen. Sensible Umgebungsvariablen wie Tokens, Passwörter, Secrets und API-Keys werden verworfen, bevor eine Wiederaufnahme-Bindung gespeichert wird.
 
 ## Star-Verlauf
 

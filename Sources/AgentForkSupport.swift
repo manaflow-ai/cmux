@@ -2,6 +2,38 @@ import Foundation
 import CMUXAgentLaunch
 import Darwin
 
+/// Coordinates cancellation with `Process.run()`: Foundation raises an
+/// Objective-C exception if termination APIs touch a task before launch.
+/// `@unchecked Sendable` is safe here because all mutable state is protected by `lock`.
+final class ProcessTerminationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didLaunch = false
+    private var didFinish = false
+    private var terminationRequested = false
+
+    func requestTermination() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !didFinish else { return false }
+        terminationRequested = true
+        return didLaunch
+    }
+
+    func markLaunched() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !didFinish else { return false }
+        didLaunch = true
+        return terminationRequested
+    }
+
+    func markFinished() {
+        lock.lock()
+        defer { lock.unlock() }
+        didFinish = true
+    }
+}
+
 private actor OpenCodeVersionProbeCache {
     private var valuesByKey: [String: Bool] = [:]
 
@@ -50,6 +82,7 @@ enum AgentForkSupport {
         private var timeoutTimer: DispatchSourceTimer?
         private var killTimer: DispatchSourceTimer?
         private var continuation: CheckedContinuation<String?, Never>?
+        private let terminationGate = ProcessTerminationGate()
         private var completed = false
         private var timedOut = false
 
@@ -90,13 +123,13 @@ enum AgentForkSupport {
             if completed || timedOut {
                 completed = true
                 lock.unlock()
+                terminationGate.markFinished()
                 pipe.fileHandleForReading.readabilityHandler = nil
                 process.terminationHandler = nil
                 continuation.resume(returning: nil)
                 return
             }
             self.continuation = continuation
-            self.process = process
             self.pipe = pipe
             lock.unlock()
 
@@ -105,16 +138,26 @@ enum AgentForkSupport {
             do {
                 try process.run()
             } catch {
+                terminationGate.markFinished()
                 markFailedBeforeLaunch()
                 return
             }
 
             lock.lock()
-            let shouldTerminateAfterStart = timedOut && !completed
+            if completed {
+                lock.unlock()
+                terminationGate.markFinished()
+                process.terminationHandler = nil
+                return
+            }
+            self.process = process
             lock.unlock()
-            if shouldTerminateAfterStart {
-                process.terminate()
-                startKillTimer(processIdentifier: process.processIdentifier)
+
+            if terminationGate.markLaunched() {
+                if process.isRunning {
+                    process.terminate()
+                    startKillTimer(processIdentifier: process.processIdentifier)
+                }
             }
         }
 
@@ -148,16 +191,21 @@ enum AgentForkSupport {
         }
 
         private func markTimedOutAndTerminate() {
-            let process: Process?
             lock.lock()
             guard !completed else {
                 lock.unlock()
                 return
             }
             timedOut = true
-            process = self.process
             lock.unlock()
 
+            guard terminationGate.requestTermination() else {
+                return
+            }
+            let process: Process?
+            lock.lock()
+            process = self.process
+            lock.unlock()
             guard let process else {
                 return
             }
@@ -219,6 +267,7 @@ enum AgentForkSupport {
             timedOut = self.timedOut
             lock.unlock()
 
+            terminationGate.markFinished()
             timeoutTimer?.cancel()
             killTimer?.cancel()
             process?.terminationHandler = nil

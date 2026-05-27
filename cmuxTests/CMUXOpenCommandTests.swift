@@ -205,6 +205,41 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(lines[3].contains("workspace workspace:low"), result.stdout)
     }
 
+    func testTopCommandForwardsWindowFlag() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("top-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let payload: [String: Any] = [
+            "windows": [
+                topNode(ref: "window:2", cpu: 2, rss: 2_000, processCount: 2, extra: [
+                    "id": windowId,
+                    "workspaces": [],
+                ]),
+            ],
+        ]
+        let serverHandled = startTopMockServer(listenerFD: listenerFD, payload: payload) { params in
+            XCTAssertEqual(params["window_id"] as? String, windowId)
+            XCTAssertEqual(params["all_windows"] as? Bool, false)
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["top", "--window", windowId]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("window window:2"), result.stdout)
+    }
+
     func testTopCommandSortsMixedWorkspaceChildrenByMemoryAlias() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("top-mem")
@@ -650,13 +685,18 @@ final class CMUXOpenCommandTests: XCTestCase {
         return handled
     }
 
-    private func startTopMockServer(listenerFD: Int32, payload: [String: Any]) -> XCTestExpectation {
+    private func startTopMockServer(
+        listenerFD: Int32,
+        payload: [String: Any],
+        assertParams: (([String: Any]) -> Void)? = nil
+    ) -> XCTestExpectation {
         startMockServer(listenerFD: listenerFD, state: MockSocketServerState()) { line in
             guard let request = Self.v2Payload(from: line),
                   let id = request["id"] as? String,
                   request["method"] as? String == "system.top" else {
                 return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
             }
+            assertParams?(request["params"] as? [String: Any] ?? [:])
             return Self.v2Response(id: id, ok: true, result: payload)
         }
     }

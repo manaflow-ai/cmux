@@ -18,14 +18,31 @@ enum MinimalModeChromeMetrics {
     static let titlebarHeight: CGFloat = WindowChromeMetrics.appTitlebarHeight
 }
 
+enum HeaderChromeControlMetrics {
+    static let buttonSize: CGFloat = 20
+    static let iconSize: CGFloat = 12
+    static let iconFrameSize: CGFloat = 14
+    static let cornerRadius: CGFloat = 6
+
+    static func iconFrameSize(forIconSize iconSize: CGFloat) -> CGFloat {
+        max(Self.iconFrameSize, iconSize + 2)
+    }
+}
+
 enum RightSidebarChromeMetrics {
     static let titlebarHeight: CGFloat = WindowChromeMetrics.appTitlebarHeight
     static let secondaryBarHeight: CGFloat = WindowChromeMetrics.secondaryTitlebarHeight
     static let barHorizontalPadding: CGFloat = 8
-    static let barVerticalPadding: CGFloat = 3
+    static let barVerticalPadding: CGFloat = 4
     static let controlHeight: CGFloat = secondaryBarHeight - (barVerticalPadding * 2)
     static let controlHorizontalPadding: CGFloat = 8
     static let controlCornerRadius: CGFloat = 5
+    static let headerControlSize: CGFloat = HeaderChromeControlMetrics.buttonSize
+    static let headerIconSize: CGFloat = 10
+    static let headerIconFrameSize: CGFloat = headerIconSize
+    static let headerControlSpacing: CGFloat = 4
+    static let headerControlCornerRadius: CGFloat = HeaderChromeControlMetrics.cornerRadius
+    static let headerControlCenterAlignmentAdjustment: CGFloat = 0
 }
 
 enum SidebarWorkspaceListMetrics {
