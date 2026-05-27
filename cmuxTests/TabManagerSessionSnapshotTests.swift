@@ -1823,6 +1823,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let restoredForegroundAuthToken = try XCTUnwrap(restoredWorkspace.remoteConfiguration?.foregroundAuthToken)
         XCTAssertFalse(restoredForegroundAuthToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         let terminalStartupCommand = try XCTUnwrap(restoredWorkspace.remoteConfiguration?.terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.hasPrefix("/bin/sh -c "), terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains("ssh-pty-attach"), terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains("workspace.remote.foreground_auth_ready"), terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains(restoredForegroundAuthToken), terminalStartupCommand)
@@ -1833,6 +1834,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let restoredInitialCommand = try XCTUnwrap(
             restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()
         )
+        XCTAssertTrue(restoredInitialCommand.hasPrefix("/bin/sh -c "), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("ssh-pty-attach"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("workspace.remote.foreground_auth_ready"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains(restoredForegroundAuthToken), restoredInitialCommand)
@@ -1975,11 +1977,13 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(ended.untrackedRemoteTerminal)
 
         let paneId = try XCTUnwrap(restoredWorkspace.bonsplitController.allPaneIds.first)
+        let attachStartupCommand = Workspace.sshPTYAttachStartupCommand(sessionID: sessionID)
+        XCTAssertTrue(attachStartupCommand.hasPrefix("/bin/sh -c "), attachStartupCommand)
         let reattachedPanel = try XCTUnwrap(
             restoredWorkspace.newTerminalSurface(
                 inPane: paneId,
                 focus: true,
-                initialCommand: Workspace.sshPTYAttachStartupCommand(sessionID: sessionID),
+                initialCommand: attachStartupCommand,
                 remotePTYSessionID: sessionID
             )
         )
@@ -2063,6 +2067,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let restoredInitialCommand = try XCTUnwrap(
             restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()
         )
+        XCTAssertTrue(restoredInitialCommand.hasPrefix("/bin/sh -c "), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("ssh-pty-attach"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("--require-existing"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains(expectedSessionID), restoredInitialCommand)

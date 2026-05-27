@@ -3213,6 +3213,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertEqual(params["remote_pty_session_id"] as? String, sessionId)
             XCTAssertEqual(params["focus"] as? Bool, true)
             let initialCommand = params["initial_command"] as? String ?? ""
+            XCTAssertTrue(initialCommand.hasPrefix("/bin/sh -c "), initialCommand)
             XCTAssertTrue(initialCommand.contains("ssh-pty-attach"), initialCommand)
             XCTAssertTrue(initialCommand.contains("--require-existing"), initialCommand)
             XCTAssertTrue(initialCommand.contains(sessionId), initialCommand)
