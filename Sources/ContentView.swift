@@ -9925,6 +9925,8 @@ struct VerticalTabsSidebar: View {
 
     private struct WorkspaceListRenderContext {
         let tabs: [Workspace]
+        let workspaceGroups: [SidebarWorkspaceGroup]
+        let workspaceGroupIdByWorkspaceId: [UUID: UUID]
         /// Stored snapshot of `tabs.map(\.id)` so per-row predicates that need
         /// it (e.g. `SidebarTabDropIndicatorPredicate.topVisible`) don't pay
         /// O(n) per row.
@@ -9943,9 +9945,27 @@ struct VerticalTabsSidebar: View {
         var workspaceIds: [UUID] { tabIds }
     }
 
+    private enum WorkspaceListRenderSection: Identifiable {
+        case workspace(Workspace)
+        case group(SidebarWorkspaceGroup, [Workspace])
+
+        var id: String {
+            switch self {
+            case .workspace(let workspace):
+                return "workspace-\(workspace.id.uuidString)"
+            case .group(let group, _):
+                return "group-\(group.id.uuidString)"
+            }
+        }
+    }
+
     var body: some View {
         let _ = terminalScrollBarVisibilityGeneration
         let tabs = tabManager.tabs
+        let workspaceGroups = tabManager.workspaceGroups
+        let workspaceGroupIdByWorkspaceId = Dictionary(uniqueKeysWithValues: workspaceGroups.flatMap { group in
+            group.workspaceIds.map { workspaceId in (workspaceId, group.id) }
+        })
         let workspaceCount = tabs.count
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
@@ -9968,6 +9988,8 @@ struct VerticalTabsSidebar: View {
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
         let renderContext = WorkspaceListRenderContext(
             tabs: tabs,
+            workspaceGroups: workspaceGroups,
+            workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
             tabIds: tabs.map(\.id),
             workspaceCount: workspaceCount,
             canCloseWorkspace: canCloseWorkspace,
@@ -10137,6 +10159,7 @@ struct VerticalTabsSidebar: View {
                             .frame(height: scrollInsets.top + 8)
                             .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
                                 targetTabId: firstWorkspaceId,
+                                groupAssignment: .assign(renderContext.workspaceGroupIdByWorkspaceId[firstWorkspaceId]),
                                 tabManager: tabManager,
                                 dragState: dragState,
                                 selectedTabIds: $selectedTabIds,
@@ -10246,7 +10269,10 @@ struct VerticalTabsSidebar: View {
                             dragAutoScrollController: dragAutoScrollController,
                             topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
                             tabDropDelegate: emptyAreaTabDropDelegate(),
-                            bonsplitDropIndicator: dropIndicatorBinding
+                            bonsplitDropIndicator: dropIndicatorBinding,
+                            onCreateFolder: {
+                                promptCreateWorkspaceGroup(workspaceIds: [])
+                            }
                         )
                         .frame(maxWidth: .infinity, minHeight: 48)
                     }
@@ -11014,7 +11040,10 @@ struct VerticalTabsSidebar: View {
                 dragAutoScrollController: dragAutoScrollController,
                 topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
                 tabDropDelegate: emptyAreaTabDropDelegate(),
-                bonsplitDropIndicator: dropIndicatorBinding
+                bonsplitDropIndicator: dropIndicatorBinding,
+                onCreateFolder: {
+                    promptCreateWorkspaceGroup(workspaceIds: [])
+                }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -11022,13 +11051,19 @@ struct VerticalTabsSidebar: View {
     }
 
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
+        let sections = workspaceRenderSections(renderContext: renderContext)
         // LazyVStack is safe here because `dragState` is @Observable:
         // drag mutations at 60fps invalidate only the rows/overlays that
         // read them, never this sidebar body. See SidebarDragState and
         // https://github.com/manaflow-ai/cmux/issues/2586.
-        LazyVStack(spacing: tabRowSpacing) {
-            ForEach(renderContext.tabs, id: \.id) { tab in
-                workspaceRow(tab, renderContext: renderContext)
+        return LazyVStack(spacing: tabRowSpacing) {
+            ForEach(sections) { section in
+                switch section {
+                case .workspace(let tab):
+                    workspaceRow(tab, renderContext: renderContext)
+                case .group(let group, let tabs):
+                    workspaceGroupSection(group: group, tabs: tabs, renderContext: renderContext)
+                }
             }
         }
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
@@ -11085,6 +11120,90 @@ struct VerticalTabsSidebar: View {
                         )
                     }
                 )
+            }
+        }
+    }
+
+    private func workspaceRenderSections(
+        renderContext: WorkspaceListRenderContext
+    ) -> [WorkspaceListRenderSection] {
+        let groupsById = Dictionary(uniqueKeysWithValues: renderContext.workspaceGroups.map { ($0.id, $0) })
+        var emittedGroupIds = Set<UUID>()
+        var sections: [WorkspaceListRenderSection] = []
+        var tabIndex = renderContext.tabs.startIndex
+
+        while tabIndex < renderContext.tabs.endIndex {
+            let tab = renderContext.tabs[tabIndex]
+            guard let groupId = renderContext.workspaceGroupIdByWorkspaceId[tab.id],
+                  let group = groupsById[groupId] else {
+                sections.append(.workspace(tab))
+                tabIndex += 1
+                continue
+            }
+
+            guard emittedGroupIds.insert(groupId).inserted else {
+                sections.append(.workspace(tab))
+                tabIndex += 1
+                continue
+            }
+
+            var runTabs: [Workspace] = []
+            while tabIndex < renderContext.tabs.endIndex {
+                let runTab = renderContext.tabs[tabIndex]
+                guard renderContext.workspaceGroupIdByWorkspaceId[runTab.id] == groupId else { break }
+                runTabs.append(runTab)
+                tabIndex += 1
+            }
+            sections.append(.group(group, runTabs))
+        }
+
+        for group in renderContext.workspaceGroups where !emittedGroupIds.contains(group.id) {
+            sections.append(.group(group, []))
+        }
+
+        return sections
+    }
+
+    private func workspaceGroupSection(
+        group: SidebarWorkspaceGroup,
+        tabs: [Workspace],
+        renderContext: WorkspaceListRenderContext
+    ) -> some View {
+        let containsSelectedWorkspace = tabManager.selectedTabId.map { group.workspaceIds.contains($0) } ?? false
+        let headerDropDelegate = SidebarWorkspaceGroupDropDelegate(
+            groupId: group.id,
+            tabManager: tabManager,
+            dragState: dragState,
+            selectedTabIds: $selectedTabIds,
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+            dragAutoScrollController: dragAutoScrollController
+        )
+
+        return VStack(alignment: .leading, spacing: tabRowSpacing) {
+            SidebarWorkspaceGroupHeader(
+                group: group,
+                workspaceCount: group.workspaceIds.count,
+                containsSelectedWorkspace: containsSelectedWorkspace,
+                dropDelegate: headerDropDelegate,
+                onToggleCollapsed: {
+                    _ = tabManager.toggleWorkspaceGroupCollapsed(id: group.id)
+                },
+                onRename: {
+                    promptRenameWorkspaceGroup(group)
+                },
+                onDelete: {
+                    _ = tabManager.deleteWorkspaceGroup(id: group.id)
+                },
+                onCreateFolder: {
+                    promptCreateWorkspaceGroup(workspaceIds: [])
+                }
+            )
+
+            if !group.isCollapsed {
+                ForEach(tabs, id: \.id) { tab in
+                    workspaceRow(tab, renderContext: renderContext)
+                        .padding(.leading, 12)
+                }
             }
         }
     }
@@ -11171,11 +11290,13 @@ struct VerticalTabsSidebar: View {
         }
         let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate = { [
             tabId = tab.id,
+            groupId = renderContext.workspaceGroupIdByWorkspaceId[tab.id],
             selectedTabIds = $selectedTabIds,
             lastSidebarSelectionIndex = $lastSidebarSelectionIndex
         ] rowHeight in
             SidebarTabDropDelegate(
                 targetTabId: tabId,
+                groupAssignment: .assign(groupId),
                 tabManager: tabManager,
                 dragState: dragState,
                 selectedTabIds: selectedTabIds,
@@ -11212,6 +11333,8 @@ struct VerticalTabsSidebar: View {
             tabDropDelegateFactory: tabDropDelegateFactory,
             contextMenuWorkspaceIds: contextMenuWorkspaceIds,
             remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
+            workspaceGroups: renderContext.workspaceGroups,
+            workspaceGroupIdByWorkspaceId: renderContext.workspaceGroupIdByWorkspaceId,
             allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
             allContextMenuWorkspacesHideTerminalScrollBar: allContextMenuWorkspacesHideTerminalScrollBar,
@@ -11227,6 +11350,22 @@ struct VerticalTabsSidebar: View {
         .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
             [tab.id: anchor]
         }
+    }
+
+    private func promptCreateWorkspaceGroup(workspaceIds: [UUID]) {
+        guard let title = SidebarWorkspaceGroupPrompt.requestCreateTitle() else { return }
+        _ = tabManager.createWorkspaceGroup(title: title, workspaceIds: workspaceIds)
+        if !workspaceIds.isEmpty {
+            selectedTabIds = Set(workspaceIds)
+            if let firstWorkspaceId = workspaceIds.first {
+                lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == firstWorkspaceId }
+            }
+        }
+    }
+
+    private func promptRenameWorkspaceGroup(_ group: SidebarWorkspaceGroup) {
+        guard let title = SidebarWorkspaceGroupPrompt.requestRenameTitle(currentTitle: group.title) else { return }
+        _ = tabManager.renameWorkspaceGroup(id: group.id, title: title)
     }
 
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
@@ -13422,6 +13561,120 @@ private final class SidebarScrollViewResolverView: NSView {
     }
 }
 
+private enum SidebarWorkspaceGroupPrompt {
+    @MainActor
+    static func requestCreateTitle() -> String? {
+        requestTitle(
+            messageText: String(localized: "alert.workspaceFolder.createTitle", defaultValue: "New Folder"),
+            informativeText: String(
+                localized: "alert.workspaceFolder.createMessage",
+                defaultValue: "Enter a folder name for the sidebar."
+            ),
+            initialValue: String(localized: "alert.workspaceFolder.defaultName", defaultValue: "New Folder"),
+            primaryButtonTitle: String(localized: "alert.workspaceFolder.create", defaultValue: "Create")
+        )
+    }
+
+    @MainActor
+    static func requestRenameTitle(currentTitle: String) -> String? {
+        requestTitle(
+            messageText: String(localized: "alert.workspaceFolder.renameTitle", defaultValue: "Rename Folder"),
+            informativeText: String(
+                localized: "alert.workspaceFolder.renameMessage",
+                defaultValue: "Enter a new folder name."
+            ),
+            initialValue: currentTitle,
+            primaryButtonTitle: String(localized: "alert.workspaceFolder.rename", defaultValue: "Rename")
+        )
+    }
+
+    @MainActor
+    private static func requestTitle(
+        messageText: String,
+        informativeText: String,
+        initialValue: String,
+        primaryButtonTitle: String
+    ) -> String? {
+        let alert = NSAlert()
+        alert.messageText = messageText
+        alert.informativeText = informativeText
+        let input = NSTextField(string: initialValue)
+        input.placeholderString = String(localized: "alert.workspaceFolder.placeholder", defaultValue: "Folder name")
+        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
+        alert.accessoryView = input
+        alert.addButton(withTitle: primaryButtonTitle)
+        alert.addButton(withTitle: String(localized: "alert.workspaceFolder.cancel", defaultValue: "Cancel"))
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        input.selectText(nil)
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        return input.stringValue
+    }
+}
+
+private struct SidebarWorkspaceGroupHeader: View {
+    let group: SidebarWorkspaceGroup
+    let workspaceCount: Int
+    let containsSelectedWorkspace: Bool
+    let dropDelegate: SidebarWorkspaceGroupDropDelegate
+    let onToggleCollapsed: () -> Void
+    let onRename: () -> Void
+    let onDelete: () -> Void
+    let onCreateFolder: () -> Void
+
+    var body: some View {
+        Button(action: onToggleCollapsed) {
+            HStack(spacing: 6) {
+                Image(systemName: group.isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .frame(width: 10)
+
+                Image(systemName: group.isCollapsed ? "folder" : "folder.fill")
+                    .font(.system(size: 12, weight: .medium))
+
+                Text(group.title)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer(minLength: 0)
+
+                Text("\(workspaceCount)")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+            .foregroundColor(containsSelectedWorkspace ? .primary : .secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background {
+                if containsSelectedWorkspace {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(0.08))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 6)
+        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: dropDelegate)
+        .contextMenu {
+            Button(String(localized: "contextMenu.renameWorkspaceFolder", defaultValue: "Rename Folder…")) {
+                onRename()
+            }
+            Button(String(localized: "contextMenu.deleteWorkspaceFolder", defaultValue: "Delete Folder")) {
+                onDelete()
+            }
+            Divider()
+            Button(String(localized: "contextMenu.newWorkspaceFolder", defaultValue: "New Folder…")) {
+                onCreateFolder()
+            }
+        }
+        .safeHelp(String(localized: "sidebar.workspaceFolder.toggleTooltip", defaultValue: "Toggle folder"))
+        .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
+    }
+}
+
 private struct SidebarEmptyArea: View {
     @EnvironmentObject var tabManager: TabManager
     let rowSpacing: CGFloat
@@ -13434,6 +13687,7 @@ private struct SidebarEmptyArea: View {
     let topDropIndicatorVisible: Bool
     let tabDropDelegate: SidebarTabDropDelegate
     let bonsplitDropIndicator: Binding<SidebarDropIndicator?>
+    let onCreateFolder: () -> Void
 
     var body: some View {
         Color.clear
@@ -13464,6 +13718,11 @@ private struct SidebarEmptyArea: View {
                         .frame(height: 2)
                         .padding(.horizontal, 8)
                         .offset(y: -(rowSpacing / 2))
+                }
+            }
+            .contextMenu {
+                Button(String(localized: "contextMenu.newWorkspaceFolder", defaultValue: "New Folder…")) {
+                    onCreateFolder()
                 }
             }
     }
@@ -13656,6 +13915,8 @@ private struct TabItemView: View, Equatable {
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
+        lhs.workspaceGroups == rhs.workspaceGroups &&
+        lhs.workspaceGroupIdByWorkspaceId == rhs.workspaceGroupIdByWorkspaceId &&
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.allContextMenuWorkspacesHideTerminalScrollBar == rhs.allContextMenuWorkspacesHideTerminalScrollBar &&
@@ -13701,6 +13962,8 @@ private struct TabItemView: View, Equatable {
     let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate
     let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
+    let workspaceGroups: [SidebarWorkspaceGroup]
+    let workspaceGroupIdByWorkspaceId: [UUID: UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
     let allRemoteContextMenuTargetsDisconnected: Bool
     let allContextMenuWorkspacesHideTerminalScrollBar: Bool
@@ -14518,6 +14781,19 @@ private struct TabItemView: View, Equatable {
             multi: String(localized: "contextMenu.copyWorkspaceIDs", defaultValue: "Copy Workspace IDs"),
             single: String(localized: "contextMenu.copyWorkspaceID", defaultValue: "Copy Workspace ID"),
             isMulti: isMulti)
+        let newWorkspaceFolderLabel = contextMenuLabel(
+            multi: String(localized: "contextMenu.newWorkspaceFolderWithWorkspaces", defaultValue: "New Folder with Workspaces…"),
+            single: String(localized: "contextMenu.newWorkspaceFolderWithWorkspace", defaultValue: "New Folder with Workspace…"),
+            isMulti: isMulti)
+        let moveToFolderLabel = contextMenuLabel(
+            multi: String(localized: "contextMenu.moveWorkspacesToFolder", defaultValue: "Move Workspaces to Folder"),
+            single: String(localized: "contextMenu.moveWorkspaceToFolder", defaultValue: "Move Workspace to Folder"),
+            isMulti: isMulti)
+        let removeFromFolderLabel = contextMenuLabel(
+            multi: String(localized: "contextMenu.removeWorkspacesFromFolder", defaultValue: "Remove Workspaces from Folder"),
+            single: String(localized: "contextMenu.removeWorkspaceFromFolder", defaultValue: "Remove Workspace from Folder"),
+            isMulti: isMulti)
+        let hasGroupedTargets = targetIds.contains { workspaceGroupIdByWorkspaceId[$0] != nil }
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
@@ -14662,6 +14938,33 @@ private struct TabItemView: View, Equatable {
             syncSelectionAfterMutation()
         }
         .disabled(targetIds.isEmpty)
+
+        Button(newWorkspaceFolderLabel) {
+            promptCreateWorkspaceGroup(workspaceIds: targetIds)
+        }
+        .disabled(targetIds.isEmpty)
+
+        if !workspaceGroups.isEmpty || hasGroupedTargets {
+            Menu(moveToFolderLabel) {
+                ForEach(workspaceGroups) { group in
+                    Button(group.title) {
+                        tabManager.moveWorkspaces(targetIds, toGroup: group.id)
+                        syncSelectionAfterMutation()
+                    }
+                }
+
+                if hasGroupedTargets {
+                    if !workspaceGroups.isEmpty {
+                        Divider()
+                    }
+                    Button(removeFromFolderLabel) {
+                        tabManager.moveWorkspaces(targetIds, toGroup: nil)
+                        syncSelectionAfterMutation()
+                    }
+                }
+            }
+            .disabled(targetIds.isEmpty)
+        }
 
         let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
         let windowMoveTargets = AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
@@ -14898,6 +15201,16 @@ private struct TabItemView: View, Equatable {
         if let selectedId = tabManager.selectedTabId {
             lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
         }
+    }
+
+    private func promptCreateWorkspaceGroup(workspaceIds: [UUID]) {
+        guard let title = SidebarWorkspaceGroupPrompt.requestCreateTitle() else { return }
+        _ = tabManager.createWorkspaceGroup(title: title, workspaceIds: workspaceIds)
+        selectedTabIds = Set(workspaceIds)
+        if let firstWorkspaceId = workspaceIds.first {
+            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == firstWorkspaceId }
+        }
+        syncSelectionAfterMutation()
     }
 
     private var remoteStateHelpText: String {
@@ -16087,9 +16400,25 @@ private struct SidebarBonsplitTabDropDelegate: DropDelegate {
     }
 }
 
+enum SidebarWorkspaceGroupDropAssignment {
+    case preserve
+    case assign(UUID?)
+
+    @MainActor
+    func apply(to workspaceId: UUID, in tabManager: TabManager) {
+        switch self {
+        case .preserve:
+            return
+        case .assign(let groupId):
+            tabManager.moveWorkspace(workspaceId, toGroup: groupId)
+        }
+    }
+}
+
 @MainActor
 private struct SidebarTabDropDelegate: DropDelegate {
     let targetTabId: UUID?
+    var groupAssignment: SidebarWorkspaceGroupDropAssignment = .preserve
     let tabManager: TabManager
     let dragState: SidebarDragState
     @Binding var selectedTabIds: Set<UUID>
@@ -16177,6 +16506,7 @@ private struct SidebarTabDropDelegate: DropDelegate {
 #if DEBUG
             cmuxDebugLog("sidebar.drop.noop from=\(fromIndex) to=\(targetIndex)")
 #endif
+            groupAssignment.apply(to: draggedTabId, in: tabManager)
             syncSidebarSelection()
             return true
         }
@@ -16185,6 +16515,7 @@ private struct SidebarTabDropDelegate: DropDelegate {
         cmuxDebugLog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
 #endif
         _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex)
+        groupAssignment.apply(to: draggedTabId, in: tabManager)
         if let selectedId = tabManager.selectedTabId {
             selectedTabIds = [selectedId]
             syncSidebarSelection(preferredSelectedTabId: selectedId)
@@ -16223,6 +16554,53 @@ private struct SidebarTabDropDelegate: DropDelegate {
         guard let indicator else { return "nil" }
         let tabText = indicator.tabId.map { String($0.uuidString.prefix(5)) } ?? "end"
         return "\(tabText):\(indicator.edge == .top ? "top" : "bottom")"
+    }
+}
+
+@MainActor
+private struct SidebarWorkspaceGroupDropDelegate: DropDelegate {
+    let groupId: UUID
+    let tabManager: TabManager
+    let dragState: SidebarDragState
+    @Binding var selectedTabIds: Set<UUID>
+    @Binding var lastSidebarSelectionIndex: Int?
+    let dragAutoScrollController: SidebarDragAutoScrollController
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier]) &&
+            dragState.draggedTabId != nil
+    }
+
+    func dropEntered(info: DropInfo) {
+        dragAutoScrollController.updateFromDragLocation()
+        dragState.dropIndicator = nil
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        dragAutoScrollController.updateFromDragLocation()
+        return validateDrop(info: info) ? DropProposal(operation: .move) : nil
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer {
+            dragState.draggedTabId = nil
+            dragState.dropIndicator = nil
+            dragAutoScrollController.stop()
+        }
+        guard validateDrop(info: info),
+              let draggedTabId = dragState.draggedTabId else {
+            return false
+        }
+
+        tabManager.moveWorkspace(draggedTabId, toGroup: groupId)
+        if let selectedId = tabManager.selectedTabId {
+            selectedTabIds = [selectedId]
+            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+        } else {
+            selectedTabIds = [draggedTabId]
+            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == draggedTabId }
+        }
+        return true
     }
 }
 

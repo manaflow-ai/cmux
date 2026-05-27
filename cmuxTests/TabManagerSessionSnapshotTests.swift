@@ -45,6 +45,38 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
     }
 
+    func testSessionSnapshotRestoresWorkspaceGroupsByRestoredWorkspaceOrder() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        firstWorkspace.setCustomTitle("First")
+        let secondWorkspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        secondWorkspace.setCustomTitle("Second")
+        let thirdWorkspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        thirdWorkspace.setCustomTitle("Third")
+
+        let group = manager.createWorkspaceGroup(
+            title: "Planning",
+            workspaceIds: [firstWorkspace.id, thirdWorkspace.id],
+            isCollapsed: true
+        )
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let groupSnapshot = try XCTUnwrap(snapshot.workspaceGroups?.first)
+        XCTAssertEqual(groupSnapshot.id, group.id)
+        XCTAssertEqual(groupSnapshot.workspaceIndexes, [0, 1])
+        XCTAssertNil(groupSnapshot.workspaceIds)
+
+        let restored = TabManager(autoWelcomeIfNeeded: false)
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredGroup = try XCTUnwrap(restored.workspaceGroups.first)
+        XCTAssertEqual(restoredGroup.id, group.id)
+        XCTAssertEqual(restoredGroup.title, "Planning")
+        XCTAssertTrue(restoredGroup.isCollapsed)
+        XCTAssertEqual(restored.tabs.map(\.customTitle), ["First", "Third", "Second"])
+        XCTAssertEqual(restoredGroup.workspaceIds, [restored.tabs[0].id, restored.tabs[1].id])
+    }
+
     func testFocusHistoryNavigatesWithinWorkspacePanels() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)

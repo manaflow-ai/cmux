@@ -6376,6 +6376,15 @@
         }
       }
     },
+    "alert.workspaceFolder.cancel": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Cancel" } }, "ja": { "stringUnit": { "state": "translated", "value": "キャンセル" } } } },
+    "alert.workspaceFolder.create": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Create" } }, "ja": { "stringUnit": { "state": "translated", "value": "作成" } } } },
+    "alert.workspaceFolder.createMessage": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Enter a folder name for the sidebar." } }, "ja": { "stringUnit": { "state": "translated", "value": "サイドバー用のフォルダ名を入力してください。" } } } },
+    "alert.workspaceFolder.createTitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "New Folder" } }, "ja": { "stringUnit": { "state": "translated", "value": "新規フォルダ" } } } },
+    "alert.workspaceFolder.defaultName": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "New Folder" } }, "ja": { "stringUnit": { "state": "translated", "value": "新規フォルダ" } } } },
+    "alert.workspaceFolder.placeholder": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Folder name" } }, "ja": { "stringUnit": { "state": "translated", "value": "フォルダ名" } } } },
+    "alert.workspaceFolder.rename": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Rename" } }, "ja": { "stringUnit": { "state": "translated", "value": "名前を変更" } } } },
+    "alert.workspaceFolder.renameMessage": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Enter a new folder name." } }, "ja": { "stringUnit": { "state": "translated", "value": "新しいフォルダ名を入力してください。" } } } },
+    "alert.workspaceFolder.renameTitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Rename Folder" } }, "ja": { "stringUnit": { "state": "translated", "value": "フォルダ名を変更" } } } },
     "appIcon.automatic": {
       "extractionState": "manual",
       "localizations": {
@@ -37648,6 +37657,15 @@
         }
       }
     },
+    "contextMenu.deleteWorkspaceFolder": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Delete Folder" } }, "ja": { "stringUnit": { "state": "translated", "value": "フォルダを削除" } } } },
+    "contextMenu.moveWorkspaceToFolder": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Move Workspace to Folder" } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースをフォルダへ移動" } } } },
+    "contextMenu.moveWorkspacesToFolder": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Move Workspaces to Folder" } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースをフォルダへ移動" } } } },
+    "contextMenu.newWorkspaceFolder": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "New Folder…" } }, "ja": { "stringUnit": { "state": "translated", "value": "新規フォルダ…" } } } },
+    "contextMenu.newWorkspaceFolderWithWorkspace": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "New Folder with Workspace…" } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースで新規フォルダ…" } } } },
+    "contextMenu.newWorkspaceFolderWithWorkspaces": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "New Folder with Workspaces…" } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースで新規フォルダ…" } } } },
+    "contextMenu.removeWorkspaceFromFolder": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Remove Workspace from Folder" } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースをフォルダから削除" } } } },
+    "contextMenu.removeWorkspacesFromFolder": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Remove Workspaces from Folder" } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースをフォルダから削除" } } } },
+    "contextMenu.renameWorkspaceFolder": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Rename Folder…" } }, "ja": { "stringUnit": { "state": "translated", "value": "フォルダ名を変更…" } } } },
     "contextMenu.pinWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -93538,6 +93556,8 @@
         }
       }
     },
+    "sidebar.workspaceFolder.defaultTitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Folder" } }, "ja": { "stringUnit": { "state": "translated", "value": "フォルダ" } } } },
+    "sidebar.workspaceFolder.toggleTooltip": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Toggle folder" } }, "ja": { "stringUnit": { "state": "translated", "value": "フォルダを切り替え" } } } },
     "sidebar.workspace.accessibilityHint": {
       "extractionState": "manual",
       "localizations": {
