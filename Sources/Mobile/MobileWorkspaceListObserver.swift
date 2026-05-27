@@ -7,16 +7,17 @@ private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category:
 /// Watches `TabManager.tabs` (and each workspace's panels publisher) and emits
 /// `workspace.updated` to subscribed mobile clients whenever the iOS-facing
 /// shape of the workspace list materially changes. Replaces per-RPC emit hooks
-/// — any mutation surface (UI new-tab, keyboard shortcut, drag-reorder,
+/// Any mutation surface (UI new-tab, keyboard shortcut, drag-reorder,
 /// debug-cli, session restore, etc.) automatically syncs because we observe
 /// the `@Published` source of truth instead of trying to catch every caller.
 @MainActor
 final class MobileWorkspaceListObserver {
     private weak var tabManager: TabManager?
     private var tabsCancellable: AnyCancellable?
+    private var selectionCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
     private var lastSummaryHash: Int = 0
-    /// Throttle window with `latest: true` — first event in a burst emits
+    /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
     /// events within the window collapse to one trailing emit carrying the
     /// final state. So a single action is instant; a burst caps at ~1 emit
@@ -32,10 +33,10 @@ final class MobileWorkspaceListObserver {
     }
 
     private func attach(to tabManager: TabManager) {
-        // Initial snapshot — every observer's first emit is unconditional so
+        // Initial snapshot. Every observer's first emit is unconditional so
         // freshly-paired clients see the current state without waiting for
         // the first mutation.
-        let initial = Self.summaryHash(for: tabManager.tabs)
+        let initial = Self.summaryHash(for: tabManager.tabs, selectedTabID: tabManager.selectedTabId)
         lastSummaryHash = initial
         emitIfNeeded(force: true)
 
@@ -48,6 +49,14 @@ final class MobileWorkspaceListObserver {
                 #endif
                 self.refreshPerWorkspaceSubscriptions(tabs: tabs)
                 self.emitIfNeeded(force: false)
+            }
+        // Selection changes (Mac user clicks a different sidebar tab) need
+        // to push to iPhone too. iPhone's selectedWorkspaceID drives which
+        // terminal it displays.
+        selectionCancellable = tabManager.$selectedTabId
+            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] _ in
+                self?.emitIfNeeded(force: false)
             }
 
         refreshPerWorkspaceSubscriptions(tabs: tabManager.tabs)
@@ -76,7 +85,7 @@ final class MobileWorkspaceListObserver {
 
     private func emitIfNeeded(force: Bool) {
         guard let tabManager else { return }
-        let hash = Self.summaryHash(for: tabManager.tabs)
+        let hash = Self.summaryHash(for: tabManager.tabs, selectedTabID: tabManager.selectedTabId)
         if !force, hash == lastSummaryHash {
             #if DEBUG
             cmuxDebugLog("mobile.observer skip: hash unchanged=\(hash) tabs=\(tabManager.tabs.count)")
@@ -95,9 +104,10 @@ final class MobileWorkspaceListObserver {
     /// panel id sets + panel titles. Mutations that don't show up on the
     /// mobile list (pane geometry, scrollback content, focus only) don't
     /// trip the event, so we don't fan out on every keystroke.
-    private static func summaryHash(for tabs: [Workspace]) -> Int {
+    private static func summaryHash(for tabs: [Workspace], selectedTabID: UUID?) -> Int {
         var hasher = Hasher()
         hasher.combine(tabs.count)
+        hasher.combine(selectedTabID)
         for workspace in tabs {
             hasher.combine(workspace.id)
             hasher.combine(workspace.title)

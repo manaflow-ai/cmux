@@ -813,7 +813,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             }
 
             if let payload = Self.nextFrame(from: &nextBuffer) {
-                self.respond(to: payload, on: connection)
+                self.respond(to: payload, on: connection, remainingBuffer: nextBuffer)
                 return
             }
 
@@ -826,15 +826,21 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         }
     }
 
-    private func respond(to payload: Data, on connection: NWConnection) {
+    private func respond(to payload: Data, on connection: NWConnection, remainingBuffer: Data) {
         do {
             let responseFrame = try makeResponseFrame(for: payload)
             connection.send(
                 content: responseFrame,
                 contentContext: .defaultMessage,
-                isComplete: true,
-                completion: .contentProcessed { _ in
-                    connection.cancel()
+                isComplete: false,
+                completion: .contentProcessed { [weak self, weak connection] error in
+                    guard error == nil,
+                          let self,
+                          let connection else {
+                        connection?.cancel()
+                        return
+                    }
+                    self.receiveRequest(on: connection, buffer: remainingBuffer)
                 }
             )
         } catch {
