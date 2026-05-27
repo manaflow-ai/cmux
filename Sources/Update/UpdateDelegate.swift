@@ -108,8 +108,8 @@ extension UpdateDriver: SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater,
-                 didFinishUpdateCycleForUpdateCheck updateCheck: SPUUpdateCheck,
-                 error: NSError?) {
+                 didFinishUpdateCycleFor updateCheck: SPUUpdateCheck,
+                 error: (any Error)?) {
         let errorText = error.map { formatErrorForLog($0) } ?? "nil"
         UpdateLogStore.shared.append("update cycle finished (check=\(describeUpdateCheck(updateCheck)), error=\(errorText))")
         updateCycleDidFinish?()
