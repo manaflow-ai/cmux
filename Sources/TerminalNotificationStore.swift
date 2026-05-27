@@ -830,7 +830,22 @@ final class TerminalNotificationStore: ObservableObject {
     private static let notificationHookFailureThrottle: TimeInterval = 300
     private var lastNotificationDateByCooldownKey: [String: Date] = [:]
     private var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
-    private var openCodeCompletionPollTimer: Timer?
+    // MARK: - OpenCode completion FSEvents watchers
+
+    /// File descriptors for watched OpenCode DB parent directories.
+    /// Each FD is kept alive as long as the corresponding DispatchSource is active.
+    private var openCodeWatchFDs: [Int32] = []
+
+    /// DispatchSourceFileSystemObject watchers that fire on directory writes/renames/deletes.
+    /// On each event the handler re-scans the existing completion-detection path.
+    private var openCodeWatchSources: [DispatchSourceFileSystemObject] = []
+
+    /// Serial queue for re-arming watches on directories that don't yet exist.
+    /// Uses a bounded asyncAfter instead of a repeating timer.
+    private static let openCodeWatchRearmQueue = DispatchQueue(
+        label: "com.cmuxterm.opencode-fswatch-rearm",
+        qos: .utility
+    )
     private var indexes = NotificationIndexes()
 
     private init() {
@@ -851,22 +866,98 @@ final class TerminalNotificationStore: ObservableObject {
         if let userDefaultsObserver {
             NotificationCenter.default.removeObserver(userDefaultsObserver)
         }
-        openCodeCompletionPollTimer?.invalidate()
+        // Cancel handlers on sources close their FDs; only cancel and clear.
+        for source in openCodeWatchSources {
+            source.cancel()
+        }
+        openCodeWatchSources.removeAll()
+        openCodeWatchFDs.removeAll()
     }
 
+    /// Starts event-driven watching of OpenCode DB directories.
+    /// Instead of a repeating 3-second wall-clock poll, uses DispatchSourceFileSystemObject
+    /// to receive kernel events when watched directories are written to, renamed, or deleted.
+    /// The handler re-scans existing state on every event, preserving the same
+    /// socket path computation and OpenCodeCompletionTracker dedupe as before.
     private func startOpenCodeCompletionPolling() {
-        openCodeCompletionPollTimer?.invalidate()
-        openCodeCompletionPollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
-            Task.detached(priority: .utility) {
-                let currentSocketPath = TerminalController.shared.activeSocketPath(
-                    preferredPath: SocketControlSettings.socketPath()
-                )
-                await RestorableAgentSessionIndex.pollOpenCodeCompletionNotifications(
-                    currentSocketPath: currentSocketPath
-                )
+        // Cancel any existing watchers before setting up new ones.
+        // Cancel handlers on sources close their FDs; only cancel and clear.
+        for source in openCodeWatchSources {
+            source.cancel()
+        }
+        openCodeWatchSources.removeAll()
+        openCodeWatchFDs.removeAll()
+
+        let fm = FileManager.default
+        let homeDir = NSHomeDirectory()
+
+        // Watch stable parent directories where OpenCode stores its DB:
+        //   ~/.local/share/opencode/        (default location)
+        //   $MMS_SESSION_HOME/.local/share/opencode/  (when available from process env)
+        var watchDirectories: [String] = []
+        let defaultDir = (homeDir as NSString).appendingPathComponent(".local/share/opencode")
+        if fm.fileExists(atPath: defaultDir) {
+            watchDirectories.append(defaultDir)
+        }
+        if let mmsHome = ProcessInfo.processInfo.environment["MMS_SESSION_HOME"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !mmsHome.isEmpty {
+            let mmsDir = (mmsHome as NSString).appendingPathComponent(".local/share/opencode")
+            if fm.fileExists(atPath: mmsDir) {
+                // Avoid duplicating if MMS_SESSION_HOME points to the same home.
+                let resolvedMmsDir = (mmsDir as NSString).standardizingPath
+                let resolvedDefaultDir = (defaultDir as NSString).standardizingPath
+                if resolvedMmsDir != resolvedDefaultDir {
+                    watchDirectories.append(mmsDir)
+                }
             }
         }
-        openCodeCompletionPollTimer?.tolerance = 1.0
+
+        if watchDirectories.isEmpty {
+            // Bounded re-arm: directories don't exist yet. Retry once after 10 seconds.
+            // This is not a repeating poll — it's a single delayed attempt to start watching.
+            Self.openCodeWatchRearmQueue.asyncAfter(deadline: .now() + 10.0) { [weak self] in
+                guard let self else { return }
+                DispatchQueue.main.async {
+                    self.startOpenCodeCompletionPolling()
+                }
+            }
+            return
+        }
+
+        for directoryPath in watchDirectories {
+            let fd = open(directoryPath, O_EVTONLY)
+            guard fd >= 0 else { continue }
+
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: [.write, .rename, .delete],
+                queue: Self.openCodeWatchRearmQueue
+            )
+
+            openCodeWatchFDs.append(fd)
+            openCodeWatchSources.append(source)
+
+            source.setEventHandler { [weak self] in
+                guard let self else { return }
+                // Dispatch scan to main actor to match the original MainActor context.
+                // The poll function itself is async-safe and runs off-main internally.
+                Task { @MainActor in
+                    let currentSocketPath = TerminalController.shared.activeSocketPath(
+                        preferredPath: SocketControlSettings.socketPath()
+                    )
+                    await RestorableAgentSessionIndex.pollOpenCodeCompletionNotifications(
+                        currentSocketPath: currentSocketPath
+                    )
+                }
+            }
+
+            source.setCancelHandler { [fd] in
+                close(fd)
+            }
+
+            source.resume()
+        }
     }
     static func dockBadgeLabel(unreadCount: Int, isEnabled: Bool, runTag: String? = nil) -> String? {
         let unreadLabel: String? = {
