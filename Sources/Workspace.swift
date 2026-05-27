@@ -16202,11 +16202,16 @@ final class Workspace: Identifiable, ObservableObject {
         return Self.cachedLiveAgentIndex().snapshot(workspaceId: id, panelId: panelId)
     }
 
-    private static var liveAgentIndexCache: RestorableAgentSessionIndex?
-    private static var liveAgentIndexCacheLoadedAt: Date?
+    // MainActor-isolated since the enclosing `Workspace` class is `@MainActor` and these
+    // statics are mutated synchronously from the bonsplit context-menu provider closure,
+    // which itself runs during SwiftUI body evaluation on the main actor. The explicit
+    // annotation makes the isolation contract visible and avoids a Swift 6 strict-
+    // concurrency violation once that mode is enabled (manaflow-ai/cmux#4888 review).
+    @MainActor private static var liveAgentIndexCache: RestorableAgentSessionIndex?
+    @MainActor private static var liveAgentIndexCacheLoadedAt: Date?
     private static let liveAgentIndexCacheTTL: TimeInterval = 0.5
 
-    private static func cachedLiveAgentIndex() -> RestorableAgentSessionIndex {
+    @MainActor private static func cachedLiveAgentIndex() -> RestorableAgentSessionIndex {
         let now = Date()
         if let cache = liveAgentIndexCache,
            let loadedAt = liveAgentIndexCacheLoadedAt,
@@ -17620,11 +17625,15 @@ extension Workspace: BonsplitDelegate {
                 NSSound.beep()
                 return
             }
+            // Mirror the menu-visibility gate exactly: only fork when the snapshot is
+            // probe-free supported. Using the weaker `!= .unsupported` here would let a
+            // `.requiresProbe` snapshot through if the action is ever wired up outside
+            // the bonsplit menu, leading to a fork that may quietly fail at the shell.
             let isRemote = isRemoteTerminalSurface(panelId)
             guard ContentView.commandPaletteSnapshotForkAvailability(
                 snapshot,
                 isRemoteTerminal: isRemote
-            ) != .unsupported else {
+            ) == .supportedWithoutProbe else {
                 NSSound.beep()
                 return
             }
