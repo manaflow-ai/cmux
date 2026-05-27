@@ -572,6 +572,9 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["hideAllDetails"]) {
             snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.hideAllDetailsKey] = .bool(value)
         }
+        if let value = jsonBool(section["wrapWorkspaceTitles"]) {
+            snapshot.managedUserDefaults[SidebarWorkspaceTitleWrapSettings.key] = .bool(value)
+        }
         if let value = jsonBool(section["showWorkspaceDescription"]) {
             snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey] = .bool(value)
         }

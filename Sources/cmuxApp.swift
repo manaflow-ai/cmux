@@ -5314,6 +5314,8 @@ struct SettingsView: View {
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
     @AppStorage(SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey)
     private var sidebarShowWorkspaceDescription = SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription
+    @AppStorage(SidebarWorkspaceTitleWrapSettings.key)
+    private var sidebarWrapWorkspaceTitles = SidebarWorkspaceTitleWrapSettings.defaultWrap
     @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
     private var sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
@@ -6902,6 +6904,20 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
+                            configurationReview: .json("sidebar.wrapWorkspaceTitles"),
+                            String(localized: "settings.app.wrapWorkspaceTitles", defaultValue: "Wrap Workspace Titles in Sidebar"),
+                            subtitle: sidebarWrapWorkspaceTitles
+                                ? String(localized: "settings.app.wrapWorkspaceTitles.subtitleOn", defaultValue: "Long workspace titles can use as many lines as they need.")
+                                : String(localized: "settings.app.wrapWorkspaceTitles.subtitleOff", defaultValue: "Workspace titles stay on one line and truncate at the end.")
+                        ) {
+                            Toggle("", isOn: $sidebarWrapWorkspaceTitles)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             configurationReview: .json("sidebar.showWorkspaceDescription"),
                             String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"),
                             subtitle: String(localized: "settings.app.showWorkspaceDescription.subtitle", defaultValue: "Display custom workspace descriptions below the workspace title.")
@@ -8160,6 +8176,7 @@ struct SettingsView: View {
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         iMessageMode = IMessageModeSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
+        sidebarWrapWorkspaceTitles = SidebarWorkspaceTitleWrapSettings.defaultWrap
         sidebarShowWorkspaceDescription = SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
