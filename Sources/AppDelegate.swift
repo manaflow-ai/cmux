@@ -7111,9 +7111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if shouldBringToFront {
             workspace.focusPanel(terminalPanel.id)
         }
-        terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-        sendTextWhenReady(text, to: workspace, preferredPanelId: terminalPanel.id)
-        return true
+        return terminalPanel.sendText(text)
     }
 
     @discardableResult
@@ -8341,7 +8339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return tab.focusedTerminalPanel
     }
 
-    func sendTextWhenReady(
+    private func sendTextWhenReady(
         _ text: String,
         to tab: Tab,
         preferredPanelId: UUID? = nil,
