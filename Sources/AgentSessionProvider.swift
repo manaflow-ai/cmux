@@ -98,6 +98,26 @@ struct AgentSessionLaunchPlan: Equatable, Sendable {
     let executableURL: URL
     let arguments: [String]
     let environment: [String: String]
+
+    func arguments(assigningOpenCodePort port: Int) -> [String] {
+        guard provider == .opencode else { return arguments }
+
+        var resolvedArguments = arguments
+        if let portIndex = resolvedArguments.firstIndex(of: "--port"),
+           resolvedArguments.indices.contains(portIndex + 1),
+           resolvedArguments[portIndex + 1] == "0" {
+            resolvedArguments[portIndex + 1] = String(port)
+            return resolvedArguments
+        }
+
+        if let portIndex = resolvedArguments.firstIndex(of: "--port=0") {
+            resolvedArguments[portIndex] = "--port=\(port)"
+            return resolvedArguments
+        }
+
+        resolvedArguments.append(contentsOf: ["--port", String(port)])
+        return resolvedArguments
+    }
 }
 
 enum AgentExecutableResolverError: LocalizedError, Equatable {

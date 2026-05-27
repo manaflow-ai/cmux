@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { render } from "solid-js/web";
 import { subscribeToAgentEvents } from "../shared/bridge";
 import { insertComposerToken } from "../shared/composerTokens";
@@ -32,11 +32,42 @@ function App() {
   createEffect(() => {
     document.documentElement.dataset.status = state().status;
   });
+  const autoStartState = createMemo(() => pickAutoStartState(state()), undefined, {
+    equals: autoStartStateEquals,
+  });
   createEffect(() => {
-    void autoStartProvider(state(), dispatch);
+    void autoStartProvider(autoStartState(), dispatch);
   });
 
   return SessionSurface({ state, dispatch, renderer: "Solid" });
+}
+
+function pickAutoStartState(state: SessionState): SessionState {
+  return {
+    context: state.context,
+    providers: state.providers,
+    selectedProviderId: state.selectedProviderId,
+    runningSessionId: state.runningSessionId,
+    status: state.status,
+    input: "",
+    log: [],
+    autoStartAttemptedProviderIds: state.autoStartAttemptedProviderIds,
+    seenSessionIds: state.seenSessionIds,
+    requestedStopSessionId: state.requestedStopSessionId,
+  };
+}
+
+function autoStartStateEquals(previous: SessionState, next: SessionState): boolean {
+  return (
+    previous.context === next.context &&
+    previous.providers === next.providers &&
+    previous.selectedProviderId === next.selectedProviderId &&
+    previous.runningSessionId === next.runningSessionId &&
+    previous.status === next.status &&
+    previous.autoStartAttemptedProviderIds === next.autoStartAttemptedProviderIds &&
+    previous.seenSessionIds === next.seenSessionIds &&
+    previous.requestedStopSessionId === next.requestedStopSessionId
+  );
 }
 
 function SessionSurface({

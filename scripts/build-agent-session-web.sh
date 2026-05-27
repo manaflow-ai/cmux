@@ -36,6 +36,16 @@ bunx tailwindcss \
   --minify
 cp "$OUT_REACT/assets/styles.css" "$OUT_SOLID/assets/styles.css"
 
+strip_trailing_line_whitespace() {
+  /usr/bin/perl -0pi -e 's/[ \t]+(?=\r?\n)//g; s/[ \t]+\z//' "$@"
+}
+
+strip_trailing_line_whitespace \
+  "$OUT_REACT/assets/app.js" \
+  "$OUT_SOLID/assets/app.js" \
+  "$OUT_REACT/assets/styles.css" \
+  "$OUT_SOLID/assets/styles.css"
+
 write_index() {
   out_dir="$1"
   {
@@ -56,3 +66,5 @@ write_index() {
 
 write_index "$OUT_REACT"
 write_index "$OUT_SOLID"
+
+strip_trailing_line_whitespace "$OUT_REACT/index.html" "$OUT_SOLID/index.html"

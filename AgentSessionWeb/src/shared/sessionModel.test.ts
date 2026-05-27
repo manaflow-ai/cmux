@@ -1,6 +1,15 @@
 import { expect, test } from "bun:test";
 import { makeClientId } from "./ids";
-import { canStopProvider, formatTemplate, initialState, reduceSession, shouldAutoStartProvider, statusLabel } from "./sessionModel";
+import {
+  autoStartProvider,
+  canStopProvider,
+  formatTemplate,
+  initialState,
+  reduceSession,
+  shouldAutoStartProvider,
+  statusLabel,
+  type Action,
+} from "./sessionModel";
 import type { AppContext, ProviderInfo } from "./types";
 
 const theme = {
@@ -204,6 +213,34 @@ test("provider exit during pending start is applied before start reply", () => {
   expect(staleAccepted.runningSessionId).toBeUndefined();
 });
 
+test("stale exit from a previous seen session is ignored during pending start", () => {
+  const loaded = reduceSession(initialState("react"), { type: "context", context });
+  const firstStart = reduceSession(loaded, { type: "starting" });
+  const accepted = reduceSession(firstStart, { type: "startAccepted", sessionId: "session-1" });
+  const exited = reduceSession(accepted, {
+    type: "event",
+    event: {
+      type: "provider.exit",
+      providerId: "codex",
+      sessionId: "session-1",
+      status: 0,
+    },
+  });
+  const restarting = reduceSession(exited, { type: "starting" });
+  const state = reduceSession(restarting, {
+    type: "event",
+    event: {
+      type: "provider.exit",
+      providerId: "codex",
+      sessionId: "session-1",
+      status: 1,
+    },
+  });
+
+  expect(state).toBe(restarting);
+  expect(state.status).toBe("starting");
+});
+
 test("provider exit for a different session is ignored", () => {
   const running = {
     ...initialState("solid"),
@@ -254,6 +291,44 @@ test("auto start attempts are remembered per provider switch", () => {
   expect(shouldAutoStartProvider(selectedCodexAgain)).toBe(false);
 });
 
+test("auto start sends provider start from an explicit snapshot", async () => {
+  const loaded = reduceSession(
+    reduceSession(initialState("react"), { type: "context", context }),
+    { type: "providers", providers },
+  );
+  const actions: Action[] = [];
+  const messages: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const globalWithWindow = globalThis as typeof globalThis & { window?: Window };
+  const originalWindow = globalWithWindow.window;
+  globalWithWindow.window = {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          async postMessage(message: unknown) {
+            messages.push(message as { method: string; params: Record<string, unknown> });
+            return { ok: true, value: { sessionId: "session-auto" } };
+          },
+        },
+      },
+    },
+  } as Window;
+
+  try {
+    await autoStartProvider(loaded, (action) => actions.push(action));
+  } finally {
+    if (originalWindow === undefined) {
+      delete globalWithWindow.window;
+    } else {
+      globalWithWindow.window = originalWindow;
+    }
+  }
+
+  expect(actions.map((action) => action.type)).toEqual(["autoStartAttempted", "starting", "startAccepted"]);
+  expect(actions[0]).toEqual({ type: "autoStartAttempted", providerId: "codex" });
+  expect(messages[0]?.method).toBe("provider.start");
+  expect(messages[0]?.params.providerId).toBe("codex");
+});
+
 test("sent input only clears the submitted value", () => {
   const loaded = reduceSession(initialState("react"), { type: "context", context });
   const typed = reduceSession(loaded, { type: "setInput", input: "new draft" });
@@ -298,6 +373,52 @@ test("requested stop exits return to idle even with signal status", () => {
   expect(state.runningSessionId).toBeUndefined();
   expect(state.requestedStopSessionId).toBeUndefined();
   expect(state.log.at(-1)?.text).toBe("Stopped");
+});
+
+test("late stop failures do not overwrite a clean stop exit", () => {
+  const stopping = {
+    ...reduceSession(initialState("react"), { type: "context", context }),
+    status: "stopping" as const,
+    runningSessionId: "session-1",
+    requestedStopSessionId: "session-1",
+  };
+  const stopped = reduceSession(stopping, {
+    type: "event",
+    event: {
+      type: "provider.exit",
+      providerId: "codex",
+      sessionId: "session-1",
+      status: 15,
+    },
+  });
+  const state = reduceSession(stopped, {
+    type: "stopFailed",
+    sessionId: "session-1",
+    message: "The agent session is no longer available.",
+  });
+
+  expect(state.status).toBe("idle");
+  expect(state.runningSessionId).toBeUndefined();
+  expect(state.log.at(-1)?.text).toBe("Stopped");
+});
+
+test("stop failures for an active session keep stop available", () => {
+  const stopping = {
+    ...reduceSession(initialState("react"), { type: "context", context }),
+    status: "stopping" as const,
+    runningSessionId: "session-1",
+    requestedStopSessionId: "session-1",
+  };
+  const state = reduceSession(stopping, {
+    type: "stopFailed",
+    sessionId: "session-1",
+    message: "Native bridge request failed.",
+  });
+
+  expect(state.status).toBe("failed");
+  expect(state.runningSessionId).toBe("session-1");
+  expect(state.requestedStopSessionId).toBeUndefined();
+  expect(canStopProvider(state)).toBe(true);
 });
 
 test("provider started during a requested stop is ignored", () => {

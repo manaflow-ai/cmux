@@ -18,6 +18,7 @@ export type SessionState = {
   input: string;
   log: LogEntry[];
   autoStartAttemptedProviderIds: ProviderId[];
+  seenSessionIds: string[];
   requestedStopSessionId?: string;
 };
 
@@ -31,6 +32,7 @@ export type Action =
   | { type: "startAccepted"; sessionId: string }
   | { type: "stopping"; sessionId: string }
   | { type: "failed"; message: string }
+  | { type: "stopFailed"; sessionId: string; message: string }
   | { type: "stopped" }
   | { type: "event"; event: AgentEvent }
   | { type: "sent"; text: string; submittedInput: string };
@@ -43,6 +45,7 @@ export function initialState(_renderer: AppContext["renderer"]): SessionState {
     providers: [],
     log: [],
     autoStartAttemptedProviderIds: [],
+    seenSessionIds: [],
   };
 }
 
@@ -82,6 +85,7 @@ export function reduceSession(state: SessionState, action: Action): SessionState
         ...state,
         runningSessionId: action.sessionId,
         requestedStopSessionId: undefined,
+        seenSessionIds: rememberSessionId(state, action.sessionId),
       };
     case "stopping":
       return {
@@ -92,6 +96,16 @@ export function reduceSession(state: SessionState, action: Action): SessionState
       };
     case "failed":
       return { ...state, status: "failed", log: appendLog(state, "error", action.message) };
+    case "stopFailed":
+      if (state.runningSessionId !== action.sessionId && state.requestedStopSessionId !== action.sessionId) {
+        return state;
+      }
+      return {
+        ...state,
+        requestedStopSessionId: undefined,
+        status: "failed",
+        log: appendLog(state, "error", action.message),
+      };
     case "stopped":
       return { ...state, status: "idle", runningSessionId: undefined, log: appendLog(state, "info", copyText(state, "stopped", "Stopped")) };
     case "sent":
@@ -125,15 +139,36 @@ export async function startProvider(state: SessionState, dispatch: (action: Acti
   if (!canStartProvider(state)) {
     return;
   }
+  await startProviderSnapshot(startProviderSnapshotFromState(state), dispatch);
+}
+
+type StartProviderSnapshot = {
+  providerId: ProviderId;
+  workingDirectory?: string;
+  copy?: AppContext["copy"];
+};
+
+function startProviderSnapshotFromState(state: SessionState): StartProviderSnapshot {
+  return {
+    providerId: state.selectedProviderId,
+    workingDirectory: state.context?.workingDirectory,
+    copy: state.context?.copy,
+  };
+}
+
+async function startProviderSnapshot(
+  snapshot: StartProviderSnapshot,
+  dispatch: (action: Action) => void,
+): Promise<void> {
   dispatch({ type: "starting" });
   try {
     const reply = await callNative<{ sessionId: string }>("provider.start", {
-      providerId: state.selectedProviderId,
-      workingDirectory: state.context?.workingDirectory,
+      providerId: snapshot.providerId,
+      workingDirectory: snapshot.workingDirectory,
     });
     dispatch({ type: "startAccepted", sessionId: reply.sessionId });
   } catch (error) {
-    dispatch({ type: "failed", message: messageForError(error, state) });
+    dispatch({ type: "failed", message: messageForError(error, snapshot.copy) });
   }
 }
 
@@ -153,8 +188,9 @@ export async function autoStartProvider(state: SessionState, dispatch: (action: 
     return;
   }
   const providerId = state.selectedProviderId;
+  const snapshot = startProviderSnapshotFromState(state);
   dispatch({ type: "autoStartAttempted", providerId });
-  await startProvider(state, dispatch);
+  await startProviderSnapshot(snapshot, dispatch);
 }
 
 export function selectProvider(providerId: ProviderId, dispatch: (action: Action) => void): void {
@@ -182,13 +218,14 @@ export async function stopProvider(state: SessionState, dispatch: (action: Actio
   if (!state.runningSessionId || state.status === "stopping") {
     return;
   }
-  dispatch({ type: "stopping", sessionId: state.runningSessionId });
+  const sessionId = state.runningSessionId;
+  dispatch({ type: "stopping", sessionId });
   try {
     await callNative("provider.stop", {
-      sessionId: state.runningSessionId,
+      sessionId,
     });
   } catch (error) {
-    dispatch({ type: "failed", message: messageForError(error, state) });
+    dispatch({ type: "stopFailed", sessionId, message: messageForError(error, state) });
   }
 }
 
@@ -247,6 +284,7 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
         ...state,
         runningSessionId: event.sessionId,
         requestedStopSessionId: undefined,
+        seenSessionIds: rememberSessionId(state, event.sessionId),
         status: "running",
         log: appendLog(state, "info", copyText(state, "providerStarted", "Provider started")),
       };
@@ -267,6 +305,7 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
           ...state,
           runningSessionId: undefined,
           requestedStopSessionId: undefined,
+          seenSessionIds: rememberSessionId(state, event.sessionId),
           status: "idle",
           log: appendLog(state, "info", copyText(state, "stopped", "Stopped")),
         };
@@ -275,6 +314,7 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
         ...state,
         runningSessionId: undefined,
         requestedStopSessionId: undefined,
+        seenSessionIds: rememberSessionId(state, event.sessionId),
         status: event.status === 0 ? "idle" : "failed",
         log: appendLog(
           state,
@@ -291,7 +331,19 @@ function isCurrentOrPendingStartExit(state: SessionState, event: Extract<AgentEv
   if (event.sessionId === state.runningSessionId) {
     return true;
   }
-  return state.status === "starting" && !state.runningSessionId && event.providerId === state.selectedProviderId;
+  return (
+    !state.seenSessionIds.includes(event.sessionId) &&
+    state.status === "starting" &&
+    !state.runningSessionId &&
+    event.providerId === state.selectedProviderId
+  );
+}
+
+function rememberSessionId(state: SessionState, sessionId: string): string[] {
+  if (state.seenSessionIds.includes(sessionId)) {
+    return state.seenSessionIds;
+  }
+  return [...state.seenSessionIds, sessionId].slice(-50);
 }
 
 function appendContextReadyLog(state: SessionState): SessionState {
@@ -335,12 +387,23 @@ export function formatTemplate(template: string, values: Array<string | number>)
   });
 }
 
-export function messageForError(error: unknown, state?: SessionState): string {
+export function messageForError(error: unknown, stateOrCopy?: SessionState | AppContext["copy"]): string {
+  const copy = copyForError(stateOrCopy);
   if (error instanceof Error && error.message) {
-    if (state && error.message === "Native bridge request failed.") {
-      return copyText(state, "requestFailed", "Native bridge request failed.");
+    if (copy && error.message === "Native bridge request failed.") {
+      return copy.requestFailed;
     }
     return error.message;
   }
-  return state ? copyText(state, "requestFailed", "Native bridge request failed.") : "Native bridge request failed.";
+  return copy?.requestFailed ?? "Native bridge request failed.";
+}
+
+function copyForError(stateOrCopy?: SessionState | AppContext["copy"]): AppContext["copy"] | undefined {
+  if (!stateOrCopy) {
+    return undefined;
+  }
+  if ("requestFailed" in stateOrCopy) {
+    return stateOrCopy;
+  }
+  return stateOrCopy.context?.copy;
 }

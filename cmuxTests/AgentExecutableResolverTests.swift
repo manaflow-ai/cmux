@@ -127,6 +127,29 @@ final class AgentExecutableResolverTests: XCTestCase {
         }
     }
 
+    func testOpenCodeLaunchPlanAssignsConcreteRuntimePort() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let executable = bin.appendingPathComponent("opencode")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": bin.path, "HOME": root.path],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true)
+        )
+
+        let plan = try resolver.resolve(.opencode)
+        XCTAssertEqual(
+            plan.arguments(assigningOpenCodePort: 54321),
+            ["serve", "--hostname", "127.0.0.1", "--port", "54321", "--print-logs"]
+        )
+    }
+
     func testAutoStartPolicyMatchesAppServerProviders() {
         XCTAssertTrue(AgentSessionProviderID.codex.shouldAutoStartSession)
         XCTAssertTrue(AgentSessionProviderID.opencode.shouldAutoStartSession)
