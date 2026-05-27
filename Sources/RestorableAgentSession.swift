@@ -532,9 +532,11 @@ enum AgentResumeCommandBuilder {
         fallbackExecutable: String
     ) -> (executable: String, tail: [String]) {
         let arguments = launchCommand?.arguments ?? []
-        let executable = normalized(launchCommand?.executablePath)
-            ?? arguments.first
-            ?? fallbackExecutable
+        let capturedExecutable = normalized(launchCommand?.executablePath) ?? arguments.first
+        let executable = AgentLaunchSanitizer.restorableExecutable(
+            capturedExecutable: capturedExecutable,
+            fallbackExecutable: fallbackExecutable
+        )
         let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
         return (executable, tail)
     }

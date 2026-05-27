@@ -2304,6 +2304,34 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testCodexResumeCommandFallsBackFromVersionedVendorExecutable() {
+        let vendorExecutable = "/Users/lawrence/.bun/install/global/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019e3e65-ac70-7161-8e33-a3be96626d82",
+            workingDirectory: "/Users/lawrence/fun/cmuxterm-hq",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: vendorExecutable,
+                arguments: [
+                    vendorExecutable,
+                    "resume",
+                    "old-session",
+                    "--yolo"
+                ],
+                workingDirectory: "/Users/lawrence/fun/cmuxterm-hq",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/Users/lawrence/fun/cmuxterm-hq' && 'codex' 'resume' '019e3e65-ac70-7161-8e33-a3be96626d82' '--yolo'"
+        )
+    }
+
     func testCodexTeamsResumeCommandUsesWrapperSubcommand() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
@@ -2333,6 +2361,34 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(
             snapshot.resumeCommand,
             "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+        )
+    }
+
+    func testCodexTeamsResumeCommandFallsBackFromVersionedVendorExecutable() {
+        let vendorExecutable = "/Users/lawrence/.bun/install/global/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/Users/example/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codexTeams",
+                executablePath: vendorExecutable,
+                arguments: [
+                    vendorExecutable,
+                    "codex-teams",
+                    "--model",
+                    "gpt-5.4"
+                ],
+                workingDirectory: "/Users/example/repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/Users/example/repo' && 'cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4'"
         )
     }
 

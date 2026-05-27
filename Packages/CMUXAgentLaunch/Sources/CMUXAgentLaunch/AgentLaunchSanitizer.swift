@@ -41,7 +41,7 @@ public enum AgentLaunchSanitizer {
                 tail.removeFirst()
             }
             guard let preserved = preservedCodexLaunchArguments(args: tail) else { return nil }
-            return [executable, "codex-teams"] + preserved
+            return [restorableExecutable(capturedExecutable: executable, fallbackExecutable: "cmux"), "codex-teams"] + preserved
         case "omo":
             if tail.first == "omo" {
                 tail.removeFirst()
@@ -57,7 +57,7 @@ public enum AgentLaunchSanitizer {
         switch fallbackKind {
         case "codex":
             guard let preserved = preservedCodexLaunchArguments(args: tail) else { return nil }
-            return [executable] + preserved
+            return [restorableExecutable(capturedExecutable: executable, fallbackExecutable: "codex")] + preserved
         case "rovodev":
             guard let preserved = preservedArguments(kind: fallbackKind, args: tail) else { return nil }
             return [executable, "rovodev", "run"] + preserved
@@ -65,6 +65,20 @@ public enum AgentLaunchSanitizer {
             guard let preserved = preservedArguments(kind: fallbackKind, args: tail) else { return nil }
             return [executable] + preserved
         }
+    }
+
+    public static func restorableExecutable(
+        capturedExecutable: String?,
+        fallbackExecutable: String
+    ) -> String {
+        let fallback = normalizedValue(fallbackExecutable) ?? fallbackExecutable
+        guard let executable = normalizedValue(capturedExecutable) else {
+            return fallback
+        }
+        if shouldUseFallbackExecutable(executable, fallbackExecutable: fallback) {
+            return fallback
+        }
+        return executable
     }
 
     public static func preservedArguments(kind: String, args: [String]) -> [String]? {
@@ -348,6 +362,40 @@ public enum AgentLaunchSanitizer {
         if droppedOptions.contains(arg) { return true }
         guard let equals = arg.firstIndex(of: "=") else { return false }
         return droppedOptions.contains(String(arg[..<equals]))
+    }
+
+    private static func normalizedValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func shouldUseFallbackExecutable(
+        _ executable: String,
+        fallbackExecutable: String
+    ) -> Bool {
+        let fallbackBasename = lastPathComponent(fallbackExecutable)
+        guard !fallbackBasename.isEmpty else { return false }
+
+        switch fallbackBasename {
+        case "codex", "cmux":
+            return isCodexPackageVendorExecutable(executable)
+        default:
+            return false
+        }
+    }
+
+    private static func isCodexPackageVendorExecutable(_ executable: String) -> Bool {
+        let path = executable.replacingOccurrences(of: "\\", with: "/")
+        guard lastPathComponent(path) == "codex" else { return false }
+        return path.contains("/node_modules/@openai/codex")
+            && path.contains("/vendor/")
+    }
+
+    private static func lastPathComponent(_ path: String) -> String {
+        path.replacingOccurrences(of: "\\", with: "/").split(separator: "/").last.map(String.init) ?? path
     }
 
     private static func runtimeOnlyOptionWidth(_ arg: String) -> Int? {

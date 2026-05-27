@@ -138,6 +138,56 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Rewrites versioned Codex vendor executable")
+    func rewritesVersionedCodexVendorExecutable() {
+        let vendorExecutable = "/Users/example/.bun/install/global/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex"
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    vendorExecutable,
+                    "resume",
+                    "019e3e65-ac70-7161-8e33-a3be96626d82",
+                    "--yolo",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--yolo",
+            ]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Users/example/.bun/install/global/node_modules/@openai/codex/vendor/universal-apple-darwin/bin/codex",
+                    "--yolo",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--yolo",
+            ]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    vendorExecutable,
+                    "codex-teams",
+                    "--model",
+                    "gpt-5.4",
+                ],
+                launcher: "codexTeams",
+                fallbackKind: "codex"
+            ) == [
+                "cmux",
+                "codex-teams",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+    }
+
     @Test("Drops Claude startup files")
     func dropsClaudeStartupFiles() {
         #expect(

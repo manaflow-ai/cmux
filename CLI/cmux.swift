@@ -23265,9 +23265,11 @@ struct CMUXCLI {
         fallbackExecutable: String
     ) -> (executable: String, tail: [String]) {
         let arguments = launchCommand?.arguments ?? []
-        let executable = normalizedHookValue(launchCommand?.executablePath)
-            ?? arguments.first
-            ?? fallbackExecutable
+        let capturedExecutable = normalizedHookValue(launchCommand?.executablePath) ?? arguments.first
+        let executable = AgentLaunchSanitizer.restorableExecutable(
+            capturedExecutable: capturedExecutable,
+            fallbackExecutable: fallbackExecutable
+        )
         let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
         return (executable: executable, tail: tail)
     }
