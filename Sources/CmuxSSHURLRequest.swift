@@ -708,12 +708,6 @@ struct CmuxTextURLRequest: Equatable {
 
     private static func containsUnsafeTextCharacter(_ value: String) -> Bool {
         value.unicodeScalars.contains { scalar in
-            switch scalar.value {
-            case 0x09, 0x0A, 0x0D:
-                return false
-            default:
-                break
-            }
             switch scalar.properties.generalCategory {
             case .control, .format, .lineSeparator, .paragraphSeparator:
                 return true
