@@ -374,6 +374,31 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertEqual(copied, Data(bytes.suffix(16)))
     }
 
+    func testTmuxControlPaneTextDecodeKeepsValidSuffixAfterTruncatedLeadingBytes() throws {
+        var state = TmuxControlState()
+        state.apply(.enter)
+        state.apply(.windowsChanged(Data("""
+        {
+          "session_id": 1,
+          "pane_ids": [1],
+          "windows": [
+            {
+              "id": 1,
+              "width": 80,
+              "height": 24,
+              "layout": {"width": 80, "height": 24, "x": 0, "y": 0, "pane": 1}
+            }
+          ]
+        }
+        """.utf8)))
+
+        state.apply(.paneOutput(paneId: 1, data: Data([0x80, 0x41])))
+        let payload = state.debugPayload(includePaneText: true)
+        let panes = try XCTUnwrap(payload["panes"] as? [[String: Any]])
+
+        XCTAssertEqual(panes.first?["text"] as? String, "A")
+    }
+
     func testTmuxControlStateClearsOnRuntimeSurfaceTeardown() {
         let panel = TerminalPanel(workspaceId: UUID())
 

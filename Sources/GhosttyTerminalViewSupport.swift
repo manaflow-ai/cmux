@@ -168,15 +168,28 @@ struct TmuxControlState: Equatable, Sendable {
         }
 
         let maxLeadingDrop = min(3, data.count)
+        var bestText: String?
+        var bestByteCount = -1
+        var bestLeadingDrop = -1
         for leadingDrop in 0...maxLeadingDrop {
             let leadingTrimmed = data.dropFirst(leadingDrop)
             let maxTrailingDrop = min(3, leadingTrimmed.count)
             for trailingDrop in 0...maxTrailingDrop where leadingDrop != 0 || trailingDrop != 0 {
                 let candidate = leadingTrimmed.dropLast(trailingDrop)
+                guard !candidate.isEmpty else { continue }
                 if let string = String(data: Data(candidate), encoding: .utf8) {
-                    return string
+                    let byteCount = candidate.count
+                    if byteCount > bestByteCount ||
+                        (byteCount == bestByteCount && leadingDrop > bestLeadingDrop) {
+                        bestText = string
+                        bestByteCount = byteCount
+                        bestLeadingDrop = leadingDrop
+                    }
                 }
             }
+        }
+        if let bestText {
+            return bestText
         }
 
         return String(decoding: data, as: UTF8.self)
