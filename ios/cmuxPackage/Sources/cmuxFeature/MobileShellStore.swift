@@ -591,6 +591,18 @@ public final class CMUXMobileShellStore {
         self.pairingAttemptID = UUID()
     }
 
+    isolated deinit {
+        terminalRefreshPollTask?.cancel()
+        terminalEventListenerTask?.cancel()
+        selectedTerminalSnapshotRefreshTask?.cancel()
+        createWorkspaceTask?.cancel()
+        createTerminalTask?.cancel()
+        workspaceListRefreshTask?.cancel()
+        if let remoteClient {
+            Task { await remoteClient.disconnect() }
+        }
+    }
+
     public static func preview(runtime: CMUXMobileRuntime? = nil) -> CMUXMobileShellStore {
         CMUXMobileShellStore(runtime: runtime, workspaces: PreviewMobileHost.workspaces)
     }
@@ -1872,55 +1884,51 @@ public final class CMUXMobileShellStore {
         let listenerID = UUID()
         terminalEventListenerID = listenerID
         terminalEventListenerTask = Task { @MainActor [weak self] in
-            guard let self else { return }
             defer {
-                if self.terminalEventListenerID == listenerID {
-                    self.terminalEventListenerTask = nil
-                    self.terminalEventListenerID = nil
+                if self?.terminalEventListenerID == listenerID {
+                    self?.terminalEventListenerTask = nil
+                    self?.terminalEventListenerID = nil
                 }
             }
-            await self.runTerminalUpdateListener(via: client)
-        }
-    }
 
-    private func runTerminalUpdateListener(via client: MobileCoreRPCClient) async {
-        let stream = await client.subscribe(to: ["terminal.updated", "workspace.updated"])
-        let requestData: Data
-        do {
-            requestData = try MobileCoreRPCClient.requestData(
-                method: "mobile.events.subscribe",
-                params: ["topics": ["terminal.updated", "workspace.updated"]]
-            )
-        } catch {
-            mobileShellLog.error("subscribe payload encode failed: \(String(describing: error), privacy: .private)")
-            return
-        }
-        let responseData: Data
-        do {
-            responseData = try await client.sendRequest(requestData)
-        } catch let MobileShellConnectionError.rpcError(code, _) where code == "method_not_found" {
-            return
-        } catch {
-            mobileShellLog.error("subscribe failed, polling remains active: \(String(describing: error), privacy: .private)")
-            return
-        }
-        // Require a well-formed subscribe ack ({"stream_id": "..."}) so we
-        // don't latch onto a stray response from a Mac that doesn't know
-        // about events.v1. Anything else means the request reached an old
-        // handler and shouldn't activate the event path.
-        let responseObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
-        guard let object = responseObject, (object["stream_id"] as? String)?.isEmpty == false else {
-            return
-        }
-        // Listen for events; refresh on each one. The stream finishes when
-        // the transport tears down, so the loop exits cleanly.
-        for await event in stream {
-            guard !Task.isCancelled else { return }
-            guard remoteClient === client, connectionState == .connected else { return }
-            if event.topic == "terminal.updated" {
-                await refreshSelectedTerminalSnapshot()
-            } else if event.topic == "workspace.updated" {
-                scheduleWorkspaceListRefreshFromEvent()
+            let stream = await client.subscribe(to: ["terminal.updated", "workspace.updated"])
+            let requestData: Data
+            do {
+                requestData = try MobileCoreRPCClient.requestData(
+                    method: "mobile.events.subscribe",
+                    params: ["topics": ["terminal.updated", "workspace.updated"]]
+                )
+            } catch {
+                mobileShellLog.error("subscribe payload encode failed: \(String(describing: error), privacy: .private)")
+                return
+            }
+            let responseData: Data
+            do {
+                responseData = try await client.sendRequest(requestData)
+            } catch let MobileShellConnectionError.rpcError(code, _) where code == "method_not_found" {
+                return
+            } catch {
+                mobileShellLog.error("subscribe failed, polling remains active: \(String(describing: error), privacy: .private)")
+                return
+            }
+            // Require a well-formed subscribe ack ({"stream_id": "..."}) so we
+            // don't latch onto a stray response from a Mac that doesn't know
+            // about events.v1. Anything else means the request reached an old
+            // handler and shouldn't activate the event path.
+            let responseObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+            guard let object = responseObject, (object["stream_id"] as? String)?.isEmpty == false else {
+                return
+            }
+            // Keep the listener alive without keeping the shell store alive.
+            for await event in stream {
+                guard !Task.isCancelled else { return }
+                guard let self else { return }
+                guard self.remoteClient === client, self.connectionState == .connected else { return }
+                if event.topic == "terminal.updated" {
+                    await self.refreshSelectedTerminalSnapshot()
+                } else if event.topic == "workspace.updated" {
+                    self.scheduleWorkspaceListRefreshFromEvent()
+                }
             }
         }
     }

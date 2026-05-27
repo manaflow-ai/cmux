@@ -2362,22 +2362,27 @@ import UIKit
         stackAccessToken: nil,
         supportsServerPushEvents: true
     )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    weak var weakStore: CMUXMobileShellStore?
+    do {
+        let store = CMUXMobileShellStore.preview(runtime: runtime)
+        weakStore = store
 
-    store.signIn()
-    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    _ = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
-    store.resumeForegroundRefresh()
+        store.signIn()
+        await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+        _ = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
+        store.resumeForegroundRefresh()
 
-    _ = try await waitForRequestCount("terminal.snapshot", count: 2, router: router)
-    try await Task.sleep(nanoseconds: 50_000_000)
+        _ = try await waitForRequestCount("terminal.snapshot", count: 2, router: router)
+        try await Task.sleep(nanoseconds: 50_000_000)
 
-    let requests = await router.sentRequests()
-    let subscribeRequests = requests.filter { $0.method == "mobile.events.subscribe" }
-    #expect(subscribeRequests.count == 1)
-    #expect(subscribeRequests.allSatisfy { $0.attachToken == "ticket-secret" })
-    #expect(subscribeRequests.allSatisfy { $0.stackAccessToken == nil })
-    #expect(requests.filter { $0.method == "terminal.snapshot" }.count >= 2)
+        let requests = await router.sentRequests()
+        let subscribeRequests = requests.filter { $0.method == "mobile.events.subscribe" }
+        #expect(subscribeRequests.count == 1)
+        #expect(subscribeRequests.allSatisfy { $0.attachToken == "ticket-secret" })
+        #expect(subscribeRequests.allSatisfy { $0.stackAccessToken == nil })
+        #expect(requests.filter { $0.method == "terminal.snapshot" }.count >= 2)
+    }
+    #expect(weakStore == nil)
 }
 
 @MainActor

@@ -27,29 +27,36 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testAddDeviceManualHostValidationUsesStableIdentifiers() throws {
-        let app = launchAddDeviceApp(environment: [
+        let invalidHostApp = launchAddDeviceApp(environment: [
             "CMUX_UITEST_ADD_DEVICE_HOST": "dev/path.local"
         ])
 
-        XCTAssertTrue(app.otherElements["MobileAddDeviceForm"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.textFields["MobileAddDeviceNameField"].exists)
-        XCTAssertTrue(app.textFields["MobileAddDeviceHostField"].exists)
-        XCTAssertTrue(app.textFields["MobileAddDevicePortField"].exists)
-        XCTAssertTrue(app.staticTexts["MobileAddDeviceSignedInAccount"].exists)
-        XCTAssertTrue(app.staticTexts["MobileAddDeviceSignedInAccount"].label.contains("uitest@cmux.local"))
-        XCTAssertTrue(app.buttons["MobileScanQRCodeButton"].exists)
+        XCTAssertTrue(invalidHostApp.otherElements["MobileAddDeviceForm"].waitForExistence(timeout: 8))
+        XCTAssertTrue(invalidHostApp.textFields["MobileAddDeviceNameField"].exists)
+        XCTAssertTrue(invalidHostApp.textFields["MobileAddDeviceHostField"].exists)
+        XCTAssertTrue(invalidHostApp.textFields["MobileAddDevicePortField"].exists)
+        XCTAssertTrue(invalidHostApp.staticTexts["MobileAddDeviceSignedInAccount"].exists)
+        XCTAssertTrue(invalidHostApp.staticTexts["MobileAddDeviceSignedInAccount"].label.contains("uitest@cmux.local"))
+        XCTAssertTrue(invalidHostApp.buttons["MobileScanQRCodeButton"].exists)
 
-        let pairButton = app.buttons["MobilePairButton"]
-        XCTAssertTrue(pairButton.exists)
-        XCTAssertTrue(pairButton.isEnabled)
+        let invalidHostPairButton = invalidHostApp.buttons["MobilePairButton"]
+        XCTAssertTrue(invalidHostPairButton.exists)
+        XCTAssertTrue(invalidHostPairButton.isEnabled)
 
-        tap(pairButton, in: app)
-        assertPairingError(contains: "Enter a host or IP address", in: app)
+        tap(invalidHostPairButton, in: invalidHostApp)
+        assertPairingError(contains: "Enter a host or IP address", in: invalidHostApp)
+        invalidHostApp.terminate()
 
-        try replaceText("127.0.0.1", in: app.textFields["MobileAddDeviceHostField"], app: app)
-        try replaceText("70000", in: app.textFields["MobileAddDevicePortField"], app: app)
-        tap(pairButton, in: app)
-        assertPairingError(contains: "Enter a port from 1 to 65535", in: app)
+        let invalidPortApp = launchAddDeviceApp(environment: [
+            "CMUX_UITEST_ADD_DEVICE_HOST": "127.0.0.1",
+            "CMUX_UITEST_ADD_DEVICE_PORT": "70000",
+        ])
+        let invalidPortPairButton = invalidPortApp.buttons["MobilePairButton"]
+        XCTAssertTrue(invalidPortPairButton.exists)
+        XCTAssertTrue(invalidPortPairButton.isEnabled)
+
+        tap(invalidPortPairButton, in: invalidPortApp)
+        assertPairingError(contains: "Enter a port from 1 to 65535", in: invalidPortApp)
     }
 
     @MainActor
