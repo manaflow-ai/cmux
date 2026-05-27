@@ -435,7 +435,10 @@ extension AppDelegate {
             request.pasteText,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             shouldBringToFront: !request.noFocus,
-            debugSource: "textURL.\(request.kind.rawValue)"
+            debugSource: "textURL.\(request.kind.rawValue)",
+            onSendFailure: { [weak self] in
+                self?.showCmuxTextURLPasteFailure(request)
+            }
         )
         if !didPaste {
             showCmuxTextURLPasteFailure(request)
@@ -669,7 +672,7 @@ extension AppDelegate {
             : String(localized: "dialog.textURL.rules.pasteFailed.title", defaultValue: "Couldn't Paste Rules Link")
         alert.informativeText = String(
             localized: "dialog.textURL.pasteFailed.message",
-            defaultValue: "cmux could not find a terminal surface in the selected workspace."
+            defaultValue: "cmux could not send the link text to a terminal."
         )
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         alert.runModal()
@@ -822,7 +825,7 @@ extension AppDelegate {
         case .multipleLinks:
             return String(
                 localized: "dialog.textURL.error.multipleLinks",
-                defaultValue: "Only one cmux prompt or rules link can be opened at a time."
+                defaultValue: "Only one cmux external link can be opened at a time."
             )
         }
     }
