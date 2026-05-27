@@ -5693,8 +5693,9 @@ class TabManager: ObservableObject {
         if pinned {
             changedWorkspaces = changedIds.compactMap { workspacesById[$0] }
         } else {
-            // Match the existing repeated setPinned behavior: each unpinned item
-            // moves to the front of the unpinned segment as it is processed.
+            // Keep parity with reorderTabForPinnedState: each unpinned item
+            // is inserted at the front of the unpinned segment, so rebuilding a
+            // batch in one pass must reverse the changed input order.
             changedWorkspaces = changedIds.reversed().compactMap { workspacesById[$0] }
         }
 

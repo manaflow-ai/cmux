@@ -235,11 +235,12 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         let first = manager.tabs[0]
         let second = manager.addWorkspace()
         let third = manager.addWorkspace()
+        manager.applyWorkspaceColor("#C0392B", toWorkspaceIds: [second.id])
 
         manager.applyWorkspaceColor("#1565C0", toWorkspaceIds: [first.id, third.id])
 
         XCTAssertEqual(first.customColor, "#1565C0")
-        XCTAssertNil(second.customColor)
+        XCTAssertEqual(second.customColor, "#C0392B")
         XCTAssertEqual(third.customColor, "#1565C0")
     }
 
@@ -249,12 +250,13 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         let first = manager.tabs[0]
         let second = manager.addWorkspace()
         let third = manager.addWorkspace()
+        manager.setWorkspaceTerminalScrollBarHidden(hidden: true, forWorkspaceIds: [first.id, second.id, third.id])
 
-        manager.setWorkspaceTerminalScrollBarHidden(hidden: true, forWorkspaceIds: [first.id, third.id])
+        manager.setWorkspaceTerminalScrollBarHidden(hidden: false, forWorkspaceIds: [first.id, third.id])
 
-        XCTAssertTrue(first.terminalScrollBarHidden)
-        XCTAssertFalse(second.terminalScrollBarHidden)
-        XCTAssertTrue(third.terminalScrollBarHidden)
+        XCTAssertFalse(first.terminalScrollBarHidden)
+        XCTAssertTrue(second.terminalScrollBarHidden)
+        XCTAssertFalse(third.terminalScrollBarHidden)
     }
 }
 

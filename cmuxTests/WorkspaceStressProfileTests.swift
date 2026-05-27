@@ -233,17 +233,21 @@ final class WorkspaceStressProfileTests: XCTestCase {
             timed("pass-\(label(for: pass))-color-apply", collectInto: &colorSamples) {
                 manager.applyWorkspaceColor("#1565C0", toWorkspaceIds: workspaceIds)
             }
+            XCTAssertTrue(manager.tabs.allSatisfy { $0.customColor == "#1565C0" })
             timed("pass-\(label(for: pass))-color-clear", collectInto: &colorSamples) {
                 manager.applyWorkspaceColor(nil, toWorkspaceIds: workspaceIds)
             }
+            XCTAssertTrue(manager.tabs.allSatisfy { $0.customColor == nil })
             timed("pass-\(label(for: pass))-scrollbar-hide", collectInto: &scrollBarSamples) {
                 manager.setWorkspaceTerminalScrollBarHidden(hidden: true, forWorkspaceIds: workspaceIds)
             }
+            XCTAssertTrue(manager.tabs.allSatisfy { $0.terminalScrollBarHidden })
             timed("pass-\(label(for: pass))-scrollbar-show", collectInto: &scrollBarSamples) {
                 manager.setWorkspaceTerminalScrollBarHidden(hidden: false, forWorkspaceIds: workspaceIds)
             }
-            timed("pass-\(label(for: pass))-pin", collectInto: &pinSamples) {
-                _ = WorkspaceActionDispatcher.performPinAction(
+            XCTAssertTrue(manager.tabs.allSatisfy { !$0.terminalScrollBarHidden })
+            let pinResult = timed("pass-\(label(for: pass))-pin", collectInto: &pinSamples) {
+                WorkspaceActionDispatcher.performPinAction(
                     WorkspaceActionDispatcher.PinState(
                         targetWorkspaceIds: workspaceIds,
                         anchorWorkspaceId: anchorWorkspaceId,
@@ -252,8 +256,10 @@ final class WorkspaceStressProfileTests: XCTestCase {
                     in: manager
                 )
             }
-            timed("pass-\(label(for: pass))-unpin", collectInto: &unpinSamples) {
-                _ = WorkspaceActionDispatcher.performPinAction(
+            XCTAssertFalse(pinResult.changedWorkspaceIds.isEmpty)
+            XCTAssertTrue(manager.tabs.allSatisfy { $0.isPinned })
+            let unpinResult = timed("pass-\(label(for: pass))-unpin", collectInto: &unpinSamples) {
+                WorkspaceActionDispatcher.performPinAction(
                     WorkspaceActionDispatcher.PinState(
                         targetWorkspaceIds: workspaceIds,
                         anchorWorkspaceId: anchorWorkspaceId,
@@ -262,6 +268,8 @@ final class WorkspaceStressProfileTests: XCTestCase {
                     in: manager
                 )
             }
+            XCTAssertFalse(unpinResult.changedWorkspaceIds.isEmpty)
+            XCTAssertTrue(manager.tabs.allSatisfy { !$0.isPinned })
         }
 
         XCTAssertEqual(manager.tabs.count, config.workspaceCount)
