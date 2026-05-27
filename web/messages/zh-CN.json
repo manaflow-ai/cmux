@@ -499,6 +499,11 @@
         },
         "terminal": {
           "copyOnSelect": "确认选择后，将所选终端文本复制到系统剪贴板，包括通过双击和三击选择的单词和整行。"
+        },
+        "browser": {
+          "defaultSearchEngine": "浏览器地址栏输入不是 URL 时使用的默认搜索引擎。对于任意提供商，请使用 custom 和 customSearchEngineURLTemplate。",
+          "customSearchEngineName": "defaultSearchEngine 为 custom 时使用的显示名称。",
+          "customSearchEngineURLTemplate": "defaultSearchEngine 为 custom 时使用的搜索 URL。使用查询占位符或 %s 表示已编码的查询。如果没有占位符，cmux 会向 URL 添加 q=。"
         }
       }
     },
@@ -992,6 +997,62 @@
       "underHoodMore": "常规<configLink>配置文档</configLink>介绍 cmux.json。会话恢复会把应用布局与 Ghostty 终端渲染设置分开保存。",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
+    },
+    "ssh": {
+      "title": "SSH",
+      "metaTitle": "SSH",
+      "metaDescription": "使用 cmux ssh 连接到远程计算机。浏览器窗格通过远程网络路由，通过 scp 拖放图像，并且代理通知返回。",
+      "intro": "cmux ssh 为远程计算机创建工作区。浏览器窗格通过远程网络路由，通过 scp 拖放文件，编码代理将通知发送到本地侧边栏，会话在拖放时重新连接。",
+      "usage": "用途",
+      "usageDesc": "cmux ssh 读取 ~/.ssh/config 中的主机别名、身份文件和代理设置。所有标志均反映其 ssh 等效项。",
+      "flagsTitle": "旗帜",
+      "flagName": "旗帜",
+      "flagDesc": "描述",
+      "flagNameVal": "设置工作区标题",
+      "flagPort": "SSH 端口（默认 22）",
+      "flagIdentity": "身份文件的路径",
+      "flagSshOption": "传递任意 SSH 选项（例如 -o StrictHostKeyChecking=no）",
+      "flagNoFocus": "创建工作区而不切换到它",
+      "deepLinksTitle": "SSH 深层链接",
+      "deepLinksDesc": "当网站或工具想要提供“在 cmux 中打开”按钮时，请使用 cmux SSH 深层链接。该链接将打开 cmux，显示确认提示，然后在用户确认后运行等效的 cmux ssh 命令。",
+      "deepLinksWebFallbackDesc": "使用网站按钮的 cmux.com 后备 URL。如果未安装 cmux，它将打开本机链接并显示下载。",
+      "deepLinksPromptRulesDesc": "提示和规则按钮使用相同的后备形状。逗号、冒号和文字加号在进行 URL 编码时会被保留：",
+      "deepLinksIconDesc": "使用 SVG 图标作为仪表板按钮，或在需要光栅图像时使用 PNG 徽标：",
+      "deepLinksButtonDesc": "使用 URLSearchParams 构建后备 URL，以便安全地编码标题、主机别名和用户名：",
+      "deepLinkParam": "参数",
+      "deepLinkMeaning": "含义",
+      "deepLinkHost": "必需的 SSH 主机或 ~/.ssh/config 别名。",
+      "deepLinkUser": "可选的 SSH 用户。 cmux 将其与主机组合为 user@host。",
+      "deepLinkPort": "可选 SSH 端口，1 到 65535。",
+      "deepLinkTitle": "可选的工作区标题。仅使用标题或名称之一。",
+      "deepLinkConnectTimeout": "可选的 ConnectTimeout 值（以秒为单位），范围为 1 到 600。",
+      "deepLinkServerAliveInterval": "可选的 ServerAliveInterval 值（以秒为单位），从 1 到 3600。",
+      "deepLinkServerAliveCountMax": "可选的 ServerAliveCountMax 值，1 到 100。",
+      "deepLinkHostKeyPolicy": "可选的 StrictHostKeyChecking 策略：accept-new、ask、strict 或 yes。",
+      "deepLinkNoFocus": "可选布尔值。 true 创建工作区而不切换到它。",
+      "deepLinksSchemeDesc": "对稳定应用程序使用 cmux://，对 Nightly 使用 cmux-nightly://，对调试或标记的开发版本使用 cmux-dev://。",
+      "deepLinksSecurityDesc": "外部链接无法传递身份文件、原始 ssh 选项、命令、ProxyCommand 或转发规则。将密钥、ProxyJump、主机名和高级选项放在 ~/.ssh/config 中。 cmux 显示命令预览并要求用户在连接之前信任 SSH 目标。",
+      "browserTitle": "浏览器窗格",
+      "browserDesc": "远程工作区中的浏览器窗格通过远程计算机的网络路由所有 HTTP 和 WebSocket 流量。输入 localhost:3000，您将看到在远程机器上运行的开发服务器。没有 -L 标志，没有手动端口转发。每个远程工作区都有一个独立的 cookie 存储，因此会话的范围仅限于每个连接。",
+      "dragDropTitle": "拖放",
+      "dragDropDesc": "将图像或文件拖到远程终端中，cmux 通过现有 SSH 连接通过 scp 上传。 cmux 通过 TTY 检测前台 SSH 进程，并通过 ControlMaster 多路复用路由上传。",
+      "notificationsTitle": "通知",
+      "notificationsDesc": "远程计算机上的进程可以运行在本地实例上执行的 cmux 命令。当编码代理在远程盒子上调用 cmux 通知时，通知会显示在本地侧边栏中。工作区选项卡上的蓝色环亮起。 Cmd+Shift+U 跳转到它。通过每台主机的冷却时间来抑制来自不稳定连接的通知垃圾邮件。",
+      "agentsTitle": "通过 SSH 编码代理",
+      "agentsDesc": "cmux claude-teams 和 cmux omo 都在 SSH 会话中工作。远程主机上的 Go 中继守护进程处理与本地 Swift CLI 相同的 tmux-compat 转换。当计算在远程机器上运行时，队友代理会在本地计算机上本地 cmux 拆分时生成。",
+      "reconnectTitle": "重新连接",
+      "reconnectDesc": "当连接断开时，cmux 以指数退避（3 秒、6 秒、12 秒，最多 60 秒）重新连接。远程会话持续存在，并且 cmux 在重新连接时重新连接，并使用最小屏幕获胜语义调整大小。除非您的配置已设置它们，否则将注入默认的 keepalive 选项（ServerAliveInterval=20、ServerAliveCountMax=2）。",
+      "daemonTitle": "中继守护进程",
+      "daemonDesc": "首次连接时，cmux 会探测远程主机（uname -s、uname -m）并上传版本控制的 cmuxd-remote 二进制文件。该二进制文件通过 stdio 使用 JSON-RPC 并处理三件事：",
+      "daemonFeature": "特点",
+      "daemonHow": "如何",
+      "daemonProxy": "浏览器流量代理",
+      "daemonProxyHow": "通过守护进程的 stdio 通道进行 SOCKS5 和 HTTP CONNECT",
+      "daemonRelay": "CLI中继",
+      "daemonRelayHow": "使用 HMAC-SHA256 身份验证反向 TCP 隧道，以便远程进程可以在本地调用 cmux 命令",
+      "daemonSession": "会话管理",
+      "daemonSessionHow": "在重新连接时保留会话，协调跨多个附件的 PTY 大小调整",
+      "daemonPath": "守护程序二进制文件存储在远程主机上的 ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote 中，并根据应用程序中嵌入的 SHA-256 清单进行验证。"
     }
   },
   "legal": {
@@ -1034,5 +1095,40 @@
   },
   "languageSwitcher": {
     "label": "语言"
+  },
+  "deeplink": {
+    "section": "深层链接",
+    "open": "在 cmux 中打开",
+    "download": "下载cmux",
+    "nativeURL": "原生 URL",
+    "missingParams": "此链接缺少必需参数：{params}",
+    "duplicateParams": "此链接重复参数 cmux 将拒绝：{params}",
+    "unsupportedParams": "此链接包含 cmux 将拒绝的不受支持的参数：{params}",
+    "conflictingParams": "此链接包含不能一起使用的参数：{params}",
+    "invalidParams": "此链接包含无效参数值：{params}",
+    "fixParams": "修复 URL 参数，然后重新加载此页面。",
+    "examplePrefix": "参见",
+    "exampleLink": "示例链接",
+    "ssh": {
+      "metaTitle": "在 cmux 中打开 SSH",
+      "metaDescription": "从网络上打开 cmux SSH 深度链接，并在 cmux 不可用时进行安装回退。",
+      "title": "在 cmux 中打开 SSH",
+      "intro": "此页面将打开经过审核的 cmux SSH 链接。",
+      "fallback": "如果 cmux 未打开，请安装 cmux 并再次单击“在 cmux 中打开”。"
+    },
+    "prompt": {
+      "metaTitle": "在 cmux 中打开提示符",
+      "metaDescription": "从网络上打开 cmux 提示深层链接，并在 cmux 不可用时进行安装回退。",
+      "title": "在 cmux 中打开提示符",
+      "intro": "此页面在当前 cmux 工作区中打开一个提示。",
+      "fallback": "cmux 首先显示提示并询问，然后再将其粘贴到当前工作区。如果 cmux 未打开，请安装 cmux 并再次单击“在 cmux 中打开”。"
+    },
+    "rules": {
+      "metaTitle": "在 cmux 中打开规则",
+      "metaDescription": "从网络上打开 cmux 规则深度链接，并在 cmux 不可用时进行安装回退。",
+      "title": "在 cmux 中打开规则",
+      "intro": "此页面打开当前 cmux 工作区中的规则。",
+      "fallback": "cmux 首先显示规则并在将它们粘贴到当前工作区之前进行询问。如果 cmux 未打开，请安装 cmux 并再次单击“在 cmux 中打开”。"
+    }
   }
 }

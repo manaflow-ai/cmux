@@ -17228,7 +17228,8 @@ struct CMUXCLI {
             "rm -f -- \"$0\" 2>/dev/null || true"
         ]
         if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty {
-            lines.append("cd -- \(codexTeamsShellQuote(cwd)) || exit $?")
+            let quotedCwd = codexTeamsShellQuote(cwd)
+            lines.append("{ cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ]; } || exit $?")
         }
         lines.append("exec \"${SHELL:-/bin/sh}\" -lc \(codexTeamsShellQuote(commandText))")
         do {
@@ -23572,9 +23573,15 @@ struct CMUXCLI {
         var commandParts: [String] = []
         commandParts.append(contentsOf: argv)
 
-        var command = commandParts.map(cliShellQuote).joined(separator: " ")
-        if let cwd = normalizedHookValue(workingDirectory) {
-            command = "cd \(cliShellQuote(cwd)) && \(command)"
+        let cwd = normalizedHookValue(workingDirectory)
+        let sanitizedCommandParts = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+            from: commandParts,
+            workingDirectory: cwd
+        )
+        let command = sanitizedCommandParts.map(cliShellQuote).joined(separator: " ")
+        if let cwd {
+            let quotedCwd = cliShellQuote(cwd)
+            return "{ cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ]; } && \(command)"
         }
         return command
     }

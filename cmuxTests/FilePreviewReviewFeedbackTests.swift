@@ -38,6 +38,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
 
         let textView = SavingTextView()
@@ -72,6 +73,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         XCTAssertEqual(panel.previewMode, .quickLook)
 
         let view = panel.nativeViewSessions.quickLook.view(
@@ -102,6 +104,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         let retiredView = panel.nativeViewSessions.quickLook.view(
             panel: panel,
             isVisibleInUI: true,
@@ -191,6 +194,10 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertFalse(coordinator.focus(.textEditor))
 
         let window = NSWindow(contentRect: textView.bounds, styleMask: [], backing: .buffered, defer: false)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
         window.contentView = textView
         coordinator.fulfillPendingFocusIfNeeded()
 
@@ -208,6 +215,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
 
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        defer { workspace.teardownAllPanels() }
         let firstPane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let existingPanel = try XCTUnwrap(workspace.newFilePreviewSurface(
             inPane: firstPane,

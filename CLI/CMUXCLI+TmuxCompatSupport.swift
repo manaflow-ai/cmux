@@ -48,7 +48,8 @@ extension CMUXCLI {
 
         var pieces: [String] = []
         if let trimmedCwd, !trimmedCwd.isEmpty {
-            pieces.append("cd -- \(tmuxShellQuote(resolvePath(trimmedCwd)))")
+            let quotedCwd = tmuxShellQuote(resolvePath(trimmedCwd))
+            pieces.append("cd -- \(quotedCwd)")
         }
         if !commandText.isEmpty {
             pieces.append(commandText)
@@ -203,7 +204,8 @@ extension CMUXCLI {
             "rm -f -- \"$0\" 2>/dev/null || true"
         ]
         if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty {
-            lines.append("cd -- \(tmuxShellQuote(resolvePath(cwd))) || exit $?")
+            let quotedCwd = tmuxShellQuote(resolvePath(cwd))
+            lines.append("cd -- \(quotedCwd) || exit $?")
         }
         lines.append("exec \"${SHELL:-/bin/sh}\" -lc \(tmuxShellQuote(commandText))")
         do {
