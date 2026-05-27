@@ -159,6 +159,16 @@ extension ContentView {
                 isRemoteTerminal: isRemoteTerminal
             ) {
             case .supportedWithoutProbe:
+                guard commandPaletteForkableAgentProbeResultMatches(
+                    panelKey: panelKey,
+                    supportedPanelKeys: supportedPanelKeys,
+                    supportedRemoteContextsByPanelKey: supportedRemoteContextsByPanelKey,
+                    snapshotFingerprintsByPanelKey: snapshotFingerprintsByPanelKey,
+                    expectedSnapshotFingerprint: fallbackFingerprint,
+                    isRemoteTerminal: isRemoteTerminal
+                ) else {
+                    return nil
+                }
                 return verifiedCachedSnapshot(expectedFingerprint: fallbackFingerprint) ?? fallbackSnapshot
             case .unsupported:
                 return nil

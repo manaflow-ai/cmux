@@ -596,9 +596,13 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testForkableAgentFallbackSnapshotUsesSynchronousSupportOnly() {
+    func testForkableAgentFallbackSnapshotRequiresVerifiedProbeForVisibility() {
         let workspaceId = UUID()
         let panelId = UUID()
+        let supportedKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
         let codex = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "codex-session",
@@ -634,11 +638,20 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(
+        XCTAssertFalse(
             ContentView.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
+                fallbackSnapshot: codex
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                supportedRemoteContextsByPanelKey: [supportedKey: false],
                 fallbackSnapshot: codex
             )
         )
@@ -650,7 +663,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 fallbackSnapshot: directOpenCode
             )
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             ContentView.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
@@ -663,7 +676,26 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             ContentView.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                supportedRemoteContextsByPanelKey: [supportedKey: true],
+                fallbackSnapshot: directOpenCode,
+                isRemoteTerminal: true
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
                 supportedPanelKeys: [],
+                fallbackSnapshot: omoOpenCode
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                supportedRemoteContextsByPanelKey: [supportedKey: false],
                 fallbackSnapshot: omoOpenCode
             )
         )
@@ -700,11 +732,20 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
         XCTAssertNotNil(snapshot.forkStartupInput(allowLauncherScript: true))
         XCTAssertNil(snapshot.forkStartupInput(allowLauncherScript: false))
-        XCTAssertTrue(
+        XCTAssertFalse(
             ContentView.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
+                fallbackSnapshot: snapshot
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                supportedRemoteContextsByPanelKey: [supportedKey: false],
                 fallbackSnapshot: snapshot
             )
         )
@@ -752,7 +793,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testImmediateForkExecutionUsesFallbackSnapshotWithoutAsyncProbe() {
+    func testImmediateForkExecutionRejectsFallbackSnapshotBeforeProbeVerification() {
         let workspaceId = UUID()
         let panelId = UUID()
         let fallback = SessionRestorableAgentSnapshot(
@@ -773,7 +814,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             cachedSnapshot: nil
         )
 
-        XCTAssertEqual(snapshot?.sessionId, fallback.sessionId)
+        XCTAssertNil(snapshot)
     }
 
     func testImmediateForkExecutionPrefersVerifiedCachedSnapshotForSynchronousFallback() {
