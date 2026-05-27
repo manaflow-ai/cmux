@@ -265,10 +265,12 @@ enum AgentResumeCommandBuilder {
         let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
             ? nil
             : normalized(workingDirectory ?? launchCommand?.workingDirectory)
-        let sanitizedCommandParts = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
-            from: commandParts,
-            workingDirectory: cwd
-        )
+        let sanitizedCommandParts = customRegistration == nil
+            ? AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: commandParts,
+                workingDirectory: cwd
+            )
+            : commandParts
         let shellCommand = sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
         return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
     }

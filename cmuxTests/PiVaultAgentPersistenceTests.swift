@@ -327,6 +327,38 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(command, "'acme-agent' '--cwd' '/tmp/acme' '--session' 'session-123'")
     }
 
+    func testRegisteredAgentTemplatePreservesCWDArgumentWithWorkingDirectoryPrefix() {
+        let registration = CmuxVaultAgentRegistration(
+            id: "acme-agent",
+            name: "Acme Agent",
+            detect: CmuxVaultAgentDetectRule(processName: "acme-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "acme-agent --cwd {{cwd}} --session {{sessionId}}",
+            cwd: .preserve
+        )
+
+        let command = AgentResumeCommandBuilder.resumeShellCommand(
+            kind: .custom("acme-agent"),
+            sessionId: "session-123",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "acme-agent",
+                executablePath: nil,
+                arguments: ["acme-agent"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: "test"
+            ),
+            workingDirectory: "/tmp/acme",
+            registrationOverride: registration
+        )
+
+        XCTAssertEqual(
+            command,
+            "{ cd -- '/tmp/acme' 2>/dev/null || [ ! -d '/tmp/acme' ]; } && 'acme-agent' '--cwd' '/tmp/acme' '--session' 'session-123'"
+        )
+    }
+
     func testRegisteredAgentTemplateDoesNotExpandPlaceholdersInsideReplacementValues() {
         let registration = CmuxVaultAgentRegistration(
             id: "acme-agent",
