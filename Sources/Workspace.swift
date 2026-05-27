@@ -12809,6 +12809,93 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    // Single terminal split lifecycle entry point: every TerminalPanel that enters a
+    // newly assigned split pane must publish its model event and start the layout
+    // follow-up here so portal attachment, Ghostty geometry, and focus converge together.
+    private func beginTerminalSplitPaneLifecycle(
+        newPaneId: PaneID,
+        sourcePaneId: PaneID,
+        orientation: SplitOrientation,
+        panelId: UUID,
+        origin: String,
+        focused: Bool,
+        layoutReason: String,
+        terminalFocusPanelId: UUID?
+    ) {
+        publishCmuxSplitCreated(
+            newPaneId,
+            sourcePaneId: sourcePaneId,
+            orientation: orientation,
+            surfaceId: panelId,
+            kind: "terminal",
+            origin: origin,
+            focused: focused
+        )
+        // Brand-new terminal split panes must enter the shared layout follow-up here so
+        // their portal attachment, Ghostty geometry, and optional focus converge together.
+        beginEventDrivenLayoutFollowUp(
+            reason: layoutReason,
+            terminalFocusPanelId: terminalFocusPanelId,
+            includeGeometry: true
+        )
+    }
+
+    private func beginTerminalSplitSurfaceLifecycle(
+        panelId: UUID,
+        paneId: PaneID,
+        origin: String,
+        focused: Bool,
+        layoutReason: String,
+        terminalFocusPanelId: UUID?
+    ) {
+        publishCmuxSurfaceCreated(
+            panelId,
+            paneId: paneId,
+            kind: "terminal",
+            origin: origin,
+            focused: focused
+        )
+        beginEventDrivenLayoutFollowUp(
+            reason: layoutReason,
+            terminalFocusPanelId: terminalFocusPanelId,
+            includeGeometry: true
+        )
+    }
+
+    private func commitNewTerminalSplitPane(
+        sourcePaneId: PaneID,
+        orientation: SplitOrientation,
+        newTab: Bonsplit.Tab,
+        panelId: UUID,
+        insertFirst: Bool,
+        initialDividerPosition: CGFloat? = nil,
+        origin: String,
+        focused: Bool,
+        layoutReason: String,
+        terminalFocusPanelId: UUID?
+    ) -> PaneID? {
+        guard let newPaneId = bonsplitController.splitPane(
+            sourcePaneId,
+            orientation: orientation,
+            withTab: newTab,
+            insertFirst: insertFirst
+        ) else {
+            return nil
+        }
+        applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: sourcePaneId, newPaneId: newPaneId)
+        beginTerminalSplitPaneLifecycle(
+            newPaneId: newPaneId,
+            sourcePaneId: sourcePaneId,
+            orientation: orientation,
+            panelId: panelId,
+            origin: origin,
+            focused: focused,
+            layoutReason: layoutReason,
+            terminalFocusPanelId: terminalFocusPanelId
+        )
+        return newPaneId
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
@@ -12943,7 +13030,18 @@ final class Workspace: Identifiable, ObservableObject {
         // Create the split with the new tab already present in the new pane.
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
-        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
+        guard commitNewTerminalSplitPane(
+            sourcePaneId: paneId,
+            orientation: orientation,
+            newTab: newTab,
+            panelId: newPanel.id,
+            insertFirst: insertFirst,
+            initialDividerPosition: initialDividerPosition,
+            origin: "terminal_split",
+            focused: focus,
+            layoutReason: "terminal.split",
+            terminalFocusPanelId: focus ? newPanel.id : nil
+        ) != nil else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
@@ -12954,8 +13052,6 @@ final class Workspace: Identifiable, ObservableObject {
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return nil
         }
-        applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
-        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: focus)
 
 #if DEBUG
         cmuxDebugLog("split.created pane=\(paneId.id.uuidString.prefix(5)) orientation=\(orientation)")
@@ -16045,7 +16141,17 @@ final class Workspace: Identifiable, ObservableObject {
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
-        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
+        guard commitNewTerminalSplitPane(
+            sourcePaneId: paneId,
+            orientation: orientation,
+            newTab: newTab,
+            panelId: newPanel.id,
+            insertFirst: insertFirst,
+            origin: "terminal_split",
+            focused: true,
+            layoutReason: "terminal.splitPaneWithNewTerminal",
+            terminalFocusPanelId: newPanel.id
+        ) != nil else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
@@ -16055,7 +16161,6 @@ final class Workspace: Identifiable, ObservableObject {
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return nil
         }
-        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: true)
 
         bonsplitController.selectTab(newTab.id)
         newPanel.focus()
@@ -17243,7 +17348,14 @@ extension Workspace: BonsplitDelegate {
                         isLoading: false,
                         isPinned: false
                     )
-                    publishCmuxSurfaceCreated(replacementPanel.id, paneId: originalPane, kind: "terminal", origin: "placeholder_repair", focused: false)
+                    beginTerminalSplitSurfaceLifecycle(
+                        panelId: replacementPanel.id,
+                        paneId: originalPane,
+                        origin: "placeholder_repair",
+                        focused: false,
+                        layoutReason: "terminal.placeholderRepair",
+                        terminalFocusPanelId: nil
+                    )
 
                     for extraPlaceholder in placeholderTabs.dropFirst() {
                         bonsplitController.closeTab(extraPlaceholder.id)
@@ -17255,7 +17367,12 @@ extension Workspace: BonsplitDelegate {
                         "fallback=createTerminalAndDropPlaceholders"
                     )
 #endif
-                    _ = newTerminalSurface(inPane: originalPane, focus: false)
+                    if newTerminalSurface(inPane: originalPane, focus: false) != nil {
+                        beginEventDrivenLayoutFollowUp(
+                            reason: "terminal.placeholderRepairFallback",
+                            includeGeometry: true
+                        )
+                    }
                     for tab in controller.tabs(inPane: originalPane) {
                         if panelIdFromSurfaceId(tab.id) == nil {
                             bonsplitController.closeTab(tab.id)
@@ -17314,7 +17431,16 @@ extension Workspace: BonsplitDelegate {
 
         surfaceIdToPanelId[newTabId] = newPanel.id
         normalizePinnedTabs(in: newPane)
-        publishCmuxSplitCreated(newPane, sourcePaneId: originalPane, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "ui_split", focused: true)
+        beginTerminalSplitPaneLifecycle(
+            newPaneId: newPane,
+            sourcePaneId: originalPane,
+            orientation: orientation,
+            panelId: newPanel.id,
+            origin: "ui_split",
+            focused: true,
+            layoutReason: "terminal.uiSplit",
+            terminalFocusPanelId: newPanel.id
+        )
 #if DEBUG
         cmuxDebugLog(
             "split.didSplit.autoCreate.done pane=\(newPane.id.uuidString.prefix(5)) " +
@@ -17329,7 +17455,6 @@ extension Workspace: BonsplitDelegate {
             if self.bonsplitController.focusedPaneId == newPane {
                 self.bonsplitController.selectTab(newTabId)
             }
-            self.scheduleTerminalGeometryReconcile()
             self.scheduleFocusReconcile()
         }
     }
