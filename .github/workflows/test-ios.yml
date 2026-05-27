@@ -28,6 +28,9 @@ on:
           - iphone
           - ipad
 
+permissions:
+  contents: read
+
 jobs:
   mobile-core-package:
     runs-on: macos-26
@@ -37,6 +40,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
           submodules: false
 
       - name: Select Xcode
@@ -78,6 +82,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
           submodules: false
 
       - name: Select Xcode
