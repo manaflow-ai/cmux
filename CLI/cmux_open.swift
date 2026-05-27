@@ -4988,11 +4988,8 @@ extension CMUXCLI {
               min-width: 0;
               position: relative;
               overflow-y: auto;
-              overflow-x: clip;
+              overflow-x: hidden;
               overscroll-behavior: contain;
-              overflow-anchor: none;
-              contain: strict;
-              will-change: scroll-position;
               border-bottom: 1px solid var(--cmux-diff-border);
               background: inherit;
             }
@@ -5017,8 +5014,6 @@ extension CMUXCLI {
               --diffs-font-size: var(--cmux-diff-font-size);
               --diffs-line-height: var(--cmux-diff-line-height);
               --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
-              overflow: clip;
-              contain: layout paint style;
               box-shadow: 0 -1px 0 var(--cmux-diff-border), 0 1px 0 var(--cmux-diff-border);
             }
             #status {
