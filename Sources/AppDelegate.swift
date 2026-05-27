@@ -7075,7 +7075,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let existing = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) {
                 return existing
             }
-            let windowId = createMainWindow(initialTerminalInput: "")
+            let windowId = createMainWindow(initialTerminalInput: "", shouldActivate: shouldBringToFront)
             return mainWindowContexts.values.first { $0.windowId == windowId }
         }()
         guard let context else { return false }

@@ -133,9 +133,9 @@ extension AppDelegate {
         scheduleInitialMainWindowBootstrap(debugSource: debugSource)
     }
 
-    func bootstrapInitialMainWindowAfterAcceptedExternalOpen(debugSource: String) {
+    func bootstrapInitialMainWindowAfterAcceptedExternalOpen(debugSource: String, shouldActivate: Bool = true) {
         shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
-        _ = bootstrapInitialMainWindowIfNeeded(debugSource: debugSource)
+        _ = bootstrapInitialMainWindowIfNeeded(debugSource: debugSource, shouldActivate: shouldActivate)
     }
 
     func claimAuthCallbackURLSchemes() {
@@ -248,7 +248,10 @@ extension AppDelegate {
         }
 
         prepareForExplicitOpenIntentAtStartup()
-        bootstrapInitialMainWindowAfterAcceptedExternalOpen(debugSource: "textURL.confirmed")
+        bootstrapInitialMainWindowAfterAcceptedExternalOpen(
+            debugSource: "textURL.confirmed",
+            shouldActivate: !request.noFocus
+        )
         if !request.noFocus {
             NSApp.activate(ignoringOtherApps: true)
         }
@@ -304,11 +307,11 @@ extension AppDelegate {
         let messageFormat = request.kind == .prompt
             ? String(
                 localized: "dialog.textURL.prompt.message",
-                defaultValue: "A %@:// link is asking cmux to paste a prompt into the current workspace. cmux cannot verify which website or app opened this link.\n\ncmux will paste the text as bracketed input and will not press Return. Only continue if you trust this prompt."
+                defaultValue: "A %@:// link is asking cmux to paste a prompt into the current workspace. cmux cannot verify which website or app opened this link.\n\ncmux will paste the text into the terminal and will not press Return. Only continue if you trust this prompt."
             )
             : String(
                 localized: "dialog.textURL.rules.message",
-                defaultValue: "A %@:// link is asking cmux to paste rules into the current workspace. cmux cannot verify which website or app opened this link.\n\ncmux will paste the rules as bracketed input and will not write files or press Return. Only continue if you trust these rules."
+                defaultValue: "A %@:// link is asking cmux to paste rules into the current workspace. cmux cannot verify which website or app opened this link.\n\ncmux will paste the rules into the terminal and will not write files or press Return. Only continue if you trust these rules."
             )
         alert.informativeText = String(
             format: messageFormat,

@@ -433,7 +433,7 @@ struct CmuxTextURLRequest: Equatable {
             }
         }
 
-        guard let text = normalizedQueryValue(namedAnyOf: ["text"], in: queryItems) else {
+        guard let text = exactQueryValue(namedAnyOf: ["text"], in: queryItems) else {
             return .failure(.missingText)
         }
         guard text.count <= maxTextLength else {
@@ -553,6 +553,14 @@ struct CmuxTextURLRequest: Equatable {
         return normalized.isEmpty ? nil : normalized
     }
 
+    private static func exactQueryValue(namedAnyOf names: Set<String>, in queryItems: [ParsedQueryItem]) -> String? {
+        guard let value = queryItems.first(where: { names.contains($0.name.lowercased()) })?.value,
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
     private static func normalizedBooleanValue(named name: String, in queryItems: [ParsedQueryItem]) -> Result<Bool, CmuxTextURLParseError> {
         guard let item = queryItems.first(where: { $0.name.lowercased() == name }) else {
             return .success(false)
@@ -577,7 +585,7 @@ struct CmuxTextURLRequest: Equatable {
     private static func containsUnsafeTextCharacter(_ value: String) -> Bool {
         value.unicodeScalars.contains { scalar in
             switch scalar.value {
-            case 0x09, 0x0A, 0x0D:
+            case 0x09:
                 return false
             default:
                 break

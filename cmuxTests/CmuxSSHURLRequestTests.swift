@@ -556,7 +556,7 @@ final class CmuxSSHURLRequestTests: XCTestCase {
 
     func testParsesPromptURLWithTextTitleAndNoFocus() throws {
         let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
-            URLQueryItem(name: "text", value: "Review this branch\nDo not run tests yet."),
+            URLQueryItem(name: "text", value: "Review this branch without running tests yet."),
             URLQueryItem(name: "title", value: "Review prompt"),
             URLQueryItem(name: "no-focus", value: "true")
         ]))
@@ -564,11 +564,27 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         switch CmuxTextURLRequest.parse(url) {
         case .success(.some(let request)):
             XCTAssertEqual(request.kind, .prompt)
-            XCTAssertEqual(request.text, "Review this branch\nDo not run tests yet.")
+            XCTAssertEqual(request.text, "Review this branch without running tests yet.")
             XCTAssertEqual(request.title, "Review prompt")
             XCTAssertNil(request.name)
             XCTAssertTrue(request.noFocus)
             XCTAssertEqual(request.pasteText, request.text)
+        case .success(nil):
+            XCTFail("Expected prompt URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testPreservesPromptURLTextWhitespace() throws {
+        let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
+            URLQueryItem(name: "text", value: "  indented prompt  ")
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.text, "  indented prompt  ")
+            XCTAssertEqual(request.pasteText, "  indented prompt  ")
         case .success(nil):
             XCTFail("Expected prompt URL request")
         case .failure(let error):
@@ -674,6 +690,21 @@ final class CmuxSSHURLRequestTests: XCTestCase {
             break
         default:
             XCTFail("Expected unsafe text character rejection")
+        }
+    }
+
+    func testRejectsTextURLLineBreaks() throws {
+        for value in ["hello\nworld", "hello\rworld"] {
+            let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
+                URLQueryItem(name: "text", value: value)
+            ]))
+
+            switch CmuxTextURLRequest.parse(url) {
+            case .failure(.textContainsUnsafeCharacters):
+                break
+            default:
+                XCTFail("Expected line break rejection for \(value.debugDescription)")
+            }
         }
     }
 
