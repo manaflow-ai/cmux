@@ -5364,10 +5364,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard next != tmuxControlState else { return }
         tmuxControlState = next
 #if DEBUG
-        cmuxDebugLog(
-            "tmux.control surface=\(id.uuidString.prefix(5)) active=\(next.active) " +
-            "event=\(next.lastEvent) panes=\(next.paneIds)"
-        )
+        if next.lastEvent != "pane_output" {
+            cmuxDebugLog(
+                "tmux.control surface=\(id.uuidString.prefix(5)) active=\(next.active) " +
+                "event=\(next.lastEvent) panes=\(next.paneIds)"
+            )
+        }
 #endif
     }
 
