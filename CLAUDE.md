@@ -2,11 +2,19 @@
 
 ## Initial setup
 
-Run the setup script to initialize submodules and build GhosttyKit:
+Run the setup script to initialize submodules, build GhosttyKit, and install the pbxproj normalization pre-commit hook:
 
 ```bash
 ./scripts/setup.sh
 ```
+
+## Xcode toolchain
+
+The team is pinned to Xcode 26.x. `.xcode-version` records the major; `cmux.xcodeproj/project.pbxproj` carries `objectVersion = 60`, which is what Xcode 26 writes by default. (objectVersion 77 is reserved for projects that adopt synchronized folder groups, which cmux does not use yet. Bumping to a different value requires a deliberate team decision.)
+
+`scripts/setup.sh` installs a tracked pre-commit hook (`scripts/git-hooks/pre-commit`) that runs `scripts/normalize-pbxproj.py` on any staged `cmux.xcodeproj/project.pbxproj`, sorting the high-churn sections so Xcode's nondeterministic reordering never reaches a commit. The hook is idempotent. CI runs `scripts/check-pbxproj.sh` to enforce both the `objectVersion` pin and normalization, so anyone who skips the hook (or never ran setup) gets a clear failure on their PR.
+
+To bump the pin: edit `EXPECTED_OBJECT_VERSION` in `scripts/check-pbxproj.sh`, update this paragraph, and update `.xcode-version`.
 
 ## Local dev
 
