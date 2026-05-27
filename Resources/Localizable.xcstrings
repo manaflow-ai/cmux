@@ -20479,13 +20479,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "No"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "キャンセル"
+            "value": "いいえ"
           }
         }
       }
@@ -20802,13 +20802,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A %@:// link is asking cmux to open an SSH workspace. cmux cannot verify which website or app opened this link.\n\nSSH may use your local SSH config, keys, agent settings, ProxyCommand, LocalCommand, and forwarding rules for this target. External links cannot supply arbitrary SSH options. Only continue if you trust this SSH target."
+            "value": "An external link wants to open \"%@\" in cmux. Do you want to open this SSH workspace?\n\nIf you did not initiate this request, it may represent an attempted attack on your system. Only continue if you explicitly started this action."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@:// リンクが SSH ワークスペースを開くよう cmux に要求しています。cmux は、このリンクを開いた Web サイトやアプリを確認できません。\n\nSSH はこの接続先に対して、ローカルの SSH 設定、鍵、エージェント設定、ProxyCommand、LocalCommand、ポート転送ルールを使用する場合があります。外部リンクは任意の SSH オプションを指定できません。この SSH 接続先を信頼している場合のみ続行してください。"
+            "value": "外部リンクが \"%@\" を cmux で開こうとしています。この SSH ワークスペースを開きますか？\n\nこの操作を開始した覚えがない場合、システムへの攻撃の可能性があります。明示的にこの操作を開始した場合のみ続行してください。"
           }
         }
       }
@@ -20819,13 +20819,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect"
+            "value": "Open"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続"
+            "value": "開く"
           }
         }
       }
@@ -20836,13 +20836,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open an SSH Connection From an External Link?"
+            "value": "Open SSH Workspace in cmux?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "外部リンクから SSH 接続を開きますか？"
+            "value": "cmux で SSH ワークスペースを開きますか？"
           }
         }
       }

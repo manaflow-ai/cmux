@@ -86,6 +86,31 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
+    func testParsesSSHURLWithFreestyleUserDelimiters() throws {
+        let cases = [
+            "workspace123,session-token_ABC.2yi9kzY-dysFsVBKh",
+            "workspace123:session-token_ABC.2yi9kzY-dysFsVBKh"
+        ]
+
+        for user in cases {
+            let host = "workspace123.vm-ssh.freestyle.sh"
+            let url = try XCTUnwrap(sshURL(queryItems: [
+                URLQueryItem(name: "host", value: host),
+                URLQueryItem(name: "user", value: user)
+            ]))
+
+            switch CmuxSSHURLRequest.parse(url) {
+            case .success(.some(let request)):
+                XCTAssertEqual(request.destination, "\(user)@\(host)")
+                XCTAssertEqual(request.cliArguments, ["ssh", "\(user)@\(host)"])
+            case .success(nil):
+                XCTFail("Expected SSH URL request")
+            case .failure(let error):
+                XCTFail("Unexpected parse error for \(user): \(error)")
+            }
+        }
+    }
+
     func testCommandPreviewIncludesSocketPathWhenProvided() throws {
         let url = try XCTUnwrap(sshURL(queryItems: [
             URLQueryItem(name: "host", value: "dev.example.com"),
@@ -517,7 +542,7 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         components.host = "ssh"
         components.queryItems = [
             URLQueryItem(name: "host", value: "dev.example.com"),
-            URLQueryItem(name: "user", value: "alice:bad")
+            URLQueryItem(name: "user", value: "alice;bad")
         ]
         let url = try XCTUnwrap(components.url)
 

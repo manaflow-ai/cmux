@@ -121,17 +121,6 @@ final class CmuxSSHURLProcessLauncher {
     }
 }
 
-@MainActor
-private final class CmuxSSHURLConfirmationGate: NSObject {
-    weak var connectButton: NSButton?
-
-    deinit {}
-
-    @objc func checkboxChanged(_ sender: NSButton) {
-        connectButton?.isEnabled = sender.state == .on
-    }
-}
-
 extension AppDelegate {
     func deferInitialMainWindowBootstrapForExternalConfirmation() {
         guard !didAttemptStartupSessionRestore, !didHandleExplicitOpenIntentAtStartup else { return }
@@ -276,46 +265,32 @@ extension AppDelegate {
 
     private func confirmCmuxSSHURLRequest(_ request: CmuxSSHURLRequest) -> Bool {
         let alert = NSAlert()
-        alert.alertStyle = .critical
+        alert.alertStyle = .warning
         alert.messageText = String(
             localized: "dialog.sshURL.title",
-            defaultValue: "Open an SSH Connection From an External Link?"
+            defaultValue: "Open SSH Workspace in cmux?"
         )
-        let scheme = request.originalURL.scheme ?? AuthEnvironment.callbackScheme
         alert.informativeText = String(
             format: String(
                 localized: "dialog.sshURL.message",
-                defaultValue: "A %@:// link is asking cmux to open an SSH workspace. cmux cannot verify which website or app opened this link.\n\nSSH may use your local SSH config, keys, agent settings, ProxyCommand, LocalCommand, and forwarding rules for this target. External links cannot supply arbitrary SSH options. Only continue if you trust this SSH target."
+                defaultValue: "An external link wants to open \"%@\" in cmux. Do you want to open this SSH workspace?\n\nIf you did not initiate this request, it may represent an attempted attack on your system. Only continue if you explicitly started this action."
             ),
-            scheme
+            request.displayTarget
         )
 
-        let cancelTitle = String(localized: "dialog.sshURL.cancel", defaultValue: "Cancel")
-        let runTitle = String(localized: "dialog.sshURL.run", defaultValue: "Connect")
+        let cancelTitle = String(localized: "dialog.sshURL.cancel", defaultValue: "No")
+        let runTitle = String(localized: "dialog.sshURL.run", defaultValue: "Open")
         alert.addButton(withTitle: cancelTitle)
         alert.addButton(withTitle: runTitle)
 
         let cancelButton = alert.buttons[0]
         cancelButton.keyEquivalent = "\r"
         if alert.buttons.count > 1 {
-            let connectButton = alert.buttons[1]
-            connectButton.keyEquivalent = ""
-            connectButton.isEnabled = false
-            if #available(macOS 11.0, *) {
-                connectButton.hasDestructiveAction = true
-            }
+            alert.buttons[1].keyEquivalent = ""
         }
 
-        let gate = CmuxSSHURLConfirmationGate()
-        if alert.buttons.count > 1 {
-            gate.connectButton = alert.buttons[1]
-        }
-        alert.accessoryView = cmuxSSHURLAccessoryView(request: request, gate: gate)
-
-        let response: NSApplication.ModalResponse = withExtendedLifetime(gate) {
-            alert.runModal()
-        }
-        return response == .alertSecondButtonReturn
+        alert.accessoryView = cmuxSSHURLAccessoryView(request: request)
+        return alert.runModal() == .alertSecondButtonReturn
     }
 
     private func confirmCmuxTextURLRequest(_ request: CmuxTextURLRequest) -> Bool {
@@ -353,10 +328,7 @@ extension AppDelegate {
         return alert.runModal() == .alertSecondButtonReturn
     }
 
-    private func cmuxSSHURLAccessoryView(
-        request: CmuxSSHURLRequest,
-        gate: CmuxSSHURLConfirmationGate
-    ) -> NSView {
+    private func cmuxSSHURLAccessoryView(request: CmuxSSHURLRequest) -> NSView {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -383,18 +355,7 @@ extension AppDelegate {
         stack.addArrangedSubview(commandLabel)
         stack.addArrangedSubview(commandScrollView)
 
-        let checkbox = NSButton(
-            checkboxWithTitle: String(
-                localized: "dialog.sshURL.checkbox",
-                defaultValue: "I trust this SSH target and want cmux to connect."
-            ),
-            target: gate,
-            action: #selector(CmuxSSHURLConfirmationGate.checkboxChanged(_:))
-        )
-        checkbox.lineBreakMode = .byWordWrapping
-        stack.addArrangedSubview(checkbox)
-
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 156))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 128))
         container.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -402,8 +363,7 @@ extension AppDelegate {
             stack.topAnchor.constraint(equalTo: container.topAnchor),
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             targetLabel.widthAnchor.constraint(equalTo: container.widthAnchor),
-            commandScrollView.widthAnchor.constraint(equalTo: container.widthAnchor),
-            checkbox.widthAnchor.constraint(equalTo: container.widthAnchor)
+            commandScrollView.widthAnchor.constraint(equalTo: container.widthAnchor)
         ])
         return container
     }

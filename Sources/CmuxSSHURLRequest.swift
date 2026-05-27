@@ -320,7 +320,7 @@ struct CmuxSSHURLRequest: Equatable {
 
     private static func isAllowedSSHUser(_ value: String) -> Bool {
         guard !containsUnsafeHiddenCharacter(value) else { return false }
-        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._%+=-")
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._%+=,:-")
         return value.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 
