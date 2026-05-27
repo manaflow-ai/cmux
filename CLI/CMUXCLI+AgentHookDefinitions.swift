@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -16,7 +17,7 @@ extension CMUXCLI {
         let sessionStoreSuffix: String // e.g. "cursor" -> ~/.cmuxterm/cursor-hook-sessions.json
         let disableEnvVar: String   // e.g. "CMUX_CURSOR_HOOKS_DISABLED"
         let hookMarker: String      // Marker in commands: "cmux hooks cursor"
-        let binaryName: String
+        let binaryNames: [String]
         let format: HookFormat
         let events: [HookEvent]
         let aliases: Set<String>
@@ -28,6 +29,7 @@ extension CMUXCLI {
         /// approve/deny a permission / plan / question.
         let feedHookEvents: [String]
         let postInstallAction: PostInstallAction?
+        var binaryName: String { binaryNames.first ?? name }
 
         enum HookFormat {
             case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
@@ -65,7 +67,10 @@ extension CMUXCLI {
                    !subpath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     url.appendPathComponent(subpath, isDirectory: true)
                 }
-                return url.path
+                let path = url.path
+                return envKey == "PI_CODING_AGENT_DIR"
+                    ? PiConfigDirectoryPath.preferredPath(path, homeDirectory: home)
+                    : path
             }
             return URL(fileURLWithPath: home, isDirectory: true)
                 .appendingPathComponent(configDir, isDirectory: true)
@@ -77,6 +82,7 @@ extension CMUXCLI {
              configDirEnvOverrideSubpath: String? = nil,
              createConfigDirIfMissing: Bool = false,
              binaryName: String? = nil,
+             binaryNames: [String] = [],
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],
              aliases: Set<String> = [],
@@ -88,7 +94,14 @@ extension CMUXCLI {
             self.configDirEnvOverride = configDirEnvOverride
             self.configDirEnvOverrideSubpath = configDirEnvOverrideSubpath
             self.createConfigDirIfMissing = createConfigDirIfMissing
-            self.binaryName = binaryName ?? name
+            var seenBinaryNames = Set<String>()
+            var normalizedBinaryNames: [String] = []
+            for candidate in [binaryName ?? name] + binaryNames {
+                let normalized = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !normalized.isEmpty, seenBinaryNames.insert(normalized).inserted else { continue }
+                normalizedBinaryNames.append(normalized)
+            }
+            self.binaryNames = normalizedBinaryNames.isEmpty ? [name] : normalizedBinaryNames
             self.sessionStoreSuffix = sessionStoreSuffix; self.disableEnvVar = disableEnvVar
             self.hookMarker = hookMarker; self.format = format; self.events = events
             self.publishesStopNotification = publishesStopNotification
@@ -160,9 +173,11 @@ extension CMUXCLI {
         AgentHookDef(
             name: "pi", displayName: "Pi", statusKey: "pi",
             configDir: ".pi/agent", configFile: "extensions/cmux-session.ts", configDirEnvOverride: "PI_CODING_AGENT_DIR",
+            binaryName: "pir", binaryNames: ["pi", "pi-rust", "pi-coding-agent"],
             sessionStoreSuffix: "pi", disableEnvVar: "CMUX_PI_HOOKS_DISABLED",
             hookMarker: "cmux hooks pi", format: .flat,
-            events: []
+            events: [],
+            aliases: ["pir", "pi-rust"]
         ),
         AgentHookDef(
             name: "amp", displayName: "Amp", statusKey: "amp",

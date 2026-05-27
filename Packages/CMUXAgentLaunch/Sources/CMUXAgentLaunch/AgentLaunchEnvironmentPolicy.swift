@@ -1,25 +1,68 @@
 import Foundation
 
+public enum SubrouterConfigDirectoryPath {
+    public static func preferredPath(
+        _ rawPath: String,
+        agentDirectoryName: String,
+        fileManager: FileManager = .default,
+        homeDirectory: String = NSHomeDirectory()
+    ) -> String {
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return rawPath }
+        let agentName = agentDirectoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !agentName.isEmpty else { return rawPath }
+
+        let standardized = ((trimmed as NSString).expandingTildeInPath as NSString).standardizingPath
+        let aliasHome = (homeDirectory as NSString).expandingTildeInPath
+        let home = ((homeDirectory as NSString).expandingTildeInPath as NSString).standardizingPath
+        let legacyRoot = ((home as NSString)
+            .appendingPathComponent(".subrouter/codex/\(agentName)") as NSString)
+            .standardizingPath
+        guard standardized == legacyRoot || standardized.hasPrefix(legacyRoot + "/") else { return standardized }
+
+        let accountContainer = (aliasHome as NSString).appendingPathComponent(".codex-accounts")
+        let accountRoot = (accountContainer as NSString).appendingPathComponent(agentName)
+        let candidate = accountRoot + String(standardized.dropFirst(legacyRoot.count))
+        var isDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: candidate, isDirectory: &isDirectory) && isDirectory.boolValue {
+            return candidate
+        }
+        if (try? fileManager.destinationOfSymbolicLink(atPath: accountContainer)) != nil,
+           fileManager.fileExists(atPath: standardized, isDirectory: &isDirectory),
+           isDirectory.boolValue {
+            return candidate
+        }
+        return standardized
+    }
+}
+
 public enum ClaudeConfigDirectoryPath {
     public static func preferredPath(
         _ rawPath: String,
         fileManager: FileManager = .default,
         homeDirectory: String = NSHomeDirectory()
     ) -> String {
-        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return rawPath }
+        SubrouterConfigDirectoryPath.preferredPath(
+            rawPath,
+            agentDirectoryName: "claude",
+            fileManager: fileManager,
+            homeDirectory: homeDirectory
+        )
+    }
+}
 
-        let standardized = ((trimmed as NSString).expandingTildeInPath as NSString).standardizingPath
-        let home = ((homeDirectory as NSString).expandingTildeInPath as NSString).standardizingPath
-        let legacyRoot = ((home as NSString).appendingPathComponent(".subrouter/codex/claude") as NSString).standardizingPath
-        guard standardized == legacyRoot || standardized.hasPrefix(legacyRoot + "/") else { return standardized }
-
-        let accountRoot = ((home as NSString).appendingPathComponent(".codex-accounts/claude") as NSString).standardizingPath
-        let candidate = accountRoot + String(standardized.dropFirst(legacyRoot.count))
-        var isDirectory: ObjCBool = false
-        return fileManager.fileExists(atPath: candidate, isDirectory: &isDirectory) && isDirectory.boolValue
-            ? candidate
-            : standardized
+public enum PiConfigDirectoryPath {
+    public static func preferredPath(
+        _ rawPath: String,
+        fileManager: FileManager = .default,
+        homeDirectory: String = NSHomeDirectory()
+    ) -> String {
+        SubrouterConfigDirectoryPath.preferredPath(
+            rawPath,
+            agentDirectoryName: "pi",
+            fileManager: fileManager,
+            homeDirectory: homeDirectory
+        )
     }
 }
 
@@ -71,10 +114,13 @@ public enum AgentLaunchEnvironmentPolicy {
         "USE_BUILTIN_RIPGREP"
     ]
 
-    public static func selectedEnvironment(from env: [String: String]) -> [String: String] {
+    public static func selectedEnvironment(
+        from env: [String: String],
+        homeDirectory: String = NSHomeDirectory()
+    ) -> [String: String] {
         var result: [String: String] = [:]
         for key in safeEnvironmentKeys.sorted() where key != "NODE_OPTIONS" {
-            guard let value = sanitizedValue(key: key, value: env[key]) else { continue }
+            guard let value = sanitizedValue(key: key, value: env[key], homeDirectory: homeDirectory) else { continue }
             result[key] = value
         }
         if let nodeOptions = selectedNodeOptions(from: env) {
@@ -83,11 +129,17 @@ public enum AgentLaunchEnvironmentPolicy {
         return result
     }
 
-    public static func sanitizedValue(key: String, value: String?) -> String? {
+    public static func sanitizedValue(
+        key: String,
+        value: String?,
+        homeDirectory: String = NSHomeDirectory()
+    ) -> String? {
         guard safeEnvironmentKeys.contains(key) else { return nil }
         switch key {
         case "CLAUDE_CONFIG_DIR":
-            return value.map { ClaudeConfigDirectoryPath.preferredPath($0) }
+            return value.map { ClaudeConfigDirectoryPath.preferredPath($0, homeDirectory: homeDirectory) }
+        case "PI_CODING_AGENT_DIR":
+            return value.map { PiConfigDirectoryPath.preferredPath($0, homeDirectory: homeDirectory) }
         case "NODE_OPTIONS":
             return sanitizedNodeOptions(value)
         default:

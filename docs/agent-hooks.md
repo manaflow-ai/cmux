@@ -11,7 +11,7 @@ cmux hooks setup --agent <agent>
 cmux hooks uninstall <agent>
 ```
 
-Supported agent names are `codex`, `grok`, `opencode`, `pi`, `amp`, `cursor`, `gemini`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
+Supported agent names are `codex`, `grok`, `opencode`, `pi` (or `pir` for the Rust CLI), `amp`, `cursor`, `gemini`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
 
 ## Integrations
 
@@ -21,7 +21,7 @@ Supported agent names are `codex`, `grok`, `opencode`, `pi`, `amp`, `cursor`, `g
 | Codex | `codex` | `~/.codex/hooks.json`, `~/.codex/config.toml` | `codex resume <id>` | PreToolUse, PermissionRequest |
 | Grok | `grok` | `~/.grok/hooks/cmux-session.json` | `grok -r <id>` | PreToolUse |
 | OpenCode | `opencode` | `~/.config/opencode/plugins/cmux-session.js`, `~/.config/opencode/plugins/cmux-feed.js` | `opencode --session <id>` | plugin event bus |
-| Pi | `pi` | `~/.pi/agent/extensions/cmux-session.ts` | `pi --session <id>` | none |
+| Pi | `pir`, `pi-rust`, or `pi` | `~/.pi/agent/extensions/cmux-session.ts` | `pir --session <id>` or `pi --session <id>` | none |
 | Amp | `amp` | `~/.config/amp/plugins/cmux-session.ts` | `amp threads continue <id>` | none |
 | Cursor CLI | `cursor-agent` | `~/.cursor/hooks.json` | `cursor-agent --resume <id>` | beforeShellExecution |
 | Gemini | `gemini` | `~/.gemini/settings.json` | `gemini --resume <id>` | PreToolUse |
@@ -46,6 +46,8 @@ Session hooks write `~/.cmuxterm/<agent>-hook-sessions.json`. Each entry stores 
 The sanitizer preserves model, sandbox, config, and cwd-related flags. It drops prompts, credentials, old session selectors, and noninteractive commands so relaunch resumes the session instead of starting a new task or leaking secrets.
 
 Grok uses its `Notification` hook for user-facing completion messages. cmux records `Stop` as idle state, but leaves the visible notification text to the `Notification` payload so repeated turns keep Grok's own message instead of a generic completion fallback.
+
+Pi sends `session_start`, `before_agent_start`, and `agent_end` through the installed extension. On completion, cmux includes the last assistant message in the native notification when Pi provides it.
 
 ## Agent Hibernation
 
@@ -122,7 +124,28 @@ and browser state. Restored agent terminals stay idle until you resume them manu
 | Factory | none | `CMUX_FACTORY_HOOKS_DISABLED=1` |
 | Qoder | `QODER_CONFIG_DIR` | `CMUX_QODER_HOOKS_DISABLED=1` |
 
-Pi uses Pi's extension system, not the legacy Pi hooks API. The installed extension is auto-discovered from `~/.pi/agent/extensions/` or `$PI_CODING_AGENT_DIR/extensions/`.
+Pi uses Pi's extension system, not the legacy Pi hooks API. The installed extension is auto-discovered from `~/.pi/agent/extensions/` or `$PI_CODING_AGENT_DIR/extensions/`. Rust Pi installs can use `cmux hooks pir install --yes`; cmux stores the session under the shared `pi` session store and resumes with the captured executable.
+
+When Subrouter points `PI_CODING_AGENT_DIR` at `~/.subrouter/codex/pi/...`, cmux prefers the matching `~/.codex-accounts/pi/...` alias when it exists. The same normalization is applied to hook installation, terminal startup, and saved resume commands.
+
+For Subrouter account routing, Pi also needs its Codex provider URL pointed at the Subrouter backend. `PI_CODING_AGENT_DIR` controls which Pi config directory is read, but it does not change the OpenAI Codex endpoint by itself. Add this to `~/.pi/agent/models.json` or the active `$PI_CODING_AGENT_DIR/models.json`, replacing the host with the selected Subrouter server when needed:
+
+```json
+{
+  "providers": {
+    "openai-codex": {
+      "baseUrl": "http://subrouter-team:31415/backend-api",
+      "api": "openai-codex-responses",
+      "headers": {
+        "X-Subrouter-Agent": "pi",
+        "X-Subrouter-Session": "!printf 'pir-%s-%s\\n' \"${CMUX_WORKSPACE_ID:-standalone}\" \"${CMUX_SURFACE_ID:-$PPID}\""
+      }
+    }
+  }
+}
+```
+
+Pi normalizes the `backend-api` URL to the Codex responses endpoint. The session header keeps all turns from the same cmux pane on the same Subrouter account while still allowing standalone `pir` runs to get their own session key.
 
 ## Troubleshooting
 

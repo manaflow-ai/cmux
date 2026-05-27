@@ -84,7 +84,7 @@ Installs supported agent hooks whose binaries are on `PATH`. See [Agent hook int
 | CodeBuddy    | `~/.codebuddy/settings.json`              | PreToolUse               |
 | Factory      | `~/.factory/settings.json`                | PreToolUse               |
 | Qoder        | `~/.qoder/settings.json`                  | PreToolUse               |
-| Pi           | `~/.pi/agent/extensions/cmux-session.ts`  | lifecycle only           |
+| Pi (`pir` or `pi`) | `~/.pi/agent/extensions/cmux-session.ts` | lifecycle only           |
 | Rovo Dev     | `~/.rovodev/config.yml`                   | lifecycle only           |
 
 Individual agents:
@@ -96,7 +96,7 @@ cmux hooks opencode install --project     # .opencode/plugins/cmux-feed.js in cw
 cmux hooks <agent> uninstall
 ```
 
-Agents without a binary on `PATH` are skipped at install time, and `cmux hooks setup` prints a summary line naming the ones it skipped. Use `cmux hooks setup --agent <name>` or `cmux hooks setup <name>` to install one integration, and `cmux hooks uninstall --agent <name>` or `cmux hooks uninstall <name>` to remove one. Rovo Dev accepts either `rovodev` or `rovo`.
+Agents without a binary on `PATH` are skipped at install time, and `cmux hooks setup` prints a summary line naming the ones it skipped. Use `cmux hooks setup --agent <name>` or `cmux hooks setup <name>` to install one integration, and `cmux hooks uninstall --agent <name>` or `cmux hooks uninstall <name>` to remove one. Pi accepts either `pi` or `pir`; Rovo Dev accepts either `rovodev` or `rovo`.
 
 ## Decision semantics
 
