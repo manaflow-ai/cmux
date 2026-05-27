@@ -846,6 +846,19 @@ final class CmuxSettingsFileStore {
                 BrowserEngineSettings.engine(for: raw).rawValue
             )
         }
+        if let raw = jsonString(section["customSearchEngineName"]) {
+            snapshot.managedUserDefaults[BrowserSearchSettings.customSearchEngineNameKey] = .string(
+                BrowserSearchSettings.normalizedCustomSearchEngineName(raw)
+                    ?? BrowserSearchSettings.defaultCustomSearchEngineName
+            )
+        }
+        if let raw = jsonString(section["customSearchEngineURLTemplate"]) {
+            if BrowserSearchSettings.isValidSearchURLTemplate(raw) {
+                snapshot.managedUserDefaults[BrowserSearchSettings.customSearchEngineURLTemplateKey] = .string(raw)
+            } else {
+                logInvalid("browser.customSearchEngineURLTemplate", sourcePath: sourcePath)
+            }
+        }
         if let value = jsonBool(section["showSearchSuggestions"]) {
             snapshot.managedUserDefaults[BrowserSearchSettings.searchSuggestionsEnabledKey] = .bool(value)
         }

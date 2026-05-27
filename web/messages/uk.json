@@ -499,6 +499,11 @@
         },
         "terminal": {
           "copyOnSelect": "Копіює вибраний текст термінала до системного буфера обміну після підтвердження виділення, зокрема слова й рядки, вибрані подвійним або потрійним клацанням."
+        },
+        "browser": {
+          "defaultSearchEngine": "Пошукова система за замовчуванням для запитів в адресному рядку браузера, які не є URL. Для інших провайдерів використовуйте custom з customSearchEngineURLTemplate.",
+          "customSearchEngineName": "Назва для показу, коли defaultSearchEngine має значення custom.",
+          "customSearchEngineURLTemplate": "URL пошуку, який використовується коли defaultSearchEngine має значення custom. Додайте заповнювач запиту або %s для закодованого запиту. Без заповнювача cmux додасть q= до URL."
         }
       }
     },
