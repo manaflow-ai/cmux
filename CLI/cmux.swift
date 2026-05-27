@@ -2829,6 +2829,12 @@ struct CMUXCLI {
             return
         }
 
+        // If the argument is a path (not a known command), open a workspace there.
+        if shouldOpenAsPathArgument(command), explicitSocketPath == nil {
+            try openPath(command)
+            return
+        }
+
         let envSocketPath = explicitSocketPath == nil
             ? try CLISocketEnvironment.socketPath(in: processEnv)
             : CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
@@ -2861,9 +2867,8 @@ struct CMUXCLI {
             bundleIdentifier: cliBundleIdentifier
         )
 
-        // If the argument looks like a path (not a known command), open a workspace there.
-        if looksLikePath(command) {
-            try openPath(command, socketPath: resolvedSocketPath)
+        if shouldOpenAsPathArgument(command) {
+            try openPathViaExplicitSocket(command, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg)
             return
         }
 
@@ -3550,6 +3555,9 @@ struct CMUXCLI {
 
         case "reorder-workspaces":
             try runReorderWorkspaces(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "simulate-sidebar-drag":
+            try runSimulateSidebarDrag(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "workspace-action":
             try runWorkspaceAction(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
@@ -4718,50 +4726,340 @@ struct CMUXCLI {
         return false
     }
 
-    /// Open a path in cmux by creating a new workspace with the given directory.
-    /// Launches the app if it isn't already running.
-    private func openPath(_ path: String, socketPath: String) throws {
-        let resolved = resolvePath(path)
+    private func shouldOpenAsPathArgument(_ arg: String) -> Bool {
+        if looksLikePath(arg) {
+            return true
+        }
+        guard !arg.hasPrefix("-"),
+              !Self.topLevelCommandNames.contains(arg) else {
+            return false
+        }
+        return FileManager.default.fileExists(atPath: resolvePath(arg))
+    }
+
+    private static let topLevelCommandNames: Set<String> = [
+        "__codex-teams-watch",
+        "__tmux-compat",
+        "agent-hibernation",
+        "auth",
+        "bind-key",
+        "break-pane",
+        "browser",
+        "browser-back",
+        "browser-forward",
+        "browser-reload",
+        "browser-status",
+        "capabilities",
+        "capture-pane",
+        "claude-hook",
+        "claude-teams",
+        "clear-history",
+        "clear-log",
+        "clear-notifications",
+        "clear-progress",
+        "clear-status",
+        "close-surface",
+        "close-window",
+        "close-workspace",
+        "cloud",
+        "codex",
+        "codex-hook",
+        "codex-teams",
+        "config",
+        "copy-mode",
+        "current-window",
+        "current-workspace",
+        "debug-terminals",
+        "detach-tab",
+        "disable-browser",
+        "dismiss-notification",
+        "display-message",
+        "docs",
+        "drag-surface-to-split",
+        "enable-browser",
+        "events",
+        "feedback",
+        "feed",
+        "feed-hook",
+        "find-window",
+        "focus-pane",
+        "focus-panel",
+        "focus-webview",
+        "focus-window",
+        "get-url",
+        "help",
+        "hooks",
+        "identify",
+        "is-webview-focused",
+        "join-pane",
+        "jump-to-unread",
+        "last-pane",
+        "last-window",
+        "list-buffers",
+        "list-log",
+        "list-notifications",
+        "list-pane-surfaces",
+        "list-panels",
+        "list-panes",
+        "list-status",
+        "list-windows",
+        "list-workspaces",
+        "log",
+        "login",
+        "logout",
+        "markdown",
+        "mark-notification-read",
+        "memory",
+        "move-surface",
+        "move-tab-to-new-workspace",
+        "move-workspace-to-window",
+        "navigate",
+        "new-pane",
+        "new-split",
+        "new-surface",
+        "new-window",
+        "new-workspace",
+        "next-window",
+        "notify",
+        "omc",
+        "omo",
+        "omx",
+        "open",
+        "open-browser",
+        "open-notification",
+        "paste-buffer",
+        "ping",
+        "pipe-pane",
+        "popup",
+        "previous-window",
+        "read-screen",
+        "refresh-surfaces",
+        "reload-config",
+        "remote-daemon-status",
+        "rename-tab",
+        "rename-window",
+        "rename-workspace",
+        "reorder-surface",
+        "reorder-workspace",
+        "reorder-workspaces",
+        "resize-pane",
+        "respawn-pane",
+        "restore-session",
+        "right-sidebar",
+        "rpc",
+        "select-workspace",
+        "send",
+        "send-key",
+        "send-key-panel",
+        "send-panel",
+        "set-app-focus",
+        "set-buffer",
+        "set-hook",
+        "set-progress",
+        "set-status",
+        "settings",
+        "setup-hooks",
+        "shortcuts",
+        "simulate-app-active",
+        "sidebar-state",
+        "split-off",
+        "ssh",
+        "ssh-pty-attach",
+        "ssh-session-attach",
+        "ssh-session-cleanup",
+        "ssh-session-end",
+        "ssh-session-list",
+        "surface",
+        "surface-health",
+        "surface-resume",
+        "swap-pane",
+        "tab-action",
+        "themes",
+        "top",
+        "tree",
+        "trigger-flash",
+        "unbind-key",
+        "uninstall-hooks",
+        "version",
+        "vm",
+        "vm-pty-attach",
+        "vm-pty-connect",
+        "vm-ssh-attach",
+        "wait-for",
+        "welcome",
+        "workspace-action",
+    ]
+
+    /// Open a path in cmux by asking LaunchServices to deliver a directory URL to the app.
+    private func openPath(_ path: String) throws {
+        let directory = try directoryForPathOpen(path)
+        try openDirectoryWithLaunchServices(directory)
+        print(String(localized: "common.ok", defaultValue: "OK"))
+    }
+
+    /// Open a path through an explicitly selected socket, preserving deliberate instance routing.
+    private func openPathViaExplicitSocket(_ path: String, socketPath: String, explicitPassword: String?) throws {
+        let directory = try directoryForPathOpen(path)
+        let client = try connectClient(
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            launchIfNeeded: true
+        )
+        defer { client.close() }
+
+        let response = try client.sendV2(method: "workspace.create", params: ["cwd": directory])
+        let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+        let okText = String(localized: "common.ok", defaultValue: "OK")
+        print(wsRef.isEmpty ? okText : "\(okText) \(wsRef)")
+        try activateApp()
+    }
+
+    private func directoryForPathOpen(_ path: String) throws -> String {
+        let resolved = URL(fileURLWithPath: resolvePath(path)).standardizedFileURL.path
         var isDir: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir)
 
-        let directory: String
         if exists && isDir.boolValue {
-            directory = resolved
-        } else if exists {
-            // It's a file; use its parent directory
-            directory = (resolved as NSString).deletingLastPathComponent
-        } else {
-            throw CLIError(message: "Path does not exist: \(resolved)")
+            return resolved
+        }
+        if exists {
+            return (resolved as NSString).deletingLastPathComponent
         }
 
-        // Try connecting to the socket. If it fails, launch the app and retry.
-        let client = SocketClient(path: socketPath)
-        if (try? client.connect()) == nil {
-            client.close()
-            try launchApp()
-            let launchedClient = try SocketClient.waitForConnectableSocket(path: socketPath, timeout: 10)
-            defer { launchedClient.close() }
-            let params: [String: Any] = ["cwd": directory]
-            let response = try launchedClient.sendV2(method: "workspace.create", params: params)
-            let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
-            if !wsRef.isEmpty {
-                print("OK \(wsRef)")
+        throw CLIError(message: localizedFormat("cli.pathOpen.error.pathDoesNotExist", defaultValue: "Path does not exist: %@", resolved))
+    }
+
+    private func openDirectoryWithLaunchServices(_ directory: String) throws {
+        try runOpenTool(
+            arguments: ["-a", appLaunchTarget(), directory],
+            failureMessage: localizedFormat("cli.pathOpen.error.openFailed", defaultValue: "Failed to open %@ in cmux", directory),
+            environment: launchServicesPathOpenEnvironment()
+        )
+    }
+
+    private func runOpenTool(
+        arguments: [String],
+        failureMessage: String,
+        environment: [String: String]? = nil
+    ) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: openToolPath())
+        process.arguments = arguments
+        if let environment {
+            process.environment = environment
+        }
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+
+        if try !waitForProcessExit(process, timeout: 10) {
+            process.terminate()
+            if try !waitForProcessExit(process, timeout: 1) {
+                kill(process.processIdentifier, SIGKILL)
+                _ = try? waitForProcessExit(process, timeout: 1)
             }
-            try activateApp()
-            return
-        }
-        defer { client.close() }
-
-        let params: [String: Any] = ["cwd": directory]
-        let response = try client.sendV2(method: "workspace.create", params: params)
-        let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
-        if !wsRef.isEmpty {
-            print("OK \(wsRef)")
+            throw CLIError(message: localizedFormat("cli.pathOpen.error.timedOut", defaultValue: "%@ (timed out)", failureMessage))
         }
 
-        // Bring the app to front
-        try activateApp()
+        guard process.terminationStatus == 0 else {
+            throw CLIError(message: failureMessage)
+        }
+    }
+
+    private static let launchServicesPathOpenScrubbedEnvironmentKeys: Set<String> = [
+        "CMUX_ALLOW_SOCKET_OVERRIDE",
+        "CMUX_SOCKET",
+        "CMUX_SOCKET_ENABLE",
+        "CMUX_SOCKET_MODE",
+        "CMUX_SOCKET_PASSWORD",
+        "CMUX_SOCKET_PATH",
+        "CMUX_PANEL_ID",
+        "CMUX_SURFACE_ID",
+        "CMUX_TAB_ID",
+        "CMUX_WORKSPACE_ID",
+    ]
+
+    private func launchServicesPathOpenEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        for key in Self.launchServicesPathOpenScrubbedEnvironmentKeys {
+            environment.removeValue(forKey: key)
+        }
+        return environment
+    }
+
+    private func waitForProcessExit(_ process: Process, timeout: TimeInterval) throws -> Bool {
+        if !process.isRunning {
+            process.waitUntilExit()
+            return true
+        }
+
+        let queue = kqueue()
+        guard queue >= 0 else {
+            throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit"))
+        }
+        defer { close(queue) }
+
+        var event = kevent(
+            ident: UInt(process.processIdentifier),
+            filter: Int16(EVFILT_PROC),
+            flags: UInt16(EV_ADD | EV_ENABLE | EV_ONESHOT),
+            fflags: UInt32(NOTE_EXIT),
+            data: 0,
+            udata: nil
+        )
+        guard kevent(queue, &event, 1, nil, 0, nil) == 0 else {
+            if errno == ESRCH {
+                process.waitUntilExit()
+                return true
+            }
+            throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit"))
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                return false
+            }
+
+            var timeoutSpec = timespec(
+                tv_sec: Int(remaining),
+                tv_nsec: Int((remaining - floor(remaining)) * 1_000_000_000)
+            )
+            var triggeredEvent = kevent()
+            let result = kevent(queue, nil, 0, &triggeredEvent, 1, &timeoutSpec)
+            if result > 0 {
+                process.waitUntilExit()
+                return true
+            }
+            if result == 0 {
+                return false
+            }
+            if errno != EINTR {
+                throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit"))
+            }
+        }
+    }
+
+    private func localizedFormat(_ key: String, defaultValue: String, _ arguments: CVarArg...) -> String {
+        let format = NSLocalizedString(key, bundle: .main, value: defaultValue, comment: "")
+        return String(format: format, locale: Locale.current, arguments: arguments)
+    }
+
+    private func openToolPath() -> String {
+#if DEBUG
+        if let override = ProcessInfo.processInfo.environment["CMUX_TEST_OPEN_TOOL_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return NSString(string: override).expandingTildeInPath
+        }
+#endif
+        return "/usr/bin/open"
+    }
+
+    private func appLaunchTarget() -> String {
+        CLIExecutableLocator.enclosingAppBundle()?.bundleURL.path ?? "cmux"
     }
 
     private func runFeedback(
@@ -4912,19 +5210,17 @@ struct CMUXCLI {
     }
 
     private func launchApp() throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", "cmux"]
-        try process.run()
-        process.waitUntilExit()
+        try runOpenTool(
+            arguments: ["-a", appLaunchTarget()],
+            failureMessage: String(localized: "cli.pathOpen.error.launchFailed", defaultValue: "Failed to launch cmux")
+        )
     }
 
     private func activateApp() throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", "cmux"]
-        try process.run()
-        process.waitUntilExit()
+        try runOpenTool(
+            arguments: ["-a", appLaunchTarget()],
+            failureMessage: String(localized: "cli.pathOpen.error.activateFailed", defaultValue: "Failed to activate cmux")
+        )
     }
 
     private func resolvedIDFormat(jsonOutput: Bool, raw: String?) throws -> CLIIDFormat {
@@ -6060,6 +6356,69 @@ struct CMUXCLI {
             let index = item["to_index"] ?? item["index"] ?? "?"
             return String(format: lineFormat, workspace, window, String(describing: index))
         }
+    }
+
+    private func runSimulateSidebarDrag(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let windowRaw = optionValue(commandArgs, name: "--window")
+        let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
+        guard let windowHandle else {
+            throw CLIError(message: "simulate-sidebar-drag requires --window <id|ref|index>")
+        }
+        guard let fromRaw = optionValue(commandArgs, name: "--from") else {
+            throw CLIError(message: "simulate-sidebar-drag requires --from <workspace id|ref|index>")
+        }
+        guard let toRaw = optionValue(commandArgs, name: "--to") else {
+            throw CLIError(message: "simulate-sidebar-drag requires --to <workspace id|ref|index>")
+        }
+        let fromHandle = try normalizeWorkspaceHandle(fromRaw, client: client, windowHandle: windowHandle)
+        let toHandle = try normalizeWorkspaceHandle(toRaw, client: client, windowHandle: windowHandle)
+        guard let fromHandle, let toHandle else {
+            throw CLIError(message: "simulate-sidebar-drag could not resolve --from / --to to workspace ids")
+        }
+
+        var params: [String: Any] = [
+            "window_id": windowHandle,
+            "from_tab_id": fromHandle,
+            "to_tab_id": toHandle
+        ]
+        var requestedDurationMs = 1000  // matches server default
+        var requestedSteps: Int?
+        if let durationRaw = optionValue(commandArgs, name: "--duration-ms") {
+            guard let duration = Int(durationRaw), duration > 0 else {
+                throw CLIError(message: "--duration-ms must be a positive integer")
+            }
+            params["duration_ms"] = duration
+            requestedDurationMs = duration
+        }
+        if let stepsRaw = optionValue(commandArgs, name: "--steps") {
+            guard let steps = Int(stepsRaw), steps > 0 else {
+                throw CLIError(message: "--steps must be a positive integer")
+            }
+            params["steps"] = steps
+            requestedSteps = steps
+        }
+
+        // The handler blocks until the simulated drag completes
+        // (duration_ms in the common path; longer when --steps > path
+        // length because the per-step interval has a 1ms minimum). The
+        // default 15s socket response timeout would abort long profiling
+        // runs while the app keeps simulating. Allow generous slack.
+        let stepBasedMinMs = (requestedSteps ?? 0)  // server enforces 1ms min interval
+        let expectedRuntimeMs = max(requestedDurationMs, stepBasedMinMs)
+        let responseTimeout = max(30.0, Double(expectedRuntimeMs) / 1000.0 + 10.0)
+
+        let payload = try client.sendV2(
+            method: "debug.sidebar.simulate_drag",
+            params: params,
+            responseTimeout: responseTimeout
+        )
+        let summary = "OK steps=\(payload["steps"] ?? "?") duration_ms=\(payload["duration_ms"] ?? "?") edge=\(payload["edge"] ?? "?")"
+        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
     }
 
     private func runWorkspaceAction(
@@ -12367,6 +12726,28 @@ struct CMUXCLI {
               cmux reorder-workspaces --order workspace:1,workspace:11,workspace:31
               cmux reorder-workspaces --order workspace:11,workspace:1 --dry-run
             """)
+        case "simulate-sidebar-drag":
+            return """
+            Usage: cmux simulate-sidebar-drag --window <id|ref|index> --from <ws> --to <ws> [flags]
+
+            Drive deterministic sidebar drag-state mutations against a DEBUG build of
+            the app, intended for headless profiling under xctrace (see the profile-pr
+            skill in cmuxterm-hq). Sets dragState.draggedTabId to --from, ticks
+            dragState.dropIndicator across the rows between --from and --to over
+            --duration-ms in --steps increments, then clears both. Does NOT commit a
+            reorder. Only available in DEBUG builds.
+
+            Flags:
+              --window <id|ref|index>      Window context (required)
+              --from <id|ref|index>        Workspace to mark as the dragged tab (required)
+              --to <id|ref|index>          Final target neighbor row (required)
+              --duration-ms <n>            Total simulation duration (default: 1000)
+              --steps <n>                  Number of indicator updates (default: row count between from and to)
+
+            Example:
+              cmux simulate-sidebar-drag --window window:1 --from workspace:1 --to workspace:25 --duration-ms 2000
+              cmux simulate-sidebar-drag --window window:1 --from workspace:1 --to workspace:25 --steps 120 --duration-ms 2000
+            """
         case "workspace-action":
             return """
             Usage: cmux workspace-action --action <name> [flags]
@@ -17110,7 +17491,8 @@ struct CMUXCLI {
             "rm -f -- \"$0\" 2>/dev/null || true"
         ]
         if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty {
-            lines.append("cd -- \(codexTeamsShellQuote(cwd)) || exit $?")
+            let quotedCwd = codexTeamsShellQuote(cwd)
+            lines.append("{ cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ]; } || exit $?")
         }
         lines.append("exec \"${SHELL:-/bin/sh}\" -lc \(codexTeamsShellQuote(commandText))")
         do {
@@ -23454,9 +23836,15 @@ struct CMUXCLI {
         var commandParts: [String] = []
         commandParts.append(contentsOf: argv)
 
-        var command = commandParts.map(cliShellQuote).joined(separator: " ")
-        if let cwd = normalizedHookValue(workingDirectory) {
-            command = "cd \(cliShellQuote(cwd)) && \(command)"
+        let cwd = normalizedHookValue(workingDirectory)
+        let sanitizedCommandParts = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+            from: commandParts,
+            workingDirectory: cwd
+        )
+        let command = sanitizedCommandParts.map(cliShellQuote).joined(separator: " ")
+        if let cwd {
+            let quotedCwd = cliShellQuote(cwd)
+            return "{ cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ]; } && \(command)"
         }
         return command
     }
@@ -30114,6 +30502,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           sidebar-state [--workspace <id|ref|index>] [--window <id|ref|index>]
           set-app-focus <active|inactive|clear>
           simulate-app-active
+          simulate-sidebar-drag --window <id|ref|index> --from <ws> --to <ws> [--duration-ms <n>] [--steps <n>]
 
           # tmux compatibility commands
           capture-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>]
