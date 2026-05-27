@@ -4806,19 +4806,19 @@ private final class WorkspaceRemoteCLIRelayServer {
     private let localSocketPath: String
     private let relayID: String
     private let relayToken: Data
-    private let commandRewriter: (Data) -> Data
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.cli-relay.\(UUID().uuidString)", qos: .utility)
 
     private var listener: NWListener?
     private var sessions: [UUID: Session] = [:]
     private var isStopped = false
     private(set) var localPort: Int?
+    private var workspaceAliases: [UUID: UUID] = [:]
+    private var surfaceAliases: [UUID: UUID] = [:]
 
     init(
         localSocketPath: String,
         relayID: String,
-        relayTokenHex: String,
-        commandRewriter: @escaping (Data) -> Data = { $0 }
+        relayTokenHex: String
     ) throws {
         guard let relayToken = Session.hexData(from: relayTokenHex), !relayToken.isEmpty else {
             throw NSError(domain: "cmux.remote.relay", code: 7, userInfo: [
@@ -4828,7 +4828,6 @@ private final class WorkspaceRemoteCLIRelayServer {
         self.localSocketPath = localSocketPath
         self.relayID = relayID
         self.relayToken = relayToken
-        self.commandRewriter = commandRewriter
     }
 
     func start() throws -> Int {
@@ -4924,6 +4923,13 @@ private final class WorkspaceRemoteCLIRelayServer {
         }
     }
 
+    func updateRemoteRelayIDAliases(workspaceAliases: [UUID: UUID], surfaceAliases: [UUID: UUID]) {
+        queue.async { [weak self] in
+            self?.workspaceAliases = workspaceAliases
+            self?.surfaceAliases = surfaceAliases
+        }
+    }
+
     private func acceptConnectionLocked(_ connection: NWConnection) {
         guard !isStopped else {
             connection.cancel()
@@ -4935,13 +4941,23 @@ private final class WorkspaceRemoteCLIRelayServer {
             localSocketPath: localSocketPath,
             relayID: relayID,
             relayToken: relayToken,
-            commandRewriter: commandRewriter,
+            commandRewriter: { [weak self] commandLine in
+                self?.rewriteCommandLineLocked(commandLine) ?? commandLine
+            },
             queue: queue
         ) { [weak self] in
             self?.sessions.removeValue(forKey: sessionID)
         }
         sessions[sessionID] = session
         session.start()
+    }
+
+    private func rewriteCommandLineLocked(_ commandLine: Data) -> Data {
+        Workspace.rewriteRemoteRelayCommandLine(
+            commandLine,
+            workspaceAliases: workspaceAliases,
+            surfaceAliases: surfaceAliases
+        )
     }
 
     private static func makeLoopbackListener() throws -> NWListener {
@@ -5623,31 +5639,6 @@ final class WorkspaceRemotePTYBridgeServer {
     }
 }
 
-private final class WorkspaceRemoteRelayAliasStore {
-    private let lock = NSLock()
-    private var workspaceAliases: [UUID: UUID] = [:]
-    private var surfaceAliases: [UUID: UUID] = [:]
-
-    func update(workspaceAliases: [UUID: UUID], surfaceAliases: [UUID: UUID]) {
-        lock.lock()
-        self.workspaceAliases = workspaceAliases
-        self.surfaceAliases = surfaceAliases
-        lock.unlock()
-    }
-
-    func rewrite(_ commandLine: Data) -> Data {
-        lock.lock()
-        let workspaceAliases = self.workspaceAliases
-        let surfaceAliases = self.surfaceAliases
-        lock.unlock()
-        return Workspace.rewriteRemoteRelayCommandLine(
-            commandLine,
-            workspaceAliases: workspaceAliases,
-            surfaceAliases: surfaceAliases
-        )
-    }
-}
-
 final class WorkspaceRemoteSessionController {
 #if DEBUG
     // XCTest seam: tests assign this before starting a controller and clear it
@@ -5743,7 +5734,6 @@ final class WorkspaceRemoteSessionController {
     private weak var workspace: Workspace?
     private let configuration: WorkspaceRemoteConfiguration
     private let controllerID: UUID
-    private let remoteRelayAliasStore = WorkspaceRemoteRelayAliasStore()
 
     private enum RemotePortPollingMode {
         case hostWide
@@ -5815,6 +5805,8 @@ final class WorkspaceRemoteSessionController {
     private var heartbeatCount: Int = 0
     private var connectionAttemptStartedAt: Date?
     private var pendingPTYBridgeStarts: [UUID: PendingPTYBridgeStart] = [:]
+    private var remoteRelayWorkspaceAliases: [UUID: UUID] = [:]
+    private var remoteRelaySurfaceAliases: [UUID: UUID] = [:]
 
     private static let reverseRelayStartupGracePeriod: TimeInterval = 0.5
 
@@ -5845,7 +5837,15 @@ final class WorkspaceRemoteSessionController {
     }
 
     func updateRemoteRelayIDAliases(workspaceAliases: [UUID: UUID], surfaceAliases: [UUID: UUID]) {
-        remoteRelayAliasStore.update(workspaceAliases: workspaceAliases, surfaceAliases: surfaceAliases)
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.remoteRelayWorkspaceAliases = workspaceAliases
+            self.remoteRelaySurfaceAliases = surfaceAliases
+            self.cliRelayServer?.updateRemoteRelayIDAliases(
+                workspaceAliases: workspaceAliases,
+                surfaceAliases: surfaceAliases
+            )
+        }
     }
 
     func listPTYSessions(timeout: TimeInterval = 8.0) throws -> [[String: Any]] {
@@ -7236,14 +7236,14 @@ final class WorkspaceRemoteSessionController {
         if let cliRelayServer {
             return cliRelayServer
         }
-        let aliasStore = remoteRelayAliasStore
         let relayServer = try WorkspaceRemoteCLIRelayServer(
             localSocketPath: localSocketPath,
             relayID: relayID,
-            relayTokenHex: relayToken,
-            commandRewriter: { commandLine in
-                aliasStore.rewrite(commandLine)
-            }
+            relayTokenHex: relayToken
+        )
+        relayServer.updateRemoteRelayIDAliases(
+            workspaceAliases: remoteRelayWorkspaceAliases,
+            surfaceAliases: remoteRelaySurfaceAliases
         )
         cliRelayServer = relayServer
         return relayServer
@@ -12331,6 +12331,11 @@ final class Workspace: Identifiable, ObservableObject {
         "surface_ids",
     ]
 
+    private nonisolated static let remoteRelayAmbiguousIDArrayKeys: Set<String> = [
+        "tab_ids",
+        "tab_id_groups",
+    ]
+
     private func syncRemoteRelayIDAliasesToController() {
         remoteSessionController?.updateRemoteRelayIDAliases(
             workspaceAliases: remoteRelayWorkspaceIDAliases,
@@ -12461,6 +12466,12 @@ final class Workspace: Identifiable, ObservableObject {
                 elementKey = "workspace_id"
             } else if let key, remoteRelaySurfaceIDArrayKeys.contains(key) {
                 elementKey = "surface_id"
+            } else if let key, remoteRelayAmbiguousIDArrayKeys.contains(key) {
+                elementKey = "tab_id"
+            } else if let key, remoteRelayWorkspaceIDKeys.contains(key)
+                        || remoteRelaySurfaceIDKeys.contains(key)
+                        || remoteRelayAmbiguousIDKeys.contains(key) {
+                elementKey = key
             } else {
                 elementKey = nil
             }
@@ -12484,20 +12495,21 @@ final class Workspace: Identifiable, ObservableObject {
             return value
         }
 
-        if let key {
-            if remoteRelaySurfaceIDKeys.contains(key),
-               let mapped = surfaceAliases[uuid] {
-                didRewrite = true
-                return mapped.uuidString
-            }
-            if remoteRelayWorkspaceIDKeys.contains(key),
-               let mapped = workspaceAliases[uuid] {
-                didRewrite = true
-                return mapped.uuidString
-            }
-            if !remoteRelayAmbiguousIDKeys.contains(key) {
-                return value
-            }
+        guard let key else {
+            return value
+        }
+        if remoteRelaySurfaceIDKeys.contains(key),
+           let mapped = surfaceAliases[uuid] {
+            didRewrite = true
+            return mapped.uuidString
+        }
+        if remoteRelayWorkspaceIDKeys.contains(key),
+           let mapped = workspaceAliases[uuid] {
+            didRewrite = true
+            return mapped.uuidString
+        }
+        guard remoteRelayAmbiguousIDKeys.contains(key) else {
+            return value
         }
 
         if let mapped = surfaceAliases[uuid] {
