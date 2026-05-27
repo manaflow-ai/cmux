@@ -5,6 +5,27 @@ import UniformTypeIdentifiers
 import WebKit
 
 extension WKWebView {
+    private static let cmuxSetPageMutedSelector = NSSelectorFromString("_setPageMuted:")
+    private static let cmuxMediaMutedStateAudio: UInt = 1 << 0
+
+    var cmuxCanSetPageAudioMuted: Bool {
+        responds(to: Self.cmuxSetPageMutedSelector)
+    }
+
+    @discardableResult
+    func cmuxSetPageAudioMuted(_ muted: Bool) -> Bool {
+        let selector = Self.cmuxSetPageMutedSelector
+        guard responds(to: selector),
+              let implementation = method(for: selector) else {
+            return false
+        }
+
+        typealias SetPageMutedFunction = @convention(c) (AnyObject, Selector, UInt) -> Void
+        let function = unsafeBitCast(implementation, to: SetPageMutedFunction.self)
+        function(self, selector, muted ? Self.cmuxMediaMutedStateAudio : 0)
+        return true
+    }
+
     var cmuxIsElementFullscreenActiveOrTransitioning: Bool {
         switch fullscreenState {
         case .notInFullscreen:

@@ -1496,8 +1496,52 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var shouldRenderWebView: Bool
     var pageZoom: Double
     var developerToolsVisible: Bool
+    var isMuted: Bool
     var backHistoryURLStrings: [String]?
     var forwardHistoryURLStrings: [String]?
+
+    init(
+        urlString: String?,
+        profileID: UUID?,
+        shouldRenderWebView: Bool,
+        pageZoom: Double,
+        developerToolsVisible: Bool,
+        isMuted: Bool = false,
+        backHistoryURLStrings: [String]?,
+        forwardHistoryURLStrings: [String]?
+    ) {
+        self.urlString = urlString
+        self.profileID = profileID
+        self.shouldRenderWebView = shouldRenderWebView
+        self.pageZoom = pageZoom
+        self.developerToolsVisible = developerToolsVisible
+        self.isMuted = isMuted
+        self.backHistoryURLStrings = backHistoryURLStrings
+        self.forwardHistoryURLStrings = forwardHistoryURLStrings
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case urlString
+        case profileID
+        case shouldRenderWebView
+        case pageZoom
+        case developerToolsVisible
+        case isMuted
+        case backHistoryURLStrings
+        case forwardHistoryURLStrings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        urlString = try container.decodeIfPresent(String.self, forKey: .urlString)
+        profileID = try container.decodeIfPresent(UUID.self, forKey: .profileID)
+        shouldRenderWebView = try container.decode(Bool.self, forKey: .shouldRenderWebView)
+        pageZoom = try container.decode(Double.self, forKey: .pageZoom)
+        developerToolsVisible = try container.decode(Bool.self, forKey: .developerToolsVisible)
+        isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        backHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .backHistoryURLStrings)
+        forwardHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .forwardHistoryURLStrings)
+    }
 }
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String

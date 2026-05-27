@@ -14587,6 +14587,8 @@
         }
       }
     },
+    "browser.audio.mute": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Mute Tab" } }, "ja": { "stringUnit": { "state": "translated", "value": "タブをミュート" } } } },
+    "browser.audio.unmute": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Unmute Tab" } }, "ja": { "stringUnit": { "state": "translated", "value": "タブのミュートを解除" } } } },
     "browser.reactGrab": {
       "extractionState": "manual",
       "localizations": {
