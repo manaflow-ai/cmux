@@ -351,6 +351,50 @@ final class TerminalCmdClickUITests: XCTestCase {
         )
     }
 
+    func testCmdClickMarketingSkillMarkdownPathWithTrailingPeriodOpensMarkdownViewer() throws {
+        let fileName = "skills/marketing/data/lawrencecchen-tweets.md"
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .log,
+            fileName: fileName,
+            displaySuffix: ".",
+            captureOpenPaths: true,
+            captureHoverDiagnostics: false,
+            openMarkdownInCmuxViewer: true
+        )
+        defer { app.terminate() }
+
+        let setup = try waitForReadySetup()
+        let expectedResolvedPath = expectedPath(for: fileName)
+        XCTAssertEqual(setup.expectedPath, expectedResolvedPath)
+
+        let result = try runCommand(action: "cmd_click_token")
+        XCTAssertEqual(
+            result["lastCommandSucceeded"] as? String,
+            "1",
+            "Expected cmd-click to open the Markdown path without the trailing period. result=\(result)"
+        )
+        XCTAssertEqual(
+            result["lastCommandOpenedPath"] as? String,
+            expectedResolvedPath,
+            "Expected cmd-click to trim the prose period from the Markdown path. result=\(result)"
+        )
+        XCTAssertEqual(
+            result["lastCommandOpenedInMarkdownViewer"] as? String,
+            "1",
+            "Expected Markdown paths to open in the cmux Markdown viewer. result=\(result)"
+        )
+        XCTAssertEqual(
+            result["lastCommandOpenedInFilePreview"] as? String,
+            "0",
+            "Expected Markdown paths not to fall through to the generic file preview. result=\(result)"
+        )
+        XCTAssertTrue(
+            waitForOpenCountToStay(0, timeout: 0.75),
+            "Expected cmux Markdown routing to avoid the external opener. opened=\(loadCapturedOpenPaths())"
+        )
+    }
+
     func testCmdClickLsStyleInvalidCellsDoNothingForConsultantAgreementDocx() throws {
         try assertCommandClickDoesNothingAtInvalidOffsets(
             fileName: "Standard - Consultant Agreement - Form of Consulting Agreement.docx",
@@ -659,10 +703,12 @@ final class TerminalCmdClickUITests: XCTestCase {
         lineFormat: LineFormat = .grid,
         fileName: String = "Cmd Click Fixture.txt",
         linePrefix: String = "",
+        displaySuffix: String = "",
         extraFileNames: [String] = [],
         captureOpenPaths: Bool,
         captureHoverDiagnostics: Bool,
         openSupportedFilesInCmux: Bool = false,
+        openMarkdownInCmuxViewer: Bool? = nil,
         quicklookOverride: String? = nil,
         viewportOffsetDelta: Int? = nil
     ) -> XCUIApplication {
@@ -677,6 +723,12 @@ final class TerminalCmdClickUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_MODE"] = displayMode.rawValue
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_FORMAT"] = lineFormat.rawValue
         app.launchEnvironment["CMUX_UI_TEST_OPEN_SUPPORTED_FILES_IN_CMUX"] = openSupportedFilesInCmux ? "1" : "0"
+        if !displaySuffix.isEmpty {
+            app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_SUFFIX"] = displaySuffix
+        }
+        if let openMarkdownInCmuxViewer {
+            app.launchEnvironment["CMUX_UI_TEST_OPEN_MARKDOWN_IN_CMUX_VIEWER"] = openMarkdownInCmuxViewer ? "1" : "0"
+        }
         if !linePrefix.isEmpty {
             app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_PREFIX"] = linePrefix
         }
