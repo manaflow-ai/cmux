@@ -1835,6 +1835,79 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
     }
 
+    func testPersistentSSHPTYRestoreRewritesStaleRemoteRelayContextIDs() throws {
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("Relay Alias SSH")
+        let persistentDaemonSlot = "ssh-relay-alias"
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64006,
+            relayID: "relay-alias-test",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux-relay-alias.sock",
+            terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: persistentDaemonSlot
+        )
+        remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+        let originalWorkspaceId = remoteWorkspace.id
+        let originalPanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
+        let sessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: originalWorkspaceId,
+            panelId: originalPanelId
+        )
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Relay Alias SSH" })
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+        XCTAssertNotEqual(restoredWorkspace.id, originalWorkspaceId)
+        XCTAssertNotEqual(restoredPanelId, originalPanelId)
+
+        let request: [String: Any] = [
+            "id": "relay-alias-request",
+            "method": "surface.report_tty",
+            "params": [
+                "workspace_id": originalWorkspaceId.uuidString,
+                "surface_id": originalPanelId.uuidString,
+                "tab_id": originalPanelId.uuidString,
+                "workspace_ids": [originalWorkspaceId.uuidString],
+                "surface_ids": [originalPanelId.uuidString],
+                "session_id": sessionID,
+                "caller": [
+                    "workspace_id": originalWorkspaceId.uuidString,
+                    "surface_id": originalPanelId.uuidString,
+                    "tab_id": originalWorkspaceId.uuidString,
+                ],
+            ],
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request, options: []) + Data([0x0A])
+        let rewrittenData = restoredWorkspace.rewriteRemoteRelayCommandLine(requestData)
+        let rewritten = try XCTUnwrap(JSONSerialization.jsonObject(with: rewrittenData, options: []) as? [String: Any])
+        let params = try XCTUnwrap(rewritten["params"] as? [String: Any])
+
+        XCTAssertEqual(params["workspace_id"] as? String, restoredWorkspace.id.uuidString)
+        XCTAssertEqual(params["surface_id"] as? String, restoredPanelId.uuidString)
+        XCTAssertEqual(params["tab_id"] as? String, restoredPanelId.uuidString)
+        XCTAssertEqual(params["workspace_ids"] as? [String], [restoredWorkspace.id.uuidString])
+        XCTAssertEqual(params["surface_ids"] as? [String], [restoredPanelId.uuidString])
+        XCTAssertEqual(params["session_id"] as? String, sessionID)
+
+        let caller = try XCTUnwrap(params["caller"] as? [String: Any])
+        XCTAssertEqual(caller["workspace_id"] as? String, restoredWorkspace.id.uuidString)
+        XCTAssertEqual(caller["surface_id"] as? String, restoredPanelId.uuidString)
+        XCTAssertEqual(caller["tab_id"] as? String, restoredWorkspace.id.uuidString)
+    }
+
     func testPersistentSSHPTYRestoreFallsBackToSnapshotPanelDefaultSessionID() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)

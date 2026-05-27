@@ -1322,6 +1322,13 @@ extension Workspace {
             ) else {
                 return nil
             }
+            if restoredRemotePTYSessionID != nil {
+                registerRemoteRelayIDAliases(
+                    snapshotWorkspaceId: snapshotWorkspaceId,
+                    snapshotPanelId: snapshot.id,
+                    restoredPanelId: terminalPanel.id
+                )
+            }
             if let resumeBinding {
                 surfaceResumeBindingsByPanelId[terminalPanel.id] = resumeBinding
             } else {
@@ -4466,6 +4473,7 @@ private final class WorkspaceRemoteCLIRelayServer {
         private let localSocketPath: String
         private let relayID: String
         private let relayToken: Data
+        private let commandRewriter: (Data) -> Data
         private let queue: DispatchQueue
         private let onClose: () -> Void
         private let challengeProtocol = "cmux-relay-auth"
@@ -4484,6 +4492,7 @@ private final class WorkspaceRemoteCLIRelayServer {
             localSocketPath: String,
             relayID: String,
             relayToken: Data,
+            commandRewriter: @escaping (Data) -> Data,
             queue: DispatchQueue,
             onClose: @escaping () -> Void
         ) {
@@ -4491,6 +4500,7 @@ private final class WorkspaceRemoteCLIRelayServer {
             self.localSocketPath = localSocketPath
             self.relayID = relayID
             self.relayToken = relayToken
+            self.commandRewriter = commandRewriter
             self.queue = queue
             self.onClose = onClose
         }
@@ -4611,8 +4621,11 @@ private final class WorkspaceRemoteCLIRelayServer {
                 return
             }
             phase = .forwarding
-            DispatchQueue.global(qos: .utility).async { [localSocketPath, commandLine, queue] in
-                let result = Result { try Self.roundTripUnixSocket(socketPath: localSocketPath, request: commandLine) }
+            let forwardedCommandLine = commandRewriter(commandLine)
+            DispatchQueue.global(qos: .utility).async { [localSocketPath, forwardedCommandLine, queue] in
+                let result = Result {
+                    try Self.roundTripUnixSocket(socketPath: localSocketPath, request: forwardedCommandLine)
+                }
                 queue.async { [weak self] in
                     guard let self else { return }
                     switch result {
@@ -4793,6 +4806,7 @@ private final class WorkspaceRemoteCLIRelayServer {
     private let localSocketPath: String
     private let relayID: String
     private let relayToken: Data
+    private let commandRewriter: (Data) -> Data
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.cli-relay.\(UUID().uuidString)", qos: .utility)
 
     private var listener: NWListener?
@@ -4800,7 +4814,12 @@ private final class WorkspaceRemoteCLIRelayServer {
     private var isStopped = false
     private(set) var localPort: Int?
 
-    init(localSocketPath: String, relayID: String, relayTokenHex: String) throws {
+    init(
+        localSocketPath: String,
+        relayID: String,
+        relayTokenHex: String,
+        commandRewriter: @escaping (Data) -> Data = { $0 }
+    ) throws {
         guard let relayToken = Session.hexData(from: relayTokenHex), !relayToken.isEmpty else {
             throw NSError(domain: "cmux.remote.relay", code: 7, userInfo: [
                 NSLocalizedDescriptionKey: "invalid relay token",
@@ -4809,6 +4828,7 @@ private final class WorkspaceRemoteCLIRelayServer {
         self.localSocketPath = localSocketPath
         self.relayID = relayID
         self.relayToken = relayToken
+        self.commandRewriter = commandRewriter
     }
 
     func start() throws -> Int {
@@ -4915,6 +4935,7 @@ private final class WorkspaceRemoteCLIRelayServer {
             localSocketPath: localSocketPath,
             relayID: relayID,
             relayToken: relayToken,
+            commandRewriter: commandRewriter,
             queue: queue
         ) { [weak self] in
             self?.sessions.removeValue(forKey: sessionID)
@@ -7188,10 +7209,27 @@ final class WorkspaceRemoteSessionController {
         let relayServer = try WorkspaceRemoteCLIRelayServer(
             localSocketPath: localSocketPath,
             relayID: relayID,
-            relayTokenHex: relayToken
+            relayTokenHex: relayToken,
+            commandRewriter: { [weak self] commandLine in
+                self?.rewriteRemoteRelayCommandLine(commandLine) ?? commandLine
+            }
         )
         cliRelayServer = relayServer
         return relayServer
+    }
+
+    private func rewriteRemoteRelayCommandLine(_ commandLine: Data) -> Data {
+        guard let workspace else { return commandLine }
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated {
+                workspace.rewriteRemoteRelayCommandLine(commandLine)
+            }
+        }
+        return DispatchQueue.main.sync {
+            MainActor.assumeIsolated {
+                workspace.rewriteRemoteRelayCommandLine(commandLine)
+            }
+        }
     }
 
     private func installRemoteRelayMetadataLocked(
@@ -9527,6 +9565,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
     private var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
+    private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
+    private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
     var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
     /// Display target of the remote workspace that just disconnected. Set right before
     /// `createReplacementTerminalPanel()` so the replacement shell can print a banner
@@ -11616,6 +11656,7 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
         remotePTYSessionIDsByPanelId = remotePTYSessionIDsByPanelId.filter { validSurfaceIds.contains($0.key) }
+        remoteRelaySurfaceIDAliases = remoteRelaySurfaceIDAliases.filter { validSurfaceIds.contains($0.value) }
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
@@ -12058,6 +12099,8 @@ final class Workspace: Identifiable, ObservableObject {
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         if previousConfiguration != nil, previousConfiguration != configuration {
             remotePTYSessionIDsByPanelId.removeAll()
+            remoteRelayWorkspaceIDAliases.removeAll()
+            remoteRelaySurfaceIDAliases.removeAll()
         }
         remoteConfiguration = configuration
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
@@ -12160,6 +12203,8 @@ final class Workspace: Identifiable, ObservableObject {
         pendingRemoteForegroundAuthToken = nil
         activeRemoteTerminalSurfaceIds.removeAll()
         remotePTYSessionIDsByPanelId.removeAll()
+        remoteRelayWorkspaceIDAliases.removeAll()
+        remoteRelaySurfaceIDAliases.removeAll()
         activeRemoteTerminalSessionCount = 0
         pendingRemoteSurfaceTTYName = nil
         pendingRemoteSurfaceTTYSurfaceId = nil
@@ -12241,6 +12286,153 @@ final class Workspace: Identifiable, ObservableObject {
         return trimmed
     }
 
+    private static let remoteRelayWorkspaceIDKeys: Set<String> = [
+        "workspace_id",
+        "preferred_workspace_id",
+        "selected_workspace_id",
+        "before_workspace_id",
+        "after_workspace_id",
+        "from_workspace_id",
+        "to_workspace_id",
+    ]
+
+    private static let remoteRelaySurfaceIDKeys: Set<String> = [
+        "surface_id",
+        "preferred_surface_id",
+        "target_surface_id",
+        "created_surface_id",
+    ]
+
+    private static let remoteRelayAmbiguousIDKeys: Set<String> = [
+        "tab_id",
+    ]
+
+    private static let remoteRelayWorkspaceIDArrayKeys: Set<String> = [
+        "workspace_ids",
+    ]
+
+    private static let remoteRelaySurfaceIDArrayKeys: Set<String> = [
+        "surface_ids",
+    ]
+
+    private func registerRemoteRelayIDAliases(
+        snapshotWorkspaceId: UUID?,
+        snapshotPanelId: UUID,
+        restoredPanelId: UUID
+    ) {
+        if let snapshotWorkspaceId, snapshotWorkspaceId != id {
+            remoteRelayWorkspaceIDAliases[snapshotWorkspaceId] = id
+        }
+        if snapshotPanelId != restoredPanelId {
+            remoteRelaySurfaceIDAliases[snapshotPanelId] = restoredPanelId
+        }
+    }
+
+    func rewriteRemoteRelayCommandLine(_ commandLine: Data) -> Data {
+        guard !remoteRelayWorkspaceIDAliases.isEmpty || !remoteRelaySurfaceIDAliases.isEmpty,
+              let line = String(data: commandLine, encoding: .utf8) else {
+            return commandLine
+        }
+        let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedLine.hasPrefix("{"),
+              let requestData = trimmedLine.data(using: .utf8),
+              var request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
+            return commandLine
+        }
+
+        var didRewrite = false
+        if let params = request["params"] as? [String: Any] {
+            request["params"] = Self.remappedRemoteRelayValue(
+                params,
+                key: nil,
+                workspaceAliases: remoteRelayWorkspaceIDAliases,
+                surfaceAliases: remoteRelaySurfaceIDAliases,
+                didRewrite: &didRewrite
+            )
+        }
+
+        guard didRewrite,
+              JSONSerialization.isValidJSONObject(request),
+              let rewritten = try? JSONSerialization.data(withJSONObject: request, options: []) else {
+            return commandLine
+        }
+        return rewritten + Data([0x0A])
+    }
+
+    private static func remappedRemoteRelayValue(
+        _ value: Any,
+        key: String?,
+        workspaceAliases: [UUID: UUID],
+        surfaceAliases: [UUID: UUID],
+        didRewrite: inout Bool
+    ) -> Any {
+        if let dictionary = value as? [String: Any] {
+            var result = dictionary
+            for (childKey, childValue) in dictionary {
+                result[childKey] = remappedRemoteRelayValue(
+                    childValue,
+                    key: childKey,
+                    workspaceAliases: workspaceAliases,
+                    surfaceAliases: surfaceAliases,
+                    didRewrite: &didRewrite
+                )
+            }
+            return result
+        }
+
+        if let array = value as? [Any] {
+            let elementKey: String?
+            if let key, remoteRelayWorkspaceIDArrayKeys.contains(key) {
+                elementKey = "workspace_id"
+            } else if let key, remoteRelaySurfaceIDArrayKeys.contains(key) {
+                elementKey = "surface_id"
+            } else {
+                elementKey = nil
+            }
+            return array.map {
+                remappedRemoteRelayValue(
+                    $0,
+                    key: elementKey,
+                    workspaceAliases: workspaceAliases,
+                    surfaceAliases: surfaceAliases,
+                    didRewrite: &didRewrite
+                )
+            }
+        }
+
+        guard let key, let id = value as? String else {
+            return value
+        }
+
+        let trimmedID = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let uuid = UUID(uuidString: trimmedID) else {
+            return value
+        }
+
+        if remoteRelaySurfaceIDKeys.contains(key),
+           let mapped = surfaceAliases[uuid] {
+            didRewrite = true
+            return mapped.uuidString
+        }
+        if remoteRelayWorkspaceIDKeys.contains(key),
+           let mapped = workspaceAliases[uuid] {
+            didRewrite = true
+            return mapped.uuidString
+        }
+        if remoteRelayAmbiguousIDKeys.contains(key) {
+            if let mapped = surfaceAliases[uuid] {
+                didRewrite = true
+                return mapped.uuidString
+            }
+            if let mapped = workspaceAliases[uuid] {
+                didRewrite = true
+                return mapped.uuidString
+            }
+        }
+
+        return value
+    }
+
     private func remotePTYSessionIDForSnapshot(panelId: UUID) -> String? {
         guard remoteConfiguration?.preserveAfterTerminalExit == true else {
             return nil
@@ -12283,6 +12475,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func discardRemotePTYSessionID(panelId: UUID) {
         remotePTYSessionIDsByPanelId.removeValue(forKey: panelId)
+        remoteRelaySurfaceIDAliases = remoteRelaySurfaceIDAliases.filter { $0.value != panelId }
     }
 
     func remotePTYSessionIDMatches(panelId: UUID, sessionID: String?) -> Bool {
@@ -12306,6 +12499,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let wasTracked = activeRemoteTerminalSurfaceIds.contains(surfaceId)
         remotePTYSessionIDsByPanelId.removeValue(forKey: surfaceId)
+        remoteRelaySurfaceIDAliases = remoteRelaySurfaceIDAliases.filter { $0.value != surfaceId }
         untrackRemoteTerminalSurface(surfaceId)
         return (true, wasTracked)
     }
@@ -14432,6 +14626,11 @@ final class Workspace: Identifiable, ObservableObject {
             remotePTYSessionIDsByPanelId.removeValue(forKey: detached.panelId)
         }
         if didAdoptWorkspaceRemoteTracking {
+            registerRemoteRelayIDAliases(
+                snapshotWorkspaceId: detached.sourceWorkspaceId,
+                snapshotPanelId: detached.panelId,
+                restoredPanelId: detached.panelId
+            )
             trackRemoteTerminalSurface(detached.panelId)
         }
         if let cleanupConfiguration = detached.remoteCleanupConfiguration {

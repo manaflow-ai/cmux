@@ -337,12 +337,20 @@ func persistentDaemonPathsForSlot(rawSlot string) (persistentDaemonPaths, error)
 }
 
 func persistentDaemonSocketPath(root string, slot string) string {
-	socketBase := strings.TrimSpace(os.Getenv("CMUX_REMOTE_DAEMON_SOCKET_DIR"))
-	if socketBase == "" {
+	socketBase, overrideSet := persistentDaemonSocketBase()
+	if !overrideSet {
 		socketBase = filepath.Join("/tmp", fmt.Sprintf("cmuxd-remote-%d", os.Getuid()))
 	}
 	digest := sha256.Sum256([]byte(root + "\x00" + slot))
 	return filepath.Join(socketBase, "cmuxd-"+hex.EncodeToString(digest[:8])+".sock")
+}
+
+func persistentDaemonSocketBase() (string, bool) {
+	socketBase := strings.TrimSpace(os.Getenv("CMUX_REMOTE_DAEMON_SOCKET_DIR"))
+	if socketBase == "" {
+		return "", false
+	}
+	return filepath.Join(socketBase, fmt.Sprintf("cmuxd-remote-%d", os.Getuid())), true
 }
 
 func validatePersistentDaemonSlot(rawSlot string) (string, error) {

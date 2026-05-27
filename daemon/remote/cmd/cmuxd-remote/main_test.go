@@ -335,6 +335,49 @@ func TestPersistentDaemonPathsUseShortSocketPath(t *testing.T) {
 	}
 }
 
+func TestPersistentDaemonSocketDirOverrideUsesPrivateChild(t *testing.T) {
+	rootBase := filepath.Join(t.TempDir(), "daemon-root")
+	socketParent := filepath.Join(t.TempDir(), "caller-socket-dir")
+	if err := os.MkdirAll(socketParent, 0o755); err != nil {
+		t.Fatalf("create socket parent: %v", err)
+	}
+	if err := os.Chmod(socketParent, 0o755); err != nil {
+		t.Fatalf("chmod socket parent: %v", err)
+	}
+	t.Setenv("CMUX_REMOTE_DAEMON_ROOT", rootBase)
+	t.Setenv("CMUX_REMOTE_DAEMON_SOCKET_DIR", socketParent)
+
+	paths, err := persistentDaemonPathsForSlot("override-slot")
+	if err != nil {
+		t.Fatalf("persistentDaemonPathsForSlot returned error: %v", err)
+	}
+	socketDir := filepath.Dir(paths.socket)
+	if socketDir == socketParent {
+		t.Fatalf("socket dir should be a private child, got parent %q", socketParent)
+	}
+	if filepath.Dir(socketDir) != socketParent {
+		t.Fatalf("socket dir parent = %q, want %q", filepath.Dir(socketDir), socketParent)
+	}
+
+	if err := ensurePersistentDaemonDirectory(paths); err != nil {
+		t.Fatalf("ensurePersistentDaemonDirectory returned error: %v", err)
+	}
+	parentInfo, err := os.Stat(socketParent)
+	if err != nil {
+		t.Fatalf("stat socket parent: %v", err)
+	}
+	if parentInfo.Mode().Perm() != 0o755 {
+		t.Fatalf("socket parent mode = %o, want 755", parentInfo.Mode().Perm())
+	}
+	childInfo, err := os.Stat(socketDir)
+	if err != nil {
+		t.Fatalf("stat socket child: %v", err)
+	}
+	if childInfo.Mode().Perm() != 0o700 {
+		t.Fatalf("socket child mode = %o, want 700", childInfo.Mode().Perm())
+	}
+}
+
 func TestPersistentDaemonTokenConcurrentCreate(t *testing.T) {
 	root := t.TempDir()
 	paths := persistentDaemonPaths{
