@@ -4448,6 +4448,8 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 
     func testFocusedBonsplitPaneForCommandsKeepsFocusedEmptyPaneWithSiblingSelection() throws {
         let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let mainPanel = try XCTUnwrap(workspace.terminalPanel(for: mainPanelId))
         let dock = workspace.dockLayout.addDock(edge: .right)
         let emptyPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
         let terminalPanel = try XCTUnwrap(
@@ -4467,6 +4469,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertNil(dock.controller.selectedTab(inPane: emptyPaneId))
         XCTAssertNotNil(dock.controller.selectedTab(inPane: terminalPaneId))
 
+        mainPanel.hostedView.setActive(true)
         workspace.focusBonsplitPane(emptyPaneId, controller: dock.controller)
 
         let commandPane = try XCTUnwrap(workspace.focusedBonsplitPaneForCommands())
@@ -4474,6 +4477,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertEqual(commandPane.paneId, emptyPaneId)
         XCTAssertTrue(workspace.isFocusedBonsplitPaneForCommands(emptyPaneId, controller: dock.controller))
         XCTAssertFalse(workspace.isFocusedBonsplitPaneForCommands(terminalPaneId, controller: dock.controller))
+        XCTAssertFalse(mainPanel.hostedView.debugRenderStats().isActive)
 
 #if DEBUG
         workspace.debugReconcileFocusStateForTesting()

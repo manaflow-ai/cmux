@@ -15637,6 +15637,7 @@ final class Workspace: Identifiable, ObservableObject {
         revealControllerForFocus(controller)
         setFocusedBonsplitController(controller)
         guard let tabId = controller.selectedTab(inPane: paneId)?.id else {
+            clearPanelFocusForNoVisibleTarget(controller: controller)
             return true
         }
         applyTabSelection(tabId: tabId, inPane: paneId, controller: controller)
