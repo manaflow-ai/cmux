@@ -1,4 +1,5 @@
 import { getTranslations } from "next-intl/server";
+import Image from "next/image";
 import { notFound } from "next/navigation";
 import { buildAlternates } from "../../../../i18n/seo";
 import { SiteHeader } from "../../components/site-header";
@@ -103,6 +104,34 @@ function containsUnsafeHiddenCharacter(value: string) {
   return /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(value);
 }
 
+function invalidTextParams(params: SearchParams) {
+  const invalid: string[] = [];
+  const text = firstString(params.text);
+  if (
+    text != null &&
+    (text.length > 8000 || containsUnsafeHiddenCharacter(text))
+  ) {
+    invalid.push("text");
+  }
+
+  const name = normalizedParam(params, "name");
+  if (
+    name != null &&
+    (name.length > 120 || containsUnsafeHiddenCharacter(name))
+  ) {
+    invalid.push("name");
+  }
+
+  const title = normalizedParam(params, "title");
+  if (
+    title != null &&
+    (title.length > 160 || containsUnsafeHiddenCharacter(title))
+  ) {
+    invalid.push("title");
+  }
+  return invalid;
+}
+
 function isAllowedSSHHost(value: string) {
   if (containsUnsafeHiddenCharacter(value)) return false;
   if (value.startsWith("[") || value.endsWith("]")) {
@@ -133,7 +162,10 @@ function invalidParams(kind: LinkKind, params: SearchParams) {
     invalid.push("no-focus");
   }
 
-  if (kind !== "ssh") return invalid;
+  if (kind !== "ssh") {
+    invalid.push(...invalidTextParams(params));
+    return invalid;
+  }
 
   const host = normalizedParam(params, "host");
   const user = normalizedParam(params, "user");
@@ -280,7 +312,7 @@ export default async function DeeplinkPage({
       <SiteHeader section={t("section")} />
       <main className="mx-auto w-full max-w-2xl px-6 py-12">
         <div className="mb-8 flex items-center gap-4">
-          <img
+          <Image
             src="/logo.png"
             alt="cmux icon"
             width={44}
