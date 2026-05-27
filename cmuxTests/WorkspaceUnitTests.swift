@@ -4342,6 +4342,40 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertEqual(commandPane.paneId, dockPaneId)
     }
 
+    func testRemovingFocusedEmptyDockRestoresMainFocus() throws {
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .left)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+        XCTAssertNil(workspace.focusedPanelId)
+
+        workspace.dockLayout.removeDock(dock)
+
+        XCTAssertEqual(workspace.focusedPanelId, mainPanelId)
+        XCTAssertTrue(workspace.isCurrentBonsplitFocusTarget(panelId: mainPanelId))
+    }
+
+    func testReducingDockCountRemovesFocusedEmptyDockAndRestoresMainFocus() throws {
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.dockLayout.setDockCount(edge: .right, count: 2)
+        let docks = workspace.dockLayout.docksSnapshot(for: .right)
+        XCTAssertEqual(docks.count, 2)
+        let focusedDock = try XCTUnwrap(docks.last)
+        let focusedDockPaneId = try XCTUnwrap(focusedDock.controller.allPaneIds.first)
+
+        workspace.focusBonsplitPane(focusedDockPaneId, controller: focusedDock.controller)
+        XCTAssertNil(workspace.focusedPanelId)
+
+        workspace.dockLayout.setDockCount(edge: .right, count: 1)
+
+        XCTAssertEqual(workspace.dockLayout.dockCount(for: .right), 1)
+        XCTAssertEqual(workspace.focusedPanelId, mainPanelId)
+        XCTAssertTrue(workspace.isCurrentBonsplitFocusTarget(panelId: mainPanelId))
+    }
+
     func testClosedDockTerminalPortalIsHidden() throws {
 #if DEBUG
         let workspace = Workspace()

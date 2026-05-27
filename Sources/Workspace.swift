@@ -9789,17 +9789,7 @@ final class WorkspaceDockLayout: ObservableObject {
 
     func removeDock(_ dock: WorkspaceDock) {
         guard dock.controller.allTabIds.isEmpty else { return }
-        switch dock.edge {
-        case .left:
-            left = left.filter { $0.id != dock.id }
-        case .right:
-            right = right.filter { $0.id != dock.id }
-        case .bottom:
-            bottom = bottom.filter { $0.id != dock.id }
-        }
-        if docks(for: dock.edge).isEmpty {
-            closeEdge(dock.edge)
-        }
+        removeDocks(withIds: [dock.id], edge: dock.edge)
     }
 
     func canRemove(_ dock: WorkspaceDock) -> Bool {
@@ -9825,17 +9815,8 @@ final class WorkspaceDockLayout: ObservableObject {
     }
 
     func removeEmptyDocks(edge: WorkspaceDockEdge) {
-        switch edge {
-        case .left:
-            left = left.filter { !$0.controller.allTabIds.isEmpty }
-        case .right:
-            right = right.filter { !$0.controller.allTabIds.isEmpty }
-        case .bottom:
-            bottom = bottom.filter { !$0.controller.allTabIds.isEmpty }
-        }
-        if docks(for: edge).isEmpty {
-            closeEdge(edge)
-        }
+        let removableIds = Set(docks(for: edge).filter { $0.controller.allTabIds.isEmpty }.map(\.id))
+        removeDocks(withIds: removableIds, edge: edge)
     }
 
     func updateConfigurations(_ update: (inout BonsplitConfiguration) -> Void) {
@@ -9877,6 +9858,11 @@ final class WorkspaceDockLayout: ObservableObject {
     }
 
     private func removeDocks(withIds ids: Set<UUID>, edge: WorkspaceDockEdge) {
+        let removedControllers = docks(for: edge)
+            .filter { ids.contains($0.id) }
+            .map(\.controller)
+        guard !removedControllers.isEmpty else { return }
+
         switch edge {
         case .left:
             left = left.filter { !ids.contains($0.id) }
@@ -9885,6 +9871,7 @@ final class WorkspaceDockLayout: ObservableObject {
         case .bottom:
             bottom = bottom.filter { !ids.contains($0.id) }
         }
+        workspace?.dockEdgeDidClose(closedControllers: removedControllers)
         if docks(for: edge).isEmpty {
             closeEdge(edge)
         }
