@@ -161,10 +161,6 @@ struct cmuxApp: App {
            fileManager.fileExists(atPath: bundledGhosttyURL.appendingPathComponent("themes").path) {
             return bundledGhosttyURL.path
         }
-        if let bundledGhosttyURL,
-           fileManager.fileExists(atPath: bundledGhosttyURL.path) {
-            return bundledGhosttyURL.path
-        }
 
         if let currentValue = currentValue?.trimmingCharacters(in: .whitespacesAndNewlines),
            !currentValue.isEmpty,
@@ -174,6 +170,11 @@ struct cmuxApp: App {
 
         if fileManager.fileExists(atPath: ghosttyAppResources) {
             return ghosttyAppResources
+        }
+
+        if let bundledGhosttyURL,
+           fileManager.fileExists(atPath: bundledGhosttyURL.path) {
+            return bundledGhosttyURL.path
         }
 
         return nil

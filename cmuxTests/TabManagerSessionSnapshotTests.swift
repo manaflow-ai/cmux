@@ -1829,7 +1829,22 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(terminalStartupCommand.contains(restoredForegroundAuthToken), terminalStartupCommand)
         XCTAssertFalse(terminalStartupCommand.contains(expectedSessionID), terminalStartupCommand)
         XCTAssertFalse(terminalStartupCommand.contains("--require-existing"), terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.contains("--command-b64 "), terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains("254|255"), terminalStartupCommand)
+        let restoredDefaultRemoteCommand = try XCTUnwrap(
+            Self.decodedSSHPTYCommandB64(in: terminalStartupCommand)
+        )
+        XCTAssertTrue(
+            restoredDefaultRemoteCommand.contains("export CMUX_SOCKET_PATH=127.0.0.1:64003"),
+            restoredDefaultRemoteCommand
+        )
+        XCTAssertTrue(
+            restoredDefaultRemoteCommand.contains("export PATH=\"$HOME/.cmux/bin:$PATH\""),
+            restoredDefaultRemoteCommand
+        )
+        XCTAssertTrue(restoredDefaultRemoteCommand.contains("CMUX_SHELL_INTEGRATION_DIR"), restoredDefaultRemoteCommand)
+        XCTAssertTrue(restoredDefaultRemoteCommand.contains("__CMUX_WORKSPACE_ID__"), restoredDefaultRemoteCommand)
+        XCTAssertTrue(restoredDefaultRemoteCommand.contains("__CMUX_SURFACE_ID__"), restoredDefaultRemoteCommand)
         let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
         let restoredInitialCommand = try XCTUnwrap(
             restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()
@@ -1842,6 +1857,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(restoredInitialCommand.contains("254|255"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains(expectedSessionID), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("CMUX_SURFACE_ID"), restoredInitialCommand)
+        XCTAssertFalse(restoredInitialCommand.contains("--command-b64 "), restoredInitialCommand)
 
         let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
         XCTAssertEqual(roundTrip.remote?.preserveAfterTerminalExit, true)
@@ -2441,6 +2457,16 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 skipDaemonBootstrap: nil
             )
         )
+    }
+
+    private static func decodedSSHPTYCommandB64(in command: String) -> String? {
+        let marker = "--command-b64 "
+        guard let markerRange = command.range(of: marker) else { return nil }
+        let suffix = command[markerRange.upperBound...]
+        guard let token = suffix.split(whereSeparator: { $0.isWhitespace }).first else { return nil }
+        let encoded = String(token).trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+        guard let data = Data(base64Encoded: encoded) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     private static func browserPanelSnapshot(id: UUID) -> SessionPanelSnapshot {

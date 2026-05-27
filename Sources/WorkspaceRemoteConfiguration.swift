@@ -119,6 +119,7 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
     static func command(
         sessionID: String? = nil,
         foregroundAuth: ForegroundAuth? = nil,
+        remoteCommand: String? = nil,
         requireExisting: Bool = true
     ) -> String {
         var lines = [
@@ -140,9 +141,25 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
             lines += foregroundAuthLines(foregroundAuth)
         }
         let requireExistingFlag = requireExisting ? " --require-existing" : ""
-        let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\""
+        let commandB64Flag = normalized(remoteCommand).map {
+            " --command-b64 \(shellQuote(Data($0.utf8).base64EncodedString()))"
+        } ?? ""
+        let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"\(commandB64Flag)"
         lines += retryingAttachLines(command: attachCommand)
         return "/bin/sh -c \(shellQuote(lines.joined(separator: "\n")))"
+    }
+
+    static func restoredRemoteShellCommand(relayPort: Int) -> String {
+        RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: relayPort,
+            shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
+            bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                named: "cmux-zsh-integration.zsh"
+            ),
+            bundledBashIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                named: "cmux-bash-integration.bash"
+            )
+        )
     }
 
     private static func retryingAttachLines(command: String) -> [String] {
@@ -455,6 +472,9 @@ extension SessionRemoteWorkspaceSnapshot {
         let restoredRelayToken = preservePTYSession
             ? Self.restoreRelayTokenHex()
             : nil
+        let restoredRemoteShellCommand = preservePTYSession
+            ? normalizedRelayPort.map(SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(relayPort:))
+            : nil
         return WorkspaceRemoteConfiguration(
             transport: transport,
             destination: normalizedDestination,
@@ -469,6 +489,7 @@ extension SessionRemoteWorkspaceSnapshot {
             terminalStartupCommand: preservePTYSession
                 ? SSHPTYAttachStartupCommandBuilder.command(
                     foregroundAuth: foregroundAuth,
+                    remoteCommand: restoredRemoteShellCommand,
                     // Restored panels get explicit require-existing attach commands with their
                     // persisted session IDs; this workspace default is for new panes.
                     requireExisting: false
