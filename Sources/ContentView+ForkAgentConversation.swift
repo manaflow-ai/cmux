@@ -23,26 +23,18 @@ extension ContentView {
     }
 
     private func forkFocusedAgentConversation(_ destination: AgentConversationForkDestination) {
-        guard let initialContext = focusedPanelContext,
-              initialContext.panel.panelType == .terminal else {
-            NSSound.beep()
-            return
-        }
-
-        let workspaceId = initialContext.workspace.id
-        let panelId = initialContext.panelId
-        let panelKey = Self.commandPaletteForkableAgentPanelKey(
-            workspaceId: workspaceId,
-            panelId: panelId
-        )
-
         guard let currentContext = focusedPanelContext,
-              currentContext.workspace.id == workspaceId,
-              currentContext.panelId == panelId,
               currentContext.panel.panelType == .terminal else {
             NSSound.beep()
             return
         }
+
+        let workspaceId = currentContext.workspace.id
+        let panelId = currentContext.panelId
+        let panelKey = Self.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
 
         let fallbackSnapshot = currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId]
         let isRemoteContext = currentContext.workspace.isRemoteTerminalSurface(panelId)
@@ -164,23 +156,8 @@ extension ContentView {
                   snapshotFingerprintsByPanelKey[panelKey] == expectedFingerprint else {
                 return nil
             }
-            return snapshot
+            return cachedSnapshot ?? snapshot
         }
-    }
-
-    static func commandPaletteForkPostProbeContextStillMatches(
-        expectedWorkspaceId: UUID,
-        expectedPanelId: UUID,
-        expectedIsRemoteContext: Bool,
-        currentWorkspaceId: UUID,
-        currentPanelId: UUID,
-        currentPanelIsTerminal: Bool,
-        currentIsRemoteContext: Bool
-    ) -> Bool {
-        currentWorkspaceId == expectedWorkspaceId
-            && currentPanelId == expectedPanelId
-            && currentPanelIsTerminal
-            && currentIsRemoteContext == expectedIsRemoteContext
     }
 }
 
