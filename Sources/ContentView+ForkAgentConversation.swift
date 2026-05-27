@@ -119,14 +119,6 @@ extension ContentView {
 }
 
 extension ContentView {
-    static func commandPaletteForkExecutionSnapshot(
-        indexSnapshot: SessionRestorableAgentSnapshot?,
-        fallbackSnapshot: SessionRestorableAgentSnapshot?,
-        cachedSnapshot: SessionRestorableAgentSnapshot?
-    ) -> SessionRestorableAgentSnapshot? {
-        indexSnapshot ?? fallbackSnapshot ?? cachedSnapshot
-    }
-
     static func commandPaletteImmediateForkExecutionSnapshot(
         workspaceId: UUID,
         panelId: UUID,
