@@ -3,6 +3,7 @@ import { Schema } from "prosemirror-model";
 import { splitBlock } from "prosemirror-commands";
 import { EditorState, Plugin, PluginKey, TextSelection } from "prosemirror-state";
 import { Decoration, DecorationSet, EditorView } from "prosemirror-view";
+import { isComposingEnter } from "../shared/keyboard";
 
 const promptSchema = new Schema({
   nodes: {
@@ -96,6 +97,9 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
           }
         },
         handleKeyDown(_view, event) {
+          if (isComposingEnter(event, _view.composing)) {
+            return false;
+          }
           if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
             event.preventDefault();
             latestSubmitRef.current();

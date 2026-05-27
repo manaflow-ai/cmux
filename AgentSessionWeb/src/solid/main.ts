@@ -2,6 +2,7 @@ import { createEffect, createSignal, onCleanup } from "solid-js";
 import { render } from "solid-js/web";
 import { subscribeToAgentEvents } from "../shared/bridge";
 import { insertComposerToken } from "../shared/composerTokens";
+import { isComposingEnter } from "../shared/keyboard";
 import {
   initialState,
   autoStartProvider,
@@ -123,6 +124,9 @@ function SessionSurface({
   textarea.className = "prompt-input";
   textarea.addEventListener("input", () => dispatch({ type: "setInput", input: textarea.value }));
   textarea.addEventListener("keydown", (event) => {
+    if (isComposingEnter(event)) {
+      return;
+    }
     if (event.key !== "Enter") {
       return;
     }

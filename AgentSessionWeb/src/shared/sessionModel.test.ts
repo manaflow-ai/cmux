@@ -162,6 +162,30 @@ test("accepted start reply tracks session before provider started event", () => 
   expect(failed.runningSessionId).toBeUndefined();
 });
 
+test("provider exit during pending start is applied before start reply", () => {
+  const starting = reduceSession(
+    reduceSession(initialState("react"), { type: "context", context }),
+    { type: "starting" },
+  );
+  const failed = reduceSession(starting, {
+    type: "event",
+    event: {
+      type: "provider.exit",
+      providerId: "codex",
+      sessionId: "session-early-exit",
+      status: 1,
+    },
+  });
+
+  expect(failed.status).toBe("failed");
+  expect(failed.runningSessionId).toBeUndefined();
+  expect(failed.log.at(-1)?.text).toBe("Provider exited 1");
+
+  const staleAccepted = reduceSession(failed, { type: "startAccepted", sessionId: "session-early-exit" });
+  expect(staleAccepted.status).toBe("failed");
+  expect(staleAccepted.runningSessionId).toBeUndefined();
+});
+
 test("provider exit for a different session is ignored", () => {
   const running = {
     ...initialState("solid"),

@@ -75,7 +75,7 @@ export function reduceSession(state: SessionState, action: Action): SessionState
     case "starting":
       return { ...state, status: "starting", log: appendLog(state, "info", copyText(state, "startingStatus", "Starting")) };
     case "startAccepted":
-      if (state.runningSessionId) {
+      if (state.status !== "starting" || state.runningSessionId) {
         return state;
       }
       return {
@@ -241,7 +241,7 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
         log: appendLog(state, event.stream, event.text),
       };
     case "provider.exit":
-      if (event.sessionId !== state.runningSessionId) {
+      if (!isCurrentOrPendingStartExit(state, event)) {
         return state;
       }
       if (event.sessionId === state.requestedStopSessionId) {
@@ -265,6 +265,13 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
         ),
       };
   }
+}
+
+function isCurrentOrPendingStartExit(state: SessionState, event: Extract<AgentEvent, { type: "provider.exit" }>): boolean {
+  if (event.sessionId === state.runningSessionId) {
+    return true;
+  }
+  return state.status === "starting" && !state.runningSessionId && event.providerId === state.selectedProviderId;
 }
 
 function appendContextReadyLog(state: SessionState): SessionState {
