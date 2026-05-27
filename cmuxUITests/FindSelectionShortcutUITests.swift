@@ -104,6 +104,67 @@ final class FindSelectionShortcutUITests: XCTestCase {
         assertFindCaretSurvivesCmdOptionNavigation(app, pane: .browser)
     }
 
+    func testFindCaretPositionSurvivesRapidCmdOptionPaneNavigationChurn() {
+        let app = configuredApp()
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10.0), "Expected main window")
+
+        app.typeKey("d", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                guard data["lastSplitDirection"] == "right" else { return false }
+                guard let paneCountAfterSplit = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfterSplit >= 2
+            },
+            "Expected Cmd+D split before rapid caret churn. data=\(String(describing: loadData()))"
+        )
+        openBrowserInRightPane(app)
+
+        assertFindCaretSurvivesRapidCmdOptionNavigationChurn(app, pane: .terminal)
+        assertFindCaretSurvivesRapidCmdOptionNavigationChurn(app, pane: .browser)
+    }
+
+    func testTerminalFindSelectionEdgesSurviveCmdOptionPaneNavigationAndRepeatedCmdF() {
+        let app = configuredApp()
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10.0), "Expected main window")
+
+        app.typeKey("d", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                guard data["lastSplitDirection"] == "right" else { return false }
+                guard let paneCountAfterSplit = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfterSplit >= 2
+            },
+            "Expected Cmd+D split before terminal edge checks. data=\(String(describing: loadData()))"
+        )
+        openBrowserInRightPane(app)
+
+        assertFindSelectionEdgeRangesSurviveCmdOptionNavigationAndRepeatedCmdF(app, pane: .terminal)
+    }
+
+    func testBrowserFindSelectionEdgesSurviveCmdOptionPaneNavigationAndRepeatedCmdF() {
+        let app = configuredApp()
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10.0), "Expected main window")
+
+        app.typeKey("d", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                guard data["lastSplitDirection"] == "right" else { return false }
+                guard let paneCountAfterSplit = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfterSplit >= 2
+            },
+            "Expected Cmd+D split before browser edge checks. data=\(String(describing: loadData()))"
+        )
+        openBrowserInRightPane(app)
+
+        assertFindSelectionEdgeRangesSurviveCmdOptionNavigationAndRepeatedCmdF(app, pane: .browser)
+    }
+
     func testBrowserFindUpDownArrowsNavigateMatchesWhileFocused() {
         let app = configuredApp()
         launchAndEnsureForeground(app)
@@ -449,6 +510,19 @@ final class FindSelectionShortcutUITests: XCTestCase {
             },
             "Expected Cmd+Option pane navigation to restore \(pane.replacementMessage) focus with caret at index 2. data=\(String(describing: loadData()))"
         )
+        assertFindSelectionStable(pane: pane, expectedRange: "{2, 0}", label: "auto-refocused middle caret")
+
+        app.typeKey("f", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == pane.focusKey &&
+                    data[pane.needleKey] == "abcd" &&
+                    data["fieldEditorOwnerType"] == pane.findFieldOwnerType &&
+                    data["firstResponderSelectedRange"] == "{2, 0}"
+            },
+            "Expected repeated Cmd+F to keep \(pane.replacementMessage) caret at index 2. data=\(String(describing: loadData()))"
+        )
+        assertFindSelectionStable(pane: pane, expectedRange: "{2, 0}", label: "repeated Cmd+F middle caret")
 
         app.typeText("z")
         focusPane(pane.opposite, app: app)
@@ -459,6 +533,227 @@ final class FindSelectionShortcutUITests: XCTestCase {
             },
             "Expected insertion after Cmd+Option navigation to use restored \(pane.replacementMessage) caret. data=\(String(describing: loadData()))"
         )
+    }
+
+    private func assertFindCaretSurvivesRapidCmdOptionNavigationChurn(_ app: XCUIApplication, pane: Pane) {
+        focusPane(pane, app: app)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { $0["focusedPanelKind"] == pane.focusKey },
+            "Expected \(pane.focusKey) focus before rapid caret churn. data=\(String(describing: loadData()))"
+        )
+        app.typeKey("f", modifierFlags: [.command])
+        let findField = app.textFields[pane.findFieldId].firstMatch
+        XCTAssertTrue(
+            findField.waitForExistence(timeout: 6.0),
+            "Expected \(pane.replacementMessage) field before rapid caret churn. data=\(String(describing: loadData()))"
+        )
+        replaceFindText(app, with: "abcd")
+        app.typeKey(XCUIKeyboardKey.leftArrow.rawValue, modifierFlags: [])
+        app.typeKey(XCUIKeyboardKey.leftArrow.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == pane.focusKey &&
+                    data[pane.needleKey] == "abcd" &&
+                    data["fieldEditorOwnerType"] == pane.findFieldOwnerType &&
+                    data["firstResponderSelectedRange"] == "{2, 0}"
+            },
+            "Expected \(pane.replacementMessage) caret at index 2 before rapid Cmd+Option churn. data=\(String(describing: loadData()))"
+        )
+
+        for _ in 0..<6 {
+            focusPane(pane.opposite, app: app)
+            focusPane(pane, app: app)
+        }
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 8.0) { data in
+                data["focusedPanelKind"] == pane.focusKey &&
+                    data[pane.needleKey] == "abcd" &&
+                    data["fieldEditorOwnerType"] == pane.findFieldOwnerType &&
+                    data["firstResponderSelectedRange"] == "{2, 0}"
+            },
+            "Expected rapid Cmd+Option pane navigation to restore \(pane.replacementMessage) caret. data=\(String(describing: loadData()))"
+        )
+        assertFindSelectionStable(pane: pane, expectedRange: "{2, 0}", label: "rapid Cmd+Option churn")
+
+        app.typeKey("f", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == pane.focusKey &&
+                    data[pane.needleKey] == "abcd" &&
+                    data["fieldEditorOwnerType"] == pane.findFieldOwnerType &&
+                    data["firstResponderSelectedRange"] == "{2, 0}"
+            },
+            "Expected repeated Cmd+F after rapid navigation to keep \(pane.replacementMessage) caret. data=\(String(describing: loadData()))"
+        )
+        assertFindSelectionStable(pane: pane, expectedRange: "{2, 0}", label: "repeated Cmd+F after rapid churn")
+
+        app.typeText("r")
+        focusPane(pane.opposite, app: app)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == pane.opposite.focusKey &&
+                    data[pane.needleKey] == "abrcd"
+            },
+            "Expected insertion after rapid Cmd+Option navigation to use restored \(pane.replacementMessage) caret. data=\(String(describing: loadData()))"
+        )
+    }
+
+    private func assertFindSelectionEdgeRangesSurviveCmdOptionNavigationAndRepeatedCmdF(
+        _ app: XCUIApplication,
+        pane: Pane
+    ) {
+        assertFindSelectionRangeSurvivesCmdOptionNavigationAndRepeatedCmdF(
+            app,
+            pane: pane,
+            label: "caret at beginning",
+            expectedRange: "{0, 0}",
+            configureSelection: { app in
+                app.typeKey(XCUIKeyboardKey.leftArrow.rawValue, modifierFlags: [.command])
+            },
+            insertion: "^",
+            expectedNeedle: "^abcd"
+        )
+        assertFindSelectionRangeSurvivesCmdOptionNavigationAndRepeatedCmdF(
+            app,
+            pane: pane,
+            label: "caret in middle",
+            expectedRange: "{2, 0}",
+            configureSelection: { app in
+                app.typeKey(XCUIKeyboardKey.leftArrow.rawValue, modifierFlags: [])
+                app.typeKey(XCUIKeyboardKey.leftArrow.rawValue, modifierFlags: [])
+            },
+            insertion: "m",
+            expectedNeedle: "abmcd"
+        )
+        assertFindSelectionRangeSurvivesCmdOptionNavigationAndRepeatedCmdF(
+            app,
+            pane: pane,
+            label: "caret at end",
+            expectedRange: "{4, 0}",
+            configureSelection: { app in
+                app.typeKey(XCUIKeyboardKey.rightArrow.rawValue, modifierFlags: [.command])
+            },
+            insertion: "$",
+            expectedNeedle: "abcd$"
+        )
+        assertFindSelectionRangeSurvivesCmdOptionNavigationAndRepeatedCmdF(
+            app,
+            pane: pane,
+            label: "middle selection",
+            expectedRange: "{2, 1}",
+            configureSelection: { app in
+                app.typeKey(XCUIKeyboardKey.leftArrow.rawValue, modifierFlags: [])
+                app.typeKey(XCUIKeyboardKey.leftArrow.rawValue, modifierFlags: [])
+                app.typeKey(XCUIKeyboardKey.rightArrow.rawValue, modifierFlags: [.shift])
+            },
+            insertion: "X",
+            expectedNeedle: "abXd"
+        )
+        assertFindSelectionRangeSurvivesCmdOptionNavigationAndRepeatedCmdF(
+            app,
+            pane: pane,
+            label: "intentional full selection",
+            expectedRange: "{0, 4}",
+            configureSelection: { app in
+                app.typeKey("a", modifierFlags: [.command])
+            },
+            insertion: "F",
+            expectedNeedle: "F"
+        )
+    }
+
+    private func assertFindSelectionRangeSurvivesCmdOptionNavigationAndRepeatedCmdF(
+        _ app: XCUIApplication,
+        pane: Pane,
+        label: String,
+        expectedRange: String,
+        configureSelection: (XCUIApplication) -> Void,
+        insertion: String,
+        expectedNeedle: String
+    ) {
+        focusPane(pane, app: app)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { $0["focusedPanelKind"] == pane.focusKey },
+            "Expected \(pane.focusKey) focus before \(label). data=\(String(describing: loadData()))"
+        )
+        app.typeKey("f", modifierFlags: [.command])
+        let findField = app.textFields[pane.findFieldId].firstMatch
+        XCTAssertTrue(
+            findField.waitForExistence(timeout: 6.0),
+            "Expected \(pane.replacementMessage) field before \(label). data=\(String(describing: loadData()))"
+        )
+        replaceFindText(app, with: "abcd")
+        configureSelection(app)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == pane.focusKey &&
+                    data[pane.needleKey] == "abcd" &&
+                    data["fieldEditorOwnerType"] == pane.findFieldOwnerType &&
+                    data["firstResponderSelectedRange"] == expectedRange
+            },
+            "Expected \(pane.replacementMessage) \(label) before navigation. data=\(String(describing: loadData()))"
+        )
+        assertFindSelectionStable(pane: pane, expectedRange: expectedRange, label: "\(label) before navigation")
+
+        focusPane(pane.opposite, app: app)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == pane.opposite.focusKey &&
+                    data[pane.needleKey] == "abcd"
+            },
+            "Expected Cmd+Option arrow to navigate away from \(pane.replacementMessage) \(label). data=\(String(describing: loadData()))"
+        )
+        focusPane(pane, app: app)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == pane.focusKey &&
+                    data[pane.needleKey] == "abcd" &&
+                    data["fieldEditorOwnerType"] == pane.findFieldOwnerType &&
+                    data["firstResponderSelectedRange"] == expectedRange
+            },
+            "Expected Cmd+Option pane navigation to restore \(pane.replacementMessage) \(label). data=\(String(describing: loadData()))"
+        )
+        assertFindSelectionStable(pane: pane, expectedRange: expectedRange, label: "\(label) after navigation")
+
+        app.typeKey("f", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == pane.focusKey &&
+                    data[pane.needleKey] == "abcd" &&
+                    data["fieldEditorOwnerType"] == pane.findFieldOwnerType &&
+                    data["firstResponderSelectedRange"] == expectedRange
+            },
+            "Expected repeated Cmd+F to preserve \(pane.replacementMessage) \(label). data=\(String(describing: loadData()))"
+        )
+        assertFindSelectionStable(pane: pane, expectedRange: expectedRange, label: "\(label) after repeated Cmd+F")
+
+        app.typeText(insertion)
+        focusPane(pane.opposite, app: app)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == pane.opposite.focusKey &&
+                    data[pane.needleKey] == expectedNeedle
+            },
+            "Expected insertion to use restored \(pane.replacementMessage) \(label). data=\(String(describing: loadData()))"
+        )
+    }
+
+    private func assertFindSelectionStable(
+        pane: Pane,
+        expectedRange: String,
+        label: String
+    ) {
+        let deadline = Date().addingTimeInterval(0.6)
+        var lastData: [String: String]?
+        while Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            lastData = loadData()
+            guard let data = lastData else { continue }
+            XCTAssertEqual(data["focusedPanelKind"], pane.focusKey, "Expected \(pane.focusKey) focus while checking stable \(label). data=\(data)")
+            XCTAssertEqual(data["fieldEditorOwnerType"], pane.findFieldOwnerType, "Expected \(pane.replacementMessage) editor while checking stable \(label). data=\(data)")
+            XCTAssertEqual(data["firstResponderSelectedRange"], expectedRange, "Expected stable \(pane.replacementMessage) \(label). data=\(data)")
+        }
+        XCTAssertEqual(lastData?["firstResponderSelectedRange"], expectedRange, "Expected final stable \(pane.replacementMessage) \(label). data=\(String(describing: lastData))")
     }
 
     private func focusPane(_ pane: Pane, app: XCUIApplication) {
