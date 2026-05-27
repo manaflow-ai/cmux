@@ -5602,8 +5602,8 @@ extension CMUXCLI {
           --cwd, --repo <path>          Git repository or worktree path for git sources
           --base <ref>                  Base ref for --branch (default: origin/HEAD or main)
           --focus <true|false>         Focus the diff browser split (default: false)
-          --no-focus                   Do not focus the diff browser split
-          --title <text>               Diff viewer title
+          --no-focus                   Do not focus the opened diff browser split
+          --title <text>               Set the diff viewer title to the provided text
           --layout <split|unified>     Diff layout (default: split)
           --font-size <points>         Set diff font size (default: 10)
 
