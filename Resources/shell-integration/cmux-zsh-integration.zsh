@@ -173,9 +173,18 @@ _cmux_install_cli_command_shim() {
     /bin/mkdir -p "$shim_root" >/dev/null 2>&1 || return 0
     {
         printf '%s\n' '#!/usr/bin/env bash'
+        if [[ "$command_name" == "claude" ]]; then
+            printf 'export CMUX_CLAUDE_WRAPPER_SHIM="%s"\n' "$shim_path"
+            printf 'export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="%s"\n' "$shim_root"
+        fi
         printf 'exec "%s" "$@"\n' "$escaped_wrapper"
     } >"$shim_path" 2>/dev/null || return 0
     /bin/chmod 0700 "$shim_path" >/dev/null 2>&1 || return 0
+
+    if [[ "$command_name" == "claude" ]]; then
+        export CMUX_CLAUDE_WRAPPER_SHIM="$shim_path"
+        export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="$shim_root"
+    fi
 
     local new_path=":${PATH}:"
     new_path="${new_path//:${shim_root}:/:}"

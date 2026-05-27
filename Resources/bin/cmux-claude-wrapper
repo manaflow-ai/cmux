@@ -6,7 +6,31 @@
 # so that Claude Code hooks fire back into cmux for notifications/status.
 # Outside cmux, it passes through to the real claude binary unchanged.
 
-# Find the real claude binary, skipping our own directory.
+cmux_claude_wrapper_is_self_or_shim() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    if [[ -e "$candidate" && "$candidate" -ef "$0" ]]; then
+        return 0
+    fi
+    if [[ -n "${CMUX_CLAUDE_WRAPPER_SHIM:-}" &&
+          -e "$candidate" &&
+          -e "$CMUX_CLAUDE_WRAPPER_SHIM" &&
+          "$candidate" -ef "$CMUX_CLAUDE_WRAPPER_SHIM" ]]; then
+        return 0
+    fi
+    if [[ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" &&
+          "$candidate" == "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT%/}/claude" ]]; then
+        return 0
+    fi
+    case "$candidate" in
+        */Contents/Resources/bin/claude|*/Resources/bin/claude)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+# Find the real claude binary, skipping cmux's wrapper and temp shell shims.
 find_real_claude() {
     # Honor custom path from Settings > Automation > Claude Code > Claude Binary Path.
     # Guard against self-reference (user pointing back to this wrapper).
@@ -14,8 +38,8 @@ find_real_claude() {
     custom="${custom#"${custom%%[![:space:]]*}"}"  # trim leading whitespace
     custom="${custom%"${custom##*[![:space:]]}"}"  # trim trailing whitespace
     if [[ -n "$custom" && -f "$custom" && -x "$custom" ]]; then
-        # Use -ef to detect same underlying file even through symlinks
-        if [[ ! "$custom" -ef "$0" ]]; then
+        # Use -ef to detect same underlying file even through symlinks.
+        if ! cmux_claude_wrapper_is_self_or_shim "$custom"; then
             printf '%s' "$custom"
             return 0
         fi
@@ -25,7 +49,9 @@ find_real_claude() {
     local IFS=:
     for d in $PATH; do
         [[ "$d" == "$self_dir" ]] && continue
-        [[ -x "$d/claude" ]] && printf '%s' "$d/claude" && return 0
+        local candidate="$d/claude"
+        cmux_claude_wrapper_is_self_or_shim "$candidate" && continue
+        [[ -x "$candidate" ]] && printf '%s' "$candidate" && return 0
     done
     return 1
 }
