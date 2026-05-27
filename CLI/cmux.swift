@@ -4805,6 +4805,7 @@ struct CMUXCLI {
         "popup",
         "previous-window",
         "read-screen",
+        "refresh-surfaces",
         "reload-config",
         "remote-daemon-status",
         "rename-tab",
