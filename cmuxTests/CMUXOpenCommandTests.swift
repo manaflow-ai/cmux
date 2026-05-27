@@ -1064,7 +1064,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let sessionId = "session-duplicate-turn"
         let turnId = "turn-duplicate"
 
-        func runPromptSubmit() throws -> ProcessRunResult {
+        func runHook(subcommand: String, input: [String: Any]) throws -> ProcessRunResult {
             let socketPath = makeSocketPath("hookdu")
             let listenerFD = try bindUnixSocket(at: socketPath)
             let state = MockSocketServerState()
@@ -1096,18 +1096,11 @@ final class CMUXOpenCommandTests: XCTestCase {
                 }
                 return Self.v2Response(id: id, ok: true, result: [:])
             }
-            let inputData = try JSONSerialization.data(
-                withJSONObject: [
-                    "session_id": sessionId,
-                    "turn_id": turnId,
-                    "cwd": repoURL.path
-                ],
-                options: [.sortedKeys]
-            )
+            let inputData = try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys])
             let result = runCLI(
                 cliPath: cliPath,
                 socketPath: socketPath,
-                arguments: ["hooks", "codex", "prompt-submit", "--workspace", workspaceId, "--surface", surfaceId],
+                arguments: ["hooks", "codex", subcommand, "--workspace", workspaceId, "--surface", surfaceId],
                 environmentOverrides: [
                     "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
                     "PWD": repoURL.path
@@ -1119,6 +1112,35 @@ final class CMUXOpenCommandTests: XCTestCase {
             return result
         }
 
+        func runPromptSubmit() throws -> ProcessRunResult {
+            try runHook(
+                subcommand: "prompt-submit",
+                input: [
+                    "session_id": sessionId,
+                    "turn_id": turnId,
+                    "cwd": repoURL.path
+                ]
+            )
+        }
+
+        func runStop() throws -> ProcessRunResult {
+            try runHook(
+                subcommand: "stop",
+                input: [
+                    "session_id": sessionId,
+                    "turn_id": turnId,
+                    "cwd": repoURL.path,
+                    "last_assistant_message": "done"
+                ]
+            )
+        }
+
+        func diffBaselineRecords() throws -> [[String: Any]] {
+            let storeData = try Data(contentsOf: stateURL.appendingPathComponent("agent-turn-diff-baselines.json"))
+            let store = try JSONSerialization.jsonObject(with: storeData, options: []) as? [String: Any]
+            return try XCTUnwrap(store?["records"] as? [[String: Any]])
+        }
+
         let firstHook = try runPromptSubmit()
         XCTAssertFalse(firstHook.timedOut, firstHook.stderr)
         XCTAssertEqual(firstHook.status, 0, firstHook.stderr)
@@ -1128,10 +1150,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(duplicateHook.timedOut, duplicateHook.stderr)
         XCTAssertEqual(duplicateHook.status, 0, duplicateHook.stderr)
 
-        let storeData = try Data(contentsOf: stateURL.appendingPathComponent("agent-turn-diff-baselines.json"))
-        let store = try JSONSerialization.jsonObject(with: storeData, options: []) as? [String: Any]
-        let records = try XCTUnwrap(store?["records"] as? [[String: Any]])
+        let records = try diffBaselineRecords()
         XCTAssertEqual(records.filter { $0["turnId"] as? String == turnId }.count, 1)
+        let duplicateBaseCommit = try XCTUnwrap(records.first?["baseCommit"] as? String)
 
         let lastTurn = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
@@ -1144,6 +1165,20 @@ final class CMUXOpenCommandTests: XCTestCase {
             currentDirectoryURL: repoURL
         )
         XCTAssertTrue(lastTurn.patch.contains("+two"), lastTurn.patch)
+
+        let stopHook = try runStop()
+        XCTAssertFalse(stopHook.timedOut, stopHook.stderr)
+        XCTAssertEqual(stopHook.status, 0, stopHook.stderr)
+        try "one\ntwo\nthree\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let nextHook = try runPromptSubmit()
+        XCTAssertFalse(nextHook.timedOut, nextHook.stderr)
+        XCTAssertEqual(nextHook.status, 0, nextHook.stderr)
+
+        let refreshedRecords = try diffBaselineRecords()
+        XCTAssertEqual(refreshedRecords.filter { $0["turnId"] as? String == turnId }.count, 1)
+        let refreshedBaseCommit = try XCTUnwrap(refreshedRecords.first?["baseCommit"] as? String)
+        XCTAssertNotEqual(refreshedBaseCommit, duplicateBaseCommit)
     }
 
     func testDiffCommandGitSourcesDrainLargeDiffOutput() throws {

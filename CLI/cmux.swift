@@ -626,6 +626,13 @@ private final class ClaudeHookSessionStore {
                     state.sessions[normalized] = record
                     return totalDepth > 1
                 }
+                if turnStack.last == normalizedTurnId {
+                    let totalDepth = max(legacyDepth, turnStack.count)
+                    setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
+                    record.lastPromptTurnId = normalizedTurnId
+                    state.sessions[normalized] = record
+                    return totalDepth > 1
+                }
                 let totalDepth = max(legacyDepth, turnStack.count) + 1
                 turnStack.append(normalizedTurnId)
                 setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
@@ -25793,7 +25800,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     cwd: hookCwd ?? mapped?.cwd,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    env: env
+                    env: env,
+                    preserveExistingTurnBaseline: true
                 )
             }
             if !sessionId.isEmpty {
@@ -25860,6 +25868,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let activePromptTurnStack = mapped?.activePromptTurnIds?
                 .compactMap({ normalizedHookValue($0) }) ?? []
             let activePromptTurnId = activePromptTurnStack.last ?? normalizedHookValue(mapped?.activePromptTurnId)
+            let activePromptDepth = max(mapped?.activePromptDepth ?? 0, activePromptTurnStack.count)
             let terminalActivePromptTurnIds: Set<String>
             let previousActivePromptTurnIsTerminal: Bool
             if def.name == "codex",
@@ -25909,7 +25918,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     cwd: hookCwd ?? mapped?.cwd,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    env: env
+                    env: env,
+                    preserveExistingTurnBaseline: activePromptDepth > 0 &&
+                        (normalizedHookValue(input.turnId).map { $0 == activePromptTurnId } ?? false)
                 )
             }
             if !sessionId.isEmpty, !suppressVisibleMutations {

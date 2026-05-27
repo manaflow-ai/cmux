@@ -1907,7 +1907,8 @@ extension CMUXCLI {
         cwd: String?,
         workspaceId: String,
         surfaceId: String,
-        env: [String: String] = ProcessInfo.processInfo.environment
+        env: [String: String] = ProcessInfo.processInfo.environment,
+        preserveExistingTurnBaseline: Bool = false
     ) throws {
         guard let cwd = normalizedDiffSourceValue(cwd),
               let workspaceId = normalizedDiffSourceValue(workspaceId),
@@ -1948,7 +1949,8 @@ extension CMUXCLI {
                 }
 
                 let previousRecords = store.records
-                if let turnId = record.turnId,
+                if preserveExistingTurnBaseline,
+                   let turnId = record.turnId,
                    store.records.contains(where: { matchesCurrentScope($0) && $0.turnId == turnId }) {
                     pruneAgentTurnDiffBaselineStore(&store)
                     removedRecords = previousRecords.filter { previous in
