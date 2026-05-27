@@ -70,8 +70,7 @@ private struct CMUXCEFBrowserDebugRepresentable: NSViewRepresentable {
 
         return CMUXCEFBrowserView(
             frame: .zero,
-            initialURL: "https://example.com",
-            profileIdentifier: "cef-debug"
+            initialURL: "https://example.com"
         )
     }
 

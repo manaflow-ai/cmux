@@ -9,7 +9,6 @@
 #include <climits>
 #include <cmath>
 #include <cstring>
-#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -37,8 +36,6 @@ static bool g_messagePumpActive = false;
 static bool g_messagePumpReentrancyDetected = false;
 static CefRefPtr<CefApp> g_cefApp;
 static NSTimer* g_messagePumpTimer = nil;
-static std::map<std::string, CefRefPtr<CefRequestContext>> g_persistentRequestContexts;
-static NSString* const CMUXCEFBuiltInDefaultProfileIdentifier = @"52B43C05-4A1D-45D3-8FD5-9EF94952E445";
 static const int32_t CMUXCEFMessagePumpTimerDelayPlaceholder = INT_MAX;
 static const int64_t CMUXCEFMaxMessagePumpDelayMs = 1000 / 30;
 using CMUXCEFCompletionBlock = void (^)(void);
@@ -154,36 +151,6 @@ static NSString* CMUXCEFStorageDirectory(void) {
                                              attributes:nil
                                                   error:nil];
   return path;
-}
-
-static CefRefPtr<CefRequestContext> CMUXCEFRequestContextForProfile(NSString* profileIdentifier) {
-  NSString* identifier = profileIdentifier.length > 0 ? profileIdentifier : @"default";
-  if ([identifier isEqualToString:@"default"] || [identifier isEqualToString:CMUXCEFBuiltInDefaultProfileIdentifier]) {
-    return CefRequestContext::GetGlobalContext();
-  }
-
-  std::string key([identifier UTF8String]);
-  auto existing = g_persistentRequestContexts.find(key);
-  if (existing != g_persistentRequestContexts.end()) {
-    return existing->second;
-  }
-
-  NSString* profilePath = [CMUXCEFStorageDirectory() stringByAppendingPathComponent:identifier];
-  [[NSFileManager defaultManager] createDirectoryAtPath:profilePath
-                            withIntermediateDirectories:YES
-                                             attributes:nil
-                                                  error:nil];
-
-  CefRequestContextSettings contextSettings;
-  contextSettings.persist_session_cookies = true;
-  CefString(&contextSettings.cache_path) = [profilePath UTF8String];
-  CefRefPtr<CefRequestContext> context = CefRequestContext::CreateContext(contextSettings, nullptr);
-  if (!context) {
-    NSLog(@"[CEF] Failed to create persistent request context for profile %@; using global context.", identifier);
-    return CefRequestContext::GetGlobalContext();
-  }
-  g_persistentRequestContexts[key] = context;
-  return context;
 }
 
 static NSString* CMUXCEFFrameworkExecutablePath(void) {
@@ -395,7 +362,6 @@ class CMUXCEFBrowserClient : public CefClient,
 @interface CMUXCEFBrowserView () {
  @private
   NSString* initialURL_;
-  NSString* profileIdentifier_;
   CefRefPtr<CefBrowser> browser_;
   CefRefPtr<CMUXCEFBrowserClient> client_;
   NSView* cefView_;
@@ -432,12 +398,10 @@ static void CMUXCEFNotifyContextInitialized(void) {
 @implementation CMUXCEFBrowserView
 
 - (instancetype)initWithFrame:(NSRect)frameRect
-                   initialURL:(NSString*)initialURL
-            profileIdentifier:(NSString*)profileIdentifier {
+                   initialURL:(NSString*)initialURL {
   self = [super initWithFrame:frameRect];
   if (self) {
     initialURL_ = [initialURL copy];
-    profileIdentifier_ = [profileIdentifier copy];
     currentURLString_ = [initialURL copy];
     self.wantsLayer = YES;
     self.layer.backgroundColor = [NSColor colorWithCalibratedWhite:0.086 alpha:1].CGColor;
@@ -909,11 +873,6 @@ void CMUXCEFFlushBrowserState(CMUXCEFCompletionBlock completion) {
     if (globalContext) {
       CMUXCEFFlushCookieManager(globalContext->GetCookieManager(nullptr), state);
     }
-    for (const auto& entry : g_persistentRequestContexts) {
-      if (entry.second) {
-        CMUXCEFFlushCookieManager(entry.second->GetCookieManager(nullptr), state);
-      }
-    }
   }
   if (state->pending.load() == 0 && completion) {
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -932,7 +891,6 @@ void CMUXCEFShutdown(void) {
   g_messagePumpActive = false;
   g_messagePumpReentrancyDetected = false;
   CefShutdown();
-  g_persistentRequestContexts.clear();
   g_cefApp = nullptr;
   g_cefInitialized = false;
   g_cefContextInitialized = false;

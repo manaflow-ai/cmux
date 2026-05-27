@@ -34,8 +34,7 @@ int CMUXCEFRemoteDebuggingPort(void);
   NSString* errorText);
 
 - (instancetype)initWithFrame:(NSRect)frameRect
-                   initialURL:(NSString*)initialURL
-            profileIdentifier:(NSString*)profileIdentifier NS_DESIGNATED_INITIALIZER;
+                   initialURL:(NSString*)initialURL NS_DESIGNATED_INITIALIZER;
 - (instancetype)initWithFrame:(NSRect)frameRect NS_UNAVAILABLE;
 - (nullable instancetype)initWithCoder:(NSCoder*)coder NS_UNAVAILABLE;
 
