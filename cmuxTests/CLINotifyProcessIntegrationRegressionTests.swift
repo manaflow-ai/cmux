@@ -508,6 +508,131 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    // MARK: - Claude notification lifecycle classification
+
+    func testClaudeWaitingNotificationAtStartupMapsToStandby() throws {
+        // When Claude fires a "waiting for input" notification with no active running session
+        // (e.g., startup idle prompt), the lifecycle should be idle/Standby — not needsInput.
+        let context = try makeClaudeHookContext(name: "claude-standby-startup")
+        defer { context.cleanup() }
+
+        let sessionId = "standby-startup-session"
+        let notifStart = context.state.commands.count
+        let notification = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude is waiting for your input"}"#
+        )
+        XCTAssertFalse(notification.timedOut, notification.stderr)
+        XCTAssertEqual(notification.status, 0, notification.stderr)
+
+        let notifCommands = Array(context.state.commands.dropFirst(notifStart))
+        XCTAssertFalse(
+            notifCommands.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput") },
+            "Startup idle notification must not set needsInput, saw \(notifCommands)"
+        )
+        XCTAssertTrue(
+            notifCommands.contains { $0.hasPrefix("set_agent_lifecycle claude_code idle") },
+            "Startup idle notification must set idle, saw \(notifCommands)"
+        )
+        XCTAssertFalse(
+            notifCommands.contains { $0.contains("Needs input") },
+            "Startup idle notification must not display 'Needs input', saw \(notifCommands)"
+        )
+        XCTAssertTrue(
+            notifCommands.contains { $0.hasPrefix("set_status claude_code Standby") },
+            "Startup idle notification must display 'Standby', saw \(notifCommands)"
+        )
+
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["agentLifecycle"] as? String, "idle")
+    }
+
+    func testClaudeWaitingNotificationWhenRunningMapsToNeedsInput() throws {
+        // When Claude fires a "waiting for input" notification while actively running (mid-task),
+        // the lifecycle should be needsInput — Claude is genuinely blocked.
+        let context = try makeClaudeHookContext(name: "claude-waiting-running")
+        defer { context.cleanup() }
+
+        let sessionId = "waiting-running-session"
+
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PromptSubmit"}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let notifStart = context.state.commands.count
+        let notification = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude is waiting for your input"}"#
+        )
+        XCTAssertFalse(notification.timedOut, notification.stderr)
+        XCTAssertEqual(notification.status, 0, notification.stderr)
+
+        let notifCommands = Array(context.state.commands.dropFirst(notifStart))
+        XCTAssertTrue(
+            notifCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle claude_code needsInput --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Mid-task waiting notification must set needsInput, saw \(notifCommands)"
+        )
+        XCTAssertTrue(
+            notifCommands.contains { $0.hasPrefix("set_status claude_code Needs input") },
+            "Mid-task waiting notification must display 'Needs input', saw \(notifCommands)"
+        )
+
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["agentLifecycle"] as? String, "needsInput")
+    }
+
+    func testClaudeCompletedNotificationDoesNotSetNeedsInput() throws {
+        // When Claude fires a "completed" notification (task done), the lifecycle should not
+        // be needsInput — the stop hook handles the final idle transition.
+        let context = try makeClaudeHookContext(name: "claude-completed-notif")
+        defer { context.cleanup() }
+
+        let sessionId = "completed-notif-session"
+
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PromptSubmit"}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let notifStart = context.state.commands.count
+        let notification = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"task completed successfully"}"#
+        )
+        XCTAssertFalse(notification.timedOut, notification.stderr)
+        XCTAssertEqual(notification.status, 0, notification.stderr)
+
+        let notifCommands = Array(context.state.commands.dropFirst(notifStart))
+        XCTAssertFalse(
+            notifCommands.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput") },
+            "Completed notification must not set needsInput, saw \(notifCommands)"
+        )
+        XCTAssertTrue(
+            notifCommands.contains { $0.hasPrefix("set_agent_lifecycle claude_code idle") },
+            "Completed notification must set idle, saw \(notifCommands)"
+        )
+        XCTAssertFalse(
+            notifCommands.contains { $0.contains("Needs input") },
+            "Completed notification must not display 'Needs input', saw \(notifCommands)"
+        )
+
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["agentLifecycle"] as? String, "idle")
+    }
+
     func testGenericAgentNotificationUpdatesLifecycleForNeedsInput() throws {
         let context = try makeClaudeHookContext(name: "codex-notification-lifecycle")
         defer { context.cleanup() }

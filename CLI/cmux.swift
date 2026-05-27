@@ -20182,6 +20182,22 @@ struct CMUXCLI {
             )
             let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
 
+            // Only treat this notification as a genuine mid-task block requiring user action if:
+            // - it is not a task-completion signal ("Completed"), and
+            // - for "Waiting" signals, Claude was actively running (not just sitting at its idle prompt).
+            // Startup and post-task "waiting at prompt" notifications map to standby instead.
+            let currentLifecycle = mappedSession?.agentLifecycle ?? .unknown
+            let isGenuineBlock: Bool
+            switch summary.subtitle {
+            case "Completed":
+                isGenuineBlock = false
+            case "Waiting":
+                isGenuineBlock = currentLifecycle == .running
+            default:
+                isGenuineBlock = true
+            }
+            let notifLifecycle: AgentHibernationLifecycleState = isGenuineBlock ? .needsInput : .idle
+
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
@@ -20189,7 +20205,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
+                    agentLifecycle: notifLifecycle,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
@@ -20198,18 +20214,29 @@ struct CMUXCLI {
             setAgentLifecycle(
                 client: client,
                 key: Self.claudeCodeStatusKey,
-                lifecycle: .needsInput,
+                lifecycle: notifLifecycle,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId
             )
-            _ = try? setClaudeStatus(
-                client: client,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                value: "Needs input",
-                icon: "bell.fill",
-                color: "#4C8DFF"
-            )
+            if isGenuineBlock {
+                _ = try? setClaudeStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    value: "Needs input",
+                    icon: "bell.fill",
+                    color: "#4C8DFF"
+                )
+            } else {
+                _ = try? setClaudeStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    value: "Standby",
+                    icon: "circle.fill",
+                    color: "#8E8E93"
+                )
+            }
             let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
 
