@@ -1434,6 +1434,8 @@ html { scroll-behavior: smooth; }
   var largeMarkdownTokenThreshold = 450;
   var firstChunkTargetCharacters = 24 * 1024;
   var nextChunkTargetCharacters = 64 * 1024;
+  var fastFirstPaintMinCharacters = 4 * 1024;
+  var fastFirstPaintSearchSlack = 16 * 1024;
 
   function updateMarkdownRenderState(next) {
     Object.keys(next || {}).forEach(function(key) {
@@ -1500,6 +1502,64 @@ html { scroll-behavior: smooth; }
       chunks.push(current);
     }
     return chunks.length ? chunks : [[]];
+  }
+
+  function splitMarkdownForFastFirstPaint(markdown) {
+    var source = String(markdown || '');
+    if (source.length <= firstChunkTargetCharacters) {
+      return { first: source, rest: '' };
+    }
+
+    var target = Math.min(firstChunkTargetCharacters, source.length);
+    var hardLimit = Math.min(source.length, target + fastFirstPaintSearchSlack);
+    var lastSafeCut = -1;
+    var fallbackCut = -1;
+    var index = 0;
+    var inFence = false;
+    var fenceChar = '';
+    var fenceLength = 0;
+
+    while (index < source.length && index <= hardLimit) {
+      var lineStart = index;
+      var newlineIndex = source.indexOf('\n', index);
+      var lineEnd = newlineIndex >= 0 ? newlineIndex + 1 : source.length;
+      var line = source.slice(lineStart, lineEnd);
+      var trimmed = line.replace(/\r?\n$/, '').trim();
+      var fenceMatch = trimmed.match(/^(`{3,}|~{3,})/);
+      if (fenceMatch) {
+        var marker = fenceMatch[1];
+        if (!inFence) {
+          inFence = true;
+          fenceChar = marker.charAt(0);
+          fenceLength = marker.length;
+        } else if (marker.charAt(0) === fenceChar && marker.length >= fenceLength) {
+          inFence = false;
+          fenceChar = '';
+          fenceLength = 0;
+        }
+      }
+
+      if (!inFence && trimmed === '' && lineEnd >= fastFirstPaintMinCharacters) {
+        lastSafeCut = lineEnd;
+      }
+      if (lineEnd >= fastFirstPaintMinCharacters) {
+        fallbackCut = lineEnd;
+      }
+      if (lineEnd >= target && lastSafeCut >= fastFirstPaintMinCharacters) {
+        break;
+      }
+      if (newlineIndex < 0) { break; }
+      index = lineEnd;
+    }
+
+    var cut = lastSafeCut >= fastFirstPaintMinCharacters ? lastSafeCut : fallbackCut;
+    if (cut <= 0 || cut >= source.length) {
+      cut = Math.min(target, source.length);
+    }
+    return {
+      first: source.slice(0, cut),
+      rest: source.slice(cut)
+    };
   }
 
   function renderTokenChunk(tokens) {
@@ -1575,6 +1635,48 @@ html { scroll-behavior: smooth; }
     renderOneChunk();
   }
 
+  function renderLargeMarkdownDocumentFromSource(frontmatterHTML, body, scrollState, generation) {
+    var split = splitMarkdownForFastFirstPaint(body);
+    var firstTokens = marked.lexer(split.first);
+    var firstRenderedTokens = firstTokens.length;
+
+    contentEl.innerHTML = '';
+    if (frontmatterHTML) {
+      appendRenderedHTML(frontmatterHTML);
+    }
+
+    updateMarkdownRenderState({
+      generation: generation,
+      large: true,
+      complete: false,
+      renderedChunks: 0,
+      totalChunks: split.rest ? 2 : 1,
+      renderedTokens: 0,
+      totalTokens: firstRenderedTokens
+    });
+
+    appendRenderedHTML(renderTokenChunk(firstTokens));
+    updateMarkdownRenderState({
+      renderedChunks: 1,
+      renderedTokens: firstRenderedTokens,
+      complete: !split.rest
+    });
+    restoreMarkdownScrollState(scrollState);
+
+    if (!split.rest) {
+      resolveMarkdownRenderCompletionIfNeeded();
+      return;
+    }
+
+    scheduleMarkdownRenderStep(function() {
+      if (generation !== markdownRenderGeneration) { return; }
+      var tokens = marked.lexer(body);
+      if (generation !== markdownRenderGeneration) { return; }
+      headingSlugCounts = Object.create(null);
+      renderLargeMarkdownDocument(frontmatterHTML, tokens, scrollState, generation);
+    });
+  }
+
   function renderSmallMarkdownDocument(html, scrollState, generation) {
     var didReplaceContent = contentEl.innerHTML !== html;
     if (didReplaceContent) {
@@ -1615,8 +1717,13 @@ html { scroll-behavior: smooth; }
       var body = documentParts.body || '';
       var frontmatterHTML = renderFrontmatter(documentParts.frontmatter);
       var scrollState = captureMarkdownScrollState();
+      if (body.length >= largeMarkdownCharacterThreshold) {
+        renderLargeMarkdownDocumentFromSource(frontmatterHTML, body, scrollState, generation);
+        return;
+      }
+
       var tokens = marked.lexer(body);
-      if (body.length >= largeMarkdownCharacterThreshold || tokens.length >= largeMarkdownTokenThreshold) {
+      if (tokens.length >= largeMarkdownTokenThreshold) {
         renderLargeMarkdownDocument(frontmatterHTML, tokens, scrollState, generation);
         return;
       }
