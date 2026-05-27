@@ -19599,10 +19599,14 @@ class TerminalController {
     private func agentHibernation(_ args: String) -> String {
         let parsed = parseOptions(args)
         let subcommand = parsed.positional.first?.lowercased()
-        let usage = "agent_hibernation <on|off>"
+        let usage = "agent_hibernation <on|off> [--force]"
 
         switch subcommand {
         case "on", "enable", "enabled", "true":
+            let isForced = parsed.options.keys.contains("force")
+            if !isForced && !AgentHibernationHookSetupEvidence.hasHookSetupEvidence() {
+                return "ERROR: \(Self.agentHibernationMissingHookEvidenceMessage)"
+            }
             AgentHibernationSettings.setValues(enabled: true)
             return "OK"
         case "off", "disable", "disabled", "false":
@@ -19611,6 +19615,13 @@ class TerminalController {
         default:
             return "ERROR: Usage: \(usage)"
         }
+    }
+
+    private static var agentHibernationMissingHookEvidenceMessage: String {
+        String(
+            localized: "settings.terminal.agentHibernation.hooksWarning.cli",
+            defaultValue: "Agent Hibernation needs agent lifecycle hooks. Run `cmux hooks setup` or enable an agent integration first. Use --force to enable anyway."
+        )
     }
 
     /// Unregister an agent PID. Usage: clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status]

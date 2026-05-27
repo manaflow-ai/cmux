@@ -11791,9 +11791,10 @@ struct CMUXCLI {
             """
         case "agent-hibernation":
             return """
-            Usage: cmux agent-hibernation <on|off> [--json]
+            Usage: cmux agent-hibernation <on|off> [--force] [--json]
 
             Enable or disable Agent Hibernation.
+            Enabling requires agent lifecycle hooks. Pass --force to enable anyway.
             Configure idle and live-terminal limits from Settings or cmux settings JSON.
             """
         case "restore-session":
@@ -20192,17 +20193,40 @@ struct CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool
     ) throws {
-        guard let subcommand = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "Usage: cmux agent-hibernation <on|off> [--json]")
+        let usage = "Usage: cmux agent-hibernation <on|off> [--force] [--json]"
+        var force = false
+        var positional: [String] = []
+        for argument in commandArgs {
+            switch argument {
+            case "--force":
+                force = true
+            case let value where value.hasPrefix("--"):
+                throw CLIError(message: "\(usage)\nUnknown option: \(value)")
+            default:
+                positional.append(argument)
+            }
+        }
+
+        guard positional.count == 1, let subcommand = positional.first?.lowercased() else {
+            throw CLIError(message: usage)
         }
         let response: String
         switch subcommand {
         case "on", "enable":
-            response = try sendV1Command("agent_hibernation on", client: client)
+            response = try client.send(command: "agent_hibernation on\(force ? " --force" : "")")
         case "off", "disable":
-            response = try sendV1Command("agent_hibernation off", client: client)
+            response = try client.send(command: "agent_hibernation off")
         default:
-            throw CLIError(message: "Usage: cmux agent-hibernation <on|off> [--json]")
+            throw CLIError(message: usage)
+        }
+
+        if response.hasPrefix("ERROR:") {
+            let message = String(response.dropFirst("ERROR:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            if jsonOutput {
+                print(jsonString(["ok": false, "message": message]))
+                return
+            }
+            throw CLIError(message: message)
         }
 
         if jsonOutput {
@@ -29846,7 +29870,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           config <doctor|check|validate|path|paths|docs|documentation|reload>
           shortcuts
           disable-browser | enable-browser | browser-status
-          agent-hibernation <on|off>
+          agent-hibernation <on|off> [--force]
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           feedback [--email <email> --body <text> [--image <path> ...]]
