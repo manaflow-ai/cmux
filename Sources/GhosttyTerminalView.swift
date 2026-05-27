@@ -5110,6 +5110,63 @@ enum TerminalSurfaceFocusPlacement: Equatable {
     case rightSidebarDock
 }
 
+private actor TmuxControlEventBuffer {
+    private let maxCoalescedPaneOutputBytes: Int
+    private var pendingEvents: [TmuxControlEvent] = []
+    private var flushScheduled = false
+    private var generation: UInt64 = 0
+
+    init(maxCoalescedPaneOutputBytes: Int) {
+        self.maxCoalescedPaneOutputBytes = maxCoalescedPaneOutputBytes
+    }
+
+    func enqueue(_ event: TmuxControlEvent) -> Bool {
+        append(event)
+        if flushScheduled {
+            return false
+        }
+        flushScheduled = true
+        return true
+    }
+
+    func drain() -> (generation: UInt64, events: [TmuxControlEvent]) {
+        let events = pendingEvents
+        pendingEvents.removeAll(keepingCapacity: true)
+        return (generation, events)
+    }
+
+    func finishBatchAndShouldContinue() -> Bool {
+        let shouldContinue = !pendingEvents.isEmpty
+        if !shouldContinue {
+            flushScheduled = false
+        }
+        return shouldContinue
+    }
+
+    func reset(to generation: UInt64) {
+        self.generation = max(self.generation, generation)
+        pendingEvents.removeAll(keepingCapacity: false)
+        flushScheduled = false
+    }
+
+    private func append(_ event: TmuxControlEvent) {
+        if case .paneOutput(let paneId, let data) = event,
+           let lastIndex = pendingEvents.indices.last,
+           case .paneOutput(let lastPaneId, let existingData) = pendingEvents[lastIndex],
+           paneId == lastPaneId {
+            var combined = existingData
+            combined.append(data)
+            if combined.count > maxCoalescedPaneOutputBytes {
+                combined = Data(combined.suffix(maxCoalescedPaneOutputBytes))
+            }
+            pendingEvents[lastIndex] = .paneOutput(paneId: paneId, data: combined)
+            return
+        }
+
+        pendingEvents.append(event)
+    }
+}
+
 private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
     guard AgentHibernationTrackingGate.isEnabled() else { return }
     let recordedAt = Date()
@@ -5302,94 +5359,43 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var portalLifecycleState: PortalLifecycleState = .live
     private var portalLifecycleGeneration: UInt64 = 1
     private var activePortalHostLease: PortalHostLease?
-    private static let maxCoalescedTmuxControlPaneOutputBytes = 65_536
-    private let tmuxControlPendingLock = NSLock()
-    private var pendingTmuxControlEvents: [TmuxControlEvent] = []
-    private var tmuxControlFlushScheduled = false
-    private var tmuxControlGeneration: UInt64 = 0
+    private let tmuxControlEventBuffer = TmuxControlEventBuffer(
+        maxCoalescedPaneOutputBytes: TmuxControlState.paneTextByteLimit
+    )
+    @MainActor private var tmuxControlGeneration: UInt64 = 0
     @Published private(set) var tmuxControlState = TmuxControlState()
 
     func enqueueTmuxControlEvent(_ event: TmuxControlEvent) {
-        let shouldSchedule: Bool = {
-            tmuxControlPendingLock.lock()
-            defer { tmuxControlPendingLock.unlock() }
-            appendPendingTmuxControlEventLocked(event)
-            if tmuxControlFlushScheduled {
-                return false
-            }
-            tmuxControlFlushScheduled = true
-            return true
-        }()
-
-        guard shouldSchedule else { return }
         Task { [weak self] in
             guard let self else { return }
+            let shouldSchedule = await self.tmuxControlEventBuffer.enqueue(event)
+            guard shouldSchedule else { return }
             await self.processPendingTmuxControlEvents()
         }
     }
 
-    private func appendPendingTmuxControlEventLocked(_ event: TmuxControlEvent) {
-        if case .paneOutput(let paneId, let data) = event,
-           let lastIndex = pendingTmuxControlEvents.indices.last,
-           case .paneOutput(let lastPaneId, let existingData) = pendingTmuxControlEvents[lastIndex],
-           paneId == lastPaneId {
-            var combined = existingData
-            combined.append(data)
-            if combined.count > Self.maxCoalescedTmuxControlPaneOutputBytes {
-                combined = Data(combined.suffix(Self.maxCoalescedTmuxControlPaneOutputBytes))
-            }
-            pendingTmuxControlEvents[lastIndex] = .paneOutput(paneId: paneId, data: combined)
-            return
-        }
-
-        pendingTmuxControlEvents.append(event)
-    }
-
     private func processPendingTmuxControlEvents() async {
         while true {
-            let batch = drainPendingTmuxControlEvents()
+            let batch = await tmuxControlEventBuffer.drain()
             await applyTmuxControlEvents(batch.events, generation: batch.generation)
-            guard keepProcessingTmuxControlEvents() else { return }
+            guard await tmuxControlEventBuffer.finishBatchAndShouldContinue() else { return }
         }
-    }
-
-    private func drainPendingTmuxControlEvents() -> (generation: UInt64, events: [TmuxControlEvent]) {
-        tmuxControlPendingLock.lock()
-        defer { tmuxControlPendingLock.unlock() }
-        let generation = tmuxControlGeneration
-        let events = pendingTmuxControlEvents
-        pendingTmuxControlEvents.removeAll(keepingCapacity: true)
-        return (generation, events)
-    }
-
-    private func keepProcessingTmuxControlEvents() -> Bool {
-        tmuxControlPendingLock.lock()
-        defer { tmuxControlPendingLock.unlock() }
-        let shouldContinue = !pendingTmuxControlEvents.isEmpty
-        if !shouldContinue {
-            tmuxControlFlushScheduled = false
-        }
-        return shouldContinue
     }
 
     @MainActor
     private func resetTmuxControlState() {
         tmuxControlState = TmuxControlState()
-        clearPendingTmuxControlEvents()
-    }
-
-    private func clearPendingTmuxControlEvents() {
-        tmuxControlPendingLock.lock()
-        defer { tmuxControlPendingLock.unlock() }
         tmuxControlGeneration &+= 1
-        pendingTmuxControlEvents.removeAll(keepingCapacity: false)
-        tmuxControlFlushScheduled = false
+        let generation = tmuxControlGeneration
+        Task { [tmuxControlEventBuffer] in
+            await tmuxControlEventBuffer.reset(to: generation)
+        }
     }
 
     @MainActor
     private func applyTmuxControlEvents(_ events: [TmuxControlEvent], generation: UInt64? = nil) {
         if let generation {
-            guard tmuxControlGenerationMatches(generation) else { return }
+            guard generation == tmuxControlGeneration else { return }
         }
         guard !events.isEmpty else { return }
         var next = tmuxControlState
@@ -5406,12 +5412,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )
         }
 #endif
-    }
-
-    private func tmuxControlGenerationMatches(_ generation: UInt64) -> Bool {
-        tmuxControlPendingLock.lock()
-        defer { tmuxControlPendingLock.unlock() }
-        return generation == tmuxControlGeneration
     }
 
     @MainActor
