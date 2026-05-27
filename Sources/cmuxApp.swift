@@ -5308,6 +5308,10 @@ struct SettingsView: View {
     private var agentHibernationMaxLiveTerminals = AgentHibernationSettings.defaultMaxLiveTerminals
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
+    @AppStorage(IMessageModeGroupSortSettings.sortInsideGroupsKey)
+    private var iMessageModeSortInsideGroups = IMessageModeGroupSortSettings.sortInsideGroupsDefault
+    @AppStorage(IMessageModeGroupSortSettings.floatGroupsKey)
+    private var iMessageModeFloatGroups = IMessageModeGroupSortSettings.floatGroupsDefault
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
     @AppStorage(SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey)
@@ -7008,6 +7012,44 @@ struct SettingsView: View {
                         SettingsCardDivider()
                         SettingsCardRow(configurationReview: .json("sidebar.makePullRequestsClickable"), String(localized: "settings.app.makeSidebarPullRequestClickable", defaultValue: "Make Sidebar PR Clickable"), subtitle: String(localized: "settings.app.makeSidebarPullRequestClickable.subtitle", defaultValue: "Review items stay visible as plain text, and clicks in that area select the workspace row.")) { Toggle("", isOn: $sidebarMakePullRequestClickable).labelsHidden().controlSize(.small).accessibilityIdentifier("SettingsSidebarPullRequestClickableToggle") }
                         .disabled(sidebarHideAllDetails || !sidebarShowPullRequest)
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("sidebar.imessageMode.sortInsideGroups"),
+                            String(
+                                localized: "settings.app.imessageSortInsideGroups",
+                                defaultValue: "iMessage Mode: Sort Workspaces Inside Groups"
+                            ),
+                            subtitle: String(
+                                localized: "settings.app.imessageSortInsideGroups.subtitle",
+                                defaultValue: "When iMessage mode floats unread workspaces to the top, sort members within each group while the group section stays put."
+                            )
+                        ) {
+                            Toggle("", isOn: $iMessageModeSortInsideGroups)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+                        .disabled(!iMessageMode)
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("sidebar.imessageMode.floatGroups"),
+                            String(
+                                localized: "settings.app.imessageFloatGroups",
+                                defaultValue: "iMessage Mode: Float Groups by Latest Unread"
+                            ),
+                            subtitle: String(
+                                localized: "settings.app.imessageFloatGroups.subtitle",
+                                defaultValue: "Reorder whole group sections by their most-recent unread member when iMessage mode is on."
+                            )
+                        ) {
+                            Toggle("", isOn: $iMessageModeFloatGroups)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+                        .disabled(!iMessageMode)
+
                         SettingsCardDivider()
                         SettingsCardRow(
                             configurationReview: .json("sidebar.openPullRequestLinksInCmuxBrowser"),
