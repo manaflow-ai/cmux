@@ -4382,12 +4382,6 @@ class GhosttyApp {
                   callbackContext.runtimeSurface == target.target.surface,
                   let terminalSurface = callbackContext.terminalSurface else { return true }
             let tmuxAction = action.action.tmux_control
-            let data: Data
-            if tmuxAction.data_len > 0, let dataPointer = tmuxAction.data {
-                data = Data(bytes: UnsafeRawPointer(dataPointer), count: Int(tmuxAction.data_len))
-            } else {
-                data = Data()
-            }
             let event: TmuxControlEvent?
             switch tmuxAction.event {
             case GHOSTTY_TMUX_ENTER:
@@ -4395,8 +4389,17 @@ class GhosttyApp {
             case GHOSTTY_TMUX_EXIT:
                 event = .exit
             case GHOSTTY_TMUX_WINDOWS_CHANGED:
+                let data = TmuxControlPayload.data(
+                    from: tmuxAction.data.map { UnsafeRawPointer($0) },
+                    byteCount: Int(tmuxAction.data_len)
+                )
                 event = .windowsChanged(data)
             case GHOSTTY_TMUX_PANE_OUTPUT:
+                let data = TmuxControlPayload.data(
+                    from: tmuxAction.data.map { UnsafeRawPointer($0) },
+                    byteCount: Int(tmuxAction.data_len),
+                    suffixLimit: TmuxControlState.paneTextByteLimit
+                )
                 event = .paneOutput(paneId: tmuxAction.id, data: data)
             default:
                 event = nil

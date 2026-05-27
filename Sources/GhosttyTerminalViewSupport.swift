@@ -78,7 +78,7 @@ struct TmuxControlTopology: Codable, Equatable, Sendable {
 }
 
 struct TmuxControlState: Equatable, Sendable {
-    private static let paneTextByteLimit = 65_536
+    static let paneTextByteLimit = 65_536
 
     var active = false
     var lastEvent = "inactive"
@@ -180,6 +180,26 @@ struct TmuxControlState: Equatable, Sendable {
         }
 
         return String(decoding: data, as: UTF8.self)
+    }
+}
+
+enum TmuxControlPayload {
+    static func data(
+        from pointer: UnsafeRawPointer?,
+        byteCount: Int,
+        suffixLimit: Int? = nil
+    ) -> Data {
+        guard byteCount > 0, let pointer else { return Data() }
+        let count = max(0, byteCount)
+        guard let suffixLimit else {
+            return Data(bytes: pointer, count: count)
+        }
+        let limit = max(0, suffixLimit)
+        guard limit > 0 else { return Data() }
+        guard count > limit else {
+            return Data(bytes: pointer, count: count)
+        }
+        return Data(bytes: pointer.advanced(by: count - limit), count: limit)
     }
 }
 

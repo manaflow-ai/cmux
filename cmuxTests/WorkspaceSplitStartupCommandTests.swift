@@ -361,6 +361,19 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertTrue(state.paneBytesById.isEmpty)
     }
 
+    func testTmuxControlPayloadCopiesOnlyPaneOutputSuffixWhenCapped() {
+        let bytes = Data((0..<128).map { UInt8($0) })
+        let copied = bytes.withUnsafeBytes { rawBuffer -> Data in
+            TmuxControlPayload.data(
+                from: rawBuffer.baseAddress,
+                byteCount: rawBuffer.count,
+                suffixLimit: 16
+            )
+        }
+
+        XCTAssertEqual(copied, Data(bytes.suffix(16)))
+    }
+
     func testTmuxControlStateClearsOnRuntimeSurfaceTeardown() {
         let panel = TerminalPanel(workspaceId: UUID())
 

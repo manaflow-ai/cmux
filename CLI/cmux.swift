@@ -6554,6 +6554,9 @@ struct CMUXCLI {
         )
 
         if let sshDestination = options.sshDestination {
+            if options.workingDirectory != nil {
+                throw CLIError(message: "tmux attach: --cwd is only supported for local attaches")
+            }
             let relayID = UUID().uuidString.lowercased()
             let relayToken = try randomHex(byteCount: 32)
             let workspaceName = options.workspaceName ?? "tmux \(options.sessionName) @ \(sshDestination)"

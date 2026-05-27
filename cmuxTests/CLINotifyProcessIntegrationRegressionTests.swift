@@ -2394,6 +2394,52 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(run.stdout.contains("session=cmuxcc mode=ssh"), run.stdout)
     }
 
+    func testTmuxAttachSSHRejectsCwdUntilRemoteCwdIsSupported() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("tmuxattachsshcwd")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            return self.v2Response(
+                id: id,
+                ok: false,
+                error: ["code": "unexpected_method", "message": "tmux attach SSH --cwd should fail before RPC"]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["tmux", "attach", "cmuxcc", "--ssh", "example.test", "--cwd", "/repo"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(
+            result.stderr.contains("tmux attach: --cwd is only supported for local attaches"),
+            result.stderr
+        )
+        XCTAssertFalse(
+            state.snapshot().contains { $0.contains(#""method":"workspace.create""#) },
+            "tmux attach SSH --cwd should not create a workspace"
+        )
+    }
+
     private func assertSSHPersistentPTYUsesReusableForegroundAuthControlConnection(
         run: MockedSSHRun,
         file: StaticString = #filePath,
