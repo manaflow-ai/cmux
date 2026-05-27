@@ -86,6 +86,7 @@ struct CommandPaletteSettingToggleDescriptor: Sendable {
 enum CommandPaletteSettingsToggleCommands {
     static let commandIdPrefix = "palette.toggleSetting."
     static let agentHibernationCommandId = commandIdPrefix + "agentHibernation"
+    @MainActor private static var agentHibernationToggleGeneration = 0
 
     static func descriptor(commandId: String) -> CommandPaletteSettingToggleDescriptor? {
         descriptors.first { $0.commandId == commandId }
@@ -835,6 +836,8 @@ enum CommandPaletteSettingsToggleCommands {
         defaults: UserDefaults = .standard,
         notificationCenter: NotificationCenter = .default
     ) {
+        agentHibernationToggleGeneration += 1
+        let toggleGeneration = agentHibernationToggleGeneration
         let newValue = !AgentHibernationSettings.isEnabled(defaults: defaults)
         guard newValue else {
             AgentHibernationSettings.setValues(
@@ -865,7 +868,14 @@ enum CommandPaletteSettingsToggleCommands {
             let hasHookSetupEvidence = await Task.detached(priority: .utility) {
                 AgentHibernationHookSetupEvidence.hasHookSetupEvidence(defaults: defaults)
             }.value
+            guard toggleGeneration == agentHibernationToggleGeneration,
+                  !AgentHibernationSettings.isEnabled(defaults: defaults) else {
+                return
+            }
             guard hasHookSetupEvidence || AgentHibernationEnableWarning.confirmEnableWithoutHooks() else {
+                return
+            }
+            guard toggleGeneration == agentHibernationToggleGeneration else {
                 return
             }
             AgentHibernationSettings.setValues(

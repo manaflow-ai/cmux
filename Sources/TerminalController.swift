@@ -19633,10 +19633,9 @@ class TerminalController {
     }
 
     private nonisolated static func agentHibernationHookSetupEvidenceOffMain() -> Bool {
-        if Thread.isMainThread {
-            return DispatchQueue.global(qos: .utility).sync {
-                AgentHibernationHookSetupEvidence.hasHookSetupEvidence()
-            }
+        guard !Thread.isMainThread else {
+            assertionFailure("agentHibernationHookSetupEvidenceOffMain must not run on the main thread")
+            return false
         }
         return AgentHibernationHookSetupEvidence.hasHookSetupEvidence()
     }
