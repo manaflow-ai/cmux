@@ -361,6 +361,23 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
     }
 
+    func startupCommandWithLauncherScript(
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> String? {
+        guard let inlineInput = inlineStartupInput,
+              let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
+                  inlineInput: inlineInput,
+                  binding: self,
+                  fileManager: fileManager,
+                  temporaryDirectory: temporaryDirectory,
+                  returnToLoginShell: true
+              ) else {
+            return nil
+        }
+        return "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))"
+    }
+
     private static func normalized(_ rawValue: String?) -> String? {
         guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawValue.isEmpty else {
@@ -1195,6 +1212,34 @@ enum SurfaceResumeApprovalStore {
 #endif
 }
 
+nonisolated enum TerminalStartupReturnShellScript {
+    private static let shellLine = #"_cmux_resume_shell="${SHELL:-/bin/zsh}""#
+    private static let zshIntegrationReentryLines = [
+        #"if [[ "${_cmux_resume_shell:t}" == "zsh" && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" && -r "${CMUX_SHELL_INTEGRATION_DIR}/.zshenv" ]]; then"#,
+        #"  if [[ -n "${ZDOTDIR+X}" ]]; then"#,
+        #"    export CMUX_ZSH_ZDOTDIR="$ZDOTDIR""#,
+        #"  else"#,
+        #"    unset CMUX_ZSH_ZDOTDIR"#,
+        #"  fi"#,
+        #"  export ZDOTDIR="$CMUX_SHELL_INTEGRATION_DIR""#,
+        #"fi"#,
+    ]
+
+    static func commandThenReturnLines(command: String) -> [String] {
+        let quotedCommand = TerminalStartupShellQuoting.singleQuoted(command)
+        return [
+            shellLine,
+            #"case "${_cmux_resume_shell:t}" in"#,
+            #"  zsh|bash) "$_cmux_resume_shell" -lic \#(quotedCommand) ;;"#,
+            #"  csh|tcsh) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
+            #"  *) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
+            #"esac"#,
+        ] + zshIntegrationReentryLines + [
+            #"exec -l "$_cmux_resume_shell""#
+        ]
+    }
+}
+
 private enum SurfaceResumeBindingScriptStore {
     private static let directoryName = "cmux-surface-resume"
     private static let scriptTTL: TimeInterval = 24 * 60 * 60
@@ -1203,7 +1248,8 @@ private enum SurfaceResumeBindingScriptStore {
         inlineInput: String,
         binding: SurfaceResumeBindingSnapshot,
         fileManager: FileManager,
-        temporaryDirectory: URL
+        temporaryDirectory: URL,
+        returnToLoginShell: Bool = false
     ) -> URL? {
         let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
         do {
@@ -1216,7 +1262,16 @@ private enum SurfaceResumeBindingScriptStore {
                 "\(prefix)-\(UUID().uuidString).zsh",
                 isDirectory: false
             )
-            let contents = "#!/bin/zsh\nrm -f -- \"$0\" 2>/dev/null || true\n\(inlineInput)"
+            var lines = [
+                "#!/bin/zsh",
+                "rm -f -- \"$0\" 2>/dev/null || true"
+            ]
+            if returnToLoginShell {
+                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(command: inlineInput))
+            } else {
+                lines.append(inlineInput)
+            }
+            let contents = lines.joined(separator: "\n") + "\n"
             try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
             try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
             return scriptURL
