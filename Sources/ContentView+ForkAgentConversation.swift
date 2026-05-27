@@ -49,11 +49,7 @@ extension ContentView {
             cachedSnapshot: commandPaletteForkableAgentSnapshotsByPanelKey[panelKey]
         )
         guard let snapshot else {
-            commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
-            commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
-            commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
-            commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
-            commandPaletteForkableAgentResultHadFallbackByPanelKey.removeValue(forKey: panelKey)
+            clearCommandPaletteForkableAgentCache(panelKey: panelKey)
             NSSound.beep()
             return
         }
@@ -81,6 +77,7 @@ extension ContentView {
                 fromPanelId: panelId,
                 snapshot: snapshot
             ) else {
+                clearCommandPaletteForkableAgentCache(panelKey: panelKey)
                 NSSound.beep()
                 return
             }
@@ -106,9 +103,18 @@ extension ContentView {
         }
 
         guard didFork else {
+            clearCommandPaletteForkableAgentCache(panelKey: panelKey)
             NSSound.beep()
             return
         }
+    }
+
+    private func clearCommandPaletteForkableAgentCache(panelKey: String) {
+        commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+        commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentResultHadFallbackByPanelKey.removeValue(forKey: panelKey)
     }
 }
 
