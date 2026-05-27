@@ -709,17 +709,17 @@ enum FilePreviewKindResolver {
 
     private static func initialResolution(for url: URL) -> Resolution {
         let ext = url.pathExtension.lowercased()
-        if let type = UTType(filenameExtension: ext),
-           let mediaMode = mediaMode(for: type) {
-            return .resolved(mediaMode)
-        }
-
         if ext == "plist" {
             return .needsSniff
         }
 
         if knownTextFile(url: url, includeResourceContentType: false) {
             return .resolved(.text)
+        }
+
+        if let type = UTType(filenameExtension: ext),
+           let mediaMode = mediaMode(for: type) {
+            return .resolved(mediaMode)
         }
 
         return .needsSniff
@@ -731,14 +731,14 @@ enum FilePreviewKindResolver {
             return .resolved(.quickLook)
         }
 
+        if knownTextFile(url: url, includeResourceContentType: true) {
+            return .resolved(.text)
+        }
+
         for type in contentTypes(for: url) {
             if let mediaMode = mediaMode(for: type) {
                 return .resolved(mediaMode)
             }
-        }
-
-        if knownTextFile(url: url, includeResourceContentType: true) {
-            return .resolved(.text)
         }
 
         return .needsSniff
