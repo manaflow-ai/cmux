@@ -2717,6 +2717,83 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(minimalAccessory.view.alphaValue, 0, accuracy: 0.01)
     }
 
+    func testAttachUpdateAccessoryMovesTitlebarAccessoryWithWorkspaceSidebarSide() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        let savedLegacyTitlebar = defaults.object(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+        let savedWorkspacesOnRight = defaults.object(forKey: SidebarPositionSettings.workspacesOnRightKey)
+        defaults.set(WorkspacePresentationModeSettings.Mode.standard.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.removeObject(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+        defaults.set(false, forKey: SidebarPositionSettings.workspacesOnRightKey)
+        defer {
+            restoreDefaultsValue(savedMode, forKey: WorkspacePresentationModeSettings.modeKey, defaults: defaults)
+            restoreDefaultsValue(savedLegacyTitlebar, forKey: WorkspaceTitlebarSettings.showTitlebarKey, defaults: defaults)
+            restoreDefaultsValue(savedWorkspacesOnRight, forKey: SidebarPositionSettings.workspacesOnRightKey, defaults: defaults)
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected main window")
+            return
+        }
+
+        let titlebarAccessory: () -> NSTitlebarAccessoryViewController? = {
+            window.titlebarAccessoryViewControllers.first {
+                $0.view.identifier?.rawValue == "cmux.titlebarControls"
+            }
+        }
+
+        appDelegate.attachUpdateAccessory(to: window)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let leadingAccessory = titlebarAccessory() else {
+            XCTFail("Expected titlebar accessory")
+            return
+        }
+        XCTAssertEqual(leadingAccessory.layoutAttribute, .left)
+
+        defaults.set(true, forKey: SidebarPositionSettings.workspacesOnRightKey)
+        appDelegate.attachUpdateAccessory(to: window)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let trailingAccessory = titlebarAccessory() else {
+            XCTFail("Expected titlebar accessory")
+            return
+        }
+        XCTAssertEqual(trailingAccessory.layoutAttribute, .right)
+        if let context = appDelegate.contextForMainWindow(window) {
+            XCTAssertGreaterThanOrEqual(
+                trailingAccessory.preferredContentSize.width,
+                context.sidebarState.persistedWidth - 0.5
+            )
+        }
+    }
+
+    func testTitlebarLeadingInsetPolicyUsesMeasuredTrafficLightFrames() {
+        let reserve = TitlebarLeadingInsetPolicy.reserve(
+            trafficLightFrames: [
+                NSRect(x: 14, y: 0, width: 28, height: 28),
+                NSRect(x: 62, y: 0, width: 28, height: 28),
+                NSRect(x: 110, y: 0, width: 28, height: 28)
+            ],
+            leftAccessoryWidths: [24],
+            fallbackTrafficLightReserve: 78
+        )
+
+        XCTAssertEqual(
+            reserve,
+            110 + 28 + TitlebarLeadingInsetPolicy.trafficLightTrailingMargin + 24,
+            accuracy: 0.001
+        )
+    }
+
     func testWorkspaceButtonFadeModeDefaultsOffWhenTitlebarVisible() {
         let defaults = UserDefaults.standard
         let savedMode = defaults.object(forKey: WorkspaceButtonFadeSettings.modeKey)

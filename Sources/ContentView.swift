@@ -1057,6 +1057,8 @@ struct ContentView: View {
     @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(SidebarPositionSettings.workspacesOnRightKey)
+    private var workspacesOnRight = SidebarPositionSettings.defaultWorkspacesOnRight
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
@@ -1580,6 +1582,20 @@ struct ContentView: View {
         CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
     }
 
+    private var primarySidebarOnTrailingEdge: Bool {
+        workspacesOnRight
+    }
+
+    private var toolsSidebarOnLeadingEdge: Bool {
+        primarySidebarOnTrailingEdge
+    }
+
+    private var terminalContentTouchesWindowLeadingEdge: Bool {
+        let primaryOccupiesLeadingEdge = sidebarState.isVisible && !primarySidebarOnTrailingEdge
+        let toolsOccupyLeadingEdge = rightSidebarVisible && toolsSidebarOnLeadingEdge
+        return !primaryOccupiesLeadingEdge && !toolsOccupyLeadingEdge
+    }
+
     private enum SidebarResizerHandle: Hashable {
         case divider
         case explorerDivider
@@ -1599,8 +1615,9 @@ struct ContentView: View {
                 captureStart: { sidebarDragStartWidth = sidebarWidth },
                 updateWidth: { translation in
                     let startWidth = sidebarDragStartWidth ?? sidebarWidth
+                    let signedTranslation = primarySidebarOnTrailingEdge ? -translation : translation
                     let nextWidth = Self.clampedSidebarWidth(
-                        startWidth + translation,
+                        startWidth + signedTranslation,
                         maximumWidth: maxSidebarWidth(availableWidth: availableWidth),
                         minimumWidth: minimumSidebarWidth
                     )
@@ -1616,8 +1633,9 @@ struct ContentView: View {
                 captureStart: { fileExplorerDragStartWidth = fileExplorerWidth },
                 updateWidth: { translation in
                     let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
+                    let signedTranslation = toolsSidebarOnLeadingEdge ? translation : -translation
                     let nextWidth = Self.clampedRightSidebarWidth(
-                        startWidth - translation,
+                        startWidth + signedTranslation,
                         availableWidth: availableWidth
                     )
                     withTransaction(Transaction(animation: nil)) {
@@ -1769,14 +1787,22 @@ struct ContentView: View {
 
     private func dividerBandContains(pointInContent point: NSPoint, contentBounds: NSRect) -> Bool {
         guard point.y >= contentBounds.minY, point.y <= contentBounds.maxY else { return false }
-        if sidebarState.isVisible,
-           SidebarResizeInteraction.Edge.leading.hitRange(dividerX: sidebarWidth).contains(point.x) {
-            return true
+        if sidebarState.isVisible {
+            let primaryEdge: SidebarResizeInteraction.Edge = primarySidebarOnTrailingEdge ? .trailing : .leading
+            let primaryDividerX = primarySidebarOnTrailingEdge
+                ? contentBounds.maxX - sidebarWidth
+                : sidebarWidth
+            if primaryEdge.hitRange(dividerX: primaryDividerX).contains(point.x) {
+                return true
+            }
         }
 
-        let rightDividerX = contentBounds.maxX - rightSidebarWidth
-        return rightSidebarVisible &&
-            SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightDividerX).contains(point.x)
+        guard rightSidebarVisible else { return false }
+        let toolsEdge: SidebarResizeInteraction.Edge = toolsSidebarOnLeadingEdge ? .leading : .trailing
+        let toolsDividerX = toolsSidebarOnLeadingEdge
+            ? rightSidebarWidth
+            : contentBounds.maxX - rightSidebarWidth
+        return toolsEdge.hitRange(dividerX: toolsDividerX).contains(point.x)
     }
 
     private func updateSidebarResizerBandState(using _: NSEvent? = nil) {
@@ -1979,18 +2005,24 @@ struct ContentView: View {
     private var sidebarResizerOverlay: some View {
         placedSidebarResizerOverlay(
             handle: .divider,
-            edge: .leading,
+            edge: primarySidebarOnTrailingEdge ? .trailing : .leading,
             accessibilityIdentifier: "SidebarResizer",
-            dividerX: { totalWidth in min(max(sidebarWidth, 0), totalWidth) }
+            dividerX: { totalWidth in
+                primarySidebarOnTrailingEdge
+                    ? totalWidth - min(max(sidebarWidth, 0), totalWidth)
+                    : min(max(sidebarWidth, 0), totalWidth)
+            }
         )
     }
 
     private var rightSidebarResizerOverlay: some View {
         placedSidebarResizerOverlay(
             handle: .explorerDivider,
-            edge: .trailing,
+            edge: toolsSidebarOnLeadingEdge ? .leading : .trailing,
             accessibilityIdentifier: "RightSidebarResizer",
-            dividerX: { totalWidth in totalWidth - rightSidebarWidth }
+            dividerX: { totalWidth in
+                toolsSidebarOnLeadingEdge ? rightSidebarWidth : totalWidth - rightSidebarWidth
+            }
         )
     }
 
@@ -2008,6 +2040,9 @@ struct ContentView: View {
                 )
             },
             observedWindow: observedWindow,
+            showsMinimalTitlebarControls: true,
+            minimalTitlebarControlsPlacement: minimalModeSidebarTitlebarControlsPlacement,
+            borderAlignment: primarySidebarOnTrailingEdge ? .leading : .trailing,
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex
@@ -2027,6 +2062,14 @@ struct ContentView: View {
 
     private var isMinimalMode: Bool {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
+    }
+
+    private var minimalModeSidebarTitlebarControlsAvailable: Bool {
+        sidebarState.isVisible
+    }
+
+    private var minimalModeSidebarTitlebarControlsPlacement: MinimalModeSidebarTitlebarControlsPlacement {
+        primarySidebarOnTrailingEdge ? .trailing : .leading
     }
 
     private var effectiveTitlebarPadding: CGFloat {
@@ -2137,6 +2180,14 @@ struct ContentView: View {
         rightSidebarVisible ? fileExplorerWidth : 0
     }
 
+    private var leadingToolSidebarTitlebarReserve: CGFloat {
+        guard toolsSidebarOnLeadingEdge, !isFullScreen else { return 0 }
+        return max(
+            titlebarLeadingInset,
+            TitlebarLeadingInsetPolicy.fallbackTrafficLightReserve
+        )
+    }
+
     private func sidebarBackdropLayer(
         width: CGFloat,
         role: WindowBackdropRole,
@@ -2166,16 +2217,27 @@ struct ContentView: View {
     }
 
     private func sidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
-        sidebarPanelContainer(width: sidebarWidth, alignment: .leading, role: .leftSidebar, appearance: appearance) {
+        sidebarPanelContainer(
+            width: sidebarWidth,
+            alignment: primarySidebarOnTrailingEdge ? .trailing : .leading,
+            role: .leftSidebar,
+            appearance: appearance
+        ) {
             sidebarView
         }
     }
 
     private func rightSidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
-        let panel = sidebarPanelContainer(width: rightSidebarWidth, alignment: .trailing, role: .rightSidebar, appearance: appearance) {
+        let borderAlignment: Alignment = toolsSidebarOnLeadingEdge ? .trailing : .leading
+        let panel = sidebarPanelContainer(
+            width: rightSidebarWidth,
+            alignment: toolsSidebarOnLeadingEdge ? .leading : .trailing,
+            role: .rightSidebar,
+            appearance: appearance
+        ) {
             rightSidebarPanel
         }
-        .overlay(alignment: .leading) {
+        .overlay(alignment: borderAlignment) {
             if rightSidebarVisible {
                 WindowChromeBorder(orientation: .vertical)
             }
@@ -2191,6 +2253,7 @@ struct ContentView: View {
             fileExplorerState: fileExplorerState,
             sessionIndexStore: sessionIndexStore,
             titlebarHeight: RightSidebarChromeMetrics.titlebarHeight,
+            titlebarLeadingReserve: leadingToolSidebarTitlebarReserve,
             workspaceId: tabManager.selectedTabId,
             onResumeSession: { entry in
                 resumeSession(entry: entry)
@@ -2208,7 +2271,10 @@ struct ContentView: View {
                 _ = AppDelegate.shared?.closeRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
             }
         )
-        .frame(width: rightSidebarWidth)
+        .frame(
+            width: rightSidebarWidth,
+            alignment: toolsSidebarOnLeadingEdge ? .leading : .trailing
+        )
         .clipped()
         .allowsHitTesting(rightSidebarVisible)
         .accessibilityHidden(!rightSidebarVisible)
@@ -2338,6 +2404,12 @@ struct ContentView: View {
 
     private func customTitlebar(appearance: WindowAppearanceSnapshot) -> some View {
         let titlebarContentHeight = max(1, WindowChromeMetrics.appTitlebarHeight - 2)
+        let titlebarLeadingPadding: CGFloat = {
+            if isFullScreen && terminalContentTouchesWindowLeadingEdge {
+                return 8
+            }
+            return terminalContentTouchesWindowLeadingEdge ? titlebarLeadingInset : 12
+        }()
         return ZStack {
             // Enable window dragging from the titlebar strip without making the entire content
             // view draggable (which breaks drag gestures like tab reordering).
@@ -2369,7 +2441,7 @@ struct ContentView: View {
             }
             .frame(height: titlebarContentHeight)
             .padding(.top, 2)
-            .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? 8 : (sidebarState.isVisible ? 12 : titlebarLeadingInset))
+            .padding(.leading, titlebarLeadingPadding)
             .padding(.trailing, 8)
         }
         .frame(height: WindowChromeMetrics.appTitlebarHeight)
@@ -2382,7 +2454,7 @@ struct ContentView: View {
     }
 
     private func syncTrafficLightInset() {
-        let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible && !isFullScreen)
+        let inset: CGFloat = (isMinimalMode && terminalContentTouchesWindowLeadingEdge && !isFullScreen)
             ? CGFloat(titlebarDebugChromeSnapshot.trafficLightTabBarLeadingInset)
             : 0
         tabManager.syncWorkspaceTabBarLeadingInset(inset)
@@ -2599,33 +2671,62 @@ struct ContentView: View {
         let useWithinWindow = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
             && !sidebarMatchTerminalBackground
         if useWithinWindow {
-            // Overlay mode keeps the left sidebar on top, but the right
-            // sidebar stays in an HStack so terminal rows are clipped before
-            // the sidebar backdrop samples the window.
-            layout = AnyView(
-                ZStack(alignment: .leading) {
-                    HStack(spacing: 0) {
-                        terminalContentWithSidebarDropOverlay(appearance: appearance)
-                            .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .layoutPriority(1)
-                        rightSidebarPanelWithBackdrop(appearance: appearance)
+            if primarySidebarOnTrailingEdge {
+                layout = AnyView(
+                    ZStack(alignment: .trailing) {
+                        HStack(spacing: 0) {
+                            rightSidebarPanelWithBackdrop(appearance: appearance)
+                            terminalContentWithSidebarDropOverlay(appearance: appearance)
+                                .padding(.trailing, sidebarState.isVisible ? sidebarWidth : 0)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .layoutPriority(1)
+                        }
+                        if sidebarState.isVisible {
+                            sidebarPanelWithBackdrop(appearance: appearance)
+                        }
                     }
-                    if sidebarState.isVisible {
-                        sidebarPanelWithBackdrop(appearance: appearance)
+                )
+            } else {
+                // Overlay mode keeps the workspace sidebar on top, but the tools
+                // sidebar stays in an HStack so terminal rows are clipped before
+                // the sidebar backdrop samples the window.
+                layout = AnyView(
+                    ZStack(alignment: .leading) {
+                        HStack(spacing: 0) {
+                            terminalContentWithSidebarDropOverlay(appearance: appearance)
+                                .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .layoutPriority(1)
+                            rightSidebarPanelWithBackdrop(appearance: appearance)
+                        }
+                        if sidebarState.isVisible {
+                            sidebarPanelWithBackdrop(appearance: appearance)
+                        }
                     }
-                }
-            )
+                )
+            }
         } else {
             // Standard HStack mode for behindWindow blur
-            layout = AnyView(
-                HStack(spacing: 0) {
-                    if sidebarState.isVisible {
-                        sidebarPanelWithBackdrop(appearance: appearance)
+            if primarySidebarOnTrailingEdge {
+                layout = AnyView(
+                    HStack(spacing: 0) {
+                        rightSidebarPanelWithBackdrop(appearance: appearance)
+                        terminalContentWithSidebarDropOverlay(appearance: appearance)
+                        if sidebarState.isVisible {
+                            sidebarPanelWithBackdrop(appearance: appearance)
+                        }
                     }
-                    terminalContentWithRightSidebarPanel(appearance: appearance)
-                }
-            )
+                )
+            } else {
+                layout = AnyView(
+                    HStack(spacing: 0) {
+                        if sidebarState.isVisible {
+                            sidebarPanelWithBackdrop(appearance: appearance)
+                        }
+                        terminalContentWithRightSidebarPanel(appearance: appearance)
+                    }
+                )
+            }
         }
 
         return AnyView(
@@ -2656,11 +2757,12 @@ struct ContentView: View {
                 contentAndSidebarLayout(appearance: appearance)
             }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .overlay(alignment: .topLeading) {
+                .overlay(alignment: primarySidebarOnTrailingEdge ? .topTrailing : .topLeading) {
                     if isFullScreen && sidebarState.isVisible && !isMinimalMode {
                         fullscreenControls
                             .environment(\.colorScheme, appearance.sidebarContentColorScheme)
-                            .padding(.leading, 10)
+                            .padding(.leading, primarySidebarOnTrailingEdge ? 0 : 10)
+                            .padding(.trailing, primarySidebarOnTrailingEdge ? 10 : 0)
                             .padding(.top, 4)
                     }
                 }
@@ -3166,6 +3268,9 @@ struct ContentView: View {
             // terminals and browsers need an explicit post-layout geometry resync.
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
+            if let observedWindow {
+                AppDelegate.shared?.attachUpdateAccessory(to: observedWindow)
+            }
         })
 
         view = AnyView(view.onChange(of: sidebarMinimumWidthSetting) { _ in
@@ -3173,10 +3278,30 @@ struct ContentView: View {
             updateSidebarResizerBandState()
         })
 
-        view = AnyView(view.onChange(of: sidebarState.isVisible) { isVisible in
-            setMinimalModeSidebarTitlebarControlsAvailable(isVisible, in: observedWindow)
+        view = AnyView(view.onChange(of: sidebarState.isVisible) { _ in
+            setMinimalModeSidebarTitlebarControlsAvailable(
+                minimalModeSidebarTitlebarControlsAvailable,
+                placement: minimalModeSidebarTitlebarControlsPlacement,
+                in: observedWindow
+            )
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
+                AppDelegate.shared?.attachUpdateAccessory(to: observedWindow)
+            }
+            schedulePortalGeometrySynchronize()
+            updateSidebarResizerBandState()
+            syncTrafficLightInset()
+        })
+
+        view = AnyView(view.onChange(of: workspacesOnRight) { _, _ in
+            if let observedWindow {
+                setMinimalModeSidebarTitlebarControlsAvailable(
+                    minimalModeSidebarTitlebarControlsAvailable,
+                    placement: minimalModeSidebarTitlebarControlsPlacement,
+                    in: observedWindow
+                )
+                AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
+                AppDelegate.shared?.attachUpdateAccessory(to: observedWindow)
             }
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
@@ -3192,6 +3317,7 @@ struct ContentView: View {
             } else {
                 TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
             }
+            syncTrafficLightInset()
         })
 
         view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _ in
@@ -3252,7 +3378,11 @@ struct ContentView: View {
         view = AnyView(view.background(WindowAccessor(refreshID: appearance.appKitWindowMutationID) { [appearance] window in
             window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
             window.isRestorable = false
-            setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)
+            setMinimalModeSidebarTitlebarControlsAvailable(
+                minimalModeSidebarTitlebarControlsAvailable,
+                placement: minimalModeSidebarTitlebarControlsPlacement,
+                in: window
+            )
             window.titlebarAppearsTransparent = true
             // Native AppKit titlebar dragging steals pane-tab drags in minimal
             // mode. Keep the main window immovable by default; explicit chrome
@@ -9746,6 +9876,9 @@ struct VerticalTabsSidebar: View {
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
     let observedWindow: NSWindow?
+    let showsMinimalTitlebarControls: Bool
+    let minimalTitlebarControlsPlacement: MinimalModeSidebarTitlebarControlsPlacement
+    let borderAlignment: Alignment
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @Binding var selection: SidebarSelection
@@ -9865,6 +9998,52 @@ struct VerticalTabsSidebar: View {
             return MinimalModeSidebarTitlebarControlsMetrics.topInset
         }
         return minimalModeSidebarTitlebarControlsTopInset(in: observedWindow)
+    }
+
+    private var minimalModeSidebarTitlebarControlsAlignment: Alignment {
+        minimalTitlebarControlsPlacement == .trailing ? .topTrailing : .topLeading
+    }
+
+    private var minimalModeSidebarTitlebarControlsHorizontalEdge: Edge.Set {
+        minimalTitlebarControlsPlacement == .trailing ? .trailing : .leading
+    }
+
+    private var minimalModeSidebarTitlebarControlsHorizontalPadding: CGFloat {
+        minimalTitlebarControlsPlacement == .trailing
+            ? MinimalModeSidebarTitlebarControlsMetrics.trailingInset
+            : CGFloat(titlebarDebugChromeSnapshot.leftControlsLeadingInset)
+    }
+
+    private var minimalModeSidebarTitlebarControls: some View {
+        HiddenTitlebarSidebarControlsView(
+            notificationStore: notificationStore,
+            onToggleSidebar: onToggleSidebar,
+            onToggleNotifications: { anchorView in
+                AppDelegate.shared?.toggleNotificationsPopover(
+                    animated: true,
+                    anchorView: anchorView
+                )
+            },
+            onNewTab: onNewTab,
+            onFocusHistoryBack: {
+                if !tabManager.navigateBack() {
+                    NSSound.beep()
+                }
+            },
+            onFocusHistoryForward: {
+                if !tabManager.navigateForward() {
+                    NSSound.beep()
+                }
+            }
+        )
+        .padding(
+            minimalModeSidebarTitlebarControlsHorizontalEdge,
+            minimalModeSidebarTitlebarControlsHorizontalPadding
+        )
+        .padding(
+            .top,
+            minimalModeSidebarTitlebarControlsTopPadding
+        )
     }
 
     private var showsSidebarNotificationMessage: Bool {
@@ -9990,7 +10169,7 @@ struct VerticalTabsSidebar: View {
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
-        .overlay(alignment: .trailing) {
+        .overlay(alignment: borderAlignment) {
             SidebarTrailingBorder()
         }
         .background(
@@ -10144,37 +10323,9 @@ struct VerticalTabsSidebar: View {
                             ))
                     }
                 }
-                .overlay(alignment: .topLeading) {
-                    if isMinimalMode {
-                        HiddenTitlebarSidebarControlsView(
-                            notificationStore: notificationStore,
-                            onToggleSidebar: onToggleSidebar,
-                            onToggleNotifications: { anchorView in
-                                AppDelegate.shared?.toggleNotificationsPopover(
-                                    animated: true,
-                                    anchorView: anchorView
-                                )
-                            },
-                            onNewTab: onNewTab,
-                            onFocusHistoryBack: {
-                                if !tabManager.navigateBack() {
-                                    NSSound.beep()
-                                }
-                            },
-                            onFocusHistoryForward: {
-                                if !tabManager.navigateForward() {
-                                    NSSound.beep()
-                                }
-                            }
-                        )
-                            .padding(
-                                .leading,
-                                CGFloat(titlebarDebugChromeSnapshot.leftControlsLeadingInset)
-                            )
-                            .padding(
-                                .top,
-                                minimalModeSidebarTitlebarControlsTopPadding
-                            )
+                .overlay(alignment: minimalModeSidebarTitlebarControlsAlignment) {
+                    if isMinimalMode && showsMinimalTitlebarControls {
+                        minimalModeSidebarTitlebarControls
                     }
                 }
                 .background(Color.clear)
@@ -10285,37 +10436,9 @@ struct VerticalTabsSidebar: View {
                     .frame(height: sidebarTitlebarInteractionHeight)
                     .background(TitlebarDoubleClickMonitorView())
             }
-            .overlay(alignment: .topLeading) {
-                if isMinimalMode {
-                    HiddenTitlebarSidebarControlsView(
-                        notificationStore: notificationStore,
-                        onToggleSidebar: onToggleSidebar,
-                        onToggleNotifications: { anchorView in
-                            AppDelegate.shared?.toggleNotificationsPopover(
-                                animated: true,
-                                anchorView: anchorView
-                            )
-                        },
-                        onNewTab: onNewTab,
-                        onFocusHistoryBack: {
-                            if !tabManager.navigateBack() {
-                                NSSound.beep()
-                            }
-                        },
-                        onFocusHistoryForward: {
-                            if !tabManager.navigateForward() {
-                                NSSound.beep()
-                            }
-                        }
-                    )
-                    .padding(
-                        .leading,
-                        CGFloat(titlebarDebugChromeSnapshot.leftControlsLeadingInset)
-                    )
-                    .padding(
-                        .top,
-                        minimalModeSidebarTitlebarControlsTopPadding
-                    )
+            .overlay(alignment: minimalModeSidebarTitlebarControlsAlignment) {
+                if isMinimalMode && showsMinimalTitlebarControls {
+                    minimalModeSidebarTitlebarControls
                 }
             }
             .background(Color.clear)
@@ -16694,6 +16817,63 @@ private struct SidebarVisualEffectBackground: NSViewRepresentable {
 }
 
 /// Reads the leading inset required to clear traffic lights + left titlebar accessories.
+enum TitlebarLeadingInsetPolicy {
+    static let trafficLightTrailingMargin: CGFloat = 10
+    static let minimumTrafficLightReserve: CGFloat = 150
+
+    static var fallbackTrafficLightReserve: CGFloat {
+        max(
+            minimumTrafficLightReserve,
+            MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInset()
+        )
+    }
+
+    static func reserve(
+        trafficLightFrames: [NSRect],
+        leftAccessoryWidths: [CGFloat],
+        fallbackTrafficLightReserve: CGFloat = Self.fallbackTrafficLightReserve
+    ) -> CGFloat {
+        let measuredTrafficLightReserve = trafficLightFrames
+            .map(\.maxX)
+            .max()
+            .map { $0 + trafficLightTrailingMargin } ?? 0
+        let trafficLightReserve = max(fallbackTrafficLightReserve, measuredTrafficLightReserve)
+        let accessoryReserve = leftAccessoryWidths.reduce(CGFloat.zero) { partial, width in
+            partial + max(0, width)
+        }
+        return trafficLightReserve + accessoryReserve
+    }
+
+    static func reserve(in window: NSWindow) -> CGFloat {
+        let contentView = window.contentView
+        let trafficLightFrames = [
+            NSWindow.ButtonType.closeButton,
+            .miniaturizeButton,
+            .zoomButton
+        ].compactMap { buttonType -> NSRect? in
+            guard let button = window.standardWindowButton(buttonType),
+                  !button.isHidden,
+                  button.alphaValue > 0 else {
+                return nil
+            }
+            guard let contentView else {
+                return button.frame
+            }
+            return button.convert(button.bounds, to: contentView)
+        }
+        let leftAccessoryWidths = window.titlebarAccessoryViewControllers.compactMap { accessory -> CGFloat? in
+            guard accessory.layoutAttribute == .leading || accessory.layoutAttribute == .left else {
+                return nil
+            }
+            return accessory.view.frame.width
+        }
+        return reserve(
+            trafficLightFrames: trafficLightFrames,
+            leftAccessoryWidths: leftAccessoryWidths
+        )
+    }
+}
+
 final class TitlebarLeadingInsetPassthroughView: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -16711,13 +16891,7 @@ private struct TitlebarLeadingInsetReader: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async {
             guard let window = nsView.window else { return }
-            // Start past the traffic lights
-            var leading = MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInset()
-            // Add width of all left-aligned titlebar accessories
-            for accessory in window.titlebarAccessoryViewControllers
-                where accessory.layoutAttribute == .leading || accessory.layoutAttribute == .left {
-                leading += accessory.view.frame.width
-            }
+            let leading = TitlebarLeadingInsetPolicy.reserve(in: window)
             if leading != inset {
                 inset = leading
             }

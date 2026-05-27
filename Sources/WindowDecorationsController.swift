@@ -391,12 +391,15 @@ final class WindowDecorationsController {
             return
         }
 
+        let placement = minimalModeSidebarTitlebarControlsPlacement(in: window)
         let target = minimalModeSidebarTitlebarClickTargets.object(forKey: window) ?? {
             let view = MinimalModeSidebarControlActionView()
-            view.autoresizingMask = [.maxXMargin, .minYMargin]
             minimalModeSidebarTitlebarClickTargets.setObject(view, forKey: window)
             return view
         }()
+        target.autoresizingMask = placement == .trailing
+            ? [.minXMargin, .minYMargin]
+            : [.maxXMargin, .minYMargin]
         target.config = (TitlebarControlsStyle(rawValue: UserDefaults.standard.integer(forKey: "titlebarControlsStyle")) ?? .classic).config
         target.isEnabled = true
         target.requiresRevealedState = true
@@ -430,7 +433,8 @@ final class WindowDecorationsController {
                 ? 0
                 : MinimalModeSidebarTitlebarControlsMetrics.titlebarControlsOpticalYOffset(
                     backingScaleFactor: window.backingScaleFactor
-                )
+                ),
+            placement: placement
         )
 
         #if DEBUG

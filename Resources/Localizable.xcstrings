@@ -55255,6 +55255,23 @@
         }
       }
     },
+    "settings.app.workspacesOnRight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces on Right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを右側に表示"
+          }
+        }
+      }
+    },
     "settings.app.commandPaletteSearchAllSurfaces.subtitleOff": {
       "extractionState": "manual",
       "localizations": {

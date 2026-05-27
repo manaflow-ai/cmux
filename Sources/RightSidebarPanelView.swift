@@ -160,6 +160,7 @@ struct RightSidebarPanelView: View {
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
     let titlebarHeight: CGFloat
+    let titlebarLeadingReserve: CGFloat
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
@@ -269,7 +270,7 @@ struct RightSidebarPanelView: View {
                 closeButton
             }
         }
-        .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
+        .rightSidebarChromeBar(leadingPadding: max(4, titlebarLeadingReserve), trailingPadding: 6, height: titlebarHeight)
         .overlay(alignment: .topLeading) {
             focusShortcutHintOverlay
         }
@@ -376,7 +377,7 @@ struct RightSidebarPanelView: View {
                 fontSize: 9,
                 emphasis: 1.05
             )
-                .padding(.leading, 6)
+                .padding(.leading, max(6, titlebarLeadingReserve + 2))
                 .padding(.top, 5)
                 .offset(
                     x: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintXOffset)),

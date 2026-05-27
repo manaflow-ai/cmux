@@ -5339,6 +5339,8 @@ struct SettingsView: View {
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
+    @AppStorage(SidebarPositionSettings.workspacesOnRightKey)
+    private var workspacesOnRight = SidebarPositionSettings.defaultWorkspacesOnRight
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
     private var rightSidebarDockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
 
@@ -8154,6 +8156,7 @@ struct SettingsView: View {
         sidebarTintHexDark = nil
         sidebarTintOpacity = SidebarTintDefaults.opacity
         sidebarMatchTerminalBackground = false
+        workspacesOnRight = SidebarPositionSettings.defaultWorkspacesOnRight
         showOpenAccessConfirmation = false
         pendingOpenAccessMode = nil
         draftState.socketPasswordDraft = ""
