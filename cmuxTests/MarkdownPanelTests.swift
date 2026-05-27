@@ -363,6 +363,31 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue(coordinator.isShellLoadingForTesting)
     }
 
+    func testMarkdownRendererDefersInitialShellLoadUntilWebViewHasWindow() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 360), configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        coordinator.prepareShellForDisplay(theme: theme, initialMarkdown: "# Deferred\n")
+
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        let window = NSWindow(
+            contentRect: webView.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = webView
+        defer { window.close() }
+
+        coordinator.webViewDidMoveToWindow(webView)
+
+        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+    }
+
     func testMarkdownRenderKeepsVisibleHeadingPositionAfterContentUpdate() async throws {
         let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
         let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())

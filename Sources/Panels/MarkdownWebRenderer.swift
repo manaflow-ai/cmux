@@ -25,10 +25,14 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.removeFromSuperview()
             }
             webView.onPointerDown = onRequestPanelFocus
+            webView.onMoveToWindow = { [weak coordinator = context.coordinator] webView in
+                coordinator?.webViewDidMoveToWindow(webView)
+            }
             webView.navigationDelegate = context.coordinator
             webView.uiDelegate = context.coordinator
             applyBackground(to: webView)
             applyAppearance(to: webView, isDark: theme.isDark)
+            context.coordinator.prepareShellForDisplay(theme: theme, initialMarkdown: markdown)
             return webView
         }
 
@@ -64,7 +68,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         applyAppearance(to: webView, isDark: theme.isDark)
 
         context.coordinator.webView = webView
-        context.coordinator.loadShell(theme: theme, initialMarkdown: markdown)
+        webView.onMoveToWindow = { [weak coordinator = context.coordinator] webView in
+            coordinator?.webViewDidMoveToWindow(webView)
+        }
+        context.coordinator.prepareShellForDisplay(theme: theme, initialMarkdown: markdown)
         return webView
     }
 
@@ -73,6 +80,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         // the panel-owned renderer session kept the same coordinator.
         context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
+        (nsView as? MarkdownWebView)?.onMoveToWindow = { [weak coordinator = context.coordinator] webView in
+            coordinator?.webViewDidMoveToWindow(webView)
+        }
         applyBackground(to: nsView)
         applyAppearance(to: nsView, isDark: theme.isDark)
         context.coordinator.update(markdown: markdown, theme: theme)
@@ -86,6 +96,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         nsView.navigationDelegate = nil
         nsView.uiDelegate = nil
         (nsView as? MarkdownWebView)?.onPointerDown = nil
+        (nsView as? MarkdownWebView)?.onMoveToWindow = nil
         coordinator.cancelImageLoads()
     }
 
@@ -153,6 +164,32 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             self.filePath = filePath
         }
 
+        func prepareShellForDisplay(theme: MarkdownWebTheme, initialMarkdown: String) {
+            pendingMarkdown = initialMarkdown
+            pendingTheme = theme
+            lastTheme = theme
+            loadShellWhenWebViewIsReady(theme: theme, initialMarkdown: initialMarkdown, reason: "prepare")
+        }
+
+        func webViewDidMoveToWindow(_ movedWebView: MarkdownWebView) {
+            guard let webView, webView === movedWebView else { return }
+            loadShellWhenWebViewIsReady(
+                theme: lastTheme ?? pendingTheme,
+                initialMarkdown: lastMarkdown ?? pendingMarkdown,
+                reason: "didMoveToWindow"
+            )
+            DispatchQueue.main.async { [weak self, weak movedWebView] in
+                guard let self,
+                      let movedWebView,
+                      self.webView === movedWebView else { return }
+                self.loadShellWhenWebViewIsReady(
+                    theme: self.lastTheme ?? self.pendingTheme,
+                    initialMarkdown: self.lastMarkdown ?? self.pendingMarkdown,
+                    reason: "didMoveToWindow.deferred"
+                )
+            }
+        }
+
         func close() {
             if let webView {
                 webView.stopLoading()
@@ -160,6 +197,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.navigationDelegate = nil
                 webView.uiDelegate = nil
                 webView.onPointerDown = nil
+                webView.onMoveToWindow = nil
             }
             self.webView = nil
             isLoaded = false
@@ -182,6 +220,26 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             NSLog("MarkdownPanel.loadShell filePath=\(filePath) baseURL=\(baseURL.absoluteString) htmlBytes=\(html.utf8.count)")
 #endif
             webView?.loadHTMLString(html, baseURL: baseURL)
+        }
+
+        @discardableResult
+        private func loadShellWhenWebViewIsReady(
+            theme: MarkdownWebTheme,
+            initialMarkdown: String,
+            reason: String
+        ) -> Bool {
+            pendingMarkdown = initialMarkdown
+            pendingTheme = theme
+            lastTheme = theme
+            guard !isLoaded, !isShellLoading else { return false }
+            guard let webView, webView.window != nil else {
+#if DEBUG
+                NSLog("MarkdownPanel.deferShellLoad reason=\(reason) hasWebView=\(self.webView != nil) hasWindow=\(self.webView?.window != nil)")
+#endif
+                return false
+            }
+            loadShell(theme: theme, initialMarkdown: initialMarkdown)
+            return true
         }
 
         func update(markdown: String, theme: MarkdownWebTheme) {
@@ -214,11 +272,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 if isLoaded {
                     pushMarkdown(markdown)
                 } else if shellNeedsReload {
-                    loadShell(theme: theme, initialMarkdown: markdown)
+                    loadShellWhenWebViewIsReady(theme: theme, initialMarkdown: markdown, reason: "contentChanged")
                 }
             } else if shellNeedsReload {
                 if webContentProcessRecoveryAttempts < maxWebContentProcessRecoveryAttempts {
-                    loadShell(theme: theme, initialMarkdown: markdown)
+                    loadShellWhenWebViewIsReady(theme: theme, initialMarkdown: markdown, reason: "shellNeedsReload")
                 }
             }
         }
