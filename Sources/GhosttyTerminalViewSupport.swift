@@ -183,6 +183,49 @@ struct TmuxControlState: Equatable, Sendable {
     }
 }
 
+actor TmuxControlEventBuffer {
+    private static let maxCoalescedPaneOutputBytes = 65_536
+
+    private var pendingEvents: [TmuxControlEvent] = []
+    private var flushScheduled = false
+
+    func enqueue(_ event: TmuxControlEvent) -> Bool {
+        append(event)
+        guard !flushScheduled else { return false }
+        flushScheduled = true
+        return true
+    }
+
+    func drainScheduledEvents() -> [TmuxControlEvent] {
+        let events = pendingEvents
+        pendingEvents.removeAll(keepingCapacity: true)
+        flushScheduled = false
+        return events
+    }
+
+    func reset() {
+        pendingEvents.removeAll(keepingCapacity: false)
+        flushScheduled = false
+    }
+
+    private func append(_ event: TmuxControlEvent) {
+        if case .paneOutput(let paneId, let data) = event,
+           let lastIndex = pendingEvents.indices.last,
+           case .paneOutput(let lastPaneId, let existingData) = pendingEvents[lastIndex],
+           paneId == lastPaneId {
+            var combined = existingData
+            combined.append(data)
+            if combined.count > Self.maxCoalescedPaneOutputBytes {
+                combined = Data(combined.suffix(Self.maxCoalescedPaneOutputBytes))
+            }
+            pendingEvents[lastIndex] = .paneOutput(paneId: paneId, data: combined)
+            return
+        }
+
+        pendingEvents.append(event)
+    }
+}
+
 final class GhosttyPassthroughVisualEffectView: NSVisualEffectView {
     override var acceptsFirstResponder: Bool { false }
 

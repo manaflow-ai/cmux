@@ -360,4 +360,45 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertTrue(state.paneIds.isEmpty)
         XCTAssertTrue(state.paneBytesById.isEmpty)
     }
+
+    func testTmuxControlStateClearsOnRuntimeSurfaceTeardown() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.applyTmuxControlEvent(.enter)
+        XCTAssertTrue(panel.surface.tmuxControlState.active)
+
+        panel.surface.teardownSurface()
+        XCTAssertFalse(panel.surface.tmuxControlState.active)
+        XCTAssertTrue(panel.surface.tmuxControlState.paneIds.isEmpty)
+
+        panel.surface.applyTmuxControlEvent(.enter)
+        XCTAssertTrue(panel.surface.tmuxControlState.active)
+
+        panel.surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test")
+        XCTAssertFalse(panel.surface.tmuxControlState.active)
+        XCTAssertTrue(panel.surface.tmuxControlState.paneIds.isEmpty)
+    }
+
+    func testTmuxControlEventBufferCoalescesAndResets() async {
+        let buffer = TmuxControlEventBuffer()
+
+        let firstSchedule = await buffer.enqueue(.paneOutput(
+            paneId: 9,
+            data: Data("left".utf8)
+        ))
+        let secondSchedule = await buffer.enqueue(.paneOutput(
+            paneId: 9,
+            data: Data("right".utf8)
+        ))
+        XCTAssertTrue(firstSchedule)
+        XCTAssertFalse(secondSchedule)
+        XCTAssertEqual(await buffer.drainScheduledEvents(), [
+            .paneOutput(paneId: 9, data: Data("leftright".utf8))
+        ])
+
+        XCTAssertTrue(await buffer.enqueue(.enter))
+        await buffer.reset()
+        let drainedAfterReset = await buffer.drainScheduledEvents()
+        XCTAssertTrue(drainedAfterReset.isEmpty)
+    }
 }

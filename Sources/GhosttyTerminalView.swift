@@ -5297,61 +5297,25 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var portalLifecycleState: PortalLifecycleState = .live
     private var portalLifecycleGeneration: UInt64 = 1
     private var activePortalHostLease: PortalHostLease?
-    private static let maxCoalescedTmuxControlPaneOutputBytes = 65_536
-    private let tmuxControlPendingLock = NSLock()
-    private var pendingTmuxControlEvents: [TmuxControlEvent] = []
-    private var tmuxControlFlushScheduled = false
+    private let tmuxControlEventBuffer = TmuxControlEventBuffer()
     @Published private(set) var tmuxControlState = TmuxControlState()
 
     func enqueueTmuxControlEvent(_ event: TmuxControlEvent) {
-        let shouldSchedule: Bool
-        tmuxControlPendingLock.lock()
-        appendPendingTmuxControlEventLocked(event)
-        if tmuxControlFlushScheduled {
-            shouldSchedule = false
-        } else {
-            tmuxControlFlushScheduled = true
-            shouldSchedule = true
+        Task { [weak self] in
+            guard let self else { return }
+            let shouldSchedule = await self.tmuxControlEventBuffer.enqueue(event)
+            guard shouldSchedule else { return }
+            let events = await self.tmuxControlEventBuffer.drainScheduledEvents()
+            await self.applyTmuxControlEvents(events)
         }
-        tmuxControlPendingLock.unlock()
-
-        guard shouldSchedule else { return }
-        Task { @MainActor [weak self] in
-            self?.flushPendingTmuxControlEvents()
-        }
-    }
-
-    private func appendPendingTmuxControlEventLocked(_ event: TmuxControlEvent) {
-        if case .paneOutput(let paneId, let data) = event,
-           let lastIndex = pendingTmuxControlEvents.indices.last,
-           case .paneOutput(let lastPaneId, let existingData) = pendingTmuxControlEvents[lastIndex],
-           paneId == lastPaneId {
-            var combined = existingData
-            combined.append(data)
-            if combined.count > Self.maxCoalescedTmuxControlPaneOutputBytes {
-                combined = Data(combined.suffix(Self.maxCoalescedTmuxControlPaneOutputBytes))
-            }
-            pendingTmuxControlEvents[lastIndex] = .paneOutput(paneId: paneId, data: combined)
-            return
-        }
-
-        pendingTmuxControlEvents.append(event)
     }
 
     @MainActor
-    private func flushPendingTmuxControlEvents() {
-        tmuxControlPendingLock.lock()
-        let events = pendingTmuxControlEvents
-        pendingTmuxControlEvents.removeAll(keepingCapacity: true)
-        tmuxControlFlushScheduled = false
-        tmuxControlPendingLock.unlock()
-
-        applyTmuxControlEvents(events)
-    }
-
-    @MainActor
-    func applyTmuxControlEvent(_ event: TmuxControlEvent) {
-        applyTmuxControlEvents([event])
+    private func resetTmuxControlState() {
+        tmuxControlState = TmuxControlState()
+        Task { [tmuxControlEventBuffer] in
+            await tmuxControlEventBuffer.reset()
+        }
     }
 
     @MainActor
@@ -5371,6 +5335,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )
         }
 #endif
+    }
+
+    @MainActor
+    func applyTmuxControlEvent(_ event: TmuxControlEvent) {
+        applyTmuxControlEvents([event])
     }
 
     @MainActor
@@ -5920,6 +5889,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// before deinit; deinit will skip the free if already torn down.
     @MainActor
     func teardownSurface() {
+        resetTmuxControlState()
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
         closeHeadlessStartupWindowIfNeeded()
@@ -5956,6 +5926,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     @MainActor
     func suspendRuntimeSurfaceForAgentHibernation(reason: String) {
+        resetTmuxControlState()
         runtimeSurfaceSuspendedForAgentHibernation = true
         backgroundSurfaceStartQueued = false
         closeHeadlessStartupWindowIfNeeded()
