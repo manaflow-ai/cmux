@@ -1135,6 +1135,37 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testForkableAgentProbeResultMatchIgnoresPaletteSession() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fingerprint = "verified-fingerprint"
+
+        XCTAssertTrue(
+            ContentView.commandPaletteForkableAgentProbeResultMatches(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkableAgentProbeResultMatches(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: "stale-fingerprint"],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false
+            )
+        )
+    }
+
     func testCommandPreviewSearchUsesFullCommandCorpus() {
         let entries = [
             FixtureEntry(

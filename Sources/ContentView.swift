@@ -5909,6 +5909,24 @@ struct ContentView: View {
         fallbackFingerprint ?? commandPaletteForkSnapshotFingerprint(snapshot)
     }
 
+    static func commandPaletteForkableAgentProbeResultMatches(
+        panelKey: String,
+        supportedPanelKeys: Set<String>,
+        supportedRemoteContextsByPanelKey: [String: Bool],
+        snapshotFingerprintsByPanelKey: [String: String],
+        expectedSnapshotFingerprint: String?,
+        isRemoteTerminal: Bool
+    ) -> Bool {
+        guard supportedPanelKeys.contains(panelKey),
+              supportedRemoteContextsByPanelKey[panelKey] == isRemoteTerminal else {
+            return false
+        }
+        guard let expectedSnapshotFingerprint else {
+            return true
+        }
+        return snapshotFingerprintsByPanelKey[panelKey] == expectedSnapshotFingerprint
+    }
+
     static func commandPaletteShouldReuseForkableAgentProbeResult(
         panelKey: String,
         supportedPanelKeys: Set<String>,
@@ -5918,15 +5936,14 @@ struct ContentView: View {
         isRemoteTerminal: Bool,
         panelChanged: Bool
     ) -> Bool {
-        guard supportedPanelKeys.contains(panelKey),
-              supportedRemoteContextsByPanelKey[panelKey] == isRemoteTerminal,
-              !panelChanged else {
-            return false
-        }
-        guard let expectedSnapshotFingerprint else {
-            return true
-        }
-        return snapshotFingerprintsByPanelKey[panelKey] == expectedSnapshotFingerprint
+        !panelChanged && commandPaletteForkableAgentProbeResultMatches(
+            panelKey: panelKey,
+            supportedPanelKeys: supportedPanelKeys,
+            supportedRemoteContextsByPanelKey: supportedRemoteContextsByPanelKey,
+            snapshotFingerprintsByPanelKey: snapshotFingerprintsByPanelKey,
+            expectedSnapshotFingerprint: expectedSnapshotFingerprint,
+            isRemoteTerminal: isRemoteTerminal
+        )
     }
 
     static func commandPalettePanelHasForkableAgent(
@@ -6008,21 +6025,23 @@ struct ContentView: View {
                 commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
                 return
             case .requiresProbe:
-                if Self.commandPaletteShouldReuseForkableAgentProbeResult(
+                let probeResultMatches = Self.commandPaletteForkableAgentProbeResultMatches(
                     panelKey: panelKey,
                     supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
                     supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
                     snapshotFingerprintsByPanelKey: commandPaletteForkableAgentSnapshotFingerprintsByPanelKey,
                     expectedSnapshotFingerprint: fallbackFingerprint,
-                    isRemoteTerminal: isRemoteTerminal,
-                    panelChanged: panelChanged
-                ) {
+                    isRemoteTerminal: isRemoteTerminal
+                )
+                if probeResultMatches && !panelChanged {
                     return
                 }
-                commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
-                commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+                if !probeResultMatches {
+                    commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+                    commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+                }
                 startCommandPaletteForkableAgentAvailabilityProbe(
                     panelKey: panelKey,
                     workspaceId: workspaceId,
