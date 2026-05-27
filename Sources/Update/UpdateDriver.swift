@@ -86,15 +86,15 @@ class UpdateDriver: NSObject, SPUUserDriver {
                 reply(.dismiss)
                 return
             }
+            var generation = currentOperationGeneration
             if operationHasTimedOut, !state.userInitiated {
-                acceptBackgroundResultAfterTimedOutOperation(resultDescription: "update found")
+                generation = acceptBackgroundResultAfterTimedOutOperation(resultDescription: "update found")
             }
-            guard !operationHasTimedOut else {
-                UpdateLogStore.shared.append("dismissing update found after timeout")
+            guard callbackCanMutateState(generation: generation, resultDescription: "update found") else {
                 reply(.dismiss)
                 return
             }
-            setStateAfterMinimumCheckDelay(.updateAvailable(.init(appcastItem: appcastItem, reply: reply)))
+            setStateAfterMinimumCheckDelay(.updateAvailable(.init(appcastItem: appcastItem, reply: reply)), generation: generation)
         }
     }
 
@@ -114,12 +114,12 @@ class UpdateDriver: NSObject, SPUUserDriver {
                 acknowledgement()
                 return
             }
-            guard !operationHasTimedOut else {
-                UpdateLogStore.shared.append("acknowledging update not found after timeout")
+            let generation = currentOperationGeneration
+            guard callbackCanMutateState(generation: generation, resultDescription: "update not found") else {
                 acknowledgement()
                 return
             }
-            setStateAfterMinimumCheckDelay(.notFound(.init(acknowledgement: acknowledgement)))
+            setStateAfterMinimumCheckDelay(.notFound(.init(acknowledgement: acknowledgement)), generation: generation)
         }
     }
 
@@ -140,7 +140,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
             },
             technicalDetails: details,
             feedURLString: lastFeedURLString
-        )))
+        )), generation: currentOperationGeneration)
         acknowledgement()
     }
 
@@ -151,8 +151,8 @@ class UpdateDriver: NSObject, SPUUserDriver {
                 cancellation()
                 return
             }
-            guard !operationHasTimedOut else {
-                UpdateLogStore.shared.append("cancelling download after timeout")
+            let generation = currentOperationGeneration
+            guard callbackCanMutateState(generation: generation, resultDescription: "download initiation") else {
                 cancellation()
                 return
             }
@@ -160,6 +160,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
                 cancel: cancellation,
                 expectedLength: nil,
                 progress: 0)),
+                generation: generation,
                 timeoutStage: .downloading,
                 timeoutCancellation: cancellation)
         }
@@ -169,8 +170,8 @@ class UpdateDriver: NSObject, SPUUserDriver {
         UpdateLogStore.shared.append("download expected length: \(expectedContentLength)")
         runOnMain { [weak self] in
             guard let self else { return }
-            guard !operationHasTimedOut else {
-                UpdateLogStore.shared.append("ignoring download expected length after timeout")
+            let generation = currentOperationGeneration
+            guard callbackCanMutateState(generation: generation, resultDescription: "download expected length") else {
                 return
             }
             guard case let .downloading(downloading) = viewModel.state else {
@@ -181,6 +182,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
                 cancel: downloading.cancel,
                 expectedLength: expectedContentLength,
                 progress: 0)),
+                generation: generation,
                 timeoutStage: .downloading,
                 timeoutCancellation: downloading.cancel)
         }
@@ -190,8 +192,8 @@ class UpdateDriver: NSObject, SPUUserDriver {
         UpdateLogStore.shared.append("download received data: \(length)")
         runOnMain { [weak self] in
             guard let self else { return }
-            guard !operationHasTimedOut else {
-                UpdateLogStore.shared.append("ignoring download data after timeout")
+            let generation = currentOperationGeneration
+            guard callbackCanMutateState(generation: generation, resultDescription: "download data") else {
                 return
             }
             guard case let .downloading(downloading) = viewModel.state else {
@@ -202,6 +204,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
                 cancel: downloading.cancel,
                 expectedLength: downloading.expectedLength,
                 progress: downloading.progress + length)),
+                generation: generation,
                 timeoutStage: .downloading,
                 timeoutCancellation: downloading.cancel)
         }
@@ -211,11 +214,11 @@ class UpdateDriver: NSObject, SPUUserDriver {
         UpdateLogStore.shared.append("show extraction started")
         runOnMain { [weak self] in
             guard let self else { return }
-            guard !operationHasTimedOut else {
-                UpdateLogStore.shared.append("ignoring extraction start after timeout")
+            let generation = currentOperationGeneration
+            guard callbackCanMutateState(generation: generation, resultDescription: "extraction start") else {
                 return
             }
-            setState(.extracting(.init(progress: 0)), timeoutStage: .preparing)
+            setState(.extracting(.init(progress: 0)), generation: generation, timeoutStage: .preparing)
         }
     }
 
@@ -223,11 +226,11 @@ class UpdateDriver: NSObject, SPUUserDriver {
         UpdateLogStore.shared.append(String(format: "show extraction progress: %.2f", progress))
         runOnMain { [weak self] in
             guard let self else { return }
-            guard !operationHasTimedOut else {
-                UpdateLogStore.shared.append("ignoring extraction progress after timeout")
+            let generation = currentOperationGeneration
+            guard callbackCanMutateState(generation: generation, resultDescription: "extraction progress") else {
                 return
             }
-            setState(.extracting(.init(progress: progress)), timeoutStage: .preparing)
+            setState(.extracting(.init(progress: progress)), generation: generation, timeoutStage: .preparing)
         }
     }
 
@@ -238,8 +241,8 @@ class UpdateDriver: NSObject, SPUUserDriver {
                 reply(.dismiss)
                 return
             }
-            guard !operationHasTimedOut else {
-                UpdateLogStore.shared.append("ignoring ready to install after timeout")
+            let generation = currentOperationGeneration
+            guard callbackCanMutateState(generation: generation, resultDescription: "ready to install") else {
                 reply(.dismiss)
                 return
             }
@@ -255,12 +258,12 @@ class UpdateDriver: NSObject, SPUUserDriver {
             dismiss: { [weak viewModel] in
                 viewModel?.state = .idle
             }
-        )))
+        )), generation: currentOperationGeneration)
     }
 
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
         UpdateLogStore.shared.append("show update installed (relaunched=\(relaunched))")
-        setState(.idle)
+        setState(.idle, generation: currentOperationGeneration)
         acknowledgement()
     }
 
@@ -282,7 +285,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
             UpdateLogStore.shared.append("dismiss update installation ignored (checking)")
             return
         }
-        setState(.idle)
+        setState(.idle, generation: currentOperationGeneration)
     }
 
     private func beginChecking(cancel: @escaping () -> Void) {
@@ -294,20 +297,20 @@ class UpdateDriver: NSObject, SPUUserDriver {
             cancelStateTimeout()
             currentOperationGeneration += 1
             timedOutOperationGeneration = nil
+            let generation = currentOperationGeneration
             lastCheckStart = Date()
             applyState(.checking(.init(cancel: cancel)))
-            scheduleStateTimeout(stage: .checking, cancellation: cancel)
+            scheduleStateTimeout(stage: .checking, generation: generation, cancellation: cancel)
         }
     }
 
-    private func setStateAfterMinimumCheckDelay(_ newState: UpdateState) {
+    private func setStateAfterMinimumCheckDelay(_ newState: UpdateState, generation: Int) {
         runOnMain { [weak self] in
             guard let self else { return }
             pendingCheckTransition?.cancel()
             pendingCheckTransition = nil
             cancelStateTimeout()
-            guard !operationHasTimedOut else {
-                UpdateLogStore.shared.append("ignoring delayed state after timeout: \(describe(newState))")
+            guard callbackCanMutateState(generation: generation, resultDescription: "delayed state \(describe(newState))") else {
                 return
             }
 
@@ -328,8 +331,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
             pendingCheckTransition = scheduler.schedule(after: delay) { [weak self] in
                 guard let self else { return }
                 guard case .checking = self.viewModel.state else { return }
-                guard !self.operationHasTimedOut else {
-                    UpdateLogStore.shared.append("ignoring delayed check result after timeout: \(self.describe(newState))")
+                guard self.callbackCanMutateState(generation: generation, resultDescription: "delayed check result \(self.describe(newState))") else {
                     return
                 }
                 self.lastCheckStart = nil
@@ -339,6 +341,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
 
     private func setState(_ newState: UpdateState,
+                          generation: Int,
                           timeoutStage: TimeoutStage? = nil,
                           timeoutCancellation: (() -> Void)? = nil) {
         runOnMain { [weak self] in
@@ -346,14 +349,13 @@ class UpdateDriver: NSObject, SPUUserDriver {
             pendingCheckTransition?.cancel()
             pendingCheckTransition = nil
             cancelStateTimeout()
-            guard !operationHasTimedOut else {
-                UpdateLogStore.shared.append("ignoring state after timeout: \(describe(newState))")
+            guard callbackCanMutateState(generation: generation, resultDescription: "state \(describe(newState))") else {
                 return
             }
             lastCheckStart = nil
             applyState(newState)
             if let timeoutStage {
-                scheduleStateTimeout(stage: timeoutStage, cancellation: timeoutCancellation)
+                scheduleStateTimeout(stage: timeoutStage, generation: generation, cancellation: timeoutCancellation)
             }
         }
     }
@@ -362,7 +364,19 @@ class UpdateDriver: NSObject, SPUUserDriver {
         timedOutOperationGeneration == currentOperationGeneration
     }
 
-    private func acceptBackgroundResultAfterTimedOutOperation(resultDescription: String) {
+    private func callbackCanMutateState(generation: Int, resultDescription: String) -> Bool {
+        guard generation == currentOperationGeneration else {
+            UpdateLogStore.shared.append("ignoring stale \(resultDescription) for generation \(generation); current generation is \(currentOperationGeneration)")
+            return false
+        }
+        guard timedOutOperationGeneration != generation else {
+            UpdateLogStore.shared.append("ignoring \(resultDescription) after timeout")
+            return false
+        }
+        return true
+    }
+
+    private func acceptBackgroundResultAfterTimedOutOperation(resultDescription: String) -> Int {
         UpdateLogStore.shared.append("accepting background \(resultDescription) after timed out user operation")
         timedOutOperationGeneration = nil
         currentOperationGeneration += 1
@@ -370,6 +384,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
         pendingCheckTransition = nil
         cancelStateTimeout()
         lastCheckStart = nil
+        return currentOperationGeneration
     }
 
     private func cancelStateTimeout() {
@@ -377,8 +392,9 @@ class UpdateDriver: NSObject, SPUUserDriver {
         stateTimeoutAction = nil
     }
 
-    private func scheduleStateTimeout(stage: TimeoutStage, cancellation: (() -> Void)? = nil) {
-        let generation = currentOperationGeneration
+    private func scheduleStateTimeout(stage: TimeoutStage,
+                                      generation: Int,
+                                      cancellation: (() -> Void)? = nil) {
         stateTimeoutAction = scheduler.schedule(after: timeoutDuration(for: stage)) { [weak self] in
             guard let self else { return }
             self.failOperationIfStillCurrent(stage: stage, generation: generation, cancellation: cancellation)

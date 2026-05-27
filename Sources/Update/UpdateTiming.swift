@@ -65,6 +65,8 @@ private final class DispatchUpdateScheduledAction: UpdateScheduledAction {
     func markFired() -> Bool {
         guard !cancelled else { return false }
         cancelled = true
+        source?.setEventHandler {}
+        source?.cancel()
         source = nil
         return true
     }
