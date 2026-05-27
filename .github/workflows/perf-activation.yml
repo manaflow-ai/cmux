@@ -11,11 +11,12 @@ on:
       runner:
         description: macOS runner
         required: false
-        default: warp-macos-15-arm64-6x
+        default: blacksmith-6vcpu-macos-15
         type: choice
         options:
-          - warp-macos-15-arm64-6x
-          - depot-macos-latest
+          - blacksmith-6vcpu-macos-15
+          - blacksmith-6vcpu-macos-26
+          - blacksmith-6vcpu-macos-latest
       workspace_count:
         description: Fixture workspace count
         required: false
@@ -35,7 +36,7 @@ concurrency:
 
 jobs:
   activation-session:
-    runs-on: ${{ inputs.runner || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 45
     env:
       PERF_TAG: perfci
