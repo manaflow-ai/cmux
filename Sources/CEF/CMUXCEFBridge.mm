@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <climits>
 #include <cmath>
 #include <cstring>
 #include <map>
@@ -30,10 +31,16 @@
 static int g_remoteDebuggingPort = 9433;
 static bool g_cefInitialized = false;
 static bool g_cefShuttingDown = false;
+static bool g_cefMessageLoopEnabled = false;
+static bool g_messagePumpActive = false;
+static bool g_messagePumpReentrancyDetected = false;
+static int g_cefLiveBrowserCount = 0;
 static CefRefPtr<CefApp> g_cefApp;
-static CFRunLoopTimerRef g_messagePumpTimer = nullptr;
+static NSTimer* g_messagePumpTimer = nil;
 static std::map<std::string, CefRefPtr<CefRequestContext>> g_persistentRequestContexts;
 static NSString* const CMUXCEFBuiltInDefaultProfileIdentifier = @"52B43C05-4A1D-45D3-8FD5-9EF94952E445";
+static const int32_t CMUXCEFMessagePumpTimerDelayPlaceholder = INT_MAX;
+static const int64_t CMUXCEFMaxMessagePumpDelayMs = 1000 / 30;
 using CMUXCEFCompletionBlock = void (^)(void);
 
 struct CMUXCEFProfileFlushState {
@@ -198,21 +205,46 @@ static void CMUXCEFInvalidateMessagePumpTimer(void) {
   if (!g_messagePumpTimer) {
     return;
   }
-  CFRunLoopTimerInvalidate(g_messagePumpTimer);
-  CFRelease(g_messagePumpTimer);
-  g_messagePumpTimer = nullptr;
+  [g_messagePumpTimer invalidate];
+  g_messagePumpTimer = nil;
+}
+
+static void CMUXCEFScheduleMessagePumpWork(int64_t delayMs);
+
+static bool CMUXCEFPerformMessagePumpWork(void) {
+  if (!g_cefMessageLoopEnabled || g_cefShuttingDown) {
+    return false;
+  }
+  if (g_messagePumpActive) {
+    g_messagePumpReentrancyDetected = true;
+    return false;
+  }
+
+  g_messagePumpReentrancyDetected = false;
+  g_messagePumpActive = true;
+  CefDoMessageLoopWork();
+  g_messagePumpActive = false;
+  return g_messagePumpReentrancyDetected;
 }
 
 static void CMUXCEFRunMessagePumpWork(void) {
-  if (!g_cefInitialized || g_cefShuttingDown) {
+  if (!g_cefMessageLoopEnabled || g_cefShuttingDown) {
     return;
   }
-  CefDoMessageLoopWork();
+  bool wasReentrant = CMUXCEFPerformMessagePumpWork();
+  if (wasReentrant) {
+    CMUXCEFScheduleMessagePumpWork(0);
+  } else if (!g_messagePumpTimer && g_cefLiveBrowserCount > 0) {
+    CMUXCEFScheduleMessagePumpWork(CMUXCEFMessagePumpTimerDelayPlaceholder);
+  }
 }
 
 static void CMUXCEFScheduleMessagePumpWork(int64_t delayMs) {
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (!g_cefInitialized || g_cefShuttingDown) {
+    if (!g_cefMessageLoopEnabled || g_cefShuttingDown) {
+      return;
+    }
+    if (delayMs == CMUXCEFMessagePumpTimerDelayPlaceholder && g_messagePumpTimer) {
       return;
     }
     CMUXCEFInvalidateMessagePumpTimer();
@@ -221,15 +253,17 @@ static void CMUXCEFScheduleMessagePumpWork(int64_t delayMs) {
       return;
     }
 
-    CFAbsoluteTime fireDate = CFAbsoluteTimeGetCurrent() + (static_cast<CFTimeInterval>(delayMs) / 1000.0);
-    g_messagePumpTimer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, fireDate, 0, 0, 0, ^(CFRunLoopTimerRef timer) {
+    int64_t boundedDelayMs = std::min(delayMs, CMUXCEFMaxMessagePumpDelayMs);
+    g_messagePumpTimer = [NSTimer timerWithTimeInterval:static_cast<NSTimeInterval>(boundedDelayMs) / 1000.0
+                                                 repeats:NO
+                                                   block:^(NSTimer* timer) {
       if (g_messagePumpTimer == timer) {
-        CFRelease(g_messagePumpTimer);
-        g_messagePumpTimer = nullptr;
+        g_messagePumpTimer = nil;
       }
       CMUXCEFRunMessagePumpWork();
-    });
-    CFRunLoopAddTimer(CFRunLoopGetMain(), g_messagePumpTimer, kCFRunLoopCommonModes);
+    }];
+    [[NSRunLoop mainRunLoop] addTimer:g_messagePumpTimer forMode:NSRunLoopCommonModes];
+    [[NSRunLoop mainRunLoop] addTimer:g_messagePumpTimer forMode:NSEventTrackingRunLoopMode];
   });
 }
 
@@ -414,14 +448,13 @@ class CMUXCEFBrowserClient : public CefClient,
 
 - (void)viewDidMoveToWindow {
   [super viewDidMoveToWindow];
-  if (self.window && !didCreateBrowser_) {
-    [self createBrowserIfNeeded];
-  }
+  [self createBrowserIfNeeded];
 }
 
 - (void)layout {
   [super layout];
   if (!cefView_) {
+    [self createBrowserIfNeeded];
     return;
   }
   NSRect targetFrame = self.bounds;
@@ -458,7 +491,10 @@ class CMUXCEFBrowserClient : public CefClient,
 }
 
 - (void)createBrowserIfNeeded {
-  if (didCreateBrowser_ || !g_cefInitialized) {
+  if (didCreateBrowser_ || !g_cefInitialized || !self.window) {
+    return;
+  }
+  if (self.bounds.size.width < 1 || self.bounds.size.height < 1) {
     return;
   }
   didCreateBrowser_ = YES;
@@ -481,12 +517,26 @@ class CMUXCEFBrowserClient : public CefClient,
     nullptr,
     requestContext);
   if (!browser_) {
+    didCreateBrowser_ = NO;
+    NSLog(@"[CEF] Failed to create browser for %@", initialURL_);
     return;
   }
 
   CefWindowHandle handle = browser_->GetHost()->GetWindowHandle();
   cefView_ = (__bridge NSView*)handle;
-  cefView_.autoresizingMask = NSViewNotSizable;
+  if (!cefView_) {
+    didCreateBrowser_ = NO;
+    browser_->GetHost()->CloseBrowser(true);
+    browser_ = nullptr;
+    NSLog(@"[CEF] Browser created without a host view for %@", initialURL_);
+    return;
+  }
+  if (!cefView_.superview) {
+    [self addSubview:cefView_];
+  }
+  g_cefLiveBrowserCount += 1;
+  CMUXCEFScheduleMessagePumpWork(0);
+  cefView_.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
   cefView_.frame = self.bounds;
   [self setNeedsLayout:YES];
 
@@ -552,6 +602,7 @@ class CMUXCEFBrowserClient : public CefClient,
     }
     browser_->GetHost()->CloseBrowser(true);
     browser_ = nullptr;
+    g_cefLiveBrowserCount = std::max(0, g_cefLiveBrowserCount - 1);
   }
   if (cefView_) {
     [cefView_ removeFromSuperview];
@@ -799,6 +850,9 @@ bool CMUXCEFInitialize(int argc, char* _Nullable argv[]) {
   }
   g_cefInitialized = true;
   g_cefShuttingDown = false;
+  g_cefMessageLoopEnabled = true;
+  g_messagePumpActive = false;
+  g_messagePumpReentrancyDetected = false;
   CMUXCEFScheduleMessagePumpWork(0);
   NSLog(@"[CEF] Initialized with remote debugging on 127.0.0.1:%d", g_remoteDebuggingPort);
   return true;
@@ -829,7 +883,10 @@ void CMUXCEFShutdown(void) {
     return;
   }
   g_cefShuttingDown = true;
+  g_cefMessageLoopEnabled = false;
   CMUXCEFInvalidateMessagePumpTimer();
+  g_messagePumpActive = false;
+  g_messagePumpReentrancyDetected = false;
   CefShutdown();
   g_persistentRequestContexts.clear();
   g_cefApp = nullptr;
