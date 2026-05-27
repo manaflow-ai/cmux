@@ -11436,6 +11436,30 @@ private struct SidebarWorkspaceGroupHeaderView: View {
                     localized: "workspaceGroup.newWorkspaceInGroup.a11y",
                     defaultValue: "New workspace in group"
                 )))
+                .contextMenu {
+                    Button(
+                        String(
+                            localized: "workspaceGroup.plus.contextMenu.newWorkspace",
+                            defaultValue: "New Workspace in Group"
+                        ),
+                        action: onTapPlus
+                    )
+                    Divider()
+                    Button(
+                        String(
+                            localized: "workspaceGroup.plus.contextMenu.editConfig",
+                            defaultValue: "Edit Group Config…"
+                        ),
+                        action: onEditConfig
+                    )
+                    Button(
+                        String(
+                            localized: "workspaceGroup.plus.contextMenu.openDocs",
+                            defaultValue: "Open Workspace Groups Docs"
+                        ),
+                        action: onOpenDocs
+                    )
+                }
             }
         }
         .padding(.leading, 6)
