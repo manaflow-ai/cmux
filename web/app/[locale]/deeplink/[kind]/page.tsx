@@ -99,6 +99,27 @@ function isBoundedInteger(value: string, min: number, max: number) {
   return Number.isSafeInteger(integer) && integer >= min && integer <= max;
 }
 
+function containsUnsafeHiddenCharacter(value: string) {
+  return /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(value);
+}
+
+function isAllowedSSHHost(value: string) {
+  if (containsUnsafeHiddenCharacter(value)) return false;
+  if (value.startsWith("[") || value.endsWith("]")) {
+    if (!value.startsWith("[") || !value.endsWith("]")) return false;
+    const inner = value.slice(1, -1);
+    return inner !== "" && /^[0-9A-Za-z:.%]+$/.test(inner);
+  }
+  return /^[A-Za-z0-9._%-]+$/.test(value);
+}
+
+function isAllowedSSHUser(value: string) {
+  return (
+    !containsUnsafeHiddenCharacter(value) &&
+    /^[A-Za-z0-9._%+=-]+$/.test(value)
+  );
+}
+
 function invalidParams(kind: LinkKind, params: SearchParams) {
   const invalid: string[] = [];
   const noFocus = normalizedParam(params, "no-focus");
@@ -113,6 +134,33 @@ function invalidParams(kind: LinkKind, params: SearchParams) {
   }
 
   if (kind !== "ssh") return invalid;
+
+  const host = normalizedParam(params, "host");
+  const user = normalizedParam(params, "user");
+  if (host != null && (host.startsWith("-") || !isAllowedSSHHost(host))) {
+    invalid.push("host");
+  }
+  if (user != null && (user.startsWith("-") || !isAllowedSSHUser(user))) {
+    invalid.push("user");
+  }
+  const destination = user && host ? `${user}@${host}` : host;
+  if (destination != null && destination.length > 256) {
+    invalid.push(user ? "user, host" : "host");
+  }
+  const title = normalizedParam(params, "title");
+  if (
+    title != null &&
+    (title.length > 160 || containsUnsafeHiddenCharacter(title))
+  ) {
+    invalid.push("title");
+  }
+  const name = normalizedParam(params, "name");
+  if (
+    name != null &&
+    (name.length > 160 || containsUnsafeHiddenCharacter(name))
+  ) {
+    invalid.push("name");
+  }
 
   const port = normalizedParam(params, "port");
   if (port != null && !isBoundedInteger(port, 1, 65535)) {
