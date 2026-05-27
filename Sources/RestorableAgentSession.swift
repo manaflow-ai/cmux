@@ -36,7 +36,7 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
     static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
         guard let workingDirectory = normalized(workingDirectory) else { return nil }
         let quoted = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
-        return "{ [ ! -d \(quoted) ] || cd -- \(quoted); } && "
+        return "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && "
     }
 
     static func prefix(_ command: String, workingDirectory: String?) -> String {
@@ -52,10 +52,6 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
     ) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let workingDirectory = normalized(workingDirectory) else { return trimmed }
-        if let existingPrefix = optionalChangeDirectoryPrefix(for: workingDirectory),
-           trimmed.hasPrefix(existingPrefix) {
-            return trimmed
-        }
         let stripped = strippedRequiredChangeDirectoryPrefix(
             from: trimmed,
             workingDirectory: workingDirectory
@@ -73,8 +69,13 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         ]
         var seen = Set<String>()
         for quoted in quotedCandidates where seen.insert(quoted).inserted {
-            let prefix = "cd \(quoted) && "
-            if command.hasPrefix(prefix) {
+            let prefixes = [
+                "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && ",
+                "{ [ ! -d \(quoted) ] || cd -- \(quoted); } && ",
+                "cd -- \(quoted) && ",
+                "cd \(quoted) && "
+            ]
+            for prefix in prefixes where command.hasPrefix(prefix) {
                 return String(command.dropFirst(prefix.count))
             }
         }

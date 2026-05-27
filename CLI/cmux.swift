@@ -16936,7 +16936,7 @@ struct CMUXCLI {
         ]
         if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty {
             let quotedCwd = codexTeamsShellQuote(cwd)
-            lines.append("{ [ ! -d \(quotedCwd) ] || cd -- \(quotedCwd); } || exit $?")
+            lines.append("{ cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ]; } || exit $?")
         }
         lines.append("exec \"${SHELL:-/bin/sh}\" -lc \(codexTeamsShellQuote(commandText))")
         do {
@@ -23283,7 +23283,7 @@ struct CMUXCLI {
         let command = commandParts.map(cliShellQuote).joined(separator: " ")
         if let cwd = normalizedHookValue(workingDirectory) {
             let quotedCwd = cliShellQuote(cwd)
-            return "{ [ ! -d \(quotedCwd) ] || cd -- \(quotedCwd); } && \(command)"
+            return "{ cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ]; } && \(command)"
         }
         return command
     }
