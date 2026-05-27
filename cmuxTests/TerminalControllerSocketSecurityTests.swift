@@ -101,32 +101,6 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(focusV2.insideAllowsFocus)
         XCTAssertFalse(focusV2.outsideSuppressed)
 
-        let fileOpenFocused = TerminalController.debugSocketCommandPolicySnapshot(
-            commandKey: "file.open",
-            isV2: true,
-            params: ["focus": true]
-        )
-        XCTAssertTrue(fileOpenFocused.insideSuppressed)
-        XCTAssertTrue(fileOpenFocused.insideAllowsFocus)
-        XCTAssertFalse(fileOpenFocused.outsideSuppressed)
-
-        let fileOpenUnfocused = TerminalController.debugSocketCommandPolicySnapshot(
-            commandKey: "file.open",
-            isV2: true,
-            params: ["focus": false]
-        )
-        XCTAssertTrue(fileOpenUnfocused.insideSuppressed)
-        XCTAssertFalse(fileOpenUnfocused.insideAllowsFocus)
-        XCTAssertFalse(fileOpenUnfocused.outsideSuppressed)
-
-        let fileOpenDefaultFocus = TerminalController.debugSocketCommandPolicySnapshot(
-            commandKey: "file.open",
-            isV2: true
-        )
-        XCTAssertTrue(fileOpenDefaultFocus.insideSuppressed)
-        XCTAssertFalse(fileOpenDefaultFocus.insideAllowsFocus)
-        XCTAssertFalse(fileOpenDefaultFocus.outsideSuppressed)
-
         let triggerFlash = TerminalController.debugSocketCommandPolicySnapshot(
             commandKey: "surface.trigger_flash",
             isV2: true

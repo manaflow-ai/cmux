@@ -270,6 +270,7 @@ class TerminalController {
         "browser.focus_webview",
         "browser.focus",
         "browser.tab.switch",
+        "file.open",
         "notification.open",
         "notification.jump_to_unread",
         "debug.command_palette.toggle",
