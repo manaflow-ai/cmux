@@ -73,7 +73,11 @@ const settingsFileExample = `{
   //     "idleSeconds": 3600,
   //     "maxLiveTerminals": 12
   //   },
-  //   "textBoxMaxLines": 10
+  //   "textBoxMaxLines": 10,
+  //   "quickTerminalPosition": "top",
+  //   "quickTerminalPrimarySizeRatio": 0.38,
+  //   "quickTerminalSecondarySizeRatio": 1,
+  //   "quickTerminalAutoHide": true
   // },
 
   // "browser": {
@@ -96,6 +100,7 @@ const settingsFileExample = `{
   // "shortcuts": {
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
+  //     "toggleQuickTerminal": "cmd+opt+\`",
   //     "toggleFileExplorer": "cmd+opt+b",
   //     "newTab": ["ctrl+b", "c"],
   //     "commandPalettePrevious": null

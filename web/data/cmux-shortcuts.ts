@@ -37,6 +37,12 @@ export const shortcutCategories: ShortcutCategory[] = [
         description: { en: "Global search", ja: "グローバル検索" },
         note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
       },
+      {
+        id: "toggleQuickTerminal",
+        combos: [["⌥", "⌘", "`"]],
+        description: { en: "Toggle quick terminal", ja: "クイックターミナルを切り替え" },
+        note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
+      },
       { id: "commandPalette", combos: [["⌘", "⇧", "P"]], description: { en: "Command palette", ja: "コマンドパレット" } },
       {
         id: "commandPaletteNext",

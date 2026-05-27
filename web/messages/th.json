@@ -498,7 +498,11 @@
           "hideTabCloseButton": "ซ่อนปุ่มปิดแท็บในแถบแท็บของพาเนล"
         },
         "terminal": {
-          "copyOnSelect": "คัดลอกข้อความเทอร์มินัลที่เลือกไปยังคลิปบอร์ดของระบบเมื่อยืนยันการเลือก รวมถึงการเลือกคำและบรรทัดจากการดับเบิลคลิกและทริปเปิลคลิก"
+          "copyOnSelect": "คัดลอกข้อความเทอร์มินัลที่เลือกไปยังคลิปบอร์ดของระบบเมื่อยืนยันการเลือก รวมถึงการเลือกคำและบรรทัดจากการดับเบิลคลิกและทริปเปิลคลิก",
+          "quickTerminalPosition": "ตำแหน่งริมหน้าจอหรือกึ่งกลางสำหรับ Quick Terminal แบบลอย",
+          "quickTerminalPrimarySizeRatio": "ขนาดของ Quick Terminal ตามแกนที่สไลด์เข้ามา คิดเป็นสัดส่วนของหน้าจอที่มองเห็น",
+          "quickTerminalSecondarySizeRatio": "ขนาดของ Quick Terminal ตามแกนตรงข้าม คิดเป็นสัดส่วนของหน้าจอที่มองเห็น",
+          "quickTerminalAutoHide": "ซ่อน Quick Terminal โดยอัตโนมัติเมื่อเสียโฟกัสแป้นพิมพ์"
         }
       }
     },
@@ -895,7 +899,10 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "บันทึกการอัปเดต cmux และประวัติเวอร์ชัน ฟีเจอร์ใหม่, แก้ไขบั๊ก และการเปลี่ยนแปลงสำหรับเทอร์มินัล macOS เนทีฟ",
-      "metaTitle": "บันทึกการเปลี่ยนแปลง"
+      "metaTitle": "บันทึกการเปลี่ยนแปลง",
+      "entries": {
+        "quickTerminal": "เพิ่มพาเนล Quick Terminal ที่กำหนดตำแหน่ง/ขนาดได้ พร้อมปุ่มลัด Option-Command-backtick, คำสั่งใน command palette และตัวควบคุม CLI `cmux quick-terminal`"
+      }
     },
     "navItems": {
       "gettingStarted": "เริ่มต้นใช้งาน",

@@ -558,7 +558,11 @@
           "hideTabCloseButton": "ペインのタブバーでタブの閉じるボタンを非表示にします。"
         },
         "terminal": {
-          "copyOnSelect": "選択が確定したとき、ダブルクリックやトリプルクリックによる単語・行の選択を含め、選択したターミナルテキストをシステムクリップボードへコピーします。"
+          "copyOnSelect": "選択が確定したとき、ダブルクリックやトリプルクリックによる単語・行の選択を含め、選択したターミナルテキストをシステムクリップボードへコピーします。",
+          "quickTerminalPosition": "浮動 Quick Terminal の画面端または中央の位置。",
+          "quickTerminalPrimarySizeRatio": "Quick Terminal がスライドインする軸方向のサイズ（表示中の画面に対する割合）。",
+          "quickTerminalSecondarySizeRatio": "Quick Terminal の反対軸方向のサイズ（表示中の画面に対する割合）。",
+          "quickTerminalAutoHide": "キー入力フォーカスを失ったときに Quick Terminal を自動的に隠します。"
         }
       }
     },
@@ -1034,7 +1038,10 @@
     "changelog": {
       "title": "変更履歴",
       "metaDescription": "cmuxのリリースノートとバージョン履歴。ネイティブmacOSターミナルの新機能、バグ修正、変更点。",
-      "metaTitle": "変更履歴"
+      "metaTitle": "変更履歴",
+      "entries": {
+        "quickTerminal": "位置とサイズを設定できる Quick Terminal パネル、Option-Command-バッククォートのショートカット、コマンドパレットアクション、`cmux quick-terminal` CLI コントロールを追加しました。"
+      }
     },
     "claudeCodeTeams": {
       "title": "Claude Code Teams",

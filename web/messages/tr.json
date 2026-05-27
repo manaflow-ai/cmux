@@ -498,7 +498,11 @@
           "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle."
         },
         "terminal": {
-          "copyOnSelect": "Seçim kesinleştiğinde seçilen terminal metnini sistem panosuna kopyalar; çift ve üçlü tıklamayla yapılan sözcük ve satır seçimleri dahil."
+          "copyOnSelect": "Seçim kesinleştiğinde seçilen terminal metnini sistem panosuna kopyalar; çift ve üçlü tıklamayla yapılan sözcük ve satır seçimleri dahil.",
+          "quickTerminalPosition": "Yüzen Quick Terminal için ekran kenarı veya merkez konumu.",
+          "quickTerminalPrimarySizeRatio": "Quick Terminal'in içeri kayma ekseni boyunca boyutu; görünür ekranın oranı olarak.",
+          "quickTerminalSecondarySizeRatio": "Quick Terminal'in karşı eksendeki boyutu; görünür ekranın oranı olarak.",
+          "quickTerminalAutoHide": "Klavye odağını kaybettiğinde Quick Terminal'i otomatik olarak gizle."
         }
       }
     },
@@ -895,7 +899,10 @@
     "changelog": {
       "title": "Değişiklik Günlüğü",
       "metaDescription": "cmux sürüm notları ve sürüm geçmişi. Yerel macOS terminali için yeni özellikler, hata düzeltmeleri ve değişiklikler.",
-      "metaTitle": "Değişiklik günlüğü"
+      "metaTitle": "Değişiklik günlüğü",
+      "entries": {
+        "quickTerminal": "Yapılandırılabilir konum/boyut, Option-Command-backtick kısayolu, komut paleti eylemi ve `cmux quick-terminal` CLI denetimleri içeren Quick Terminal paneli."
+      }
     },
     "navItems": {
       "gettingStarted": "Başlarken",

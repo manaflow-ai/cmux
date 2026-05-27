@@ -273,6 +273,9 @@ class TerminalController {
         "browser.tab.switch",
         "notification.open",
         "notification.jump_to_unread",
+        "quick_terminal.toggle",
+        "quick_terminal.show",
+        "quick_terminal.hide",
         "debug.command_palette.toggle",
         "debug.notification.focus",
         "debug.app.activate",
@@ -3545,6 +3548,14 @@ class TerminalController {
             return v2Result(id: id, self.v2AppFocusOverride(params: params))
         case "app.simulate_active":
             return v2Result(id: id, self.v2AppSimulateActive())
+        case "quick_terminal.toggle":
+            return v2Result(id: id, self.v2QuickTerminalToggle())
+        case "quick_terminal.show":
+            return v2Result(id: id, self.v2QuickTerminalShow())
+        case "quick_terminal.hide":
+            return v2Result(id: id, self.v2QuickTerminalHide())
+        case "quick_terminal.status":
+            return v2Ok(id: id, result: self.v2QuickTerminalStatus())
 
         // Browser
         case "browser.open_split":
@@ -3920,6 +3931,10 @@ class TerminalController {
             "notification.jump_to_unread",
             "app.focus_override.set",
             "app.simulate_active",
+            "quick_terminal.toggle",
+            "quick_terminal.show",
+            "quick_terminal.hide",
+            "quick_terminal.status",
             "file.open",
             "markdown.open",
             "browser.open_split",
@@ -10981,6 +10996,72 @@ class TerminalController {
             )
         }
         return .ok([:])
+    }
+
+    private func v2QuickTerminalToggle() -> V2CallResult {
+        var didToggle: Bool?
+        v2MainSync {
+            guard let appDelegate = AppDelegate.shared else {
+                return
+            }
+            didToggle = appDelegate.toggleQuickTerminalVisibility(activateApp: false)
+        }
+        guard let didToggle else {
+            return .err(code: "service_unavailable", message: "Quick terminal service is not available", data: nil)
+        }
+        guard didToggle else {
+            return .err(code: "action_failed", message: "Could not toggle quick terminal", data: nil)
+        }
+        return .ok(v2QuickTerminalStatus())
+    }
+
+    private func v2QuickTerminalShow() -> V2CallResult {
+        var didShow: Bool?
+        v2MainSync {
+            guard let appDelegate = AppDelegate.shared else {
+                return
+            }
+            didShow = appDelegate.showQuickTerminal(activateApp: false)
+        }
+        guard let didShow else {
+            return .err(code: "service_unavailable", message: "Quick terminal service is not available", data: nil)
+        }
+        guard didShow else {
+            return .err(code: "action_failed", message: "Could not show quick terminal", data: nil)
+        }
+        return .ok(v2QuickTerminalStatus())
+    }
+
+    private func v2QuickTerminalHide() -> V2CallResult {
+        var didHide: Bool?
+        v2MainSync {
+            guard let appDelegate = AppDelegate.shared else {
+                return
+            }
+            didHide = appDelegate.hideQuickTerminal(restorePreviousApp: false)
+        }
+        guard let didHide else {
+            return .err(code: "service_unavailable", message: "Quick terminal service is not available", data: nil)
+        }
+        guard didHide else {
+            return .err(code: "action_failed", message: "Could not hide quick terminal", data: nil)
+        }
+        return .ok(v2QuickTerminalStatus())
+    }
+
+    private func v2QuickTerminalStatus() -> [String: Any] {
+        var payload: [String: Any]?
+        v2MainSync {
+            payload = AppDelegate.shared?.quickTerminalStatusPayload()
+        }
+
+        guard let payload else {
+            return [
+                "available": false,
+                "visible": false
+            ]
+        }
+        return payload
     }
 
     // MARK: - V2 Browser Methods
