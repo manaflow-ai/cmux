@@ -4474,6 +4474,16 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertEqual(commandPane.paneId, emptyPaneId)
         XCTAssertTrue(workspace.isFocusedBonsplitPaneForCommands(emptyPaneId, controller: dock.controller))
         XCTAssertFalse(workspace.isFocusedBonsplitPaneForCommands(terminalPaneId, controller: dock.controller))
+
+#if DEBUG
+        workspace.debugReconcileFocusStateForTesting()
+
+        let reconciledCommandPane = try XCTUnwrap(workspace.focusedBonsplitPaneForCommands())
+        XCTAssertTrue(reconciledCommandPane.controller === dock.controller)
+        XCTAssertEqual(reconciledCommandPane.paneId, emptyPaneId)
+        XCTAssertNil(workspace.focusedPanelId)
+        XCTAssertEqual(dock.controller.focusedPaneId, emptyPaneId)
+#endif
     }
 
     func testDockTargetTerminalSplitUpdatesWorkspaceFocus() throws {

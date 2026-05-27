@@ -16139,12 +16139,19 @@ final class Workspace: Identifiable, ObservableObject {
         var targetPanelId: UUID?
         var targetController = currentFocusNavigationController()
 
+        var shouldPreserveEmptyFocusedPane = false
         if let focusedPane = targetController.focusedPaneId,
-           let focusedTab = targetController.selectedTab(inPane: focusedPane),
-           let mappedPanelId = panelIdFromSurfaceId(focusedTab.id),
-           panels[mappedPanelId] != nil {
-            targetPanelId = mappedPanelId
-        } else {
+           targetController.allPaneIds.contains(focusedPane) {
+            if let focusedTab = targetController.selectedTab(inPane: focusedPane),
+               let mappedPanelId = panelIdFromSurfaceId(focusedTab.id),
+               panels[mappedPanelId] != nil {
+                targetPanelId = mappedPanelId
+            } else if targetController.selectedTab(inPane: focusedPane) == nil {
+                shouldPreserveEmptyFocusedPane = true
+            }
+        }
+
+        if targetPanelId == nil, !shouldPreserveEmptyFocusedPane {
             for pane in targetController.allPaneIds {
                 guard let selectedTab = targetController.selectedTab(inPane: pane),
                       let mappedPanelId = panelIdFromSurfaceId(selectedTab.id),
@@ -16156,7 +16163,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        if targetPanelId == nil {
+        if targetPanelId == nil, !shouldPreserveEmptyFocusedPane {
             for controller in renderedBonsplitControllers where controller !== targetController {
                 guard let pane = preferredNavigationPane(in: controller),
                       let selectedTab = controller.selectedTab(inPane: pane),
@@ -16170,7 +16177,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        if targetPanelId == nil {
+        if targetPanelId == nil, !shouldPreserveEmptyFocusedPane {
             for fallbackPanelId in panels.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
                 guard let fallbackTabId = surfaceIdFromPanelId(fallbackPanelId),
                       let fallbackController = renderedBonsplitControllers.first(where: { $0.tab(fallbackTabId) != nil }),
