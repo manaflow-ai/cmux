@@ -30,7 +30,8 @@ final class PostHogAnalytics {
     private var didStart = false
     private var activeCheckTimer: Timer?
 
-    init(
+    // Internal so @testable regression tests can inject a busy queue and stub flush.
+    internal init(
         workQueue: DispatchQueue = DispatchQueue(label: "com.cmux.posthog.analytics", qos: .utility),
         didStart: Bool = false,
         sdkFlush: @escaping () -> Void = { PostHogSDK.shared.flush() }
@@ -88,8 +89,8 @@ final class PostHogAnalytics {
         flushSynchronously(reason: "manual")
     }
 
-    func flushForApplicationTermination() {
-        enqueueFlush(reason: "applicationWillTerminate")
+    func flushForApplicationTermination(maximumWait: DispatchTimeInterval = .milliseconds(250)) {
+        flushWithDeadline(reason: "applicationWillTerminate", maximumWait: maximumWait)
     }
 
     private func startIfNeededOnWorkQueue() {
@@ -204,13 +205,35 @@ final class PostHogAnalytics {
         }
     }
 
-    private func enqueueFlush(reason: String) {
-        postHogAnalyticsLogger.debug("posthog.flush.enqueue reason=\(reason, privacy: .public)")
+    private func flushWithDeadline(reason: String, maximumWait: DispatchTimeInterval) {
+        postHogAnalyticsLogger.debug("posthog.flush.deadline.request reason=\(reason, privacy: .public)")
 #if DEBUG
-        cmuxDebugLog("posthog.flush.enqueue reason=\(reason)")
+        cmuxDebugLog("posthog.flush.deadline.request reason=\(reason)")
 #endif
-        dispatchAsyncOnWorkQueue { [weak self] in
-            self?.flushOnWorkQueue(reason: reason)
+
+        if DispatchQueue.getSpecific(key: workQueueSpecificKey) != nil {
+            flushOnWorkQueue(reason: reason)
+            return
+        }
+
+        let group = DispatchGroup()
+        group.enter()
+        workQueue.async { [self] in
+            defer { group.leave() }
+            flushOnWorkQueue(reason: reason)
+        }
+
+        switch group.wait(timeout: .now() + maximumWait) {
+        case .success:
+            postHogAnalyticsLogger.debug("posthog.flush.deadline.completed reason=\(reason, privacy: .public)")
+#if DEBUG
+            cmuxDebugLog("posthog.flush.deadline.completed reason=\(reason)")
+#endif
+        case .timedOut:
+            postHogAnalyticsLogger.notice("posthog.flush.deadline.timeout reason=\(reason, privacy: .public)")
+#if DEBUG
+            cmuxDebugLog("posthog.flush.deadline.timeout reason=\(reason)")
+#endif
         }
     }
 

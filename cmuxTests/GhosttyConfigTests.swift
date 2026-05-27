@@ -3447,8 +3447,7 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
         let queue = DispatchQueue(label: "com.cmux.posthog.analytics.test")
         let blockerStarted = DispatchSemaphore(value: 0)
         let releaseBlocker = DispatchSemaphore(value: 0)
-        let returned = expectation(description: "termination flush returned")
-        let flushed = expectation(description: "queued flush eventually ran")
+        let flushed = DispatchSemaphore(value: 0)
 
         queue.async {
             blockerStarted.signal()
@@ -3460,23 +3459,39 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
             workQueue: queue,
             didStart: true,
             sdkFlush: {
-                flushed.fulfill()
+                flushed.signal()
             }
         )
 
-        DispatchQueue.global(qos: .userInitiated).async {
-            analytics.flushForApplicationTermination()
-            returned.fulfill()
-        }
+        let start = DispatchTime.now().uptimeNanoseconds
+        analytics.flushForApplicationTermination(maximumWait: .milliseconds(20))
+        let elapsedMilliseconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
 
-        XCTAssertEqual(
-            XCTWaiter.wait(for: [returned], timeout: 1),
-            .completed,
-            "Termination flush must not synchronously wait on the analytics queue"
+        XCTAssertLessThan(
+            elapsedMilliseconds,
+            500,
+            "Termination flush must use a bounded wait instead of synchronously waiting on the analytics queue"
         )
+        XCTAssertEqual(flushed.wait(timeout: .now() + 0.05), .timedOut)
 
         releaseBlocker.signal()
-        XCTAssertEqual(XCTWaiter.wait(for: [flushed], timeout: 1), .completed)
+        XCTAssertEqual(flushed.wait(timeout: .now() + 1), .success)
+    }
+
+    func testTerminationFlushRunsBeforeReturningWhenAnalyticsQueueIsAvailable() {
+        let queue = DispatchQueue(label: "com.cmux.posthog.analytics.test.idle")
+        let flushed = DispatchSemaphore(value: 0)
+        let analytics = PostHogAnalytics(
+            workQueue: queue,
+            didStart: true,
+            sdkFlush: {
+                flushed.signal()
+            }
+        )
+
+        analytics.flushForApplicationTermination(maximumWait: .seconds(1))
+
+        XCTAssertEqual(flushed.wait(timeout: .now() + 0.1), .success)
     }
 }
 
