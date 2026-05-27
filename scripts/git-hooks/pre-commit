@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# cmux pre-commit hook
+# Installed by ./scripts/setup.sh via `git config core.hooksPath scripts/git-hooks`.
+# Normalizes cmux.xcodeproj/project.pbxproj when staged so Xcode's
+# nondeterministic section reordering never reaches a commit.
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+PBXPROJ="cmux.xcodeproj/project.pbxproj"
+
+# Only run when the pbxproj is part of this commit.
+if ! git diff --cached --name-only --diff-filter=ACMRT | grep -Fxq "$PBXPROJ"; then
+    exit 0
+fi
+
+cd "$REPO_ROOT"
+python3 scripts/normalize-pbxproj.py "$PBXPROJ"
+
+# If the normalizer changed the working-tree file, restage it so the
+# commit captures the normalized form.
+if ! git diff --quiet -- "$PBXPROJ"; then
+    git add "$PBXPROJ"
+fi
