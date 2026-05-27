@@ -15989,7 +15989,9 @@ private extension NSWindow {
         let shouldFinishSuppression = shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: self, event: event)
 
 #if DEBUG
-        let hitView = Self.cmuxHitViewForEventDispatch(in: self, event: event)
+        let hitView = WindowInputRoutingContext(event: event).allowsPortalPointerHitTesting
+            ? Self.cmuxHitViewForEventDispatch(in: self, event: event)
+            : nil
 #endif
         defer {
             let finishedReason: WindowMoveSuppressionReason?
@@ -16589,7 +16591,7 @@ private extension NSWindow {
     }
 
     private static func cmuxHitViewForFirstResponderGuard(in window: NSWindow, event: NSEvent) -> NSView? {
-        guard cmuxIsPointerDownEvent(event) else { return nil }
+        guard WindowInputRoutingContext(event: event).allowsFirstResponderHitTesting else { return nil }
         return cmuxHitViewForEventDispatch(in: window, event: event)
     }
 
@@ -16639,12 +16641,7 @@ private extension NSWindow {
     }
 
     private static func cmuxIsPointerDownEvent(_ event: NSEvent) -> Bool {
-        switch event.type {
-        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
-            return true
-        default:
-            return false
-        }
+        WindowInputRoutingContext(event: event).allowsFirstResponderHitTesting
     }
 
     private static func cmuxPointerEventTargetsWindow(_ event: NSEvent, _ window: NSWindow) -> Bool {

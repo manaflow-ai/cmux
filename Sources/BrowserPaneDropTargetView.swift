@@ -36,7 +36,7 @@ final class BrowserPaneDropTargetView: NSView {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
     ) -> Bool {
-        guard canCaptureHitTesting(for: eventType) else { return false }
+        guard WindowInputRoutingContext.allowsPaneDropHitTesting(eventType: eventType) else { return false }
 
         let hasFileURL = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
         let fileDropBehavior = DragOverlayRoutingPolicy.resolvedFileDropBehavior(
@@ -55,33 +55,10 @@ final class BrowserPaneDropTargetView: NSView {
         return true
     }
 
-    private static func canCaptureHitTesting(for eventType: NSEvent.EventType?) -> Bool {
-        guard let eventType else { return false }
-        switch eventType {
-        case .cursorUpdate,
-             .mouseEntered,
-             .mouseExited,
-             .mouseMoved,
-             .leftMouseDragged,
-             .rightMouseDragged,
-             .otherMouseDragged,
-             .leftMouseUp,
-             .rightMouseUp,
-             .otherMouseUp,
-             .appKitDefined,
-             .applicationDefined,
-             .systemDefined,
-             .periodic:
-            return true
-        default:
-            return false
-        }
-    }
-
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard bounds.contains(point), dropContext != nil else { return nil }
         let eventType = NSApp.currentEvent?.type
-        guard Self.canCaptureHitTesting(for: eventType) else { return nil }
+        guard WindowInputRoutingContext.allowsPaneDropHitTesting(eventType: eventType) else { return nil }
         if shouldDeferToPaneTabBar(at: point) {
             return nil
         }
