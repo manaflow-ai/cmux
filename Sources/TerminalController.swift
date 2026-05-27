@@ -2917,6 +2917,20 @@ class TerminalController {
             }
         }
 
+        if let agentHibernationArgs = Self.agentHibernationArgsIfNeeded(command) {
+            let preflightHookSetupEvidence = Self.agentHibernationRequiresHookEvidencePreflight(agentHibernationArgs)
+                ? Self.agentHibernationHookSetupEvidenceOffMain()
+                : nil
+            return withSocketCommandPolicy(commandKey: "agent_hibernation", isV2: false) {
+                v2MainSync {
+                    self.agentHibernation(
+                        agentHibernationArgs,
+                        preflightHookSetupEvidence: preflightHookSetupEvidence
+                    )
+                }
+            }
+        }
+
         return v2MainSync {
             self.processCommand(command)
         }
@@ -19138,7 +19152,7 @@ class TerminalController {
         return tokens
     }
 
-    private func parseOptions(_ args: String) -> (positional: [String], options: [String: String]) {
+    private nonisolated static func parseSocketOptions(_ args: String) -> (positional: [String], options: [String: String]) {
         let tokens = Self.tokenizeArgs(args)
         guard !tokens.isEmpty else { return ([], [:]) }
 
@@ -19172,6 +19186,10 @@ class TerminalController {
             i += 1
         }
         return (positional, options)
+    }
+
+    private func parseOptions(_ args: String) -> (positional: [String], options: [String: String]) {
+        Self.parseSocketOptions(args)
     }
 
     private func parseOptionsNoStop(_ args: String) -> (positional: [String], options: [String: String]) {
@@ -19596,7 +19614,34 @@ class TerminalController {
         return candidates.compactMap(normalizedOptionValue).first
     }
 
-    private func agentHibernation(_ args: String) -> String {
+    private nonisolated static func agentHibernationArgsIfNeeded(_ command: String) -> String? {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.first?.lowercased() == "agent_hibernation" else {
+            return nil
+        }
+        return parts.count > 1 ? parts[1] : ""
+    }
+
+    private nonisolated static func agentHibernationRequiresHookEvidencePreflight(_ args: String) -> Bool {
+        let parsed = parseSocketOptions(args)
+        let subcommand = parsed.positional.first?.lowercased()
+        guard ["on", "enable", "enabled", "true"].contains(subcommand ?? "") else {
+            return false
+        }
+        return !parsed.options.keys.contains("force")
+    }
+
+    private nonisolated static func agentHibernationHookSetupEvidenceOffMain() -> Bool {
+        if Thread.isMainThread {
+            return DispatchQueue.global(qos: .utility).sync {
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence()
+            }
+        }
+        return AgentHibernationHookSetupEvidence.hasHookSetupEvidence()
+    }
+
+    private func agentHibernation(_ args: String, preflightHookSetupEvidence: Bool? = nil) -> String {
         let parsed = parseOptions(args)
         let subcommand = parsed.positional.first?.lowercased()
         let usage = "agent_hibernation <on|off> [--force]"
@@ -19604,8 +19649,12 @@ class TerminalController {
         switch subcommand {
         case "on", "enable", "enabled", "true":
             let isForced = parsed.options.keys.contains("force")
-            if !isForced && !AgentHibernationHookSetupEvidence.hasHookSetupEvidence() {
-                return "ERROR: \(Self.agentHibernationMissingHookEvidenceMessage)"
+            if !isForced {
+                let hasHookSetupEvidence = preflightHookSetupEvidence
+                    ?? AgentHibernationHookSetupEvidence.hasHookSetupEvidence()
+                if !hasHookSetupEvidence {
+                    return "ERROR: \(Self.agentHibernationMissingHookEvidenceMessage)"
+                }
             }
             AgentHibernationSettings.setValues(enabled: true)
             return "OK"
@@ -19617,7 +19666,7 @@ class TerminalController {
         }
     }
 
-    private static var agentHibernationMissingHookEvidenceMessage: String {
+    private nonisolated static var agentHibernationMissingHookEvidenceMessage: String {
         String(
             localized: "settings.terminal.agentHibernation.hooksWarning.cli",
             defaultValue: "Agent Hibernation needs agent lifecycle hooks. Run `cmux hooks setup` or enable an agent integration first. Use --force to enable anyway."
