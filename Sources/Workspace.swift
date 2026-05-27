@@ -16190,53 +16190,49 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Snapshot used by the right-click fork path. Prefers the workspace's restored snapshot
-    /// (filled on session restore / hibernation), then falls back to a process-wide cached
+    /// (filled on session restore / hibernation), then falls back to a per-workspace
     /// `RestorableAgentSessionIndex` populated by a background refresh task. The on-disk
     /// hook session store load runs `sysctl(KERN_PROCARGS2)` per live record for live-PID
     /// filtering, which is too expensive to do synchronously during SwiftUI menu evaluation
-    /// (the provider closure is called on every TabBarView body refresh). Reading a stale
-    /// cache is acceptable for the right-click affordance because the agent's own
-    /// `--resume`/`--fork-session` path reads transcripts from disk and tolerates a dead
-    /// PID; the worst case is the menu item appearing briefly for a session that was just
-    /// terminated, where the fork still completes against the persisted transcript.
+    /// (the provider closure is called on every TabBarView body refresh). The cache is
+    /// `@Published` so when the background refresh completes, `objectWillChange` fires on
+    /// this Workspace, ContentView re-renders, and bonsplit's TabBarView picks up the new
+    /// snapshot on the same frame — the Fork Conversation item becomes visible immediately
+    /// rather than waiting for the next user interaction.
     func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
         if let snapshot = restoredAgentSnapshotsByPanelId[panelId] {
             return snapshot
         }
-        Self.scheduleLiveAgentIndexRefreshIfStale()
-        return Self.liveAgentIndexCache?.snapshot(workspaceId: id, panelId: panelId)
+        scheduleLiveAgentIndexRefreshIfStale()
+        return liveAgentIndexCache?.snapshot(workspaceId: id, panelId: panelId)
     }
 
-    // Process-wide cache: a single hook-session index serves every workspace. Mutations are
-    // pinned to `@MainActor` because the enclosing `Workspace` class is `@MainActor` and the
-    // provider closure runs synchronously during SwiftUI body evaluation on the main actor.
-    @MainActor private static var liveAgentIndexCache: RestorableAgentSessionIndex?
-    @MainActor private static var liveAgentIndexCacheLoadedAt: Date?
-    @MainActor private static var liveAgentIndexRefreshTask: Task<Void, Never>?
+    @Published private var liveAgentIndexCache: RestorableAgentSessionIndex?
+    private var liveAgentIndexCacheLoadedAt: Date?
+    private var liveAgentIndexRefreshTask: Task<Void, Never>?
     private static let liveAgentIndexCacheTTL: TimeInterval = 1.0
 
-    /// Kick off a background refresh of the shared hook-session index if no refresh is
-    /// already in flight and the cached snapshot has aged out. Returns immediately and does
-    /// not block the caller — the work runs on `Task.detached(priority: .utility)`.
-    @MainActor private static func scheduleLiveAgentIndexRefreshIfStale() {
+    /// Kick off a background refresh of this workspace's hook-session index if no refresh
+    /// is already in flight and the cached snapshot has aged out. Returns immediately and
+    /// does not block the caller — the work runs on `Task.detached(priority: .utility)`.
+    /// When the refresh completes the `@Published` cache mutation forces a SwiftUI re-
+    /// render of any view observing the Workspace, so the menu item appears the moment
+    /// the index is loaded without requiring a second right-click.
+    func scheduleLiveAgentIndexRefreshIfStale() {
         if liveAgentIndexRefreshTask != nil { return }
         let now = Date()
         if let loadedAt = liveAgentIndexCacheLoadedAt,
-           now.timeIntervalSince(loadedAt) < liveAgentIndexCacheTTL {
+           now.timeIntervalSince(loadedAt) < Self.liveAgentIndexCacheTTL {
             return
         }
-        liveAgentIndexRefreshTask = Task { @MainActor in
+        liveAgentIndexRefreshTask = Task { @MainActor [weak self] in
             let index = await Task.detached(priority: .utility) {
                 RestorableAgentSessionIndex.load()
             }.value
-            liveAgentIndexCache = index
-            liveAgentIndexCacheLoadedAt = Date()
-            liveAgentIndexRefreshTask = nil
-            // The new snapshot won't be visible until something re-evaluates the bonsplit
-            // tab bar body. SwiftUI re-renders on hover / focus / selection changes, which
-            // are common in normal interaction, so the cache catches up within a frame or
-            // two without a forced re-render. The first right-click immediately after a
-            // fresh Claude session may briefly miss the menu item; the next one shows it.
+            guard let self else { return }
+            self.liveAgentIndexCache = index
+            self.liveAgentIndexCacheLoadedAt = Date()
+            self.liveAgentIndexRefreshTask = nil
         }
     }
 
