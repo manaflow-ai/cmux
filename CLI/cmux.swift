@@ -16,10 +16,12 @@ import Sentry
 struct CLIError: Error, CustomStringConvertible {
     let message: String
     let exitCode: Int32
+    let suppressErrorOutput: Bool
 
-    init(message: String, exitCode: Int32 = 1) {
+    init(message: String, exitCode: Int32 = 1, suppressErrorOutput: Bool = false) {
         self.message = message
         self.exitCode = exitCode
+        self.suppressErrorOutput = suppressErrorOutput
     }
 
     var description: String { message }
@@ -20224,7 +20226,7 @@ struct CMUXCLI {
             let message = String(response.dropFirst("ERROR:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
             if jsonOutput {
                 print(jsonString(["ok": false, "message": message]))
-                throw CLIError(message: message)
+                throw CLIError(message: message, suppressErrorOutput: true)
             }
             throw CLIError(message: message)
         }
@@ -30085,10 +30087,14 @@ struct CMUXTermMain {
         let cli = CMUXCLI(args: CommandLine.arguments)
         do {
             try cli.run()
+        } catch let error as CLIError {
+            if !error.suppressErrorOutput {
+                CMUXCLIOutput.writeStandardError("Error: \(error)\n")
+            }
+            exit(error.exitCode)
         } catch {
             CMUXCLIOutput.writeStandardError("Error: \(error)\n")
-            let exitCode = (error as? CLIError)?.exitCode ?? 1
-            exit(exitCode)
+            exit(1)
         }
     }
 }
