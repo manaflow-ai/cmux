@@ -592,12 +592,27 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
-    func testParsesPromptURLSearchParamsSpaces() throws {
-        let url = try XCTUnwrap(URL(string: "\(supportedScheme)://prompt?text=Review+this+branch"))
+    func testParsesPromptURLPercentEncodedSpaces() throws {
+        let url = try XCTUnwrap(URL(string: "\(supportedScheme)://prompt?text=Review%20this%20branch"))
 
         switch CmuxTextURLRequest.parse(url) {
         case .success(.some(let request)):
             XCTAssertEqual(request.text, "Review this branch")
+        case .success(nil):
+            XCTFail("Expected prompt URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testParsesPromptURLPreservesURLComponentsLiteralPlus() throws {
+        let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
+            URLQueryItem(name: "text", value: "C++ tips")
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.text, "C++ tips")
         case .success(nil):
             XCTFail("Expected prompt URL request")
         case .failure(let error):

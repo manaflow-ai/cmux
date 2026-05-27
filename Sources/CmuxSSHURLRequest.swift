@@ -531,18 +531,16 @@ struct CmuxTextURLRequest: Equatable {
             .split(separator: "&", omittingEmptySubsequences: false)
             .map { rawPair in
                 let parts = rawPair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-                let name = formDecodedQueryComponent(String(parts[0])) ?? String(parts[0])
+                let name = percentDecodedQueryComponent(String(parts[0])) ?? String(parts[0])
                 let value = parts.count > 1
-                    ? formDecodedQueryComponent(String(parts[1])) ?? String(parts[1])
+                    ? percentDecodedQueryComponent(String(parts[1])) ?? String(parts[1])
                     : nil
                 return ParsedQueryItem(name: name, value: value)
             }
     }
 
-    private static func formDecodedQueryComponent(_ value: String) -> String? {
-        value
-            .replacingOccurrences(of: "+", with: " ")
-            .removingPercentEncoding
+    private static func percentDecodedQueryComponent(_ value: String) -> String? {
+        value.removingPercentEncoding
     }
 
     private static func normalizedQueryValue(namedAnyOf names: Set<String>, in queryItems: [ParsedQueryItem]) -> String? {
