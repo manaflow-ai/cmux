@@ -1028,17 +1028,17 @@ struct BrowserPanelView: View {
         }
     }
 
-    private var browserPanelBaseView: AnyView {
+    private var browserPanelBaseView: some View {
         // Layering contract: browser find UI is mounted in the portal-hosted AppKit
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
-        AnyView(VStack(spacing: 0) {
+        VStack(spacing: 0) {
             omnibarHeaderView
             webView
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(browserFindOverlayView)
         .overlay(focusFlashOverlayView)
-        .overlay(omnibarSuggestionsOverlayView, alignment: .topLeading))
+        .overlay(omnibarSuggestionsOverlayView, alignment: .topLeading)
     }
 
     var body: some View {
