@@ -421,6 +421,8 @@ fi
 unset CLAUDECODE
 clear_inherited_claude_auth_selection_env
 
+echo "[cmux] Using Claude wrapper with session hooks — disable with CMUX_CLAUDE_HOOKS_DISABLED=1" >&2
+
 # Check if the user already specified a session/resume flag.
 # If so, don't inject our own --session-id (it would conflict).
 SKIP_SESSION_ID=false
