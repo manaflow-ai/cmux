@@ -4378,7 +4378,9 @@ class GhosttyApp {
         }
 
         if action.tag == GHOSTTY_ACTION_TMUX_CONTROL {
-            guard let terminalSurface = callbackContext?.terminalSurface else { return true }
+            guard let callbackContext,
+                  callbackContext.runtimeSurface == target.target.surface,
+                  let terminalSurface = callbackContext.terminalSurface else { return true }
             let tmuxAction = action.action.tmux_control
             let data: Data
             if tmuxAction.data_len > 0, let dataPointer = tmuxAction.data {
