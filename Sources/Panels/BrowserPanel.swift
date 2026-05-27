@@ -94,8 +94,23 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
     case bing
     case kagi
     case startpage
+    case brave
+    case perplexity
+    case yahoo
+    case ecosia
+    case qwant
+    case mojeek
+    case wikipedia
+    case github
+    case baidu
+    case yandex
+    case custom
 
     var id: String { rawValue }
+
+    static var presetCases: [BrowserSearchEngine] {
+        allCases.filter { $0 != .custom }
+    }
 
     var displayName: String {
         switch self {
@@ -104,38 +119,105 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
         case .bing: return "Bing"
         case .kagi: return "Kagi"
         case .startpage: return "Startpage"
+        case .brave: return "Brave Search"
+        case .perplexity: return "Perplexity"
+        case .yahoo: return "Yahoo"
+        case .ecosia: return "Ecosia"
+        case .qwant: return "Qwant"
+        case .mojeek: return "Mojeek"
+        case .wikipedia: return "Wikipedia"
+        case .github: return "GitHub"
+        case .baidu: return "Baidu"
+        case .yandex: return "Yandex"
+        case .custom:
+            return String(localized: "settings.browser.searchEngine.custom", defaultValue: "Custom")
+        }
+    }
+
+    var searchURLTemplate: String? {
+        switch self {
+        case .google:
+            return "https://www.google.com/search?q={query}"
+        case .duckduckgo:
+            return "https://duckduckgo.com/?q={query}"
+        case .bing:
+            return "https://www.bing.com/search?q={query}"
+        case .kagi:
+            return "https://kagi.com/search?q={query}"
+        case .startpage:
+            return "https://www.startpage.com/do/dsearch?q={query}"
+        case .brave:
+            return "https://search.brave.com/search?q={query}"
+        case .perplexity:
+            return "https://www.perplexity.ai/search?q={query}"
+        case .yahoo:
+            return "https://search.yahoo.com/search?p={query}"
+        case .ecosia:
+            return "https://www.ecosia.org/search?q={query}"
+        case .qwant:
+            return "https://www.qwant.com/?q={query}"
+        case .mojeek:
+            return "https://www.mojeek.com/search?q={query}"
+        case .wikipedia:
+            return "https://en.wikipedia.org/w/index.php?search={query}"
+        case .github:
+            return "https://github.com/search?q={query}"
+        case .baidu:
+            return "https://www.baidu.com/s?wd={query}"
+        case .yandex:
+            return "https://yandex.com/search/?text={query}"
+        case .custom:
+            return nil
+        }
+    }
+
+    var supportsRemoteSuggestions: Bool {
+        switch self {
+        case .google, .duckduckgo, .bing, .kagi, .startpage:
+            return true
+        case .brave, .perplexity, .yahoo, .ecosia, .qwant, .mojeek, .wikipedia, .github, .baidu, .yandex, .custom:
+            return false
         }
     }
 
     func searchURL(query: String) -> URL? {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        guard let template = searchURLTemplate else { return nil }
+        return BrowserSearchSettings.searchURL(fromTemplate: template, query: query)
+    }
+}
 
-        var components: URLComponents?
-        switch self {
-        case .google:
-            components = URLComponents(string: "https://www.google.com/search")
-        case .duckduckgo:
-            components = URLComponents(string: "https://duckduckgo.com/")
-        case .bing:
-            components = URLComponents(string: "https://www.bing.com/search")
-        case .kagi:
-            components = URLComponents(string: "https://kagi.com/search")
-        case .startpage:
-            components = URLComponents(string: "https://www.startpage.com/do/dsearch")
+struct BrowserSearchConfiguration: Equatable {
+    let engine: BrowserSearchEngine
+    let customName: String
+    let customURLTemplate: String
+
+    var displayName: String {
+        guard engine == .custom else { return engine.displayName }
+        return BrowserSearchSettings.normalizedCustomSearchEngineName(customName)
+            ?? BrowserSearchSettings.defaultCustomSearchEngineName
+    }
+
+    var remoteSuggestionsEngine: BrowserSearchEngine? {
+        guard engine.supportsRemoteSuggestions else { return nil }
+        return engine
+    }
+
+    func searchURL(query: String) -> URL? {
+        if engine == .custom {
+            return BrowserSearchSettings.searchURL(fromTemplate: customURLTemplate, query: query)
         }
-
-        components?.queryItems = [
-            URLQueryItem(name: "q", value: trimmed),
-        ]
-        return components?.url
+        return engine.searchURL(query: query)
     }
 }
 
 enum BrowserSearchSettings {
     static let searchEngineKey = "browserSearchEngine"
+    static let customSearchEngineNameKey = "browserCustomSearchEngineName"
+    static let customSearchEngineURLTemplateKey = "browserCustomSearchEngineURLTemplate"
     static let searchSuggestionsEnabledKey = "browserSearchSuggestionsEnabled"
     static let defaultSearchEngine: BrowserSearchEngine = .google
+    static let defaultCustomSearchEngineName = "Custom"
+    static let defaultCustomSearchEngineURLTemplate = "https://www.google.com/search?q={query}"
     static let defaultSearchSuggestionsEnabled: Bool = true
 
     static func currentSearchEngine(defaults: UserDefaults = .standard) -> BrowserSearchEngine {
@@ -144,6 +226,73 @@ enum BrowserSearchSettings {
             return defaultSearchEngine
         }
         return engine
+    }
+
+    static func currentConfiguration(defaults: UserDefaults = .standard) -> BrowserSearchConfiguration {
+        configuration(
+            engineRaw: defaults.string(forKey: searchEngineKey),
+            customName: defaults.string(forKey: customSearchEngineNameKey),
+            customURLTemplate: defaults.string(forKey: customSearchEngineURLTemplateKey)
+        )
+    }
+
+    static func configuration(
+        engineRaw: String?,
+        customName: String?,
+        customURLTemplate: String?
+    ) -> BrowserSearchConfiguration {
+        let engine = engineRaw.flatMap(BrowserSearchEngine.init(rawValue:)) ?? defaultSearchEngine
+        return BrowserSearchConfiguration(
+            engine: engine,
+            customName: customName ?? defaultCustomSearchEngineName,
+            customURLTemplate: customURLTemplate ?? defaultCustomSearchEngineURLTemplate
+        )
+    }
+
+    static func normalizedCustomSearchEngineName(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func isValidSearchURLTemplate(_ raw: String) -> Bool {
+        searchURL(fromTemplate: raw, query: "cmux search") != nil
+    }
+
+    static func searchURL(fromTemplate rawTemplate: String, query rawQuery: String) -> URL? {
+        let template = rawTemplate.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !template.isEmpty, !query.isEmpty else { return nil }
+
+        if template.contains("{query}") || template.contains("%s") {
+            let encodedQuery = percentEncodedSearchQuery(query)
+            let rendered = template
+                .replacingOccurrences(of: "{query}", with: encodedQuery)
+                .replacingOccurrences(of: "%s", with: encodedQuery)
+            guard let url = URL(string: rendered), isAllowedSearchURL(url) else { return nil }
+            return url
+        }
+
+        guard var components = URLComponents(string: template) else { return nil }
+        var queryItems = components.queryItems ?? []
+        queryItems.append(URLQueryItem(name: "q", value: query))
+        components.queryItems = queryItems
+        guard let url = components.url, isAllowedSearchURL(url) else { return nil }
+        return url
+    }
+
+    private static func percentEncodedSearchQuery(_ query: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return query.addingPercentEncoding(withAllowedCharacters: allowed) ?? query
+    }
+
+    private static func isAllowedSearchURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              url.host?.isEmpty == false else {
+            return false
+        }
+        return true
     }
 
     static func currentSearchSuggestionsEnabled(defaults: UserDefaults = .standard) -> Bool {
@@ -2220,6 +2369,8 @@ actor BrowserSearchSuggestionService {
                 URLQueryItem(name: "q", value: query),
             ]
             url = c?.url
+        case .brave, .perplexity, .yahoo, .ecosia, .qwant, .mojeek, .wikipedia, .github, .baidu, .yandex, .custom:
+            url = nil
         }
 
         guard let url else { return [] }
@@ -2248,6 +2399,8 @@ actor BrowserSearchSuggestionService {
             return parseOSJSON(data: data)
         case .duckduckgo:
             return parseDuckDuckGo(data: data)
+        case .brave, .perplexity, .yahoo, .ecosia, .qwant, .mojeek, .wikipedia, .github, .baidu, .yandex, .custom:
+            return []
         }
     }
 
@@ -5038,8 +5191,8 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
-        let engine = BrowserSearchSettings.currentSearchEngine()
-        guard let searchURL = engine.searchURL(query: trimmed) else { return }
+        let searchConfiguration = BrowserSearchSettings.currentConfiguration()
+        guard let searchURL = searchConfiguration.searchURL(query: trimmed) else { return }
         navigate(to: searchURL)
     }
 

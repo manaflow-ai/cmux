@@ -70006,6 +70006,91 @@
         }
       }
     },
+    "settings.browser.searchEngine.custom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム"
+          }
+        }
+      }
+    },
+    "settings.browser.customSearchEngineName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Search Engine Name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム検索エンジン名"
+          }
+        }
+      }
+    },
+    "settings.browser.customSearchEngineName.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shown in browser address bar search suggestions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザのアドレスバーの検索候補に表示されます。"
+          }
+        }
+      }
+    },
+    "settings.browser.customSearchEngineURLTemplate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Search URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム検索URL"
+          }
+        }
+      }
+    },
+    "settings.browser.customSearchEngineURLTemplate.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use {query} or %s for the search terms. Without a placeholder, cmux appends q=."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索語には {query} または %s を使います。プレースホルダーがない場合、cmux は q= を追加します。"
+          }
+        }
+      }
+    },
     "settings.browser.searchSuggestions": {
       "extractionState": "manual",
       "localizations": {
@@ -82545,13 +82630,13 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider"
+                    "value": "browser.defaultSearchEngine browser.customSearchEngineName browser.customSearchEngineURLTemplate omnibar address bar google duckduckgo bing kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider オムニバー アドレスバー google duckduckgo bing 検索エンジン 検索プロバイダ"
+                    "value": "browser.defaultSearchEngine browser.customSearchEngineName browser.customSearchEngineURLTemplate omnibar address bar google duckduckgo bing kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider オムニバー アドレスバー kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex カスタム 検索エンジン 検索プロバイダ"
                 }
             },
             "ar": {
