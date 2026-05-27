@@ -11440,56 +11440,60 @@ private struct SidebarWorkspaceGroupHeaderView: View {
                 defaultValue: "Focus the group's anchor workspace"
             )))
 
-            if isHovered {
-                Button(action: onTapPlus) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18, height: 18)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text(String(
-                    localized: "workspaceGroup.newWorkspaceInGroup.a11y",
-                    defaultValue: "New workspace in group"
-                )))
-                .contextMenu {
-                    Button(
-                        String(
-                            localized: "workspaceGroup.plus.contextMenu.newWorkspace",
-                            defaultValue: "New Workspace in Group"
-                        ),
-                        action: onTapPlus
-                    )
-                    if !cwdContextMenuItems.isEmpty {
-                        Divider()
-                        ForEach(cwdContextMenuItems) { item in
-                            switch item {
-                            case .separator:
-                                Divider()
-                            case .action(let action):
-                                Button(action.title) {
-                                    onRunResolvedItem(action)
-                                }
+            // Reserve the `+` slot whether hovered or not so the header
+            // never reflows / changes height on mouse-enter.
+            Button(action: onTapPlus) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+                    .opacity(isHovered ? 1 : 0)
+            }
+            .buttonStyle(.plain)
+            .frame(width: 18, height: 18)
+            .allowsHitTesting(isHovered)
+            .accessibilityHidden(!isHovered)
+            .accessibilityLabel(Text(String(
+                localized: "workspaceGroup.newWorkspaceInGroup.a11y",
+                defaultValue: "New workspace in group"
+            )))
+            .contextMenu {
+                Button(
+                    String(
+                        localized: "workspaceGroup.plus.contextMenu.newWorkspace",
+                        defaultValue: "New Workspace in Group"
+                    ),
+                    action: onTapPlus
+                )
+                if !cwdContextMenuItems.isEmpty {
+                    Divider()
+                    ForEach(cwdContextMenuItems) { item in
+                        switch item {
+                        case .separator:
+                            Divider()
+                        case .action(let action):
+                            Button(action.title) {
+                                onRunResolvedItem(action)
                             }
                         }
                     }
-                    Divider()
-                    Button(
-                        String(
-                            localized: "workspaceGroup.plus.contextMenu.editConfig",
-                            defaultValue: "Edit Group Config…"
-                        ),
-                        action: onEditConfig
-                    )
-                    Button(
-                        String(
-                            localized: "workspaceGroup.plus.contextMenu.openDocs",
-                            defaultValue: "Open Workspace Groups Docs"
-                        ),
-                        action: onOpenDocs
-                    )
                 }
+                Divider()
+                Button(
+                    String(
+                        localized: "workspaceGroup.plus.contextMenu.editConfig",
+                        defaultValue: "Edit Group Config…"
+                    ),
+                    action: onEditConfig
+                )
+                Button(
+                    String(
+                        localized: "workspaceGroup.plus.contextMenu.openDocs",
+                        defaultValue: "Open Workspace Groups Docs"
+                    ),
+                    action: onOpenDocs
+                )
             }
         }
         .padding(.leading, 6)
