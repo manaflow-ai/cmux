@@ -1,4 +1,5 @@
 import Darwin
+import AppKit
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -644,6 +645,61 @@ final class SessionPersistenceTests: XCTestCase {
                 isTerminatingApp: true,
                 includeScrollback: true
             )
+        )
+    }
+
+    @MainActor
+    func testApplicationShouldTerminateDoesNotPersistSessionSnapshotBeforeTerminateReply() throws {
+        let defaults = UserDefaults.standard
+        let previousConfirmQuit = defaults.object(forKey: QuitWarningSettings.confirmQuitKey)
+        let previousWarnBeforeQuit = defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey)
+        QuitWarningSettings.setMode(.never, defaults: defaults)
+        defer {
+            if let previousConfirmQuit {
+                defaults.set(previousConfirmQuit, forKey: QuitWarningSettings.confirmQuitKey)
+            } else {
+                defaults.removeObject(forKey: QuitWarningSettings.confirmQuitKey)
+            }
+            if let previousWarnBeforeQuit {
+                defaults.set(previousWarnBeforeQuit, forKey: QuitWarningSettings.warnBeforeQuitKey)
+            } else {
+                defaults.removeObject(forKey: QuitWarningSettings.warnBeforeQuitKey)
+            }
+        }
+
+        let snapshotURL = try XCTUnwrap(SessionPersistenceStore.defaultSnapshotFileURL())
+        let originalSnapshotData = try? Data(contentsOf: snapshotURL)
+        try? FileManager.default.removeItem(at: snapshotURL)
+        defer {
+            if let originalSnapshotData {
+                try? FileManager.default.createDirectory(
+                    at: snapshotURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try? originalSnapshotData.write(to: snapshotURL, options: .atomic)
+            } else {
+                try? FileManager.default.removeItem(at: snapshotURL)
+            }
+        }
+
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let seeded = workspace.debugSeedSessionSnapshotScrollback(charactersPerTerminal: 100_000)
+        XCTAssertGreaterThan(seeded.characters, 0)
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let reply = app.applicationShouldTerminate(NSApplication.shared)
+
+        XCTAssertEqual(reply, .terminateNow)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: snapshotURL.path),
+            "applicationShouldTerminate should stay cheap; the full session snapshot is persisted from applicationWillTerminate once termination is committed."
         )
     }
 
