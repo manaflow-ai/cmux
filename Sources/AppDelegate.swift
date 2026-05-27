@@ -1579,21 +1579,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let buildFlavor = BuildFlavor.current
-        let hasDirtyWorkspaces = hasQuitConfirmationDirtyWorkspaces()
         let confirmQuitMode = QuitWarningSettings.confirmQuitMode()
+        let shouldEvaluateDirtyWorkspaces = Self.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+            isQuitWarningConfirmed: isQuitWarningConfirmed,
+            buildFlavor: buildFlavor,
+            confirmQuitMode: confirmQuitMode
+        )
+        let hasDirtyWorkspaces = shouldEvaluateDirtyWorkspaces
+            ? hasQuitConfirmationDirtyWorkspaces()
+            : false
 
         StartupBreadcrumbLog.append(
             "appDelegate.shouldTerminate.begin",
             fields: [
                 "buildFlavor": buildFlavor.rawValue,
                 "confirmQuitMode": confirmQuitMode.rawValue,
-                "hasDirtyWorkspaces": hasDirtyWorkspaces ? "1" : "0",
+                "hasDirtyWorkspaces": shouldEvaluateDirtyWorkspaces ? (hasDirtyWorkspaces ? "1" : "0") : "skipped",
                 "quitWarningConfirmed": isQuitWarningConfirmed ? "1" : "0",
                 "quitWarningEnabled": QuitWarningSettings.isEnabled() ? "1" : "0"
             ]
         )
         isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog,
         // or policy skips the warning, avoid a second alert.
@@ -1646,6 +1652,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
+    }
+
+    nonisolated static func shouldEvaluateQuitConfirmationDirtyWorkspaces(
+        isQuitWarningConfirmed: Bool,
+        buildFlavor: BuildFlavor,
+        confirmQuitMode: QuitConfirmationMode
+    ) -> Bool {
+        guard !isQuitWarningConfirmed else { return false }
+        guard buildFlavor != .dev else { return false }
+        return confirmQuitMode == .dirtyOnly
     }
 
     private func hasQuitConfirmationDirtyWorkspaces() -> Bool {
@@ -14906,8 +14922,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             activateMainWindowContext(nextContext)
         }
 
-        // During app termination we already persisted a full snapshot (with scrollback)
-        // in applicationShouldTerminate/applicationWillTerminate. Saving again here would
+        // During app termination we already persist a full snapshot (with scrollback)
+        // in applicationWillTerminate. Saving again here would
         // overwrite it as windows tear down one-by-one, dropping closed windows and replay.
         if Self.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: isTerminatingApp) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false, removeWhenEmpty: false)

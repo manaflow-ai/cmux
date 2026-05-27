@@ -648,6 +648,44 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testQuitConfirmationDirtyWorkspaceScanPolicy() {
+        XCTAssertFalse(
+            AppDelegate.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+                isQuitWarningConfirmed: true,
+                buildFlavor: .stable,
+                confirmQuitMode: .dirtyOnly
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+                isQuitWarningConfirmed: false,
+                buildFlavor: .dev,
+                confirmQuitMode: .dirtyOnly
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+                isQuitWarningConfirmed: false,
+                buildFlavor: .stable,
+                confirmQuitMode: .always
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+                isQuitWarningConfirmed: false,
+                buildFlavor: .stable,
+                confirmQuitMode: .never
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+                isQuitWarningConfirmed: false,
+                buildFlavor: .stable,
+                confirmQuitMode: .dirtyOnly
+            )
+        )
+    }
+
     @MainActor
     func testApplicationShouldTerminateDoesNotPersistSessionSnapshotBeforeTerminateReply() throws {
         let defaults = UserDefaults.standard
