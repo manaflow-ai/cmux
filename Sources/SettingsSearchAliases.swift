@@ -10,7 +10,7 @@ enum SettingsSearchAliasIndex {
         case .filesAndLinks:
             return localized("settings.search.alias.section.filesAndLinks", defaultValue: "app files file links urls editor previews markdown quick look ghostty config")
         case .notifications:
-            return localized("settings.search.alias.section.notifications", defaultValue: "app alerts notify unread dock badge menubar menu bar ring flash sound command")
+            return localized("settings.search.alias.section.notifications", defaultValue: "app alerts notify unread dock badge menubar menu bar ring flash sound command imessage message chat prompt reorder")
         case .safetyPrivacy:
             return localized("settings.search.alias.section.safetyPrivacy", defaultValue: "app privacy telemetry analytics warnings warn confirm quit close tab x button")
         case .commandPalette:

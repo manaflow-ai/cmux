@@ -125,7 +125,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .filesAndLinks:
             return "\(title) app files links url open cmd click editor markdown preview pdf image audio video terminal config ghostty"
         case .notifications:
-            return "\(title) app notification notify alert sound dock badge menu bar menubar ring flash command"
+            return "\(title) app notification notify alert sound dock badge menu bar menubar ring flash command imessage message chat prompt reorder"
         case .safetyPrivacy:
             return "\(title) app privacy telemetry warn warning confirm confirmation quit close tab x button"
         case .commandPalette:

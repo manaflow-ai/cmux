@@ -248,6 +248,26 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testAgentHibernationHookEvidenceDetectsRoutedHookCommands() throws {
+        try withTemporaryDefaults { defaults in
+            let homeDirectory = try makeTemporaryHomeDirectory()
+            defer { try? FileManager.default.removeItem(at: homeDirectory) }
+            try writeHookConfig(
+                "$cmux_cli --socket \"$CMUX_SOCKET_PATH\" hooks codex session-start",
+                at: homeDirectory.appendingPathComponent(".codex/hooks.json")
+            )
+
+            defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+            XCTAssertTrue(
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(
+                    defaults: defaults,
+                    environment: [:],
+                    homeDirectory: homeDirectory
+                )
+            )
+        }
+    }
+
     func testAgentHibernationHookEvidenceDetectsPinnedHookMarkers() throws {
         try withTemporaryDefaults { defaults in
             let homeDirectory = try makeTemporaryHomeDirectory()

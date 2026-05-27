@@ -5231,7 +5231,8 @@ struct AgentHookSetupEvidenceDefinition: Sendable {
         self.envOverride = envOverride
         self.envOverrideSubpath = envOverrideSubpath
         self.disableEnvVar = disableEnvVar
-        self.markers = markers
+        let routedHookMarker = "hooks \(name)"
+        self.markers = markers.contains(routedHookMarker) ? markers : markers + [routedHookMarker]
         self.isEnabled = isEnabled
     }
 
