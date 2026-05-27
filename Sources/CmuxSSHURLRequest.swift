@@ -340,9 +340,8 @@ struct CmuxSSHURLRequest: Equatable {
             return value
         }
         let escaped = value
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        return "\"\(escaped)\""
+            .replacingOccurrences(of: "'", with: "'\\''")
+        return "'\(escaped)'"
     }
 
     private static func displayParameterName(_ name: String) -> String {
