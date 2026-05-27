@@ -43,6 +43,16 @@ export const testimonials = [
     platform: "x" as const,
   },
   {
+    key: "davidondrej1",
+    name: "David Ondrej",
+    handle: "@DavidOndrej1",
+    avatar: "/avatars/davidondrej1.jpg",
+    text: "> learn cmux\n> trust me",
+    lang: "en",
+    url: "https://x.com/DavidOndrej1/status/2059360111336865901",
+    platform: "x" as const,
+  },
+  {
     key: "max4c",
     name: "Max Forsey",
     handle: "@max4c_",
@@ -50,6 +60,56 @@ export const testimonials = [
     text: "this has been my favorite tool for past two weeks",
     lang: "en",
     url: "https://x.com/max4c_/status/2027266664270889204",
+    platform: "x" as const,
+  },
+  {
+    key: "lucas_flatwhite",
+    name: "lucas",
+    handle: "@lucas_flatwhite",
+    avatar: "/avatars/lucas_flatwhite.jpg",
+    text: "아직 늦지 않았어요. 저도 Ghostty 많이 쓰는데 이어서 cmux도 사랑입니다. 세로 탭, 알림 링, 내장 브라우저, 분할 패널, GPU 가속 등등.. 정말 이점이 많아요!",
+    lang: "ko",
+    url: "https://x.com/lucas_flatwhite/status/2058215633259831694",
+    platform: "x" as const,
+  },
+  {
+    key: "minixalpha",
+    name: "minixalpha",
+    handle: "@minixalpha",
+    avatar: "/avatars/minixalpha.jpg",
+    text: "我也主力用 cmux，还推荐给其他同事，原因就是通知系统，分工作区，快捷键好用，多工作并行时能提高效率，尽管 cmux 比较丑，但它的功能让我不得不用它。",
+    lang: "zh-CN",
+    url: "https://x.com/minixalpha/status/2037496984890986576",
+    platform: "x" as const,
+  },
+  {
+    key: "jinchenma_ai",
+    name: "金尘马",
+    handle: "@jinchenma_ai",
+    avatar: "/avatars/jinchenma_ai.jpg",
+    text: "最近用的最多的终端工具就是这个 cmux，开源免费。基本上代替 iTerm2 了。完美解决了多终端窗口排列问题。",
+    lang: "zh-CN",
+    url: "https://x.com/jinchenma_ai/status/2057038510323016067",
+    platform: "x" as const,
+  },
+  {
+    key: "immazzystar",
+    name: "Mazzystar",
+    handle: "@immazzystar",
+    avatar: "/avatars/immazzystar.jpg",
+    text: "推荐一个最近喜欢用的工具: cmux，不用频繁切换终端窗口了",
+    lang: "zh-CN",
+    url: "https://x.com/immazzystar/status/2044695370492707124",
+    platform: "x" as const,
+  },
+  {
+    key: "blitz_zidan",
+    name: "ub:)ub 🎗️",
+    handle: "@blitz_zidan",
+    avatar: "/avatars/blitz_zidan.jpg",
+    text: "요즘 최애 터미널 cmux. 개인적으로 멀티 터미널 돌리기 너무 좋은거 같아",
+    lang: "ko",
+    url: "https://x.com/blitz_zidan/status/2049857904162025795",
     platform: "x" as const,
   },
   {
@@ -251,10 +311,15 @@ function Initials({ name }: { name: string }) {
 }
 
 /**
- * Returns the language family prefix for a locale (e.g., "zh" for "zh-CN").
+ * Returns the language family prefix for a locale.
+ * Chinese variants stay distinct so zh-TW users can see Traditional translations.
  */
 function langFamily(locale: string): string {
-  return locale.split("-")[0];
+  const normalized = locale.toLowerCase();
+  if (normalized === "zh-cn" || normalized === "zh-tw") {
+    return normalized;
+  }
+  return normalized.split("-")[0];
 }
 
 /**
@@ -317,11 +382,11 @@ export function TestimonialCard({
         </div>
         <PlatformIcon platform={testimonial.platform} />
       </div>
-      <p className="text-[15px] leading-relaxed text-muted group-hover:text-foreground transition-colors">
+      <p className="text-[15px] leading-relaxed text-muted whitespace-pre-line group-hover:text-foreground transition-colors">
         {testimonial.text}
       </p>
       {translation && (
-        <p className="text-xs text-muted/60 mt-1.5 italic">
+        <p className="text-xs text-muted/60 mt-1.5 italic whitespace-pre-line">
           {translation}
         </p>
       )}
