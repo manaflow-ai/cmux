@@ -267,7 +267,6 @@ class TerminalController {
         "surface.focus",
         "pane.focus",
         "pane.last",
-        "file.open",
         "browser.focus_webview",
         "browser.focus",
         "browser.tab.switch",
