@@ -17170,9 +17170,19 @@ extension Workspace: BonsplitDelegate {
             "originalKinds=[\(paneKindSummary(originalPane))] newKinds=[\(paneKindSummary(newPane))]"
         )
 #endif
-        let rearmBrowserPortalHostReplacement: (PaneID, String) -> Void = { paneId, reason in
+        var rearmedBrowserPanelIds: Set<UUID> = []
+        for paneId in controller.allPaneIds {
+            let reason: String
+            if paneId == originalPane {
+                reason = "workspace.didSplit.original"
+            } else if paneId == newPane {
+                reason = "workspace.didSplit.new"
+            } else {
+                reason = "workspace.didSplit.topology"
+            }
             for tab in controller.tabs(inPane: paneId) {
                 guard let panelId = self.panelIdFromSurfaceId(tab.id),
+                      rearmedBrowserPanelIds.insert(panelId).inserted,
                       let browserPanel = self.browserPanel(for: panelId) else {
                     continue
                 }
@@ -17182,8 +17192,6 @@ extension Workspace: BonsplitDelegate {
                 )
             }
         }
-        rearmBrowserPortalHostReplacement(originalPane, "workspace.didSplit.original")
-        rearmBrowserPortalHostReplacement(newPane, "workspace.didSplit.new")
 
         // Only auto-create a terminal if the split came from bonsplit UI.
         // Programmatic splits via newTerminalSplit() set isProgrammaticSplit and handle their own panels.
