@@ -338,6 +338,7 @@ extension CMUXCLI {
                 "diffStats": CMUXDiffViewerLocalization.string("diffViewer.diffStats", defaultValue: "Diff stats"),
                 "diffTarget": CMUXDiffViewerLocalization.string("diffViewer.diffTarget", defaultValue: "Diff target"),
                 "diffViewer": CMUXDiffViewerLocalization.string("diffViewer.diffViewer", defaultValue: "Diff viewer"),
+                "renderFailed": CMUXDiffViewerLocalization.string("diffViewer.renderFailed", defaultValue: "Could not render this diff. Check the patch input and try again."),
                 "disableWordDiffs": CMUXDiffViewerLocalization.string("diffViewer.disableWordDiffs", defaultValue: "Disable word diffs"),
                 "disableWordWrap": CMUXDiffViewerLocalization.string("diffViewer.disableWordWrap", defaultValue: "Disable word wrap"),
                 "enableWordDiffs": CMUXDiffViewerLocalization.string("diffViewer.enableWordDiffs", defaultValue: "Enable word diffs"),
@@ -3958,8 +3959,9 @@ extension CMUXCLI {
             const scheduleRender = globalThis.queueMicrotask ?? ((callback) => setTimeout(callback, 0));
             scheduleRender(() => {
               renderDiff().catch((error) => {
+                console.error("cmux diff viewer render failed", error);
                 status.dataset.error = "true";
-                status.textContent = error instanceof Error ? error.message : String(error);
+                status.textContent = label("renderFailed");
               });
             });
 
@@ -5628,7 +5630,7 @@ extension CMUXCLI {
         """
         Usage: cmux diff [patch-file|-] [options]
 
-        Render a unified diff or patch with Diffs CodeView in a cmux browser split.
+        Render a unified diff or patch in a cmux browser split.
         With no patch file or source, cmux diff reads piped stdin.
 
         Options:
