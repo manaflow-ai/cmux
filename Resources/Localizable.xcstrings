@@ -19990,6 +19990,40 @@
         }
       }
     },
+    "command.copySurfaceLink.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Surface Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスリンクをコピー"
+          }
+        }
+      }
+    },
+    "command.copyPaneLink.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Pane Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインリンクをコピー"
+          }
+        }
+      }
+    },
     "command.copyWorkspaceIDAndRef.title": {
       "extractionState": "manual",
       "localizations": {
@@ -20009,6 +20043,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "워크스페이스 ID 및 참조 복사"
+          }
+        }
+      }
+    },
+    "command.copyWorkspaceLink.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Workspace Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースリンクをコピー"
           }
         }
       }
@@ -36930,6 +36981,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "워크스페이스 ID 복사"
+          }
+        }
+      }
+    },
+    "contextMenu.copyWorkspaceLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Workspace Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースリンクをコピー"
+          }
+        }
+      }
+    },
+    "contextMenu.copyWorkspaceLinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Workspace Links"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースリンクをコピー"
           }
         }
       }
