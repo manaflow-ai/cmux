@@ -13306,6 +13306,7 @@ struct CMUXCLI {
             return """
             Usage:
               cmux sidebar load <swift-file-or-folder>
+              cmux sidebar sync
               cmux sidebar path
               cmux sidebar docs
 
@@ -13314,10 +13315,12 @@ struct CMUXCLI {
             Sources:
               Single Swift files are imported into ~/.config/cmux/sidebars/<name>/
               Folders can contain multiple .swift files and need either main.swift or @main.
+              cmux sidebar sync loads every direct .swift file or folder there.
               cmux builds a small executable that links against bundled CmuxExtensionKit.
 
             Examples:
               cmux sidebar load ./Sidebar.swift
+              cmux sidebar sync
               cmux sidebar load ~/.config/cmux/sidebars/my-sidebar
             """
         case "right-sidebar":
@@ -13775,6 +13778,50 @@ struct CMUXCLI {
             print("Loaded custom sidebar: \(displayTitle)")
             print("Source: \(source)")
 
+        case "sync", "load-all":
+            guard args.count == 1 else {
+                throw CLIError(message: "Usage: cmux sidebar sync")
+            }
+            guard let client else {
+                throw CLIError(message: "sidebar sync requires a running cmux app.")
+            }
+            let payload = try client.sendV2(
+                method: "extension.sidebar.sync_custom",
+                params: [:],
+                responseTimeout: 10 * 60
+            )
+            if jsonOutput {
+                print(jsonString(payload))
+                return
+            }
+
+            let root = (payload["standard_source_root"] as? String) ?? "~/.config/cmux/sidebars"
+            let loaded = payload["loaded"] as? [[String: Any]] ?? []
+            let failures = payload["failures"] as? [[String: Any]] ?? []
+            print("Synced custom sidebars from \(root)")
+            if loaded.isEmpty {
+                print("Loaded: none")
+            } else {
+                print("Loaded:")
+                for record in loaded {
+                    let title = (record["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let displayTitle = (title?.isEmpty == false) ? title! : "custom sidebar"
+                    let source = (record["source_path"] as? String) ?? ""
+                    print("- \(displayTitle): \(source)")
+                }
+            }
+            if !failures.isEmpty {
+                print("Failures:")
+                for failure in failures {
+                    let source = (failure["source_path"] as? String) ?? "unknown source"
+                    let message = (failure["message"] as? String) ?? "unknown error"
+                    print("- \(source): \(message)")
+                }
+            }
+            if loaded.isEmpty, !failures.isEmpty {
+                throw CLIError(message: "sidebar sync failed for \(failures.count) source(s).")
+            }
+
         case "path":
             guard args.count == 1 else {
                 throw CLIError(message: "Usage: cmux sidebar path")
@@ -13814,6 +13861,8 @@ struct CMUXCLI {
         switch subcommand {
         case "load":
             return args.count != 2
+        case "sync", "load-all":
+            return args.count != 1
         case "path", "docs", "help", "--help", "-h":
             return true
         default:
@@ -30045,7 +30094,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           open-notification --id <uuid>
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
-          sidebar load <swift-file-or-folder> | path | docs
+          sidebar load <swift-file-or-folder> | sync | path | docs
           right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]

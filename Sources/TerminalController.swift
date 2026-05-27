@@ -2257,6 +2257,7 @@ class TerminalController {
         "feed.question.reply",
         "feed.exit_plan.reply",
         "extension.sidebar.load_custom",
+        "extension.sidebar.sync_custom",
         "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",
@@ -2364,6 +2365,8 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
         case "extension.sidebar.load_custom":
             return v2Result(id: request.id, v2ExtensionSidebarLoadCustom(params: request.params))
+        case "extension.sidebar.sync_custom":
+            return v2Result(id: request.id, v2ExtensionSidebarSyncCustom(params: request.params))
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.profiles.list":
@@ -3851,6 +3854,7 @@ class TerminalController {
             "workspace.action",
             "extension.sidebar.snapshot",
             "extension.sidebar.load_custom",
+            "extension.sidebar.sync_custom",
             "workspace.next",
             "workspace.previous",
             "workspace.last",
@@ -5486,6 +5490,64 @@ class TerminalController {
                 code: "load_failed",
                 message: "Unknown custom sidebar load failure",
                 data: ["path": sourceURL.path]
+            )
+        }
+    }
+
+    private nonisolated func v2ExtensionSidebarSyncCustom(params: [String: Any]) -> V2CallResult {
+        let timeoutSeconds = (params["timeout_seconds"] as? Double) ?? 10 * 60
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var result: Result<CmuxUserSwiftSidebarSyncResult, Error>?
+
+        Task { @MainActor in
+            do {
+                result = .success(try await CmuxUserSwiftSidebarRegistry.syncStandardSourceDirectoryForCLI())
+            } catch {
+                result = .failure(error)
+            }
+            semaphore.signal()
+        }
+
+        if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+            return .err(
+                code: "timeout",
+                message: "Timed out while syncing custom sidebars",
+                data: ["standard_source_root": CmuxUserSwiftSidebarBuilder.standardSourceRootDisplayPath()]
+            )
+        }
+
+        switch result {
+        case .success(let syncResult):
+            let loaded = syncResult.records.map { record -> [String: Any] in
+                [
+                    "provider_id": record.descriptor.id,
+                    "title": CmuxExtensionSidebarSelection.localizedTitle(for: record.descriptor),
+                    "source_path": record.sourcePath,
+                    "source_kind": record.sourceKind?.rawValue ?? CmuxUserSwiftSidebarSourceKind.swiftFile.rawValue,
+                ]
+            }
+            let failures = syncResult.failures.map { failure -> [String: Any] in
+                [
+                    "source_path": failure.sourcePath,
+                    "message": failure.message,
+                ]
+            }
+            return .ok([
+                "loaded": loaded,
+                "failures": failures,
+                "standard_source_root": CmuxUserSwiftSidebarBuilder.standardSourceRootDisplayPath(),
+            ])
+        case .failure(let error):
+            return .err(
+                code: "sync_failed",
+                message: error.localizedDescription,
+                data: ["standard_source_root": CmuxUserSwiftSidebarBuilder.standardSourceRootDisplayPath()]
+            )
+        case nil:
+            return .err(
+                code: "sync_failed",
+                message: "Unknown custom sidebar sync failure",
+                data: ["standard_source_root": CmuxUserSwiftSidebarBuilder.standardSourceRootDisplayPath()]
             )
         }
     }

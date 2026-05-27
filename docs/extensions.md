@@ -6,7 +6,8 @@ cmux can load a custom left sidebar from Swift source without rebuilding the app
 Right-click the sidebar icon, choose **Load Custom Sidebar**, and select either a
 `.swift` file or a folder of Swift files.
 
-cmux imports the selected source into the standard custom sidebar location:
+cmux imports the selected source into the standard custom sidebar location next
+to the global `~/.config/cmux/cmux.json` config file:
 
 ```text
 ~/.config/cmux/sidebars/
@@ -74,9 +75,11 @@ You can also load a sidebar from the CLI:
 ```bash
 cmux sidebar load ./Sidebar.swift
 cmux sidebar load ~/.config/cmux/sidebars/my-sidebar
+cmux sidebar sync
 ```
 
-`cmux sidebar path` prints the standard source directory, and
+`cmux sidebar path` prints the standard source directory. `cmux sidebar sync`
+loads every direct `.swift` file or folder under that directory.
 `cmux sidebar docs` prints this docs URL.
 
 For multiple files, put them in a folder and include either a `main.swift` file

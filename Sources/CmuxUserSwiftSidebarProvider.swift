@@ -17,6 +17,16 @@ enum CmuxUserSwiftSidebarSourceKind: String, Codable, Equatable, Sendable {
     case directory
 }
 
+struct CmuxUserSwiftSidebarSyncResult: Sendable {
+    var records: [CmuxUserSwiftSidebarRecord]
+    var failures: [CmuxUserSwiftSidebarSyncFailure]
+}
+
+struct CmuxUserSwiftSidebarSyncFailure: Sendable {
+    var sourcePath: String
+    var message: String
+}
+
 struct CmuxUserSwiftSidebarProvider: CmuxExtensionSidebarMutableProvider {
     let record: CmuxUserSwiftSidebarRecord
 
@@ -304,6 +314,7 @@ enum CmuxUserSwiftSidebarRegistry {
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
+        panel.directoryURL = try? CmuxUserSwiftSidebarBuilder.standardSourceRoot()
         if let swiftType = UTType(filenameExtension: "swift") {
             panel.allowedContentTypes = [swiftType, .folder]
         }
@@ -342,6 +353,41 @@ enum CmuxUserSwiftSidebarRegistry {
         upsert(record, replacingProviderId: nil, defaults: defaults)
         CmuxExtensionSidebarSelection.setProviderId(record.descriptor.id, defaults: defaults)
         return record
+    }
+
+    @MainActor
+    static func syncStandardSourceDirectoryForCLI(defaults: UserDefaults = .standard) async throws -> CmuxUserSwiftSidebarSyncResult {
+        let sourceURLs = try CmuxUserSwiftSidebarBuilder.standardSourceCandidates()
+        var loadedRecords: [CmuxUserSwiftSidebarRecord] = []
+        var failures: [CmuxUserSwiftSidebarSyncFailure] = []
+
+        for sourceURL in sourceURLs {
+            do {
+                let record = try await Task.detached(priority: .userInitiated) {
+                    try CmuxUserSwiftSidebarBuilder.build(sourceURL: sourceURL)
+                }.value
+                upsert(record, replacingProviderId: nil, defaults: defaults)
+                loadedRecords.append(record)
+            } catch {
+                failures.append(
+                    CmuxUserSwiftSidebarSyncFailure(
+                        sourcePath: sourceURL.path,
+                        message: error.localizedDescription
+                    )
+                )
+            }
+        }
+
+        if let selectedProviderId = defaults.string(forKey: CmuxExtensionSidebarSelection.defaultsKey),
+           loadedRecords.contains(where: { $0.descriptor.id == selectedProviderId }) {
+            return CmuxUserSwiftSidebarSyncResult(records: loadedRecords, failures: failures)
+        }
+
+        if let firstRecord = loadedRecords.first {
+            CmuxExtensionSidebarSelection.setProviderId(firstRecord.descriptor.id, defaults: defaults)
+        }
+
+        return CmuxUserSwiftSidebarSyncResult(records: loadedRecords, failures: failures)
     }
 
     @MainActor
@@ -510,6 +556,36 @@ enum CmuxUserSwiftSidebarBuilder {
 
     static func standardSourceRootDisplayPath() -> String {
         "~/.config/cmux/sidebars"
+    }
+
+    static func standardSourceCandidates() throws -> [URL] {
+        let root = try standardSourceRoot()
+        let children = try FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )
+
+        return children.compactMap { child -> URL? in
+            let name = child.lastPathComponent
+            guard !name.hasPrefix("."),
+                  !excludedSourcePathComponents.contains(name) else {
+                return nil
+            }
+            guard let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey]) else {
+                return nil
+            }
+            if values.isDirectory == true {
+                return child.standardizedFileURL
+            }
+            guard values.isRegularFile == true,
+                  child.pathExtension == "swift",
+                  name != "Package.swift" else {
+                return nil
+            }
+            return child.standardizedFileURL
+        }
+        .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 
     private static func buildRoot() throws -> URL {

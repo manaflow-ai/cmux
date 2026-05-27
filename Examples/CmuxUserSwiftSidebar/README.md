@@ -19,9 +19,16 @@ You can also load it from the CLI:
 cmux sidebar load Examples/CmuxUserSwiftSidebar/CompactUnreadSidebar.swift
 ```
 
-cmux imports loaded sources into `~/.config/cmux/sidebars/`. A folder can contain
-multiple `.swift` files when it includes either `main.swift` or an `@main` entry
-point.
+cmux imports loaded sources into `~/.config/cmux/sidebars/`, next to the global
+`~/.config/cmux/cmux.json` config file. You can also place sidebars directly in
+that folder and run:
+
+```bash
+cmux sidebar sync
+```
+
+A folder can contain multiple `.swift` files when it includes either
+`main.swift` or an `@main` entry point.
 
 Optional compile check:
 
