@@ -5167,6 +5167,36 @@ private actor TmuxControlEventBuffer {
     }
 }
 
+private enum TmuxControlQueuedItem: Sendable {
+    case event(TmuxControlEvent)
+    case reset(generation: UInt64)
+}
+
+private final class TmuxControlEventStream: @unchecked Sendable {
+    let items: AsyncStream<TmuxControlQueuedItem>
+    private let continuation: AsyncStream<TmuxControlQueuedItem>.Continuation
+
+    init() {
+        var continuation: AsyncStream<TmuxControlQueuedItem>.Continuation?
+        items = AsyncStream(TmuxControlQueuedItem.self, bufferingPolicy: .unbounded) { streamContinuation in
+            continuation = streamContinuation
+        }
+        self.continuation = continuation!
+    }
+
+    func enqueue(_ event: TmuxControlEvent) {
+        continuation.yield(.event(event))
+    }
+
+    func reset(generation: UInt64) {
+        continuation.yield(.reset(generation: generation))
+    }
+
+    func finish() {
+        continuation.finish()
+    }
+}
+
 private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
     guard AgentHibernationTrackingGate.isEnabled() else { return }
     let recordedAt = Date()
@@ -5362,16 +5392,35 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let tmuxControlEventBuffer = TmuxControlEventBuffer(
         maxCoalescedPaneOutputBytes: TmuxControlState.paneTextByteLimit
     )
+    private let tmuxControlEventStream = TmuxControlEventStream()
+    private var tmuxControlEventProcessingTask: Task<Void, Never>?
     @MainActor private var tmuxControlGeneration: UInt64 = 0
     @Published private(set) var tmuxControlState = TmuxControlState()
 
     func enqueueTmuxControlEvent(_ event: TmuxControlEvent) {
-        Task { [weak self] in
-            guard let self else { return }
-            let shouldSchedule = await self.tmuxControlEventBuffer.enqueue(event)
-            guard shouldSchedule else { return }
-            await self.processPendingTmuxControlEvents()
+        tmuxControlEventStream.enqueue(event)
+    }
+
+    private func startTmuxControlEventProcessing() {
+        tmuxControlEventProcessingTask = Task { [weak self, eventStream = tmuxControlEventStream] in
+            for await item in eventStream.items {
+                guard let self else { break }
+                switch item {
+                case .event(let event):
+                    let shouldSchedule = await self.tmuxControlEventBuffer.enqueue(event)
+                    guard shouldSchedule else { continue }
+                    await self.processPendingTmuxControlEvents()
+                case .reset(let generation):
+                    await self.tmuxControlEventBuffer.reset(to: generation)
+                }
+            }
         }
+    }
+
+    private func stopTmuxControlEventProcessing() {
+        tmuxControlEventProcessingTask?.cancel()
+        tmuxControlEventProcessingTask = nil
+        tmuxControlEventStream.finish()
     }
 
     private func processPendingTmuxControlEvents() async {
@@ -5386,10 +5435,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private func resetTmuxControlState() {
         tmuxControlState = TmuxControlState()
         tmuxControlGeneration &+= 1
-        let generation = tmuxControlGeneration
-        Task { [tmuxControlEventBuffer] in
-            await tmuxControlEventBuffer.reset(to: generation)
-        }
+        tmuxControlEventStream.reset(generation: tmuxControlGeneration)
     }
 
     @MainActor
@@ -5425,8 +5471,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @Published var searchState: SearchState? = nil {
-	        didSet {
-	            if let searchState {
+		        didSet {
+		            if let searchState {
 	                hostedView.cancelFocusRequest()
 #if DEBUG
                 cmuxDebugLog("find.searchState created tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5))")
@@ -5543,6 +5589,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.hostedView = GhosttySurfaceScrollView(surfaceView: view)
         TerminalSurfaceRegistry.shared.register(self)
         self.hostedView.attachSurface(self)
+        startTmuxControlEventProcessing()
 
         let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
         let inheritedInput = configTemplate?.initialInput
@@ -7390,6 +7437,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
 
     deinit {
+        stopTmuxControlEventProcessing()
         TerminalSurfaceRegistry.shared.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
         closeHeadlessStartupWindowIfNeeded()
