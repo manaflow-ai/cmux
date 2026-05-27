@@ -2651,6 +2651,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The underlying web view
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
+    @Published private(set) var browserEngine: BrowserEngineKind = BrowserEngineSettings.defaultEngine
+    private(set) var chromiumBrowserView: CMUXChromiumBrowserView?
+    private var chromiumPageZoom: CGFloat = 1.0
     var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
@@ -3285,6 +3288,8 @@ final class BrowserPanel: Panel, ObservableObject {
         if let oldCmuxWebView = oldWebView as? CmuxWebView {
             oldCmuxWebView.onContextMenuDownloadStateChanged = nil
         }
+        chromiumBrowserView?.stopLoading()
+        chromiumBrowserView?.removeFromSuperview()
 
         let replacement = Self.makeWebView(
             profileID: profileID,
@@ -3548,6 +3553,17 @@ final class BrowserPanel: Panel, ObservableObject {
         return webView
     }
 
+    private static func resolveBrowserEngine(defaults: UserDefaults = .standard) -> BrowserEngineKind {
+        BrowserEngineSettings.effectiveEngine(defaults: defaults)
+    }
+
+    private static func makeChromiumBrowserView(profileID: UUID) -> CMUXChromiumBrowserView {
+        CMUXChromiumBrowserView(
+            profileIdentifier: profileID.uuidString,
+            extensionDirectories: BrowserEngineSettings.chromeExtensionDirectoryPaths()
+        )
+    }
+
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
         websiteDataStore: WKWebsiteDataStore,
@@ -3627,6 +3643,83 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
         setupReactGrabMessageHandler(for: webView)
+    }
+
+    private func bindChromiumBrowserView(_ browserView: CMUXChromiumBrowserView) {
+        browserView.navigationStateChanged = { [weak self, weak browserView] _ in
+            Task { @MainActor in
+                guard let self, let browserView, browserView === self.chromiumBrowserView else { return }
+                if let urlString = browserView.lastCommittedURLString,
+                   let url = URL(string: urlString) {
+                    self.currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
+                }
+                self.isLoading = browserView.isLoading
+                self.estimatedProgress = browserView.estimatedProgress
+                self.nativeCanGoBack = browserView.canGoBack
+                self.nativeCanGoForward = browserView.canGoForward
+                self.refreshNavigationAvailability()
+                GlobalSearchCoordinator.shared.captureBrowserPanel(self)
+            }
+        }
+        browserView.titleChanged = { [weak self, weak browserView] _ in
+            Task { @MainActor in
+                guard let self, let browserView, browserView === self.chromiumBrowserView else { return }
+                let trimmed = (browserView.pageTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                self.pageTitle = trimmed
+                GlobalSearchCoordinator.shared.captureBrowserPanel(self)
+            }
+        }
+        browserView.loadFailed = { [weak self] _, message in
+            Task { @MainActor in
+                guard let self else { return }
+                self.isLoading = false
+                self.estimatedProgress = 0
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.chromium.loadFailed panel=\(self.id.uuidString.prefix(5)) " +
+                    "message=\(message)"
+                )
+#endif
+            }
+        }
+    }
+
+    func refreshBrowserEngineFromSettings(reason: String) {
+        let resolvedEngine = Self.resolveBrowserEngine()
+        let resolvedExtensionDirectories = BrowserEngineSettings.chromeExtensionDirectoryPaths()
+        let shouldRebuildChromium = resolvedEngine == .chromium &&
+            chromiumBrowserView?.extensionDirectories != resolvedExtensionDirectories
+        guard resolvedEngine != browserEngine || shouldRebuildChromium else { return }
+
+        let restoreURLString = preferredURLStringForOmnibar()
+        chromiumBrowserView?.stopLoading()
+        chromiumBrowserView?.removeFromSuperview()
+        chromiumBrowserView = nil
+
+        browserEngine = resolvedEngine
+        chromiumPageZoom = 1.0
+
+        if resolvedEngine == .chromium {
+            let replacement = Self.makeChromiumBrowserView(profileID: profileID)
+            chromiumBrowserView = replacement
+            bindChromiumBrowserView(replacement)
+            if let restoreURLString {
+                replacement.loadURLString(restoreURLString)
+            }
+        } else if let restoreURLString,
+                  let restoreURL = URL(string: restoreURLString),
+                  webView.url?.absoluteString != restoreURLString {
+            browserLoadRequest(URLRequest(url: restoreURL), in: webView)
+        }
+
+        refreshNavigationAvailability()
+#if DEBUG
+        cmuxDebugLog(
+            "browser.engine.refresh panel=\(id.uuidString.prefix(5)) " +
+            "engine=\(resolvedEngine.rawValue) reason=\(reason)"
+        )
+#endif
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -3722,12 +3815,17 @@ final class BrowserPanel: Panel, ObservableObject {
         self.websiteDataStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
+        let resolvedBrowserEngine = Self.resolveBrowserEngine()
+        self.browserEngine = resolvedBrowserEngine
 
         let webView = Self.makeWebView(
             profileID: resolvedProfileID,
             websiteDataStore: websiteDataStore
         )
         self.webView = webView
+        self.chromiumBrowserView = resolvedBrowserEngine == .chromium
+            ? Self.makeChromiumBrowserView(profileID: resolvedProfileID)
+            : nil
         self.insecureHTTPAlertFactory = { NSAlert() }
         hiddenWebViewDiscardManager.delegate = self
         applyRemoteProxyConfigurationIfAvailable()
@@ -3841,6 +3939,9 @@ final class BrowserPanel: Panel, ObservableObject {
         self.uiDelegate = browserUIDelegate
 
         bindWebView(webView)
+        if let chromiumBrowserView {
+            bindChromiumBrowserView(chromiumBrowserView)
+        }
         installDetachedDeveloperToolsWindowCloseObserver()
         installHiddenWebViewDiscardPolicyObserver()
         applyBrowserThemeModeIfNeeded()
@@ -4158,6 +4259,8 @@ final class BrowserPanel: Panel, ObservableObject {
         if let previousCmuxWebView = previousWebView as? CmuxWebView {
             previousCmuxWebView.onContextMenuDownloadStateChanged = nil
         }
+        chromiumBrowserView?.stopLoading()
+        chromiumBrowserView?.removeFromSuperview()
 
         profileID = resolvedProfileID
         historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
@@ -4175,11 +4278,17 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewInstanceID = UUID()
         resetWebViewLifecycleMetadata(resetVisibility: false)
         webView = replacement
+        chromiumBrowserView = browserEngine == .chromium
+            ? Self.makeChromiumBrowserView(profileID: resolvedProfileID)
+            : nil
         currentURL = restoreURL
         shouldRenderWebView = wasRenderable
         refreshWebViewLifecycleState()
 
         bindWebView(replacement)
+        if let chromiumBrowserView {
+            bindChromiumBrowserView(chromiumBrowserView)
+        }
         applyBrowserThemeModeIfNeeded()
 
         if !history.backHistoryURLStrings.isEmpty || !history.forwardHistoryURLStrings.isEmpty {
@@ -4536,10 +4645,16 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewInstanceID = UUID()
         resetWebViewLifecycleMetadata(resetVisibility: false)
         webView = replacement
+        chromiumBrowserView = browserEngine == .chromium
+            ? Self.makeChromiumBrowserView(profileID: profileID)
+            : nil
         shouldRenderWebView = wasRenderable
         refreshWebViewLifecycleState()
 
         bindWebView(replacement)
+        if let chromiumBrowserView {
+            bindChromiumBrowserView(chromiumBrowserView)
+        }
         applyBrowserThemeModeIfNeeded()
 
         if !history.backHistoryURLStrings.isEmpty || !history.forwardHistoryURLStrings.isEmpty {
@@ -4587,6 +4702,18 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
+        if let chromiumBrowserView {
+            guard let window = chromiumBrowserView.window, !chromiumBrowserView.isHiddenOrHasHiddenAncestor else { return }
+            if Self.responderChainContains(window.firstResponder, target: chromiumBrowserView) {
+                noteWebViewFocused()
+                return
+            }
+            if window.makeFirstResponder(chromiumBrowserView) {
+                noteWebViewFocused()
+            }
+            return
+        }
+
         guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return }
 
         // If nothing meaningful is loaded yet, prefer letting the omnibar take focus.
@@ -4613,6 +4740,19 @@ final class BrowserPanel: Panel, ObservableObject {
         endSuppressWebViewFocusForAddressBar()
         clearWebViewFocusSuppression()
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
+
+        if let chromiumBrowserView {
+            guard let window = chromiumBrowserView.window, !chromiumBrowserView.isHiddenOrHasHiddenAncestor else { return false }
+            if Self.responderChainContains(window.firstResponder, target: chromiumBrowserView) {
+                suppressOmnibarAutofocus(for: 1.5)
+                noteWebViewFocused()
+                return true
+            }
+            guard window.makeFirstResponder(chromiumBrowserView) else { return false }
+            suppressOmnibarAutofocus(for: 1.5)
+            noteWebViewFocused()
+            return true
+        }
 
         guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
 
@@ -4643,6 +4783,13 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func unfocus() {
         invalidateSearchFocusRequests(reason: "panelUnfocus")
+        if let chromiumBrowserView {
+            guard let window = chromiumBrowserView.window else { return }
+            if Self.responderChainContains(window.firstResponder, target: chromiumBrowserView) {
+                window.makeFirstResponder(nil)
+            }
+            return
+        }
         guard let window = webView.window else { return }
         if Self.responderChainContains(window.firstResponder, target: webView) {
             window.makeFirstResponder(nil)
@@ -4676,6 +4823,8 @@ final class BrowserPanel: Panel, ObservableObject {
         isMainFrameProvisionalNavigationActive = false
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
+        chromiumBrowserView?.stopLoading()
+        chromiumBrowserView?.removeFromSuperview()
         navigationDelegate = nil
         uiDelegate = nil
         webViewDidRequestClose = nil
@@ -5136,6 +5285,10 @@ final class BrowserPanel: Panel, ObservableObject {
             historyStore.recordTypedNavigation(url: originalURL)
         }
         navigationDelegate?.lastAttemptedURL = originalURL
+        if let chromiumBrowserView {
+            chromiumBrowserView.loadURLString(effectiveRequest.url?.absoluteString ?? originalURL.absoluteString)
+            return
+        }
         browserLoadRequest(effectiveRequest, in: webView)
     }
 
@@ -5481,6 +5634,8 @@ extension BrowserPanel {
         if let oldCmuxWebView = oldWebView as? CmuxWebView {
             oldCmuxWebView.onContextMenuDownloadStateChanged = nil
         }
+        chromiumBrowserView?.stopLoading()
+        chromiumBrowserView?.removeFromSuperview()
 
         let replacement = Self.makeWebView(
             profileID: profileID,
@@ -5488,9 +5643,15 @@ extension BrowserPanel {
         )
         webViewInstanceID = UUID()
         webView = replacement
+        chromiumBrowserView = browserEngine == .chromium
+            ? Self.makeChromiumBrowserView(profileID: profileID)
+            : nil
         shouldRenderWebView = false
         refreshWebViewLifecycleState()
         bindWebView(replacement)
+        if let chromiumBrowserView {
+            bindChromiumBrowserView(chromiumBrowserView)
+        }
         applyBrowserThemeModeIfNeeded()
         refreshNavigationAvailability()
 
@@ -5549,6 +5710,12 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 
 extension BrowserPanel {
     private func cancelInFlightNavigationBeforeHistoryTraversal() {
+        if let chromiumBrowserView {
+            guard chromiumBrowserView.isLoading || isMainFrameProvisionalNavigationActive else { return }
+            chromiumBrowserView.stopLoading()
+            isMainFrameProvisionalNavigationActive = false
+            return
+        }
         guard webView.isLoading || isMainFrameProvisionalNavigationActive else { return }
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
@@ -5578,6 +5745,10 @@ extension BrowserPanel {
             }
 
             if nativeCanGoBack {
+                if let chromiumBrowserView {
+                    chromiumBrowserView.goBack()
+                    return
+                }
                 webView.goBack()
                 return
             }
@@ -5586,7 +5757,11 @@ extension BrowserPanel {
             return
         }
 
-        webView.goBack()
+        if let chromiumBrowserView {
+            chromiumBrowserView.goBack()
+        } else {
+            webView.goBack()
+        }
     }
 
     /// Go forward in history
@@ -5598,6 +5773,10 @@ extension BrowserPanel {
             realignRestoredSessionHistoryToLiveCurrentIfPossible()
 
             if nativeCanGoForward {
+                if let chromiumBrowserView {
+                    chromiumBrowserView.goForward()
+                    return
+                }
                 webView.goForward()
                 return
             }
@@ -5619,7 +5798,11 @@ extension BrowserPanel {
             return
         }
 
-        webView.goForward()
+        if let chromiumBrowserView {
+            chromiumBrowserView.goForward()
+        } else {
+            webView.goForward()
+        }
     }
 
     /// Open a link in a new browser surface in the same pane
@@ -5705,6 +5888,10 @@ extension BrowserPanel {
         if restoreDiscardedWebViewIfNeeded(reason: "reload") {
             return
         }
+        if let chromiumBrowserView {
+            chromiumBrowserView.reloadPage()
+            return
+        }
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         if Self.serializableSessionHistoryURLString(Self.remoteProxyDisplayURL(for: webView.url)) == nil {
             let fallbackURL = resolvedCurrentSessionHistoryURL()
@@ -5725,6 +5912,11 @@ extension BrowserPanel {
 
     /// Stop loading
     func stopLoading() {
+        if let chromiumBrowserView {
+            chromiumBrowserView.stopLoading()
+            isMainFrameProvisionalNavigationActive = false
+            return
+        }
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
     }
@@ -6071,6 +6263,19 @@ extension BrowserPanel {
         )
 #endif
         let targetVisible = !effectiveDeveloperToolsVisibilityIntent()
+        if let chromiumBrowserView {
+            let handled = targetVisible
+                ? chromiumBrowserView.showDevTools(
+                    with: preferredDeveloperToolsPresentation == .detached
+                        ? .window
+                        : .docked
+                )
+                : chromiumBrowserView.closeDevTools()
+            if handled {
+                setPreferredDeveloperToolsVisible(targetVisible)
+            }
+            return handled
+        }
         let handled = enqueueDeveloperToolsVisibilityTransition(to: targetVisible, source: "toggle")
 #if DEBUG
         cmuxDebugLog(
@@ -6090,11 +6295,23 @@ extension BrowserPanel {
 
     @discardableResult
     func showDeveloperTools() -> Bool {
+        if let chromiumBrowserView {
+            let handled = chromiumBrowserView.showDevTools(
+                with: preferredDeveloperToolsPresentation == .detached ? .window : .docked
+            )
+            if handled {
+                setPreferredDeveloperToolsVisible(true)
+            }
+            return handled
+        }
         return enqueueDeveloperToolsVisibilityTransition(to: true, source: "show")
     }
 
     @discardableResult
     func showDeveloperToolsConsole() -> Bool {
+        if chromiumBrowserView != nil {
+            return showDeveloperTools()
+        }
         guard showDeveloperTools() else { return false }
         guard !isDeveloperToolsTransitionInFlight else { return true }
         guard let inspector = webView.cmuxInspectorObject() else { return true }
@@ -6126,8 +6343,9 @@ extension BrowserPanel {
         cancelDeveloperToolsRestoreRetry()
 
         let closed = WebViewInspectorTeardown.closeInspector(for: webView)
+        let closedChromium = chromiumBrowserView?.closeDevTools() ?? false
         setPreferredDeveloperToolsVisible(false)
-        return closed
+        return closed || closedChromium
     }
 
     /// Called before WKWebView detaches so manual inspector closes are respected.
@@ -6303,12 +6521,20 @@ extension BrowserPanel {
 
     @discardableResult
     func isDeveloperToolsVisible() -> Bool {
+        if let chromiumBrowserView {
+            return chromiumBrowserView.isDeveloperToolsVisible
+        }
         guard let inspector = webView.cmuxInspectorObject() else { return false }
         return inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
     }
 
     @discardableResult
     func hideDeveloperTools() -> Bool {
+        if let chromiumBrowserView {
+            let closed = chromiumBrowserView.closeDevTools()
+            setPreferredDeveloperToolsVisible(false)
+            return closed
+        }
         return enqueueDeveloperToolsVisibilityTransition(to: false, source: "hide")
     }
 
@@ -6342,6 +6568,7 @@ extension BrowserPanel {
     }
 
     func shouldUseLocalInlineDeveloperToolsHosting() -> Bool {
+        guard chromiumBrowserView == nil else { return false }
         guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return false }
         if preferredDeveloperToolsPresentation == .detached {
             return false
@@ -6365,21 +6592,24 @@ extension BrowserPanel {
 
     @discardableResult
     func zoomIn() -> Bool {
-        applyPageZoom(webView.pageZoom + pageZoomStep)
+        return applyPageZoom(currentPageZoomFactor() + pageZoomStep)
     }
 
     @discardableResult
     func zoomOut() -> Bool {
-        applyPageZoom(webView.pageZoom - pageZoomStep)
+        return applyPageZoom(currentPageZoomFactor() - pageZoomStep)
     }
 
     @discardableResult
     func resetZoom() -> Bool {
-        applyPageZoom(1.0)
+        return applyPageZoom(1.0)
     }
 
     func currentPageZoomFactor() -> CGFloat {
-        webView.pageZoom
+        if chromiumBrowserView != nil {
+            return chromiumPageZoom
+        }
+        return webView.pageZoom
     }
 
     @discardableResult
@@ -6390,6 +6620,10 @@ extension BrowserPanel {
 
     /// Take a snapshot of the web view
     func takeSnapshot(completion: @escaping (NSImage?) -> Void) {
+        if chromiumBrowserView != nil {
+            completion(nil)
+            return
+        }
         let config = WKSnapshotConfiguration()
         webView.takeSnapshot(with: config) { image, error in
             if let error = error {
@@ -6403,7 +6637,18 @@ extension BrowserPanel {
 
     /// Execute JavaScript
     func evaluateJavaScript(_ script: String) async throws -> Any? {
-        try await webView.evaluateJavaScript(script)
+        if let chromiumBrowserView {
+            return try await withCheckedThrowingContinuation { continuation in
+                chromiumBrowserView.evaluateJavaScript(script) { result, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume(returning: result)
+                    }
+                }
+            }
+        }
+        return try await webView.evaluateJavaScript(script)
     }
 
     // MARK: - Find in Page
@@ -6964,6 +7209,13 @@ extension BrowserPanel {
     /// Returns the most reliable URL string for omnibar-related matching and UI decisions.
     /// `currentURL` can lag behind navigation changes, so prefer the live WKWebView URL.
     func preferredURLStringForOmnibar() -> String? {
+        if let chromiumURLString = chromiumBrowserView?.lastCommittedURLString?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !chromiumURLString.isEmpty,
+           chromiumURLString != blankURLString {
+            return chromiumURLString
+        }
+
         if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url)?.absoluteString
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !webViewURL.isEmpty,
@@ -6982,6 +7234,11 @@ extension BrowserPanel {
     }
 
     private func resolvedCurrentSessionHistoryURL() -> URL? {
+        if let chromiumURLString = chromiumBrowserView?.lastCommittedURLString,
+           let chromiumURL = URL(string: chromiumURLString),
+           Self.serializableSessionHistoryURLString(chromiumURL) != nil {
+            return chromiumURL
+        }
         if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
            Self.serializableSessionHistoryURLString(webViewURL) != nil {
             return webViewURL
@@ -7159,6 +7416,14 @@ private extension BrowserPanel {
     @discardableResult
     func applyPageZoom(_ candidate: CGFloat) -> Bool {
         let clamped = max(minPageZoom, min(maxPageZoom, candidate))
+        if let chromiumBrowserView {
+            if abs(chromiumPageZoom - clamped) < 0.0001 {
+                return false
+            }
+            chromiumPageZoom = clamped
+            chromiumBrowserView.setPageZoomFactor(Double(clamped))
+            return true
+        }
         if abs(webView.pageZoom - clamped) < 0.0001 {
             return false
         }

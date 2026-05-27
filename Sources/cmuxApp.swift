@@ -5248,6 +5248,7 @@ struct SettingsView: View {
     @AppStorage(BrowserSearchSettings.customSearchEngineURLTemplateKey) private var browserCustomSearchEngineURLTemplate = BrowserSearchSettings.defaultCustomSearchEngineURLTemplate
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
+    @AppStorage(BrowserEngineSettings.engineKey) private var browserEngine = BrowserEngineSettings.defaultEngine.rawValue
     @AppStorage(BrowserAvailabilitySettings.disabledKey) private var browserDisabled = BrowserAvailabilitySettings.defaultDisabled
     @AppStorage(BrowserHiddenWebViewDiscardPolicy.enabledKey)
     private var browserHiddenWebViewDiscardEnabled = BrowserHiddenWebViewDiscardPolicy.defaultEnabled
@@ -5645,6 +5646,17 @@ struct SettingsView: View {
 
     private var selectedBrowserThemeMode: BrowserThemeMode {
         BrowserThemeSettings.mode(for: browserThemeMode)
+    }
+
+    private var browserEngineSelection: Binding<String> {
+        Binding(
+            get: { browserEngine },
+            set: { newValue in
+                let engine = BrowserEngineSettings.engine(for: newValue)
+                browserEngine = engine.rawValue
+                BrowserEngineSettings.setPreferredEngine(engine)
+            }
+        )
     }
 
     private var browserThemeModeSelection: Binding<String> {
@@ -7316,6 +7328,20 @@ struct SettingsView: View {
                         browserEnabledSettingsRows
 
                         SettingsPickerRow(
+                            configurationReview: .json("browser.engine"),
+                            String(localized: "settings.browser.engine", defaultValue: "Browser Engine"),
+                            subtitle: BrowserEngineSettings.runtimeStatusSubtitle(),
+                            controlWidth: pickerColumnWidth,
+                            selection: browserEngineSelection
+                        ) {
+                            ForEach(BrowserEngineKind.allCases) { engine in
+                                Text(engine.displayName).tag(engine.rawValue)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsPickerRow(
                             configurationReview: .json("browser.defaultSearchEngine"),
                             String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"),
                             subtitle: String(localized: "settings.browser.searchEngine.subtitle", defaultValue: "Used by the browser address bar when input is not a URL."),
@@ -8109,6 +8135,7 @@ struct SettingsView: View {
         browserCustomSearchEngineURLTemplate = BrowserSearchSettings.defaultCustomSearchEngineURLTemplate
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
+        browserEngine = BrowserEngineSettings.defaultEngine.rawValue
         BrowserAvailabilitySettings.setDisabled(BrowserAvailabilitySettings.defaultDisabled)
         browserDisabled = BrowserAvailabilitySettings.defaultDisabled
         browserHiddenWebViewDiscardEnabled = BrowserHiddenWebViewDiscardPolicy.defaultEnabled
