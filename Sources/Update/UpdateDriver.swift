@@ -4,6 +4,7 @@ import Sparkle
 /// SPUUserDriver that updates the view model for custom update UI.
 class UpdateDriver: NSObject, SPUUserDriver {
     let viewModel: UpdateViewModel
+    var updateCycleDidFinish: (() -> Void)?
     private let minimumCheckDuration: TimeInterval
     private let checkingTimeoutDuration: TimeInterval
     private let downloadingTimeoutDuration: TimeInterval

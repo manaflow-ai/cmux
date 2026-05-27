@@ -59,6 +59,7 @@ class UpdateController {
     private var readyCheckDeadline: UpdateScheduledAction?
     private var readyCheckGeneration: Int = 0
     private var canCheckForUpdatesObservation: NSKeyValueObservation?
+    private var awaitingCancelledSessionBeforeCheck = false
     private var backgroundProbeTimer: Timer?
     private var didStartUpdater: Bool = false
     private let backgroundProbeInterval: TimeInterval = UpdateSettings.scheduledCheckInterval
@@ -86,6 +87,9 @@ class UpdateController {
             userDriver: userDriver,
             delegate: userDriver
         )
+        self.userDriver.updateCycleDidFinish = { [weak self] in
+            self?.handleUpdateCycleFinished()
+        }
         installNoUpdateDismissObserver()
         installUpdaterReadinessObserver()
     }
@@ -234,6 +238,7 @@ class UpdateController {
     private func performCheckForUpdates() {
         readyCheckDeadline?.cancel()
         readyCheckDeadline = nil
+        awaitingCancelledSessionBeforeCheck = false
         guard startUpdaterIfNeeded() else { return }
         ensureSparkleInstallationCache()
         guard updater.canCheckForUpdates else {
@@ -242,8 +247,23 @@ class UpdateController {
         }
 
         installCancellable?.cancel()
-        if viewModel.state != .idle {
+        let stateBeforeCancellation = viewModel.state
+        if stateBeforeCancellation != .idle {
             viewModel.cancelActiveStateForNewCheck()
+            if shouldWaitForCancelledSession(afterCancelling: stateBeforeCancellation) {
+                waitForCancelledSessionToFinishBeforeCheck()
+                return
+            }
+        }
+        updater.checkForUpdates()
+    }
+
+    private func performCheckAfterCancelledSessionFinished() {
+        guard startUpdaterIfNeeded() else { return }
+        ensureSparkleInstallationCache()
+        guard updater.canCheckForUpdates else {
+            waitForUpdaterReadiness()
+            return
         }
         updater.checkForUpdates()
     }
@@ -263,6 +283,7 @@ class UpdateController {
 
     private func waitForUpdaterReadiness() {
         readyCheckDeadline?.cancel()
+        awaitingCancelledSessionBeforeCheck = false
         readyCheckGeneration += 1
         let generation = readyCheckGeneration
         if !isCheckingState(viewModel.state) {
@@ -274,9 +295,28 @@ class UpdateController {
         }
     }
 
+    private func waitForCancelledSessionToFinishBeforeCheck() {
+        readyCheckDeadline?.cancel()
+        readyCheckGeneration += 1
+        let generation = readyCheckGeneration
+        awaitingCancelledSessionBeforeCheck = true
+        UpdateLogStore.shared.append("waiting for cancelled update session to finish")
+        readyCheckDeadline = scheduler.schedule(after: UpdateTiming.updaterReadyTimeoutDuration) { [weak self] in
+            self?.failReadyCheckIfNeeded(generation: generation)
+        }
+    }
+
     private func failReadyCheckIfNeeded(generation: Int) {
         guard generation == readyCheckGeneration else { return }
         guard readyCheckDeadline != nil else { return }
+        if awaitingCancelledSessionBeforeCheck {
+            awaitingCancelledSessionBeforeCheck = false
+            readyCheckDeadline?.cancel()
+            readyCheckDeadline = nil
+            UpdateLogStore.shared.append("cancelled update session did not finish in time")
+            showReadyCheckTimeout(details: "cancelled update session did not finish after \(Int(UpdateTiming.updaterReadyTimeoutDuration.rounded()))s")
+            return
+        }
         guard !updater.canCheckForUpdates else {
             continueReadyCheckIfPossible()
             return
@@ -284,12 +324,16 @@ class UpdateController {
         readyCheckDeadline?.cancel()
         readyCheckDeadline = nil
         UpdateLogStore.shared.append("checkForUpdatesWhenReady timed out")
+        showReadyCheckTimeout(details: "updater did not become ready after \(Int(UpdateTiming.updaterReadyTimeoutDuration.rounded()))s")
+    }
+
+    private func showReadyCheckTimeout(details: String) {
         if case .checking = viewModel.state {
             viewModel.state = .error(.init(
                 error: UpdateTimeoutError.make(stage: .starting),
                 retry: { [weak self] in self?.checkForUpdates() },
                 dismiss: { [weak self] in self?.viewModel.state = .idle },
-                technicalDetails: "updater did not become ready after \(Int(UpdateTiming.updaterReadyTimeoutDuration.rounded()))s"
+                technicalDetails: details
             ))
         }
     }
@@ -301,6 +345,27 @@ class UpdateController {
         readyCheckDeadline = nil
         UpdateLogStore.shared.append("updater became ready; continuing update check")
         performCheckForUpdates()
+    }
+
+    private func handleUpdateCycleFinished() {
+        guard awaitingCancelledSessionBeforeCheck else {
+            continueReadyCheckIfPossible()
+            return
+        }
+        awaitingCancelledSessionBeforeCheck = false
+        readyCheckDeadline?.cancel()
+        readyCheckDeadline = nil
+        UpdateLogStore.shared.append("cancelled update session finished; starting update check")
+        performCheckAfterCancelledSessionFinished()
+    }
+
+    private func shouldWaitForCancelledSession(afterCancelling state: UpdateState) -> Bool {
+        switch state {
+        case .updateAvailable, .downloading, .notFound:
+            return true
+        default:
+            return false
+        }
     }
 
     private func isCheckingState(_ state: UpdateState) -> Bool {

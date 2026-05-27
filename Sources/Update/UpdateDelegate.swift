@@ -107,6 +107,14 @@ extension UpdateDriver: SPUUpdaterDelegate {
         }
     }
 
+    func updater(_ updater: SPUUpdater,
+                 didFinishUpdateCycleForUpdateCheck updateCheck: SPUUpdateCheck,
+                 error: NSError?) {
+        let errorText = error.map { formatErrorForLog($0) } ?? "nil"
+        UpdateLogStore.shared.append("update cycle finished (check=\(describeUpdateCheck(updateCheck)), error=\(errorText))")
+        updateCycleDidFinish?()
+    }
+
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
         Task { @MainActor in
             AppDelegate.shared?.persistSessionForUpdateRelaunch()
@@ -116,6 +124,19 @@ extension UpdateDriver: SPUUpdaterDelegate {
                 window.invalidateRestorableState()
             }
         }
+    }
+}
+
+private func describeUpdateCheck(_ updateCheck: SPUUpdateCheck) -> String {
+    switch updateCheck {
+    case .updates:
+        return "updates"
+    case .updatesInBackground:
+        return "updatesInBackground"
+    case .updateInformation:
+        return "updateInformation"
+    @unknown default:
+        return "unknown"
     }
 }
 
