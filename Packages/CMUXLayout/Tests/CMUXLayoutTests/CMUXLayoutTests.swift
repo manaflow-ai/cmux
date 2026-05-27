@@ -4824,15 +4824,18 @@ final class CMUXLayoutTests: XCTestCase {
         }
 
         let idle = presentation(phase: .idle)
+        XCTAssertFalse(idle.usesUnifiedTexturePresentation)
         XCTAssertEqual(idle.nativeOverlays.map(\.id), [activeID])
         XCTAssertEqual(idle.textureSurfaces.map(\.id), [])
 
         let panning = presentation(phase: .panning)
+        XCTAssertTrue(panning.usesUnifiedTexturePresentation)
         XCTAssertTrue(panning.nativeOverlays.isEmpty)
         XCTAssertEqual(panning.textureSurfaces.map(\.id), [activeID])
         XCTAssertEqual(panning.surfaces.first?.renderMode, .snapshotTexture)
 
         let zooming = presentation(phase: .zooming)
+        XCTAssertTrue(zooming.usesUnifiedTexturePresentation)
         XCTAssertTrue(zooming.nativeOverlays.isEmpty)
         XCTAssertEqual(zooming.textureSurfaces.map(\.id), [activeID])
         XCTAssertEqual(zooming.surfaces.first?.renderMode, .snapshotTexture)

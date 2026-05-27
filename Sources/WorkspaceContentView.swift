@@ -2430,6 +2430,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 renderModes: renderModes,
                 activeItemID: activeItemID
             )
+            let usesUnifiedTexturePresentation = presentation.usesUnifiedTexturePresentation
 
             ZStack(alignment: .topLeading) {
                 CanvasHostRepresentable(
@@ -2450,6 +2451,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                             x: card.canvasRect.minX + (card.displaySize.width / 2),
                             y: card.canvasRect.minY + (card.displaySize.height / 2)
                         )
+                        .opacity(usesUnifiedTexturePresentation ? 0 : 1)
                         .zIndex(card.zIndex)
                 }
 
@@ -2481,6 +2483,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 CanvasPanEventMonitorLayer(
                     scrollPassthroughFrames: scrollPassthroughFrames,
                     onPan: { delta in
+                        parkCanvasNativeSurfaces(in: presentation)
                         markCanvasCameraInteraction(.panning)
                         let baseViewport = displayedCanvasViewport()
                         cancelCanvasViewportAnimation(stableViewport: baseViewport)
@@ -2494,6 +2497,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                         parkCanvasNativeSurface(activeItemID: activeItemID)
                     },
                     onZoom: { delta, anchor in
+                        parkCanvasNativeSurfaces(in: presentation)
                         markCanvasCameraInteraction(.zooming)
                         let baseViewport = displayedCanvasViewport()
                         cancelCanvasViewportAnimation(stableViewport: baseViewport)
@@ -2507,6 +2511,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                         parkCanvasNativeSurface(activeItemID: activeItemID)
                     },
                     onMagnify: { magnification, anchor in
+                        parkCanvasNativeSurfaces(in: presentation)
                         markCanvasCameraInteraction(.zooming)
                         let baseViewport = displayedCanvasViewport()
                         cancelCanvasViewportAnimation(stableViewport: baseViewport)
@@ -2520,6 +2525,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                         parkCanvasNativeSurface(activeItemID: activeItemID)
                     },
                     onSmartZoom: { anchor in
+                        parkCanvasNativeSurfaces(in: presentation)
                         markCanvasCameraInteraction(.zooming)
                         let baseViewport = displayedCanvasViewport()
                         cancelCanvasViewportAnimation(stableViewport: baseViewport)
@@ -3352,6 +3358,19 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         }
         captureCanvasPreviewSnapshot(for: selected)
         parkCanvasSurface(selected)
+    }
+
+    private func parkCanvasNativeSurfaces(in presentation: CanvasPresentationState) {
+        guard !presentation.nativeOverlays.isEmpty else { return }
+        let itemsByID = Dictionary(uniqueKeysWithValues: currentCanvasInteractionItems().map { ($0.id, $0) })
+        for overlay in presentation.nativeOverlays {
+            guard let item = itemsByID[overlay.id],
+                  let selected = selectedTab(for: item) else {
+                continue
+            }
+            captureCanvasPreviewSnapshot(for: selected)
+            parkCanvasSurface(selected)
+        }
     }
 
     @ViewBuilder

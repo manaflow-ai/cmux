@@ -3795,7 +3795,7 @@ class TerminalController {
         case "debug.terminal.render_stats":
             return v2Result(id: id, self.v2DebugRenderStats(params: params))
         case "debug.layout":
-            return v2Result(id: id, self.v2DebugLayout())
+            return v2Result(id: id, self.v2DebugLayout(params: params))
         case "debug.portal.stats":
             return v2Result(id: id, self.v2DebugPortalStats())
         case "debug.workspaceLayout_underflow.count":
@@ -16259,8 +16259,12 @@ class TerminalController {
         return .ok(["stats": obj])
     }
 
-    private func v2DebugLayout() -> V2CallResult {
-        let resp = layoutDebug()
+    private func v2DebugLayout(params: [String: Any]) -> V2CallResult {
+        let requestedWindowId = v2UUID(params, "window_id")
+        if params["window_id"] != nil && requestedWindowId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: v2WindowSelectorDetails(params: params))
+        }
+        let resp = layoutDebug(windowId: requestedWindowId)
         guard resp.hasPrefix("OK ") else {
             return .err(code: "internal_error", message: resp, data: nil)
         }
@@ -18376,11 +18380,19 @@ class TerminalController {
         let keyWindowNumber: Int?
     }
 
-    private func layoutDebug() -> String {
-        guard let tabManager else { return "ERROR: TabManager not available" }
-
+    private func layoutDebug(windowId: UUID? = nil) -> String {
         var result = "ERROR: No tab selected"
         v2MainSync {
+            let targetTabManager: TabManager?
+            if let windowId {
+                targetTabManager = AppDelegate.shared?.tabManagerFor(windowId: windowId)
+            } else {
+                targetTabManager = tabManager
+            }
+            guard let tabManager = targetTabManager else {
+                result = "ERROR: TabManager not available"
+                return
+            }
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 return

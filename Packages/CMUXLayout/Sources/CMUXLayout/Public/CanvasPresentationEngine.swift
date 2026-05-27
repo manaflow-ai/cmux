@@ -431,6 +431,15 @@ public struct CanvasPresentationState: Sendable, Equatable {
     public var nativeOverlaysByID: [LayoutItemID: CanvasNativeOverlay] {
         Dictionary(uniqueKeysWithValues: nativeOverlays.map { ($0.id, $0) })
     }
+
+    public var usesUnifiedTexturePresentation: Bool {
+        switch interactionPhase {
+        case .panning, .zooming:
+            return true
+        case .idle, .draggingSurface, .resizingSurface:
+            return false
+        }
+    }
 }
 
 public enum CanvasPresentationEngine {
