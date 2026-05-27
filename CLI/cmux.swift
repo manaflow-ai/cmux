@@ -3569,7 +3569,17 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
 
+        case "workspace":
+            try runWorkspaceNamespace(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
         case "list-workspaces":
+            Self.warnLegacyVerbDeprecated("list-workspaces", replacement: "cmux workspace list")
             var params: [String: Any] = [:]
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(commandArgs, windowOverride: windowId))
             let payload = try client.sendV2(method: "workspace.list", params: params)
@@ -3627,6 +3637,7 @@ struct CMUXCLI {
             try runVMSSHAttach(commandArgs: commandArgs, client: client)
 
         case "new-workspace":
+            Self.warnLegacyVerbDeprecated("new-workspace", replacement: "cmux workspace create")
             let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
             let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
             let (nameOpt, rem2) = parseOption(rem1, name: "--name")
@@ -3989,6 +4000,7 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "close-workspace":
+            Self.warnLegacyVerbDeprecated("close-workspace", replacement: "cmux workspace close")
             guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
                 throw CLIError(message: "close-workspace requires --workspace")
             }
@@ -4004,6 +4016,7 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
         case "select-workspace":
+            Self.warnLegacyVerbDeprecated("select-workspace", replacement: "cmux workspace select")
             guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
                 throw CLIError(message: "select-workspace requires --workspace")
             }
@@ -4016,6 +4029,9 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
         case "rename-workspace", "rename-window":
+            if command == "rename-workspace" {
+                Self.warnLegacyVerbDeprecated("rename-workspace", replacement: "cmux workspace rename")
+            }
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (windowOpt, rem1) = parseOption(rem0, name: "--window")
             let windowRaw = windowOpt ?? windowId
@@ -6236,6 +6252,106 @@ struct CMUXCLI {
         appendCreatedWorkspaceSummaryParts(from: payload, idFormat: idFormat, to: &summaryParts)
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
     }
+    /// Top-level `cmux workspace <subcommand>` namespace. Dispatches to the
+    /// same v2 socket methods that legacy verbs use (`new-workspace`,
+    /// `list-workspaces`, etc.) so behavior matches. Legacy verbs keep working
+    /// unchanged for backwards compatibility.
+    private func runWorkspaceNamespace(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        guard let sub = commandArgs.first?.lowercased() else {
+            throw CLIError(message: "workspace requires a subcommand. Try: list, create, close, rename, select, group")
+        }
+        let rest = Array(commandArgs.dropFirst())
+        switch sub {
+        case "group":
+            try runWorkspaceGroup(
+                commandArgs: rest,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
+        case "list":
+            var params: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
+            let payload = try client.sendV2(method: "workspace.list", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let workspaces = payload["workspaces"] as? [[String: Any]] ?? []
+                if workspaces.isEmpty {
+                    print("No workspaces")
+                } else {
+                    for ws in workspaces {
+                        let handle = textHandle(ws, idFormat: idFormat)
+                        let title = (ws["title"] as? String) ?? ""
+                        let selected = (ws["selected"] as? Bool) == true ? "* " : "  "
+                        print("\(selected)\(handle)  \(title)")
+                    }
+                }
+            }
+        case "create":
+            let (nameOpt, rem0) = parseOption(rest, name: "--name")
+            let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
+            let (windowOpt, _) = parseOption(rem1, name: "--window")
+            var params: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOpt ?? windowOverride)
+            if let cwdOpt { params["cwd"] = resolvePath(cwdOpt) }
+            if let nameOpt { params["title"] = nameOpt }
+            let response = try client.sendV2(method: "workspace.create", params: params)
+            let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+            print("OK \(wsRef)")
+        case "close":
+            let target = rest.first(where: { !$0.hasPrefix("--") })
+            var params: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOverride)
+            if let target { params["workspace_id"] = target }
+            _ = try client.sendV2(method: "workspace.close", params: params)
+            print("OK")
+        case "rename":
+            let (titleOpt, rem0) = parseOption(rest, name: "--title")
+            let target = rem0.first(where: { !$0.hasPrefix("--") })
+            guard let target, let titleOpt else {
+                throw CLIError(message: "workspace rename requires <workspace-id> --title <new>")
+            }
+            var params: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOverride)
+            params["workspace_id"] = target
+            params["title"] = titleOpt
+            _ = try client.sendV2(method: "workspace.rename", params: params)
+            print("OK")
+        case "select":
+            guard let target = rest.first(where: { !$0.hasPrefix("--") }) else {
+                throw CLIError(message: "workspace select requires a workspace id or ref")
+            }
+            var params: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOverride)
+            params["workspace_id"] = target
+            _ = try client.sendV2(method: "workspace.select", params: params)
+            print("OK")
+        default:
+            throw CLIError(message: "Unknown workspace subcommand: \(sub). Try: list, create, close, rename, select, group")
+        }
+    }
+
+    /// Print a one-time deprecation hint to stderr for a legacy CLI verb that
+    /// has a `cmux workspace <subcommand>` replacement. Honors CMUX_QUIET so
+    /// scripts can opt out.
+    private static let cliDeprecationNoticeShownKey = "CMUX_CLI_DEPRECATION_SHOWN"
+    static func warnLegacyVerbDeprecated(_ legacy: String, replacement: String) {
+        if ProcessInfo.processInfo.environment["CMUX_QUIET"] != nil { return }
+        if ProcessInfo.processInfo.environment[cliDeprecationNoticeShownKey] != nil { return }
+        FileHandle.standardError.write(Data(
+            "cmux: '\(legacy)' is now an alias for '\(replacement)'. The legacy form keeps working indefinitely; set CMUX_QUIET=1 to silence this notice.\n".utf8
+        ))
+        setenv(cliDeprecationNoticeShownKey, "1", 1)
+    }
+
     private func runWorkspaceGroup(
         commandArgs: [String],
         client: SocketClient,
