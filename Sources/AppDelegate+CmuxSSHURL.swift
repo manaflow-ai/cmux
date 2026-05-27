@@ -167,6 +167,52 @@ extension AppDelegate {
     }
 
     @discardableResult
+    func handleCmuxExternalURLs(from urls: [URL]) -> Bool {
+        let intentCount = cmuxExternalURLIntentCount(in: urls)
+        guard intentCount > 0 else { return false }
+        guard intentCount == 1 else {
+            showCmuxTextURLParseError(.multipleLinks)
+            return true
+        }
+
+        if handleCmuxSSHURLs(from: urls) {
+            return true
+        }
+        if handleCmuxNavigationURLs(from: urls) {
+            return true
+        }
+        if handleCmuxTextURLs(from: urls) {
+            return true
+        }
+        return true
+    }
+
+    private func cmuxExternalURLIntentCount(in urls: [URL]) -> Int {
+        urls.reduce(0) { count, url in
+            var nextCount = count
+            switch CmuxSSHURLRequest.parse(url) {
+            case .success(.some), .failure:
+                nextCount += 1
+            case .success(nil):
+                break
+            }
+            switch CmuxNavigationURLRequest.parse(url) {
+            case .success(.some), .failure:
+                nextCount += 1
+            case .success(nil):
+                break
+            }
+            switch CmuxTextURLRequest.parse(url) {
+            case .success(.some), .failure:
+                nextCount += 1
+            case .success(nil):
+                break
+            }
+            return nextCount
+        }
+    }
+
+    @discardableResult
     func handleCmuxNavigationURLs(from urls: [URL]) -> Bool {
         var navigationRequests: [CmuxNavigationURLRequest] = []
         var parseErrors: [(url: URL, error: CmuxNavigationURLParseError)] = []
