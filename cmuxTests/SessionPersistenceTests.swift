@@ -4861,12 +4861,18 @@ extension SessionPersistenceTests {
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
         source.panelDirectories[sourcePanelId] = "/tmp/old"
+        let bindingCwd = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-surface-binding-cwd-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: bindingCwd, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: bindingCwd)
+        }
         let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
             SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
                 name: "script",
                 kind: "custom",
                 command: "./resume.sh",
-                cwd: "/tmp/new",
+                cwd: bindingCwd.path,
                 checkpointId: "script",
                 source: "process-detected",
                 autoResume: true,
@@ -4883,8 +4889,46 @@ extension SessionPersistenceTests {
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
         let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
 
-        XCTAssertEqual(restoredPanel.requestedWorkingDirectory, "/tmp/new")
+        XCTAssertEqual(restoredPanel.requestedWorkingDirectory, bindingCwd.path)
         XCTAssertTrue(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+    }
+
+    @MainActor
+    func testRestoreDoesNotPassDeletedAgentHookCwdToTerminalRuntime() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let missingCwd = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-deleted-agent-hook-cwd-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("repo", isDirectory: true)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "Codex",
+                kind: "codex",
+                command: "cd '\(missingCwd.path)' && codex resume session-duplicate-turn --yolo",
+                cwd: missingCwd.path,
+                checkpointId: "session-duplicate-turn",
+                source: "agent-hook",
+                environment: [
+                    "CLAUDE_CONFIG_DIR": "/tmp/claude-profile"
+                ],
+                autoResume: true,
+                updatedAt: 10
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+        let input = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
+
+        XCTAssertNil(restoredPanel.requestedWorkingDirectory)
+        XCTAssertTrue(input.contains("codex resume session-duplicate-turn --yolo"), input)
+        XCTAssertTrue(input.contains("{ cd -- '\(missingCwd.path)' 2>/dev/null || [ ! -d '\(missingCwd.path)' ]; } &&"), input)
     }
 
     @MainActor
