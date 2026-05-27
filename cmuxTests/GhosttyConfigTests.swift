@@ -3472,10 +3472,13 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
             100,
             "Termination flush must return without waiting on the analytics queue"
         )
-        XCTAssertEqual(flushed.wait(timeout: .now() + 0.05), .timedOut)
+        XCTAssertEqual(
+            flushed.wait(timeout: .now() + 1),
+            .success,
+            "Termination flush should not wait behind the busy analytics queue"
+        )
 
         releaseBlocker.signal()
-        XCTAssertEqual(flushed.wait(timeout: .now() + 1), .success)
     }
 
     func testTerminationFlushEventuallyRunsWhenAnalyticsQueueIsAvailable() {

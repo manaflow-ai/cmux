@@ -22,6 +22,7 @@ final class PostHogAnalytics {
     private let lastActiveHourUTCKey = "posthog.lastActiveHourUTC"
 
     private let workQueue: DispatchQueue
+    private let terminationFlushQueue: DispatchQueue
     private let workQueueSpecificKey = DispatchSpecificKey<Void>()
     private let utcHourFormatter: DateFormatter
     private let utcDayFormatter: DateFormatter
@@ -33,10 +34,12 @@ final class PostHogAnalytics {
     // Internal so @testable regression tests can inject a busy queue and stub flush.
     internal init(
         workQueue: DispatchQueue = DispatchQueue(label: "com.cmux.posthog.analytics", qos: .utility),
+        terminationFlushQueue: DispatchQueue = DispatchQueue(label: "com.cmux.posthog.analytics.terminationFlush", qos: .utility),
         didStart: Bool = false,
         sdkFlush: @escaping () -> Void = { PostHogSDK.shared.flush() }
     ) {
         self.workQueue = workQueue
+        self.terminationFlushQueue = terminationFlushQueue
         self.sdkFlush = sdkFlush
         self.didStart = didStart
         utcHourFormatter = Self.makeUTCFormatter("yyyy-MM-dd'T'HH")
@@ -90,7 +93,7 @@ final class PostHogAnalytics {
     }
 
     func flushForApplicationTermination(reason: String = "applicationWillTerminate") {
-        enqueueFlush(reason: reason)
+        enqueueTerminationFlush(reason: reason)
     }
 
     private func startIfNeededOnWorkQueue() {
@@ -222,6 +225,18 @@ final class PostHogAnalytics {
         workQueue.async(execute: workItem)
     }
 
+    private func enqueueTerminationFlush(reason: String) {
+        postHogAnalyticsLogger.debug("posthog.flush.termination.enqueue reason=\(reason, privacy: .public)")
+#if DEBUG
+        cmuxDebugLog("posthog.flush.termination.enqueue reason=\(reason)")
+#endif
+
+        let workItem = DispatchWorkItem { [sdkFlush] in
+            Self.performSDKFlush(reason: reason, sdkFlush: sdkFlush)
+        }
+        terminationFlushQueue.async(execute: workItem)
+    }
+
     private func flushOnWorkQueue(reason: String) {
         guard didStart else {
             postHogAnalyticsLogger.debug("posthog.flush.skip reason=\(reason, privacy: .public) started=0")
@@ -231,6 +246,10 @@ final class PostHogAnalytics {
             return
         }
 
+        Self.performSDKFlush(reason: reason, sdkFlush: sdkFlush)
+    }
+
+    private nonisolated static func performSDKFlush(reason: String, sdkFlush: () -> Void) {
         let signpostID = postHogAnalyticsSignposter.makeSignpostID()
         let signpostState = postHogAnalyticsSignposter.beginInterval(
             "PostHog Flush",

@@ -930,7 +930,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // Set to true when the user has already confirmed quit via the warning dialog,
     // so applicationShouldTerminate does not show a second alert.
     private var isQuitWarningConfirmed = false
-    private var didEnqueuePostHogTerminationFlush = false
     private var didInstallLifecycleSnapshotObservers = false
     private var didDisableSuddenTermination = false
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
@@ -1645,7 +1644,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 // Reset so that the next quit attempt can show the dialog again.
                 self.isTerminatingApp = false
-                self.didEnqueuePostHogTerminationFlush = false
                 StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
             }
             NSApp.reply(toApplicationShouldTerminate: shouldQuit)
@@ -1710,8 +1708,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func enqueuePostHogTerminationFlushIfNeeded(reason: String) {
         guard TelemetrySettings.enabledForCurrentLaunch else { return }
-        guard !didEnqueuePostHogTerminationFlush else { return }
-        didEnqueuePostHogTerminationFlush = true
         PostHogAnalytics.shared.flushForApplicationTermination(reason: reason)
     }
 
