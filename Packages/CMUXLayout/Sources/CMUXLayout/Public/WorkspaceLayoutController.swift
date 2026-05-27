@@ -524,6 +524,10 @@ public final class WorkspaceLayoutController {
             initialDividerPosition: initialDividerPosition
         )
         syncCanvasDocumentWithCurrentLayout()
+        focusCanvasItemForFocusedPaneOrFirst()
+        if scrollFocusedCanvasItemIntoViewIfNeeded() {
+            requestCanvasViewportAnimation()
+        }
 
         // Find new pane (will be focused after split)
         let newPaneId = focusedPaneId!
@@ -587,6 +591,10 @@ public final class WorkspaceLayoutController {
             initialDividerPosition: initialDividerPosition
         )
         syncCanvasDocumentWithCurrentLayout()
+        focusCanvasItemForFocusedPaneOrFirst()
+        if scrollFocusedCanvasItemIntoViewIfNeeded() {
+            requestCanvasViewportAnimation()
+        }
 
         let newPaneId = focusedPaneId!
 
@@ -660,6 +668,10 @@ public final class WorkspaceLayoutController {
             insertFirst: insertFirst
         )
         syncCanvasDocumentWithCurrentLayout()
+        focusCanvasItemForFocusedPaneOrFirst()
+        if scrollFocusedCanvasItemIntoViewIfNeeded() {
+            requestCanvasViewportAnimation()
+        }
 
         let newPaneId = focusedPaneId!
 
@@ -710,7 +722,9 @@ public final class WorkspaceLayoutController {
         internalController.focusPane(PaneID(id: paneId.id))
         if let item = canvasItem(forPane: paneId) {
             focusedCanvasItemID = item.id
-            scrollCanvasItemIntoViewIfNeeded(item)
+            if scrollCanvasItemIntoViewIfNeeded(item) {
+                requestCanvasViewportAnimation()
+            }
         }
         delegate?.splitTabBar(self, didFocusPane: paneId)
     }
@@ -798,6 +812,10 @@ public final class WorkspaceLayoutController {
         canvasViewportAnimationRevision &+= 1
     }
 
+    public func synchronizeCanvasDocumentWithCurrentLayout() {
+        syncCanvasDocumentWithCurrentLayout()
+    }
+
     public func applyCanvasViewportCommand(_ command: CanvasViewportCommand, viewportSize: CGSize? = nil) {
         let camera = CanvasCamera(
             viewport: canvasDocument.viewport,
@@ -837,12 +855,16 @@ public final class WorkspaceLayoutController {
 
         if let itemID, canvasDocument.items.contains(where: { $0.id == itemID }) {
             focusedCanvasItemID = itemID
-            scrollFocusedCanvasItemIntoViewIfNeeded()
+            if scrollFocusedCanvasItemIntoViewIfNeeded() {
+                requestCanvasViewportAnimation()
+            }
             return
         }
 
         focusCanvasItemForFocusedPaneOrFirst()
-        scrollFocusedCanvasItemIntoViewIfNeeded()
+        if scrollFocusedCanvasItemIntoViewIfNeeded() {
+            requestCanvasViewportAnimation()
+        }
     }
 
     public func exitCanvasOverview() {
@@ -886,7 +908,9 @@ public final class WorkspaceLayoutController {
         guard let currentItem else { return nil }
         guard let nextItem = bestCanvasNeighbor(from: currentItem, direction: direction) else {
             focusedCanvasItemID = currentItem.id
-            scrollCanvasItemIntoViewIfNeeded(currentItem)
+            if scrollCanvasItemIntoViewIfNeeded(currentItem) {
+                canvasFocusAnimationRevision &+= 1
+            }
             return currentItem.id
         }
 
@@ -895,7 +919,9 @@ public final class WorkspaceLayoutController {
         if focusChanged {
             canvasFocusAnimationRevision &+= 1
         }
-        scrollCanvasItemIntoViewIfNeeded(nextItem)
+        if scrollCanvasItemIntoViewIfNeeded(nextItem), !focusChanged {
+            canvasFocusAnimationRevision &+= 1
+        }
         return nextItem.id
     }
 
@@ -921,7 +947,8 @@ public final class WorkspaceLayoutController {
     }
 
     public func canvasItem(forPane paneID: PaneID) -> CanvasItem? {
-        canvasDocument.items.first { item in
+        syncCanvasDocumentWithCurrentLayout()
+        return canvasDocument.items.first { item in
             guard case .pane(let itemPaneID) = item.content else { return false }
             return itemPaneID == paneID
         }
@@ -942,7 +969,9 @@ public final class WorkspaceLayoutController {
             guard let (pane, _) = findTabInternal(surfaceID) else { return nil }
             focusedCanvasItemID = itemID
             selectSurface(surfaceID)
-            scrollCanvasItemIntoViewIfNeeded(item)
+            if scrollCanvasItemIntoViewIfNeeded(item) {
+                requestCanvasViewportAnimation()
+            }
             return pane.id
         case .group:
             return nil
@@ -1371,18 +1400,17 @@ public final class WorkspaceLayoutController {
         focusedCanvasItemID = canvasDocument.items.first?.id
     }
 
-    private func scrollFocusedCanvasItemIntoViewIfNeeded() {
+    @discardableResult
+    private func scrollFocusedCanvasItemIntoViewIfNeeded() -> Bool {
         guard let focusedCanvasItemID,
               let item = canvasItem(id: focusedCanvasItemID) else {
-            return
+            return false
         }
-        scrollCanvasItemIntoViewIfNeeded(item)
+        return scrollCanvasItemIntoViewIfNeeded(item)
     }
 
     @discardableResult
     private func scrollCanvasItemIntoViewIfNeeded(_ item: CanvasItem) -> Bool {
-        guard isCanvasOverviewActive else { return false }
-
         var viewport = canvasDocument.viewport
         let visible = viewport.visibleRect.cgRect
         let itemRect = item.frame.cgRect

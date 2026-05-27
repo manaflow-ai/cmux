@@ -18371,6 +18371,7 @@ class TerminalController {
         let selectedPanels: [LayoutDebugSelectedPanel]
         let canvasPolicy: String
         let canvasOverviewActive: Bool
+        let canvasViewportVisibleRect: PixelRect
         let canvasViewportScale: Double
         let canvasPresentationScale: Double
         let canvasFocusedItemId: String?
@@ -18629,6 +18630,7 @@ class TerminalController {
                 selectedPanels: selectedPanels,
                 canvasPolicy: canvas.policy.rawValue,
                 canvasOverviewActive: tab.layoutController.isCanvasOverviewActive,
+                canvasViewportVisibleRect: tab.layoutController.canvasViewport.visibleRect,
                 canvasViewportScale: tab.layoutController.canvasViewport.scale,
                 canvasPresentationScale: CanvasViewportZoom.presentationScale(for: tab.layoutController.canvasViewport),
                 canvasFocusedItemId: tab.layoutController.focusedCanvasItemID?.id.uuidString,

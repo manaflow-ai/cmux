@@ -4094,6 +4094,38 @@ final class CMUXLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testCanvasOverviewSplitWhileActiveScrollsNewFocusedPaneIntoView() throws {
+        let controller = WorkspaceLayoutController()
+        controller.setContainerFrame(CGRect(x: 0, y: 0, width: 1_200, height: 800))
+        _ = controller.createTab(title: "Base")
+        let sourcePaneId = try XCTUnwrap(controller.focusedPaneId)
+        controller.enterCanvasOverview(policy: .freeform, scale: 1)
+        controller.setCanvasViewport(CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800)))
+        let animationRevisionBefore = controller.canvasViewportAnimationRevision
+
+        let secondPaneId = try XCTUnwrap(controller.splitPane(sourcePaneId, orientation: .horizontal))
+        let secondItem = try XCTUnwrap(controller.canvasItem(forPane: secondPaneId))
+        let visibleRect = CGRect(
+            x: controller.canvasViewport.visibleRect.x,
+            y: controller.canvasViewport.visibleRect.y,
+            width: controller.canvasViewport.visibleRect.width,
+            height: controller.canvasViewport.visibleRect.height
+        )
+        let itemRect = CGRect(
+            x: secondItem.frame.x,
+            y: secondItem.frame.y,
+            width: secondItem.frame.width,
+            height: secondItem.frame.height
+        )
+
+        XCTAssertGreaterThanOrEqual(
+            visibleRect.intersection(itemRect).width,
+            itemRect.width * 0.72
+        )
+        XCTAssertGreaterThan(controller.canvasViewportAnimationRevision, animationRevisionBefore)
+    }
+
+    @MainActor
     func testCanvasPointerFocusDoesNotPanViewport() throws {
         let controller = WorkspaceLayoutController()
         controller.setContainerFrame(CGRect(x: 0, y: 0, width: 1_200, height: 800))
@@ -4645,8 +4677,8 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertFalse(state.isConsumingCommandWheelMomentum)
     }
 
-    func testCanvasCameraInteractionStaysActiveUntilPhasedScrollEnds() {
-        var state = CanvasCameraInteractionState()
+    func testCanvasCameraInteractionStaysActiveUntilPhasedScrollSettles() {
+        var state = CanvasCameraInteractionState(unphasedHoldFrameCount: 2)
 
         XCTAssertFalse(state.apply(.began(.panning)))
         XCTAssertEqual(state.phase, .panning)
@@ -4657,12 +4689,46 @@ final class CMUXLayoutTests: XCTestCase {
             XCTAssertEqual(state.phase, .panning)
         }
 
-        XCTAssertTrue(state.apply(.ended))
+        XCTAssertFalse(state.apply(.ended))
+        XCTAssertEqual(state.phase, .panning)
+        XCTAssertTrue(state.needsFrameClock)
+
+        XCTAssertFalse(state.tickDisplayFrame())
+        XCTAssertEqual(state.phase, .panning)
+        XCTAssertTrue(state.needsFrameClock)
+
+        XCTAssertTrue(state.tickDisplayFrame())
         XCTAssertEqual(state.phase, .idle)
         XCTAssertFalse(state.needsFrameClock)
     }
 
-    func testCanvasCameraInteractionUsesDisplayFrameHoldOnlyForUnphasedWheels() {
+    func testCanvasCameraInteractionKeepsFastTrackpadPanActiveAcrossEndChangedBursts() {
+        var state = CanvasCameraInteractionState(unphasedHoldFrameCount: 3)
+
+        XCTAssertFalse(state.apply(.began(.panning)))
+        XCTAssertFalse(state.apply(.changed(.panning)))
+        XCTAssertFalse(state.apply(.ended))
+        XCTAssertEqual(state.phase, .panning)
+        XCTAssertTrue(state.needsFrameClock)
+
+        XCTAssertFalse(state.tickDisplayFrame())
+        XCTAssertEqual(state.phase, .panning)
+
+        XCTAssertFalse(state.apply(.changed(.panning)))
+        XCTAssertEqual(state.phase, .panning)
+        XCTAssertFalse(state.needsFrameClock)
+
+        XCTAssertFalse(state.apply(.ended))
+        XCTAssertTrue(state.needsFrameClock)
+        XCTAssertFalse(state.tickDisplayFrame())
+        XCTAssertFalse(state.tickDisplayFrame())
+        XCTAssertEqual(state.phase, .panning)
+        XCTAssertTrue(state.tickDisplayFrame())
+        XCTAssertEqual(state.phase, .idle)
+        XCTAssertFalse(state.needsFrameClock)
+    }
+
+    func testCanvasCameraInteractionUsesDisplayFrameHoldForUnphasedWheels() {
         var state = CanvasCameraInteractionState(unphasedHoldFrameCount: 2)
 
         XCTAssertFalse(state.apply(.unphasedUpdate(.zooming)))
@@ -4678,6 +4744,16 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertFalse(state.needsFrameClock)
     }
 
+    func testCanvasCameraInteractionCanEndImmediatelyForReset() {
+        var state = CanvasCameraInteractionState(unphasedHoldFrameCount: 2)
+
+        XCTAssertFalse(state.apply(.began(.zooming)))
+        XCTAssertTrue(state.endImmediately())
+
+        XCTAssertEqual(state.phase, .idle)
+        XCTAssertFalse(state.needsFrameClock)
+    }
+
     func testCanvasCameraInteractionIgnoresNonCameraPhases() {
         var state = CanvasCameraInteractionState()
 
@@ -4685,6 +4761,47 @@ final class CMUXLayoutTests: XCTestCase {
 
         XCTAssertEqual(state.phase, .idle)
         XCTAssertFalse(state.needsFrameClock)
+    }
+
+    func testCanvasPresentationInteractionResolverTreatsViewportAnimationAsCameraMotion() {
+        XCTAssertEqual(
+            CanvasPresentationInteractionResolver.phase(
+                cameraPhase: .idle,
+                isViewportAnimating: true
+            ),
+            .panning
+        )
+        XCTAssertEqual(
+            CanvasPresentationInteractionResolver.phase(
+                cameraPhase: .zooming,
+                isViewportAnimating: true
+            ),
+            .zooming
+        )
+        XCTAssertEqual(
+            CanvasPresentationInteractionResolver.phase(
+                cameraPhase: .panning,
+                isViewportAnimating: false
+            ),
+            .panning
+        )
+        XCTAssertEqual(
+            CanvasPresentationInteractionResolver.phase(
+                cameraPhase: .panning,
+                isViewportAnimating: true,
+                hasActiveDrag: true
+            ),
+            .draggingSurface
+        )
+        XCTAssertEqual(
+            CanvasPresentationInteractionResolver.phase(
+                cameraPhase: .panning,
+                isViewportAnimating: true,
+                hasActiveDrag: true,
+                hasActiveResize: true
+            ),
+            .resizingSurface
+        )
     }
 
     func testCanvasCameraInteractionMarksCameraEventsForUnifiedPresentation() {
@@ -4963,6 +5080,54 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertTrue(zooming.nativeOverlays.isEmpty)
         XCTAssertEqual(zooming.textureSurfaces.map(\.id), [activeID])
         XCTAssertEqual(zooming.surfaces.first?.renderMode, .snapshotTexture)
+    }
+
+    func testCanvasPresentationEngineParksTerminalAndBrowserDuringAnimatedPan() {
+        let terminalID = LayoutItemID()
+        let browserID = LayoutItemID()
+        let document = CanvasDocument(
+            policy: .freeform,
+            viewport: CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800), scale: 1),
+            items: [
+                CanvasItem(
+                    id: terminalID,
+                    content: .pane(PaneID()),
+                    frame: PixelRect(x: 0, y: 0, width: 500, height: 360),
+                    zIndex: 1,
+                    isNativeResolution: true
+                ),
+                CanvasItem(
+                    id: browserID,
+                    content: .surface(SurfaceID()),
+                    frame: PixelRect(x: 540, y: 0, width: 560, height: 360),
+                    zIndex: 2,
+                    isNativeResolution: true
+                ),
+            ]
+        )
+        let interactionPhase = CanvasPresentationInteractionResolver.phase(
+            cameraPhase: .idle,
+            isViewportAnimating: true
+        )
+
+        let presentation = CanvasPresentationEngine.presentation(
+            document: document,
+            viewportSize: CGSize(width: 1_200, height: 800),
+            focusedItemID: terminalID,
+            activeItemID: terminalID,
+            contentKinds: [terminalID: .terminal, browserID: .browser],
+            interactionPhase: interactionPhase,
+            configuration: CanvasPresentationConfiguration(
+                nativeOverlayConfiguration: CanvasNativeOverlayConfiguration(activeSurfaceID: terminalID),
+                overscanScreenPoints: 0
+            )
+        )
+
+        XCTAssertEqual(interactionPhase, .panning)
+        XCTAssertTrue(presentation.usesUnifiedTexturePresentation)
+        XCTAssertTrue(presentation.nativeOverlays.isEmpty)
+        XCTAssertEqual(Set(presentation.textureSurfaces.map(\.id)), Set([terminalID, browserID]))
+        XCTAssertTrue(presentation.surfaces.allSatisfy { $0.renderMode == .snapshotTexture })
     }
 
     func testCanvasPresentationEngineAppliesInteractionOverridesAndGuides() {

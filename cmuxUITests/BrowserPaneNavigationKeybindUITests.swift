@@ -796,6 +796,59 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testCanvasTrackpadSwipePansViewportAndRestoresNativeSurface() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_ALLOW_UNFOCUSED_BROWSER"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] = "1"
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(waitForSocketPong(timeout: 8.0), "Expected debug socket at \(socketPath)")
+        XCTAssertTrue(
+            waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
+            "Expected split setup data before testing canvas trackpad pan. data=\(loadData() ?? [:])"
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                self.canvasLayout()?["canvasOverviewActive"] as? Bool == true
+            },
+            "Expected canvas overview to be active before swiping. layout=\(String(describing: canvasLayout()))"
+        )
+        guard let beforeViewport = canvasViewportVisibleRect() else {
+            XCTFail("Missing canvas viewport before swipe. layout=\(String(describing: canvasLayout()))")
+            return
+        }
+
+        let window = app.windows.element(boundBy: 0)
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window")
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.55)).hover()
+        window.swipeUp()
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 6.0) {
+                guard let afterViewport = self.canvasViewportVisibleRect() else { return false }
+                return abs(afterViewport.minX - beforeViewport.minX) > 1
+                    || abs(afterViewport.minY - beforeViewport.minY) > 1
+            },
+            "Expected a real swipe gesture to pan the canvas viewport. before=\(beforeViewport) layout=\(String(describing: canvasLayout()))"
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                guard let layout = self.canvasLayout() else { return false }
+                guard layout["canvasActiveRenderMode"] as? String == "liveNative1x" else { return false }
+                let selectedPanels = layout["selectedPanels"] as? [[String: Any]] ?? []
+                return selectedPanels.contains { panel in
+                    panel["inWindow"] as? Bool == true && panel["hidden"] as? Bool == false
+                }
+            },
+            "Expected native surface to remount after trackpad pan settles. layout=\(String(describing: canvasLayout()))"
+        )
+    }
+
     func testCanvasTabChipClickSwitchesSurfaceWithSecondWindowPresent() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -1604,6 +1657,17 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     private func canvasItemFrame(itemId: String) -> CGRect? {
         guard let item = canvasItems().first(where: { $0["id"] as? String == itemId }),
               let frame = item["frame"] as? [String: Any],
+              let x = numberValue(frame["x"]),
+              let y = numberValue(frame["y"]),
+              let width = numberValue(frame["width"]),
+              let height = numberValue(frame["height"]) else {
+            return nil
+        }
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    private func canvasViewportVisibleRect() -> CGRect? {
+        guard let frame = canvasLayout()?["canvasViewportVisibleRect"] as? [String: Any],
               let x = numberValue(frame["x"]),
               let y = numberValue(frame["y"]),
               let width = numberValue(frame["width"]),

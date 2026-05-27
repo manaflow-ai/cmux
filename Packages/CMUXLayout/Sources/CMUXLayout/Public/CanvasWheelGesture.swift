@@ -82,15 +82,20 @@ public struct CanvasCameraInteractionState: Sendable, Equatable {
             unphasedHoldFramesRemaining = 0
             return false
         case .ended:
-            let wasActive = phase != .idle || unphasedHoldFramesRemaining > 0
-            phase = .idle
-            unphasedHoldFramesRemaining = 0
-            return wasActive
+            return beginSettleHoldOrEnd()
         case .unphasedUpdate(let nextPhase):
             phase = Self.cameraPhase(nextPhase)
-            unphasedHoldFramesRemaining = unphasedHoldFrameCount
+            unphasedHoldFramesRemaining = phase == .idle ? 0 : unphasedHoldFrameCount
             return false
         }
+    }
+
+    @discardableResult
+    public mutating func endImmediately() -> Bool {
+        let wasActive = phase != .idle || unphasedHoldFramesRemaining > 0
+        phase = .idle
+        unphasedHoldFramesRemaining = 0
+        return wasActive
     }
 
     @discardableResult
@@ -110,5 +115,24 @@ public struct CanvasCameraInteractionState: Sendable, Equatable {
         case .idle, .draggingSurface, .resizingSurface:
             return .idle
         }
+    }
+
+    @discardableResult
+    private mutating func beginSettleHoldOrEnd() -> Bool {
+        let wasActive = phase != .idle || unphasedHoldFramesRemaining > 0
+        guard wasActive else {
+            phase = .idle
+            unphasedHoldFramesRemaining = 0
+            return false
+        }
+
+        guard phase != .idle, unphasedHoldFrameCount > 0 else {
+            phase = .idle
+            unphasedHoldFramesRemaining = 0
+            return true
+        }
+
+        unphasedHoldFramesRemaining = unphasedHoldFrameCount
+        return false
     }
 }

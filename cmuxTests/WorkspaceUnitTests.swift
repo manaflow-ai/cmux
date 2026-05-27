@@ -2957,6 +2957,87 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         XCTAssertEqual(workspace.layoutController.canvasSceneSnapshot().activeMountDirective?.renderMode, .liveNative1x)
     }
 
+    func testCanvasActivationScrollsMovedItemIntoView() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let browserPanel = try XCTUnwrap(
+            workspace.newBrowserSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                focus: true
+            )
+        )
+        let browserPaneId = try XCTUnwrap(workspace.paneId(forPanelId: browserPanel.id))
+        let browserItem = try XCTUnwrap(workspace.layoutController.canvasItem(forPane: browserPaneId))
+        workspace.layoutController.moveCanvasItem(
+            browserItem.id,
+            to: PixelRect(x: 1_216, y: 0, width: 1_200, height: 800)
+        )
+        workspace.layoutController.setCanvasViewport(
+            CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800), scale: 1)
+        )
+
+        XCTAssertTrue(workspace.activateCanvasItem(browserItem.id))
+
+        let movedBrowserItem = try XCTUnwrap(workspace.layoutController.canvasItem(forPane: browserPaneId))
+        let visibleRect = CGRect(
+            x: workspace.layoutController.canvasViewport.visibleRect.x,
+            y: workspace.layoutController.canvasViewport.visibleRect.y,
+            width: workspace.layoutController.canvasViewport.visibleRect.width,
+            height: workspace.layoutController.canvasViewport.visibleRect.height
+        )
+        let browserRect = CGRect(
+            x: movedBrowserItem.frame.x,
+            y: movedBrowserItem.frame.y,
+            width: movedBrowserItem.frame.width,
+            height: movedBrowserItem.frame.height
+        )
+
+        XCTAssertGreaterThanOrEqual(
+            visibleRect.intersection(browserRect).width,
+            browserRect.width * 0.72
+        )
+        XCTAssertEqual(workspace.layoutController.canvasSceneSnapshot().activeMountDirective?.renderMode, .liveNative1x)
+    }
+
+    func testFocusedCanvasSplitScrollsCreatedPanelIntoView() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.layoutController.setCanvasViewport(
+            CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800), scale: 1)
+        )
+
+        let browserPanel = try XCTUnwrap(
+            workspace.newBrowserSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                focus: true
+            )
+        )
+
+        let browserPaneId = try XCTUnwrap(workspace.paneId(forPanelId: browserPanel.id))
+        let browserItem = try XCTUnwrap(workspace.layoutController.canvasItem(forPane: browserPaneId))
+        let visibleRect = CGRect(
+            x: workspace.layoutController.canvasViewport.visibleRect.x,
+            y: workspace.layoutController.canvasViewport.visibleRect.y,
+            width: workspace.layoutController.canvasViewport.visibleRect.width,
+            height: workspace.layoutController.canvasViewport.visibleRect.height
+        )
+        let browserRect = CGRect(
+            x: browserItem.frame.x,
+            y: browserItem.frame.y,
+            width: browserItem.frame.width,
+            height: browserItem.frame.height
+        )
+
+        XCTAssertEqual(workspace.layoutController.focusedCanvasItemID, browserItem.id)
+        XCTAssertGreaterThanOrEqual(
+            visibleRect.intersection(browserRect).width,
+            browserRect.width * 0.72
+        )
+        XCTAssertEqual(workspace.layoutController.canvasSceneSnapshot().activeMountDirective?.renderMode, .liveNative1x)
+    }
+
     func testCanvasPreparePanelForNativeInputFocusesPanelItemAndRestoresNativeScale() throws {
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -2980,6 +3061,22 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         XCTAssertTrue(workspace.layoutController.isCanvasOverviewActive)
         XCTAssertEqual(workspace.layoutController.focusedCanvasItemID, browserItem.id)
         XCTAssertEqual(workspace.layoutController.canvasViewport.scale, 1.0, accuracy: 0.001)
+        let visibleRect = CGRect(
+            x: workspace.layoutController.canvasViewport.visibleRect.x,
+            y: workspace.layoutController.canvasViewport.visibleRect.y,
+            width: workspace.layoutController.canvasViewport.visibleRect.width,
+            height: workspace.layoutController.canvasViewport.visibleRect.height
+        )
+        let browserRect = CGRect(
+            x: browserItem.frame.x,
+            y: browserItem.frame.y,
+            width: browserItem.frame.width,
+            height: browserItem.frame.height
+        )
+        XCTAssertGreaterThanOrEqual(
+            visibleRect.intersection(browserRect).width,
+            browserRect.width * 0.72
+        )
         XCTAssertEqual(workspace.layoutController.canvasSceneSnapshot().activeMountDirective?.renderMode, .liveNative1x)
     }
 

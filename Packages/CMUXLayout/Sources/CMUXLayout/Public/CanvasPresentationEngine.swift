@@ -196,6 +196,26 @@ public enum CanvasInteractionPhase: String, Sendable, Equatable {
     case resizingSurface
 }
 
+public enum CanvasPresentationInteractionResolver {
+    public static func phase(
+        cameraPhase: CanvasInteractionPhase,
+        isViewportAnimating: Bool,
+        hasActiveDrag: Bool = false,
+        hasActiveResize: Bool = false
+    ) -> CanvasInteractionPhase {
+        if hasActiveResize {
+            return .resizingSurface
+        }
+        if hasActiveDrag {
+            return .draggingSurface
+        }
+        if isViewportAnimating {
+            return cameraPhase == .idle ? .panning : cameraPhase
+        }
+        return cameraPhase
+    }
+}
+
 public enum CanvasSurfaceKind: String, Codable, Sendable, Equatable {
     case terminal
     case browser

@@ -14766,6 +14766,7 @@ final class Workspace: Identifiable, ObservableObject {
                 resumeHibernatedAgent: true,
                 previousTerminalHostedView: previousTerminalHostedView
             )
+            prepareCanvasPaneForNativePanelFocus(targetPaneId)
         }
         if currentlyFocusedPanelId != panelId {
             syncUnreadBadgeStateForAllPanels()
@@ -14781,6 +14782,21 @@ final class Workspace: Identifiable, ObservableObject {
                 reason: "workspace.focusPanel.terminal",
                 terminalFocusPanelId: panelId
             )
+        }
+    }
+
+    private func prepareCanvasPaneForNativePanelFocus(_ paneID: PaneID) {
+        guard layoutController.isCanvasOverviewActive else { return }
+        layoutController.synchronizeCanvasDocumentWithCurrentLayout()
+        guard let item = layoutController.canvasItem(forPane: paneID) else { return }
+
+        _ = layoutController.focusCanvasItem(item.id)
+        if layoutController.canvasViewport.scale < 0.99 {
+            setCanvasOverviewScale(CanvasOverviewZoom.defaultScale)
+        }
+        let didScroll = layoutController.scrollCanvasItemIntoView(item.id)
+        if didScroll {
+            layoutController.requestCanvasViewportAnimation()
         }
     }
 
@@ -14891,9 +14907,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func activateCanvasItem(_ itemID: LayoutItemID) -> Bool {
+        layoutController.synchronizeCanvasDocumentWithCurrentLayout()
         guard let paneID = layoutController.focusPane(forCanvasItem: itemID) else { return false }
         if layoutController.canvasViewport.scale < 0.99 {
             setCanvasOverviewScale(CanvasOverviewZoom.defaultScale)
+        }
+        if layoutController.scrollCanvasItemIntoView(itemID) {
+            layoutController.requestCanvasViewportAnimation()
         }
         if let selectedTab = layoutController.selectedTab(inPane: paneID),
            let panelID = panelIdFromSurfaceId(selectedTab.id) {
@@ -14909,15 +14929,19 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func prepareCanvasPanelForNativeInput(_ panelID: UUID) -> Bool {
         guard layoutController.isCanvasOverviewActive,
-              let paneID = paneId(forPanelId: panelID),
-              let item = layoutController.canvasItem(forPane: paneID) else {
+              let paneID = paneId(forPanelId: panelID) else {
+            return false
+        }
+        layoutController.synchronizeCanvasDocumentWithCurrentLayout()
+        guard let item = layoutController.canvasItem(forPane: paneID) else {
             return false
         }
         _ = layoutController.focusCanvasItem(item.id)
         if layoutController.canvasViewport.scale < 0.99 {
             setCanvasOverviewScale(CanvasOverviewZoom.defaultScale)
-        } else {
-            _ = layoutController.scrollCanvasItemIntoView(item.id)
+        }
+        if layoutController.scrollCanvasItemIntoView(item.id) {
+            layoutController.requestCanvasViewportAnimation()
         }
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
         reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.canvasPrepareNativeInput")

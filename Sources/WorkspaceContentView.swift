@@ -2309,6 +2309,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     @State private var canvasViewportPresentation = CanvasViewportPresentationState()
     @State private var canvasAnimationClockToken: UInt64 = 0
     @State private var canvasCameraInteraction = CanvasCameraInteractionState()
+    @State private var canvasCameraNativeSurfacesParked = false
 
     private let canvasPadding: CGFloat = 24
     private let canvasResizeEdgeHitSize: CGFloat = 8
@@ -2439,12 +2440,21 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             now: canvasAnimationClockTime(),
             duration: 0.18
         ) {
+            parkCanvasNativeSurfacesForCameraMutation(
+                presentation: nil,
+                activeItemID: controller.canvasSceneSnapshot().activeItemID
+            )
             canvasAnimationClockToken &+= 1
         }
     }
 
     private func tickCanvasViewportAnimation(at time: TimeInterval) {
+        let wasAnimating = canvasViewportPresentation.isAnimating
         canvasViewportPresentation.tick(at: time)
+        if wasAnimating && !canvasViewportPresentation.isAnimating {
+            canvasCameraNativeSurfacesParked = false
+            WorkspaceCanvasSurfaceMountManager.synchronizeAll()
+        }
         tickCanvasCameraInteractionHold()
     }
 
@@ -2453,19 +2463,19 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     }
 
     private func canvasPresentationInteractionPhase() -> CanvasInteractionPhase {
-        if !resizeStates.isEmpty {
-            return .resizingSurface
-        }
-        if activeCanvasDragItemID != nil {
-            return .draggingSurface
-        }
-        return canvasCameraInteraction.phase
+        CanvasPresentationInteractionResolver.phase(
+            cameraPhase: canvasCameraInteraction.phase,
+            isViewportAnimating: canvasViewportPresentation.isAnimating,
+            hasActiveDrag: activeCanvasDragItemID != nil,
+            hasActiveResize: !resizeStates.isEmpty
+        )
     }
 
     private func applyCanvasCameraInteraction(_ event: CanvasCameraInteractionEvent) {
         let didEnd = canvasCameraInteraction.apply(event)
         canvasAnimationClockToken &+= 1
         if didEnd {
+            canvasCameraNativeSurfacesParked = false
             WorkspaceCanvasSurfaceMountManager.synchronizeAll()
         }
     }
@@ -2473,12 +2483,14 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     private func tickCanvasCameraInteractionHold() {
         if canvasCameraInteraction.tickDisplayFrame() {
             canvasAnimationClockToken &+= 1
+            canvasCameraNativeSurfacesParked = false
             WorkspaceCanvasSurfaceMountManager.synchronizeAll()
         }
     }
 
     private func resetCanvasCameraInteraction() {
-        if canvasCameraInteraction.apply(.ended) {
+        if canvasCameraInteraction.endImmediately() {
+            canvasCameraNativeSurfacesParked = false
             WorkspaceCanvasSurfaceMountManager.synchronizeAll()
         }
     }
@@ -3484,10 +3496,14 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     }
 
     private func parkCanvasNativeSurfacesForCameraMutation(
-        presentation: CanvasPresentationState,
+        presentation: CanvasPresentationState?,
         activeItemID: LayoutItemID?
     ) {
-        captureCanvasPreviewSnapshots(in: presentation)
+        guard !canvasCameraNativeSurfacesParked else { return }
+        canvasCameraNativeSurfacesParked = true
+        if let presentation {
+            captureCanvasPreviewSnapshots(in: presentation)
+        }
         captureCanvasPreviewSnapshot(activeItemID: activeItemID)
         WorkspaceCanvasSurfaceMountManager.parkAllNativeSurfaces(in: workspace, suppressRepublication: true)
     }
