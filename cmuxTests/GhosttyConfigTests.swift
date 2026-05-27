@@ -3469,7 +3469,7 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
 
         XCTAssertLessThan(
             elapsedMilliseconds,
-            500,
+            100,
             "Termination flush must use a bounded wait instead of synchronously waiting on the analytics queue"
         )
         XCTAssertEqual(flushed.wait(timeout: .now() + 0.05), .timedOut)
@@ -3491,7 +3491,7 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
 
         analytics.flushForApplicationTermination(maximumWait: .seconds(1))
 
-        XCTAssertEqual(flushed.wait(timeout: .now() + 0.1), .success)
+        XCTAssertEqual(flushed.wait(timeout: .now()), .success)
     }
 }
 
