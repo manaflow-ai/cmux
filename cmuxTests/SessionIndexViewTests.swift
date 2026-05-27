@@ -167,6 +167,21 @@ final class SessionIndexViewTests: XCTestCase {
         }
     }
 
+    func testDirectoryOrderBackfillUsesPathTieBreakForEqualModifiedDates() {
+        preservingSessionIndexDefaults {
+            let store = SessionIndexStore()
+            let sameModified = Date(timeIntervalSince1970: 10)
+
+            store.replaceEntriesForTesting([
+                makeEntry(title: "project b", cwd: "/project-b", modified: sameModified),
+                makeEntry(title: "project a", cwd: "/project-a", modified: sameModified),
+                makeEntry(title: "project c", cwd: "/project-c", modified: Date(timeIntervalSince1970: 1))
+            ])
+
+            XCTAssertEqual(store.directoryOrder, ["/project-a", "/project-b", "/project-c"])
+        }
+    }
+
     func testAgentOrderBackfillUsesLatestModifiedForDuplicateAgents() {
         preservingSessionIndexDefaults {
             let store = SessionIndexStore()
@@ -180,6 +195,21 @@ final class SessionIndexViewTests: XCTestCase {
             ])
 
             XCTAssertEqual(store.agentOrder.map(\.rawValue), ["claude", "codex", "grok"])
+        }
+    }
+
+    func testAgentOrderBackfillUsesAgentIdTieBreakForEqualModifiedDates() {
+        preservingSessionIndexDefaults {
+            let store = SessionIndexStore()
+            let sameModified = Date(timeIntervalSince1970: 10)
+
+            store.replaceEntriesForTesting([
+                makeEntry(agent: .grok, title: "grok", modified: sameModified),
+                makeEntry(agent: .codex, title: "codex", modified: sameModified),
+                makeEntry(agent: .claude, title: "claude", modified: Date(timeIntervalSince1970: 1))
+            ])
+
+            XCTAssertEqual(store.agentOrder.map(\.rawValue), ["codex", "grok", "claude"])
         }
     }
 

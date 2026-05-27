@@ -332,7 +332,9 @@ final class SessionIndexStore: ObservableObject {
         }
         guard !latestByPath.isEmpty else { return }
         let additions = latestByPath
-            .sorted { $0.value > $1.value }
+            .sorted { lhs, rhs in
+                lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value > rhs.value
+            }
             .map(\.key)
         directoryOrder.append(contentsOf: additions)
     }
@@ -372,7 +374,11 @@ final class SessionIndexStore: ObservableObject {
             setAgentOrderIfPresentationChanged(nextOrder)
             return
         }
-        let additions = additionsByAgentId.values.sorted { $0.latest > $1.latest }
+        let additions = additionsByAgentId.values.sorted { lhs, rhs in
+            lhs.latest == rhs.latest
+                ? lhs.agent.rawValue < rhs.agent.rawValue
+                : lhs.latest > rhs.latest
+        }
         nextOrder.append(contentsOf: additions.map(\.agent))
         setAgentOrderIfPresentationChanged(nextOrder)
     }
