@@ -3560,6 +3560,15 @@ struct CMUXCLI {
         case "rename-tab":
             try runRenameTab(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
 
+        case "workspace-group":
+            try runWorkspaceGroup(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
         case "list-workspaces":
             var params: [String: Any] = [:]
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(commandArgs, windowOverride: windowId))
@@ -6227,6 +6236,144 @@ struct CMUXCLI {
         appendCreatedWorkspaceSummaryParts(from: payload, idFormat: idFormat, to: &summaryParts)
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
     }
+    private func runWorkspaceGroup(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        guard let sub = commandArgs.first?.lowercased() else {
+            throw CLIError(message: "workspace-group requires a subcommand. Try: list, create, ungroup, rename, collapse, expand, pin, unpin, add, remove, set-anchor, new-workspace")
+        }
+        let rest = Array(commandArgs.dropFirst())
+        var params: [String: Any] = [:]
+        try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
+
+        func resolveGroupId(in rest: [String]) throws -> String {
+            let (gidOpt, _) = parseOption(rest, name: "--group")
+            if let gidOpt { return gidOpt }
+            for arg in rest where !arg.hasPrefix("--") {
+                return arg
+            }
+            throw CLIError(message: "workspace-group \(sub) requires a group id or --group <id>")
+        }
+
+        switch sub {
+        case "list":
+            let payload = try client.sendV2(method: "workspace.group.list", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let groups = payload["groups"] as? [[String: Any]] ?? []
+                if groups.isEmpty {
+                    print("No groups")
+                } else {
+                    for g in groups {
+                        let handle = textHandle(g, idFormat: idFormat)
+                        let name = (g["name"] as? String) ?? ""
+                        let count = (g["member_count"] as? Int) ?? 0
+                        let pin = (g["is_pinned"] as? Bool) == true ? " [pinned]" : ""
+                        let coll = (g["is_collapsed"] as? Bool) == true ? " [collapsed]" : ""
+                        print("\(handle)  \(name)  (\(count) members)\(pin)\(coll)")
+                    }
+                }
+            }
+
+        case "create":
+            let (nameOpt, rem0) = parseOption(rest, name: "--name")
+            let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
+            let (fromOpt, _) = parseOption(rem1, name: "--from")
+            let resolvedName = nameOpt ?? rem1.first(where: { !$0.hasPrefix("--") }) ?? ""
+            params["name"] = resolvedName
+            if let cwdOpt { params["cwd"] = resolvePath(cwdOpt) }
+            if let fromOpt {
+                let ids = fromOpt.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+                params["child_workspace_ids"] = ids
+            }
+            let response = try client.sendV2(method: "workspace.group.create", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(response, mode: idFormat)))
+            } else if let group = response["group"] as? [String: Any] {
+                print("OK \(textHandle(group, idFormat: idFormat))")
+            } else {
+                print("OK")
+            }
+
+        case "ungroup", "delete":
+            params["group_id"] = try resolveGroupId(in: rest)
+            _ = try client.sendV2(method: "workspace.group.ungroup", params: params)
+            print("OK")
+
+        case "rename":
+            let (nameOpt, rem0) = parseOption(rest, name: "--name")
+            let gid = try resolveGroupId(in: rem0)
+            params["group_id"] = gid
+            let positional = rem0.filter { !$0.hasPrefix("--") && $0 != gid }
+            guard let newName = nameOpt ?? positional.first else {
+                throw CLIError(message: "rename requires --name <name>")
+            }
+            params["name"] = newName
+            _ = try client.sendV2(method: "workspace.group.rename", params: params)
+            print("OK")
+
+        case "collapse", "expand":
+            params["group_id"] = try resolveGroupId(in: rest)
+            _ = try client.sendV2(method: "workspace.group.\(sub)", params: params)
+            print("OK")
+
+        case "pin", "unpin":
+            params["group_id"] = try resolveGroupId(in: rest)
+            _ = try client.sendV2(method: "workspace.group.\(sub)", params: params)
+            print("OK")
+
+        case "add":
+            let (groupOpt, rem0) = parseOption(rest, name: "--group")
+            let (wsOpt, _) = parseOption(rem0, name: "--workspace")
+            guard let gid = groupOpt, let wsId = wsOpt else {
+                throw CLIError(message: "add requires --group <id> --workspace <id>")
+            }
+            params["group_id"] = gid
+            params["workspace_id"] = wsId
+            _ = try client.sendV2(method: "workspace.group.add", params: params)
+            print("OK")
+
+        case "remove":
+            let (wsOpt, _) = parseOption(rest, name: "--workspace")
+            guard let wsId = wsOpt ?? rest.first(where: { !$0.hasPrefix("--") }) else {
+                throw CLIError(message: "remove requires --workspace <id>")
+            }
+            params["workspace_id"] = wsId
+            _ = try client.sendV2(method: "workspace.group.remove", params: params)
+            print("OK")
+
+        case "set-anchor":
+            let (groupOpt, rem0) = parseOption(rest, name: "--group")
+            let (wsOpt, _) = parseOption(rem0, name: "--workspace")
+            guard let gid = groupOpt, let wsId = wsOpt else {
+                throw CLIError(message: "set-anchor requires --group <id> --workspace <id>")
+            }
+            params["group_id"] = gid
+            params["workspace_id"] = wsId
+            _ = try client.sendV2(method: "workspace.group.set_anchor", params: params)
+            print("OK")
+
+        case "new-workspace":
+            params["group_id"] = try resolveGroupId(in: rest)
+            let response = try client.sendV2(method: "workspace.group.new_workspace", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(response, mode: idFormat)))
+            } else if let wsId = response["workspace_ref"] as? String {
+                print("OK \(wsId)")
+            } else {
+                print("OK")
+            }
+
+        default:
+            throw CLIError(message: "Unknown workspace-group subcommand: \(sub)")
+        }
+    }
+
     private func runRenameTab(
         commandArgs: [String],
         client: SocketClient,
