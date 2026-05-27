@@ -1,6 +1,7 @@
 import { createEffect, createSignal, onCleanup } from "solid-js";
 import { render } from "solid-js/web";
 import { subscribeToAgentEvents } from "../shared/bridge";
+import { insertComposerToken } from "../shared/composerTokens";
 import {
   initialState,
   autoStartProvider,
@@ -98,6 +99,19 @@ function SessionSurface({
   textarea.className = "prompt-input";
   textarea.addEventListener("input", () => dispatch({ type: "setInput", input: textarea.value }));
   composerBody.append(textarea);
+  const insertToken = (token: "@" | "$") => {
+    const insertion = insertComposerToken({
+      text: state().input,
+      selectionStart: textarea.selectionStart ?? state().input.length,
+      selectionEnd: textarea.selectionEnd ?? state().input.length,
+      token,
+    });
+    dispatch({ type: "setInput", input: insertion.text });
+    queueMicrotask(() => {
+      textarea.focus();
+      textarea.setSelectionRange(insertion.cursor, insertion.cursor);
+    });
+  };
   createEffect(() => {
     textarea.placeholder = state().context?.copy.promptPlaceholder ?? "";
     if (textarea.value !== state().input) {
@@ -140,8 +154,8 @@ function SessionSurface({
   leftRail.append(
     composerSeparator,
     codexIconButton("plus", "+"),
-    codexIconButton("mention", "@"),
-    codexIconButton("skill", "$"),
+    codexIconButton("mention", "@", () => insertToken("@")),
+    codexIconButton("skill", "$", () => insertToken("$")),
   );
 
   createEffect(() => {
@@ -252,12 +266,16 @@ function providerBadgeLabel(displayName: string): string {
   return displayName.trim().slice(0, 1).toUpperCase() || "C";
 }
 
-function codexIconButton(kind: string, text: string): HTMLButtonElement {
+function codexIconButton(kind: string, text: string, onClick?: () => void): HTMLButtonElement {
   const button = document.createElement("button");
   button.className = `codex-tool codex-tool-${kind}`;
   button.type = "button";
-  button.disabled = true;
-  button.setAttribute("aria-hidden", "true");
+  if (onClick) {
+    button.addEventListener("click", onClick);
+  } else {
+    button.disabled = true;
+    button.setAttribute("aria-hidden", "true");
+  }
   button.textContent = text;
   return button;
 }

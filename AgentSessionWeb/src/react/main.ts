@@ -1,6 +1,7 @@
-import React, { useEffect, useReducer } from "react";
+import React, { useEffect, useReducer, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { subscribeToAgentEvents } from "../shared/bridge";
+import { insertComposerToken } from "../shared/composerTokens";
 import {
   initialState,
   autoStartProvider,
@@ -58,6 +59,21 @@ function SessionSurface({
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
   const modelLabel = provider ? codexModelLabel(provider.displayName) : "GPT-5.5";
   const modelBadge = provider ? providerBadgeLabel(provider.displayName) : "C";
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const insertToken = (token: "@" | "$") => {
+    const textarea = textareaRef.current;
+    const insertion = insertComposerToken({
+      text: state.input,
+      selectionStart: textarea?.selectionStart ?? state.input.length,
+      selectionEnd: textarea?.selectionEnd ?? state.input.length,
+      token,
+    });
+    dispatch({ type: "setInput", input: insertion.text });
+    queueMicrotask(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(insertion.cursor, insertion.cursor);
+    });
+  };
   return React.createElement(
     "section",
     { className: "agent-shell" },
@@ -95,6 +111,7 @@ function SessionSurface({
               "div",
               { className: "composer-body" },
               React.createElement("textarea", {
+                ref: textareaRef,
                 className: "prompt-input",
                 value: state.input,
                 placeholder: state.context?.copy.promptPlaceholder ?? "",
@@ -131,8 +148,8 @@ function SessionSurface({
                 ),
                 React.createElement("span", { className: "composer-separator", "aria-hidden": true }),
                 codexIconButton("plus", "+"),
-                codexIconButton("mention", "@"),
-                codexIconButton("skill", "$"),
+                codexIconButton("mention", "@", () => insertToken("@")),
+                codexIconButton("skill", "$", () => insertToken("$")),
               ),
               React.createElement(
                 "div",
@@ -208,10 +225,20 @@ function providerBadgeLabel(displayName: string): string {
   return displayName.trim().slice(0, 1).toUpperCase() || "C";
 }
 
-function codexIconButton(kind: string, text: string) {
+function codexIconButton(kind: string, text: string, onClick?: () => void) {
+  const props: React.ButtonHTMLAttributes<HTMLButtonElement> = {
+    className: `codex-tool codex-tool-${kind}`,
+    type: "button",
+  };
+  if (onClick) {
+    props.onClick = onClick;
+  } else {
+    props.disabled = true;
+    props["aria-hidden"] = true;
+  }
   return React.createElement(
     "button",
-    { className: `codex-tool codex-tool-${kind}`, type: "button", disabled: true, "aria-hidden": true },
+    props,
     text,
   );
 }
