@@ -96,6 +96,7 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
     case startpage
     case brave
     case perplexity
+    case exa
     case yahoo
     case ecosia
     case qwant
@@ -124,6 +125,8 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
             return String(localized: "settings.browser.searchEngine.brave", defaultValue: "Brave Search")
         case .perplexity:
             return String(localized: "settings.browser.searchEngine.perplexity", defaultValue: "Perplexity")
+        case .exa:
+            return String(localized: "settings.browser.searchEngine.exa", defaultValue: "Exa")
         case .yahoo:
             return String(localized: "settings.browser.searchEngine.yahoo", defaultValue: "Yahoo")
         case .ecosia:
@@ -161,6 +164,8 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
             return "https://search.brave.com/search?q={query}"
         case .perplexity:
             return "https://www.perplexity.ai/search?q={query}"
+        case .exa:
+            return "https://exa.ai/search?q={query}"
         case .yahoo:
             return "https://search.yahoo.com/search?p={query}"
         case .ecosia:
@@ -186,7 +191,7 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
         switch self {
         case .google, .duckduckgo, .bing, .kagi, .startpage:
             return true
-        case .brave, .perplexity, .yahoo, .ecosia, .qwant, .mojeek, .wikipedia, .github, .baidu, .yandex, .custom:
+        case .brave, .perplexity, .exa, .yahoo, .ecosia, .qwant, .mojeek, .wikipedia, .github, .baidu, .yandex, .custom:
             return false
         }
     }
@@ -2385,7 +2390,7 @@ actor BrowserSearchSuggestionService {
                 URLQueryItem(name: "q", value: query),
             ]
             url = c?.url
-        case .brave, .perplexity, .yahoo, .ecosia, .qwant, .mojeek, .wikipedia, .github, .baidu, .yandex, .custom:
+        case .brave, .perplexity, .exa, .yahoo, .ecosia, .qwant, .mojeek, .wikipedia, .github, .baidu, .yandex, .custom:
             url = nil
         }
 
@@ -2415,7 +2420,7 @@ actor BrowserSearchSuggestionService {
             return parseOSJSON(data: data)
         case .duckduckgo:
             return parseDuckDuckGo(data: data)
-        case .brave, .perplexity, .yahoo, .ecosia, .qwant, .mojeek, .wikipedia, .github, .baidu, .yandex, .custom:
+        case .brave, .perplexity, .exa, .yahoo, .ecosia, .qwant, .mojeek, .wikipedia, .github, .baidu, .yandex, .custom:
             return []
         }
     }

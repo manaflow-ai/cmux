@@ -4648,6 +4648,7 @@ final class BrowserSearchEngineTests: XCTestCase {
         let expectations: [(BrowserSearchEngine, String, String)] = [
             (.brave, "search.brave.com", "q=hello%20world"),
             (.perplexity, "www.perplexity.ai", "q=hello%20world"),
+            (.exa, "exa.ai", "q=hello%20world"),
             (.yahoo, "search.yahoo.com", "p=hello%20world"),
             (.ecosia, "www.ecosia.org", "q=hello%20world"),
             (.qwant, "www.qwant.com", "q=hello%20world"),

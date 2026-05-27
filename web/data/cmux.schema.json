@@ -835,7 +835,7 @@
       "properties": {
         "defaultSearchEngine": {
           "type": "string",
-          "enum": ["google", "duckduckgo", "bing", "kagi", "startpage", "brave", "perplexity", "yahoo", "ecosia", "qwant", "mojeek", "wikipedia", "github", "baidu", "yandex", "custom"],
+          "enum": ["google", "duckduckgo", "bing", "kagi", "startpage", "brave", "perplexity", "exa", "yahoo", "ecosia", "qwant", "mojeek", "wikipedia", "github", "baidu", "yandex", "custom"],
           "default": "google",
           "descriptionKey": "schemaDescriptions.browser.defaultSearchEngine",
           "description": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers."
