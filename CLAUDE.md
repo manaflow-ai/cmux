@@ -16,6 +16,14 @@ After making code changes, always run the reload script with a tag to build the 
 ./scripts/reload.sh --tag fix-zsh-autosuggestions
 ```
 
+**First-time setup:** `CodeEditSourceEditor` declares `SwiftLintPlugin` as a build-tool
+plugin. Open the project in Xcode.app once and click "Trust & Enable All". Xcode stores
+the decision in `IDEPackagePluginTrustTable.plist`; all subsequent command-line builds
+succeed without any extra flag.
+
+**CI / headless builds:** if Xcode cannot be opened interactively, set
+`CMUX_SKIP_PLUGIN_VALIDATION=1` after reviewing SwiftLintPlugin at the pinned revision.
+
 By default, `reload.sh` builds but does **not** launch the app. The script prints the `.app` path so the user can cmd-click to open it. After a successful build, it always terminates any running app with the same tag (so cmd-clicking launches the freshly-built binary instead of foregrounding the stale instance). Pass `--launch` to open the app automatically after the build:
 
 ```bash

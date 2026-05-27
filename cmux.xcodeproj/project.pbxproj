@@ -277,6 +277,8 @@
 		A5001250 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
 		A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
 		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
+		C0DE5EDEC0DE5EDE00000003 /* CodeEditSourceEditor in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE5EDEC0DE5EDE00000002 /* CodeEditSourceEditor */; };
+		C0DE5EDEC0DE5EDE00000013 /* CodeEditLanguages in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE5EDEC0DE5EDE00000012 /* CodeEditLanguages */; };
 		A50012F1 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F0 /* Backport.swift */; };
 		A50012F3 /* KeyboardShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F2 /* KeyboardShortcutSettings.swift */; };
 		C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B100000000000000002 /* TextBoxInput.swift */; };
@@ -312,6 +314,7 @@
 		E30760000000000000000002 /* TmuxWorkspacePaneOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */; };
 		A5001420 /* MarkdownPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001418 /* MarkdownPanel.swift */; };
 		A5001421 /* MarkdownPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001419 /* MarkdownPanelView.swift */; };
+		C0DE5EDEC0DE5EDE00000021 /* SyntaxLanguageDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE5EDEC0DE5EDE00000020 /* SyntaxLanguageDetector.swift */; };
 		A50014F2 /* MarkdownPanelFileLinkResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F0 /* MarkdownPanelFileLinkResolver.swift */; };
 		A50014F3 /* MarkdownViewerAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F1 /* MarkdownViewerAssets.swift */; };
 		A50014F5 /* MarkdownWebRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F4 /* MarkdownWebRenderer.swift */; };
@@ -904,6 +907,7 @@
 		E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayView.swift; sourceTree = "<group>"; };
 		A5001418 /* MarkdownPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanel.swift; sourceTree = "<group>"; };
 		A5001419 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelView.swift; sourceTree = "<group>"; };
+		C0DE5EDEC0DE5EDE00000020 /* SyntaxLanguageDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SyntaxLanguageDetector.swift; sourceTree = "<group>"; };
 		A50014F0 /* MarkdownPanelFileLinkResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelFileLinkResolver.swift; sourceTree = "<group>"; };
 		A50014F1 /* MarkdownViewerAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownViewerAssets.swift; sourceTree = "<group>"; };
 		A50014F4 /* MarkdownWebRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebRenderer.swift; sourceTree = "<group>"; };
@@ -1122,6 +1126,8 @@
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 				A5354303A5354303A5354303 /* CMUXSocketPathDomain in Frameworks */,
 				F20F85FC5900550685FA33AD /* StackAuth in Frameworks */,
+				C0DE5EDEC0DE5EDE00000003 /* CodeEditSourceEditor in Frameworks */,
+				C0DE5EDEC0DE5EDE00000013 /* CodeEditLanguages in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1477,14 +1483,15 @@
 				B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */,
 				A5007421 /* BrowserPopupWindowController.swift */,
 				A5007423 /* BrowserWebAuthnSupport.swift */,
-					A5001418 /* MarkdownPanel.swift */,
-					A50014F0 /* MarkdownPanelFileLinkResolver.swift */,
-					A5001419 /* MarkdownPanelView.swift */,
-					A50014F4 /* MarkdownWebRenderer.swift */,
-					A50014F6 /* MarkdownRemoteImageLoader.swift */,
-					A50014F8 /* MarkdownWebSupport.swift */,
-					A50014F1 /* MarkdownViewerAssets.swift */,
-					A5001423 /* FilePreviewPanel.swift */,
+				A5001418 /* MarkdownPanel.swift */,
+				A50014F0 /* MarkdownPanelFileLinkResolver.swift */,
+				A5001419 /* MarkdownPanelView.swift */,
+				C0DE5EDEC0DE5EDE00000020 /* SyntaxLanguageDetector.swift */,
+				A50014F4 /* MarkdownWebRenderer.swift */,
+				A50014F6 /* MarkdownRemoteImageLoader.swift */,
+				A50014F8 /* MarkdownWebSupport.swift */,
+				A50014F1 /* MarkdownViewerAssets.swift */,
+				A5001423 /* FilePreviewPanel.swift */,
 				CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */,
 				81E3615490F822CA0C8527C9 /* FilePreviewNativeViewSessions.swift */,
 				D5D8322021F224A1538F8988 /* FilePreviewPDFSession.swift */,
@@ -1783,6 +1790,8 @@
 				A5354305A5354305A5354305 /* CMUXSocketPathDomain */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
+				C0DE5EDEC0DE5EDE00000002 /* CodeEditSourceEditor */,
+				C0DE5EDEC0DE5EDE00000012 /* CodeEditLanguages */,
 			);
 			productName = cmux;
 			productReference = A5001000 /* cmux.app */;
@@ -1906,6 +1915,8 @@
 				A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 				A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+				C0DE5EDEC0DE5EDE00000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */,
+				C0DE5EDEC0DE5EDE00000011 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */,
 				A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
 				40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */,
 				AA11BB22CC33DD44EE550003 /* XCLocalSwiftPackageReference "CMUXWorkstream" */,
@@ -2249,15 +2260,16 @@
 				B0A501000000000000000001 /* BrowserOmnibarAppKitBridge.swift in Sources */,
 				B0A500000000000000000001 /* BrowserOmnibarPerformanceSupport.swift in Sources */,
 				A5007420 /* BrowserPopupWindowController.swift in Sources */,
-					A5007422 /* BrowserWebAuthnSupport.swift in Sources */,
-					A5001420 /* MarkdownPanel.swift in Sources */,
-					A50014F2 /* MarkdownPanelFileLinkResolver.swift in Sources */,
-					A5001421 /* MarkdownPanelView.swift in Sources */,
-					A50014F5 /* MarkdownWebRenderer.swift in Sources */,
-					A50014F7 /* MarkdownRemoteImageLoader.swift in Sources */,
-					A50014F9 /* MarkdownWebSupport.swift in Sources */,
-					A50014F3 /* MarkdownViewerAssets.swift in Sources */,
-					A5001422 /* FilePreviewPanel.swift in Sources */,
+				A5007422 /* BrowserWebAuthnSupport.swift in Sources */,
+				A5001420 /* MarkdownPanel.swift in Sources */,
+				A50014F2 /* MarkdownPanelFileLinkResolver.swift in Sources */,
+				A5001421 /* MarkdownPanelView.swift in Sources */,
+				C0DE5EDEC0DE5EDE00000021 /* SyntaxLanguageDetector.swift in Sources */,
+				A50014F5 /* MarkdownWebRenderer.swift in Sources */,
+				A50014F7 /* MarkdownRemoteImageLoader.swift in Sources */,
+				A50014F9 /* MarkdownWebSupport.swift in Sources */,
+				A50014F3 /* MarkdownViewerAssets.swift in Sources */,
+				A5001422 /* FilePreviewPanel.swift in Sources */,
 				BB49DF25341706C2A892C27C /* PanelOwnedNativeViewSession.swift in Sources */,
 				904D6350B3BB50DEDED3F410 /* FilePreviewNativeViewSessions.swift in Sources */,
 				C769A75E303493BCB5EC9CCC /* FilePreviewPDFSession.swift in Sources */,
@@ -3020,6 +3032,22 @@
 				minimumVersion = 2.4.1;
 			};
 		};
+		C0DE5EDEC0DE5EDE00000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/CodeEditApp/CodeEditSourceEditor";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.15.2;
+			};
+		};
+		C0DE5EDEC0DE5EDE00000011 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/CodeEditApp/CodeEditLanguages";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.1.20;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -3092,6 +3120,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */;
 			productName = StackAuth;
+		};
+		C0DE5EDEC0DE5EDE00000002 /* CodeEditSourceEditor */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0DE5EDEC0DE5EDE00000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */;
+			productName = CodeEditSourceEditor;
+		};
+		C0DE5EDEC0DE5EDE00000012 /* CodeEditLanguages */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0DE5EDEC0DE5EDE00000011 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */;
+			productName = CodeEditLanguages;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

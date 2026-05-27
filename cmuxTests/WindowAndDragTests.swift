@@ -2570,6 +2570,54 @@ final class FilePreviewFocusCoordinatorTests: XCTestCase {
     }
 }
 
+@MainActor
+final class FilePreviewTextInsertionTargetTests: XCTestCase {
+    func testDroppedFileURLsUseAttachedTextInsertionTarget() async throws {
+        let previewURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("txt")
+        let droppedURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("file with spaces.txt")
+        defer {
+            try? FileManager.default.removeItem(at: previewURL)
+            try? FileManager.default.removeItem(at: droppedURL)
+        }
+
+        try "preview".write(to: previewURL, atomically: true, encoding: .utf8)
+        try "dropped".write(to: droppedURL, atomically: true, encoding: .utf8)
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: previewURL.path)
+        await panel.loadTextContent().value
+
+        let target = FakeFilePreviewTextInsertionTarget(initialText: "prefix ")
+        panel.attachTextInsertionTarget(target)
+
+        let insertedText = TerminalImageTransferPlanner.insertedText(forFileURLs: [droppedURL])
+        XCTAssertTrue(panel.handleDroppedFileURLsAsText([droppedURL]))
+        XCTAssertTrue(target.didFocus)
+        XCTAssertEqual(target.filePreviewCurrentText, "prefix \(insertedText)")
+        XCTAssertEqual(panel.textContent, target.filePreviewCurrentText)
+    }
+}
+
+@MainActor
+private final class FakeFilePreviewTextInsertionTarget: FilePreviewTextInsertionTarget {
+    var filePreviewCurrentText: String
+    var didFocus = false
+
+    init(initialText: String) {
+        self.filePreviewCurrentText = initialText
+    }
+
+    func focusFilePreviewTextTarget() {
+        didFocus = true
+    }
+
+    func insertFilePreviewText(_ text: String) {
+        filePreviewCurrentText += text
+    }
+}
+
 
 final class FilePreviewDragPasteboardWriterTests: XCTestCase {
     override func setUp() {

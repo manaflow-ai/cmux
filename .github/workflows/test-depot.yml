@@ -121,6 +121,7 @@ jobs:
           for attempt in 1 2 3; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -skipPackagePluginValidation \
               -resolvePackageDependencies; then
               exit 0
             fi
@@ -141,6 +142,7 @@ jobs:
             xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
+              -skipPackagePluginValidation \
               -destination "platform=macOS" test 2>&1
           }
 
@@ -192,6 +194,7 @@ jobs:
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
+            -skipPackagePluginValidation \
             -destination "platform=macOS" \
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT" \
             $ONLY_TESTING test
