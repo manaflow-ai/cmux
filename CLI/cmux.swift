@@ -23573,8 +23573,13 @@ struct CMUXCLI {
         var commandParts: [String] = []
         commandParts.append(contentsOf: argv)
 
-        let command = commandParts.map(cliShellQuote).joined(separator: " ")
-        if let cwd = normalizedHookValue(workingDirectory) {
+        let cwd = normalizedHookValue(workingDirectory)
+        let sanitizedCommandParts = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+            from: commandParts,
+            workingDirectory: cwd
+        )
+        let command = sanitizedCommandParts.map(cliShellQuote).joined(separator: " ")
+        if let cwd {
             let quotedCwd = cliShellQuote(cwd)
             return "{ cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ]; } && \(command)"
         }

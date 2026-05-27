@@ -351,15 +351,15 @@ extension SocketListenerAcceptPolicyTests {
         )
         XCTAssertEqual(
             factory.resumeCommand,
-            "{ cd -- '/tmp/factory repo' 2>/dev/null || [ ! -d '/tmp/factory repo' ]; } && '/Users/example/.npm/bin/droid' '--resume' 'factory-session-123' '--cwd' '/tmp/factory repo' '--append-system-prompt' 'be terse'"
+            "{ cd -- '/tmp/factory repo' 2>/dev/null || [ ! -d '/tmp/factory repo' ]; } && '/Users/example/.npm/bin/droid' '--resume' 'factory-session-123' '--append-system-prompt' 'be terse'"
         )
         XCTAssertEqual(
             qoder.resumeCommand,
-            "{ cd -- '/tmp/qoder repo' 2>/dev/null || [ ! -d '/tmp/qoder repo' ]; } && 'env' 'QODER_CONFIG_DIR=/tmp/qoder config' '/Users/example/.npm/bin/qodercli' '--resume' 'qoder-session-123' '--model' 'gemini-2.5-pro' '--permission-mode' 'plan' '--workspace' '/tmp/qoder repo'"
+            "{ cd -- '/tmp/qoder repo' 2>/dev/null || [ ! -d '/tmp/qoder repo' ]; } && 'env' 'QODER_CONFIG_DIR=/tmp/qoder config' '/Users/example/.npm/bin/qodercli' '--resume' 'qoder-session-123' '--model' 'gemini-2.5-pro' '--permission-mode' 'plan'"
         )
         XCTAssertEqual(
             grok.resumeCommand,
-            "{ cd -- '/tmp/grok repo' 2>/dev/null || [ ! -d '/tmp/grok repo' ]; } && 'env' 'GROK_HOME=/tmp/grok home' '/Users/example/.grok/bin/grok' '-r' 'grok-session-123' '--model' 'grok-4' '--permission-mode' 'auto' '--cwd' '/tmp/grok repo'"
+            "{ cd -- '/tmp/grok repo' 2>/dev/null || [ ! -d '/tmp/grok repo' ]; } && 'env' 'GROK_HOME=/tmp/grok home' '/Users/example/.grok/bin/grok' '-r' 'grok-session-123' '--model' 'grok-4' '--permission-mode' 'auto'"
         )
         XCTAssertEqual(pi.resumeCommand, "{ cd -- '/tmp/pi repo' 2>/dev/null || [ ! -d '/tmp/pi repo' ]; } && 'env' 'PI_CODING_AGENT_DIR=/tmp/pi home' '/Users/example/.bun/bin/pi' '--session' 'pi-session-123' '--model' 'anthropic/claude-sonnet-4-5' '--thinking' 'high'")
         XCTAssertEqual(

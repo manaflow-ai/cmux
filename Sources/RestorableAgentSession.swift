@@ -56,7 +56,11 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
             from: trimmed,
             workingDirectory: workingDirectory
         )
-        return prefix(stripped, workingDirectory: workingDirectory)
+        let command = strippedSavedWorkingDirectoryOptions(
+            from: stripped,
+            workingDirectory: workingDirectory
+        )
+        return prefix(command, workingDirectory: workingDirectory)
     }
 
     private static func strippedRequiredChangeDirectoryPrefix(
@@ -82,6 +86,19 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         return command
     }
 
+    private static func strippedSavedWorkingDirectoryOptions(
+        from command: String,
+        workingDirectory: String
+    ) -> String {
+        let words = shellWords(command)
+        let stripped = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+            from: words,
+            workingDirectory: workingDirectory
+        )
+        guard stripped != words else { return command }
+        return stripped.map(TerminalStartupShellQuoting.singleQuoted).joined(separator: " ")
+    }
+
     private static func normalized(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -92,6 +109,53 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
 
     private static func legacySingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func shellWords(_ command: String) -> [String] {
+        enum Quote {
+            case single
+            case double
+        }
+
+        var words: [String] = []
+        var current = ""
+        var quote: Quote?
+        var escaping = false
+
+        func finishWord() {
+            guard !current.isEmpty else { return }
+            words.append(current)
+            current = ""
+        }
+
+        for character in command {
+            if escaping {
+                current.append(character)
+                escaping = false
+                continue
+            }
+            if character == "\\" {
+                escaping = true
+                continue
+            }
+            switch (quote, character) {
+            case (.single, "'"), (.double, "\""):
+                quote = nil
+            case (nil, "'"):
+                quote = .single
+            case (nil, "\""):
+                quote = .double
+            case (nil, " "), (nil, "\t"), (nil, "\n"):
+                finishWord()
+            default:
+                current.append(character)
+            }
+        }
+        if escaping {
+            current.append("\\")
+        }
+        finishWord()
+        return words
     }
 }
 
@@ -182,10 +246,14 @@ enum AgentResumeCommandBuilder {
         }
         commandParts.append(contentsOf: argv)
 
-        let shellCommand = commandParts.map(shellSingleQuoted).joined(separator: " ")
         let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
             ? nil
             : normalized(workingDirectory ?? launchCommand?.workingDirectory)
+        let sanitizedCommandParts = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+            from: commandParts,
+            workingDirectory: cwd
+        )
+        let shellCommand = sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
         return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
     }
 
