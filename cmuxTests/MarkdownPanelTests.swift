@@ -426,6 +426,65 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(after["top"] ?? .greatestFiniteMagnitude, before["top"] ?? 0, accuracy: 6)
     }
 
+    func testMarkdownRenderLargeDocumentPaintsTopBeforeFullDocumentCompletes() async throws {
+        let frame = NSRect(x: 0, y: 0, width: 720, height: 480)
+        let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = webView
+        window.orderFrontRegardless()
+        defer {
+            webView.navigationDelegate = nil
+            window.close()
+        }
+
+        try await loadMarkdownShell(in: webView, baseURLName: "large-document.md")
+
+        let result = try await webView.callAsyncJavaScript(
+            """
+            window.__cmuxRenderMarkdown(markdown);
+            const state = window.__cmuxMarkdownRenderState && window.__cmuxMarkdownRenderState();
+            return {
+              text: document.body.innerText.slice(0, 500),
+              large: state ? state.large : null,
+              complete: state ? state.complete : null,
+              renderedChunks: state ? state.renderedChunks : null,
+              totalChunks: state ? state.totalChunks : null
+            };
+            """,
+            arguments: ["markdown": Self.largeTweetLikeMarkdown(entryCount: 900)],
+            in: nil,
+            contentWorld: .page
+        )
+        let snapshot = try XCTUnwrap(result as? [String: Any])
+        let text = try XCTUnwrap(snapshot["text"] as? String)
+        let renderedChunks = try XCTUnwrap(snapshot["renderedChunks"] as? NSNumber)
+        let totalChunks = try XCTUnwrap(snapshot["totalChunks"] as? NSNumber)
+
+        XCTAssertTrue(text.contains("@lawrencecchen Tweet Log"))
+        XCTAssertEqual(snapshot["large"] as? Bool, true)
+        XCTAssertEqual(snapshot["complete"] as? Bool, false)
+        XCTAssertEqual(renderedChunks.intValue, 1)
+        XCTAssertGreaterThan(totalChunks.intValue, renderedChunks.intValue)
+
+        let completed = try await webView.callAsyncJavaScript(
+            """
+            await window.__cmuxWhenMarkdownRenderComplete();
+            const state = window.__cmuxMarkdownRenderState();
+            return {
+              complete: state.complete,
+              text: document.body.innerText
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        let completedSnapshot = try XCTUnwrap(completed as? [String: Any])
+        let completedText = try XCTUnwrap(completedSnapshot["text"] as? String)
+        XCTAssertEqual(completedSnapshot["complete"] as? Bool, true)
+        XCTAssertTrue(completedText.contains("entry 899"))
+    }
+
     func testMarkdownRenderHandlesLocalImageSources() async throws {
         let fileManager = FileManager.default
         let rootURL = fileManager.temporaryDirectory
@@ -1148,6 +1207,55 @@ final class MarkdownPanelTests: XCTestCase {
         let data = try JSONSerialization.data(withJSONObject: [markdown])
         let literal = try XCTUnwrap(String(data: data, encoding: .utf8))
         _ = try await webView.evaluateJavaScript("window.__cmuxRenderMarkdown(\(literal)[0]);")
+    }
+
+    private func loadMarkdownShell(in webView: WKWebView, baseURLName: String) async throws {
+        let loaded = expectation(description: "markdown shell loaded")
+        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
+        webView.navigationDelegate = loadDelegate
+        webView.loadHTMLString(
+            MarkdownViewerAssets.shared.shellHTML(isDark: true),
+            baseURL: FileManager.default.temporaryDirectory.appendingPathComponent(baseURLName)
+        )
+        await fulfillment(of: [loaded], timeout: 5)
+        if let error = loadDelegate.error {
+            throw error
+        }
+    }
+
+    private static func largeTweetLikeMarkdown(entryCount: Int) -> String {
+        var lines: [String] = [
+            "# @lawrencecchen Tweet Log",
+            "",
+            "Purpose: durable tweet memory for posts by `@lawrencecchen`.",
+            "",
+            "## 2026"
+        ]
+        for index in 0..<entryCount {
+            lines.append(
+                """
+                ### 2026-05-26, synthetic entry \(index)
+
+                - URL: https://x.com/lawrencecchen/status/\(2_000_000_000_000_000_000 + index)
+                - Type: reply
+                - Topic key: cmux-agent-tools
+                - Angle: unclassified
+                - Funnel stage: unclassified
+                - Assets: unknown
+                - Related PRs: unknown
+                - Public metrics: replies \(index % 4), reposts \(index % 3), likes \(index % 29), bookmarks unknown, views \(index * 17)
+                - Analytics metrics: impressions unknown, bookmarks unknown, profile clicks unknown, link clicks unknown
+                - Metric source: X search card
+                - Notes:
+
+                Text:
+
+                > synthetic tweet text for entry \(index)
+                > with enough body text to resemble the captured tweet log.
+                """
+            )
+        }
+        return lines.joined(separator: "\n")
     }
 
     private func evaluateScrollSnapshot(_ script: String, in webView: WKWebView) async throws -> [String: Double] {
