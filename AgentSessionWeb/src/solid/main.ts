@@ -16,7 +16,7 @@ import {
   type Action,
   type SessionState,
 } from "../shared/sessionModel";
-import type { ProviderId } from "../shared/types";
+import type { ProviderId, ProviderInfo } from "../shared/types";
 
 function App() {
   const [state, setState] = createSignal<SessionState>(initialState("solid"));
@@ -55,19 +55,43 @@ function SessionSurface({
   const log = document.createElement("div");
   log.className = "log";
   root.append(log);
+  const logRows = new Map<string, HTMLDivElement>();
   createEffect(() => {
-    log.replaceChildren();
-    for (const entry of state().log) {
-      const row = document.createElement("div");
+    const entries = state().log.filter((entry) => entry.level !== "info");
+    const liveIds = new Set(entries.map((entry) => entry.id));
+    for (const [id, row] of logRows) {
+      if (!liveIds.has(id)) {
+        row.remove();
+        logRows.delete(id);
+      }
+    }
+    entries.forEach((entry, index) => {
+      let row = logRows.get(entry.id);
+      if (!row) {
+        row = document.createElement("div");
+        const label = document.createElement("span");
+        label.className = "log-label";
+        const text = document.createElement("span");
+        text.className = "log-text";
+        row.append(label, text);
+        logRows.set(entry.id, row);
+      }
       row.className = `log-line ${entry.level}`;
-      const label = document.createElement("span");
-      label.className = "log-label";
-      label.textContent = entry.level;
-      const text = document.createElement("span");
-      text.className = "log-text";
-      text.textContent = entry.text;
-      row.append(label, text);
-      log.append(row);
+      const label = row.firstElementChild;
+      const text = row.lastElementChild;
+      if (label?.textContent !== entry.level) {
+        label!.textContent = entry.level;
+      }
+      if (text?.textContent !== entry.text) {
+        text!.textContent = entry.text;
+      }
+      const current = log.children.item(index);
+      if (current !== row) {
+        log.insertBefore(row, current);
+      }
+    });
+    while (log.children.length > entries.length) {
+      log.lastElementChild?.remove();
     }
   });
 
@@ -98,6 +122,16 @@ function SessionSurface({
   const textarea = document.createElement("textarea");
   textarea.className = "prompt-input";
   textarea.addEventListener("input", () => dispatch({ type: "setInput", input: textarea.value }));
+  textarea.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    if (event.shiftKey || event.altKey) {
+      return;
+    }
+    event.preventDefault();
+    void sendInput(state(), dispatch);
+  });
   composerBody.append(textarea);
   const insertToken = (token: "@" | "$") => {
     const insertion = insertComposerToken({
@@ -169,8 +203,8 @@ function SessionSurface({
     select.value = state().selectedProviderId;
     select.disabled = state().status === "running" || state().status === "starting" || state().status === "stopping";
     select.setAttribute("aria-label", state().context?.copy.provider ?? "");
-    modelIcon.textContent = provider() ? providerBadgeLabel(provider()!.displayName) : "C";
-    modelLabel.textContent = provider() ? codexModelLabel(provider()!.displayName) : "GPT-5.5";
+    modelIcon.textContent = provider() ? providerBadgeLabel(provider()!) : "C";
+    modelLabel.textContent = codexModelLabel(provider());
   });
 
   const controlsRight = document.createElement("div");
@@ -245,19 +279,20 @@ function SessionSurface({
   return root;
 }
 
-function codexModelLabel(displayName: string): string {
-  if (displayName.toLowerCase() === "codex") {
+function codexModelLabel(provider: ProviderInfo | undefined): string {
+  if (provider?.id === "codex") {
     return "GPT-5.5";
   }
-  return displayName;
+  return provider?.displayName ?? "GPT-5.5";
 }
 
-function providerBadgeLabel(displayName: string): string {
+function providerBadgeLabel(provider: ProviderInfo): string {
+  const displayName = provider.displayName;
   const lower = displayName.toLowerCase();
-  if (lower.includes("claude")) {
+  if (provider.id === "claude" || lower.includes("claude")) {
     return "Cl";
   }
-  if (lower.includes("open")) {
+  if (provider.id === "opencode" || lower.includes("open")) {
     return "O";
   }
   if (lower === "pi" || lower.includes(" pi")) {

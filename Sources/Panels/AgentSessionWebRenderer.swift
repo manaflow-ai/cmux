@@ -359,6 +359,10 @@ extension AgentSessionWebRenderer {
             didReceive message: WKScriptMessage,
             replyHandler: @escaping (Any?, String?) -> Void
         ) {
+            guard message.frameInfo.isMainFrame else {
+                replyHandler(["ok": false, "error": [:]], nil)
+                return
+            }
             Task { @MainActor in
                 do {
                     let request = try AgentSessionBridgeRequest(body: message.body)
@@ -553,10 +557,11 @@ extension AgentSessionWebRenderer {
                 }
             case "provider.start":
                 let provider = try request.providerID()
-                let resolver = AgentExecutableResolver(
-                    configuredExecutablePaths: AgentExecutableResolver.cmuxConfiguredExecutablePaths()
-                )
-                let plan = try resolver.resolve(provider)
+                let configuredExecutablePaths = AgentExecutableResolver.cmuxConfiguredExecutablePaths()
+                let plan = try await Task.detached(priority: .userInitiated) {
+                    let resolver = AgentExecutableResolver(configuredExecutablePaths: configuredExecutablePaths)
+                    return try resolver.resolve(provider)
+                }.value
                 let session = try processStore.start(
                     plan: plan,
                     workingDirectory: request.string("workingDirectory") ?? workingDirectory
@@ -665,46 +670,46 @@ private enum AgentSessionBridgeError: LocalizedError {
         case .invalidRequest:
             return String(localized: "agentSession.bridge.error.invalidRequest", defaultValue: "Invalid bridge request.")
         case .invalidProvider(let provider):
-            let format = String(
+            _ = provider
+            return String(
                 localized: "agentSession.bridge.error.invalidProvider",
-                defaultValue: "Unknown provider: %@"
+                defaultValue: "Unknown provider."
             )
-            return String(format: format, provider)
         case .missingParameter(let parameter):
-            let format = String(
+            _ = parameter
+            return String(
                 localized: "agentSession.bridge.error.missingParameter",
-                defaultValue: "Missing bridge parameter: %@"
+                defaultValue: "The bridge request is missing required data."
             )
-            return String(format: format, parameter)
         case .unsupportedMethod(let method):
-            let format = String(
+            _ = method
+            return String(
                 localized: "agentSession.bridge.error.unsupportedMethod",
-                defaultValue: "Unsupported bridge method: %@"
+                defaultValue: "Unsupported bridge method."
             )
-            return String(format: format, method)
         case .sessionNotFound(let sessionId):
-            let format = String(
+            _ = sessionId
+            return String(
                 localized: "agentSession.bridge.error.sessionNotFound",
-                defaultValue: "Agent session was not found: %@"
+                defaultValue: "The agent session has already ended."
             )
-            return String(format: format, sessionId)
         case .sessionAlreadyRunning:
             return String(
                 localized: "agentSession.bridge.error.sessionAlreadyRunning",
                 defaultValue: "An agent session is already running."
             )
         case .providerNotReady(let provider):
-            let format = String(
+            _ = provider
+            return String(
                 localized: "agentSession.bridge.error.providerNotReady",
-                defaultValue: "%@ is not ready yet."
+                defaultValue: "The provider is not ready yet."
             )
-            return String(format: format, provider)
         case .unsupportedTransport(let transport):
-            let format = String(
+            _ = transport
+            return String(
                 localized: "agentSession.bridge.error.unsupportedTransport",
-                defaultValue: "Agent transport is not supported: %@"
+                defaultValue: "Agent transport is not supported."
             )
-            return String(format: format, transport)
         }
     }
 }
@@ -1040,13 +1045,15 @@ private final class AgentSessionProcessStore {
         installReadHandler(stderr.fileHandleForReading, sessionId: sessionId, stream: "stderr")
         process.terminationHandler = { [weak self] process in
             Task { @MainActor in
-                self?.eventSink?([
-                    "type": "provider.exit",
-                    "sessionId": sessionId,
-                    "providerId": plan.provider.rawValue,
-                    "status": process.terminationStatus
-                ])
-                self?.sessions.removeValue(forKey: sessionId)
+                guard let self,
+                      let session = self.sessions.removeValue(forKey: sessionId) else {
+                    return
+                }
+                self.emitExit(
+                    sessionId: sessionId,
+                    providerID: session.providerID,
+                    status: process.terminationStatus
+                )
             }
         }
 
@@ -1176,11 +1183,28 @@ private final class AgentSessionProcessStore {
                 self.emitStarted(session: session)
             } catch {
                 session.isOpenCodeSessionCreateInFlight = false
+                guard let removedSession = self.sessions.removeValue(forKey: session.sessionId),
+                      removedSession === session else {
+                    return
+                }
+                if session.process.isRunning {
+                    session.process.terminate()
+                }
+                let message = (error as? AgentSessionBridgeError)?.localizedDescription
+                    ?? String(
+                        localized: "agentSession.opencode.error.sessionCreateFailed",
+                        defaultValue: "OpenCode session could not be created."
+                    )
                 self.emitOutput(
                     sessionId: session.sessionId,
                     providerID: session.providerID,
                     stream: "stderr",
-                    text: "\(error.localizedDescription)\n"
+                    text: "\(message)\n"
+                )
+                self.emitExit(
+                    sessionId: session.sessionId,
+                    providerID: session.providerID,
+                    status: 1
                 )
             }
         }
@@ -1276,6 +1300,19 @@ private final class AgentSessionProcessStore {
             "providerId": providerID.rawValue,
             "stream": stream,
             "text": text
+        ])
+    }
+
+    private func emitExit(
+        sessionId: String,
+        providerID: AgentSessionProviderID,
+        status: Int32
+    ) {
+        eventSink?([
+            "type": "provider.exit",
+            "sessionId": sessionId,
+            "providerId": providerID.rawValue,
+            "status": status
         ])
     }
 

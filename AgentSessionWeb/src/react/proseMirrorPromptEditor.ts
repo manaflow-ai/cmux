@@ -205,13 +205,16 @@ function replaceEditorText(view: EditorView, text: string): void {
 function insertPromptTextAtSelection(view: EditorView, text: string): void {
   const { state } = view;
   const { from, to } = state.selection;
-  const before = state.doc.textBetween(Math.max(0, from - 2), from, "\n", "\n");
+  const trigger = text.startsWith("@") ? "@" : text.startsWith("$") ? "$" : null;
+  const previousCharacter = state.doc.textBetween(Math.max(0, from - 1), from, "\n", "\n");
+  const insertFrom = trigger && previousCharacter === trigger ? from - 1 : from;
+  const before = state.doc.textBetween(Math.max(0, insertFrom - 2), insertFrom, "\n", "\n");
   const after = state.doc.textBetween(to, Math.min(state.doc.content.size, to + 2), "\n", "\n");
   const prefix = before.length > 0 && !/\s$/.test(before) ? " " : "";
-  const suffix = after.length > 0 && !/^\s/.test(after) ? " " : " ";
+  const suffix = after.length > 0 && !/^\s/.test(after) ? " " : "";
   const inserted = `${prefix}${text}${suffix}`;
-  const transaction = state.tr.insertText(inserted, from, to);
-  const cursor = from + inserted.length;
+  const transaction = state.tr.insertText(inserted, insertFrom, to);
+  const cursor = insertFrom + inserted.length;
   transaction.setSelection(TextSelection.create(transaction.doc, cursor));
   view.dispatch(transaction);
   view.focus();

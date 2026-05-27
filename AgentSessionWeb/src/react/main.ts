@@ -61,7 +61,7 @@ function SessionSurface({
   const canSend = state.status === "running" && state.input.trim().length > 0;
   const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
-  const modelLabel = provider ? codexModelLabel(provider.displayName) : "GPT-5.5";
+  const modelLabel = codexModelLabel(provider);
   const visibleLogEntries = state.log.filter((entry) => entry.level !== "info");
   const editorRef = useRef<PromptEditorHandle | null>(null);
   const [menuKind, setMenuKind] = useState<ComposerMenuKind>(null);
@@ -287,7 +287,7 @@ function ComposerTopTray({
           : null,
         ...state.providers.map((provider) => ({
           id: provider.id,
-          icon: providerBadgeLabel(provider.displayName),
+          icon: providerBadgeLabel(provider),
           label: provider.displayName,
           detail: provider.executableName,
           value: `@${provider.displayName}`,
@@ -362,19 +362,20 @@ type ComposerMenuItem = {
   value: string;
 };
 
-function codexModelLabel(displayName: string): string {
-  if (displayName.toLowerCase() === "codex") {
+function codexModelLabel(provider: { id: string; displayName: string } | undefined): string {
+  if (provider?.id === "codex") {
     return "GPT-5.5";
   }
-  return displayName;
+  return provider?.displayName ?? "GPT-5.5";
 }
 
-function providerBadgeLabel(displayName: string): string {
+function providerBadgeLabel(provider: { id: string; displayName: string }): string {
+  const displayName = provider.displayName;
   const lower = displayName.toLowerCase();
-  if (lower.includes("claude")) {
+  if (provider.id === "claude" || lower.includes("claude")) {
     return "Cl";
   }
-  if (lower.includes("open")) {
+  if (provider.id === "opencode" || lower.includes("open")) {
     return "O";
   }
   if (lower === "pi" || lower.includes(" pi")) {

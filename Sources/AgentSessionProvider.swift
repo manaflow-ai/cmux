@@ -10,11 +10,11 @@ enum AgentSessionProviderID: String, CaseIterable, Codable, Identifiable, Sendab
     var displayName: String {
         switch self {
         case .codex:
-            return String(localized: "agentSession.provider.codex", defaultValue: "Codex")
+            return "Codex"
         case .claude:
-            return String(localized: "agentSession.provider.claude", defaultValue: "Claude Code")
+            return "Claude Code"
         case .opencode:
-            return String(localized: "agentSession.provider.opencode", defaultValue: "OpenCode")
+            return "OpenCode"
         }
     }
 
@@ -77,9 +77,9 @@ enum AgentSessionRendererKind: String, CaseIterable, Codable, Identifiable, Send
     var displayName: String {
         switch self {
         case .react:
-            return String(localized: "agentSession.renderer.react", defaultValue: "React")
+            return "React"
         case .solid:
-            return String(localized: "agentSession.renderer.solid", defaultValue: "Solid")
+            return "Solid"
         }
     }
 
