@@ -107,6 +107,12 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "editWorkspaceDescription", combos: [["⌥", "⌘", "E"]], description: { en: "Edit workspace description", ja: "ワークスペースの説明を編集" } },
       { id: "focusRightSidebar", combos: [["⌘", "⇧", "E"]], description: { en: "Toggle right-sidebar focus", ja: "右サイドバーのフォーカスを切り替え" } },
       {
+        id: "switchRightSidebarToCodeReview",
+        combos: [],
+        description: { en: "Show right-sidebar Code Review", ja: "右サイドバーのコードレビューを表示" },
+        note: { en: "unbound by default; active when the right sidebar has focus", ja: "デフォルトでは未割り当て。右サイドバーにフォーカスがあるときに有効" },
+      },
+      {
         id: "navigateRightSidebarRows",
         combos: [["J / K"], ["⌃", "N / P"], ["H / L"]],
         description: { en: "Navigate focused sidebar rows", ja: "フォーカス中のサイドバー行を移動" },

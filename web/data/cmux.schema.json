@@ -946,6 +946,7 @@
               "focusRightSidebar",
               "switchRightSidebarToFiles",
               "switchRightSidebarToFind",
+              "switchRightSidebarToCodeReview",
               "switchRightSidebarToSessions",
               "switchRightSidebarToFeed",
               "switchRightSidebarToDock",

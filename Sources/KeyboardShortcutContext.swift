@@ -49,7 +49,13 @@ extension KeyboardShortcutSettings.Action {
 
     var shortcutContext: ShortcutContext {
         switch self {
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock, .switchRightSidebarToHistory:
+        case .switchRightSidebarToFiles,
+             .switchRightSidebarToFind,
+             .switchRightSidebarToCodeReview,
+             .switchRightSidebarToSessions,
+             .switchRightSidebarToFeed,
+             .switchRightSidebarToDock,
+             .switchRightSidebarToHistory:
             return .rightSidebarFocus
         case .renameTab, .renameWorkspace:
             return .nonBrowserPanel

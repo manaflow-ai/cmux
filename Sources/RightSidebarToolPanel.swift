@@ -9,6 +9,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     let mode: RightSidebarMode
 
     @Published private(set) var focusFlashToken: Int = 0
+    @Published private(set) var codeReviewRootPath: String?
     @Published private(set) var historySearchFocusToken: Int = 0
 
     private weak var workspace: Workspace?
@@ -18,11 +19,15 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private var fileExplorerStoreStorage: FileExplorerStore?
     private var fileExplorerStateStorage: FileExplorerState?
     private var sessionIndexStoreStorage: SessionIndexStore?
+    private var codeReviewStoreStorage: GitDiffReviewStore?
     private var workspaceObservationCancellable: AnyCancellable?
 
     init(workspace: Workspace, mode: RightSidebarMode) {
         self.id = UUID()
         self.mode = mode
+        if mode == .codeReview {
+            self.codeReviewStoreStorage = GitDiffReviewStore()
+        }
         reattach(to: workspace)
     }
 
@@ -58,6 +63,18 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         return store
     }
 
+    var codeReviewStore: GitDiffReviewStore {
+        if let store = codeReviewStoreStorage { return store }
+        let store = GitDiffReviewStore()
+        codeReviewStoreStorage = store
+        if let rootPath = codeReviewRootPath {
+            store.setRootPath(rootPath)
+        } else if let workspace {
+            syncCodeReviewRoot(from: workspace, store: store)
+        }
+        return store
+    }
+
     var displayTitle: String { mode.label }
     var displayIcon: String? { mode.symbolName }
 
@@ -87,6 +104,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard let store = sessionIndexStoreStorage else { return }
             syncSessionIndexRoot(from: workspace, store: store)
+        case .codeReview:
+            syncCodeReviewRoot(from: workspace, store: codeReviewStoreStorage)
         case .feed, .dock, .history:
             break
         }
@@ -115,6 +134,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         historyFocusAnchorView = nil
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
         sessionIndexStoreStorage?.setCurrentDirectoryIfChanged(nil)
+        codeReviewRootPath = nil
+        codeReviewStoreStorage?.setRootPath(nil)
         workspaceObservationCancellable = nil
     }
 
@@ -133,7 +154,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             guard let anchor = historyFocusAnchorView,
                   let window = anchor.window else { return }
             _ = window.makeFirstResponder(anchor)
-        case .feed, .dock:
+        case .codeReview, .feed, .dock:
             break
         }
     }
@@ -158,7 +179,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .history:
             guard historyFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
             return .panel
-        case .feed, .dock:
+        case .codeReview, .feed, .dock:
             return nil
         }
     }
@@ -224,6 +245,19 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         store.setCurrentDirectoryIfChanged(directory.isEmpty ? nil : directory)
     }
+
+    private func syncCodeReviewRoot(from workspace: Workspace, store: GitDiffReviewStore?) {
+        guard !workspace.isRemoteWorkspace else {
+            codeReviewRootPath = nil
+            store?.setRootPath(nil)
+            return
+        }
+
+        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rootPath = directory.isEmpty ? nil : directory
+        codeReviewRootPath = rootPath
+        store?.setRootPath(rootPath)
+    }
 }
 
 struct RightSidebarToolPanelView: View {
@@ -284,6 +318,8 @@ struct RightSidebarToolPanelView: View {
                 RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
                     .frame(width: 0, height: 0)
             )
+        case .codeReview:
+            CodeReviewPanelView(store: panel.codeReviewStore, rootPath: panel.codeReviewRootPath)
         case .history:
             HistoryPanelView(
                 focusSearchToken: panel.historySearchFocusToken,

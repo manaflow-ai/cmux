@@ -12,6 +12,7 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
 nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case files
     case find
+    case codeReview
     case sessions
     case feed
     case dock
@@ -21,6 +22,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         switch self {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
+        case .codeReview: return String(localized: "rightSidebar.mode.codeReview", defaultValue: "Code Review")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
@@ -32,6 +34,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         switch self {
         case .files: return "folder"
         case .find: return "magnifyingglass"
+        case .codeReview: return "doc.text.magnifyingglass"
         case .sessions: return "books.vertical"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
@@ -43,6 +46,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         switch self {
         case .files: return .switchRightSidebarToFiles
         case .find: return .switchRightSidebarToFind
+        case .codeReview: return .switchRightSidebarToCodeReview
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
@@ -52,7 +56,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
 }
 
 extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions, .history]
+    static let paneModes: [RightSidebarMode] = [.files, .find, .codeReview, .sessions, .history]
 
     var canOpenAsPane: Bool {
         Self.paneModes.contains(self)
@@ -67,6 +71,9 @@ extension RightSidebarMode {
         }
         if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFind).matches(event: event) {
             return .find
+        }
+        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToCodeReview).matches(event: event) {
+            return .codeReview
         }
         if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToSessions).matches(event: event) {
             return .sessions
@@ -174,6 +181,7 @@ struct RightSidebarPanelView: View {
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var historySearchFocusToken = 0
     @StateObject private var dockStore = DockControlsStore()
+    @State private var codeReviewStore = GitDiffReviewStore()
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
     private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
@@ -411,6 +419,8 @@ struct RightSidebarPanelView: View {
                 .onAppear {
                     sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                 }
+        case .codeReview:
+            CodeReviewPanelView(store: codeReviewStore, rootPath: sessionIndexDirectory)
         case .feed:
             FeedPanelView()
         case .dock:
@@ -692,7 +702,7 @@ private struct ModeBarButton: View {
                 geometryKeyPrefix: "rightSidebarModeControl_\(mode.rawValue)"
             )
             .overlay(alignment: .trailing) {
-                if showsShortcutHint {
+                if showsShortcutHint, !shortcutHint.isUnbound {
                     ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
                         .offset(x: 5)
                         .shortcutHintTransition()
