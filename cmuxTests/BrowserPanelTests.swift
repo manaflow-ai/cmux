@@ -242,17 +242,37 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
     }
 
     func testDiffViewerURLIsNotPersistedForSessionRestore() throws {
-        let url = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
-        let panel = BrowserPanel(
+        let schemeURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
+        let schemePanel = BrowserPanel(
             workspaceId: UUID(),
-            initialURL: url,
+            initialURL: schemeURL,
             renderInitialNavigation: false
         )
 
-        XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
-        XCTAssertNil(panel.preferredURLStringForSessionSnapshot())
-        XCTAssertFalse(panel.shouldPersistSessionSnapshot())
-        XCTAssertFalse(panel.shouldRenderWebViewForSessionSnapshot())
+        XCTAssertEqual(schemePanel.preferredURLStringForOmnibar(), schemeURL.absoluteString)
+        XCTAssertNil(schemePanel.preferredURLStringForSessionSnapshot())
+        XCTAssertFalse(schemePanel.shouldPersistSessionSnapshot())
+        XCTAssertFalse(schemePanel.shouldRenderWebViewForSessionSnapshot())
+
+        let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#cmux-diff-viewer"))
+        let loopbackPanel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: loopbackURL,
+            renderInitialNavigation: false
+        )
+        XCTAssertEqual(loopbackPanel.preferredURLStringForOmnibar(), loopbackURL.absoluteString)
+        XCTAssertNil(loopbackPanel.preferredURLStringForSessionSnapshot())
+        XCTAssertFalse(loopbackPanel.shouldPersistSessionSnapshot())
+        XCTAssertFalse(loopbackPanel.shouldRenderWebViewForSessionSnapshot())
+
+        let normalLocalhostURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/app"))
+        let normalLocalhostPanel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: normalLocalhostURL,
+            renderInitialNavigation: false
+        )
+        XCTAssertEqual(normalLocalhostPanel.preferredURLStringForSessionSnapshot(), normalLocalhostURL.absoluteString)
+        XCTAssertTrue(normalLocalhostPanel.shouldPersistSessionSnapshot())
     }
 }
 

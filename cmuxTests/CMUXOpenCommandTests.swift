@@ -275,9 +275,9 @@ final class CMUXOpenCommandTests: XCTestCase {
                   params["focus"] as? Bool == true,
                   let rawURL = params["url"] as? String,
                   let viewerURL = URL(string: rawURL),
-                  viewerURL.scheme == "cmux-diff-viewer",
-                  params["diff_viewer_token"] as? String == viewerURL.host,
-                  (params["diff_viewer_files"] as? [[String: Any]])?.isEmpty == false else {
+                  viewerURL.scheme == "http",
+                  viewerURL.host == "127.0.0.1",
+                  viewerURL.fragment == "cmux-diff-viewer" else {
                 return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
             }
             return Self.v2Response(
@@ -315,8 +315,11 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(params["show_omnibar"] as? Bool, false)
         let rawURL = try XCTUnwrap(params["url"] as? String)
         let viewerURL = try XCTUnwrap(URL(string: rawURL))
-        XCTAssertEqual(viewerURL.scheme, "cmux-diff-viewer")
-        XCTAssertEqual(params["diff_viewer_token"] as? String, viewerURL.host)
+        XCTAssertEqual(viewerURL.scheme, "http")
+        XCTAssertEqual(viewerURL.host, "127.0.0.1")
+        XCTAssertEqual(viewerURL.fragment, "cmux-diff-viewer")
+        XCTAssertNil(params["diff_viewer_token"])
+        XCTAssertNil(params["diff_viewer_files"])
         let viewerFileURL = try diffViewerHTMLFileURL(from: params)
         defer { try? FileManager.default.removeItem(at: viewerFileURL) }
         let patchSidecarURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
@@ -325,7 +328,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let html = try String(contentsOf: viewerFileURL, encoding: .utf8)
         let patchText = try String(contentsOf: patchSidecarURL, encoding: .utf8)
         let viewerPayload = try diffViewerPayload(from: html)
-        let files = try XCTUnwrap(params["diff_viewer_files"] as? [[String: Any]])
+        let files = try diffViewerAllowedFiles(for: rawURL, from: params)
         XCTAssertTrue(html.contains("Review diff"), html)
         XCTAssertTrue(html.contains("id=\"files-sidebar\""), html)
         XCTAssertTrue(html.contains("grid-template-areas: \"viewer files\""), html)
@@ -430,7 +433,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(result.html.contains("\"externalURL\":\"\(originalURL)\""), result.html)
         XCTAssertTrue(result.html.contains("\"sourceLabel\":\"\(originalURL)\""), result.html)
         XCTAssertTrue(result.html.contains("id=\"external-link\""), result.html)
-        let files = try XCTUnwrap(result.params["diff_viewer_files"] as? [[String: Any]])
+        let rawURL = try XCTUnwrap(result.params["url"] as? String)
+        let files = try diffViewerAllowedFiles(for: rawURL, from: result.params)
         let patchFile = try XCTUnwrap(files.first { file in
             file["mime_type"] as? String == "text/x-diff"
         })
@@ -1656,9 +1660,12 @@ final class CMUXOpenCommandTests: XCTestCase {
         let params = try XCTUnwrap(commandPayload["params"] as? [String: Any])
         let rawURL = try XCTUnwrap(params["url"] as? String)
         let viewerURL = try XCTUnwrap(URL(string: rawURL))
-        XCTAssertEqual(viewerURL.scheme, "cmux-diff-viewer")
-        XCTAssertEqual(params["diff_viewer_token"] as? String, viewerURL.host)
-        let viewerFileURL = try diffViewerHTMLFileURL(from: params)
+        XCTAssertEqual(viewerURL.scheme, "http")
+        XCTAssertEqual(viewerURL.host, "127.0.0.1")
+        XCTAssertEqual(viewerURL.fragment, "cmux-diff-viewer")
+        XCTAssertNil(params["diff_viewer_token"])
+        XCTAssertNil(params["diff_viewer_files"])
+        let viewerFileURL = try diffViewerHTMLFileURL(for: rawURL, from: params)
         defer { try? FileManager.default.removeItem(at: viewerFileURL) }
         let html = try String(contentsOf: viewerFileURL, encoding: .utf8)
         let patchURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
@@ -1674,6 +1681,18 @@ final class CMUXOpenCommandTests: XCTestCase {
 
     private func diffViewerHTMLFileURL(for rawURL: String, from params: [String: Any]) throws -> URL {
         let viewerURL = try XCTUnwrap(URL(string: rawURL))
+        if viewerURL.scheme == "http" {
+            XCTAssertEqual(viewerURL.host, "127.0.0.1")
+            let files = try diffViewerAllowedFiles(for: rawURL, from: params)
+            let manifestRequestPath = try diffViewerManifestRequestPath(for: viewerURL)
+            let entry = try XCTUnwrap(files.first { file in
+                file["request_path"] as? String == manifestRequestPath &&
+                    file["mime_type"] as? String == "text/html"
+            })
+            let filePath = try XCTUnwrap(entry["file_path"] as? String)
+            return URL(fileURLWithPath: filePath, isDirectory: false)
+        }
+
         let files = try XCTUnwrap(params["diff_viewer_files"] as? [[String: Any]])
         let rawRequestPath = URLComponents(url: viewerURL, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? viewerURL.path
         let requestPath = rawRequestPath.isEmpty ? "/" : rawRequestPath
@@ -1683,6 +1702,34 @@ final class CMUXOpenCommandTests: XCTestCase {
         })
         let filePath = try XCTUnwrap(entry["file_path"] as? String)
         return URL(fileURLWithPath: filePath, isDirectory: false)
+    }
+
+    private func diffViewerAllowedFiles(for rawURL: String, from params: [String: Any]) throws -> [[String: Any]] {
+        let viewerURL = try XCTUnwrap(URL(string: rawURL))
+        if viewerURL.scheme == "http" {
+            let token = try diffViewerHTTPToken(for: viewerURL)
+            let manifestURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
+                .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+                .appendingPathComponent(".manifest-\(token).json", isDirectory: false)
+            let manifest = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
+            )
+            return try XCTUnwrap(manifest["files"] as? [[String: Any]])
+        }
+        return try XCTUnwrap(params["diff_viewer_files"] as? [[String: Any]])
+    }
+
+    private func diffViewerHTTPToken(for url: URL) throws -> String {
+        let requestPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
+        let pathParts = requestPath.split(separator: "/", omittingEmptySubsequences: true)
+        return try XCTUnwrap(pathParts.first.map(String.init))
+    }
+
+    private func diffViewerManifestRequestPath(for url: URL) throws -> String {
+        let requestPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
+        let pathParts = requestPath.split(separator: "/", omittingEmptySubsequences: true)
+        _ = try XCTUnwrap(pathParts.first)
+        return "/" + pathParts.dropFirst().joined(separator: "/")
     }
 
     private func diffViewerPayload(from html: String) throws -> [String: Any] {

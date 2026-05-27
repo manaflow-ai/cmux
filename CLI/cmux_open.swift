@@ -272,6 +272,7 @@ extension CMUXCLI {
 
     private struct DiffViewerURLMapper {
         static let scheme = "cmux-diff-viewer"
+        static let sessionHistoryMarker = "cmux-diff-viewer"
         private static let requestPathAllowedCharacters: CharacterSet = {
             var characters = CharacterSet.urlPathAllowed
             characters.remove(charactersIn: "/?#%")
@@ -288,7 +289,7 @@ extension CMUXCLI {
             }
             components.percentEncodedPath = "/\(token)\(try requestPath(for: fileURL))"
             components.query = nil
-            components.fragment = nil
+            components.fragment = Self.sessionHistoryMarker
             guard let url = components.url else {
                 throw CLIError(message: "Failed to build diff viewer URL")
             }

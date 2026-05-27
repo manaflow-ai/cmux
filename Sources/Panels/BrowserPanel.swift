@@ -7262,7 +7262,16 @@ extension BrowserPanel {
     }
 
     private static func isTemporarySessionHistoryURL(_ url: URL?) -> Bool {
-        url?.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme
+        guard let url else { return false }
+        if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
+            return true
+        }
+        guard url.fragment == "cmux-diff-viewer",
+              url.scheme?.lowercased() == "http",
+              url.host == "127.0.0.1" else {
+            return false
+        }
+        return true
     }
 
 }
