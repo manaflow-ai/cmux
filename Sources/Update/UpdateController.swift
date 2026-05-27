@@ -361,6 +361,8 @@ class UpdateController {
 
     private func shouldWaitForCancelledSession(afterCancelling state: UpdateState) -> Bool {
         switch state {
+        case .checking(let checking):
+            return checking.waitsForCancellation
         case .updateAvailable, .downloading, .notFound:
             return true
         default:

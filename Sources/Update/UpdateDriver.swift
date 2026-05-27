@@ -300,7 +300,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
             timedOutOperationGeneration = nil
             let generation = currentOperationGeneration
             lastCheckStart = Date()
-            applyState(.checking(.init(cancel: cancel)))
+            applyState(.checking(.init(cancel: cancel, waitsForCancellation: true)))
             scheduleStateTimeout(stage: .checking, generation: generation, cancellation: cancel)
         }
     }

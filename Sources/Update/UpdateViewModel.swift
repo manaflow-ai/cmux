@@ -557,6 +557,7 @@ enum UpdateState: Equatable {
 
     struct Checking {
         let cancel: () -> Void
+        var waitsForCancellation = false
     }
 
     struct UpdateAvailable {
