@@ -2419,7 +2419,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             let metalScene = CanvasScene(presentation: presentation)
             let visibleItems = presentation.presentationSurfaces.map(\.item)
             let transform = metalScene.transform
-            let scrollPassthroughFrames = presentation.nativeOverlays.map(\.contentFrameInCanvas)
+            let scrollPassthroughFrames: [CGRect] = []
             let nativePresentationRequests = canvasSurfacePortalRequests(
                 presentation: presentation
             )
@@ -2452,6 +2452,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                             y: card.canvasRect.minY + (card.displaySize.height / 2)
                         )
                         .opacity(usesUnifiedTexturePresentation ? 0 : 1)
+                        .allowsHitTesting(!usesUnifiedTexturePresentation)
                         .zIndex(card.zIndex)
                 }
 
