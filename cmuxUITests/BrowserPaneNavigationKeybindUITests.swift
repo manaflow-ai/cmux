@@ -849,6 +849,67 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testCanvasProgrammaticPanKeepsTerminalPortalAlignedWithCanvasFrame() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_ALLOW_UNFOCUSED_BROWSER"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] = "1"
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(waitForSocketPong(timeout: 8.0), "Expected debug socket at \(socketPath)")
+        XCTAssertTrue(
+            waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
+            "Expected split setup data before testing canvas portal pan sync. data=\(loadData() ?? [:])"
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                self.canvasLayout()?["canvasActiveRenderMode"] as? String == "liveNative1x" &&
+                    self.selectedCanvasPanel(panelType: "terminal")?["portalFrameInWindow"] != nil &&
+                    self.selectedCanvasPanel(panelType: "terminal")?["canvasPortalFrameInWindow"] != nil
+            },
+            "Expected terminal native portal and expected canvas portal frames before panning. layout=\(String(describing: canvasLayout()))"
+        )
+
+        guard let beforePanel = selectedCanvasPanel(panelType: "terminal"),
+              let beforeExpectedFrame = pixelRect(beforePanel["canvasPortalFrameInWindow"]) else {
+            XCTFail("Missing initial terminal canvas portal frame. layout=\(String(describing: canvasLayout()))")
+            return
+        }
+
+        let panEnvelope = socketJSON(
+            method: "debug.canvas.pan",
+            params: [
+                "dx": -360,
+                "dy": -180,
+                "viewport_width": 1_200,
+                "viewport_height": 800,
+            ]
+        )
+        guard let panEnvelope,
+              (panEnvelope["ok"] as? Bool) == true else {
+            XCTFail("debug.canvas.pan failed. envelope=\(String(describing: panEnvelope))")
+            return
+        }
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                guard let panel = self.selectedCanvasPanel(panelType: "terminal"),
+                      let actualFrame = self.pixelRect(panel["portalFrameInWindow"]),
+                      let expectedFrame = self.pixelRect(panel["canvasPortalFrameInWindow"]) else {
+                    return false
+                }
+                let moved = abs(expectedFrame.minX - beforeExpectedFrame.minX) > 80 ||
+                    abs(expectedFrame.minY - beforeExpectedFrame.minY) > 80
+                return moved && self.maxFrameDrift(actualFrame, expectedFrame) <= 2.0
+            },
+            "Expected terminal portal frame to match the canvas-published frame after panning. before=\(beforeExpectedFrame) layout=\(String(describing: canvasLayout()))"
+        )
+    }
+
     func testCanvasTabChipClickSwitchesSurfaceWithSecondWindowPresent() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -1644,6 +1705,15 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         }?["selectedTabId"] as? String
     }
 
+    private func selectedCanvasPanel(panelType: String) -> [String: Any]? {
+        guard let selectedPanels = canvasLayout()?["selectedPanels"] as? [[String: Any]] else {
+            return nil
+        }
+        return selectedPanels.first { selectedPanel in
+            selectedPanel["panelType"] as? String == panelType
+        }
+    }
+
     private func waitForSelectedCanvasSurface(
         inPane paneId: String,
         selectedTabId: String,
@@ -1675,6 +1745,26 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             return nil
         }
         return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    private func pixelRect(_ value: Any?) -> CGRect? {
+        guard let frame = value as? [String: Any],
+              let x = numberValue(frame["x"]),
+              let y = numberValue(frame["y"]),
+              let width = numberValue(frame["width"]),
+              let height = numberValue(frame["height"]) else {
+            return nil
+        }
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    private func maxFrameDrift(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
+        [
+            abs(lhs.minX - rhs.minX),
+            abs(lhs.minY - rhs.minY),
+            abs(lhs.width - rhs.width),
+            abs(lhs.height - rhs.height),
+        ].max() ?? 0
     }
 
     private func canvasItemGrew(itemId: String, from frameBeforeResize: CGRect) -> Bool {

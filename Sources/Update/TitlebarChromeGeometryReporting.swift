@@ -55,11 +55,6 @@ enum TitlebarChromeUITestRecorder {
            !path.isEmpty {
             return path
         }
-        if env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1",
-           let path = env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"],
-           !path.isEmpty {
-            return path
-        }
         return nil
     }
 

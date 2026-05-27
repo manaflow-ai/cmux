@@ -856,7 +856,7 @@ final class CMUXLayoutTabDragUITests: XCTestCase {
             app.launchEnvironment["CMUX_UI_TEST_WORKSPACE_LAYOUT_WINDOW_SIZE"] = windowSize
         }
         if let actionButtonCount {
-            app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_ACTION_BUTTON_COUNT"] = String(actionButtonCount)
+            app.launchEnvironment["CMUX_UI_TEST_WORKSPACE_LAYOUT_ACTION_BUTTON_COUNT"] = String(actionButtonCount)
         }
         if showRightSidebar {
             app.launchEnvironment["CMUX_UI_TEST_WORKSPACE_LAYOUT_SHOW_RIGHT_SIDEBAR"] = "1"

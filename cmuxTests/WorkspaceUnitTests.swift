@@ -2945,6 +2945,32 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         XCTAssertEqual(workspace.layoutController.canvasSceneSnapshot().activeMountDirective?.renderMode, .liveNative1x)
     }
 
+    func testSessionRestorePreservesInactiveCanvasOverviewState() {
+        let source = Workspace()
+        source.exitCanvasOverview()
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(snapshot.canvas?.isActive, false)
+
+        let restored = Workspace()
+        XCTAssertTrue(restored.layoutController.isCanvasOverviewActive)
+        _ = restored.restoreSessionSnapshot(snapshot)
+
+        XCTAssertFalse(restored.layoutController.isCanvasOverviewActive)
+    }
+
+    func testSessionRestorePreservesActiveCanvasOverviewState() {
+        let source = Workspace()
+        source.enterCanvasOverview(policy: .freeform)
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(snapshot.canvas?.isActive, true)
+
+        let restored = Workspace()
+        restored.exitCanvasOverview()
+        _ = restored.restoreSessionSnapshot(snapshot)
+
+        XCTAssertTrue(restored.layoutController.isCanvasOverviewActive)
+    }
+
     func testCanvasActivationKeepsCanvasMainViewAndRestoresNativeScale() throws {
         let workspace = Workspace()
         let focusedItemID = try XCTUnwrap(workspace.layoutController.focusedCanvasItemID)

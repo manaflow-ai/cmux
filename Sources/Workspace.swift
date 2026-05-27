@@ -343,7 +343,10 @@ extension Workspace {
             scheduleFocusReconcile()
         }
         if !restoreCanvasSnapshot(snapshot.canvas, oldToNewPanelIds: oldToNewPanelIds) {
-            ensureCanvasMainView()
+            layoutController.restoreCanvasDocument(
+                CanvasDocument.defaultScrollingColumns(panes: layoutController.allPaneIds),
+                activateOverview: false
+            )
         }
         let isWorkspaceManuallyUnread = snapshot.isManuallyUnread == true
         restoreWorkspaceManualUnread(isWorkspaceManuallyUnread)
@@ -447,7 +450,8 @@ extension Workspace {
         return SessionCanvasSnapshot(
             policy: document.policy,
             viewport: document.viewport,
-            items: items
+            items: items,
+            isActive: layoutController.isCanvasOverviewActive
         )
     }
 
@@ -1254,7 +1258,8 @@ extension Workspace {
                 policy: snapshot.policy,
                 viewport: snapshot.viewport,
                 items: restoredItems
-            )
+            ),
+            activateOverview: snapshot.isActive == true
         )
         return true
     }

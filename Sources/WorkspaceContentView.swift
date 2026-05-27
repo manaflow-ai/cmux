@@ -9,6 +9,23 @@ import WebKit
 
 private let workspaceCanvasFreeformCoordinateSpace = "WorkspaceCanvasFreeformCoordinateSpace"
 
+@MainActor
+enum WorkspaceCanvasPortalDebugRegistry {
+    private static var frameByItemID: [LayoutItemID: CGRect] = [:]
+
+    static func update(itemID: LayoutItemID, frameInWindow: CGRect) {
+        frameByItemID[itemID] = frameInWindow
+    }
+
+    static func remove(itemID: LayoutItemID) {
+        frameByItemID.removeValue(forKey: itemID)
+    }
+
+    static func frameInWindow(itemID: LayoutItemID) -> CGRect? {
+        frameByItemID[itemID]
+    }
+}
+
 private struct WorkspaceCanvasCardSnapshot: Identifiable {
     var id: LayoutItemID { item.id }
     let item: CanvasItem
@@ -1345,6 +1362,7 @@ private final class CanvasSurfacePortalView: NSView {
         onPreparePublish(requests)
         let nextByID = Dictionary(uniqueKeysWithValues: requests.map { ($0.item.id, $0) })
         for (id, oldRequest) in requestsByID where !nextByID.keys.contains(id) {
+            WorkspaceCanvasPortalDebugRegistry.remove(itemID: id)
             onApply(oldRequest, nil)
         }
         self.requestsByID = nextByID
@@ -1356,6 +1374,7 @@ private final class CanvasSurfacePortalView: NSView {
     func clearPublishedRequests() {
         guard let onApply else { return }
         for request in requestsByID.values {
+            WorkspaceCanvasPortalDebugRegistry.remove(itemID: request.item.id)
             onApply(request, nil)
         }
         requestsByID.removeAll()
@@ -1367,6 +1386,7 @@ private final class CanvasSurfacePortalView: NSView {
         guard let onApply else { return }
         guard window != nil else {
             for request in requestsByID.values {
+                WorkspaceCanvasPortalDebugRegistry.remove(itemID: request.item.id)
                 onApply(request, nil)
             }
             return
@@ -1374,13 +1394,17 @@ private final class CanvasSurfacePortalView: NSView {
 
         let canvasWindowFrame = convert(bounds, to: nil)
         for request in requestsByID.values {
-            onApply(
-                request,
-                CanvasWindowCoordinateMapper.windowFrame(
-                    forCanvasRect: request.frameInCanvas,
-                    inCanvasWindowFrame: canvasWindowFrame
-                )
+            let frameInWindow = CanvasWindowCoordinateMapper.windowFrame(
+                forCanvasRect: request.frameInCanvas,
+                inCanvasWindowFrame: canvasWindowFrame
             )
+            if let frameInWindow {
+                WorkspaceCanvasPortalDebugRegistry.update(itemID: request.item.id, frameInWindow: frameInWindow)
+                onApply(request, frameInWindow)
+            } else {
+                WorkspaceCanvasPortalDebugRegistry.remove(itemID: request.item.id)
+                onApply(request, nil)
+            }
         }
     }
 }

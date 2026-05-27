@@ -18341,6 +18341,7 @@ class TerminalController {
         let hidden: Bool?
         let viewFrame: PixelRect?
         let portalFrameInWindow: PixelRect?
+        let canvasPortalFrameInWindow: PixelRect?
         let portalContainerBounds: PixelRect?
         let nativeFrameInContainer: PixelRect?
         let nativeBounds: PixelRect?
@@ -18497,6 +18498,7 @@ class TerminalController {
                         hidden: nil,
                         viewFrame: nil,
                         portalFrameInWindow: nil,
+                        canvasPortalFrameInWindow: nil,
                         portalContainerBounds: nil,
                         nativeFrameInContainer: nil,
                         nativeBounds: nil,
@@ -18516,12 +18518,27 @@ class TerminalController {
                         hidden: nil,
                         viewFrame: nil,
                         portalFrameInWindow: nil,
+                        canvasPortalFrameInWindow: nil,
                         portalContainerBounds: nil,
                         nativeFrameInContainer: nil,
                         nativeBounds: nil,
                         splitViews: nil
                     )
                 }
+
+                let canvasItemID = tab.layoutController.canvasDocument.items.first { item in
+                    switch item.content {
+                    case .pane(let candidatePaneId):
+                        return candidatePaneId == paneId
+                    case .surface(let candidateSurfaceId):
+                        return candidateSurfaceId == selectedTab.id
+                    case .group:
+                        return false
+                    }
+                }?.id
+                let canvasPortalFrame = canvasItemID
+                    .flatMap { WorkspaceCanvasPortalDebugRegistry.frameInWindow(itemID: $0) }
+                    .flatMap(usablePixelFrame)
 
                 if let tp = panel as? TerminalPanel {
                     let viewRect = windowFrame(for: tp.hostedView).map { PixelRect(from: $0) }
@@ -18543,6 +18560,7 @@ class TerminalController {
                         hidden: isHiddenOrAncestorHidden(tp.hostedView),
                         viewFrame: viewRect,
                         portalFrameInWindow: portalFrame,
+                        canvasPortalFrameInWindow: canvasPortalFrame,
                         portalContainerBounds: portalContainerBounds,
                         nativeFrameInContainer: nativeFrame,
                         nativeBounds: nativeBounds,
@@ -18570,6 +18588,7 @@ class TerminalController {
                         hidden: isHiddenOrAncestorHidden(bp.webView),
                         viewFrame: viewRect,
                         portalFrameInWindow: portalFrame,
+                        canvasPortalFrameInWindow: canvasPortalFrame,
                         portalContainerBounds: portalContainerBounds,
                         nativeFrameInContainer: nativeFrame,
                         nativeBounds: nativeBounds,
@@ -18587,6 +18606,7 @@ class TerminalController {
                     hidden: nil,
                     viewFrame: nil,
                     portalFrameInWindow: nil,
+                    canvasPortalFrameInWindow: canvasPortalFrame,
                     portalContainerBounds: nil,
                     nativeFrameInContainer: nil,
                     nativeBounds: nil,

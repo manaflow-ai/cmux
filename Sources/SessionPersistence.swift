@@ -1689,6 +1689,7 @@ struct SessionCanvasSnapshot: Codable, Sendable {
     var policy: CanvasLayoutPolicy
     var viewport: CanvasViewport
     var items: [SessionCanvasItemSnapshot]
+    var isActive: Bool? = nil
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
