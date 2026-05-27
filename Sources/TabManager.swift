@@ -1175,37 +1175,7 @@ class TabManager: ObservableObject {
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
 
-    @Published var tabs: [Workspace] = [] {
-        didSet {
-            // Anchor-bound group lifecycle: if a group's anchor workspace is no
-            // longer in `tabs[]` (the user closed it), the group dissolves and
-            // its remaining members become ungrouped. A group with only its
-            // anchor still in tabs[] is fine and stays alive.
-            //
-            // Suppressed during snapshot restore (tabs is published before
-            // workspaceGroups; without this guard the didSet would dissolve
-            // every restored group as it sees the new tabs missing the old
-            // anchors) and during transient reorder operations that briefly
-            // remove the anchor's tab before re-inserting it.
-            guard !workspaceGroups.isEmpty,
-                  !isRestoringSessionSnapshot,
-                  !isPerformingTransientTabsMutation else { return }
-            let tabIds = Set(tabs.map(\.id))
-            for group in workspaceGroups where !tabIds.contains(group.anchorWorkspaceId) {
-                for tab in tabs where tab.groupId == group.id {
-                    tab.groupId = nil
-                }
-            }
-            let nextGroups = workspaceGroups.filter { tabIds.contains($0.anchorWorkspaceId) }
-            if nextGroups.count != workspaceGroups.count {
-                workspaceGroups = nextGroups
-            }
-        }
-    }
-    /// Set true while a single high-level mutation transiently calls
-    /// `tabs.remove(at:)` followed by `tabs.insert(_:at:)`. The didSet above
-    /// uses this to skip dissolving a group whose anchor is being moved.
-    private var isPerformingTransientTabsMutation: Bool = false
+    @Published var tabs: [Workspace] = []
     /// Named groupings of workspaces shown as collapsible sections in the sidebar.
     /// Group order in this array defines section order in the sidebar.
     /// Each member workspace stores its `groupId` on the `Workspace` model.
@@ -5560,14 +5530,8 @@ class TabManager: ObservableObject {
             return true
         }
 
-        // Guard the two-step tabs.remove/insert against the didSet that would
-        // otherwise dissolve a group whose anchor is mid-flight. The dragged
-        // workspace lives outside tabs[] for one instant; without this flag the
-        // anchor-gone branch would run and ungroup every member.
-        isPerformingTransientTabsMutation = true
         let workspace = tabs.remove(at: plan.fromIndex)
         tabs.insert(workspace, at: plan.toIndex)
-        isPerformingTransientTabsMutation = false
         applyDragInferredGroupMembership(workspaceId: tabId)
         postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
         return true
@@ -5883,17 +5847,12 @@ class TabManager: ObservableObject {
         let inferredCwd: String? = anchorWorkingDirectory
             ?? firstChildTab?.currentDirectory
 
-        // Force the anchor to land immediately before the first eligible child
-        // (so the group section ends up contiguous after normalization) by
-        // overriding the global new-workspace placement rule. When there are
-        // no children, fall back to the user's preferred placement.
-        let placementOverride: NewWorkspacePlacement? = firstChildTab.map { _ in .end }
         let anchor = addWorkspace(
             title: resolvedName,
             workingDirectory: inferredCwd,
             inheritWorkingDirectory: inferredCwd == nil,
             select: true,
-            placementOverride: placementOverride,
+            placementOverride: .top,
             autoWelcomeIfNeeded: false
         )
 
@@ -5911,6 +5870,24 @@ class TabManager: ObservableObject {
         for id in eligibleChildren {
             assignGroup(workspaceId: id, groupId: group.id)
         }
+        // Move the anchor immediately before its first child in tabs[] so the
+        // model order matches the visual order (header first, then children).
+        // Workspace-number shortcuts and next/previous navigation index into
+        // tabs[] directly, so an anchor sitting after its children would yield
+        // a higher number than its visible header position.
+        if let firstChildId = eligibleChildren.first,
+           let firstChildIndex = tabs.firstIndex(where: { $0.id == firstChildId }),
+           let anchorIndex = tabs.firstIndex(where: { $0.id == anchor.id }),
+           anchorIndex != firstChildIndex {
+            let moved = tabs.remove(at: anchorIndex)
+            let insertAt: Int
+            if anchorIndex < firstChildIndex {
+                insertAt = max(0, firstChildIndex - 1)
+            } else {
+                insertAt = firstChildIndex
+            }
+            tabs.insert(moved, at: min(insertAt, tabs.count))
+        }
         normalizeWorkspaceGroupContiguity()
         postWorkspaceOrderDidChange(movedWorkspaceIds: [anchor.id] + eligibleChildren)
         return group.id
@@ -5919,7 +5896,9 @@ class TabManager: ObservableObject {
     /// Add an existing workspace to an existing group as a non-anchor member.
     /// No-op for pinned workspaces or workspaces that are the anchor of a
     /// different group (those must be ungrouped first to avoid orphaning the
-    /// source group).
+    /// source group). If the workspace is the currently selected one and the
+    /// target group is collapsed, the group auto-expands so the focused
+    /// workspace stays visible.
     func addWorkspaceToGroup(workspaceId: UUID, groupId: UUID) {
         guard let tab = tabs.first(where: { $0.id == workspaceId }), !tab.isPinned else { return }
         guard workspaceGroups.contains(where: { $0.id == groupId }) else { return }
@@ -5929,6 +5908,15 @@ class TabManager: ObservableObject {
         }
         if isAnchorOfOtherGroup { return }
         assignGroup(workspaceId: workspaceId, groupId: groupId)
+        // selectedTabId may not change here (the workspace was already
+        // selected), so the existing didSet hook won't fire. Expand manually
+        // when the added workspace is the focused one so it doesn't end up
+        // hidden inside a collapsed section.
+        if selectedTabId == workspaceId,
+           let groupIndex = workspaceGroups.firstIndex(where: { $0.id == groupId }),
+           workspaceGroups[groupIndex].isCollapsed {
+            workspaceGroups[groupIndex].isCollapsed = false
+        }
         normalizeWorkspaceGroupContiguity()
         postWorkspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
     }
@@ -6365,6 +6353,12 @@ class TabManager: ObservableObject {
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
+            // Real-close path: if the closed workspace anchored a group, the
+            // group dissolves now and its remaining members survive as
+            // ungrouped workspaces. This lives at the explicit close site (not
+            // in the tabs didSet) so transient remove/insert reorders never
+            // trigger dissolve.
+            dissolveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
 
             if selectedTabId == workspace.id {
                 // Keep the "focused index" stable when possible:
@@ -6377,6 +6371,23 @@ class TabManager: ObservableObject {
         publishCmuxWorkspaceClosed(workspace)
     }
 
+    /// If `closedWorkspaceId` was the anchor of any group, dissolve that group:
+    /// remaining members lose their `groupId` and stay in `tabs` as ungrouped
+    /// workspaces. Caller is responsible for having already removed the closed
+    /// workspace from `tabs`.
+    private func dissolveGroupsAnchoredBy(closedWorkspaceId: UUID) {
+        let dissolvedGroupIds = workspaceGroups
+            .filter { $0.anchorWorkspaceId == closedWorkspaceId }
+            .map(\.id)
+        guard !dissolvedGroupIds.isEmpty else { return }
+        for gid in dissolvedGroupIds {
+            for tab in tabs where tab.groupId == gid {
+                tab.groupId = nil
+            }
+        }
+        workspaceGroups.removeAll { dissolvedGroupIds.contains($0.id) }
+    }
+
     /// Detach a workspace from this window without closing its panels.
     /// Used by the socket API for cross-window moves.
     @discardableResult
@@ -6387,6 +6398,10 @@ class TabManager: ObservableObject {
         invalidateFocusHistoryTarget(workspaceId: tabId, panelId: nil)
 
         let removed = tabs.remove(at: index)
+        // Same anchor-close lifecycle as closeWorkspace: detaching a group's
+        // anchor dissolves the group; non-anchor members stay in tabs as
+        // ungrouped workspaces.
+        dissolveGroupsAnchoredBy(closedWorkspaceId: removed.id)
         unwireClosedBrowserTracking(for: removed)
         removed.owningTabManager = nil
         lastFocusedPanelByTab.removeValue(forKey: removed.id)
@@ -10441,15 +10456,29 @@ extension TabManager {
             restorableTabs.firstIndex(where: { $0.id == selectedTabId })
         }
         let occupiedGroupIds = Set(restorableTabs.compactMap(\.groupId))
+        // Build a per-group ordered list of restorable member IDs so we can
+        // record the anchor's index (restore-stable across UUID rotation).
+        let restorableMembersByGroupId: [UUID: [UUID]] = {
+            var map: [UUID: [UUID]] = [:]
+            for tab in restorableTabs {
+                if let gid = tab.groupId {
+                    map[gid, default: []].append(tab.id)
+                }
+            }
+            return map
+        }()
         let groupSnapshots: [SessionWorkspaceGroupSnapshot]? = {
             let snapshots = workspaceGroups
                 .filter { occupiedGroupIds.contains($0.id) }
                 .map { group in
-                    SessionWorkspaceGroupSnapshot(
+                    let memberIds = restorableMembersByGroupId[group.id] ?? []
+                    let anchorIndex = memberIds.firstIndex(of: group.anchorWorkspaceId)
+                    return SessionWorkspaceGroupSnapshot(
                         id: group.id,
                         name: group.name,
                         isCollapsed: group.isCollapsed,
                         anchorWorkspaceId: group.anchorWorkspaceId,
+                        anchorMemberIndex: anchorIndex,
                         isPinned: group.isPinned,
                         customColor: group.customColor,
                         iconSymbol: group.iconSymbol
@@ -10576,9 +10605,16 @@ extension TabManager {
             return groupSnapshots.compactMap { groupSnapshot in
                 guard let members = workspaceIdsByGroupId[groupSnapshot.id], !members.isEmpty,
                       seen.insert(groupSnapshot.id).inserted else { return nil }
-                // Resolve anchor: explicit snapshot field if it still references a member,
-                // otherwise the first member by tab order (back-compat with v1 snapshots).
+                // Resolve anchor: prefer the restore-stable index (since each
+                // restored workspace gets a fresh UUID, the old
+                // anchorWorkspaceId rarely matches). Fall back to the in-process
+                // UUID hint, then to "first member by tab order" for very old
+                // snapshots that pre-date both fields.
                 let anchorId: UUID = {
+                    if let index = groupSnapshot.anchorMemberIndex,
+                       members.indices.contains(index) {
+                        return members[index]
+                    }
                     if let stored = groupSnapshot.anchorWorkspaceId, members.contains(stored) {
                         return stored
                     }

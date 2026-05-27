@@ -1703,11 +1703,17 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID
     var name: String
     var isCollapsed: Bool
-    /// The workspace whose close dissolves the group. Persisted explicitly
-    /// rather than inferred from tab order. When loading older snapshots that
-    /// pre-date this field, the loader promotes the first member workspace
-    /// (by tab order) as the anchor.
+    /// The workspace whose close dissolves the group. Only meaningful within
+    /// a single app run; on restore, each workspace gets a fresh UUID. The
+    /// loader prefers `anchorMemberIndex` (restore-stable) and treats this
+    /// field as a hint for in-process round-trips.
     var anchorWorkspaceId: UUID? = nil
+    /// 0-based index of the anchor among the group's members in tab order.
+    /// Restore-stable: tab order is preserved across restore, so the same
+    /// index resolves to the same logical anchor even though workspace UUIDs
+    /// change. Older snapshots that omit this field fall back to "first
+    /// member by tab order".
+    var anchorMemberIndex: Int? = nil
     var isPinned: Bool? = nil
     var customColor: String? = nil
     var iconSymbol: String? = nil

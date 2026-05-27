@@ -6655,21 +6655,44 @@ struct CMUXCLI {
                 }
             }
         case "create":
-            let (nameOpt, rem0) = parseOption(rest, name: "--name")
+            // Parity with the legacy `new-workspace` verb so the deprecation
+            // hint is honest: callers can swap nouns without losing flags.
+            let (commandOpt, rem0) = parseOption(rest, name: "--command")
             let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
-            let (windowOpt, _) = parseOption(rem1, name: "--window")
+            let (nameOpt, rem2) = parseOption(rem1, name: "--name")
+            let (descriptionOpt, rem3) = parseOption(rem2, name: "--description")
+            let (layoutOpt, rem4) = parseOption(rem3, name: "--layout")
+            let (windowOpt, rem5) = parseOption(rem4, name: "--window")
+            let (focusOpt, remaining) = parseOption(rem5, name: "--focus")
+            if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+                throw CLIError(message: "workspace create: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>")
+            }
             var params: [String: Any] = [:]
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOpt ?? windowOverride)
-            if let cwdOpt { params["cwd"] = resolvePath(cwdOpt) }
+            if let cwdOpt {
+                params["cwd"] = resolvePath(cwdOpt)
+            }
             if let nameOpt { params["title"] = nameOpt }
+            if let descriptionOpt { params["description"] = descriptionOpt }
+            if let layoutOpt {
+                guard let layoutData = layoutOpt.data(using: .utf8),
+                      let layoutObj = try? JSONSerialization.jsonObject(with: layoutData) as? [String: Any] else {
+                    throw CLIError(message: "workspace create: --layout value must be a valid JSON object")
+                }
+                params["layout"] = layoutObj
+            }
+            try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let response = try client.sendV2(method: "workspace.create", params: params)
-            // Honor --json on the canonical namespace, matching the legacy
-            // `cmux new-workspace --json` contract so scripts can swap nouns.
+            let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
             if jsonOutput {
                 print(jsonString(formatIDs(response, mode: idFormat)))
             } else {
-                let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
-                print("OK \(wsRef)")
+                print("OK \(wsId)")
+            }
+            if layoutOpt == nil, let commandText = commandOpt, !wsId.isEmpty {
+                let text = unescapeSendText(commandText + "\\n")
+                let sendParams: [String: Any] = ["text": text, "workspace_id": wsId]
+                _ = try client.sendV2(method: "surface.send_text", params: sendParams)
             }
         case "close":
             let (workspaceArg, _) = parseOption(rest, name: "--workspace")

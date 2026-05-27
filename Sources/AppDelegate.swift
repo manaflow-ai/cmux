@@ -14099,20 +14099,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? mainWindowContexts.values.first else {
             return false
         }
+        // Snapshot tab ids BEFORE the action fires so the onExecuted callback
+        // (which runs after any confirmation/authorization flow completes) can
+        // diff against the pre-action state and join the newly-created
+        // workspace to the group. The previous post-call diff missed actions
+        // gated on a first-run trust prompt because the workspace doesn't
+        // exist until the user grants permission.
         let beforeIds = Set(tabManager.tabs.map(\.id))
-        let didRun = executeConfiguredCmuxAction(
+        let onExecuted: () -> Void = { [weak tabManager, groupId, beforeIds] in
+            guard let tabManager else { return }
+            let afterIds = tabManager.tabs.map(\.id)
+            for id in afterIds where !beforeIds.contains(id) {
+                tabManager.addWorkspaceToGroup(workspaceId: id, groupId: groupId)
+                break
+            }
+        }
+        return executeConfiguredCmuxAction(
             action,
             context: context,
-            preferredWindow: resolvedWindow(for: context)
+            preferredWindow: resolvedWindow(for: context),
+            onExecuted: onExecuted
         )
-        guard didRun else { return false }
-        // Best-effort: if exactly one new workspace appeared, join it to the group.
-        let afterIds = tabManager.tabs.map(\.id)
-        for id in afterIds where !beforeIds.contains(id) {
-            tabManager.addWorkspaceToGroup(workspaceId: id, groupId: groupId)
-            break
-        }
-        return true
     }
 
     private func executeConfiguredCmuxAction(
