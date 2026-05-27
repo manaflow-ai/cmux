@@ -1140,6 +1140,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
                 expectedSnapshotFingerprint: fingerprint,
                 isRemoteTerminal: false,
+                cachedResultHadFallback: false,
                 panelChanged: false
             )
         )
@@ -1151,6 +1152,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
                 expectedSnapshotFingerprint: fingerprint,
                 isRemoteTerminal: false,
+                cachedResultHadFallback: false,
                 panelChanged: true
             )
         )
@@ -1162,6 +1164,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 snapshotFingerprintsByPanelKey: [panelKey: "stale-fingerprint"],
                 expectedSnapshotFingerprint: fingerprint,
                 isRemoteTerminal: false,
+                cachedResultHadFallback: false,
                 panelChanged: false
             )
         )
@@ -1173,6 +1176,19 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
                 expectedSnapshotFingerprint: fingerprint,
                 isRemoteTerminal: false,
+                cachedResultHadFallback: false,
+                panelChanged: false
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldReuseForkableAgentProbeResult(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: nil,
+                isRemoteTerminal: false,
+                cachedResultHadFallback: true,
                 panelChanged: false
             )
         )

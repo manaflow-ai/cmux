@@ -53,6 +53,7 @@ extension ContentView {
             commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
             commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
             commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentResultHadFallbackByPanelKey.removeValue(forKey: panelKey)
             NSSound.beep()
             return
         }
@@ -65,6 +66,7 @@ extension ContentView {
             fallbackFingerprint: fallbackFingerprint
         )
         commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteContext
+        commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = fallbackFingerprint != nil
 
         let didFork: Bool
         switch destination {

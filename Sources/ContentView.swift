@@ -1133,6 +1133,7 @@ struct ContentView: View {
     @State var commandPaletteForkableAgentSnapshotsByPanelKey: [String: SessionRestorableAgentSnapshot] = [:]
     @State var commandPaletteForkableAgentSnapshotFingerprintsByPanelKey: [String: String] = [:]
     @State var commandPaletteForkableAgentRemoteContextsByPanelKey: [String: Bool] = [:]
+    @State var commandPaletteForkableAgentResultHadFallbackByPanelKey: [String: Bool] = [:]
     @State private var commandPaletteForkableAgentAvailabilityTasksByPanelKey: [String: Task<Void, Never>] = [:]
     @State private var commandPaletteForkableAgentProbeFingerprintsByPanelKey: [String: String] = [:]
     @State private var isCommandPaletteSearchPending = false
@@ -5934,9 +5935,10 @@ struct ContentView: View {
         snapshotFingerprintsByPanelKey: [String: String],
         expectedSnapshotFingerprint: String?,
         isRemoteTerminal: Bool,
+        cachedResultHadFallback: Bool,
         panelChanged: Bool
     ) -> Bool {
-        !panelChanged && commandPaletteForkableAgentProbeResultMatches(
+        !panelChanged && !cachedResultHadFallback && commandPaletteForkableAgentProbeResultMatches(
             panelKey: panelKey,
             supportedPanelKeys: supportedPanelKeys,
             supportedRemoteContextsByPanelKey: supportedRemoteContextsByPanelKey,
@@ -6005,6 +6007,7 @@ struct ContentView: View {
                 commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentResultHadFallbackByPanelKey.removeValue(forKey: panelKey)
             }
             switch Self.commandPaletteSnapshotForkAvailability(
                 fallbackSnapshot,
@@ -6021,6 +6024,7 @@ struct ContentView: View {
                 )
                 commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
                 commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
+                commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = true
                 if !probeResultMatches {
                     commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = fallbackSnapshot
                     commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = fallbackFingerprint
@@ -6042,6 +6046,7 @@ struct ContentView: View {
                 commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentResultHadFallbackByPanelKey.removeValue(forKey: panelKey)
                 return
             case .requiresProbe:
                 let probeResultMatches = Self.commandPaletteForkableAgentProbeResultMatches(
@@ -6052,6 +6057,9 @@ struct ContentView: View {
                     expectedSnapshotFingerprint: fallbackFingerprint,
                     isRemoteTerminal: isRemoteTerminal
                 )
+                if probeResultMatches {
+                    commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = true
+                }
                 if probeResultMatches && !panelChanged {
                     return
                 }
@@ -6060,6 +6068,7 @@ struct ContentView: View {
                     commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
                     commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
                     commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentResultHadFallbackByPanelKey.removeValue(forKey: panelKey)
                 }
                 startCommandPaletteForkableAgentAvailabilityProbe(
                     panelKey: panelKey,
@@ -6080,6 +6089,7 @@ struct ContentView: View {
             snapshotFingerprintsByPanelKey: commandPaletteForkableAgentSnapshotFingerprintsByPanelKey,
             expectedSnapshotFingerprint: nil,
             isRemoteTerminal: isRemoteTerminal,
+            cachedResultHadFallback: commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] == true,
             panelChanged: panelChanged
         ) {
             return
@@ -6097,6 +6107,7 @@ struct ContentView: View {
             commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
             commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
             commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentResultHadFallbackByPanelKey.removeValue(forKey: panelKey)
         }
         startCommandPaletteForkableAgentAvailabilityProbe(
             panelKey: panelKey,
@@ -6170,6 +6181,7 @@ struct ContentView: View {
                             snapshot: snapshot,
                             fallbackFingerprint: fallbackFingerprint
                         )
+                        commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = fallbackFingerprint != nil
                     }
                 } else {
                     shouldRefreshResults = wasSupported || hadCachedSnapshot
@@ -6177,6 +6189,7 @@ struct ContentView: View {
                     commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
                     commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
                     commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentResultHadFallbackByPanelKey.removeValue(forKey: panelKey)
                 }
                 commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
