@@ -2012,7 +2012,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(params["session_id"] as? String, sessionID)
     }
 
-    func testPersistentSSHPTYRestoreFallsBackToSnapshotPanelDefaultSessionID() throws {
+    func testPersistentSSHPTYRestoreFallsBackToSnapshotPanelDefaultSessionIDWhenActiveMarkerExists() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Legacy Persistent SSH")
@@ -2049,6 +2049,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             legacySnapshot.workspaces[workspaceIndex].panels.firstIndex { $0.id == originalPanelId }
         )
         legacySnapshot.workspaces[workspaceIndex].panels[panelIndex].terminal?.remotePTYSessionID = nil
+        legacySnapshot.workspaces[workspaceIndex].panels[panelIndex].terminal?.isRemoteTerminal = true
 
         let reservedSocketPath = reserveRemoteRestoreSocket()
         defer { cleanupRemoteRestoreSocket(reservedSocketPath) }
@@ -2070,6 +2071,66 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             restoredWorkspace.sessionSnapshot(includeScrollback: false)
                 .panels.first { $0.id == restoredPanelId }?.terminal?.remotePTYSessionID,
             expectedSessionID
+        )
+    }
+
+    func testPersistentSSHPTYRestoreDoesNotReattachEndedSnapshotPanel() throws {
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("Ended Persistent SSH")
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64019,
+            relayID: "relay-ended-persist",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux-ended-persist.sock",
+            terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-ended-persist"
+        )
+        remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+        let originalPanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
+        let endedSessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: remoteWorkspace.id,
+            panelId: originalPanelId
+        )
+
+        let ended = remoteWorkspace.markRemotePTYAttachEnded(
+            surfaceId: originalPanelId,
+            sessionID: endedSessionID
+        )
+        XCTAssertTrue(ended.clearedRemotePTYSession)
+        XCTAssertTrue(ended.untrackedRemoteTerminal)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let persistedWorkspace = try XCTUnwrap(
+            snapshot.workspaces.first { $0.customTitle == "Ended Persistent SSH" }
+        )
+        let persistedPanel = try XCTUnwrap(
+            persistedWorkspace.panels.first { $0.id == originalPanelId }
+        )
+        XCTAssertEqual(persistedPanel.terminal?.isRemoteTerminal, false)
+        XCTAssertNil(persistedPanel.terminal?.remotePTYSessionID)
+
+        let reservedSocketPath = reserveRemoteRestoreSocket()
+        defer { cleanupRemoteRestoreSocket(reservedSocketPath) }
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Ended Persistent SSH" })
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+        let restoredInitialCommand = restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()
+        XCTAssertFalse(restoredInitialCommand?.contains("ssh-pty-attach") == true, restoredInitialCommand ?? "")
+        XCTAssertNil(
+            restoredWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == restoredPanelId }?.terminal?.remotePTYSessionID
         )
     }
 
