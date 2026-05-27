@@ -84,6 +84,17 @@ private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebVie
 @MainActor
 final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
     func testActiveMediaCaptureBlocksHiddenWebViewDiscardScheduling() {
+        let defaults = UserDefaults.standard
+        let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defer {
+            if let previousEnabled {
+                defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            }
+        }
+
         let snapshot = BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
             isClosing: false,
             isVisibleInUI: false,
