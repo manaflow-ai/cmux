@@ -92,6 +92,7 @@ final class FeedCoordinator: @unchecked Sendable {
                     if let ppid = event.ppid, ppid > 0 {
                         FeedCoordinator.shared.armPidWatcher(ppid: ppid)
                     }
+                    FeedCoordinator.shared.postTelemetryNotificationIfNeeded(event: event)
                 }
             }
             return .acknowledged(itemId: nil)
@@ -343,6 +344,11 @@ enum FeedJumpResolver {
         return (agent, sessionId)
     }
 
+    static func lookupTarget(workstreamId: String) -> Target? {
+        guard let parsed = parse(workstreamId) else { return nil }
+        return lookup(agent: parsed.agent, sessionId: parsed.sessionId)
+    }
+
     static func lookup(agent: String, sessionId: String) -> Target? {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let file = home
@@ -408,6 +414,260 @@ extension Notification.Name {
 // MARK: - Native notification banner
 
 private extension FeedCoordinator {
+    static func notificationBody(for event: WorkstreamEvent) -> String? {
+        switch event.hookEventName {
+        case .permissionRequest:
+            return permissionNotificationBody(for: event)
+        case .exitPlanMode:
+            return exitPlanNotificationBody(for: event)
+        case .askUserQuestion:
+            return questionNotificationBody(for: event)
+        case .stop:
+            return stopNotificationBody(for: event)
+        default:
+            return nil
+        }
+    }
+
+    private static func permissionNotificationBody(for event: WorkstreamEvent) -> String? {
+        let dict = effectiveToolInput(from: jsonDictionary(event.toolInputJSON))
+        let permission = firstString(
+            dict["permission"],
+            dict["toolName"],
+            dict["tool_name"],
+            event.toolName
+        )?.lowercased()
+
+        return compactNotificationText([
+            permissionNotificationSummary(permission: permission, toolName: event.toolName),
+        ])
+    }
+
+    private static func permissionNotificationSummary(permission: String?, toolName: String?) -> String {
+        switch permission ?? "" {
+        case "bash":
+            return String(localized: "feed.notification.permission.bash", defaultValue: "Shell command")
+        case "edit", "multiedit":
+            return String(localized: "feed.notification.permission.edit", defaultValue: "Edit file")
+        case "write":
+            return String(localized: "feed.notification.permission.write", defaultValue: "Write file")
+        case "apply_patch":
+            return String(localized: "feed.notification.permission.patch", defaultValue: "Patch file")
+        case "read":
+            return String(localized: "feed.notification.permission.read", defaultValue: "Read file")
+        case "glob", "grep":
+            return String(localized: "feed.notification.permission.searchFiles", defaultValue: "Search files")
+        case "list":
+            return String(localized: "feed.notification.permission.list", defaultValue: "List directory")
+        case "task":
+            return String(localized: "feed.notification.permission.task", defaultValue: "Task request")
+        case "webfetch":
+            return String(localized: "feed.notification.permission.webfetch", defaultValue: "Fetch URL")
+        case "websearch":
+            return String(localized: "feed.notification.permission.websearch", defaultValue: "Web search")
+        case "lsp":
+            return String(localized: "feed.notification.permission.lsp", defaultValue: "Language server request")
+        case "external_directory":
+            return String(localized: "feed.notification.permission.externalDirectory", defaultValue: "Access external directory")
+        case "doom_loop":
+            return String(localized: "feed.permission.doomLoop", defaultValue: "Continue after repeated failures")
+        default:
+            if let toolName = firstString(toolName) {
+                return String.localizedStringWithFormat(
+                    String(localized: "feed.notification.permission.body", defaultValue: "%@ needs approval"),
+                    toolName
+                )
+            }
+            return String(localized: "feed.notification.decisionNeeded", defaultValue: "Decision needed")
+        }
+    }
+
+    private static func exitPlanNotificationBody(for event: WorkstreamEvent) -> String? {
+        let rawPlan = event.toolInputJSON ?? ""
+        let preview = WorkstreamExitPlanPreview(rawPlan: rawPlan)
+        if let summary = preview.summary {
+            return compactNotificationText([summary])
+        }
+        return firstMarkdownContentLine(preview.planText).flatMap { compactNotificationText([$0]) }
+    }
+
+    private static func questionNotificationBody(for event: WorkstreamEvent) -> String? {
+        let dict = jsonDictionary(event.toolInputJSON)
+        let firstQuestion: [String: Any]?
+        if let questions = dict["questions"] as? [[String: Any]] {
+            firstQuestion = questions.first
+        } else {
+            firstQuestion = dict.isEmpty ? nil : dict
+        }
+        guard let firstQuestion else { return nil }
+        let prompt = firstString(firstQuestion["question"], firstQuestion["prompt"])
+        let options = (firstQuestion["options"] as? [Any])?
+            .prefix(3)
+            .compactMap { option -> String? in
+                if let text = option as? String { return firstString(text) }
+                guard let dict = option as? [String: Any] else { return nil }
+                return firstString(dict["label"], dict["title"])
+            }
+            .map { "- \($0)" } ?? []
+        return compactNotificationText([prompt] + options.map(Optional.some))
+    }
+
+    private static func stopNotificationBody(for event: WorkstreamEvent) -> String? {
+        let dict = jsonDictionary(event.toolInputJSON)
+        guard let message = event.assistantFinalMessage ?? firstString(dict["reason"], dict["message"], dict["cause"]) else {
+            return nil
+        }
+        return compactNotificationText([
+            message,
+        ])
+    }
+
+    private static func jsonDictionary(_ json: String?) -> [String: Any] {
+        guard let json,
+              let data = json.data(using: .utf8),
+              let dict = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any]
+        else { return [:] }
+        return dict
+    }
+
+    private static func effectiveToolInput(from dict: [String: Any]) -> [String: Any] {
+        var out: [String: Any] = [:]
+        if let metadata = dict["metadata"] as? [String: Any] {
+            out.merge(metadata) { _, new in new }
+            if let input = metadata["input"] as? [String: Any] {
+                out.merge(input) { _, new in new }
+            }
+        }
+        out.merge(dict) { _, new in new }
+        return out
+    }
+
+    private static func firstString(_ values: Any?...) -> String? {
+        for value in values {
+            if let text = value as? String {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+        }
+        return nil
+    }
+
+    private static func stringArray(_ value: Any?) -> [String] {
+        guard let values = value as? [Any] else { return [] }
+        return values.compactMap { item in
+            guard let text = item as? String else { return nil }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    private static func firstMarkdownContentLine(_ text: String) -> String? {
+        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            var line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+            if line.hasPrefix("#") {
+                line = line.trimmingCharacters(in: CharacterSet(charactersIn: "# "))
+            } else if line.hasPrefix("- ") || line.hasPrefix("* ") {
+                line = String(line.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if !line.isEmpty { return line }
+        }
+        return nil
+    }
+
+    private static func compactNotificationText(_ pieces: [String], limit: Int = 240) -> String? {
+        compactNotificationText(pieces.map(Optional.some), limit: limit)
+    }
+
+    private static func compactNotificationText(_ pieces: [String?], limit: Int = 240) -> String? {
+        let text = pieces
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        guard !text.isEmpty else { return nil }
+        if text.count <= limit { return text }
+        let end = text.index(text.startIndex, offsetBy: max(limit - 3, 0))
+        return String(text[..<end]) + "..."
+    }
+
+    private struct BasicNotificationContent {
+        let title: String
+        let subtitle: String
+        let body: String
+        let cooldownKey: String
+    }
+
+    private struct BasicNotificationTarget {
+        let tabId: UUID
+        let surfaceId: UUID?
+    }
+
+    private static func basicStopNotificationContent(for event: WorkstreamEvent) -> BasicNotificationContent? {
+        guard event.hookEventName == .stop,
+              event.source == WorkstreamSource.opencode.rawValue
+        else { return nil }
+
+        let displayName = sourceDisplayName(event.source)
+        let title = String.localizedStringWithFormat(
+            String(
+                localized: "feed.notification.stop.title",
+                defaultValue: "%@ completed"
+            ),
+            displayName
+        )
+        let subtitle = String(localized: "feed.notification.stop.subtitle", defaultValue: "Completed")
+        let body = stopNotificationBody(for: event) ?? ""
+        return BasicNotificationContent(
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            cooldownKey: "feed.stop.\(event.sessionId)"
+        )
+    }
+
+    private static func sourceDisplayName(_ source: String) -> String {
+        switch source {
+        case WorkstreamSource.opencode.rawValue:
+            return String(localized: "feed.source.opencode", defaultValue: "OpenCode")
+        default:
+            return source.capitalized
+        }
+    }
+
+    private static func basicNotificationTarget(for event: WorkstreamEvent) -> BasicNotificationTarget? {
+        let extra = jsonDictionary(event.extraFieldsJSON)
+        if let workspaceId = event.workspaceId.flatMap(UUID.init(uuidString:)) {
+            let surfaceId = firstString(extra["surface_id"], extra["surfaceId"])
+                .flatMap(UUID.init(uuidString:))
+            return BasicNotificationTarget(tabId: workspaceId, surfaceId: surfaceId)
+        }
+
+        guard let target = FeedJumpResolver.lookupTarget(workstreamId: event.sessionId),
+              let workspaceId = UUID(uuidString: target.workspaceId)
+        else { return nil }
+        return BasicNotificationTarget(
+            tabId: workspaceId,
+            surfaceId: UUID(uuidString: target.surfaceId)
+        )
+    }
+
+    @MainActor
+    func postTelemetryNotificationIfNeeded(event: WorkstreamEvent) {
+        guard let content = Self.basicStopNotificationContent(for: event),
+              let target = Self.basicNotificationTarget(for: event)
+        else { return }
+
+        TerminalNotificationStore.shared.addNotification(
+            tabId: target.tabId,
+            surfaceId: target.surfaceId,
+            title: content.title,
+            subtitle: content.subtitle,
+            body: content.body,
+            cooldownKey: content.cooldownKey,
+            cooldownInterval: 10
+        )
+    }
+
     /// Posts a UNUserNotificationCenter banner with inline action buttons
     /// for the given Feed event after optional notification policy hooks run.
     /// Notification eligibility is derived only from the waiter table so
@@ -447,7 +707,7 @@ private extension FeedCoordinator {
                     localized: "feed.notification.permission.title",
                     defaultValue: "\(event.source.capitalized) permission"
                 )
-                body = event.toolName.map {
+                body = Self.notificationBody(for: event) ?? event.toolName.map {
                     String(
                         localized: "feed.notification.permission.body",
                         defaultValue: "\($0) needs approval"
@@ -462,7 +722,7 @@ private extension FeedCoordinator {
                     localized: "feed.notification.exitPlan.title",
                     defaultValue: "\(event.source.capitalized) plan ready"
                 )
-                body = String(
+                body = Self.notificationBody(for: event) ?? String(
                     localized: "feed.notification.exitPlan.body",
                     defaultValue: "Review and approve the plan"
                 )
@@ -472,7 +732,7 @@ private extension FeedCoordinator {
                     localized: "feed.notification.question.title",
                     defaultValue: "\(event.source.capitalized) question"
                 )
-                body = String(
+                body = Self.notificationBody(for: event) ?? String(
                     localized: "feed.notification.question.body",
                     defaultValue: "Agent is asking a question"
                 )
@@ -690,6 +950,21 @@ private extension FeedCoordinator {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequestsOffMain(withIdentifiers: [identifier])
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [identifier])
+    }
+}
+
+extension FeedCoordinator {
+    static func notificationBodyForTesting(event: WorkstreamEvent) -> String? {
+        notificationBody(for: event)
+    }
+
+    static func basicStopNotificationForTesting(event: WorkstreamEvent) -> (
+        title: String,
+        subtitle: String,
+        body: String
+    )? {
+        guard let content = basicStopNotificationContent(for: event) else { return nil }
+        return (content.title, content.subtitle, content.body)
     }
 }
 

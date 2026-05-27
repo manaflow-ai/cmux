@@ -135,6 +135,84 @@ final class FeedCoordinatorTests: XCTestCase {
         )
     }
 
+    func testOpenCodePermissionNotificationBodyUsesSafeSummary() {
+        let event = WorkstreamEvent(
+            sessionId: "opencode-notification-permission",
+            hookEventName: .permissionRequest,
+            source: "opencode",
+            toolName: "bash",
+            toolInputJSON: #"{"permission":"bash","action":"run_command","metadata":{"input":{"command":"deploy --token super-secret"}}}"#,
+            requestId: "per-opencode-rich"
+        )
+
+        XCTAssertEqual(
+            FeedCoordinator.notificationBodyForTesting(event: event),
+            "Shell command"
+        )
+    }
+
+    func testOpenCodePlanAndQuestionNotificationBodiesUsePayloadDetails() {
+        let planEvent = WorkstreamEvent(
+            sessionId: "opencode-notification-plan",
+            hookEventName: .exitPlanMode,
+            source: "opencode",
+            toolName: "plan_exit",
+            toolInputJSON: ###"{"plan":"## Demo plan\n\n- Wire richer OpenCode hooks\n- Verify with a plugin harness"}"###,
+            requestId: "que-opencode-plan"
+        )
+        XCTAssertEqual(
+            FeedCoordinator.notificationBodyForTesting(event: planEvent),
+            "Wire richer OpenCode hooks"
+        )
+
+        let questionEvent = WorkstreamEvent(
+            sessionId: "opencode-notification-question",
+            hookEventName: .askUserQuestion,
+            source: "opencode",
+            toolName: "question",
+            toolInputJSON: #"{"questions":[{"question":"Which detail should cmux show?","options":[{"label":"Command","description":"Show the shell command"},{"label":"Path","description":"Show the file path"}]}]}"#,
+            requestId: "que-opencode-rich"
+        )
+        XCTAssertEqual(
+            FeedCoordinator.notificationBodyForTesting(event: questionEvent),
+            "Which detail should cmux show?\n- Command\n- Path"
+        )
+    }
+
+    func testOpenCodeStopNotificationUsesStopDetails() {
+        let event = WorkstreamEvent(
+            sessionId: "opencode-stop-notification",
+            hookEventName: .stop,
+            source: "opencode",
+            toolInputJSON: #"{"reason":"Implemented the hook rendering update"}"#,
+            extraFieldsJSON: #"{"surface_id":"11111111-1111-1111-1111-111111111111"}"#
+        )
+
+        XCTAssertEqual(
+            FeedCoordinator.notificationBodyForTesting(event: event),
+            "Implemented the hook rendering update"
+        )
+        let content = FeedCoordinator.basicStopNotificationForTesting(event: event)
+        XCTAssertEqual(content?.title, "OpenCode completed")
+        XCTAssertEqual(content?.subtitle, "Completed")
+        XCTAssertEqual(content?.body, "Implemented the hook rendering update")
+    }
+
+    func testOpenCodeStopNotificationWithoutAssistantTextUsesTitleOnly() {
+        let event = WorkstreamEvent(
+            sessionId: "opencode-stop-notification-basic",
+            hookEventName: .stop,
+            source: "opencode",
+            extraFieldsJSON: #"{"surface_id":"11111111-1111-1111-1111-111111111111"}"#
+        )
+
+        XCTAssertNil(FeedCoordinator.notificationBodyForTesting(event: event))
+        let content = FeedCoordinator.basicStopNotificationForTesting(event: event)
+        XCTAssertEqual(content?.title, "OpenCode completed")
+        XCTAssertEqual(content?.subtitle, "Completed")
+        XCTAssertEqual(content?.body, "")
+    }
+
     private static func resetFeedCoordinatorTestHooks() {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {
