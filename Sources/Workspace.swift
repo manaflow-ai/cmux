@@ -14057,7 +14057,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Keyboard/browser-open paths want "new tab at end" regardless of global new-tab placement.
         if insertAtEnd {
-            let targetIndex = controller.tabs(inPane: paneId).count
+            let targetIndex = max(0, controller.tabs(inPane: paneId).count - 1)
             _ = controller.reorderTab(newTabId, toIndex: targetIndex)
         }
         publishCmuxSurfaceCreated(browserPanel.id, paneId: paneId, kind: "browser", origin: "browser_tab", focused: shouldFocusNewTab)

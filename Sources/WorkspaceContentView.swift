@@ -1396,10 +1396,8 @@ struct WorkspaceDockTitlebarStateBinder: NSViewRepresentable {
 
         func bindToWindow() {
             if boundWindow !== window as? CmuxMainWindow {
-                if boundWindow?.workspaceDockTitlebarLayout === layout {
-                    boundWindow?.workspaceDockTitlebarLayout = nil
-                    boundWindow?.workspaceDockTitlebarControlFrameInWindow = nil
-                }
+                boundWindow?.workspaceDockTitlebarLayout = nil
+                boundWindow?.workspaceDockTitlebarControlFrameInWindow = nil
                 boundWindow = window as? CmuxMainWindow
             }
             boundWindow?.workspaceDockTitlebarLayout = layout

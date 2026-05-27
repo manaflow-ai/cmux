@@ -5964,7 +5964,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let focusedPanelId = workspace.focusedPanelId else {
             guard let focusedTarget = workspace.focusedBonsplitPaneForCommands(),
                   let responderPaneId = workspace.paneId(forPanelId: context.panelId) else {
-                return false
+                return true
             }
             return focusedTarget.controller === responderController &&
                 focusedTarget.paneId == responderPaneId
