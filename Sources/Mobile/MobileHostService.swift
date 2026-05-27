@@ -428,9 +428,6 @@ final class MobileHostService {
     }
 
     private func removeConnection(id: UUID) {
-        if let clientIDs = clientIDsByConnectionID[id] {
-            TerminalController.shared.clearMobileViewportReports(clientIDs: clientIDs)
-        }
         MobileHostConnectionRegistry.shared.remove(id: id)
         activeConnections.removeValue(forKey: id)
         clientIDsByConnectionID.removeValue(forKey: id)

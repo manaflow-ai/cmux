@@ -21256,44 +21256,6 @@ class TerminalController {
         return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
     }
 
-    func clearMobileViewportReports(clientIDs: Set<String>) {
-        guard !clientIDs.isEmpty else { return }
-
-        for surfaceID in Array(mobileViewportReportsBySurfaceID.keys) {
-            guard var reports = mobileViewportReportsBySurfaceID[surfaceID] else {
-                continue
-            }
-            let originalCount = reports.count
-            for clientID in clientIDs {
-                reports[clientID] = nil
-            }
-            guard reports.count != originalCount else {
-                continue
-            }
-
-            if reports.isEmpty {
-                mobileViewportReportsBySurfaceID[surfaceID] = nil
-                mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
-                mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
-                terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(
-                    reason: "mobile.viewport.connectionClosed"
-                )
-                continue
-            }
-
-            mobileViewportReportsBySurfaceID[surfaceID] = reports
-            if let minColumns = reports.values.map(\.columns).min(),
-               let minRows = reports.values.map(\.rows).min() {
-                terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
-                    columns: minColumns,
-                    rows: minRows,
-                    reason: "mobile.viewport.connectionClosed"
-                )
-            }
-            scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
-        }
-    }
-
     func clearAllMobileViewportReports(reason: String) {
         guard !mobileViewportReportsBySurfaceID.isEmpty ||
             !mobileViewportReportCleanupTimersBySurfaceID.isEmpty ||

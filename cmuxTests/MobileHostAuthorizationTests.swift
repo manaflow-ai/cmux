@@ -635,7 +635,7 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(service.debugTrackedClientIDsForTesting(connectionID: connectionID))
     }
 
-    func testMobileHostConnectionCloseClearsOnlyThatClientViewportReport() {
+    func testMobileHostConnectionCloseLeavesViewportReportsForPollingClient() {
         let service = MobileHostService.shared
         let terminalController = TerminalController.shared
         let connectionID = UUID()
@@ -661,7 +661,8 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         XCTAssertEqual(
             terminalController.debugMobileViewportReportClientIDsForTesting(surfaceID: surfaceID),
-            Set(["ipad-client"])
+            Set(["ios-client", "ipad-client"]),
+            "Mobile RPC connections are short lived, so socket close must not clear viewport reports before their TTL expires."
         )
 
         terminalController.debugResetMobileViewportReportsForTesting()
