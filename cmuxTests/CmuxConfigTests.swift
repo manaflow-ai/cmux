@@ -7,6 +7,128 @@ import XCTest
 @testable import cmux
 #endif
 
+final class DockConfigParserTests: XCTestCase {
+
+    private func decodeControls(_ source: String) throws -> [DockControlDefinition] {
+        try DockConfigParser.decodeControls(data: Data(source.utf8))
+    }
+
+    func testParsesLineCommentedControlAndTrailingComma() throws {
+        let controls = try decodeControls("""
+        {
+          "controls": [
+            {
+              "id": "git",
+              "title": "Git",
+              "command": "lazygit",
+            },
+            // {
+            //   "id": "logs",
+            //   "title": "Logs",
+            //   "command": "tail -f ./logs/development.log"
+            // }
+          ]
+        }
+        """)
+
+        XCTAssertEqual(controls.map(\.id), ["git"])
+        XCTAssertEqual(controls.first?.command, "lazygit")
+    }
+
+    func testParsesBlockCommentedControlAndPreservesCommentSyntaxInStrings() throws {
+        let controls = try decodeControls("""
+        {
+          "controls": [
+            /*
+            {
+              "id": "disabled",
+              "title": "Disabled",
+              "command": "echo disabled"
+            },
+            */
+            {
+              "id": "server",
+              "title": "Server",
+              "command": "echo http://localhost:3000 && echo not-a-comment"
+            }
+          ]
+        }
+        """)
+
+        XCTAssertEqual(controls.map(\.id), ["server"])
+        XCTAssertEqual(controls.first?.command, "echo http://localhost:3000 && echo not-a-comment")
+    }
+
+    func testPreservesCommentMarkersInStringValues() throws {
+        let controls = try decodeControls("""
+        {
+          "controls": [
+            {
+              "id": "test",
+              "title": "Test",
+              "command": "echo line // not a comment && echo block /* also not a comment */"
+            }
+          ]
+        }
+        """)
+
+        XCTAssertEqual(controls.count, 1)
+        XCTAssertEqual(
+            controls.first?.command,
+            "echo line // not a comment && echo block /* also not a comment */"
+        )
+    }
+
+    func testPrefersDockJSONOverDockJSONCInSameDirectory() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "dock-config-locator-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let jsonURL = root.appendingPathComponent("dock.json")
+        let jsoncURL = root.appendingPathComponent("dock.jsonc")
+        try "{}".write(to: jsoncURL, atomically: true, encoding: .utf8)
+        try "{}".write(to: jsonURL, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(DockConfigFileLocator.existingConfigURL(in: root), jsonURL)
+    }
+
+    func testFindsDockJSONCWhenDockJSONIsAbsent() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "dock-config-locator-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let jsoncURL = root.appendingPathComponent("dock.jsonc")
+        try "{}".write(to: jsoncURL, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(DockConfigFileLocator.existingConfigURL(in: root), jsoncURL)
+    }
+
+    func testReportsJSONCPreprocessingErrors() {
+        XCTAssertThrowsError(try decodeControls("""
+        {
+          "controls": [
+            /*
+            { "id": "git", "command": "lazygit" }
+          ]
+        }
+        """)) { error in
+            XCTAssertEqual(error.localizedDescription, "Couldn't parse Dock config as JSONC: an unterminated block comment.")
+            let nsError = error as NSError
+            XCTAssertEqual(
+                nsError.localizedRecoverySuggestion,
+                "Check comments and trailing commas in your Dock config file, then reload Dock."
+            )
+            XCTAssertNotNil(nsError.userInfo[NSUnderlyingErrorKey])
+        }
+    }
+}
+
 // MARK: - JSON Decoding
 
 final class CmuxConfigDecodingTests: XCTestCase {

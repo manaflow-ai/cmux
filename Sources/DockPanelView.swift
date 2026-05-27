@@ -2,7 +2,7 @@ import AppKit
 import Bonsplit
 import SwiftUI
 
-struct DockControlDefinition: Codable, Equatable, Identifiable {
+nonisolated struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
     let id: String
     let title: String
     let command: String
@@ -77,10 +77,6 @@ struct DockControlDefinition: Codable, Equatable, Identifiable {
             try container.encode(env, forKey: .env)
         }
     }
-}
-
-private struct DockConfigFile: Codable {
-    let controls: [DockControlDefinition]
 }
 
 private struct DockConfigResolution {
@@ -240,6 +236,7 @@ final class DockControlsStore: ObservableObject {
     @Published private(set) var controls: [DockControlRuntime] = []
     @Published private(set) var sourceLabel = ""
     @Published private(set) var errorMessage: String?
+    @Published private(set) var errorRecoverySuggestion: String?
     @Published private(set) var trustRequest: DockTrustRequest?
 
     private var lastRootDirectory: String?
@@ -275,6 +272,7 @@ final class DockControlsStore: ObservableObject {
         lastWorkspaceId = workspaceId
         hasLoadedConfiguration = true
         errorMessage = nil
+        errorRecoverySuggestion = nil
         trustRequest = nil
         activeConfigURL = nil
 
@@ -305,6 +303,7 @@ final class DockControlsStore: ObservableObject {
             replaceControls(with: [])
             sourceLabel = String(localized: "dock.source.error", defaultValue: "Dock")
             errorMessage = error.localizedDescription
+            errorRecoverySuggestion = (error as NSError).localizedRecoverySuggestion
         }
     }
 
@@ -335,6 +334,7 @@ final class DockControlsStore: ObservableObject {
             NSWorkspace.shared.open(target)
         } catch {
             errorMessage = error.localizedDescription
+            errorRecoverySuggestion = (error as NSError).localizedRecoverySuggestion
         }
     }
 
@@ -397,8 +397,7 @@ final class DockControlsStore: ObservableObject {
             )
         }
 
-        let globalURL = globalConfigURL()
-        if FileManager.default.fileExists(atPath: globalURL.path) {
+        if let globalURL = globalConfigURL() {
             return try loadConfig(
                 from: globalURL,
                 baseDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
@@ -420,9 +419,9 @@ final class DockControlsStore: ObservableObject {
         isProjectSource: Bool
     ) throws -> DockConfigResolution {
         let data = try Data(contentsOf: url)
-        let file = try JSONDecoder().decode(DockConfigFile.self, from: data)
+        let controls = try DockConfigParser.decodeControls(data: data)
         var seen = Set<String>()
-        for control in file.controls {
+        for control in controls {
             guard seen.insert(control.id).inserted else {
                 throw NSError(
                     domain: "cmux.dock",
@@ -437,7 +436,7 @@ final class DockControlsStore: ObservableObject {
             }
         }
         return DockConfigResolution(
-            controls: file.controls,
+            controls: controls,
             sourceURL: url,
             baseDirectory: baseDirectory,
             isProjectSource: isProjectSource
@@ -458,10 +457,8 @@ final class DockControlsStore: ObservableObject {
         var candidate = URL(fileURLWithPath: rootDirectory, isDirectory: true)
         let homePath = FileManager.default.homeDirectoryForCurrentUser.path
         while true {
-            let configURL = candidate
-                .appendingPathComponent(".cmux", isDirectory: true)
-                .appendingPathComponent("dock.json", isDirectory: false)
-            if FileManager.default.fileExists(atPath: configURL.path) {
+            let configDirectory = candidate.appendingPathComponent(".cmux", isDirectory: true)
+            if let configURL = DockConfigFileLocator.existingConfigURL(in: configDirectory) {
                 return configURL
             }
             let parent = candidate.deletingLastPathComponent()
@@ -477,7 +474,20 @@ final class DockControlsStore: ObservableObject {
         return cmuxDirectory.deletingLastPathComponent().path
     }
 
-    private static func globalConfigURL() -> URL {
+    private static func globalConfigURL() -> URL? {
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1",
+           let testPath = ProcessInfo.processInfo.environment["CMUX_UI_TEST_DOCK_CONFIG_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !testPath.isEmpty {
+            let testURL = URL(fileURLWithPath: testPath)
+            return FileManager.default.fileExists(atPath: testURL.path) ? testURL : nil
+        }
+        let configDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/cmux", isDirectory: true)
+        return DockConfigFileLocator.existingConfigURL(in: configDirectory)
+    }
+
+    private static func defaultGlobalConfigURL() -> URL {
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1",
            let testPath = ProcessInfo.processInfo.environment["CMUX_UI_TEST_DOCK_CONFIG_PATH"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -490,11 +500,12 @@ final class DockControlsStore: ObservableObject {
 
     private static func preferredEditableConfigURL(rootDirectory: String?) throws -> URL {
         if let rootDirectory = rootDirectory.flatMap(existingDirectory) {
-            return URL(fileURLWithPath: rootDirectory, isDirectory: true)
+            let configDirectory = URL(fileURLWithPath: rootDirectory, isDirectory: true)
                 .appendingPathComponent(".cmux", isDirectory: true)
-                .appendingPathComponent("dock.json", isDirectory: false)
+            return DockConfigFileLocator.existingConfigURL(in: configDirectory)
+                ?? configDirectory.appendingPathComponent("dock.json", isDirectory: false)
         }
-        return globalConfigURL()
+        return globalConfigURL() ?? defaultGlobalConfigURL()
     }
 
     private static func existingDirectory(_ rawPath: String) -> String? {
@@ -619,7 +630,7 @@ struct DockPanelView: View {
                 store.trustAndReload()
             }
         } else if let error = store.errorMessage {
-            DockErrorView(message: error)
+            DockErrorView(message: error, recoverySuggestion: store.errorRecoverySuggestion)
         } else if store.controls.isEmpty {
             DockEmptyView()
         } else {
@@ -843,6 +854,7 @@ private struct DockTrustView: View {
 
 private struct DockErrorView: View {
     let message: String
+    let recoverySuggestion: String?
 
     var body: some View {
         VStack(spacing: 8) {
@@ -855,6 +867,12 @@ private struct DockErrorView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+            if let recoverySuggestion, !recoverySuggestion.isEmpty {
+                Text(recoverySuggestion)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

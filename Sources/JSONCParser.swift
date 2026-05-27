@@ -212,7 +212,7 @@ enum JSONCParser {
         return result
     }
 
-    private enum JSONCError: LocalizedError {
+    nonisolated enum JSONCError: LocalizedError {
         case invalidTextEncoding
         case invalidTrailingComma
         case unterminatedBlockComment
