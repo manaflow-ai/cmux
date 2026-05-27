@@ -1,8 +1,9 @@
 import Foundation
 
 public enum HermesAgentCodexEnvironment {
-    public static let defaultProvider = "openai-codex"
+    public static let defaultProvider = "custom"
     public static let codexBaseURLEnvironmentKey = "HERMES_CODEX_BASE_URL"
+    public static let customBaseURLEnvironmentKey = "CUSTOM_BASE_URL"
 
     public static func argumentsWithDefaultProvider(_ arguments: [String]) -> [String] {
         guard !containsProviderOverride(arguments) else { return arguments }
@@ -13,15 +14,21 @@ public enum HermesAgentCodexEnvironment {
         to environment: [String: String],
         ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String: String] {
-        guard normalized(environment[codexBaseURLEnvironmentKey]) == nil,
-              let baseURL = defaultCodexBaseURL(
-                environment: environment,
-                ambientEnvironment: ambientEnvironment
-              ) else {
+        guard let configContent = codexConfigContent(
+            environment: environment,
+            ambientEnvironment: ambientEnvironment
+        ) else {
             return environment
         }
         var result = environment
-        result[codexBaseURLEnvironmentKey] = baseURL
+        if normalized(result[codexBaseURLEnvironmentKey]) == nil,
+           let codexBaseURL = codexBaseURL(fromCodexConfigContent: configContent) {
+            result[codexBaseURLEnvironmentKey] = codexBaseURL
+        }
+        if normalized(result[customBaseURLEnvironmentKey]) == nil,
+           let customBaseURL = customBaseURL(fromCodexConfigContent: configContent) {
+            result[customBaseURLEnvironmentKey] = customBaseURL
+        }
         return result
     }
 
@@ -29,11 +36,22 @@ public enum HermesAgentCodexEnvironment {
         environment: [String: String],
         ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) -> String? {
-        guard let configPath = codexConfigPath(environment: environment, ambientEnvironment: ambientEnvironment),
-              let content = try? String(contentsOfFile: configPath, encoding: .utf8) else {
-            return nil
-        }
+        guard let content = codexConfigContent(
+            environment: environment,
+            ambientEnvironment: ambientEnvironment
+        ) else { return nil }
         return codexBaseURL(fromCodexConfigContent: content)
+    }
+
+    public static func defaultCustomBaseURL(
+        environment: [String: String],
+        ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        guard let content = codexConfigContent(
+            environment: environment,
+            ambientEnvironment: ambientEnvironment
+        ) else { return nil }
+        return customBaseURL(fromCodexConfigContent: content)
     }
 
     public static func codexBaseURL(fromCodexConfigContent content: String) -> String? {
@@ -50,6 +68,25 @@ public enum HermesAgentCodexEnvironment {
         return nil
     }
 
+    public static func customBaseURL(fromCodexConfigContent content: String) -> String? {
+        var fallbackChatGPTBaseURL: String?
+        for rawLine in content.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(rawLine).trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") {
+                break
+            }
+            if let value = tomlStringValue(forKey: "openai_base_url", in: line),
+               let baseURL = customBaseURL(fromOpenAIBaseURL: value) {
+                return baseURL
+            }
+            if let value = tomlStringValue(forKey: "chatgpt_base_url", in: line),
+               let baseURL = customBaseURL(fromChatGPTBaseURL: value) {
+                fallbackChatGPTBaseURL = baseURL
+            }
+        }
+        return fallbackChatGPTBaseURL
+    }
+
     public static func codexBaseURL(fromChatGPTBaseURL rawValue: String) -> String? {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") else {
@@ -61,6 +98,40 @@ public enum HermesAgentCodexEnvironment {
             return withoutTrailingSlash
         }
         return withoutTrailingSlash + "/codex"
+    }
+
+    public static func customBaseURL(fromOpenAIBaseURL rawValue: String) -> String? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") else {
+            return nil
+        }
+        let withoutTrailingSlash = trimmed.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+        guard !withoutTrailingSlash.isEmpty else { return nil }
+        guard !hostMatches(withoutTrailingSlash, hostSuffix: "api.openai.com") else { return nil }
+        return withoutTrailingSlash
+    }
+
+    public static func customBaseURL(fromChatGPTBaseURL rawValue: String) -> String? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") else {
+            return nil
+        }
+        let withoutTrailingSlash = trimmed.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+        guard !withoutTrailingSlash.isEmpty else { return nil }
+        guard !hostMatches(withoutTrailingSlash, hostSuffix: "chatgpt.com"),
+              !hostMatches(withoutTrailingSlash, hostSuffix: "chat.openai.com") else { return nil }
+
+        guard var components = URLComponents(string: withoutTrailingSlash) else {
+            return nil
+        }
+        let path = components.path
+        if path == "/backend-api" || path.hasPrefix("/backend-api/") {
+            components.path = "/v1"
+            components.query = nil
+            components.fragment = nil
+            return components.string?.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+        }
+        return nil
     }
 
     private static func containsProviderOverride(_ arguments: [String]) -> Bool {
@@ -84,6 +155,16 @@ public enum HermesAgentCodexEnvironment {
             codexHome = ("~/.codex" as NSString).expandingTildeInPath
         }
         return (codexHome as NSString).appendingPathComponent("config.toml")
+    }
+
+    private static func codexConfigContent(
+        environment: [String: String],
+        ambientEnvironment: [String: String]
+    ) -> String? {
+        guard let configPath = codexConfigPath(environment: environment, ambientEnvironment: ambientEnvironment) else {
+            return nil
+        }
+        return try? String(contentsOfFile: configPath, encoding: .utf8)
     }
 
     private static func tomlStringValue(forKey key: String, in line: String) -> String? {
@@ -164,5 +245,13 @@ public enum HermesAgentCodexEnvironment {
     private static func normalized(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private static func hostMatches(_ rawURL: String, hostSuffix: String) -> Bool {
+        guard let host = URLComponents(string: rawURL)?.host?.lowercased() else {
+            return false
+        }
+        let suffix = hostSuffix.lowercased()
+        return host == suffix || host.hasSuffix("." + suffix)
     }
 }

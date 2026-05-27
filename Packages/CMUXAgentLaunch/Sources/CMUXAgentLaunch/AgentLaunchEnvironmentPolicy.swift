@@ -54,6 +54,7 @@ public enum AgentLaunchEnvironmentPolicy {
         "COPILOT_PROVIDER_TYPE",
         "COPILOT_PROVIDER_WIRE_API",
         "COPILOT_PROVIDER_WIRE_MODEL",
+        "CUSTOM_BASE_URL",
         "GEMINI_CLI_HOME",
         "GH_HOST",
         "GROK_HOME",

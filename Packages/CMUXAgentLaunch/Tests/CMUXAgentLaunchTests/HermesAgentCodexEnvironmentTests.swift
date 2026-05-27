@@ -16,21 +16,47 @@ struct HermesAgentCodexEnvironmentTests {
                 fromChatGPTBaseURL: "http://subrouter-team:31415/backend-api/codex/"
             ) == "http://subrouter-team:31415/backend-api/codex"
         )
+        #expect(
+            HermesAgentCodexEnvironment.customBaseURL(
+                fromChatGPTBaseURL: "http://subrouter-team:31415/backend-api"
+            ) == "http://subrouter-team:31415/v1"
+        )
+        #expect(
+            HermesAgentCodexEnvironment.customBaseURL(
+                fromOpenAIBaseURL: "http://subrouter-team:31415/v1/"
+            ) == "http://subrouter-team:31415/v1"
+        )
+        #expect(
+            HermesAgentCodexEnvironment.customBaseURL(
+                fromOpenAIBaseURL: "https://api.openai.com/v1"
+            ) == nil
+        )
+        #expect(
+            HermesAgentCodexEnvironment.customBaseURL(
+                fromChatGPTBaseURL: "https://chatgpt.com/backend-api"
+            ) == nil
+        )
     }
 
-    @Test("Reads top-level Codex ChatGPT base URL")
-    func readsTopLevelCodexChatGPTBaseURL() {
+    @Test("Reads top-level Codex base URLs")
+    func readsTopLevelCodexBaseURLs() {
         let content = """
         model = "gpt-5.5"
+        openai_base_url = "http://subrouter-team:31415/v1"
         chatgpt_base_url = "http://subrouter-team:31415/backend-api" # route Codex backend
 
         [profiles.work]
+        openai_base_url = "http://ignored.example/v1"
         chatgpt_base_url = "http://ignored.example/backend-api"
         """
 
         #expect(
             HermesAgentCodexEnvironment.codexBaseURL(fromCodexConfigContent: content)
                 == "http://subrouter-team:31415/backend-api/codex"
+        )
+        #expect(
+            HermesAgentCodexEnvironment.customBaseURL(fromCodexConfigContent: content)
+                == "http://subrouter-team:31415/v1"
         )
     }
 
@@ -41,6 +67,7 @@ struct HermesAgentCodexEnvironmentTests {
         let codexHome = root.appendingPathComponent("codex", isDirectory: true)
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         try """
+        openai_base_url = "http://subrouter-team:31415/v1"
         chatgpt_base_url = "http://subrouter-team:31415/backend-api"
         """.write(to: codexHome.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -50,23 +77,32 @@ struct HermesAgentCodexEnvironmentTests {
             ambientEnvironment: [:]
         )
         #expect(applied["HERMES_CODEX_BASE_URL"] == "http://subrouter-team:31415/backend-api/codex")
+        #expect(applied["CUSTOM_BASE_URL"] == "http://subrouter-team:31415/v1")
 
         let explicit = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(
             to: [
                 "CODEX_HOME": codexHome.path,
+                "CUSTOM_BASE_URL": "http://custom.example/v1",
                 "HERMES_CODEX_BASE_URL": "http://custom.example/backend-api/codex",
             ],
             ambientEnvironment: [:]
         )
         #expect(explicit["HERMES_CODEX_BASE_URL"] == "http://custom.example/backend-api/codex")
+        #expect(explicit["CUSTOM_BASE_URL"] == "http://custom.example/v1")
     }
 
-    @Test("Allows Hermes Codex base URL in captured launch environment")
-    func allowsHermesCodexBaseURLInCapturedLaunchEnvironment() {
+    @Test("Allows Hermes Codex subrouter URLs in captured launch environment")
+    func allowsHermesCodexSubrouterURLsInCapturedLaunchEnvironment() {
         #expect(
             AgentLaunchEnvironmentPolicy.selectedEnvironment(
-                from: ["HERMES_CODEX_BASE_URL": "http://subrouter-team:31415/backend-api/codex"]
-            ) == ["HERMES_CODEX_BASE_URL": "http://subrouter-team:31415/backend-api/codex"]
+                from: [
+                    "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+                    "HERMES_CODEX_BASE_URL": "http://subrouter-team:31415/backend-api/codex",
+                ]
+            ) == [
+                "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+                "HERMES_CODEX_BASE_URL": "http://subrouter-team:31415/backend-api/codex",
+            ]
         )
     }
 }

@@ -248,6 +248,7 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         let codexHome = root.appendingPathComponent("codex", isDirectory: true)
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         try """
+        openai_base_url = "http://subrouter-team:31415/v1"
         chatgpt_base_url = "http://subrouter-team:31415/backend-api"
         """.write(to: codexHome.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -265,6 +266,10 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertEqual(
             merged["HERMES_CODEX_BASE_URL"],
             "http://subrouter-team:31415/backend-api/codex"
+        )
+        XCTAssertEqual(
+            merged["CUSTOM_BASE_URL"],
+            "http://subrouter-team:31415/v1"
         )
     }
 }

@@ -39,7 +39,7 @@ extension SocketListenerAcceptPolicyTests {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd '/tmp/hermes repo' && 'env' 'HERMES_HOME=/tmp/hermes home' '/opt/homebrew/bin/hermes' '--provider' 'openai-codex' '--tui' '--model' 'gpt-5.4' '--resume' 'hermes-session-123'"
+            "cd '/tmp/hermes repo' && 'env' 'HERMES_HOME=/tmp/hermes home' '/opt/homebrew/bin/hermes' '--provider' 'custom' '--tui' '--model' 'gpt-5.4' '--resume' 'hermes-session-123'"
         )
     }
 
@@ -63,11 +63,11 @@ extension SocketListenerAcceptPolicyTests {
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env HERMES_HOME='/tmp/hermes home' hermes --provider openai-codex --tui --resume hermes-session-123 --model gpt-5.4"
+            "env HERMES_HOME='/tmp/hermes home' hermes --provider custom --tui --resume hermes-session-123 --model gpt-5.4"
         )
     }
 
-    func testHermesAgentResumeCommandPreservesSubrouterCodexBaseURL() {
+    func testHermesAgentResumeCommandPreservesSubrouterBaseURLs() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .hermesAgent,
             sessionId: "hermes-session-123",
@@ -84,6 +84,7 @@ extension SocketListenerAcceptPolicyTests {
                 ],
                 workingDirectory: "/tmp/hermes repo",
                 environment: [
+                    "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
                     "HERMES_CODEX_BASE_URL": "http://subrouter-team:31415/backend-api/codex",
                     "HERMES_HOME": "/tmp/hermes home",
                 ],
@@ -94,7 +95,7 @@ extension SocketListenerAcceptPolicyTests {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd '/tmp/hermes repo' && 'env' 'HERMES_CODEX_BASE_URL=http://subrouter-team:31415/backend-api/codex' 'HERMES_HOME=/tmp/hermes home' '/opt/homebrew/bin/hermes' '--provider' 'anthropic' '--model' 'anthropic/claude-sonnet-4.6' '--resume' 'hermes-session-123'"
+            "cd '/tmp/hermes repo' && 'env' 'CUSTOM_BASE_URL=http://subrouter-team:31415/v1' 'HERMES_CODEX_BASE_URL=http://subrouter-team:31415/backend-api/codex' 'HERMES_HOME=/tmp/hermes home' '/opt/homebrew/bin/hermes' '--provider' 'anthropic' '--model' 'anthropic/claude-sonnet-4.6' '--resume' 'hermes-session-123'"
         )
     }
 
@@ -118,7 +119,7 @@ extension SocketListenerAcceptPolicyTests {
             [
                 "/opt/homebrew/bin/hermes",
                 "--provider",
-                "openai-codex",
+                "custom",
                 "--tui",
                 "--model",
                 "gpt-5.4"
