@@ -6571,9 +6571,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func bootstrapInitialMainWindowIfNeeded(debugSource: String, shouldActivate: Bool = true) -> UUID {
+    func bootstrapInitialMainWindowIfNeeded(
+        debugSource: String,
+        shouldActivate: Bool = true,
+        suppressWelcome: Bool = false
+    ) -> UUID {
         reserveInitialSocketPathIfNeeded()
-        let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: shouldActivate)
+        let windowId = ensureInitialMainWindowIfNeeded(
+            shouldActivate: shouldActivate,
+            suppressWelcome: suppressWelcome
+        )
         if let manager = tabManagerFor(windowId: windowId)
             ?? mainWindowContexts.values.first(where: { $0.windowId == windowId })?.tabManager
             ?? preferredRegisteredMainWindowContext()?.tabManager
@@ -6593,7 +6600,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func ensureInitialMainWindowIfNeeded(shouldActivate: Bool = true) -> UUID {
+    func ensureInitialMainWindowIfNeeded(
+        shouldActivate: Bool = true,
+        suppressWelcome: Bool = false
+    ) -> UUID {
         for context in sortedMainWindowContextsForSessionSnapshot() {
             guard let window = resolvedWindow(for: context) else { continue }
             if shouldActivate {
@@ -6607,7 +6617,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return context.windowId
         }
 
-        return createMainWindow(shouldActivate: shouldActivate)
+        return createMainWindow(
+            initialTerminalInput: suppressWelcome ? "" : nil,
+            shouldActivate: shouldActivate
+        )
     }
 
     private func hasVisibleMainTerminalWindow() -> Bool {

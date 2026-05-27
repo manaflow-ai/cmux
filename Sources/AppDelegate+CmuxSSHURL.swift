@@ -133,9 +133,17 @@ extension AppDelegate {
         scheduleInitialMainWindowBootstrap(debugSource: debugSource)
     }
 
-    func bootstrapInitialMainWindowAfterAcceptedExternalOpen(debugSource: String, shouldActivate: Bool = true) {
+    func bootstrapInitialMainWindowAfterAcceptedExternalOpen(
+        debugSource: String,
+        shouldActivate: Bool = true,
+        suppressWelcome: Bool = false
+    ) {
         shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
-        _ = bootstrapInitialMainWindowIfNeeded(debugSource: debugSource, shouldActivate: shouldActivate)
+        _ = bootstrapInitialMainWindowIfNeeded(
+            debugSource: debugSource,
+            shouldActivate: shouldActivate,
+            suppressWelcome: suppressWelcome
+        )
     }
 
     func claimAuthCallbackURLSchemes() {
@@ -250,7 +258,8 @@ extension AppDelegate {
         prepareForExplicitOpenIntentAtStartup()
         bootstrapInitialMainWindowAfterAcceptedExternalOpen(
             debugSource: "textURL.confirmed",
-            shouldActivate: !request.noFocus
+            shouldActivate: !request.noFocus,
+            suppressWelcome: true
         )
         if !request.noFocus {
             NSApp.activate(ignoringOtherApps: true)
