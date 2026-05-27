@@ -924,12 +924,29 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 #endif
 
 /// Named collapsible sidebar group containing one or more workspaces.
-/// The membership relation lives on `Workspace.groupId`; this struct only
-/// stores the group's identity, display name, and persisted collapse state.
+/// The membership relation lives on `Workspace.groupId`; this struct stores
+/// the group's identity, display name, collapse/pin state, and the explicit
+/// anchor workspace whose lifecycle gates the group itself.
+///
+/// The anchor workspace is always a real member workspace. It is created
+/// fresh when the group is created (never promoted from an existing member),
+/// rendered IMPLICITLY as the group header (no separate sidebar row), and
+/// when closed dissolves the group while keeping other members alive.
 struct WorkspaceGroup: Identifiable, Equatable, Sendable {
     let id: UUID
     var name: String
     var isCollapsed: Bool
+    var isPinned: Bool
+    /// Identifier of the member workspace that owns this group's lifecycle.
+    /// Always present and always points to a workspace in `TabManager.tabs`
+    /// whose `groupId == self.id`. Closing this workspace dissolves the group.
+    var anchorWorkspaceId: UUID
+    /// Group-level color override (hex string). When nil, falls back to the
+    /// cwd-config color resolved from `cmux.json` for the anchor's cwd, then
+    /// to no tint.
+    var customColor: String?
+    /// SF symbol name for the header icon. When nil, defaults to `folder.fill`.
+    var iconSymbol: String?
 }
 
 @MainActor
@@ -1142,14 +1159,20 @@ class TabManager: ObservableObject {
 
     @Published var tabs: [Workspace] = [] {
         didSet {
-            // Drop any group whose last member workspace was removed so the
-            // sidebar never shows empty group headers. The check is O(N+G)
-            // and skips entirely when no groups exist.
+            // Anchor-bound group lifecycle: if a group's anchor workspace is no
+            // longer in `tabs[]` (the user closed it), the group dissolves and
+            // its remaining members become ungrouped. A group with only its
+            // anchor still in tabs[] is fine and stays alive.
             guard !workspaceGroups.isEmpty else { return }
-            let occupiedGroupIds = Set(tabs.compactMap(\.groupId))
-            let filtered = workspaceGroups.filter { occupiedGroupIds.contains($0.id) }
-            if filtered.count != workspaceGroups.count {
-                workspaceGroups = filtered
+            let tabIds = Set(tabs.map(\.id))
+            for group in workspaceGroups where !tabIds.contains(group.anchorWorkspaceId) {
+                for tab in tabs where tab.groupId == group.id {
+                    tab.groupId = nil
+                }
+            }
+            let nextGroups = workspaceGroups.filter { tabIds.contains($0.anchorWorkspaceId) }
+            if nextGroups.count != workspaceGroups.count {
+                workspaceGroups = nextGroups
             }
         }
     }
@@ -5678,49 +5701,102 @@ class TabManager: ObservableObject {
 
     // MARK: - Workspace Groups
 
-    /// Create a new group containing the given workspaces. Pinned workspaces are skipped
-    /// (groups only apply to unpinned workspaces). Returns the new group id, or nil if
-    /// no eligible workspaces were provided.
+    /// Create a new group, inserting a fresh anchor workspace above the given
+    /// child workspaces. Pinned children are skipped (groups only apply to
+    /// unpinned workspaces). Returns the new group id.
+    ///
+    /// The anchor is always brand new (never promoted from an existing
+    /// workspace). Its cwd defaults to `anchorWorkingDirectory`, or the first
+    /// eligible child's cwd, or whatever `addWorkspace` resolves on its own.
     @discardableResult
-    func createWorkspaceGroup(name: String, workspaceIds: [UUID]) -> UUID? {
-        let eligibleIds = workspaceIds.compactMap { id -> UUID? in
+    func createWorkspaceGroup(
+        name: String,
+        childWorkspaceIds: [UUID] = [],
+        anchorWorkingDirectory: String? = nil
+    ) -> UUID? {
+        let eligibleChildren = childWorkspaceIds.compactMap { id -> UUID? in
             guard let tab = tabs.first(where: { $0.id == id }), !tab.isPinned else { return nil }
             return id
         }
-        guard !eligibleIds.isEmpty else { return nil }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedName = trimmedName.isEmpty
             ? String(localized: "workspaceGroup.defaultName", defaultValue: "New Group")
             : trimmedName
-        let group = WorkspaceGroup(id: UUID(), name: resolvedName, isCollapsed: false)
+
+        let inferredCwd: String? = {
+            if let anchorWorkingDirectory { return anchorWorkingDirectory }
+            if let firstId = eligibleChildren.first,
+               let firstChild = tabs.first(where: { $0.id == firstId }) {
+                return firstChild.currentDirectory
+            }
+            return nil
+        }()
+
+        let anchor = addWorkspace(
+            title: resolvedName,
+            workingDirectory: inferredCwd,
+            inheritWorkingDirectory: inferredCwd == nil,
+            select: true,
+            autoWelcomeIfNeeded: false
+        )
+
+        let group = WorkspaceGroup(
+            id: UUID(),
+            name: resolvedName,
+            isCollapsed: false,
+            isPinned: false,
+            anchorWorkspaceId: anchor.id,
+            customColor: nil,
+            iconSymbol: nil
+        )
         workspaceGroups.append(group)
-        for id in eligibleIds {
+        anchor.groupId = group.id
+        for id in eligibleChildren {
             assignGroup(workspaceId: id, groupId: group.id)
         }
         normalizeWorkspaceGroupContiguity()
-        postWorkspaceOrderDidChange(movedWorkspaceIds: eligibleIds)
+        postWorkspaceOrderDidChange(movedWorkspaceIds: [anchor.id] + eligibleChildren)
         return group.id
     }
 
-    /// Add an existing workspace to an existing group. No-op for pinned workspaces.
+    /// Add an existing workspace to an existing group as a non-anchor member.
+    /// No-op for pinned workspaces.
     func addWorkspaceToGroup(workspaceId: UUID, groupId: UUID) {
         guard let tab = tabs.first(where: { $0.id == workspaceId }), !tab.isPinned else { return }
         guard workspaceGroups.contains(where: { $0.id == groupId }) else { return }
         guard tab.groupId != groupId else { return }
         assignGroup(workspaceId: workspaceId, groupId: groupId)
         normalizeWorkspaceGroupContiguity()
-        pruneEmptyWorkspaceGroups()
         postWorkspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
     }
 
-    /// Remove a workspace from any group it belongs to. The workspace moves into the
-    /// ungrouped section at the bottom of the sidebar.
+    /// Remove a non-anchor workspace from its group. If the workspace is its
+    /// group's anchor, the group is dissolved instead (other members survive
+    /// as ungrouped workspaces).
     func removeWorkspaceFromGroup(workspaceId: UUID) {
-        guard let tab = tabs.first(where: { $0.id == workspaceId }), tab.groupId != nil else { return }
+        guard let tab = tabs.first(where: { $0.id == workspaceId }),
+              let groupId = tab.groupId else { return }
+        if let group = workspaceGroups.first(where: { $0.id == groupId }),
+           group.anchorWorkspaceId == workspaceId {
+            ungroupWorkspaceGroup(groupId: groupId)
+            return
+        }
         assignGroup(workspaceId: workspaceId, groupId: nil)
         normalizeWorkspaceGroupContiguity()
-        pruneEmptyWorkspaceGroups()
         postWorkspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
+    }
+
+    /// Dissolve a group while preserving every member workspace (including its
+    /// anchor) as a regular ungrouped workspace. Nothing is closed.
+    func ungroupWorkspaceGroup(groupId: UUID) {
+        let memberIds = tabs.filter { $0.groupId == groupId }.map(\.id)
+        guard !memberIds.isEmpty || workspaceGroups.contains(where: { $0.id == groupId }) else { return }
+        for id in memberIds {
+            assignGroup(workspaceId: id, groupId: nil)
+        }
+        workspaceGroups.removeAll { $0.id == groupId }
+        normalizeWorkspaceGroupContiguity()
+        postWorkspaceOrderDidChange(movedWorkspaceIds: memberIds)
     }
 
     /// Rename a group. Whitespace-only names are ignored.
@@ -5730,17 +5806,6 @@ class TabManager: ObservableObject {
         guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
         guard workspaceGroups[index].name != trimmed else { return }
         workspaceGroups[index].name = trimmed
-    }
-
-    /// Delete a group. Its member workspaces become ungrouped and remain in the sidebar.
-    func deleteWorkspaceGroup(groupId: UUID) {
-        let memberIds = tabs.filter { $0.groupId == groupId }.map(\.id)
-        for id in memberIds {
-            assignGroup(workspaceId: id, groupId: nil)
-        }
-        workspaceGroups.removeAll { $0.id == groupId }
-        normalizeWorkspaceGroupContiguity()
-        postWorkspaceOrderDidChange(movedWorkspaceIds: memberIds)
     }
 
     /// Toggle the collapse state of a group's section header.
@@ -5755,45 +5820,107 @@ class TabManager: ObservableObject {
         workspaceGroups[index].isCollapsed = isCollapsed
     }
 
+    /// Toggle the pinned state of a whole group. Pinned groups float above
+    /// unpinned groups in the sidebar. Independent of per-workspace pin.
+    func toggleWorkspaceGroupPinned(groupId: UUID) {
+        setWorkspaceGroupPinned(groupId: groupId, isPinned: !(workspaceGroups.first(where: { $0.id == groupId })?.isPinned ?? false))
+    }
+
+    func setWorkspaceGroupPinned(groupId: UUID, isPinned: Bool) {
+        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
+        guard workspaceGroups[index].isPinned != isPinned else { return }
+        workspaceGroups[index].isPinned = isPinned
+        normalizeWorkspaceGroupContiguity()
+        let memberIds = tabs.filter { $0.groupId == groupId }.map(\.id)
+        postWorkspaceOrderDidChange(movedWorkspaceIds: memberIds)
+    }
+
+    func setWorkspaceGroupColor(groupId: UUID, hex: String?) {
+        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
+        guard workspaceGroups[index].customColor != hex else { return }
+        workspaceGroups[index].customColor = hex
+    }
+
+    func setWorkspaceGroupIcon(groupId: UUID, symbol: String?) {
+        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
+        guard workspaceGroups[index].iconSymbol != symbol else { return }
+        workspaceGroups[index].iconSymbol = symbol
+    }
+
+    /// Reassign which member workspace serves as the group's anchor.
+    /// `workspaceId` must already be a member of the group.
+    func setWorkspaceGroupAnchor(groupId: UUID, workspaceId: UUID) {
+        guard let groupIndex = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
+        guard let tab = tabs.first(where: { $0.id == workspaceId }), tab.groupId == groupId else { return }
+        guard workspaceGroups[groupIndex].anchorWorkspaceId != workspaceId else { return }
+        workspaceGroups[groupIndex].anchorWorkspaceId = workspaceId
+    }
+
+    /// Move a group to a new section position. Index is among groups of the
+    /// same pin tier (pinned groups can only reorder among themselves;
+    /// unpinned groups likewise). Out-of-range indices are clamped.
+    func moveWorkspaceGroup(groupId: UUID, toIndex targetIndex: Int) {
+        guard let currentIndex = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
+        let isPinned = workspaceGroups[currentIndex].isPinned
+        let sameTierIndices = workspaceGroups.indices.filter { workspaceGroups[$0].isPinned == isPinned }
+        guard let firstSameTier = sameTierIndices.first,
+              let lastSameTier = sameTierIndices.last else { return }
+        let clampedTarget = max(firstSameTier, min(targetIndex, lastSameTier))
+        guard clampedTarget != currentIndex else { return }
+        let group = workspaceGroups.remove(at: currentIndex)
+        let insertAt = clampedTarget > currentIndex ? clampedTarget : clampedTarget
+        workspaceGroups.insert(group, at: min(insertAt, workspaceGroups.count))
+        normalizeWorkspaceGroupContiguity()
+        let memberIds = tabs.filter { $0.groupId == groupId }.map(\.id)
+        postWorkspaceOrderDidChange(movedWorkspaceIds: memberIds)
+    }
+
     private func assignGroup(workspaceId: UUID, groupId: UUID?) {
         guard let tab = tabs.first(where: { $0.id == workspaceId }) else { return }
         guard tab.groupId != groupId else { return }
         tab.groupId = groupId
     }
 
-    /// Reorder `tabs` so each group's members are contiguous, preserving relative order
-    /// within each group. Pinned workspaces stay at the top; ungrouped unpinned workspaces
-    /// stay at the bottom. Group section order matches `workspaceGroups`.
+    /// Reorder `tabs` so each section is contiguous in this order:
+    /// 1. Individually pinned workspaces (ungrouped pins).
+    /// 2. Pinned groups (each group's members in tab order).
+    /// 3. Unpinned groups.
+    /// 4. Ungrouped unpinned workspaces.
+    ///
+    /// Within each group, members keep their relative order. Within each tier
+    /// of groups, group order is whatever `workspaceGroups` has. Per-anchor
+    /// member is just one of the members for this layout's purposes.
     private func normalizeWorkspaceGroupContiguity() {
         guard !tabs.isEmpty else { return }
-        let pinned = tabs.filter { $0.isPinned }
-        let unpinned = tabs.filter { !$0.isPinned }
         let knownGroupIds = Set(workspaceGroups.map(\.id))
-        // Defensively drop groupId values that no longer reference a known group.
-        for tab in unpinned where tab.groupId.map({ !knownGroupIds.contains($0) }) ?? false {
+        for tab in tabs where tab.groupId.map({ !knownGroupIds.contains($0) }) ?? false {
             tab.groupId = nil
         }
+        let pinnedSolo = tabs.filter { $0.isPinned && $0.groupId == nil }
         var groupedByGroupId: [UUID: [Workspace]] = [:]
-        var ungrouped: [Workspace] = []
-        for tab in unpinned {
+        var ungroupedUnpinned: [Workspace] = []
+        for tab in tabs {
             if let groupId = tab.groupId {
                 groupedByGroupId[groupId, default: []].append(tab)
-            } else {
-                ungrouped.append(tab)
+            } else if !tab.isPinned {
+                ungroupedUnpinned.append(tab)
             }
         }
         var reordered: [Workspace] = []
-        reordered.append(contentsOf: pinned)
-        for group in workspaceGroups {
+        reordered.append(contentsOf: pinnedSolo)
+        for group in workspaceGroups where group.isPinned {
             if let members = groupedByGroupId[group.id] {
                 reordered.append(contentsOf: members)
             }
         }
-        reordered.append(contentsOf: ungrouped)
+        for group in workspaceGroups where !group.isPinned {
+            if let members = groupedByGroupId[group.id] {
+                reordered.append(contentsOf: members)
+            }
+        }
+        reordered.append(contentsOf: ungroupedUnpinned)
         // Always reassign so SwiftUI consumers re-evaluate row modifiers that depend
-        // on `Workspace.groupId` (e.g. the sidebar indent applied to grouped rows).
-        // Without this, "add to group" on a workspace already in the right tab-array
-        // position would not re-render the row's indent.
+        // on `Workspace.groupId` even when the array contents are unchanged.
         tabs = reordered
     }
 
@@ -5810,15 +5937,10 @@ class TabManager: ObservableObject {
         workspaceGroups[index].isCollapsed = false
     }
 
-    /// Remove any groups that no longer contain workspaces. Called after operations that
-    /// could leave a group empty (deleting a workspace, moving it out of a group, etc.).
-    func pruneEmptyWorkspaceGroups() {
-        let occupiedGroupIds = Set(tabs.compactMap(\.groupId))
-        let next = workspaceGroups.filter { occupiedGroupIds.contains($0.id) }
-        if next.count != workspaceGroups.count {
-            workspaceGroups = next
-        }
-    }
+    /// Compatibility shim. With anchor-bound group lifecycle, "empty" groups
+    /// are no longer possible — a group exists iff its anchor exists in
+    /// `tabs[]`. The cleanup is now performed inside the `tabs` didSet.
+    func pruneEmptyWorkspaceGroups() {}
 
     private func clampedReorderIndex(for workspace: Workspace, targetIndex: Int) -> Int {
         let clamped = max(0, min(targetIndex, tabs.count - 1))
@@ -10061,7 +10183,17 @@ extension TabManager {
         let groupSnapshots: [SessionWorkspaceGroupSnapshot]? = {
             let snapshots = workspaceGroups
                 .filter { occupiedGroupIds.contains($0.id) }
-                .map { SessionWorkspaceGroupSnapshot(id: $0.id, name: $0.name, isCollapsed: $0.isCollapsed) }
+                .map { group in
+                    SessionWorkspaceGroupSnapshot(
+                        id: group.id,
+                        name: group.name,
+                        isCollapsed: group.isCollapsed,
+                        anchorWorkspaceId: group.anchorWorkspaceId,
+                        isPinned: group.isPinned,
+                        customColor: group.customColor,
+                        iconSymbol: group.iconSymbol
+                    )
+                }
             return snapshots.isEmpty ? nil : snapshots
         }()
         return SessionTabManagerSnapshot(
@@ -10168,15 +10300,35 @@ extension TabManager {
         tabs = newTabs
         let restoredGroups: [WorkspaceGroup] = {
             guard let groupSnapshots = snapshot.workspaceGroups else { return [] }
-            let referencedGroupIds = Set(newTabs.compactMap(\.groupId))
+            let workspaceIdsByGroupId: [UUID: [UUID]] = {
+                var map: [UUID: [UUID]] = [:]
+                for workspace in newTabs {
+                    if let gid = workspace.groupId {
+                        map[gid, default: []].append(workspace.id)
+                    }
+                }
+                return map
+            }()
             var seen: Set<UUID> = []
             return groupSnapshots.compactMap { groupSnapshot in
-                guard referencedGroupIds.contains(groupSnapshot.id),
+                guard let members = workspaceIdsByGroupId[groupSnapshot.id], !members.isEmpty,
                       seen.insert(groupSnapshot.id).inserted else { return nil }
+                // Resolve anchor: explicit snapshot field if it still references a member,
+                // otherwise the first member by tab order (back-compat with v1 snapshots).
+                let anchorId: UUID = {
+                    if let stored = groupSnapshot.anchorWorkspaceId, members.contains(stored) {
+                        return stored
+                    }
+                    return members[0]
+                }()
                 return WorkspaceGroup(
                     id: groupSnapshot.id,
                     name: groupSnapshot.name,
-                    isCollapsed: groupSnapshot.isCollapsed
+                    isCollapsed: groupSnapshot.isCollapsed,
+                    isPinned: groupSnapshot.isPinned ?? false,
+                    anchorWorkspaceId: anchorId,
+                    customColor: groupSnapshot.customColor,
+                    iconSymbol: groupSnapshot.iconSymbol
                 )
             }
         }()

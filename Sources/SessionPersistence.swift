@@ -1579,6 +1579,14 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID
     var name: String
     var isCollapsed: Bool
+    /// The workspace whose close dissolves the group. Persisted explicitly
+    /// rather than inferred from tab order. When loading older snapshots that
+    /// pre-date this field, the loader promotes the first member workspace
+    /// (by tab order) as the anchor.
+    var anchorWorkspaceId: UUID? = nil
+    var isPinned: Bool? = nil
+    var customColor: String? = nil
+    var iconSymbol: String? = nil
 }
 
 extension SessionWorkspaceSnapshot {

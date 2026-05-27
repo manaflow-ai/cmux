@@ -9940,20 +9940,25 @@ struct VerticalTabsSidebar: View {
         items.reserveCapacity(tabs.count + groupsById.count)
         var lastEmittedGroupId: UUID? = nil
         var emittedHeaders: Set<UUID> = []
-        var skipUntilNextGroup = false
+        var skipChildrenUntilNextGroup = false
         for tab in tabs {
             let groupId = tab.groupId
             if groupId != lastEmittedGroupId {
                 lastEmittedGroupId = groupId
-                skipUntilNextGroup = false
+                skipChildrenUntilNextGroup = false
                 if let groupId, let group = groupsById[groupId], !emittedHeaders.contains(groupId) {
                     let count = memberCountByGroupId[groupId] ?? 0
                     items.append(.groupHeader(group, memberCount: count))
                     emittedHeaders.insert(groupId)
-                    skipUntilNextGroup = group.isCollapsed
+                    skipChildrenUntilNextGroup = group.isCollapsed
                 }
             }
-            if groupId == nil || !skipUntilNextGroup {
+            // Anchor workspaces are represented exclusively by the group header.
+            // No row is emitted for them, collapsed or not.
+            if let groupId, let group = groupsById[groupId], group.anchorWorkspaceId == tab.id {
+                continue
+            }
+            if groupId == nil || !skipChildrenUntilNextGroup {
                 items.append(.workspace(tab))
             }
         }
@@ -11244,13 +11249,37 @@ struct VerticalTabsSidebar: View {
         group: WorkspaceGroup,
         memberCount: Int
     ) -> some View {
+        let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
         SidebarWorkspaceGroupHeaderView(
             groupId: group.id,
+            anchorWorkspaceId: group.anchorWorkspaceId,
             name: group.name,
+            iconSymbol: group.iconSymbol ?? "folder.fill",
+            tintHex: group.customColor,
             isCollapsed: group.isCollapsed,
+            isPinned: group.isPinned,
+            isAnchorActive: isAnchorActive,
             memberCount: memberCount,
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
+            },
+            onFocusAnchor: { [weak tabManager, anchorId = group.anchorWorkspaceId] in
+                guard let tabManager else { return }
+                if tabManager.selectedTabId != anchorId,
+                   tabManager.tabs.contains(where: { $0.id == anchorId }) {
+                    tabManager.selectedTabId = anchorId
+                }
+            },
+            onTapPlus: { [weak tabManager, groupId = group.id, anchorId = group.anchorWorkspaceId] in
+                guard let tabManager else { return }
+                let cwd = tabManager.tabs.first(where: { $0.id == anchorId })?.currentDirectory
+                let newWorkspace = tabManager.addWorkspace(
+                    workingDirectory: cwd,
+                    inheritWorkingDirectory: cwd == nil,
+                    select: true,
+                    autoWelcomeIfNeeded: false
+                )
+                tabManager.addWorkspaceToGroup(workspaceId: newWorkspace.id, groupId: groupId)
             },
             onRename: { [weak tabManager, groupId = group.id, currentName = group.name] in
                 guard let tabManager else { return }
@@ -11260,8 +11289,17 @@ struct VerticalTabsSidebar: View {
                     currentName: currentName
                 )
             },
-            onDelete: { [weak tabManager, groupId = group.id] in
-                tabManager?.deleteWorkspaceGroup(groupId: groupId)
+            onTogglePinned: { [weak tabManager, groupId = group.id] in
+                tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)
+            },
+            onUngroup: { [weak tabManager, groupId = group.id] in
+                tabManager?.ungroupWorkspaceGroup(groupId: groupId)
+            },
+            onEditConfig: {
+                SidebarWorkspaceGroupConfigOpener.openCmuxConfigInEditor()
+            },
+            onOpenDocs: {
+                SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
             }
         )
         .id("workspaceGroupHeader.\(group.id.uuidString)")
@@ -11313,54 +11351,106 @@ private enum SidebarWorkspaceGroupingMetrics {
     static let memberIndent: CGFloat = 12
 }
 
-/// Dia-style collapsible group header that sits between workspace rows in the sidebar.
-/// Conforms to the snapshot-boundary rule: no `@ObservedObject`/`@EnvironmentObject`
-/// references; receives values + closures only.
+/// Dia-style collapsible group header that doubles as the anchor workspace's
+/// representation. Anatomy: chevron (collapse), folder icon + name (focus
+/// anchor), trailing + (visible on hover; creates a new workspace in this
+/// group). Conforms to the snapshot-boundary rule: receives values + closures
+/// only, no observable references.
 private struct SidebarWorkspaceGroupHeaderView: View {
     let groupId: UUID
+    let anchorWorkspaceId: UUID
     let name: String
+    let iconSymbol: String
+    let tintHex: String?
     let isCollapsed: Bool
+    let isPinned: Bool
+    let isAnchorActive: Bool
     let memberCount: Int
     let onToggleCollapsed: () -> Void
+    let onFocusAnchor: () -> Void
+    let onTapPlus: () -> Void
     let onRename: () -> Void
-    let onDelete: () -> Void
+    let onTogglePinned: () -> Void
+    let onUngroup: () -> Void
+    let onEditConfig: () -> Void
+    let onOpenDocs: () -> Void
+
+    @State private var isHovered: Bool = false
+
+    private var iconColor: Color {
+        if let tintHex, let nsColor = NSColor(hex: tintHex) {
+            return Color(nsColor: nsColor)
+        }
+        return .secondary
+    }
 
     var body: some View {
-        Button(action: onToggleCollapsed) {
-            HStack(spacing: 6) {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Text(name)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 4)
+        HStack(spacing: 4) {
+            Button(action: onToggleCollapsed) {
                 Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    .frame(width: 14, height: 14)
+                    .contentShape(Rectangle())
             }
-            .padding(.leading, 14)
-            .padding(.trailing, 10)
-            .padding(.vertical, 5)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text(name))
-        .accessibilityValue(
-            Text(
-                isCollapsed
-                    ? String(
-                        localized: "workspaceGroup.collapsed.a11y",
-                        defaultValue: "Collapsed"
-                    )
-                    : String(
-                        localized: "workspaceGroup.expanded.a11y",
-                        defaultValue: "Expanded"
-                    )
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                Text(
+                    isCollapsed
+                        ? String(localized: "workspaceGroup.expand.a11y", defaultValue: "Expand group")
+                        : String(localized: "workspaceGroup.collapse.a11y", defaultValue: "Collapse group")
+                )
             )
+
+            Button(action: onFocusAnchor) {
+                HStack(spacing: 6) {
+                    Image(systemName: iconSymbol)
+                        .font(.system(size: 11))
+                        .foregroundStyle(iconColor)
+                    Text(name)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(name))
+            .accessibilityHint(Text(String(
+                localized: "workspaceGroup.focusAnchor.a11y",
+                defaultValue: "Focus the group's anchor workspace"
+            )))
+
+            if isHovered {
+                Button(action: onTapPlus) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(String(
+                    localized: "workspaceGroup.newWorkspaceInGroup.a11y",
+                    defaultValue: "New workspace in group"
+                )))
+            }
+        }
+        .padding(.leading, 6)
+        .padding(.trailing, 6)
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        .background(
+            isAnchorActive
+                ? Color.primary.opacity(0.08)
+                : Color.clear
         )
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .onHover { hovering in
+            isHovered = hovering
+        }
         .contextMenu {
             Button(
                 String(
@@ -11370,14 +11460,67 @@ private struct SidebarWorkspaceGroupHeaderView: View {
                 action: onRename
             )
             Button(
+                isPinned
+                    ? String(
+                        localized: "workspaceGroup.contextMenu.unpin",
+                        defaultValue: "Unpin Group"
+                    )
+                    : String(
+                        localized: "workspaceGroup.contextMenu.pin",
+                        defaultValue: "Pin Group"
+                    ),
+                action: onTogglePinned
+            )
+            Divider()
+            Button(
                 String(
-                    localized: "workspaceGroup.contextMenu.delete",
-                    defaultValue: "Delete Group"
+                    localized: "workspaceGroup.contextMenu.editConfig",
+                    defaultValue: "Edit Group Config…"
                 ),
-                role: .destructive,
-                action: onDelete
+                action: onEditConfig
+            )
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.openDocs",
+                    defaultValue: "Open Workspace Groups Docs"
+                ),
+                action: onOpenDocs
+            )
+            Divider()
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.ungroup",
+                    defaultValue: "Ungroup (Keep Workspaces)"
+                ),
+                action: onUngroup
             )
         }
+    }
+}
+
+/// Static helpers for opening external surfaces from the group header's
+/// context menu. Lives at file scope so the header view stays pure.
+enum SidebarWorkspaceGroupConfigOpener {
+    static func openCmuxConfigInEditor() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let configURL = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("cmux.json", isDirectory: false)
+        if !FileManager.default.fileExists(atPath: configURL.path) {
+            try? FileManager.default.createDirectory(
+                at: configURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+            try? Data("{}\n".utf8).write(to: configURL, options: .atomic)
+        }
+        NSWorkspace.shared.open(configURL)
+    }
+
+    static func openWorkspaceGroupsDocs() {
+        guard let url = URL(string: "https://cmux.com/docs/workspace-groups") else { return }
+        NSWorkspace.shared.open(url)
     }
 }
 
@@ -15691,7 +15834,7 @@ private struct TabItemView: View, Equatable {
         }
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
-        tabManager.createWorkspaceGroup(name: input.stringValue, workspaceIds: workspaceIds)
+        tabManager.createWorkspaceGroup(name: input.stringValue, childWorkspaceIds: workspaceIds)
     }
 
     private func promptRename() {
