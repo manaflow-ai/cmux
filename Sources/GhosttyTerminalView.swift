@@ -5173,27 +5173,85 @@ private enum TmuxControlQueuedItem: Sendable {
 }
 
 private final class TmuxControlEventStream: @unchecked Sendable {
-    let items: AsyncStream<TmuxControlQueuedItem>
-    private let continuation: AsyncStream<TmuxControlQueuedItem>.Continuation
+    private struct State {
+        var items: [TmuxControlQueuedItem] = []
+        var signalPending = false
+    }
 
-    init() {
-        var continuation: AsyncStream<TmuxControlQueuedItem>.Continuation?
-        items = AsyncStream(TmuxControlQueuedItem.self, bufferingPolicy: .unbounded) { streamContinuation in
+    let signals: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+    private let maxCoalescedPaneOutputBytes: Int
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    init(maxCoalescedPaneOutputBytes: Int) {
+        self.maxCoalescedPaneOutputBytes = maxCoalescedPaneOutputBytes
+        var continuation: AsyncStream<Void>.Continuation?
+        signals = AsyncStream(Void.self, bufferingPolicy: .bufferingNewest(1)) { streamContinuation in
             continuation = streamContinuation
         }
         self.continuation = continuation!
     }
 
     func enqueue(_ event: TmuxControlEvent) {
-        continuation.yield(.event(event))
+        enqueueItem(.event(event))
     }
 
     func reset(generation: UInt64) {
-        continuation.yield(.reset(generation: generation))
+        let shouldSignal = state.withLock { state in
+            state.items.removeAll(keepingCapacity: true)
+            state.items.append(.reset(generation: generation))
+            return markSignalPending(&state)
+        }
+        signalIfNeeded(shouldSignal)
+    }
+
+    func drain() -> [TmuxControlQueuedItem] {
+        state.withLock { state in
+            let items = state.items
+            state.items.removeAll(keepingCapacity: true)
+            state.signalPending = false
+            return items
+        }
     }
 
     func finish() {
         continuation.finish()
+    }
+
+    private func enqueueItem(_ item: TmuxControlQueuedItem) {
+        let shouldSignal = state.withLock { state in
+            append(item, to: &state.items)
+            return markSignalPending(&state)
+        }
+        signalIfNeeded(shouldSignal)
+    }
+
+    private func append(_ item: TmuxControlQueuedItem, to items: inout [TmuxControlQueuedItem]) {
+        if case .event(.paneOutput(let paneId, let data)) = item,
+           let lastIndex = items.indices.last,
+           case .event(.paneOutput(let lastPaneId, let existingData)) = items[lastIndex],
+           paneId == lastPaneId {
+            var combined = existingData
+            combined.append(data)
+            if combined.count > maxCoalescedPaneOutputBytes {
+                combined = Data(combined.suffix(maxCoalescedPaneOutputBytes))
+            }
+            items[lastIndex] = .event(.paneOutput(paneId: paneId, data: combined))
+            return
+        }
+
+        items.append(item)
+    }
+
+    private func markSignalPending(_ state: inout State) -> Bool {
+        guard !state.signalPending else { return false }
+        state.signalPending = true
+        return true
+    }
+
+    private func signalIfNeeded(_ shouldSignal: Bool) {
+        guard shouldSignal else { return }
+        continuation.yield(())
     }
 }
 
@@ -5392,7 +5450,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let tmuxControlEventBuffer = TmuxControlEventBuffer(
         maxCoalescedPaneOutputBytes: TmuxControlState.paneTextByteLimit
     )
-    private let tmuxControlEventStream = TmuxControlEventStream()
+    private let tmuxControlEventStream = TmuxControlEventStream(
+        maxCoalescedPaneOutputBytes: TmuxControlState.paneTextByteLimit
+    )
     private var tmuxControlEventProcessingTask: Task<Void, Never>?
     @MainActor private var tmuxControlGeneration: UInt64 = 0
     @Published private(set) var tmuxControlState = TmuxControlState()
@@ -5403,15 +5463,17 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     private func startTmuxControlEventProcessing() {
         tmuxControlEventProcessingTask = Task { [weak self, eventStream = tmuxControlEventStream] in
-            for await item in eventStream.items {
+            for await _ in eventStream.signals {
                 guard let self else { break }
-                switch item {
-                case .event(let event):
-                    let shouldSchedule = await self.tmuxControlEventBuffer.enqueue(event)
-                    guard shouldSchedule else { continue }
-                    self.scheduleTmuxControlEventFlush()
-                case .reset(let generation):
-                    await self.tmuxControlEventBuffer.reset(to: generation)
+                for item in eventStream.drain() {
+                    switch item {
+                    case .event(let event):
+                        let shouldSchedule = await self.tmuxControlEventBuffer.enqueue(event)
+                        guard shouldSchedule else { continue }
+                        self.scheduleTmuxControlEventFlush()
+                    case .reset(let generation):
+                        await self.tmuxControlEventBuffer.reset(to: generation)
+                    }
                 }
             }
         }
