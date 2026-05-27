@@ -15385,13 +15385,20 @@ private struct TabItemView: View, Equatable {
     }
 
     private func toggleWorkspaceTerminalScrollBarHidden(targetIds: [UUID]) {
-        let currentlyHidden = !targetIds.isEmpty && targetIds.allSatisfy { targetId in
-            tabManager.tabs.first(where: { $0.id == targetId })?.terminalScrollBarHidden == true
+        let targetIdSet = Set(targetIds)
+        var liveTargetCount = 0
+        var hiddenTargetCount = 0
+        for workspace in tabManager.tabs where targetIdSet.contains(workspace.id) {
+            liveTargetCount += 1
+            if workspace.terminalScrollBarHidden {
+                hiddenTargetCount += 1
+            }
         }
+        let currentlyHidden = !targetIdSet.isEmpty &&
+            liveTargetCount == targetIdSet.count &&
+            hiddenTargetCount == liveTargetCount
         let hideScrollBar = !currentlyHidden
-        for targetId in targetIds {
-            tabManager.setWorkspaceTerminalScrollBarHidden(tabId: targetId, hidden: hideScrollBar)
-        }
+        tabManager.setWorkspaceTerminalScrollBarHidden(hidden: hideScrollBar, forWorkspaceIds: targetIds)
     }
 
     private func promptCustomColor(targetIds: [UUID]) {

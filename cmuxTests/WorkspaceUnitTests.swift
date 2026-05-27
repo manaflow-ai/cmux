@@ -228,6 +228,34 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(background.color?.hexString(), "#C0392B")
         XCTAssertEqual(background.opacity, 0.7, accuracy: 0.001)
     }
+
+    @MainActor
+    func testBatchWorkspaceColorAppliesOnlyRequestedWorkspaces() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+
+        manager.applyWorkspaceColor("#1565C0", toWorkspaceIds: [first.id, third.id])
+
+        XCTAssertEqual(first.customColor, "#1565C0")
+        XCTAssertNil(second.customColor)
+        XCTAssertEqual(third.customColor, "#1565C0")
+    }
+
+    @MainActor
+    func testBatchWorkspaceTerminalScrollBarVisibilityAppliesOnlyRequestedWorkspaces() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+
+        manager.setWorkspaceTerminalScrollBarHidden(hidden: true, forWorkspaceIds: [first.id, third.id])
+
+        XCTAssertTrue(first.terminalScrollBarHidden)
+        XCTAssertFalse(second.terminalScrollBarHidden)
+        XCTAssertTrue(third.terminalScrollBarHidden)
+    }
 }
 
 
