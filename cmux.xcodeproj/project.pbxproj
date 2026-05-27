@@ -228,6 +228,7 @@
 		C0D3A003C0D3A003C0D3A003 /* MobileRouteResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3A004C0D3A004C0D3A004 /* MobileRouteResolver.swift */; };
 		C0D3A005C0D3A005C0D3A005 /* MobileAttachTicketStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3A006C0D3A006C0D3A006 /* MobileAttachTicketStore.swift */; };
 		C0D3A007C0D3A007C0D3A007 /* MobileHostService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3A008C0D3A008C0D3A008 /* MobileHostService.swift */; };
+		C0D3A00BC0D3A00BC0D3A00B /* MobileWorkspaceListObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3A00CC0D3A00CC0D3A00C /* MobileWorkspaceListObserver.swift */; };
 		E7E000000000000000000001 /* CmuxEventStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000002 /* CmuxEventStream.swift */; };
 		E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000A /* CmuxSocketEventMapper.swift */; };
 		D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */; };
@@ -801,6 +802,7 @@
 		C0D3A004C0D3A004C0D3A004 /* MobileRouteResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRouteResolver.swift; sourceTree = "<group>"; };
 		C0D3A006C0D3A006C0D3A006 /* MobileAttachTicketStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAttachTicketStore.swift; sourceTree = "<group>"; };
 		C0D3A008C0D3A008C0D3A008 /* MobileHostService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostService.swift; sourceTree = "<group>"; };
+		C0D3A00CC0D3A00CC0D3A00C /* MobileWorkspaceListObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListObserver.swift; sourceTree = "<group>"; };
 		E7E000000000000000000006 /* CmuxEventBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventBus.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000E /* CmuxEventLogWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventLogWriter.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxLifecycleEventPublishing.swift; sourceTree = "<group>"; };
@@ -1271,6 +1273,7 @@
 				C0D3A002C0D3A002C0D3A002 /* MobileHostRPC.swift */,
 				C0D3A008C0D3A008C0D3A008 /* MobileHostService.swift */,
 				C0D3A004C0D3A004C0D3A004 /* MobileRouteResolver.swift */,
+				C0D3A00CC0D3A00CC0D3A00C /* MobileWorkspaceListObserver.swift */,
 			);
 			name = Mobile;
 			path = Mobile;
@@ -2217,6 +2220,7 @@
 					C0D3A003C0D3A003C0D3A003 /* MobileRouteResolver.swift in Sources */,
 					C0D3A005C0D3A005C0D3A005 /* MobileAttachTicketStore.swift in Sources */,
 					C0D3A007C0D3A007C0D3A007 /* MobileHostService.swift in Sources */,
+					C0D3A00BC0D3A00BC0D3A00B /* MobileWorkspaceListObserver.swift in Sources */,
 					E7E000000000000000000001 /* CmuxEventStream.swift in Sources */,
 					E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */,
 					A5001441A5001441A5001441 /* FileOpenSocketSupport.swift in Sources */,

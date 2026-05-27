@@ -21364,6 +21364,8 @@ class TerminalController {
             if let createdWorkspaceID {
                 createParams["workspace_id"] = createdWorkspaceID
             }
+            // workspace.updated emit is handled by MobileWorkspaceListObserver
+            // which watches TabManager.$tabs directly. Don't fire here.
             return v2MobileWorkspaceList(
                 params: createParams,
                 tabManager: tabManager,
@@ -21395,6 +21397,7 @@ class TerminalController {
         ) else {
             return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
         }
+        // workspace.updated emit is handled by MobileWorkspaceListObserver.
         return v2MobileWorkspaceList(
             params: params,
             tabManager: tabManager,

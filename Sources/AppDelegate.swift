@@ -705,6 +705,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
+    /// Strongly-held: this observer's lifetime equals AppDelegate's, and it
+    /// is the only thing keeping the Combine subscriptions live.
+    private var mobileWorkspaceListObserver: MobileWorkspaceListObserver?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -1724,6 +1727,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.tabManager = tabManager
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
+        // Observe the TabManager source of truth so every workspace/terminal
+        // mutation pushes `workspace.updated` to subscribed mobile clients
+        // automatically, without per-mutation emit hooks scattered across
+        // the API surface.
+        mobileWorkspaceListObserver = MobileWorkspaceListObserver(tabManager: tabManager)
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
