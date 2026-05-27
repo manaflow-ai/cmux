@@ -1006,6 +1006,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func application(_ application: NSApplication, open urls: [URL]) {
         _ = handleCmuxSSHURLs(from: urls)
+        _ = handleCmuxNavigationURLs(from: urls)
         _ = handleCmuxTextURLs(from: urls)
 
         let authCallbacks = urls.filter(AuthCallbackRouter.isAuthCallbackURL)
