@@ -23481,7 +23481,17 @@ struct CMUXCLI {
     ) -> [String]? {
         switch kind {
         case "claude":
-            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "claude", option: "--resume", sessionId: sessionId)
+            let stripped = launchCommand.map { record -> AgentHookLaunchCommandRecord in
+                var arguments = record.arguments
+                if !arguments.isEmpty {
+                    arguments[0] = "claude"
+                }
+                var updated = record
+                updated.executablePath = nil
+                updated.arguments = arguments
+                return updated
+            }
+            return agentSurfaceResumeWithOption(kind: kind, launchCommand: stripped, fallbackExecutable: "claude", option: "--resume", sessionId: sessionId)
         case "codex":
             let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
             return AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail).map {
