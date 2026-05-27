@@ -124,6 +124,26 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         XCTAssertEqual(WorkspaceContentView.splitZoomRenderIdentity(for: controller), "unzoomed")
     }
 
+    @MainActor
+    func testBonsplitInteractivitySyncUpdatesDockAddedWhileWorkspaceInactive() {
+        let workspace = Workspace()
+        WorkspaceContentView.syncBonsplitInteractivity(
+            workspace: workspace,
+            isWorkspaceInputActive: false
+        )
+        XCTAssertFalse(workspace.bonsplitController.isInteractive)
+
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        XCTAssertTrue(dock.controller.isInteractive)
+
+        WorkspaceContentView.syncBonsplitInteractivity(
+            workspace: workspace,
+            isWorkspaceInputActive: false
+        )
+
+        XCTAssertFalse(dock.controller.isInteractive)
+    }
+
     func testTmuxWorkspacePaneOverlayRectReturnsMatchingPaneFrame() {
         let paneID = PaneID(id: UUID())
         let snapshot = LayoutSnapshot(

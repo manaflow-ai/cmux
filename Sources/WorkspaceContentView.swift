@@ -200,7 +200,6 @@ struct WorkspaceContentView: View {
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
-        let dockControllerIdentity = workspace.dockLayout.allControllers.map { ObjectIdentifier($0) }
         let visibleNotificationPanelIds = Set(workspace.panels.keys.filter { panelId in
             notificationStore.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId)
         })
@@ -328,8 +327,10 @@ struct WorkspaceContentView: View {
         .onChange(of: isWorkspaceInputActive) { _, _ in
             syncBonsplitInteractivity()
         }
-        .onChange(of: dockControllerIdentity) { _, _ in
-            syncBonsplitInteractivity()
+        .background {
+            WorkspaceDockLayoutControllerObserver(layout: workspace.dockLayout) {
+                syncBonsplitInteractivity()
+            }
         }
         .onChange(of: isWorkspaceVisible) { _, isVisible in
             updateAgentHibernationPresentationVisibility()
@@ -420,15 +421,25 @@ struct WorkspaceContentView: View {
     private func syncBonsplitInteractivity() {
         // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
         // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
-        setInteractivityIfNeeded(workspace.bonsplitController)
+        Self.syncBonsplitInteractivity(
+            workspace: workspace,
+            isWorkspaceInputActive: isWorkspaceInputActive
+        )
+    }
+
+    static func syncBonsplitInteractivity(
+        workspace: Workspace,
+        isWorkspaceInputActive: Bool
+    ) {
+        setInteractivityIfNeeded(workspace.bonsplitController, isInteractive: isWorkspaceInputActive)
         for controller in workspace.dockLayout.allControllers {
-            setInteractivityIfNeeded(controller)
+            setInteractivityIfNeeded(controller, isInteractive: isWorkspaceInputActive)
         }
     }
 
-    private func setInteractivityIfNeeded(_ controller: BonsplitController) {
-        guard controller.isInteractive != isWorkspaceInputActive else { return }
-        controller.isInteractive = isWorkspaceInputActive
+    private static func setInteractivityIfNeeded(_ controller: BonsplitController, isInteractive: Bool) {
+        guard controller.isInteractive != isInteractive else { return }
+        controller.isInteractive = isInteractive
     }
 
     private func syncBonsplitNotificationBadges() {
@@ -833,6 +844,24 @@ extension WorkspaceContentView {
         _ = workspace
     }
     #endif
+}
+
+private struct WorkspaceDockLayoutControllerObserver: View {
+    @ObservedObject var layout: WorkspaceDockLayout
+    let onControllersChanged: () -> Void
+
+    private var controllerIdentity: [ObjectIdentifier] {
+        layout.allControllers.map { ObjectIdentifier($0) }
+    }
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+            .onChange(of: controllerIdentity) { _, _ in
+                onControllersChanged()
+            }
+    }
 }
 
 private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
