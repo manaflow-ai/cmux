@@ -376,8 +376,13 @@ class TerminalController {
         return body()
     }
 
-    nonisolated func currentSocketPathForRemoteRestore() -> String {
-        withListenerState { socketPath }
+    nonisolated func currentSocketPathForRemoteRestore() -> String? {
+        withListenerState {
+            if isRunning || acceptLoopAlive || listenerStartInProgress || serverSocket >= 0 {
+                return socketPath
+            }
+            return reservedStartupSocketPath
+        }
     }
 
     private nonisolated func listenerStateSnapshot() -> ListenerStateSnapshot {

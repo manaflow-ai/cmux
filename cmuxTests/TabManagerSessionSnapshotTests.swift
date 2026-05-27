@@ -19,6 +19,20 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         super.tearDown()
     }
 
+    private func reserveRemoteRestoreSocket() -> String {
+        TerminalController.shared.stop()
+        let requestedPath = "/tmp/cmux-restore-\(UUID().uuidString).sock"
+        let reservedPath = TerminalController.shared.reserveStartupSocketPath(requestedPath)
+        XCTAssertEqual(TerminalController.shared.currentSocketPathForRemoteRestore(), reservedPath)
+        return reservedPath
+    }
+
+    private func cleanupRemoteRestoreSocket(_ path: String) {
+        TerminalController.shared.stop()
+        try? FileManager.default.removeItem(atPath: path)
+        try? FileManager.default.removeItem(atPath: path + ".lock")
+    }
+
     func testSessionSnapshotSerializesWorkspacesAndRestoreRebuildsSelection() {
         let manager = TabManager()
         guard let firstWorkspace = manager.selectedWorkspace else {
@@ -1787,6 +1801,9 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
         XCTAssertTrue(expectedScrollback.contains("cmux perf synthetic scrollback"), expectedScrollback)
 
+        let reservedSocketPath = reserveRemoteRestoreSocket()
+        defer { cleanupRemoteRestoreSocket(reservedSocketPath) }
+
         let restored = TabManager()
         restored.restoreSessionSnapshot(persistedTabManager)
 
@@ -1794,7 +1811,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.preserveAfterTerminalExit, true)
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.relayPort, 64003)
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.persistentDaemonSlot, persistentDaemonSlot)
-        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.localSocketPath, TerminalController.shared.currentSocketPathForRemoteRestore())
+        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.localSocketPath, reservedSocketPath)
         XCTAssertTrue(
             restoredWorkspace.remoteConfiguration?.sshOptions.contains("ControlPath=/tmp/cmux-ssh-\(getuid())-64003-%C") == true
         )
@@ -1865,6 +1882,9 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
 
         let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let reservedSocketPath = reserveRemoteRestoreSocket()
+        defer { cleanupRemoteRestoreSocket(reservedSocketPath) }
+
         let restored = TabManager()
         restored.restoreSessionSnapshot(snapshot)
 
@@ -1942,6 +1962,9 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
 
         let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let reservedSocketPath = reserveRemoteRestoreSocket()
+        defer { cleanupRemoteRestoreSocket(reservedSocketPath) }
+
         let restored = TabManager()
         restored.restoreSessionSnapshot(snapshot)
 
@@ -2027,6 +2050,9 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
         legacySnapshot.workspaces[workspaceIndex].panels[panelIndex].terminal?.remotePTYSessionID = nil
 
+        let reservedSocketPath = reserveRemoteRestoreSocket()
+        defer { cleanupRemoteRestoreSocket(reservedSocketPath) }
+
         let restored = TabManager()
         restored.restoreSessionSnapshot(legacySnapshot)
 
@@ -2045,6 +2071,47 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 .panels.first { $0.id == restoredPanelId }?.terminal?.remotePTYSessionID,
             expectedSessionID
         )
+    }
+
+    func testSessionSnapshotFallsBackWhenPersistentSSHPTYRestoreHasNoSocketPath() throws {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("Persistent SSH Without Socket")
+        remoteWorkspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "dev@example.com",
+                port: 2222,
+                identityFile: nil,
+                sshOptions: ["StrictHostKeyChecking=accept-new"],
+                localProxyPort: nil,
+                relayPort: 64018,
+                relayID: "relay-no-socket",
+                relayToken: String(repeating: "f", count: 64),
+                localSocketPath: "/tmp/cmux-no-socket.sock",
+                terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "ssh-no-socket"
+            ),
+            autoConnect: false
+        )
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        XCTAssertNil(TerminalController.shared.currentSocketPathForRemoteRestore())
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Persistent SSH Without Socket" })
+        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.preserveAfterTerminalExit, false)
+        XCTAssertNil(restoredWorkspace.remoteConfiguration?.relayPort)
+        XCTAssertNil(restoredWorkspace.remoteConfiguration?.localSocketPath)
+        XCTAssertNil(restoredWorkspace.remoteConfiguration?.persistentDaemonSlot)
+        let terminalStartupCommand = try XCTUnwrap(restoredWorkspace.remoteConfiguration?.terminalStartupCommand)
+        XCTAssertFalse(terminalStartupCommand.contains("ssh-pty-attach"), terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.contains("ssh -p 2222"), terminalStartupCommand)
     }
 
     func testSessionSnapshotFallsBackFromSkipBootstrapPersistentSSHPTYWithoutDaemonBridge() throws {

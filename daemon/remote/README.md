@@ -13,7 +13,7 @@ Go remote daemon for `cmux ssh` bootstrap, capability negotiation, and remote pr
 `serve --ws` is explicit opt-in for cloud VM images only. The normal `cmux ssh`
 code path uses `serve --stdio --persistent --slot <slot>` over an SSH exec
 channel. That stdio process is only a proxy to an authenticated per-slot daemon
-with credentials and logs under `~/.cmux/daemon/<slot>/`, so remote PTY sessions
+with credentials and logs under `~/.cmux/daemon/<version>/<slot>/`, so remote PTY sessions
 can survive local surface close, local reconnect, and app relaunch. The persistent
 server never opens a public listener; it accepts only a per-user Unix socket under
 `/tmp/cmuxd-remote-<uid>/` and the slot token.
@@ -57,9 +57,9 @@ to the remote daemon bootstrap as `--slot`.
 
 Remote slot files:
 1. `/tmp/cmuxd-remote-<uid>/cmuxd-<slot-hash>.sock` authenticated Unix socket for stdio proxies.
-2. `~/.cmux/daemon/<slot>/auth.token` random 32-byte hex token, mode `0600`.
-3. `~/.cmux/daemon/<slot>/daemon.lock` single-owner lock.
-4. `~/.cmux/daemon/<slot>/daemon.log` startup and crash diagnostics.
+2. `~/.cmux/daemon/<version>/<slot>/auth.token` random 32-byte hex token, mode `0600`.
+3. `~/.cmux/daemon/<version>/<slot>/daemon.lock` single-owner lock.
+4. `~/.cmux/daemon/<version>/<slot>/daemon.log` startup and crash diagnostics.
 
 PTY lifecycle:
 1. A local attach creates or reuses a named `pty.*` session in the persistent daemon.
