@@ -923,7 +923,7 @@
           },
           "default": [],
           "descriptionKey": "schemaDescriptions.browser.shortcutPassthroughHosts",
-          "description": "Hosts whose pages receive Cmd-modifier shortcuts directly. On a match, Cmd-modifier chords are forwarded to the web view first; if the page does not consume a chord, cmux's normal menu handling resumes (so Cmd+Q still quits). Useful for embedding web IDEs such as VS Code via code-server. Supports exact host match and *.subdomain wildcards. Port numbers are ignored. Empty list keeps cmux's existing behavior on every page."
+          "description": "Hosts whose pages receive Cmd-modifier shortcuts directly. On a match, Cmd-modifier chords are forwarded to the web view first; if the page does not consume a chord, cmux's normal menu handling resumes (so Cmd+Q still quits). Useful for embedding web IDEs such as VS Code via code-server. Supports exact host match and *.subdomain wildcards (a *.example.com pattern also matches the example.com apex). Port numbers are ignored. Empty list keeps cmux's existing behavior on every page."
         },
         "showImportHintOnBlankTabs": {
           "type": "boolean",

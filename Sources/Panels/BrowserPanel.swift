@@ -900,8 +900,12 @@ enum BrowserLinkOpenSettings {
             .filter { !$0.isEmpty }
     }
 
-    // Empty list means "no passthrough" so the default behavior matches what
-    // cmux has always done — every Cmd-modifier chord stays with cmux's menus.
+    /// Check whether a hostname is on the user's Cmd-shortcut passthrough allowlist.
+    /// Empty list means "no passthrough" — every Cmd-modifier chord stays with
+    /// cmux's menus. This is the inverse of `hostMatchesWhitelist`'s "empty
+    /// allows all" semantics; the default for passthrough is opt-in.
+    /// Supports exact match and wildcard prefix (`*.example.com`, which also
+    /// matches the `example.com` apex).
     static func hostMatchesShortcutPassthrough(_ host: String, defaults: UserDefaults = .standard) -> Bool {
         let rawPatterns = shortcutPassthroughHosts(defaults: defaults)
         if rawPatterns.isEmpty { return false }
@@ -915,6 +919,9 @@ enum BrowserLinkOpenSettings {
         return false
     }
 
+    /// Convenience wrapper around `hostMatchesShortcutPassthrough` that takes a
+    /// `URL?` and extracts the host. Returns `false` for nil URLs and URLs with
+    /// no host component (e.g. `about:blank`).
     static func urlMatchesShortcutPassthrough(_ url: URL?, defaults: UserDefaults = .standard) -> Bool {
         guard let host = url?.host, !host.isEmpty else { return false }
         return hostMatchesShortcutPassthrough(host, defaults: defaults)
