@@ -101,8 +101,9 @@ class UpdateController {
     }
 
     /// Start the updater. If startup fails, the error is shown via the custom UI.
-    func startUpdaterIfNeeded() {
-        guard !didStartUpdater else { return }
+    @discardableResult
+    func startUpdaterIfNeeded() -> Bool {
+        guard !didStartUpdater else { return true }
         ensureSparkleInstallationCache()
 #if DEBUG
         // Keep the permission-related defaults resettable for UI tests even though the
@@ -126,7 +127,9 @@ class UpdateController {
                 "updater started (autoChecks=\(updater.automaticallyChecksForUpdates), interval=\(interval)s, autoDownloads=\(updater.automaticallyDownloadsUpdates))"
             )
             startLaunchUpdateProbeIfNeeded()
+            return true
         } catch {
+            didStartUpdater = false
             userDriver.viewModel.state = .error(.init(
                 error: error,
                 retry: { [weak self] in
@@ -138,6 +141,7 @@ class UpdateController {
                     self?.userDriver.viewModel.state = .idle
                 }
             ))
+            return false
         }
     }
 
@@ -230,7 +234,7 @@ class UpdateController {
     private func performCheckForUpdates() {
         readyCheckDeadline?.cancel()
         readyCheckDeadline = nil
-        startUpdaterIfNeeded()
+        guard startUpdaterIfNeeded() else { return }
         ensureSparkleInstallationCache()
         guard updater.canCheckForUpdates else {
             waitForUpdaterReadiness()
@@ -246,7 +250,7 @@ class UpdateController {
 
     /// Check for updates once the updater is ready (used by UI tests).
     func checkForUpdatesWhenReady(retries _: Int? = nil) {
-        startUpdaterIfNeeded()
+        guard startUpdaterIfNeeded() else { return }
         ensureSparkleInstallationCache()
         let canCheck = updater.canCheckForUpdates
         UpdateLogStore.shared.append("checkForUpdatesWhenReady invoked (canCheck=\(canCheck))")

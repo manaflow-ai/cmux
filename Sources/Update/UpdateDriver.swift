@@ -86,6 +86,9 @@ class UpdateDriver: NSObject, SPUUserDriver {
                 reply(.dismiss)
                 return
             }
+            if operationHasTimedOut, !state.userInitiated {
+                acceptBackgroundResultAfterTimedOutOperation(resultDescription: "update found")
+            }
             guard !operationHasTimedOut else {
                 UpdateLogStore.shared.append("dismissing update found after timeout")
                 reply(.dismiss)
@@ -357,6 +360,16 @@ class UpdateDriver: NSObject, SPUUserDriver {
 
     private var operationHasTimedOut: Bool {
         timedOutOperationGeneration == currentOperationGeneration
+    }
+
+    private func acceptBackgroundResultAfterTimedOutOperation(resultDescription: String) {
+        UpdateLogStore.shared.append("accepting background \(resultDescription) after timed out user operation")
+        timedOutOperationGeneration = nil
+        currentOperationGeneration += 1
+        pendingCheckTransition?.cancel()
+        pendingCheckTransition = nil
+        cancelStateTimeout()
+        lastCheckStart = nil
     }
 
     private func cancelStateTimeout() {
