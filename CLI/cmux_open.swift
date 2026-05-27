@@ -5854,6 +5854,7 @@ extension CMUXCLI {
             function setupFileExplorerSource(source, treesModule) {
               const itemCount = source.pathCount ?? source.entries.length;
               const entries = sourceEntries(source);
+              syncFileTreeSelectionMaps(source, entries);
               if (fileTree) {
                 fileTree.cleanUp?.();
                 fileTree = null;
@@ -5883,6 +5884,7 @@ extension CMUXCLI {
             function refreshFileExplorerSource(source, treesModule) {
               const itemCount = source.pathCount ?? source.entries.length;
               const entries = sourceEntries(source);
+              syncFileTreeSelectionMaps(source, entries);
               filesCount.textContent = `${itemCount}`;
               updateDiffStatsFromSource(source);
               if (fileTree && fileList.dataset.treeMode === "pierre" && treesModule?.preparePresortedFileTreeInput) {
@@ -6025,6 +6027,29 @@ extension CMUXCLI {
               fileTreeStatsByPath.clear();
               for (const entry of treeEntries) {
                 fileTreeStatsByPath.set(entry.path, entry.stats);
+              }
+            }
+
+            function syncFileTreeSelectionMaps(source, entries) {
+              itemIdByTreePath.clear();
+              treePathByItemId.clear();
+              if (source?.pathToItemId instanceof Map) {
+                for (const [path, itemId] of source.pathToItemId) {
+                  itemIdByTreePath.set(path, itemId);
+                  treePathByItemId.set(itemId, path);
+                }
+              } else {
+                for (const entry of entries) {
+                  const itemId = entry.item?.id;
+                  if (!itemId) {
+                    continue;
+                  }
+                  itemIdByTreePath.set(entry.path, itemId);
+                  treePathByItemId.set(itemId, entry.path);
+                }
+              }
+              if (activeTreePath && !itemIdByTreePath.has(activeTreePath)) {
+                activeTreePath = "";
               }
             }
 
