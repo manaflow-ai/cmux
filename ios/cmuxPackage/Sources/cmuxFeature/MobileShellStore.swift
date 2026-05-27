@@ -349,7 +349,7 @@ enum MobileShellRouteAuthPolicy {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
         case (.tailscale, let .hostPort(host, _)):
-            return normalizedManualNetworkHost(host) != nil
+            return isTailscaleHost(host)
         case (.iroh, .peer):
             return true
         default:
@@ -361,6 +361,15 @@ enum MobileShellRouteAuthPolicy {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
+        default:
+            return false
+        }
+    }
+
+    static func routeAllowsUnauthenticatedManualAttempt(_ route: CmxAttachRoute) -> Bool {
+        switch (route.kind, route.endpoint) {
+        case (.tailscale, let .hostPort(host, _)):
+            return normalizedManualNetworkHost(host) != nil
         default:
             return false
         }
@@ -444,6 +453,13 @@ public final class CMUXMobileShellStore {
     public private(set) var connectionError: String?
     public private(set) var activeTicket: CmxAttachTicket?
     public private(set) var activeRoute: CmxAttachRoute?
+    public var hasActiveUnexpiredAttachTicket: Bool {
+        guard let activeTicket,
+              activeTicket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return false
+        }
+        return Self.attachTicketIsUnexpired(activeTicket, now: runtime?.now() ?? Date())
+    }
     public var pairingCode: String
     public var workspaces: [MobileWorkspacePreview]
     public var terminalInputText: String
@@ -457,6 +473,7 @@ public final class CMUXMobileShellStore {
     public var selectedTerminalID: MobileTerminalPreview.ID?
 
     private let runtime: CMUXMobileRuntime?
+    private let pairedMacStore: MobilePairedMacStore?
     private let clientID: String
     private var remoteClient: MobileCoreRPCClient? {
         didSet {
@@ -523,9 +540,11 @@ public final class CMUXMobileShellStore {
         connectionState: MobileConnectionState = .disconnected,
         connectedHostName: String = "",
         pairingCode: String = "",
-        workspaces: [MobileWorkspacePreview] = []
+        workspaces: [MobileWorkspacePreview] = [],
+        pairedMacStore: MobilePairedMacStore? = MobileShellStorePairedMacStoreFactory.shared()
     ) {
         self.runtime = runtime
+        self.pairedMacStore = pairedMacStore
         self.clientID = Self.loadClientID()
         self.isSignedIn = isSignedIn
         self.connectionState = connectionState
@@ -684,6 +703,57 @@ public final class CMUXMobileShellStore {
         }
     }
 
+    /// On launch (after StackAuth has bootstrapped), call this to reconnect
+    /// to the last-active paired Mac. Pulls (route, displayName, macDeviceID)
+    /// from SQLite and re-mints an attach ticket via the StackAuth-authenticated
+    /// manual host flow. Auth tokens never persist; we always re-mint.
+    @discardableResult
+    public func reconnectActiveMacIfAvailable(stackUserID: String?) async -> Bool {
+        guard let pairedMacStore else { return false }
+        guard isSignedIn else { return false }
+        let saved: MobilePairedMac?
+        do {
+            saved = try pairedMacStore.activeMac(stackUserID: stackUserID)
+        } catch {
+            mobileShellLog.error("paired mac store activeMac failed: \(String(describing: error), privacy: .public)")
+            return false
+        }
+        guard let mac = saved else { return false }
+        guard let (host, port) = Self.firstHostPortRoute(mac.routes) else { return false }
+        await connectManualHost(name: mac.displayName ?? host, host: host, port: port)
+        return connectionState == .connected
+    }
+
+    private static func firstHostPortRoute(_ routes: [CmxAttachRoute]) -> (String, Int)? {
+        for route in routes {
+            if case let .hostPort(host, port) = route.endpoint {
+                return (host, port)
+            }
+        }
+        return nil
+    }
+
+    private func persistPairedMacFromTicket(_ ticket: CmxAttachTicket) {
+        guard let pairedMacStore else { return }
+        guard !ticket.macDeviceID.isEmpty else { return }
+        // Strip routes that we can't reconnect to without server-side state
+        // (manual-workspace routes have no real macDeviceID and aren't useful).
+        guard ticket.macDeviceID != "manual-ticket-request",
+              !ticket.macDeviceID.hasPrefix("manual-") else { return }
+        let stackUserID = AuthManager.shared.currentUser?.id
+        do {
+            try pairedMacStore.upsert(
+                macDeviceID: ticket.macDeviceID,
+                displayName: ticket.macDisplayName,
+                routes: ticket.routes,
+                markActive: true,
+                stackUserID: stackUserID
+            )
+        } catch {
+            mobileShellLog.error("paired mac store upsert failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     private static func manualHostRoute(host: String, port: Int) throws -> CmxAttachRoute {
         let routeKind = MobileShellRouteAuthPolicy.manualRouteKind(for: host)
         return try CmxAttachRoute(
@@ -772,7 +842,11 @@ public final class CMUXMobileShellStore {
                 route: directRoute
             )
         }
-        throw MobileShellConnectionError.insecureManualRoute
+        return try Self.manualHostTicket(
+            displayName: displayName,
+            macDeviceID: "manual-\(host):\(port)",
+            route: directRoute
+        )
     }
 
     private static func shouldFallbackToSyntheticManualTicket(after error: Error) -> Bool {
@@ -1044,11 +1118,18 @@ public final class CMUXMobileShellStore {
             clearRemoteConnectionContext()
             return
         }
+        guard Self.attachTicketIsUnexpired(ticket, now: runtime?.now() ?? Date()) else {
+            connectionError = Self.localizedConnectionError(for: MobileShellConnectionError.attachTicketExpired, route: firstRoute)
+            connectionState = .disconnected
+            clearRemoteConnectionContext()
+            throw MobileShellConnectionError.attachTicketExpired
+        }
 
         activeTicket = ticket
         activeRoute = firstRoute
         connectedHostName = ticket.macDisplayName ?? ticket.macDeviceID
         remoteClient = nil
+        persistPairedMacFromTicket(ticket)
 
         guard let runtime else {
             guard generation == connectionGeneration else { return }
@@ -1126,6 +1207,10 @@ public final class CMUXMobileShellStore {
         return orderedRoutes.filter { route in
             supportedKinds.contains(route.kind)
         }
+    }
+
+    private static func attachTicketIsUnexpired(_ ticket: CmxAttachTicket, now: Date) -> Bool {
+        ticket.expiresAt > now
     }
 
     private static func initialWorkspaceListParams(for ticket: CmxAttachTicket) -> [String: Any] {
@@ -1226,6 +1311,9 @@ public final class CMUXMobileShellStore {
             return true
         } catch {
             mobileShellLog.info("full mobile workspace list unavailable after scoped attach: \(String(describing: error), privacy: .private)")
+            if isCurrentRemoteConnection(client: client, generation: generation) {
+                _ = disconnectForAuthorizationFailureIfNeeded(error)
+            }
             return false
         }
     }
@@ -1358,6 +1446,7 @@ public final class CMUXMobileShellStore {
             scheduleSelectedTerminalSnapshotRefresh()
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             connectionError = Self.localizedConnectionError(for: error)
         }
     }
@@ -1390,6 +1479,7 @@ public final class CMUXMobileShellStore {
             scheduleSelectedTerminalSnapshotRefresh()
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             connectionError = Self.localizedConnectionError(for: error)
         }
     }
@@ -1497,6 +1587,7 @@ public final class CMUXMobileShellStore {
                 return
             }
             mobileShellLog.error("terminal snapshot refresh failed: \(String(describing: error), privacy: .private)")
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             if Self.isTerminalSurfaceNotReady(error) {
                 if await refreshReadyFallbackTerminalSnapshot(in: workspace, excluding: terminalID) {
                     connectionError = nil
@@ -1576,6 +1667,9 @@ public final class CMUXMobileShellStore {
                 }
                 if Self.isTerminalSurfaceNotReady(error) {
                     continue
+                }
+                if disconnectForAuthorizationFailureIfNeeded(error) {
+                    return false
                 }
                 mobileShellLog.error("fallback terminal snapshot failed: \(String(describing: error), privacy: .private)")
                 return false
@@ -1697,6 +1791,7 @@ public final class CMUXMobileShellStore {
             }
         } catch {
             guard generation == connectionGeneration else { return }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             connectionError = Self.localizedConnectionError(for: error)
         }
     }
@@ -1994,6 +2089,40 @@ public final class CMUXMobileShellStore {
         return message.localizedCaseInsensitiveContains("surface is not ready")
     }
 
+    private func disconnectForAuthorizationFailureIfNeeded(_ error: Error) -> Bool {
+        guard Self.shouldDisconnectForAuthorizationFailure(error) else {
+            return false
+        }
+        connectionError = Self.localizedConnectionError(for: error, route: activeRoute)
+        connectionState = .disconnected
+        clearRemoteConnectionContext()
+        return true
+    }
+
+    private static func shouldDisconnectForAuthorizationFailure(_ error: Error) -> Bool {
+        guard let connectionError = error as? MobileShellConnectionError else {
+            return false
+        }
+        switch connectionError {
+        case .attachTicketExpired, .authorizationFailed, .insecureManualRoute:
+            return true
+        case let .rpcError(code, message):
+            let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if let normalizedCode,
+               ["unauthorized", "forbidden", "invalid_token", "token_expired", "expired_token", "auth_required"].contains(normalizedCode) {
+                return true
+            }
+            let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalizedMessage.contains("unauthorized")
+                || normalizedMessage.contains("forbidden")
+                || normalizedMessage.contains("invalid token")
+                || normalizedMessage.contains("expired token")
+                || normalizedMessage.contains("token expired")
+        case .invalidResponse, .connectionClosed, .requestTimedOut:
+            return false
+        }
+    }
+
     private static func localizedConnectionError(for error: Error, route: CmxAttachRoute? = nil) -> String {
         let hostPort = route.flatMap(Self.hostPortDescription(for:))
         if let networkError = error as? CmxNetworkByteTransportError {
@@ -2040,6 +2169,8 @@ public final class CMUXMobileShellStore {
             )
         case .insecureManualRoute:
             return L10n.string("mobile.pairing.secureRouteRequired", defaultValue: "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
+        case .attachTicketExpired:
+            return L10n.string("mobile.pairing.attachTicketExpired", defaultValue: "This pairing link expired. Pair again with a fresh QR/link from that computer.")
         case .authorizationFailed:
             return L10n.string("mobile.pairing.authorizationFailed", defaultValue: "Sign in on your computer with the same account, or pair with a QR/link from that computer.")
         case .invalidResponse, .connectionClosed, .rpcError:
@@ -2205,6 +2336,7 @@ private enum MobileShellConnectionError: LocalizedError {
     case connectionClosed
     case requestTimedOut
     case insecureManualRoute
+    case attachTicketExpired
     case authorizationFailed(String)
     case rpcError(String?, String)
 
@@ -2218,6 +2350,8 @@ private enum MobileShellConnectionError: LocalizedError {
             return "Mobile sync request timed out"
         case .insecureManualRoute:
             return "Manual host did not advertise a secure mobile sync route"
+        case .attachTicketExpired:
+            return "Mobile attach ticket expired"
         case let .authorizationFailed(message):
             return message
         case let .rpcError(_, message):
@@ -2315,8 +2449,8 @@ final class MobileCoreRPCClient: @unchecked Sendable {
             let response = try await Self.withRequestTimeout(
                 timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
             ) {
-                try await transport.connect()
                 let authenticatedRequestData = try await self.requestDataWithAuth(requestData)
+                try await transport.connect()
                 let frame = try MobileSyncFrameCodec.encodeFrame(authenticatedRequestData)
                 try await transport.send(frame)
                 let responseFrame = try await self.receiveFrame(from: transport)
@@ -2337,18 +2471,26 @@ final class MobileCoreRPCClient: @unchecked Sendable {
         let requestNeedsAuth = Self.requestRequiresAuth(request)
         let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
         var auth: [String: Any] = [:]
-        if let authToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+        let attachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasAttachToken = attachToken?.isEmpty == false
+        if let attachToken,
            requestNeedsAuth,
-           !authToken.isEmpty,
-           ticket.expiresAt > runtime.now(),
+           hasAttachToken,
            requestIsCoveredByAttachTicket {
-            auth["attach_token"] = authToken
+            if ticket.expiresAt > runtime.now() {
+                auth["attach_token"] = attachToken
+            } else if !allowsStackAuthFallback || !MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
+                throw MobileShellConnectionError.attachTicketExpired
+            }
         }
         let shouldSendStackAuth = requestNeedsAuth && auth["attach_token"] == nil
         if shouldSendStackAuth {
             guard allowsStackAuthFallback,
                   MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
-                throw MobileShellConnectionError.insecureManualRoute
+                guard MobileShellRouteAuthPolicy.routeAllowsUnauthenticatedManualAttempt(route) else {
+                    throw MobileShellConnectionError.insecureManualRoute
+                }
+                return try JSONSerialization.data(withJSONObject: request)
             }
             do {
                 auth["stack_access_token"] = try await runtime.stackAccessTokenProvider()

@@ -281,6 +281,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@:%d に接続しましたが、ホストが接続を閉じました。ホストアプリがまだ実行中であることを確認してください。" } }
       }
     },
+    "mobile.pairing.attachTicketExpired" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This pairing link expired. Pair again with a fresh QR/link from that computer." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このペアリングリンクの有効期限が切れました。そのコンピュータの新しい QR/リンクでペアリングしてください。" } }
+      }
+    },
     "mobile.pairing.secureRouteRequired" : {
       "extractionState" : "manual",
       "localizations" : {

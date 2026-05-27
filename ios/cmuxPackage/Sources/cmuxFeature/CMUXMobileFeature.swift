@@ -106,13 +106,22 @@ struct CMUXMobileRootView: View {
         }
         .onChange(of: isAuthenticated) { _, isAuthenticated in
             syncShellAuthentication(isAuthenticated)
-            guard isAuthenticated, let rawURL = pendingAttachURL else {
-                connectUITestAttachURLIfNeeded()
+            guard isAuthenticated else {
                 return
             }
-            pendingAttachURL = nil
-            Task {
-                await store.connectPairingURL(rawURL)
+            if let rawURL = pendingAttachURL {
+                pendingAttachURL = nil
+                Task {
+                    await store.connectPairingURL(rawURL)
+                }
+                return
+            }
+            connectUITestAttachURLIfNeeded()
+            if store.connectionState != .connected {
+                let stackUserID = authManager.currentUser?.id
+                Task {
+                    await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+                }
             }
         }
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
@@ -121,6 +130,13 @@ struct CMUXMobileRootView: View {
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
                 isShowingAddDeviceSheet = false
+            } else {
+                clearAttachTicketAuthenticationIfNeeded()
+            }
+        }
+        .onChange(of: store.hasActiveUnexpiredAttachTicket) { _, hasActiveUnexpiredAttachTicket in
+            if !hasActiveUnexpiredAttachTicket {
+                clearAttachTicketAuthenticationIfNeeded()
             }
         }
     }
@@ -128,16 +144,20 @@ struct CMUXMobileRootView: View {
     private var isAuthenticated: Bool {
         MobileRootAuthGate.isAuthenticated(
             stackAuthenticated: authManager.isAuthenticated,
-            attachTicketAuthenticated: didAuthenticateWithAttachTicket
+            attachTicketAuthenticated: hasActiveAttachTicketAuthentication
         )
     }
 
     private var shouldShowRestoringSession: Bool {
         MobileRootAuthGate.shouldShowRestoringSession(
             stackAuthenticated: authManager.isAuthenticated,
-            attachTicketAuthenticated: didAuthenticateWithAttachTicket,
+            attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
             isRestoringSession: authManager.isRestoringSession
         )
+    }
+
+    private var hasActiveAttachTicketAuthentication: Bool {
+        didAuthenticateWithAttachTicket && store.hasActiveUnexpiredAttachTicket
     }
 
     private func syncShellAuthentication(
@@ -166,11 +186,20 @@ struct CMUXMobileRootView: View {
             guard MobileRootAuthGate.shouldClearAttachTicketAuthentication(
                 pairingResult: result,
                 connectionState: store.connectionState,
-                hasActiveTicket: store.activeTicket != nil
+                hasActiveUnexpiredTicket: store.hasActiveUnexpiredAttachTicket
             ) else { return }
             didAuthenticateWithAttachTicket = false
             syncShellAuthentication(authManager.isAuthenticated)
         }
+    }
+
+    private func clearAttachTicketAuthenticationIfNeeded() {
+        guard didAuthenticateWithAttachTicket,
+              store.connectionState != .connected || !store.hasActiveUnexpiredAttachTicket else {
+            return
+        }
+        didAuthenticateWithAttachTicket = false
+        syncShellAuthentication(authManager.isAuthenticated)
     }
 
     private func signOut() {
@@ -226,15 +255,15 @@ enum MobileRootAuthGate {
     static func shouldClearAttachTicketAuthentication(
         pairingResult: MobilePairingURLConnectionResult,
         connectionState: MobileConnectionState,
-        hasActiveTicket: Bool
+        hasActiveUnexpiredTicket: Bool
     ) -> Bool {
         switch pairingResult {
         case .connected:
-            return false
+            return connectionState != .connected || !hasActiveUnexpiredTicket
         case .failed:
             return true
         case .superseded:
-            return connectionState != .connected || !hasActiveTicket
+            return connectionState != .connected || !hasActiveUnexpiredTicket
         }
     }
 

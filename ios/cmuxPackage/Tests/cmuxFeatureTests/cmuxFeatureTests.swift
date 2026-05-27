@@ -172,10 +172,11 @@ import UIKit
     #expect(runtime.pairingRequestTimeoutNanoseconds == 8 * 1_000_000_000)
 }
 
-@Test func manualRouteAuthPolicyAllowsStackAuthForGeneralManualHostPortRoutes() throws {
+@Test func manualRouteAuthPolicyAllowsStackAuthOnlyForTrustedManualHostPortRoutes() throws {
     let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
     let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
     let lanIP = try hostPortRoute(kind: .tailscale, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
+    let localDNS = try hostPortRoute(kind: .tailscale, host: "devbox.local", port: CmxMobileDefaults.defaultHostPort)
     let tailscaleMagicDNS = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
     let pretendLoopback = try hostPortRoute(kind: .debugLoopback, host: "127.attacker.example", port: CmxMobileDefaults.defaultHostPort)
 
@@ -184,8 +185,12 @@ import UIKit
     #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
     #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleMagicDNS))
     #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
-    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
+    #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
+    #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(localDNS))
     #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(pretendLoopback))
+    #expect(MobileShellRouteAuthPolicy.routeAllowsUnauthenticatedManualAttempt(lanIP))
+    #expect(MobileShellRouteAuthPolicy.routeAllowsUnauthenticatedManualAttempt(localDNS))
+    #expect(!MobileShellRouteAuthPolicy.routeAllowsUnauthenticatedManualAttempt(pretendLoopback))
     #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("127.0.0.1"))
     #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("100.71.210.41"))
     #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
@@ -298,22 +303,27 @@ import UIKit
     #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
         pairingResult: .failed,
         connectionState: .disconnected,
-        hasActiveTicket: false
+        hasActiveUnexpiredTicket: false
     ))
     #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
         pairingResult: .superseded,
         connectionState: .disconnected,
-        hasActiveTicket: false
+        hasActiveUnexpiredTicket: false
     ))
     #expect(!MobileRootAuthGate.shouldClearAttachTicketAuthentication(
         pairingResult: .superseded,
         connectionState: .connected,
-        hasActiveTicket: true
+        hasActiveUnexpiredTicket: true
     ))
     #expect(!MobileRootAuthGate.shouldClearAttachTicketAuthentication(
         pairingResult: .connected,
         connectionState: .connected,
-        hasActiveTicket: true
+        hasActiveUnexpiredTicket: true
+    ))
+    #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+        pairingResult: .connected,
+        connectionState: .connected,
+        hasActiveUnexpiredTicket: false
     ))
 }
 
@@ -660,14 +670,8 @@ import UIKit
 }
 
 @MainActor
-@Test func manualHostPairingUsesNetworkRouteForPrivateLANIP() async throws {
-    let attachRoute = try hostPortRoute(
-        kind: .tailscale,
-        host: "192.168.1.77",
-        port: 15432
-    )
+@Test func manualHostPairingUsesNetworkRouteForPrivateLANIPWithoutStackAuth() async throws {
     let responses = ScriptedTransportResponses([
-        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "lan-workspace"),
         try rpcWorkspaceListFrame(workspaceID: "lan-workspace", title: "LAN Workspace"),
     ])
     let runtime = testRuntime(
@@ -691,19 +695,16 @@ import UIKit
     } else {
         Issue.record("manual LAN route should use host/port")
     }
-    let attachTicketRequest = try #require(try await responses.sentRequests().first { $0.method == "mobile.attach_ticket.create" })
-    #expect(attachTicketRequest.stackAccessToken == "stack-token-for-lan")
+    #expect(route.kind == .tailscale)
+    let requests = try await responses.sentRequests()
+    #expect(requests.map(\.method) == ["workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == nil })
+    #expect(requests.allSatisfy { $0.attachToken == nil })
 }
 
 @MainActor
-@Test func manualHostPairingUsesNetworkRouteForLocalDNSName() async throws {
-    let attachRoute = try hostPortRoute(
-        kind: .tailscale,
-        host: "devbox.local",
-        port: 61234
-    )
+@Test func manualHostPairingUsesNetworkRouteForLocalDNSNameWithoutStackAuth() async throws {
     let responses = ScriptedTransportResponses([
-        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-dns-workspace"),
         try rpcWorkspaceListFrame(workspaceID: "local-dns-workspace", title: "Local DNS Workspace"),
     ])
     let runtime = testRuntime(
@@ -727,14 +728,16 @@ import UIKit
     } else {
         Issue.record("manual local DNS route should use host/port")
     }
-    let attachTicketRequest = try #require(try await responses.sentRequests().first { $0.method == "mobile.attach_ticket.create" })
-    #expect(attachTicketRequest.stackAccessToken == "stack-token-for-local-dns")
+    #expect(route.kind == .tailscale)
+    let requests = try await responses.sentRequests()
+    #expect(requests.map(\.method) == ["workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == nil })
+    #expect(requests.allSatisfy { $0.attachToken == nil })
 }
 
 @MainActor
-@Test func manualHostPairingFallsBackToSyntheticTicketForGeneralManualHost() async throws {
+@Test func manualHostPairingDoesNotProbeGeneralManualHostForAttachTicket() async throws {
     let responses = ScriptedTransportResponses([
-        try rpcErrorFrame(message: "unknown method"),
         try rpcWorkspaceListFrame(workspaceID: "manual-workspace", title: "Manual Workspace"),
     ])
     let runtime = testRuntime(
@@ -752,8 +755,9 @@ import UIKit
     #expect(store.connectionError == nil)
     #expect(store.connectedHostName == "Studio LAN")
     let requests = try await responses.sentRequests()
-    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
-    #expect(requests.last?.stackAccessToken == "stack-token-for-fallback")
+    #expect(requests.map(\.method) == ["workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == nil })
+    #expect(requests.allSatisfy { $0.attachToken == nil })
 }
 
 @MainActor
@@ -1422,9 +1426,12 @@ import UIKit
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
-    #expect(try await responses.sentRequests().isEmpty)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError != nil)
+    let requests = try await responses.sentRequests()
+    #expect(requests.map(\.method) == ["workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == nil })
+    #expect(requests.allSatisfy { $0.attachToken == nil })
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
 }
 
 @MainActor
@@ -1465,14 +1472,8 @@ import UIKit
 }
 
 @MainActor
-@Test func manualHostPairingUsesNetworkRouteForDefaultPortLANHost() async throws {
-    let attachRoute = try hostPortRoute(
-        kind: .tailscale,
-        host: "192.168.1.77",
-        port: CmxMobileDefaults.defaultHostPort
-    )
+@Test func manualHostPairingUsesNetworkRouteForDefaultPortLANHostWithoutStackAuth() async throws {
     let responses = ScriptedTransportResponses([
-        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "default-port-lan-workspace"),
         try rpcWorkspaceListFrame(workspaceID: "default-port-lan-workspace", title: "Default Port LAN Workspace"),
     ])
     let runtime = testRuntime(
@@ -1489,8 +1490,12 @@ import UIKit
     #expect(store.connectionState == .connected)
     #expect(store.connectionError == nil)
     #expect(store.connectedHostName == "Work Mac")
-    let attachTicketRequest = try #require(try await responses.sentRequests().first { $0.method == "mobile.attach_ticket.create" })
-    #expect(attachTicketRequest.stackAccessToken == "stack-token-for-default-lan")
+    let route = try #require(store.activeRoute)
+    #expect(route.kind == .tailscale)
+    let requests = try await responses.sentRequests()
+    #expect(requests.map(\.method) == ["workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == nil })
+    #expect(requests.allSatisfy { $0.attachToken == nil })
 }
 
 @MainActor

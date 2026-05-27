@@ -168,13 +168,20 @@ if [[ -n "${ASC_API_KEY_ID:-}" || -n "${ASC_API_ISSUER_ID:-}" || -n "${ASC_API_K
     echo "error: ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH must be set together" >&2
     exit 2
   fi
+  if [[ ! -f "$ASC_API_KEY_PATH" ]]; then
+    echo "error: ASC_API_KEY_PATH does not exist: $ASC_API_KEY_PATH" >&2
+    exit 2
+  fi
 
-  xcrun altool --upload-app \
+  API_KEY_DIR="$OUT_DIR/private_keys"
+  mkdir -p "$API_KEY_DIR"
+  ln -sf "$ASC_API_KEY_PATH" "$API_KEY_DIR/AuthKey_$ASC_API_KEY_ID.p8"
+
+  API_PRIVATE_KEYS_DIR="$API_KEY_DIR" xcrun altool --upload-app \
     --type ios \
     --file "$IPA_PATH" \
     --api-key "$ASC_API_KEY_ID" \
     --api-issuer "$ASC_API_ISSUER_ID" \
-    --p8-file-path "$ASC_API_KEY_PATH" \
     | tee "$OUT_DIR/upload.log"
 elif [[ -n "${APPLE_ID:-}" || -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -n "${APPLE_PROVIDER_PUBLIC_ID:-}" ]]; then
   if [[ -z "${APPLE_ID:-}" || -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -z "${APPLE_PROVIDER_PUBLIC_ID:-}" ]]; then
