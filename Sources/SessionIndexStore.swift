@@ -317,20 +317,24 @@ final class SessionIndexStore: ObservableObject {
     /// state and must only run in response to real data changes (new scan
     /// results, grouping switch) — not on every SwiftUI update tick.
     private func backfillDirectoryOrderFromEntries() {
-        var seen = Set(directoryOrder)
-        var additions: [(path: String, latest: Date)] = []
+        let knownPaths = Set(directoryOrder)
+        var latestByPath: [String: Date] = [:]
         for entry in entries {
             let path = entry.cwd ?? ""
-            if seen.insert(path).inserted {
-                additions.append((path, entry.modified))
-            } else if let idx = additions.firstIndex(where: { $0.path == path }),
-                      additions[idx].latest < entry.modified {
-                additions[idx].latest = entry.modified
+            guard !knownPaths.contains(path) else { continue }
+            if let latest = latestByPath[path] {
+                if latest < entry.modified {
+                    latestByPath[path] = entry.modified
+                }
+            } else {
+                latestByPath[path] = entry.modified
             }
         }
-        guard !additions.isEmpty else { return }
-        additions.sort { $0.latest > $1.latest }
-        directoryOrder.append(contentsOf: additions.map(\.path))
+        guard !latestByPath.isEmpty else { return }
+        let additions = latestByPath
+            .sorted { $0.value > $1.value }
+            .map(\.key)
+        directoryOrder.append(contentsOf: additions)
     }
 
     private func backfillAgentOrderFromEntries() {
@@ -351,21 +355,24 @@ final class SessionIndexStore: ObservableObject {
             }
             return .registered(refreshed)
         }
-        var seen = Set(nextOrder.map(\.rawValue))
-        var additions: [(agent: SessionAgent, latest: Date)] = []
+        let knownAgentIds = Set(nextOrder.map(\.rawValue))
+        var additionsByAgentId: [String: (agent: SessionAgent, latest: Date)] = [:]
         for entry in entries {
-            if seen.insert(entry.agent.rawValue).inserted {
-                additions.append((entry.agent, entry.modified))
-            } else if let idx = additions.firstIndex(where: { $0.agent.rawValue == entry.agent.rawValue }),
-                      additions[idx].latest < entry.modified {
-                additions[idx].latest = entry.modified
+            let agentId = entry.agent.rawValue
+            guard !knownAgentIds.contains(agentId) else { continue }
+            if let existing = additionsByAgentId[agentId] {
+                if existing.latest < entry.modified {
+                    additionsByAgentId[agentId] = (existing.agent, entry.modified)
+                }
+            } else {
+                additionsByAgentId[agentId] = (entry.agent, entry.modified)
             }
         }
-        if additions.isEmpty {
+        if additionsByAgentId.isEmpty {
             setAgentOrderIfPresentationChanged(nextOrder)
             return
         }
-        additions.sort { $0.latest > $1.latest }
+        let additions = additionsByAgentId.values.sorted { $0.latest > $1.latest }
         nextOrder.append(contentsOf: additions.map(\.agent))
         setAgentOrderIfPresentationChanged(nextOrder)
     }
@@ -521,6 +528,14 @@ final class SessionIndexStore: ObservableObject {
             }
         }
     }
+
+#if DEBUG
+    func replaceEntriesForTesting(_ entries: [SessionEntry]) {
+        self.entries = entries
+        backfillAgentOrderFromEntries()
+        backfillDirectoryOrderFromEntries()
+    }
+#endif
 
     // MARK: - Directory snapshot cache
 

@@ -151,6 +151,38 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(emittedValues, ["/foo"])
     }
 
+    func testDirectoryOrderBackfillUsesLatestModifiedForDuplicateDirectories() {
+        preservingSessionIndexDefaults {
+            let store = SessionIndexStore()
+            store.directoryOrder = ["/existing"]
+
+            store.replaceEntriesForTesting([
+                makeEntry(title: "old project", cwd: "/project-a", modified: Date(timeIntervalSince1970: 1)),
+                makeEntry(title: "new project", cwd: "/project-b", modified: Date(timeIntervalSince1970: 2)),
+                makeEntry(title: "newer project", cwd: "/project-a", modified: Date(timeIntervalSince1970: 3)),
+                makeEntry(title: "known project", cwd: "/existing", modified: Date(timeIntervalSince1970: 4))
+            ])
+
+            XCTAssertEqual(store.directoryOrder, ["/existing", "/project-a", "/project-b"])
+        }
+    }
+
+    func testAgentOrderBackfillUsesLatestModifiedForDuplicateAgents() {
+        preservingSessionIndexDefaults {
+            let store = SessionIndexStore()
+            store.agentOrder = [.claude]
+
+            store.replaceEntriesForTesting([
+                makeEntry(agent: .codex, title: "old codex", modified: Date(timeIntervalSince1970: 1)),
+                makeEntry(agent: .grok, title: "grok", modified: Date(timeIntervalSince1970: 2)),
+                makeEntry(agent: .codex, title: "newer codex", modified: Date(timeIntervalSince1970: 3)),
+                makeEntry(agent: .claude, title: "known claude", modified: Date(timeIntervalSince1970: 4))
+            ])
+
+            XCTAssertEqual(store.agentOrder.map(\.rawValue), ["claude", "codex", "grok"])
+        }
+    }
+
     func testCodexSQLSearchMatchesRolloutTranscriptContent() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
@@ -286,6 +318,8 @@ final class SessionIndexViewTests: XCTestCase {
         agent: SessionAgent = .claude,
         sessionId: String = UUID().uuidString,
         title: String,
+        cwd: String? = nil,
+        modified: Date = Date(timeIntervalSince1970: 0),
         fileURL: URL? = nil,
         specifics: AgentSpecifics? = nil,
         claudeConfigDirectoryForResume: String? = nil
@@ -295,10 +329,10 @@ final class SessionIndexViewTests: XCTestCase {
             agent: agent,
             sessionId: sessionId,
             title: title,
-            cwd: nil,
+            cwd: cwd,
             gitBranch: nil,
             pullRequest: nil,
-            modified: Date(timeIntervalSince1970: 0),
+            modified: modified,
             fileURL: fileURL,
             specifics: specifics ?? agent.defaultSpecificsForTesting(
                 claudeConfigDirectoryForResume: claudeConfigDirectoryForResume
@@ -308,6 +342,30 @@ final class SessionIndexViewTests: XCTestCase {
 
     private func pumpRunLoop() {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    }
+
+    private func preservingSessionIndexDefaults(_ body: () -> Void) {
+        let defaults = UserDefaults.standard
+        let keys = [
+            "sessionIndex.agentOrder",
+            "sessionIndex.directoryOrder",
+            "sessionIndex.grouping"
+        ]
+        let previousValues = keys.map { (key: $0, value: defaults.object(forKey: $0)) }
+        defer {
+            for previousValue in previousValues {
+                if let value = previousValue.value {
+                    defaults.set(value, forKey: previousValue.key)
+                } else {
+                    defaults.removeObject(forKey: previousValue.key)
+                }
+            }
+        }
+
+        for key in keys {
+            defaults.removeObject(forKey: key)
+        }
+        body()
     }
 
     private func makeCodexStateDatabase(
