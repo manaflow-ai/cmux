@@ -1867,6 +1867,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let workspaceIndex = try XCTUnwrap(
             legacySnapshot.workspaces.firstIndex { $0.customTitle == "Legacy Persistent SSH" }
         )
+        XCTAssertEqual(legacySnapshot.workspaces[workspaceIndex].id, remoteWorkspace.id)
         let panelIndex = try XCTUnwrap(
             legacySnapshot.workspaces[workspaceIndex].panels.firstIndex { $0.id == originalPanelId }
         )
@@ -1876,6 +1877,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         restored.restoreSessionSnapshot(legacySnapshot)
 
         let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Legacy Persistent SSH" })
+        XCTAssertNotEqual(restoredWorkspace.id, remoteWorkspace.id)
         let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
         let restoredInitialCommand = try XCTUnwrap(
             restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()

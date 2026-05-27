@@ -229,6 +229,7 @@ extension Workspace {
         let workspaceNotificationSnapshots = notificationSnapshots(surfaceId: nil)
 
         return SessionWorkspaceSnapshot(
+            id: id,
             processTitle: processTitle,
             customTitle: customTitle,
             customDescription: customDescription,
@@ -296,6 +297,7 @@ extension Workspace {
                 entry.paneId,
                 snapshot: entry.snapshot,
                 panelSnapshotsById: panelSnapshotsById,
+                snapshotWorkspaceId: snapshot.id,
                 oldToNewPanelIds: &oldToNewPanelIds
             )
         }
@@ -725,7 +727,11 @@ extension Workspace {
 
     @discardableResult
     private func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry, inPane pane: PaneID) -> UUID? {
-        guard let panelId = createPanel(from: entry.snapshot, inPane: pane) else { return nil }
+        guard let panelId = createPanel(
+            from: entry.snapshot,
+            inPane: pane,
+            snapshotWorkspaceId: nil
+        ) else { return nil }
 
         let maxIndex = max(0, bonsplitController.tabs(inPane: pane).count - 1)
         _ = reorderSurface(panelId: panelId, toIndex: min(max(entry.tabIndex, 0), maxIndex))
@@ -759,7 +765,11 @@ extension Workspace {
             return nil
         }
 
-        guard let panelId = createPanel(from: entry.snapshot, inPane: pane) else {
+        guard let panelId = createPanel(
+            from: entry.snapshot,
+            inPane: pane,
+            snapshotWorkspaceId: nil
+        ) else {
             _ = closePanel(placeholderPanel.id, force: true)
             return nil
         }
@@ -1090,6 +1100,7 @@ extension Workspace {
         _ paneId: PaneID,
         snapshot: SessionPaneLayoutSnapshot,
         panelSnapshotsById: [UUID: SessionPanelSnapshot],
+        snapshotWorkspaceId: UUID?,
         oldToNewPanelIds: inout [UUID: UUID]
     ) {
         let existingPanelIds = bonsplitController
@@ -1100,7 +1111,11 @@ extension Workspace {
         var createdPanelIds: [UUID] = []
         for oldPanelId in desiredOldPanelIds {
             guard let panelSnapshot = panelSnapshotsById[oldPanelId] else { continue }
-            guard let createdPanelId = createPanel(from: panelSnapshot, inPane: paneId) else { continue }
+            guard let createdPanelId = createPanel(
+                from: panelSnapshot,
+                inPane: paneId,
+                snapshotWorkspaceId: snapshotWorkspaceId
+            ) else { continue }
             createdPanelIds.append(createdPanelId)
             oldToNewPanelIds[oldPanelId] = createdPanelId
         }
@@ -1171,7 +1186,11 @@ extension Workspace {
         return storedBinding
     }
 
-    private func createPanel(from snapshot: SessionPanelSnapshot, inPane paneId: PaneID) -> UUID? {
+    private func createPanel(
+        from snapshot: SessionPanelSnapshot,
+        inPane paneId: PaneID,
+        snapshotWorkspaceId: UUID?
+    ) -> UUID? {
         switch snapshot.type {
         case .terminal:
             let resumeBinding = snapshot.terminal?.resumeBinding
@@ -1245,7 +1264,7 @@ extension Workspace {
                     return nil
                 }
                 return normalizedRemotePTYSessionID(snapshot.terminal?.remotePTYSessionID)
-                    ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: snapshot.id)
+                    ?? Self.defaultSSHPTYSessionID(workspaceId: snapshotWorkspaceId ?? id, panelId: snapshot.id)
             }()
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
                 remotePTYAttachStartupCommand(sessionID: $0)
