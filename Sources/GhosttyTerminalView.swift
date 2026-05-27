@@ -4379,8 +4379,8 @@ class GhosttyApp {
 
         if action.tag == GHOSTTY_ACTION_TMUX_CONTROL {
             guard let callbackContext,
-                  callbackContext.runtimeSurface == target.target.surface,
-                  let terminalSurface = callbackContext.terminalSurface else { return true }
+                  let terminalSurface = callbackContext.terminalSurface,
+                  TerminalSurfaceRegistry.shared.runtimeSurfaceOwnerId(target.target.surface) == terminalSurface.id else { return true }
             let tmuxAction = action.action.tmux_control
             let event: TmuxControlEvent?
             switch tmuxAction.event {
