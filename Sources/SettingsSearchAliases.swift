@@ -12,7 +12,7 @@ enum SettingsSearchAliasIndex {
         case .notifications:
             return localized("settings.search.alias.section.notifications", defaultValue: "app alerts notify unread dock badge menubar menu bar ring flash sound command imessage message chat prompt reorder")
         case .safetyPrivacy:
-            return localized("settings.search.alias.section.safetyPrivacy", defaultValue: "app privacy telemetry analytics warnings warn confirm quit close tab x button")
+            return localized("settings.search.alias.section.safetyPrivacy", defaultValue: "app safety and privacy privacy telemetry analytics warnings warn confirm quit close tab x button")
         case .commandPalette:
             return localized("settings.search.alias.section.commandPalette", defaultValue: "app command palette cmd p switcher search rename select name")
         case .terminal:

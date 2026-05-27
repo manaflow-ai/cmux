@@ -123,7 +123,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .workspacesAndTabs:
             return "\(title) app workspace workspaces tab tabs surface pane cwd directory placement close focus minimal last"
         case .filesAndLinks:
-            return "\(title) app files links url open cmd click editor markdown preview pdf image audio video terminal config ghostty"
+            return "\(title) app files links url open cmd click editor markdown preview pdf image audio video config ghostty"
         case .notifications:
             return "\(title) app notification notify alert sound dock badge menu bar menubar ring flash command imessage message chat prompt reorder"
         case .safetyPrivacy:

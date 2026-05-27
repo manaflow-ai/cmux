@@ -85,6 +85,8 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertFirstSearchResult("telemetry", is: SettingsSearchIndex.sectionID(for: .safetyPrivacy))
         assertFirstSearchResult("imessage", is: SettingsSearchIndex.sectionID(for: .notifications))
         assertFirstSearchResult("hooks", is: SettingsSearchIndex.sectionID(for: .agentIntegrations))
+        assertFirstSearchResult("safety and privacy", is: SettingsSearchIndex.sectionID(for: .safetyPrivacy))
+        assertFirstSearchResult("terminal", is: SettingsSearchIndex.sectionID(for: .terminal))
     }
 
     private func assertSearch(
