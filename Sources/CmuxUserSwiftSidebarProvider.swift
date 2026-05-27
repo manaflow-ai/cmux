@@ -32,25 +32,7 @@ struct CmuxUserSwiftSidebarProvider: CmuxExtensionSidebarMutableProvider {
         snapshot: CmuxExtensionSidebarSnapshot,
         context: CmuxExtensionSidebarRenderContext
     ) -> CmuxExtensionSidebarRenderModel {
-        do {
-            var model: CmuxExtensionSidebarRenderModel = try CmuxUserSwiftSidebarProcess.run(
-                executableURL: URL(fileURLWithPath: record.executablePath),
-                request: .render(snapshot: snapshot, context: context)
-            ) { response in
-                guard case .render(let model) = response else {
-                    throw CmuxUserSwiftSidebarError.unexpectedResponse
-                }
-                return model
-            }
-            model.providerId = descriptor.id
-            return model
-        } catch {
-            return Self.fallbackModel(
-                descriptor: descriptor,
-                snapshot: snapshot,
-                message: error.localizedDescription
-            )
-        }
+        CmuxUserSwiftSidebarRenderCache.shared.render(record: record, snapshot: snapshot, context: context)
     }
 
     func handle(
@@ -68,7 +50,7 @@ struct CmuxUserSwiftSidebarProvider: CmuxExtensionSidebarMutableProvider {
         }
     }
 
-    private static func fallbackModel(
+    fileprivate static func fallbackModel(
         descriptor: CmuxExtensionSidebarProviderDescriptor,
         snapshot: CmuxExtensionSidebarSnapshot,
         message: String
@@ -103,6 +85,190 @@ struct CmuxUserSwiftSidebarProvider: CmuxExtensionSidebarMutableProvider {
             snapshotSequence: snapshot.sequence,
             sections: [section]
         )
+    }
+}
+
+final class CmuxUserSwiftSidebarRenderCache: @unchecked Sendable {
+    static let shared = CmuxUserSwiftSidebarRenderCache()
+    static let didChangeNotification = Notification.Name("cmuxUserSwiftSidebarRenderCacheDidChange")
+
+    private struct Key: Hashable, Sendable {
+        var providerId: String
+        var executablePath: String
+        var sourceModificationTime: TimeInterval?
+        var snapshotHash: String
+    }
+
+    private let lock = NSLock()
+    private var models: [Key: CmuxExtensionSidebarRenderModel] = [:]
+    private var previousModelsByProvider: [String: CmuxExtensionSidebarRenderModel] = [:]
+    private var failures: [Key: String] = [:]
+    private var inFlight: Set<Key> = []
+
+    func render(
+        record: CmuxUserSwiftSidebarRecord,
+        snapshot: CmuxExtensionSidebarSnapshot,
+        context: CmuxExtensionSidebarRenderContext
+    ) -> CmuxExtensionSidebarRenderModel {
+        let descriptor = record.descriptor
+        let key: Key
+        do {
+            key = try makeKey(record: record, snapshot: snapshot)
+        } catch {
+            return CmuxUserSwiftSidebarProvider.fallbackModel(
+                descriptor: descriptor,
+                snapshot: snapshot,
+                message: error.localizedDescription
+            )
+        }
+
+        var shouldStartRender = false
+        let cachedModel: CmuxExtensionSidebarRenderModel?
+        let previousModel: CmuxExtensionSidebarRenderModel?
+        let failureMessage: String?
+        lock.lock()
+        cachedModel = models[key]
+        previousModel = previousModelsByProvider[descriptor.id]
+        failureMessage = failures[key]
+        if cachedModel == nil, failureMessage == nil, !inFlight.contains(key) {
+            inFlight.insert(key)
+            shouldStartRender = true
+        }
+        lock.unlock()
+
+        if let cachedModel {
+            return cachedModel
+        }
+
+        if shouldStartRender {
+            startRender(record: record, snapshot: snapshot, context: context, key: key)
+        }
+
+        if let failureMessage {
+            return CmuxUserSwiftSidebarProvider.fallbackModel(
+                descriptor: descriptor,
+                snapshot: snapshot,
+                message: failureMessage
+            )
+        }
+
+        if let previousModel, previousModel.snapshotSequence == snapshot.sequence {
+            return previousModel
+        }
+
+        return Self.loadingModel(descriptor: descriptor, snapshot: snapshot)
+    }
+
+    func invalidate(providerId: String) {
+        lock.lock()
+        models = models.filter { $0.key.providerId != providerId }
+        previousModelsByProvider.removeValue(forKey: providerId)
+        failures = failures.filter { $0.key.providerId != providerId }
+        inFlight = inFlight.filter { $0.providerId != providerId }
+        lock.unlock()
+    }
+
+    private func makeKey(
+        record: CmuxUserSwiftSidebarRecord,
+        snapshot: CmuxExtensionSidebarSnapshot
+    ) throws -> Key {
+        let snapshotData = try JSONEncoder.cmuxExtensionSidebarExecutable.encode(snapshot)
+        return Key(
+            providerId: record.descriptor.id,
+            executablePath: record.executablePath,
+            sourceModificationTime: record.sourceModificationTime?.timeIntervalSinceReferenceDate,
+            snapshotHash: Self.stableHash(snapshotData)
+        )
+    }
+
+    private func startRender(
+        record: CmuxUserSwiftSidebarRecord,
+        snapshot: CmuxExtensionSidebarSnapshot,
+        context: CmuxExtensionSidebarRenderContext,
+        key: Key
+    ) {
+        Task.detached(priority: .userInitiated) {
+            let result: Result<CmuxExtensionSidebarRenderModel, Error>
+            do {
+                var model: CmuxExtensionSidebarRenderModel = try CmuxUserSwiftSidebarProcess.run(
+                    executableURL: URL(fileURLWithPath: record.executablePath),
+                    request: .render(snapshot: snapshot, context: context)
+                ) { response in
+                    guard case .render(let model) = response else {
+                        throw CmuxUserSwiftSidebarError.unexpectedResponse
+                    }
+                    return model
+                }
+                model.providerId = record.descriptor.id
+                result = .success(model)
+            } catch {
+                result = .failure(error)
+            }
+            self.finishRender(key: key, providerId: record.descriptor.id, result: result)
+        }
+    }
+
+    private func finishRender(
+        key: Key,
+        providerId: String,
+        result: Result<CmuxExtensionSidebarRenderModel, Error>
+    ) {
+        lock.lock()
+        inFlight.remove(key)
+        switch result {
+        case .success(let model):
+            models[key] = model
+            previousModelsByProvider[providerId] = model
+            failures.removeValue(forKey: key)
+        case .failure(let error):
+            failures[key] = error.localizedDescription
+        }
+        lock.unlock()
+
+        Task { @MainActor in
+            NotificationCenter.default.post(name: Self.didChangeNotification, object: nil)
+        }
+    }
+
+    private static func loadingModel(
+        descriptor: CmuxExtensionSidebarProviderDescriptor,
+        snapshot: CmuxExtensionSidebarSnapshot
+    ) -> CmuxExtensionSidebarRenderModel {
+        let subtitle = String(localized: "sidebar.extension.swift.loadingSubtitle", defaultValue: "Rendering...")
+        let section = CmuxExtensionSidebarRenderSection(
+            id: "swift-sidebar-loading",
+            treeSection: CmuxExtensionWorkspaceTreeSection(
+                id: "swift-sidebar-loading",
+                title: String(localized: "sidebar.extension.swift.loadingSection", defaultValue: "Loading Custom Sidebar"),
+                subtitle: nil,
+                systemImageName: "hourglass",
+                projectRootPath: nil,
+                workspaceIds: snapshot.workspaceIds
+            ),
+            rows: snapshot.workspaces.map { workspace in
+                CmuxExtensionSidebarRenderRow(
+                    id: workspace.id,
+                    title: workspace.title,
+                    workspaceId: workspace.id,
+                    accessory: .inspector,
+                    subtitle: .plain(subtitle)
+                )
+            }
+        )
+        return CmuxExtensionSidebarRenderModel(
+            providerId: descriptor.id,
+            snapshotSequence: snapshot.sequence,
+            sections: [section]
+        )
+    }
+
+    private static func stableHash(_ data: Data) -> String {
+        var hash: UInt64 = 1_469_598_103_934_665_603
+        for byte in data {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return String(hash, radix: 16)
     }
 }
 
@@ -162,6 +328,7 @@ enum CmuxUserSwiftSidebarRegistry {
     static func remove(providerId: String, defaults: UserDefaults = .standard) {
         let remaining = records(defaults: defaults).filter { $0.descriptor.id != providerId }
         save(remaining, defaults: defaults)
+        CmuxUserSwiftSidebarRenderCache.shared.invalidate(providerId: providerId)
         if defaults.string(forKey: CmuxExtensionSidebarSelection.defaultsKey) == providerId {
             CmuxExtensionSidebarSelection.setProviderId(CmuxExtensionSidebarSelection.defaultProviderId, defaults: defaults)
         }
@@ -199,6 +366,10 @@ enum CmuxUserSwiftSidebarRegistry {
         replacingProviderId: String?,
         defaults: UserDefaults
     ) {
+        if let replacingProviderId, replacingProviderId != record.descriptor.id {
+            CmuxUserSwiftSidebarRenderCache.shared.invalidate(providerId: replacingProviderId)
+        }
+        CmuxUserSwiftSidebarRenderCache.shared.invalidate(providerId: record.descriptor.id)
         var records = records(defaults: defaults)
         if let replacingProviderId,
            let index = records.firstIndex(where: { $0.descriptor.id == replacingProviderId }) {
@@ -667,13 +838,19 @@ enum CmuxUserSwiftSidebarProcess {
 
         let stdoutURL = tempDirectory.appendingPathComponent("stdout", isDirectory: false)
         let stderrURL = tempDirectory.appendingPathComponent("stderr", isDirectory: false)
+        let stdinURL = tempDirectory.appendingPathComponent("stdin", isDirectory: false)
         FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
         FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+        if let input {
+            try input.write(to: stdinURL)
+        }
         let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
         let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+        let stdinHandle = input == nil ? nil : try FileHandle(forReadingFrom: stdinURL)
         defer {
             try? stdoutHandle.close()
             try? stderrHandle.close()
+            try? stdinHandle?.close()
         }
 
         let process = Process()
@@ -681,15 +858,10 @@ enum CmuxUserSwiftSidebarProcess {
         process.arguments = arguments
         process.standardOutput = stdoutHandle
         process.standardError = stderrHandle
-        if let input {
-            let stdinPipe = Pipe()
-            process.standardInput = stdinPipe
-            try process.run()
-            stdinPipe.fileHandleForWriting.write(input)
-            try? stdinPipe.fileHandleForWriting.close()
-        } else {
-            try process.run()
+        if input != nil {
+            process.standardInput = stdinHandle
         }
+        try process.run()
         process.waitUntilExit()
 
         try stdoutHandle.synchronize()

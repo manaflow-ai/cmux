@@ -10397,6 +10397,12 @@ struct VerticalTabsSidebar: View {
                 ) { _ in
                 refreshExtensionSidebarSnapshot()
             }
+            .onReceive(
+                NotificationCenter.default.publisher(for: CmuxUserSwiftSidebarRenderCache.didChangeNotification)
+                    .receive(on: RunLoop.main)
+            ) { _ in
+                refreshExtensionSidebarSnapshot()
+            }
         }
     }
 
