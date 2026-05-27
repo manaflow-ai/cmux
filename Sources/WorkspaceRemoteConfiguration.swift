@@ -89,8 +89,8 @@ nonisolated struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable 
     var sshOptions: [String]
     var preserveAfterTerminalExit: Bool?
     var skipDaemonBootstrap: Bool?
-    var relayPort: Int?
-    var persistentDaemonSlot: String?
+    var relayPort: Int? = nil
+    var persistentDaemonSlot: String? = nil
 }
 
 struct WorkspaceRemoteWebSocketDaemonEndpoint: Equatable {
@@ -473,7 +473,8 @@ extension SessionRemoteWorkspaceSnapshot {
                 )
                 : sshReconnectCommand(
                     destination: normalizedDestination,
-                    port: normalizedPort
+                    port: normalizedPort,
+                    sshOptions: restoredSSHOptions
                 ),
             foregroundAuthToken: foregroundAuthToken,
             daemonWebSocketEndpoint: nil,
@@ -497,7 +498,8 @@ extension SessionRemoteWorkspaceSnapshot {
 
     private func sshReconnectCommand(
         destination normalizedDestination: String,
-        port normalizedPort: Int?
+        port normalizedPort: Int?,
+        sshOptions reconnectSSHOptions: [String]? = nil
     ) -> String? {
         var arguments = ["ssh"]
         if let normalizedPort {
@@ -506,7 +508,7 @@ extension SessionRemoteWorkspaceSnapshot {
         if let identityFile = Self.normalizedIdentityPath(identityFile) {
             arguments += ["-i", identityFile]
         }
-        let normalizedOptions = Self.normalizedSSHOptions(sshOptions)
+        let normalizedOptions = reconnectSSHOptions ?? Self.normalizedSSHOptions(sshOptions)
         for option in normalizedOptions {
             arguments += ["-o", option]
         }
