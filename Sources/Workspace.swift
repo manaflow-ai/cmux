@@ -8153,10 +8153,13 @@ final class WorkspaceRemoteSessionController {
             return true
         }
         if let trimmedPersistentDaemonSlot {
-            return isCMUXRemotePersistentDaemonServeStdioCommand(
+            if isCMUXRemotePersistentDaemonServeStdioCommand(
                 trimmed,
                 slot: trimmedPersistentDaemonSlot
-            )
+            ) {
+                return true
+            }
+            return isCMUXRemoteNonPersistentDaemonServeStdioCommand(trimmed)
         }
         if isCMUXRemoteDaemonServeStdioCommand(trimmed) {
             return true
@@ -8170,6 +8173,14 @@ final class WorkspaceRemoteSessionController {
             .replacingOccurrences(of: "'", with: " ")
             .replacingOccurrences(of: "\"", with: " ")
         return normalized.contains(" serve ") && normalized.contains(" --stdio")
+    }
+
+    private static func isCMUXRemoteNonPersistentDaemonServeStdioCommand(_ command: String) -> Bool {
+        guard isCMUXRemoteDaemonServeStdioCommand(command) else { return false }
+        let normalized = command
+            .replacingOccurrences(of: "'", with: " ")
+            .replacingOccurrences(of: "\"", with: " ")
+        return !normalized.contains(" --persistent")
     }
 
     private static func isCMUXRemotePersistentDaemonServeStdioCommand(
