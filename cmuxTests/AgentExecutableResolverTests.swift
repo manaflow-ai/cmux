@@ -132,4 +132,46 @@ final class AgentExecutableResolverTests: XCTestCase {
         XCTAssertTrue(AgentSessionProviderID.opencode.shouldAutoStartSession)
         XCTAssertFalse(AgentSessionProviderID.claude.shouldAutoStartSession)
     }
+
+    func testSearchesBunBinUnderHome() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let bunBin = root.appendingPathComponent(".bun/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bunBin, withIntermediateDirectories: true)
+        let executable = bunBin.appendingPathComponent("codex")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": "", "HOME": root.path],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true)
+        )
+
+        let plan = try resolver.resolve(.codex)
+        XCTAssertEqual(plan.executableURL.path, executable.standardizedFileURL.path)
+    }
+
+    func testAddsNvmNodeBinToRuntimePathForBunInstalledProviders() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let bunBin = root.appendingPathComponent(".bun/bin", isDirectory: true)
+        let nodeBin = root.appendingPathComponent(".nvm/versions/node/v25.8.1/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bunBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: nodeBin, withIntermediateDirectories: true)
+        let executable = bunBin.appendingPathComponent("codex")
+        try "#!/usr/bin/env node\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": "", "HOME": root.path],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true)
+        )
+
+        let plan = try resolver.resolve(.codex)
+        let runtimePath = plan.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
+        XCTAssertEqual(plan.executableURL.path, executable.standardizedFileURL.path)
+        XCTAssertTrue(runtimePath.contains(nodeBin.standardizedFileURL.path))
+    }
 }

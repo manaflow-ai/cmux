@@ -180,8 +180,7 @@ struct AgentExecutableResolver {
         directories.append(contentsOf: pathValue.split(separator: ":").map(String.init))
         directories.append(contentsOf: extraSearchDirectories)
         if let home = environment["HOME"], !home.isEmpty {
-            directories.append("\(home)/.local/bin")
-            directories.append("\(home)/bin")
+            directories.append(contentsOf: userRuntimeSearchDirectories(home: home))
         }
         directories.append(contentsOf: [
             "/opt/homebrew/bin",
@@ -200,6 +199,55 @@ struct AgentExecutableResolver {
             guard seen.insert(standardized).inserted else { return nil }
             return standardized
         }
+    }
+
+    private func userRuntimeSearchDirectories(home: String) -> [String] {
+        var directories = [
+            "\(home)/.local/bin",
+            "\(home)/.bun/bin",
+            "\(home)/.nvm/current/bin",
+            "\(home)/.volta/bin",
+            "\(home)/.fnm/current/bin",
+            "\(home)/.local/share/mise/shims",
+            "\(home)/.asdf/shims",
+            "\(home)/bin"
+        ]
+        directories.append(contentsOf: nodeVersionBinDirectories(root: "\(home)/.nvm/versions/node", suffix: "bin"))
+        directories.append(contentsOf: nodeVersionBinDirectories(root: "\(home)/Library/Application Support/fnm/node-versions", suffix: "installation/bin"))
+        directories.append(contentsOf: nodeVersionBinDirectories(root: "\(home)/.local/share/fnm/node-versions", suffix: "installation/bin"))
+        return directories
+    }
+
+    private func nodeVersionBinDirectories(root: String, suffix: String) -> [String] {
+        let rootURL = URL(fileURLWithPath: root, isDirectory: true)
+        guard let versionURLs = try? fileManager.contentsOfDirectory(
+            at: rootURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        return versionURLs
+            .filter { url in
+                (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            }
+            .sorted(by: nodeVersionURLSortPrecedes)
+            .map { versionURL in
+                suffix.split(separator: "/").reduce(versionURL) { partial, component in
+                    partial.appendingPathComponent(String(component), isDirectory: true)
+                }.path
+            }
+    }
+
+    private func nodeVersionURLSortPrecedes(_ lhs: URL, _ rhs: URL) -> Bool {
+        let comparison = lhs.lastPathComponent.compare(
+            rhs.lastPathComponent,
+            options: [.caseInsensitive, .numeric]
+        )
+        if comparison != .orderedSame {
+            return comparison == .orderedDescending
+        }
+        return lhs.path > rhs.path
     }
 
     private func runtimeSearchPath(searchDirectories: [String]) -> String {

@@ -189,7 +189,13 @@ select {
   word-break: normal;
 }
 
-.agent-composer-stack,
+.agent-composer-stack {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+}
+
 .composer-stack {
   display: grid;
   gap: 6px;
