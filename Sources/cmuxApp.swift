@@ -1207,6 +1207,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.licenses",
     "cmux.browser-popup",
     "cmux.browserProfilePopoverDebug",
+    "cmux.cefBrowserDebug",
     "cmux.configEditor",
     "cmux.feedButtonStyleDebug",
     "cmux.feedPreview",
