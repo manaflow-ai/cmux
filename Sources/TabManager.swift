@@ -1181,7 +1181,15 @@ class TabManager: ObservableObject {
             // longer in `tabs[]` (the user closed it), the group dissolves and
             // its remaining members become ungrouped. A group with only its
             // anchor still in tabs[] is fine and stays alive.
-            guard !workspaceGroups.isEmpty else { return }
+            //
+            // Suppressed during snapshot restore (tabs is published before
+            // workspaceGroups; without this guard the didSet would dissolve
+            // every restored group as it sees the new tabs missing the old
+            // anchors) and during transient reorder operations that briefly
+            // remove the anchor's tab before re-inserting it.
+            guard !workspaceGroups.isEmpty,
+                  !isRestoringSessionSnapshot,
+                  !isPerformingTransientTabsMutation else { return }
             let tabIds = Set(tabs.map(\.id))
             for group in workspaceGroups where !tabIds.contains(group.anchorWorkspaceId) {
                 for tab in tabs where tab.groupId == group.id {
@@ -1194,10 +1202,17 @@ class TabManager: ObservableObject {
             }
         }
     }
+    /// Set true while a single high-level mutation transiently calls
+    /// `tabs.remove(at:)` followed by `tabs.insert(_:at:)`. The didSet above
+    /// uses this to skip dissolving a group whose anchor is being moved.
+    private var isPerformingTransientTabsMutation: Bool = false
     /// Named groupings of workspaces shown as collapsible sections in the sidebar.
     /// Group order in this array defines section order in the sidebar.
     /// Each member workspace stores its `groupId` on the `Workspace` model.
     @Published var workspaceGroups: [WorkspaceGroup] = []
+    /// Set by `restoreSessionSnapshot` to suppress side-effects (like auto-
+    /// expanding a group on focus) that would mutate restored state mid-restore.
+    private var isRestoringSessionSnapshot: Bool = false
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
@@ -1248,7 +1263,9 @@ class TabManager: ObservableObject {
         }
         didSet {
             guard selectedTabId != oldValue else { return }
-            expandWorkspaceGroupForSelectionIfNeeded()
+            if !isRestoringSessionSnapshot {
+                expandWorkspaceGroupForSelectionIfNeeded()
+            }
             sentryBreadcrumb("workspace.switch", data: [
                 "tabCount": tabs.count
             ])
@@ -5539,14 +5556,18 @@ class TabManager: ObservableObject {
     func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int) -> Bool {
         guard let plan = workspaceReorderPlan(tabId: tabId, toIndex: targetIndex) else { return false }
         if tabs.count <= 1 || plan.fromIndex == plan.toIndex {
-            // Even when no array movement is needed, the drop may still imply
-            // a group membership change via neighbor inheritance — apply it.
             applyDragInferredGroupMembership(workspaceId: tabId)
             return true
         }
 
+        // Guard the two-step tabs.remove/insert against the didSet that would
+        // otherwise dissolve a group whose anchor is mid-flight. The dragged
+        // workspace lives outside tabs[] for one instant; without this flag the
+        // anchor-gone branch would run and ungroup every member.
+        isPerformingTransientTabsMutation = true
         let workspace = tabs.remove(at: plan.fromIndex)
         tabs.insert(workspace, at: plan.toIndex)
+        isPerformingTransientTabsMutation = false
         applyDragInferredGroupMembership(workspaceId: tabId)
         postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
         return true
@@ -5840,8 +5861,15 @@ class TabManager: ObservableObject {
         childWorkspaceIds: [UUID] = [],
         anchorWorkingDirectory: String? = nil
     ) -> UUID? {
+        // Eligible children: not pinned and not currently an anchor of a
+        // different group. Pulling an anchor into a new group would orphan the
+        // source group (its anchorWorkspaceId would no longer match), so we
+        // reject those silently and let the user explicitly ungroup first.
+        let existingAnchorIds = Set(workspaceGroups.map(\.anchorWorkspaceId))
         let eligibleChildren = childWorkspaceIds.compactMap { id -> UUID? in
-            guard let tab = tabs.first(where: { $0.id == id }), !tab.isPinned else { return nil }
+            guard let tab = tabs.first(where: { $0.id == id }),
+                  !tab.isPinned,
+                  !existingAnchorIds.contains(id) else { return nil }
             return id
         }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5849,20 +5877,23 @@ class TabManager: ObservableObject {
             ? nextAutoWorkspaceGroupName()
             : trimmedName
 
-        let inferredCwd: String? = {
-            if let anchorWorkingDirectory { return anchorWorkingDirectory }
-            if let firstId = eligibleChildren.first,
-               let firstChild = tabs.first(where: { $0.id == firstId }) {
-                return firstChild.currentDirectory
-            }
-            return nil
-        }()
+        let firstChildTab = eligibleChildren.first.flatMap { firstId in
+            tabs.first(where: { $0.id == firstId })
+        }
+        let inferredCwd: String? = anchorWorkingDirectory
+            ?? firstChildTab?.currentDirectory
 
+        // Force the anchor to land immediately before the first eligible child
+        // (so the group section ends up contiguous after normalization) by
+        // overriding the global new-workspace placement rule. When there are
+        // no children, fall back to the user's preferred placement.
+        let placementOverride: NewWorkspacePlacement? = firstChildTab.map { _ in .end }
         let anchor = addWorkspace(
             title: resolvedName,
             workingDirectory: inferredCwd,
             inheritWorkingDirectory: inferredCwd == nil,
             select: true,
+            placementOverride: placementOverride,
             autoWelcomeIfNeeded: false
         )
 
@@ -5886,11 +5917,17 @@ class TabManager: ObservableObject {
     }
 
     /// Add an existing workspace to an existing group as a non-anchor member.
-    /// No-op for pinned workspaces.
+    /// No-op for pinned workspaces or workspaces that are the anchor of a
+    /// different group (those must be ungrouped first to avoid orphaning the
+    /// source group).
     func addWorkspaceToGroup(workspaceId: UUID, groupId: UUID) {
         guard let tab = tabs.first(where: { $0.id == workspaceId }), !tab.isPinned else { return }
         guard workspaceGroups.contains(where: { $0.id == groupId }) else { return }
         guard tab.groupId != groupId else { return }
+        let isAnchorOfOtherGroup = workspaceGroups.contains { group in
+            group.id != groupId && group.anchorWorkspaceId == workspaceId
+        }
+        if isAnchorOfOtherGroup { return }
         assignGroup(workspaceId: workspaceId, groupId: groupId)
         normalizeWorkspaceGroupContiguity()
         postWorkspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
@@ -5982,9 +6019,12 @@ class TabManager: ObservableObject {
         workspaceGroups[groupIndex].anchorWorkspaceId = workspaceId
     }
 
-    /// Move a group to a new section position. Index is among groups of the
-    /// same pin tier (pinned groups can only reorder among themselves;
-    /// unpinned groups likewise). Out-of-range indices are clamped.
+    /// Move a group to a new section position. `targetIndex` is interpreted as
+    /// an absolute position in `workspaceGroups`; the value is then clamped to
+    /// the range of indices occupied by groups in the same pin tier as the
+    /// source (pinned groups reorder among themselves; unpinned among
+    /// themselves). Out-of-range or cross-tier targets clamp to the nearest
+    /// edge of the source's tier.
     func moveWorkspaceGroup(groupId: UUID, toIndex targetIndex: Int) {
         guard let currentIndex = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
         let isPinned = workspaceGroups[currentIndex].isPinned
@@ -5994,8 +6034,11 @@ class TabManager: ObservableObject {
         let clampedTarget = max(firstSameTier, min(targetIndex, lastSameTier))
         guard clampedTarget != currentIndex else { return }
         let group = workspaceGroups.remove(at: currentIndex)
-        let insertAt = clampedTarget > currentIndex ? clampedTarget : clampedTarget
-        workspaceGroups.insert(group, at: min(insertAt, workspaceGroups.count))
+        // After removing the source, indices to its right shift left by one.
+        // Insert at the original target index minus that shift when moving
+        // forward; otherwise insert at the target unchanged.
+        let adjustedTarget = clampedTarget > currentIndex ? clampedTarget - 1 : clampedTarget
+        workspaceGroups.insert(group, at: max(0, min(adjustedTarget, workspaceGroups.count)))
         normalizeWorkspaceGroupContiguity()
         let memberIds = tabs.filter { $0.groupId == groupId }.map(\.id)
         postWorkspaceOrderDidChange(movedWorkspaceIds: memberIds)
@@ -10442,6 +10485,8 @@ extension TabManager {
 
     @discardableResult
     func restoreSessionSnapshot(_ snapshot: SessionTabManagerSnapshot) -> [[UUID: UUID]] {
+        isRestoringSessionSnapshot = true
+        defer { isRestoringSessionSnapshot = false }
         let previousTabs = tabs
         for tab in previousTabs {
             unwireClosedBrowserTracking(for: tab)

@@ -291,18 +291,21 @@ class TerminalController {
     private var v2NextHandleOrdinal: [V2HandleKind: Int] = [
         .window: 1,
         .workspace: 1,
+        .workspaceGroup: 1,
         .pane: 1,
         .surface: 1,
     ]
     private var v2RefByUUID: [V2HandleKind: [UUID: String]] = [
         .window: [:],
         .workspace: [:],
+        .workspaceGroup: [:],
         .pane: [:],
         .surface: [:],
     ]
     private var v2UUIDByRef: [V2HandleKind: [String: UUID]] = [
         .window: [:],
         .workspace: [:],
+        .workspaceGroup: [:],
         .pane: [:],
         .surface: [:],
     ]
@@ -6204,7 +6207,10 @@ class TerminalController {
         }
         return ok
             ? .ok(["group_id": gid.uuidString, "workspace_id": wsId.uuidString])
-            : .err(code: "not_found", message: "Group or workspace not found", data: nil)
+            : .err(code: "not_found", message: "Group or workspace not found", data: [
+                "group_id": gid.uuidString,
+                "workspace_id": wsId.uuidString
+            ])
     }
 
     private func v2WorkspaceGroupRemove(params: [String: Any]) -> V2CallResult {
@@ -6245,7 +6251,10 @@ class TerminalController {
         }
         return ok
             ? .ok(["group_id": gid.uuidString, "anchor_workspace_id": wsId.uuidString])
-            : .err(code: "not_found", message: "Group not found or workspace not a member", data: nil)
+            : .err(code: "not_found", message: "Group not found or workspace not a member", data: [
+                "group_id": gid.uuidString,
+                "workspace_id": wsId.uuidString
+            ])
     }
 
     private func v2WorkspaceGroupNewWorkspace(params: [String: Any]) -> V2CallResult {

@@ -13772,8 +13772,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func handleGroupSelectedWorkspacesShortcut(preferredWindow: NSWindow? = nil) -> Bool {
-        _ = preferredWindow
-        guard let tabManager else { return false }
+        // Resolve the TabManager for the preferred/key/main window first so
+        // multi-window users get the group created in the window they were
+        // looking at. Fall back to the app-level tabManager only if no window
+        // context resolves.
+        let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let resolvedTabManager: TabManager? = contextForMainWindow(targetWindow)?.tabManager ?? self.tabManager
+        guard let tabManager = resolvedTabManager else { return false }
         let selectedIds = Array(tabManager.sidebarSelectedWorkspaceIds)
         let eligibleIds: [UUID] = selectedIds.isEmpty
             ? tabManager.selectedTabId.map { [$0] } ?? []

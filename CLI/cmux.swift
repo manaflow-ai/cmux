@@ -6666,33 +6666,54 @@ struct CMUXCLI {
             let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
             print("OK \(wsRef)")
         case "close":
-            let target = rest.first(where: { !$0.hasPrefix("--") })
+            let (workspaceArg, _) = parseOption(rest, name: "--workspace")
+            let positional = rest.first(where: { !$0.hasPrefix("--") })
+            let target = workspaceArg ?? positional
             var params: [String: Any] = [:]
-            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOverride)
-            if let target { params["workspace_id"] = target }
-            _ = try client.sendV2(method: "workspace.close", params: params)
-            print("OK")
+            let winId = try normalizeWindowHandle(windowFromArgsOrOverride(rest, windowOverride: windowOverride), client: client)
+            if let winId { params["window_id"] = winId }
+            let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
+            if let wsId { params["workspace_id"] = wsId }
+            let payload = try client.sendV2(method: "workspace.close", params: params)
+            // Mirror legacy close-workspace tmux cleanup so tmux-compat state
+            // for the closed workspace doesn't leak across the canonical CLI.
+            if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId {
+                try? tmuxPruneCompatWorkspaceState(workspaceId: closedWorkspaceId)
+            }
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
         case "rename":
             let (titleOpt, rem0) = parseOption(rest, name: "--title")
-            let target = rem0.first(where: { !$0.hasPrefix("--") })
-            guard let target, let titleOpt else {
-                throw CLIError(message: "workspace rename requires <workspace-id> --title <new>")
+            let (workspaceArg, _) = parseOption(rem0, name: "--workspace")
+            let positional = rem0.first(where: { !$0.hasPrefix("--") })
+            let target = workspaceArg ?? positional
+            guard let titleOpt else {
+                throw CLIError(message: "workspace rename requires --title <new>")
             }
             var params: [String: Any] = [:]
-            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOverride)
-            params["workspace_id"] = target
+            let winId = try normalizeWindowHandle(windowFromArgsOrOverride(rest, windowOverride: windowOverride), client: client)
+            if let winId { params["window_id"] = winId }
+            let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
+            guard let wsId else {
+                throw CLIError(message: "workspace rename: could not resolve workspace handle")
+            }
+            params["workspace_id"] = wsId
             params["title"] = titleOpt
-            _ = try client.sendV2(method: "workspace.rename", params: params)
-            print("OK")
+            let payload = try client.sendV2(method: "workspace.rename", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
         case "select":
-            guard let target = rest.first(where: { !$0.hasPrefix("--") }) else {
-                throw CLIError(message: "workspace select requires a workspace id or ref")
-            }
+            let (workspaceArg, _) = parseOption(rest, name: "--workspace")
+            let positional = rest.first(where: { !$0.hasPrefix("--") })
+            let target = workspaceArg ?? positional
             var params: [String: Any] = [:]
-            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOverride)
-            params["workspace_id"] = target
-            _ = try client.sendV2(method: "workspace.select", params: params)
-            print("OK")
+            let winId = try normalizeWindowHandle(windowFromArgsOrOverride(rest, windowOverride: windowOverride), client: client)
+            if let winId { params["window_id"] = winId }
+            let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
+            guard let wsId else {
+                throw CLIError(message: "workspace select: could not resolve workspace handle")
+            }
+            params["workspace_id"] = wsId
+            let payload = try client.sendV2(method: "workspace.select", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
         default:
             throw CLIError(message: "Unknown workspace subcommand: \(sub). Try: list, create, close, rename, select, group")
         }
@@ -6758,8 +6779,10 @@ struct CMUXCLI {
         case "create":
             let (nameOpt, rem0) = parseOption(rest, name: "--name")
             let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
-            let (fromOpt, _) = parseOption(rem1, name: "--from")
-            let resolvedName = nameOpt ?? rem1.first(where: { !$0.hasPrefix("--") }) ?? ""
+            let (fromOpt, rem2) = parseOption(rem1, name: "--from")
+            // Use the remainder AFTER --from is stripped so the positional
+            // name lookup doesn't accidentally pick up the --from value.
+            let resolvedName = nameOpt ?? rem2.first(where: { !$0.hasPrefix("--") }) ?? ""
             params["name"] = resolvedName
             if let cwdOpt { params["cwd"] = resolvePath(cwdOpt) }
             if let fromOpt {
