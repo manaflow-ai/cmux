@@ -13,7 +13,7 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `3981bce99`, based on `176bd550f`, with the
+Current cmux pinned fork head: `a99713e1`, based on `176bd550f`, with the
 manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
 the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, the URL/path
 regex bound for spaced file paths followed by prose, and the read-only tmux control-mode
@@ -24,9 +24,11 @@ prevents Cmd-hover from highlighting normal sentence text after a file path.
 It also supports Ctrl-N and Ctrl-P in the cmux theme picker, emits structured
 tmux control-mode enter, exit, topology, and pane output actions to embedded runtimes,
 and reports initial captured pane history or visible text for quiet tmux panes.
+It tears down defunct tmux viewers when they emit exit, avoiding duplicate exit
+notifications on error paths.
 GTK app runtime builds treat those embedder-only tmux actions as silent no-ops.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3981bce99bd55ce56e3a73255f878416c57eb836-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-a99713e1e39fe69e5cd820725a852b23152829ca-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -248,12 +250,13 @@ tend to conflict together during rebases.
   - Redacts embedded apprt dispatch logging for tmux control actions down to event metadata and byte counts.
   - Redacts raw tmux notification formatting for pane output and block payloads before stream handler info logs.
   - Emits the captured pane history and visible pane body from Ghostty's tmux viewer as pane output events.
+  - Destroys defunct tmux viewers as soon as they emit exit and suppresses duplicate exit notifications.
   - Leaves terminal rendering ownership unchanged while cmux observes topology and pane text.
 
 The current cmux pin is the head listed above. It is reachable from
 `manaflow-ai/ghostty` through https://github.com/manaflow-ai/ghostty/pull/65
 and branch `issue-560-tmux-control-bridge`.
-Published `xcframework-3981bce99bd55ce56e3a73255f878416c57eb836-crashsubdir-cmux-crash-v1`
+Published `xcframework-a99713e1e39fe69e5cd820725a852b23152829ca-crashsubdir-cmux-crash-v1`
 and pinned its archive checksum in `scripts/ghosttykit-checksums.txt`. The
 release and checksum pin must be regenerated whenever this commit changes, even
 for comment-only amends, because the release tag is keyed by the Ghostty commit
