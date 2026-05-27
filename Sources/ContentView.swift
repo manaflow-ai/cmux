@@ -11341,7 +11341,8 @@ private struct SidebarWorkspaceGroupHeaderView: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 10)
+            .padding(.leading, 16)
+            .padding(.trailing, 10)
             .padding(.vertical, 5)
             .contentShape(Rectangle())
         }
@@ -15591,61 +15592,61 @@ private struct TabItemView: View, Equatable {
         let targetWorkspaces = targetIds.compactMap { id in
             tabManager.tabs.first(where: { $0.id == id })
         }
-        let eligibleTargetIds = targetWorkspaces.filter { !$0.isPinned }.map(\.id)
-        // Pinned workspaces cannot be grouped; if every target is pinned, hide the menu entirely.
+        let eligibleTargets = targetWorkspaces.filter { !$0.isPinned }
+        let eligibleTargetIds = eligibleTargets.map(\.id)
+        // Pinned workspaces cannot be grouped; if every target is pinned, hide the
+        // group-related entries entirely.
         if !eligibleTargetIds.isEmpty {
             let groups = tabManager.workspaceGroups
-            let eligibleGroupIdsForTargets = Set(
-                targetWorkspaces.compactMap { $0.isPinned ? nil : $0.groupId }
-            )
             let allTargetsInSameGroup: UUID? = {
-                let groupIds = targetWorkspaces.compactMap { $0.isPinned ? nil : $0.groupId }
-                guard groupIds.count == eligibleTargetIds.count, let first = groupIds.first,
-                      groupIds.allSatisfy({ $0 == first }) else { return nil }
+                let groupIds = eligibleTargets.map(\.groupId)
+                guard let first = groupIds.first, groupIds.allSatisfy({ $0 == first }) else {
+                    return nil
+                }
                 return first
             }()
-            let hasAnyGroupedTarget = !eligibleGroupIdsForTargets.isEmpty
+            let hasAnyGroupedTarget = eligibleTargets.contains { $0.groupId != nil }
+
+            Button(
+                isMulti
+                    ? String(
+                        localized: "contextMenu.workspaceGroup.newFromSelection",
+                        defaultValue: "New Group from Selection…"
+                    )
+                    : String(
+                        localized: "contextMenu.workspaceGroup.newFromWorkspace",
+                        defaultValue: "New Group from Workspace…"
+                    )
+            ) {
+                promptNewWorkspaceGroup(workspaceIds: eligibleTargetIds)
+            }
+
             Menu(
                 String(
-                    localized: "contextMenu.workspaceGroup",
-                    defaultValue: "Group"
+                    localized: "contextMenu.workspaceGroup.moveTo",
+                    defaultValue: "Move to Group"
                 )
             ) {
-                Button(
-                    isMulti
-                        ? String(
-                            localized: "contextMenu.workspaceGroup.newFromSelection",
-                            defaultValue: "New Group from Selection…"
-                        )
-                        : String(
-                            localized: "contextMenu.workspaceGroup.newFromWorkspace",
-                            defaultValue: "New Group from Workspace…"
-                        )
-                ) {
-                    promptNewWorkspaceGroup(workspaceIds: eligibleTargetIds)
-                }
-                if !groups.isEmpty {
-                    Divider()
-                    ForEach(groups) { group in
-                        Button(group.name) {
-                            for id in eligibleTargetIds {
-                                tabManager.addWorkspaceToGroup(workspaceId: id, groupId: group.id)
-                            }
-                        }
-                        .disabled(allTargetsInSameGroup == group.id)
-                    }
-                }
-                if hasAnyGroupedTarget {
-                    Divider()
-                    Button(
-                        String(
-                            localized: "contextMenu.workspaceGroup.remove",
-                            defaultValue: "Remove from Group"
-                        )
-                    ) {
+                ForEach(groups) { group in
+                    Button(group.name) {
                         for id in eligibleTargetIds {
-                            tabManager.removeWorkspaceFromGroup(workspaceId: id)
+                            tabManager.addWorkspaceToGroup(workspaceId: id, groupId: group.id)
                         }
+                    }
+                    .disabled(allTargetsInSameGroup == group.id)
+                }
+            }
+            .disabled(groups.isEmpty)
+
+            if hasAnyGroupedTarget {
+                Button(
+                    String(
+                        localized: "contextMenu.workspaceGroup.remove",
+                        defaultValue: "Remove from Group"
+                    )
+                ) {
+                    for id in eligibleTargetIds {
+                        tabManager.removeWorkspaceFromGroup(workspaceId: id)
                     }
                 }
             }
