@@ -121,6 +121,15 @@ final class CmuxSSHURLProcessLauncher {
     }
 }
 
+@MainActor
+private final class CmuxSSHURLConfirmationGate: NSObject {
+    weak var connectButton: NSButton?
+
+    @objc func checkboxChanged(_ sender: NSButton) {
+        connectButton?.isEnabled = sender.state == .on
+    }
+}
+
 extension AppDelegate {
     func deferInitialMainWindowBootstrapForExternalConfirmation() {
         guard !didAttemptStartupSessionRestore, !didHandleExplicitOpenIntentAtStartup else { return }
@@ -298,11 +307,20 @@ extension AppDelegate {
         let cancelButton = alert.buttons[0]
         cancelButton.keyEquivalent = "\r"
         if alert.buttons.count > 1 {
-            alert.buttons[1].keyEquivalent = ""
+            let connectButton = alert.buttons[1]
+            connectButton.keyEquivalent = ""
+            connectButton.isEnabled = false
         }
 
-        alert.accessoryView = cmuxSSHURLAccessoryView(request: request)
-        return alert.runModal() == .alertSecondButtonReturn
+        let gate = CmuxSSHURLConfirmationGate()
+        if alert.buttons.count > 1 {
+            gate.connectButton = alert.buttons[1]
+        }
+        alert.accessoryView = cmuxSSHURLAccessoryView(request: request, gate: gate)
+        let response: NSApplication.ModalResponse = withExtendedLifetime(gate) {
+            alert.runModal()
+        }
+        return response == .alertSecondButtonReturn
     }
 
     private func confirmCmuxTextURLRequest(_ request: CmuxTextURLRequest) -> Bool {
@@ -340,7 +358,10 @@ extension AppDelegate {
         return alert.runModal() == .alertSecondButtonReturn
     }
 
-    private func cmuxSSHURLAccessoryView(request: CmuxSSHURLRequest) -> NSView {
+    private func cmuxSSHURLAccessoryView(
+        request: CmuxSSHURLRequest,
+        gate: CmuxSSHURLConfirmationGate
+    ) -> NSView {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -367,7 +388,18 @@ extension AppDelegate {
         stack.addArrangedSubview(commandLabel)
         stack.addArrangedSubview(commandScrollView)
 
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 128))
+        let checkbox = NSButton(
+            checkboxWithTitle: String(
+                localized: "dialog.sshURL.checkbox",
+                defaultValue: "I trust this SSH target and want cmux to connect."
+            ),
+            target: gate,
+            action: #selector(CmuxSSHURLConfirmationGate.checkboxChanged(_:))
+        )
+        checkbox.lineBreakMode = .byWordWrapping
+        stack.addArrangedSubview(checkbox)
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 156))
         container.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -375,7 +407,8 @@ extension AppDelegate {
             stack.topAnchor.constraint(equalTo: container.topAnchor),
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             targetLabel.widthAnchor.constraint(equalTo: container.widthAnchor),
-            commandScrollView.widthAnchor.constraint(equalTo: container.widthAnchor)
+            commandScrollView.widthAnchor.constraint(equalTo: container.widthAnchor),
+            checkbox.widthAnchor.constraint(equalTo: container.widthAnchor)
         ])
         return container
     }
