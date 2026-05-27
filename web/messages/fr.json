@@ -499,6 +499,11 @@
         },
         "terminal": {
           "copyOnSelect": "Copie le texte sélectionné dans le terminal dans le presse-papiers système lorsque la sélection est validée, y compris les sélections de mots et de lignes par double ou triple clic."
+        },
+        "browser": {
+          "defaultSearchEngine": "Moteur de recherche par défaut pour les saisies de la barre d’adresse du navigateur qui ne sont pas des URL. Utilisez custom avec customSearchEngineURLTemplate pour d’autres fournisseurs.",
+          "customSearchEngineName": "Nom affiché lorsque defaultSearchEngine vaut custom.",
+          "customSearchEngineURLTemplate": "URL de recherche utilisée lorsque defaultSearchEngine vaut custom. Incluez l’espace réservé de requête ou %s pour la requête encodée. Sans espace réservé, cmux ajoute q= à l’URL."
         }
       }
     },
@@ -992,6 +997,62 @@
       "underHoodMore": "La <configLink>documentation de configuration</configLink> habituelle couvre cmux.json. La restauration de session garde la disposition de l'app séparée des réglages de rendu du terminal Ghostty.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
+    },
+    "ssh": {
+      "title": "SSH",
+      "metaTitle": "SSH",
+      "metaDescription": "Connectez-vous aux machines distantes avec cmux ssh. Les volets du navigateur transitent par le réseau distant, les images sont glissées et déposées via scp et les notifications des agents reviennent à la maison.",
+      "intro": "cmux ssh crée un espace de travail pour une machine distante. Les volets du navigateur transitent par le réseau distant, les fichiers glissent et déposent via scp, les agents de codage envoient des notifications à votre barre latérale locale et les sessions se reconnectent lors des dépôts.",
+      "usage": "Utilisation",
+      "usageDesc": "cmux ssh lit votre ~/.ssh/config pour les alias d'hôte, les fichiers d'identité et les paramètres de proxy. Tous les drapeaux reflètent leurs équivalents ssh.",
+      "flagsTitle": "Drapeaux",
+      "flagName": "Drapeau",
+      "flagDesc": "Descriptif",
+      "flagNameVal": "Définir le titre de l'espace de travail",
+      "flagPort": "Port SSH (22 par défaut)",
+      "flagIdentity": "Chemin d'accès au fichier d'identité",
+      "flagSshOption": "Passez des options SSH arbitraires (par exemple -o StrictHostKeyChecking=no)",
+      "flagNoFocus": "Créez l'espace de travail sans y accéder",
+      "deepLinksTitle": "Liens profonds SSH",
+      "deepLinksDesc": "Utilisez les liens profonds cmux SSH lorsqu'un site Web ou un outil souhaite proposer un bouton Ouvrir dans cmux. Le lien ouvre cmux, affiche une invite de confirmation, puis exécute la commande cmux ssh équivalente après confirmation de l'utilisateur.",
+      "deepLinksWebFallbackDesc": "Utilisez l'URL de secours cmux.com pour les boutons du site Web. Il ouvre le lien natif et affiche le téléchargement si cmux n'est pas installé.",
+      "deepLinksPromptRulesDesc": "Les boutons d’invite et de règles utilisent la même forme de secours. Les virgules, les deux-points et les signes plus littéraux sont conservés lorsqu'ils sont codés en URL :",
+      "deepLinksIconDesc": "Utilisez l'icône SVG pour les boutons du tableau de bord ou le logo PNG lorsqu'une image raster est requise :",
+      "deepLinksButtonDesc": "Créez l'URL de secours avec URLSearchParams afin que les titres, les alias d'hôte et les noms d'utilisateur soient codés en toute sécurité :",
+      "deepLinkParam": "Paramètre",
+      "deepLinkMeaning": "Signification",
+      "deepLinkHost": "Hôte SSH requis ou alias ~/.ssh/config.",
+      "deepLinkUser": "Utilisateur SSH facultatif. cmux le combine avec l'hôte en tant qu'utilisateur@hôte.",
+      "deepLinkPort": "Port SSH en option, 1 à 65535.",
+      "deepLinkTitle": "Titre de l’espace de travail facultatif. Utilisez un seul titre ou nom.",
+      "deepLinkConnectTimeout": "Valeur ConnectTimeout facultative en secondes, 1 à 600.",
+      "deepLinkServerAliveInterval": "Valeur ServerAliveInterval facultative en secondes, de 1 à 3 600.",
+      "deepLinkServerAliveCountMax": "Valeur ServerAliveCountMax facultative, 1 à 100.",
+      "deepLinkHostKeyPolicy": "Politique StrictHostKeyChecking facultative : accept-new, request, strict ou yes.",
+      "deepLinkNoFocus": "Booléen facultatif. true crée l'espace de travail sans y accéder.",
+      "deepLinksSchemeDesc": "Utilisez cmux:// pour l'application stable, cmux-nightly:// pour Nightly et cmux-dev:// pour le débogage ou les versions de développement balisées.",
+      "deepLinksSecurityDesc": "Les liens externes ne peuvent pas transmettre de fichiers d'identité, d'options SSH brutes, de commandes, de ProxyCommand ou de règles de transfert. Mettez plutôt les clés, ProxyJump, HostName et les options avancées dans ~/.ssh/config. cmux affiche l'aperçu de la commande et demande à l'utilisateur de faire confiance à la cible SSH avant de se connecter.",
+      "browserTitle": "Volets du navigateur",
+      "browserDesc": "Les volets du navigateur dans un espace de travail distant acheminent tout le trafic HTTP et WebSocket via le réseau de la machine distante. Tapez localhost:3000 et vous regardez le serveur de développement exécuté sur la machine distante. Pas d'indicateurs -L, pas de redirection de port manuelle. Chaque espace de travail distant dispose d'un magasin de cookies isolé afin que les sessions soient définies par connexion.",
+      "dragDropTitle": "Glisser et déposer",
+      "dragDropDesc": "Faites glisser une image ou un fichier dans un terminal distant et cmux le télécharge via scp via la connexion SSH existante. cmux détecte le processus SSH de premier plan par TTY et achemine le téléchargement via le multiplexage ControlMaster.",
+      "notificationsTitle": "Notifications",
+      "notificationsDesc": "Les processus sur la machine distante peuvent exécuter des commandes cmux qui s'exécutent sur votre instance locale. Lorsqu'un agent de codage appelle cmux notify sur la boîte distante, la notification apparaît dans votre barre latérale locale. L'anneau bleu s'allume sur l'onglet de l'espace de travail. Cmd+Shift+U y accède. Le spam de notification provenant de connexions irrégulières est supprimé avec un temps de recharge par hôte.",
+      "agentsTitle": "Agents de codage via SSH",
+      "agentsDesc": "cmux claude-teams et cmux omo fonctionnent tous deux dans les sessions SSH. Le démon de relais Go sur l'hôte distant gère la même traduction tmux-compat que la CLI Swift locale. Les agents Teammate apparaissent lorsque les cmux natifs se divisent sur votre machine locale pendant que le calcul s'exécute sur la machine distante.",
+      "reconnectTitle": "Reconnecter",
+      "reconnectDesc": "Lorsque la connexion est interrompue, cmux se reconnecte avec une interruption exponentielle (3 s, 6 s, 12 s, jusqu'à 60 s). La session à distance persiste et cmux se rattache à la reconnexion, redimensionnant avec la sémantique du plus petit écran gagnant. Les options keepalive par défaut (ServerAliveInterval=20, ServerAliveCountMax=2) sont injectées à moins que votre configuration ne les définisse déjà.",
+      "daemonTitle": "Démon relais",
+      "daemonDesc": "Lors de la première connexion, cmux sonde l'hôte distant (uname -s, uname -m) et télécharge un binaire cmuxd-remote versionné. Le binaire parle JSON-RPC sur stdio et gère trois choses :",
+      "daemonFeature": "Caractéristique",
+      "daemonHow": "Comment",
+      "daemonProxy": "Proxy du trafic du navigateur",
+      "daemonProxyHow": "SOCKS5 et HTTP CONNECT sur le canal stdio du démon",
+      "daemonRelay": "Relais CLI",
+      "daemonRelayHow": "Tunnel TCP inversé avec authentification HMAC-SHA256 afin que les processus distants puissent appeler des commandes cmux localement",
+      "daemonSession": "Gestion des séances",
+      "daemonSessionHow": "Maintient les sessions lors des reconnexions, coordonne le redimensionnement du PTY sur plusieurs pièces jointes",
+      "daemonPath": "Le binaire du démon est stocké dans ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote sur l'hôte distant et vérifié par rapport à un manifeste SHA-256 intégré dans l'application."
     }
   },
   "legal": {
@@ -1034,5 +1095,40 @@
   },
   "languageSwitcher": {
     "label": "Langue"
+  },
+  "deeplink": {
+    "section": "Lien profond",
+    "open": "Ouvrir dans cmux",
+    "download": "Télécharger cmux",
+    "nativeURL": "URL native",
+    "missingParams": "Ce lien ne contient pas les paramètres requis : {params}",
+    "duplicateParams": "Ce lien répète les paramètres que cmux rejettera : {params}",
+    "unsupportedParams": "Ce lien inclut des paramètres non pris en charge que cmux rejettera : {params}",
+    "conflictingParams": "Ce lien inclut des paramètres qui ne peuvent pas être utilisés ensemble : {params}",
+    "invalidParams": "Ce lien inclut des valeurs de paramètres non valides : {params}",
+    "fixParams": "Corrigez les paramètres URL, puis rechargez cette page.",
+    "examplePrefix": "Voir un",
+    "exampleLink": "exemple de lien",
+    "ssh": {
+      "metaTitle": "Ouvrez SSH dans cmux",
+      "metaDescription": "Ouvrez un lien profond SSH cmux à partir du Web, avec une installation de secours lorsque cmux n'est pas disponible.",
+      "title": "Ouvrez SSH dans cmux",
+      "intro": "Cette page ouvre un lien cmux SSH révisé.",
+      "fallback": "Si cmux ne s'ouvre pas, installez cmux et cliquez à nouveau sur Ouvrir dans cmux."
+    },
+    "prompt": {
+      "metaTitle": "Ouvrir l'invite dans cmux",
+      "metaDescription": "Ouvrez un lien profond d'invite cmux à partir du Web, avec une installation de secours lorsque cmux n'est pas disponible.",
+      "title": "Ouvrir l'invite dans cmux",
+      "intro": "Cette page ouvre une invite dans l'espace de travail cmux actuel.",
+      "fallback": "cmux affiche d'abord l'invite et demande avant de la coller dans l'espace de travail actuel. Si cmux ne s'ouvre pas, installez cmux et cliquez à nouveau sur Ouvrir dans cmux."
+    },
+    "rules": {
+      "metaTitle": "Règles ouvertes dans cmux",
+      "metaDescription": "Ouvrez un lien profond de règles cmux à partir du Web, avec une installation de secours lorsque cmux n'est pas disponible.",
+      "title": "Règles ouvertes dans cmux",
+      "intro": "Cette page ouvre les règles dans l'espace de travail cmux actuel.",
+      "fallback": "cmux affiche d'abord les règles et demande avant de les coller dans l'espace de travail actuel. Si cmux ne s'ouvre pas, installez cmux et cliquez à nouveau sur Ouvrir dans cmux."
+    }
   }
 }

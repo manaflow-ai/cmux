@@ -25,6 +25,9 @@ reviews:
     - path: "**/*.{ts,tsx,js,jsx,mjs,cjs,sh,zsh}"
       instructions: |
         Apply `.github/review-bot-rules/runtime-no-hacky-sleeps.md` during review. For production runtime, script, and build changes, flag fixed sleeps, timers, delayed dispatch, polling, or wall-clock waits used as synchronization. Pass for tests, pure presentation timing, dedicated cancellation-aware retry/timeout abstractions with tests, and existing delay code not worsened.
+    - path: "**/*.{swift,ts,tsx,js,jsx,mjs,cjs,sh,zsh}"
+      instructions: |
+        Apply `.github/review-bot-rules/algorithmic-complexity.md` during review. For production code over scalable user data, flag nested full-collection scans, per-target rescans for batch actions, repeated sort/filter/map work in hot paths, in-memory joins that belong in the data store, and unbenchmarked algorithm choices for paths expected to handle roughly 1000 workspaces or similar records. Pass for tiny fixed-size collections, tests and benchmark harnesses, existing inefficient code not worsened, and documented bounds with measurements.
     - path: "**/*.{swift,ts,tsx,js,jsx,mjs,cjs}"
       instructions: |
         Apply `.github/review-bot-rules/user-facing-errors.md` during review. For production user-facing errors, alerts, command output, API error bodies, and recovery copy, flag implementation leaks such as upstream vendor names, internal provider names, environment variables, database or migration details, raw upstream messages, internal billing ids, or unredacted payloads.
@@ -58,6 +61,10 @@ reviews:
         mode: error
         instructions: |
           For production non-Swift app/runtime changes in TypeScript, JavaScript, shell, or build/runtime scripts, fail when the diff violates `.github/review-bot-rules/runtime-no-hacky-sleeps.md`: fixed sleeps, delayed dispatch, timers, polling, or wall-clock waits used to paper over lifecycle, focus, rendering, socket, process, filesystem, network, teardown, startup, retry, or shared-state races. Swift sleeps are covered by `cmux Swift blocking runtime`. Pass for deterministic test-only scaffolding, purely presentation animation or progress timing, dedicated cancellation-aware retry/timeout abstractions with tests, and existing delay code not worsened.
+      - name: "cmux algorithmic complexity"
+        mode: error
+        instructions: |
+          For production Swift, TypeScript, JavaScript, shell, and runtime code, fail when the diff violates `.github/review-bot-rules/algorithmic-complexity.md`: nested full-collection scans, per-target rescans for batch actions, repeated sorting/filtering in hot UI/socket/search/process paths, in-memory joins that belong in the data store, or unbenchmarked slower algorithms on paths expected to handle about 1000 workspaces or similar user-owned records. Pass for tiny fixed-size collections, tests and benchmark harnesses, existing debt not worsened, and documented bounds with measurements.
       - name: "cmux Swift concurrency"
         mode: error
         instructions: |
