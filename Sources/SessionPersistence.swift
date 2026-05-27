@@ -1231,10 +1231,11 @@ nonisolated enum TerminalStartupReturnShellScript {
             shellLine,
             #"case "${_cmux_resume_shell:t}" in"#,
             #"  zsh|bash) "$_cmux_resume_shell" -lic \#(quotedCommand) ;;"#,
-            #"  *) "$_cmux_resume_shell" -lc \#(quotedCommand) ;;"#,
+            #"  csh|tcsh) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
+            #"  *) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
             #"esac"#,
         ] + zshIntegrationReentryLines + [
-            #"exec "$_cmux_resume_shell" -l"#
+            #"exec -l "$_cmux_resume_shell""#
         ]
     }
 }

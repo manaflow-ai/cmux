@@ -655,7 +655,8 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         XCTAssertTrue(script.contains("CMUX_SHELL_INTEGRATION_DIR"), script, file: file, line: line)
         XCTAssertTrue(script.contains("CMUX_ZSH_ZDOTDIR"), script, file: file, line: line)
         XCTAssertTrue(script.contains("\"$_cmux_resume_shell\" -lic"), script, file: file, line: line)
-        XCTAssertTrue(script.contains("exec \"$_cmux_resume_shell\" -l"), script, file: file, line: line)
+        XCTAssertTrue(script.contains("csh|tcsh) \"$_cmux_resume_shell\" -c"), script, file: file, line: line)
+        XCTAssertTrue(script.contains("exec -l \"$_cmux_resume_shell\""), script, file: file, line: line)
     }
 
     private func makeRestorableAgentIndex(
