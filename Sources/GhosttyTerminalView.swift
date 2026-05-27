@@ -5389,10 +5389,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     private func applyTmuxControlEvents(_ events: [TmuxControlEvent], generation: UInt64? = nil) {
         if let generation {
-            tmuxControlPendingLock.lock()
-            defer { tmuxControlPendingLock.unlock() }
-            let currentGeneration = tmuxControlGeneration
-            guard generation == currentGeneration else { return }
+            guard tmuxControlGenerationMatches(generation) else { return }
         }
         guard !events.isEmpty else { return }
         var next = tmuxControlState
@@ -5409,6 +5406,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )
         }
 #endif
+    }
+
+    private func tmuxControlGenerationMatches(_ generation: UInt64) -> Bool {
+        tmuxControlPendingLock.lock()
+        defer { tmuxControlPendingLock.unlock() }
+        return generation == tmuxControlGeneration
     }
 
     @MainActor

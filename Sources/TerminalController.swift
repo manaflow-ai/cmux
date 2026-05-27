@@ -5616,6 +5616,19 @@ class TerminalController {
             )
             workspace.setCustomDescription(description)
             guard let surfaceId = workspace.focusedPanelId else {
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                result = .ok([
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "workspace_id": workspace.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                    "surface_id": NSNull(),
+                    "surface_ref": NSNull(),
+                    "session_name": sessionName,
+                    "mode": "local",
+                    "tmux_command": command,
+                    "resume_binding": NSNull(),
+                ])
                 return
             }
             let binding = SurfaceResumeBindingSnapshot(
