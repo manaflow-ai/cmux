@@ -16,10 +16,12 @@ final class MobileWorkspaceListObserver {
     private var tabsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
     private var lastSummaryHash: Int = 0
-    /// Debounce window: coalesce bursts of @Published events (e.g. terminal
-    /// rename + selection change firing in the same runloop tick) so we emit
-    /// at most ~12 events/sec.
-    private let debounceMilliseconds: Int = 80
+    /// Throttle window with `latest: true` — first event in a burst emits
+    /// immediately (iPhone gets the change in milliseconds), subsequent
+    /// events within the window collapse to one trailing emit carrying the
+    /// final state. So a single action is instant; a burst caps at ~1 emit
+    /// per 80 ms. Hash-diff suppresses no-op rebroadcasts.
+    private let throttleMilliseconds: Int = 80
 
     init(tabManager: TabManager) {
         self.tabManager = tabManager
@@ -35,7 +37,7 @@ final class MobileWorkspaceListObserver {
         emitIfNeeded(force: true)
 
         tabsCancellable = tabManager.$tabs
-            .debounce(for: .milliseconds(debounceMilliseconds), scheduler: RunLoop.main)
+            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] tabs in
                 guard let self else { return }
                 self.refreshPerWorkspaceSubscriptions(tabs: tabs)
@@ -59,7 +61,7 @@ final class MobileWorkspaceListObserver {
             let titles = workspace.$panelTitles.map { _ in () }
             let title = workspace.$title.map { _ in () }
             let merged = Publishers.Merge3(panels, titles, title)
-                .debounce(for: .milliseconds(debounceMilliseconds), scheduler: RunLoop.main)
+                .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             perWorkspaceCancellables[workspace.id] = merged.sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)
             }
