@@ -446,10 +446,10 @@ extension SessionRemoteWorkspaceSnapshot {
                 token: $0
             )
         }
-        let restoredRelayID = preservePTYSession && normalizedRelayPort != nil
+        let restoredRelayID = preservePTYSession
             ? UUID().uuidString.lowercased()
             : nil
-        let restoredRelayToken = preservePTYSession && normalizedRelayPort != nil
+        let restoredRelayToken = preservePTYSession
             ? Self.restoreRelayTokenHex()
             : nil
         return WorkspaceRemoteConfiguration(
