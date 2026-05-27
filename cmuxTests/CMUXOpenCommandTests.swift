@@ -960,7 +960,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         try "tracked\n".write(to: repoURL.appendingPathComponent("tracked.txt"), atomically: true, encoding: .utf8)
         try runGit(["add", "tracked.txt"], in: repoURL)
         try runGit(["commit", "-m", "initial"], in: repoURL)
-        try "before\n".write(to: repoURL.appendingPathComponent("secret.txt"), atomically: true, encoding: .utf8)
+        let secretURL = repoURL.appendingPathComponent("secret.txt")
+        try "before\n".write(to: secretURL, atomically: true, encoding: .utf8)
+        chmod(secretURL.path, 0o644)
 
         let workspaceId = UUID().uuidString.lowercased()
         let surfaceId = UUID().uuidString.lowercased()
@@ -1024,12 +1026,19 @@ final class CMUXOpenCommandTests: XCTestCase {
         let snapshotId = try XCTUnwrap(record["untrackedSnapshotId"] as? String)
         let hashes = try XCTUnwrap(record["untrackedPathHashes"] as? [String: String])
         XCTAssertNotNil(hashes["secret.txt"])
-        let snapshotFile = stateURL
+        let snapshotRoot = stateURL
             .appendingPathComponent("agent-turn-diff-baseline-snapshots", isDirectory: true)
+        let snapshotDirectory = snapshotRoot
             .appendingPathComponent(snapshotId, isDirectory: true)
+        let filesDirectory = snapshotDirectory
             .appendingPathComponent("files", isDirectory: true)
+        let snapshotFile = filesDirectory
             .appendingPathComponent("secret.txt", isDirectory: false)
         XCTAssertTrue(FileManager.default.fileExists(atPath: snapshotFile.path))
+        XCTAssertEqual(try posixPermissions(at: snapshotRoot), 0o700)
+        XCTAssertEqual(try posixPermissions(at: snapshotDirectory), 0o700)
+        XCTAssertEqual(try posixPermissions(at: filesDirectory), 0o700)
+        XCTAssertEqual(try posixPermissions(at: snapshotFile), 0o600)
     }
 
     func testDiffCommandGitSourcesDrainLargeDiffOutput() throws {
@@ -1605,6 +1614,11 @@ final class CMUXOpenCommandTests: XCTestCase {
             throw NSError(domain: "CMUXOpenCommandTests.git", code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: result.stderr])
         }
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func posixPermissions(at url: URL) throws -> Int {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        return (try XCTUnwrap(attributes[.posixPermissions] as? NSNumber).intValue) & 0o777
     }
 
     private func runGitProcess(_ arguments: [String], in directory: URL) -> ProcessRunResult {

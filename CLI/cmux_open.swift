@@ -1734,6 +1734,71 @@ extension CMUXCLI {
         try gitSingleLine(["hash-object", "--no-filters", "--", url.path], in: repoRoot)
     }
 
+    private func posixError(_ errnoValue: Int32) -> POSIXError {
+        POSIXError(POSIXErrorCode(rawValue: errnoValue) ?? .EIO)
+    }
+
+    private func setPrivateDirectoryPermissions(at url: URL) throws {
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+    }
+
+    private func createPrivateDirectory(at url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try setPrivateDirectoryPermissions(at: url)
+    }
+
+    private func copyPrivateFile(from sourceURL: URL, to destinationURL: URL) throws {
+        let data = try Data(contentsOf: sourceURL)
+        let fd = Darwin.open(
+            destinationURL.path,
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW,
+            mode_t(S_IRUSR | S_IWUSR)
+        )
+        guard fd >= 0 else {
+            throw posixError(errno)
+        }
+        var shouldClose = true
+        do {
+            try data.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress else {
+                    return
+                }
+                var offset = 0
+                while offset < rawBuffer.count {
+                    let written = Darwin.write(fd, baseAddress.advanced(by: offset), rawBuffer.count - offset)
+                    if written < 0 {
+                        if errno == EINTR {
+                            continue
+                        }
+                        throw posixError(errno)
+                    }
+                    if written == 0 {
+                        throw POSIXError(.EIO)
+                    }
+                    offset += written
+                }
+            }
+            if Darwin.fchmod(fd, mode_t(S_IRUSR | S_IWUSR)) != 0 {
+                throw posixError(errno)
+            }
+            if Darwin.close(fd) != 0 {
+                shouldClose = false
+                throw posixError(errno)
+            }
+            shouldClose = false
+        } catch {
+            if shouldClose {
+                Darwin.close(fd)
+            }
+            try? FileManager.default.removeItem(at: destinationURL)
+            throw error
+        }
+    }
+
     private func gitUntrackedPathHashes(
         paths: [String],
         in repoRoot: String,
@@ -1749,7 +1814,10 @@ extension CMUXCLI {
         ) else {
             return (nil, [:])
         }
+        try createPrivateDirectory(at: agentTurnDiffBaselineSnapshotStagingRootURL(storePath: storePath))
+        try createPrivateDirectory(at: snapshotDirectory)
         let filesRoot = snapshotDirectory.appendingPathComponent("files", isDirectory: true)
+        try createPrivateDirectory(at: filesRoot)
         var hashes: [String: String] = [:]
         var capturedBytes: UInt64 = 0
         for path in paths {
@@ -1771,14 +1839,11 @@ extension CMUXCLI {
                 let destinationURL = components.reduce(filesRoot) { partial, component in
                     partial.appendingPathComponent(component, isDirectory: false)
                 }
-                try FileManager.default.createDirectory(
-                    at: destinationURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
+                try createPrivateDirectory(at: destinationURL.deletingLastPathComponent())
                 if FileManager.default.fileExists(atPath: destinationURL.path) {
                     try FileManager.default.removeItem(at: destinationURL)
                 }
-                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                try copyPrivateFile(from: sourceURL, to: destinationURL)
                 let hash = try gitUntrackedSnapshotFileHash(destinationURL, in: repoRoot)
                 hashes[path] = hash
                 capturedBytes += fileSize
@@ -1806,14 +1871,12 @@ extension CMUXCLI {
         guard FileManager.default.fileExists(atPath: stagedDirectory.path) else {
             return
         }
-        try FileManager.default.createDirectory(
-            at: snapshotDirectory.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+        try createPrivateDirectory(at: snapshotDirectory.deletingLastPathComponent())
         if FileManager.default.fileExists(atPath: snapshotDirectory.path) {
             try FileManager.default.removeItem(at: snapshotDirectory)
         }
         try FileManager.default.moveItem(at: stagedDirectory, to: snapshotDirectory)
+        try setPrivateDirectoryPermissions(at: snapshotDirectory)
     }
 
     private func removeAgentTurnDiffBaselineSnapshot(snapshotId: String, storePath: String) {
@@ -3939,8 +4002,8 @@ extension CMUXCLI {
             let codeView;
             let workerPool;
             let fileTree;
-            let diffItems = [];
-            let codeViewItems = [];
+            const diffItems = [];
+            const codeViewItems = [];
             let codeViewItemIds = new Set();
             let fileTreeStatsByPath = new Map();
             let patchTextPromise = { value: null };
@@ -4579,17 +4642,19 @@ extension CMUXCLI {
 
             function setCollapsed(collapsed) {
               appState.collapsed = collapsed;
-              codeViewItems = codeViewItems.map((item) => ({
+              const nextCodeViewItems = codeViewItems.map((item) => ({
                 ...item,
                 collapsed,
                 version: (item.version ?? 0) + 1,
               }));
-              const codeItemsById = new Map(codeViewItems.map((item) => [item.id, item]));
-              diffItems = diffItems.map((item) => codeItemsById.get(item.id) ?? {
+              const codeItemsById = new Map(nextCodeViewItems.map((item) => [item.id, item]));
+              const nextDiffItems = diffItems.map((item) => codeItemsById.get(item.id) ?? {
                 ...item,
                 collapsed,
                 version: (item.version ?? 0) + 1,
               });
+              codeViewItems.splice(0, codeViewItems.length, ...nextCodeViewItems);
+              diffItems.splice(0, diffItems.length, ...nextDiffItems);
               if (codeView) {
                 codeView.setItems(codeViewItems);
                 codeView.render(true);
