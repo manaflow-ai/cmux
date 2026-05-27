@@ -14014,7 +14014,7 @@ private struct TabItemView: View, Equatable {
         let detailVisibility = visibleAuxiliaryDetails
 
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
                 if unreadCount > 0 {
                     ZStack {
                         Circle()
