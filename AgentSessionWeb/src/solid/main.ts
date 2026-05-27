@@ -217,9 +217,9 @@ function SessionSurface({
   const send = document.createElement("button");
   send.className = "codex-action send-button";
   send.type = "submit";
+  send.append(sendIcon());
   controlsRight.append(send);
   createEffect(() => {
-    send.textContent = "↑";
     send.disabled = !canSend();
     send.setAttribute("aria-label", state().context?.copy.send ?? "Send");
   });
@@ -264,6 +264,23 @@ function providerBadgeLabel(displayName: string): string {
     return "Pi";
   }
   return displayName.trim().slice(0, 1).toUpperCase() || "C";
+}
+
+function sendIcon(): SVGSVGElement {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("width", "14");
+  icon.setAttribute("height", "14");
+  icon.setAttribute("viewBox", "0 0 14 14");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5");
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-width", "1.8");
+  path.setAttribute("stroke-linecap", "round");
+  path.setAttribute("stroke-linejoin", "round");
+  icon.append(path);
+  return icon;
 }
 
 function codexIconButton(kind: string, text: string, onClick?: () => void): HTMLButtonElement {

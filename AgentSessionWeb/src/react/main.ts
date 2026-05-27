@@ -185,7 +185,7 @@ function SessionSurface({
                 React.createElement(
                   "button",
                   { className: "codex-action send-button", type: "submit", disabled: !canSend, "aria-label": state.context?.copy.send ?? "Send" },
-                  "↑",
+                  sendIcon(),
                 ),
               ),
             ),
@@ -223,6 +223,20 @@ function providerBadgeLabel(displayName: string): string {
     return "Pi";
   }
   return displayName.trim().slice(0, 1).toUpperCase() || "C";
+}
+
+function sendIcon() {
+  return React.createElement(
+    "svg",
+    { width: "14", height: "14", viewBox: "0 0 14 14", fill: "none", "aria-hidden": true },
+    React.createElement("path", {
+      d: "M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5",
+      stroke: "currentColor",
+      strokeWidth: "1.8",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+    }),
+  );
 }
 
 function codexIconButton(kind: string, text: string, onClick?: () => void) {

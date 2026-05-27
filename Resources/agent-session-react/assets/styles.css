@@ -16,10 +16,12 @@
   --agent-accent-soft: rgba(138, 180, 248, 0.2);
   --agent-danger: #ff8d7e;
   --agent-shadow: rgba(0, 0, 0, 0.2);
-  --agent-card: color-mix(in srgb, var(--agent-surface) 86%, transparent);
-  --agent-card-hover: color-mix(in srgb, var(--agent-surface-elevated) 82%, transparent);
-  --agent-control: color-mix(in srgb, var(--agent-input-bg) 72%, transparent);
-  --agent-control-hover: color-mix(in srgb, var(--agent-input-bg) 88%, transparent);
+  --agent-card: color-mix(in srgb, var(--agent-surface) 92%, transparent);
+  --agent-card-hover: var(--agent-card);
+  --agent-control: color-mix(in srgb, var(--agent-input-bg) 44%, transparent);
+  --agent-control-hover: color-mix(in srgb, var(--agent-soft) 8%, transparent);
+  --agent-primary: color-mix(in srgb, var(--agent-accent) 90%, var(--agent-text));
+  --agent-primary-text: #ffffff;
 }
 
 * {
@@ -127,44 +129,37 @@ select {
   width: 100%;
   padding: 1px;
   border-radius: 22px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--agent-border-strong) 82%, transparent),
-      color-mix(in srgb, var(--agent-border) 72%, transparent)
-    );
-  box-shadow: 0 18px 48px color-mix(in srgb, var(--agent-shadow) 75%, transparent);
+  background: transparent;
+  transition: background-color 200ms ease;
 }
 
 .composer-surface {
   display: grid;
-  min-height: 132px;
-  border: 1px solid color-mix(in srgb, var(--agent-border) 82%, transparent);
+  min-height: 128px;
+  border: 1px solid var(--agent-border);
   border-radius: 20px;
   color: var(--agent-text);
   background: var(--agent-card);
-  -webkit-backdrop-filter: blur(22px) saturate(1.18);
-  backdrop-filter: blur(22px) saturate(1.18);
   transition:
-    border-color 160ms ease,
-    background-color 160ms ease;
+    border-color 200ms ease,
+    background-color 200ms ease;
 }
 
 .composer-surface:focus-within {
-  border-color: color-mix(in srgb, var(--agent-accent) 42%, var(--agent-border-strong));
+  border-color: color-mix(in srgb, var(--agent-accent) 45%, transparent);
   background: var(--agent-card-hover);
 }
 
 .composer-body {
   min-width: 0;
-  padding: 14px 16px 8px;
+  padding: 16px 16px 8px;
 }
 
 .prompt-input {
   display: block;
   width: 100%;
-  min-height: 72px;
-  max-height: 176px;
+  min-height: 70px;
+  max-height: 200px;
   resize: none;
   padding: 0;
   border: 0;
@@ -172,11 +167,11 @@ select {
   color: var(--agent-text);
   background: transparent;
   font-size: 14px;
-  line-height: 1.55;
+  line-height: 1.625;
 }
 
 .prompt-input::placeholder {
-  color: color-mix(in srgb, var(--agent-muted) 72%, transparent);
+  color: color-mix(in srgb, var(--agent-muted) 35%, transparent);
 }
 
 .composer-footer,
@@ -192,15 +187,16 @@ select {
   min-width: 0;
   justify-content: space-between;
   gap: 8px;
-  padding: 0 10px 10px;
+  padding: 0 12px 12px;
 }
 
 .codex-left-rail {
   min-width: 0;
   flex: 1 1 auto;
   gap: 4px;
+  margin: -4px;
   overflow-x: auto;
-  padding: 1px;
+  padding: 4px;
   scrollbar-width: none;
 }
 
@@ -211,7 +207,7 @@ select {
 .codex-right-rail {
   flex: 0 0 auto;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 8px;
 }
 
 .model-picker,
@@ -222,38 +218,44 @@ select {
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  height: 32px;
+  height: 28px;
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: 10px;
   outline: none;
   color: color-mix(in srgb, var(--agent-muted) 92%, transparent);
   background: transparent;
+  font-weight: 500;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease;
 }
 
 .codex-tool,
 .codex-action {
-  width: 32px;
+  width: 28px;
   padding: 0;
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1;
 }
 
 .model-picker {
   min-width: 118px;
   max-width: 220px;
-  gap: 7px;
-  padding: 0 8px 0 7px;
-  color: var(--agent-soft);
+  gap: 6px;
+  padding: 0 9px;
+  color: color-mix(in srgb, var(--agent-muted) 70%, transparent);
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 500;
   letter-spacing: 0;
   white-space: nowrap;
 }
 
 .model-icon {
   display: inline-flex;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
@@ -300,11 +302,11 @@ select {
   width: auto;
   min-width: 56px;
   padding: 0 12px;
-  border-color: color-mix(in srgb, var(--agent-border) 76%, transparent);
+  border-color: transparent;
   color: var(--agent-soft);
-  background: var(--agent-control);
+  background: transparent;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .codex-circle-action::before {
@@ -320,19 +322,24 @@ select {
 }
 
 .send-button {
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
-  color: var(--agent-text);
-  background: color-mix(in srgb, var(--agent-accent-soft) 72%, var(--agent-control));
-  font-size: 20px;
-  font-weight: 650;
+  color: var(--agent-primary-text);
+  background: color-mix(in srgb, var(--agent-primary) 90%, transparent);
 }
 
 .model-picker:focus-within,
 .codex-action:not(:disabled):hover,
 .codex-tool:not(:disabled):hover {
-  border-color: color-mix(in srgb, var(--agent-border-strong) 70%, transparent);
-  color: var(--agent-text);
+  border-color: transparent;
+  color: color-mix(in srgb, var(--agent-text) 80%, transparent);
   background: var(--agent-control-hover);
+}
+
+.send-button:not(:disabled):hover {
+  background: var(--agent-primary);
+  transform: scale(1.05);
 }
 
 .codex-action:disabled,
@@ -342,9 +349,9 @@ select {
 }
 
 .send-button:disabled {
-  color: var(--agent-muted);
-  background: var(--agent-control);
-  opacity: 0.5;
+  color: var(--agent-primary-text);
+  background: color-mix(in srgb, var(--agent-primary) 90%, transparent);
+  opacity: 0.3;
 }
 
 .rate-line {
@@ -352,7 +359,7 @@ select {
   gap: 7px;
   padding: 0 2px;
   color: color-mix(in srgb, var(--agent-muted) 88%, transparent);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.35;
   white-space: nowrap;
@@ -390,21 +397,33 @@ select {
   }
 
   .composer-surface {
-    min-height: 122px;
+    min-height: 132px;
   }
 
   .composer-body {
-    padding: 12px 13px 7px;
+    padding: 14px 12px 8px;
   }
 
   .prompt-input {
-    min-height: 62px;
+    min-height: 70px;
+    font-size: 16px;
   }
 
   .composer-footer {
     flex-wrap: wrap;
-    gap: 7px;
-    padding: 0 8px 8px;
+    gap: 8px;
+    padding: 0 10px 10px;
+  }
+
+  .model-picker,
+  .codex-tool,
+  .codex-action {
+    height: 32px;
+  }
+
+  .codex-tool,
+  .codex-action {
+    width: 32px;
   }
 
   .codex-left-rail {
