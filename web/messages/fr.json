@@ -488,6 +488,9 @@
       "exampleConfig": "Exemple de configuration",
       "metaTitle": "Configuration",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "Moteur/environnement d’exécution du navigateur pour les commandes de navigateur et l’interception des liens. webkit s’exécute dans cmux ; systemDefault ouvre dans le navigateur par défaut de macOS."
+        },
         "automation": {
           "suppressSubagentNotifications": "Masque les notifications visibles de fin et les changements d’état des agents enfants Codex ou Claude imbriqués, tout en conservant leurs événements dans la télémétrie Feed."
         },

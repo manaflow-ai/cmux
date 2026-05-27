@@ -488,6 +488,9 @@
       "exampleConfig": "ตัวอย่างคอนฟิก",
       "metaTitle": "การตั้งค่า",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "เอนจิน/รันไทม์ของเบราว์เซอร์สำหรับคำสั่งเบราว์เซอร์และการดักจับลิงก์ webkit ทำงานภายใน cmux; systemDefault เปิดในเบราว์เซอร์เริ่มต้นของ macOS"
+        },
         "automation": {
           "suppressSubagentNotifications": "ซ่อนการแจ้งเตือนการทำงานเสร็จและการเปลี่ยนสถานะที่มองเห็นได้จากเอเจนต์ลูก Codex หรือ Claude แบบซ้อน โดยยังคงเก็บเหตุการณ์ไว้ในเทเลเมทรี Feed"
         },

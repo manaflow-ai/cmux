@@ -488,6 +488,9 @@
       "exampleConfig": "範例設定",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "瀏覽器指令與連結攔截所用的瀏覽器引擎/執行環境。webkit 在 cmux 內執行；systemDefault 在 macOS 預設瀏覽器中開啟。"
+        },
         "automation": {
           "suppressSubagentNotifications": "隱藏巢狀 Codex 或 Claude 子代理的可見完成通知和狀態變更，同時將其事件保留在 Feed 遙測中。"
         },

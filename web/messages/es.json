@@ -488,6 +488,9 @@
       "exampleConfig": "Configuración de ejemplo",
       "metaTitle": "Configuración",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "Motor/entorno de ejecución del navegador para comandos del navegador e interceptación de enlaces. webkit se ejecuta dentro de cmux; systemDefault abre en el navegador predeterminado de macOS."
+        },
         "automation": {
           "suppressSubagentNotifications": "Suprime las notificaciones visibles de finalización y los cambios de estado de agentes secundarios anidados de Codex o Claude, manteniendo sus eventos en la telemetría de Feed."
         },

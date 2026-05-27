@@ -488,6 +488,9 @@
       "exampleConfig": "Eksempelkonfiguration",
       "metaTitle": "Konfiguration",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "Browsermotor/kørselstid til browserkommandoer og linkinterception. webkit kører inde i cmux; systemDefault åbner i macOS-standardbrowseren."
+        },
         "automation": {
           "suppressSubagentNotifications": "Skjul synlige fuldførelsesnotifikationer og statusændringer fra indlejrede Codex- eller Claude-underagenter, mens deres hændelser bevares i Feed-telemetri."
         },

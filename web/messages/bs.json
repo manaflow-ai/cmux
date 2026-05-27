@@ -488,6 +488,9 @@
       "exampleConfig": "Primjer konfiguracije",
       "metaTitle": "Konfiguracija",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "Engine/runtime preglednika za komande preglednika i presretanje linkova. webkit radi unutar cmux-a; systemDefault otvara u zadanom macOS pregledniku."
+        },
         "automation": {
           "suppressSubagentNotifications": "Sakrij vidljiva obavještenja o završetku i promjene statusa od ugniježđenih Codex ili Claude podagenata, uz zadržavanje njihovih događaja u Feed telemetriji."
         },

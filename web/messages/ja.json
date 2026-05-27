@@ -548,6 +548,9 @@
       "exampleConfig": "設定例",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "ブラウザコマンドとリンクインターセプトに使うブラウザエンジン/実行環境です。webkit は cmux 内で実行し、systemDefault は macOS のデフォルトブラウザで開きます。"
+        },
         "automation": {
           "suppressSubagentNotifications": "ネストされた Codex または Claude の子エージェントからの表示される完了通知とステータス変更を抑制し、それらのイベントは Feed テレメトリに残します。"
         },

@@ -331,6 +331,72 @@ enum BrowserImportHintSettings {
     }
 }
 
+enum BrowserEngine: String, CaseIterable, Identifiable {
+    case webKit = "webkit"
+    case systemDefault = "systemDefault"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .webKit:
+            return String(localized: "browser.engine.webkit", defaultValue: "WebKit (Embedded)")
+        case .systemDefault:
+            return String(localized: "browser.engine.systemDefault", defaultValue: "Default Browser")
+        }
+    }
+
+    var settingsSubtitle: String {
+        switch self {
+        case .webKit:
+            return String(
+                localized: "settings.browser.engine.subtitle.webkit",
+                defaultValue: "WebKit runs inside cmux with automation, profiles, and imported browser data."
+            )
+        case .systemDefault:
+            return String(
+                localized: "settings.browser.engine.subtitle.systemDefault",
+                defaultValue: "Tabs and intercepted links open in your macOS default browser, preserving its signed-in state."
+            )
+        }
+    }
+
+    var usesEmbeddedBrowser: Bool {
+        self == .webKit
+    }
+}
+
+enum BrowserEngineSettings {
+    static let engineKey = "browserEngine"
+    static let legacyDisabledKey = "browserDisabledOverride"
+    static let didChangeNotification = Notification.Name("cmux.browserEngineDidChange")
+    static let defaultEngine: BrowserEngine = .webKit
+
+    static func engine(for rawValue: String?) -> BrowserEngine? {
+        guard let rawValue else { return nil }
+        return BrowserEngine(rawValue: rawValue)
+    }
+
+    static func currentEngine(defaults: UserDefaults = .standard) -> BrowserEngine {
+        if let engine = engine(for: defaults.string(forKey: engineKey)) {
+            return engine
+        }
+        if defaults.object(forKey: legacyDisabledKey) != nil {
+            let migratedEngine: BrowserEngine = defaults.bool(forKey: legacyDisabledKey) ? .systemDefault : .webKit
+            defaults.set(migratedEngine.rawValue, forKey: engineKey)
+            return migratedEngine
+        }
+        return defaultEngine
+    }
+
+    static func setCurrentEngine(_ engine: BrowserEngine, defaults: UserDefaults = .standard) {
+        defaults.set(engine.rawValue, forKey: engineKey)
+        defaults.set(!engine.usesEmbeddedBrowser, forKey: legacyDisabledKey)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+        NotificationCenter.default.post(name: BrowserAvailabilitySettings.didChangeNotification, object: nil)
+    }
+}
+
 struct BrowserProfileDefinition: Codable, Hashable, Identifiable, Sendable {
     let id: UUID
     var displayName: String
@@ -756,16 +822,12 @@ enum BrowserLinkOpenSettings {
 }
 
 enum BrowserAvailabilitySettings {
-    static let disabledKey = "browserDisabledOverride"
+    static let disabledKey = BrowserEngineSettings.legacyDisabledKey
     static let didChangeNotification = Notification.Name("cmux.browserAvailabilityDidChange")
     static let defaultDisabled = false
 
     static func isDisabled(defaults: UserDefaults = .standard) -> Bool {
-        defaults.synchronize()
-        if defaults.object(forKey: disabledKey) == nil {
-            return defaultDisabled
-        }
-        return defaults.bool(forKey: disabledKey)
+        !BrowserEngineSettings.currentEngine(defaults: defaults).usesEmbeddedBrowser
     }
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
@@ -773,9 +835,7 @@ enum BrowserAvailabilitySettings {
     }
 
     static func setDisabled(_ disabled: Bool, defaults: UserDefaults = .standard) {
-        defaults.set(disabled, forKey: disabledKey)
-        defaults.synchronize()
-        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+        BrowserEngineSettings.setCurrentEngine(disabled ? .systemDefault : .webKit, defaults: defaults)
     }
 }
 

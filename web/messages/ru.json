@@ -488,6 +488,9 @@
       "exampleConfig": "Пример конфигурации",
       "metaTitle": "Конфигурация",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "Движок/среда выполнения браузера для браузерных команд и перехвата ссылок. webkit работает внутри cmux; systemDefault открывает в браузере macOS по умолчанию."
+        },
         "automation": {
           "suppressSubagentNotifications": "Подавляет видимые уведомления о завершении и изменения статуса от вложенных дочерних агентов Codex или Claude, сохраняя их события в телеметрии Feed."
         },

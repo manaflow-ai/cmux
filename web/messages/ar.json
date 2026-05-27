@@ -488,6 +488,9 @@
       "exampleConfig": "مثال على الإعدادات",
       "metaTitle": "الإعدادات",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "محرك/بيئة تشغيل المتصفح لأوامر المتصفح واعتراض الروابط. يعمل webkit داخل cmux؛ ويفتح systemDefault في متصفح macOS الافتراضي."
+        },
         "automation": {
           "suppressSubagentNotifications": "قم بإخفاء إشعارات الإكمال المرئية وتغييرات الحالة من وكلاء Codex أو Claude الفرعيين المتداخلين مع إبقاء أحداثهم في قياسات Feed."
         },

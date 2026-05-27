@@ -139,6 +139,7 @@ extension CmuxSettingsFileStore {
         "automation.geminiIntegration",
         "automation.portBase",
         "automation.portRange",
+        "browser.engine",
         "browser.defaultSearchEngine",
         "browser.showSearchSuggestions",
         "browser.theme",

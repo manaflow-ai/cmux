@@ -120,6 +120,7 @@ Embedded browser settings from Settings > Browser.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
+| `browser.engine` | `"webkit"` or `"systemDefault"` | `"webkit"` | Browser engine/runtime for browser commands and link interception. `webkit` runs inside cmux; `systemDefault` opens in the macOS default browser. |
 | `browser.defaultSearchEngine` | `"google"` or `"duckduckgo"` or `"bing"` or `"kagi"` or `"startpage"` | `"google"` | Default search engine for non-URL queries. |
 | `browser.showSearchSuggestions` | boolean | `true` | Show omnibar search suggestions. |
 | `browser.theme` | `"system"` or `"light"` or `"dark"` | `"system"` | Embedded browser theme. |
