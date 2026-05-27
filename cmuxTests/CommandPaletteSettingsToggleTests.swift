@@ -165,6 +165,8 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
                 )
             )
             defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+            AgentHibernationHookSetupEvidence.hasHookSetupEvidenceHandlerForTests = { _ in false }
+            defer { AgentHibernationHookSetupEvidence.hasHookSetupEvidenceHandlerForTests = nil }
             var confirmationCount = 0
             AgentHibernationEnableWarning.confirmationHandlerForTests = {
                 confirmationCount += 1
@@ -188,6 +190,8 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
                 )
             )
             defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+            AgentHibernationHookSetupEvidence.hasHookSetupEvidenceHandlerForTests = { _ in false }
+            defer { AgentHibernationHookSetupEvidence.hasHookSetupEvidenceHandlerForTests = nil }
             AgentHibernationEnableWarning.confirmationHandlerForTests = { true }
             defer { AgentHibernationEnableWarning.confirmationHandlerForTests = nil }
 

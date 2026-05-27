@@ -5267,11 +5267,20 @@ struct AgentHookSetupEvidenceDefinition: Sendable {
 }
 
 enum AgentHibernationHookSetupEvidence {
+#if DEBUG
+    static var hasHookSetupEvidenceHandlerForTests: ((UserDefaults) -> Bool)?
+#endif
+
     static func hasHookSetupEvidence(
         defaults: UserDefaults = .standard,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> Bool {
+#if DEBUG
+        if let hasHookSetupEvidenceHandlerForTests {
+            return hasHookSetupEvidenceHandlerForTests(defaults)
+        }
+#endif
         if ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults),
            environment["CMUX_CLAUDE_HOOKS_DISABLED"]?.trimmingCharacters(in: .whitespacesAndNewlines) != "1" {
             return true

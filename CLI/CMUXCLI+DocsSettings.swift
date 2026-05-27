@@ -355,9 +355,11 @@ extension CMUXCLI {
           docs                Print the same output as `cmux docs settings`.
 
         Targets:
-          account, app, terminal, sidebar-appearance, automation, browser,
-          browser-import, global-hotkey, keyboard-shortcuts, shortcuts,
-          workspace-colors, cmux-json, json, reset
+          account, app, appearance, workspaces-and-tabs, files-and-links,
+          notifications, safety-privacy, command-palette, terminal,
+          agent-sessions, sidebar-appearance, automation, agent-integrations,
+          browser, browser-import, global-hotkey, keyboard-shortcuts,
+          shortcuts, workspace-colors, cmux-json, json, reset
 
         Config file:
           \(Self.primarySettingsDisplayPath)
@@ -384,14 +386,32 @@ extension CMUXCLI {
         switch normalized {
         case "account":
             return "account"
-        case "app", "general":
+        case "app", "appearance", "general":
             return "app"
+        case "workspaces-and-tabs", "workspacesandtabs", "workspace-tabs", "workspacetabs",
+             "workspaces", "workspace", "tabs":
+            return "workspacesAndTabs"
+        case "files-and-links", "filesandlinks", "file-links", "filelinks", "files", "links":
+            return "filesAndLinks"
+        case "notifications", "notification", "alerts", "notify":
+            return "notifications"
+        case "safety-privacy", "safetyprivacy", "safety-and-privacy", "safetyandprivacy",
+             "privacy", "safety", "warnings", "warning":
+            return "safetyPrivacy"
+        case "command-palette", "commandpalette", "palette", "cmd-p", "command":
+            return "commandPalette"
         case "terminal":
             return "terminal"
+        case "agent-sessions", "agentsessions", "agent-session", "agentsession",
+             "sessions", "resume", "hibernation", "agent-hibernation":
+            return "agentSessions"
         case "sidebar", "sidebar-appearance", "sidebarappearance":
             return "sidebarAppearance"
         case "automation":
             return "automation"
+        case "agent-integrations", "agentintegrations", "agents", "integrations",
+             "hooks", "agent-hooks", "agenthooks":
+            return "agentIntegrations"
         case "browser":
             return "browser"
         case "browser-import", "browserimport", "import-browser-data":
