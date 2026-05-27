@@ -5948,6 +5948,26 @@ struct ContentView: View {
         )
     }
 
+    static func commandPaletteShouldClearForkableAgentProbeResultBeforeProbe(
+        panelKey: String,
+        supportedPanelKeys: Set<String>,
+        supportedRemoteContextsByPanelKey: [String: Bool],
+        snapshotFingerprintsByPanelKey: [String: String],
+        expectedSnapshotFingerprint: String?,
+        isRemoteTerminal: Bool,
+        cachedResultHadFallback: Bool,
+        panelChanged: Bool
+    ) -> Bool {
+        panelChanged || cachedResultHadFallback || !commandPaletteForkableAgentProbeResultMatches(
+            panelKey: panelKey,
+            supportedPanelKeys: supportedPanelKeys,
+            supportedRemoteContextsByPanelKey: supportedRemoteContextsByPanelKey,
+            snapshotFingerprintsByPanelKey: snapshotFingerprintsByPanelKey,
+            expectedSnapshotFingerprint: expectedSnapshotFingerprint,
+            isRemoteTerminal: isRemoteTerminal
+        )
+    }
+
     static func commandPalettePanelHasForkableAgent(
         workspaceId: UUID,
         panelId: UUID,
@@ -6087,6 +6107,7 @@ struct ContentView: View {
             }
         }
 
+        let cachedResultHadFallback = commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] == true
         if Self.commandPaletteShouldReuseForkableAgentProbeResult(
             panelKey: panelKey,
             supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
@@ -6094,19 +6115,21 @@ struct ContentView: View {
             snapshotFingerprintsByPanelKey: commandPaletteForkableAgentSnapshotFingerprintsByPanelKey,
             expectedSnapshotFingerprint: nil,
             isRemoteTerminal: isRemoteTerminal,
-            cachedResultHadFallback: commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] == true,
+            cachedResultHadFallback: cachedResultHadFallback,
             panelChanged: panelChanged
         ) {
             return
         }
 
-        if panelChanged || !Self.commandPaletteForkableAgentProbeResultMatches(
+        if Self.commandPaletteShouldClearForkableAgentProbeResultBeforeProbe(
             panelKey: panelKey,
             supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
             supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
             snapshotFingerprintsByPanelKey: commandPaletteForkableAgentSnapshotFingerprintsByPanelKey,
             expectedSnapshotFingerprint: nil,
-            isRemoteTerminal: isRemoteTerminal
+            isRemoteTerminal: isRemoteTerminal,
+            cachedResultHadFallback: cachedResultHadFallback,
+            panelChanged: panelChanged
         ) {
             commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
             commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)

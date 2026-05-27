@@ -1164,6 +1164,65 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testForkableAgentProbeResultClearBeforeProbeClearsFallbackBackedCache() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fingerprint = "verified-fingerprint"
+
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldClearForkableAgentProbeResultBeforeProbe(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                cachedResultHadFallback: false,
+                panelChanged: false
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldClearForkableAgentProbeResultBeforeProbe(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                cachedResultHadFallback: true,
+                panelChanged: false
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldClearForkableAgentProbeResultBeforeProbe(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                cachedResultHadFallback: false,
+                panelChanged: true
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldClearForkableAgentProbeResultBeforeProbe(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: "stale-fingerprint"],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                cachedResultHadFallback: false,
+                panelChanged: false
+            )
+        )
+    }
+
     func testForkableAgentProbeResultMatchIgnoresPaletteSession() {
         let workspaceId = UUID()
         let panelId = UUID()
