@@ -4377,6 +4377,33 @@ class GhosttyApp {
             return true
         }
 
+        if action.tag == GHOSTTY_ACTION_TMUX_CONTROL {
+            guard let terminalSurface = callbackContext?.terminalSurface else { return true }
+            let tmuxAction = action.action.tmux_control
+            let data: Data
+            if tmuxAction.data_len > 0, let dataPointer = tmuxAction.data {
+                data = Data(bytes: UnsafeRawPointer(dataPointer), count: Int(tmuxAction.data_len))
+            } else {
+                data = Data()
+            }
+            let event: TmuxControlEvent?
+            switch tmuxAction.event {
+            case GHOSTTY_TMUX_ENTER:
+                event = .enter
+            case GHOSTTY_TMUX_EXIT:
+                event = .exit
+            case GHOSTTY_TMUX_WINDOWS_CHANGED:
+                event = .windowsChanged(data)
+            case GHOSTTY_TMUX_PANE_OUTPUT:
+                event = .paneOutput(paneId: tmuxAction.id, data: data)
+            default:
+                event = nil
+            }
+            guard let event else { return true }
+            terminalSurface.enqueueTmuxControlEvent(event)
+            return true
+        }
+
         guard let surfaceView = callbackContext?.surfaceView else { return false }
         if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
             action.tag == GHOSTTY_ACTION_CONFIG_CHANGE ||
@@ -4407,31 +4434,6 @@ class GhosttyApp {
             performOnMain {
                 self.ringBell()
             }
-            return true
-        case GHOSTTY_ACTION_TMUX_CONTROL:
-            guard let terminalSurface = surfaceView.terminalSurface else { return true }
-            let tmuxAction = action.action.tmux_control
-            let data: Data
-            if tmuxAction.data_len > 0, let dataPointer = tmuxAction.data {
-                data = Data(bytes: UnsafeRawPointer(dataPointer), count: Int(tmuxAction.data_len))
-            } else {
-                data = Data()
-            }
-            let event: TmuxControlEvent?
-            switch tmuxAction.event {
-            case GHOSTTY_TMUX_ENTER:
-                event = .enter
-            case GHOSTTY_TMUX_EXIT:
-                event = .exit
-            case GHOSTTY_TMUX_WINDOWS_CHANGED:
-                event = .windowsChanged(data)
-            case GHOSTTY_TMUX_PANE_OUTPUT:
-                event = .paneOutput(paneId: tmuxAction.id, data: data)
-            default:
-                event = nil
-            }
-            guard let event else { return true }
-            terminalSurface.enqueueTmuxControlEvent(event)
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
             guard let tabId = surfaceView.tabId,
