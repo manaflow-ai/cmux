@@ -3141,10 +3141,51 @@ extension CMUXCLI {
     private func diffViewerDirectory() throws -> URL {
         let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-diff-viewer-\(getuid())", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try? FileManager.default.setAttributes([.posixPermissions: NSNumber(value: 0o700)], ofItemAtPath: directory.path)
+        try ensureSecureDiffViewerDirectory(directory)
         pruneDiffViewerFiles(in: directory)
         return directory
+    }
+
+    private func ensureSecureDiffViewerDirectory(_ directory: URL) throws {
+        let path = directory.path
+        if mkdir(path, mode_t(0o700)) != 0 {
+            let mkdirErrno = errno
+            guard mkdirErrno == EEXIST else {
+                throw CLIError(message: "Failed to create diff viewer directory: \(posixErrorMessage(mkdirErrno))")
+            }
+        }
+
+        try validateSecureDiffViewerDirectory(directory, repairPermissions: true)
+    }
+
+    private func validateSecureDiffViewerDirectory(_ directory: URL, repairPermissions: Bool) throws {
+        let path = directory.path
+        var info = stat()
+        guard lstat(path, &info) == 0 else {
+            throw CLIError(message: "Failed to inspect diff viewer directory: \(posixErrorMessage(errno))")
+        }
+        guard (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR) else {
+            throw CLIError(message: "Unsafe diff viewer directory is not a directory: \(path)")
+        }
+        guard info.st_uid == getuid() else {
+            throw CLIError(message: "Unsafe diff viewer directory is not owned by the current user: \(path)")
+        }
+
+        let permissionBits = info.st_mode & mode_t(0o777)
+        guard permissionBits == mode_t(0o700) else {
+            guard repairPermissions else {
+                throw CLIError(message: "Unsafe diff viewer directory permissions: \(path)")
+            }
+            if chmod(path, mode_t(0o700)) != 0 {
+                throw CLIError(message: "Failed to secure diff viewer directory: \(posixErrorMessage(errno))")
+            }
+            try validateSecureDiffViewerDirectory(directory, repairPermissions: false)
+            return
+        }
+    }
+
+    private func posixErrorMessage(_ code: Int32) -> String {
+        String(cString: strerror(code))
     }
 
     private func diffViewerAllowedFiles(
