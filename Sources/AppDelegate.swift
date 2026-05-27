@@ -1897,23 +1897,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
 
-        await waitForSessionPersistenceQueueToDrain()
 #if DEBUG
         debugLogSessionSaveSnapshot(snapshot, includeScrollback: true)
 #endif
-        persistSessionSnapshot(
+        return await saveCommittedQuitSessionSnapshotOnPersistenceQueue(
             snapshot,
-            removeWhenEmpty: false,
-            persistedGeometryData: persistedGeometryData,
-            synchronously: true
+            persistedGeometryData: persistedGeometryData
         )
-        return true
     }
 
-    private func waitForSessionPersistenceQueueToDrain() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+    private func saveCommittedQuitSessionSnapshotOnPersistenceQueue(
+        _ snapshot: AppSessionSnapshot,
+        persistedGeometryData: Data?
+    ) async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             sessionPersistenceQueue.async {
-                continuation.resume()
+                Self.removeLegacyPersistedWindowGeometry()
+                if let persistedGeometryData {
+                    UserDefaults.standard.set(
+                        persistedGeometryData,
+                        forKey: Self.persistedWindowGeometryDefaultsKey
+                    )
+                }
+                continuation.resume(returning: SessionPersistenceStore.save(snapshot))
             }
         }
     }
