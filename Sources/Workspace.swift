@@ -5623,6 +5623,31 @@ final class WorkspaceRemotePTYBridgeServer {
     }
 }
 
+private final class WorkspaceRemoteRelayAliasStore {
+    private let lock = NSLock()
+    private var workspaceAliases: [UUID: UUID] = [:]
+    private var surfaceAliases: [UUID: UUID] = [:]
+
+    func update(workspaceAliases: [UUID: UUID], surfaceAliases: [UUID: UUID]) {
+        lock.lock()
+        self.workspaceAliases = workspaceAliases
+        self.surfaceAliases = surfaceAliases
+        lock.unlock()
+    }
+
+    func rewrite(_ commandLine: Data) -> Data {
+        lock.lock()
+        let workspaceAliases = self.workspaceAliases
+        let surfaceAliases = self.surfaceAliases
+        lock.unlock()
+        return Workspace.rewriteRemoteRelayCommandLine(
+            commandLine,
+            workspaceAliases: workspaceAliases,
+            surfaceAliases: surfaceAliases
+        )
+    }
+}
+
 final class WorkspaceRemoteSessionController {
 #if DEBUG
     // XCTest seam: tests assign this before starting a controller and clear it
@@ -5718,6 +5743,7 @@ final class WorkspaceRemoteSessionController {
     private weak var workspace: Workspace?
     private let configuration: WorkspaceRemoteConfiguration
     private let controllerID: UUID
+    private let remoteRelayAliasStore = WorkspaceRemoteRelayAliasStore()
 
     private enum RemotePortPollingMode {
         case hostWide
@@ -5816,6 +5842,10 @@ final class WorkspaceRemoteSessionController {
         queue.async { [self] in
             stopAllLocked()
         }
+    }
+
+    func updateRemoteRelayIDAliases(workspaceAliases: [UUID: UUID], surfaceAliases: [UUID: UUID]) {
+        remoteRelayAliasStore.update(workspaceAliases: workspaceAliases, surfaceAliases: surfaceAliases)
     }
 
     func listPTYSessions(timeout: TimeInterval = 8.0) throws -> [[String: Any]] {
@@ -7206,30 +7236,17 @@ final class WorkspaceRemoteSessionController {
         if let cliRelayServer {
             return cliRelayServer
         }
+        let aliasStore = remoteRelayAliasStore
         let relayServer = try WorkspaceRemoteCLIRelayServer(
             localSocketPath: localSocketPath,
             relayID: relayID,
             relayTokenHex: relayToken,
-            commandRewriter: { [weak self] commandLine in
-                self?.rewriteRemoteRelayCommandLine(commandLine) ?? commandLine
+            commandRewriter: { commandLine in
+                aliasStore.rewrite(commandLine)
             }
         )
         cliRelayServer = relayServer
         return relayServer
-    }
-
-    private func rewriteRemoteRelayCommandLine(_ commandLine: Data) -> Data {
-        guard let workspace else { return commandLine }
-        if Thread.isMainThread {
-            return MainActor.assumeIsolated {
-                workspace.rewriteRemoteRelayCommandLine(commandLine)
-            }
-        }
-        return DispatchQueue.main.sync {
-            MainActor.assumeIsolated {
-                workspace.rewriteRemoteRelayCommandLine(commandLine)
-            }
-        }
     }
 
     private func installRemoteRelayMetadataLocked(
@@ -11656,7 +11673,7 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
         remotePTYSessionIDsByPanelId = remotePTYSessionIDsByPanelId.filter { validSurfaceIds.contains($0.key) }
-        remoteRelaySurfaceIDAliases = remoteRelaySurfaceIDAliases.filter { validSurfaceIds.contains($0.value) }
+        pruneRemoteRelaySurfaceAliases(validSurfaceIds: validSurfaceIds)
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
@@ -12099,8 +12116,7 @@ final class Workspace: Identifiable, ObservableObject {
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         if previousConfiguration != nil, previousConfiguration != configuration {
             remotePTYSessionIDsByPanelId.removeAll()
-            remoteRelayWorkspaceIDAliases.removeAll()
-            remoteRelaySurfaceIDAliases.removeAll()
+            clearRemoteRelayIDAliases()
         }
         remoteConfiguration = configuration
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
@@ -12155,6 +12171,7 @@ final class Workspace: Identifiable, ObservableObject {
         activeRemoteSessionControllerID = controllerID
         remoteSessionController = controller
         syncRemotePortScanTTYs()
+        syncRemoteRelayIDAliasesToController()
         controller.start()
     }
 
@@ -12203,8 +12220,7 @@ final class Workspace: Identifiable, ObservableObject {
         pendingRemoteForegroundAuthToken = nil
         activeRemoteTerminalSurfaceIds.removeAll()
         remotePTYSessionIDsByPanelId.removeAll()
-        remoteRelayWorkspaceIDAliases.removeAll()
-        remoteRelaySurfaceIDAliases.removeAll()
+        clearRemoteRelayIDAliases()
         activeRemoteTerminalSessionCount = 0
         pendingRemoteSurfaceTTYName = nil
         pendingRemoteSurfaceTTYSurfaceId = nil
@@ -12286,7 +12302,7 @@ final class Workspace: Identifiable, ObservableObject {
         return trimmed
     }
 
-    private static let remoteRelayWorkspaceIDKeys: Set<String> = [
+    private nonisolated static let remoteRelayWorkspaceIDKeys: Set<String> = [
         "workspace_id",
         "preferred_workspace_id",
         "selected_workspace_id",
@@ -12296,40 +12312,99 @@ final class Workspace: Identifiable, ObservableObject {
         "to_workspace_id",
     ]
 
-    private static let remoteRelaySurfaceIDKeys: Set<String> = [
+    private nonisolated static let remoteRelaySurfaceIDKeys: Set<String> = [
         "surface_id",
         "preferred_surface_id",
         "target_surface_id",
         "created_surface_id",
     ]
 
-    private static let remoteRelayAmbiguousIDKeys: Set<String> = [
+    private nonisolated static let remoteRelayAmbiguousIDKeys: Set<String> = [
         "tab_id",
     ]
 
-    private static let remoteRelayWorkspaceIDArrayKeys: Set<String> = [
+    private nonisolated static let remoteRelayWorkspaceIDArrayKeys: Set<String> = [
         "workspace_ids",
     ]
 
-    private static let remoteRelaySurfaceIDArrayKeys: Set<String> = [
+    private nonisolated static let remoteRelaySurfaceIDArrayKeys: Set<String> = [
         "surface_ids",
     ]
+
+    private func syncRemoteRelayIDAliasesToController() {
+        remoteSessionController?.updateRemoteRelayIDAliases(
+            workspaceAliases: remoteRelayWorkspaceIDAliases,
+            surfaceAliases: remoteRelaySurfaceIDAliases
+        )
+    }
+
+    private func clearRemoteRelayIDAliases() {
+        guard !remoteRelayWorkspaceIDAliases.isEmpty || !remoteRelaySurfaceIDAliases.isEmpty else { return }
+        remoteRelayWorkspaceIDAliases.removeAll()
+        remoteRelaySurfaceIDAliases.removeAll()
+        syncRemoteRelayIDAliasesToController()
+    }
+
+    private func pruneRemoteRelaySurfaceAliases(validSurfaceIds: Set<UUID>) {
+        let nextAliases = remoteRelaySurfaceIDAliases.filter { validSurfaceIds.contains($0.value) }
+        guard nextAliases != remoteRelaySurfaceIDAliases else { return }
+        remoteRelaySurfaceIDAliases = nextAliases
+        syncRemoteRelayIDAliasesToController()
+    }
+
+    private func removeRemoteRelaySurfaceAliases(targeting panelId: UUID) {
+        let nextAliases = remoteRelaySurfaceIDAliases.filter { $0.value != panelId }
+        guard nextAliases != remoteRelaySurfaceIDAliases else { return }
+        remoteRelaySurfaceIDAliases = nextAliases
+        syncRemoteRelayIDAliasesToController()
+    }
 
     private func registerRemoteRelayIDAliases(
         snapshotWorkspaceId: UUID?,
         snapshotPanelId: UUID,
         restoredPanelId: UUID
     ) {
+        var didMutate = false
         if let snapshotWorkspaceId, snapshotWorkspaceId != id {
-            remoteRelayWorkspaceIDAliases[snapshotWorkspaceId] = id
+            if remoteRelayWorkspaceIDAliases[snapshotWorkspaceId] != id {
+                remoteRelayWorkspaceIDAliases[snapshotWorkspaceId] = id
+                didMutate = true
+            }
         }
         if snapshotPanelId != restoredPanelId {
-            remoteRelaySurfaceIDAliases[snapshotPanelId] = restoredPanelId
+            if remoteRelaySurfaceIDAliases[snapshotPanelId] != restoredPanelId {
+                remoteRelaySurfaceIDAliases[snapshotPanelId] = restoredPanelId
+                didMutate = true
+            }
+        }
+        if didMutate {
+            syncRemoteRelayIDAliasesToController()
         }
     }
 
+    private func registerRemoteRelayIDAliases(remotePTYSessionID: String, restoredPanelId: UUID) {
+        guard let parsed = Self.parsedDefaultSSHPTYSessionID(remotePTYSessionID) else { return }
+        registerRemoteRelayIDAliases(
+            snapshotWorkspaceId: parsed.workspaceId,
+            snapshotPanelId: parsed.panelId,
+            restoredPanelId: restoredPanelId
+        )
+    }
+
     func rewriteRemoteRelayCommandLine(_ commandLine: Data) -> Data {
-        guard !remoteRelayWorkspaceIDAliases.isEmpty || !remoteRelaySurfaceIDAliases.isEmpty,
+        Self.rewriteRemoteRelayCommandLine(
+            commandLine,
+            workspaceAliases: remoteRelayWorkspaceIDAliases,
+            surfaceAliases: remoteRelaySurfaceIDAliases
+        )
+    }
+
+    nonisolated static func rewriteRemoteRelayCommandLine(
+        _ commandLine: Data,
+        workspaceAliases: [UUID: UUID],
+        surfaceAliases: [UUID: UUID]
+    ) -> Data {
+        guard !workspaceAliases.isEmpty || !surfaceAliases.isEmpty,
               let line = String(data: commandLine, encoding: .utf8) else {
             return commandLine
         }
@@ -12345,8 +12420,8 @@ final class Workspace: Identifiable, ObservableObject {
             request["params"] = Self.remappedRemoteRelayValue(
                 params,
                 key: nil,
-                workspaceAliases: remoteRelayWorkspaceIDAliases,
-                surfaceAliases: remoteRelaySurfaceIDAliases,
+                workspaceAliases: workspaceAliases,
+                surfaceAliases: surfaceAliases,
                 didRewrite: &didRewrite
             )
         }
@@ -12359,7 +12434,7 @@ final class Workspace: Identifiable, ObservableObject {
         return rewritten + Data([0x0A])
     }
 
-    private static func remappedRemoteRelayValue(
+    private nonisolated static func remappedRemoteRelayValue(
         _ value: Any,
         key: String?,
         workspaceAliases: [UUID: UUID],
@@ -12450,6 +12525,23 @@ final class Workspace: Identifiable, ObservableObject {
         "ssh-\(workspaceId.uuidString)-\(panelId.uuidString)"
     }
 
+    private nonisolated static func parsedDefaultSSHPTYSessionID(_ value: String) -> (workspaceId: UUID, panelId: UUID)? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("ssh-") else { return nil }
+        let suffix = String(trimmed.dropFirst(4))
+        guard suffix.count == 73 else { return nil }
+        let separatorIndex = suffix.index(suffix.startIndex, offsetBy: 36)
+        guard suffix[separatorIndex] == "-" else { return nil }
+        let panelStart = suffix.index(after: separatorIndex)
+        let workspacePart = String(suffix[..<separatorIndex])
+        let panelPart = String(suffix[panelStart...])
+        guard let workspaceId = UUID(uuidString: workspacePart),
+              let panelId = UUID(uuidString: panelPart) else {
+            return nil
+        }
+        return (workspaceId, panelId)
+    }
+
     nonisolated static func sshPTYAttachStartupCommand(sessionID: String) -> String {
         SSHPTYAttachStartupCommandBuilder.command(sessionID: sessionID)
     }
@@ -12475,7 +12567,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func discardRemotePTYSessionID(panelId: UUID) {
         remotePTYSessionIDsByPanelId.removeValue(forKey: panelId)
-        remoteRelaySurfaceIDAliases = remoteRelaySurfaceIDAliases.filter { $0.value != panelId }
+        removeRemoteRelaySurfaceAliases(targeting: panelId)
     }
 
     func remotePTYSessionIDMatches(panelId: UUID, sessionID: String?) -> Bool {
@@ -12499,7 +12591,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let wasTracked = activeRemoteTerminalSurfaceIds.contains(surfaceId)
         remotePTYSessionIDsByPanelId.removeValue(forKey: surfaceId)
-        remoteRelaySurfaceIDAliases = remoteRelaySurfaceIDAliases.filter { $0.value != surfaceId }
+        removeRemoteRelaySurfaceAliases(targeting: surfaceId)
         untrackRemoteTerminalSurface(surfaceId)
         return (true, wasTracked)
     }
@@ -13155,6 +13247,7 @@ final class Workspace: Identifiable, ObservableObject {
         let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
         if let normalizedRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
+            registerRemoteRelayIDAliases(remotePTYSessionID: normalizedRemotePTYSessionID, restoredPanelId: newPanel.id)
         }
         if tracksRemoteTerminalSurface {
             trackRemoteTerminalSurface(newPanel.id)
@@ -13191,6 +13284,7 @@ final class Workspace: Identifiable, ObservableObject {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
+            removeRemoteRelaySurfaceAliases(targeting: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
@@ -13295,6 +13389,7 @@ final class Workspace: Identifiable, ObservableObject {
         let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
         if let normalizedRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
+            registerRemoteRelayIDAliases(remotePTYSessionID: normalizedRemotePTYSessionID, restoredPanelId: newPanel.id)
         }
         if tracksRemoteTerminalSurface {
             trackRemoteTerminalSurface(newPanel.id)
@@ -13313,6 +13408,7 @@ final class Workspace: Identifiable, ObservableObject {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
+            removeRemoteRelaySurfaceAliases(targeting: newPanel.id)
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }

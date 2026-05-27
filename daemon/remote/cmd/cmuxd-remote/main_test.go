@@ -335,6 +335,38 @@ func TestPersistentDaemonPathsUseShortSocketPath(t *testing.T) {
 	}
 }
 
+func TestPersistentDaemonPathsIncludeDaemonVersion(t *testing.T) {
+	rootBase := filepath.Join(t.TempDir(), "daemon-root")
+	t.Setenv("CMUX_REMOTE_DAEMON_ROOT", rootBase)
+	t.Setenv("CMUX_REMOTE_DAEMON_SOCKET_DIR", "")
+	oldVersion := version
+	defer func() { version = oldVersion }()
+
+	version = "v1.2.3"
+	first, err := persistentDaemonPathsForSlot("versioned-slot")
+	if err != nil {
+		t.Fatalf("persistentDaemonPathsForSlot returned error: %v", err)
+	}
+	if !strings.Contains(first.root, string(filepath.Separator)+"v1.2.3"+string(filepath.Separator)) {
+		t.Fatalf("root %q should include daemon version", first.root)
+	}
+
+	version = "v1.2.4"
+	second, err := persistentDaemonPathsForSlot("versioned-slot")
+	if err != nil {
+		t.Fatalf("persistentDaemonPathsForSlot returned error: %v", err)
+	}
+	if first.root == second.root {
+		t.Fatalf("root should change across versions: %q", first.root)
+	}
+	if first.socket == second.socket {
+		t.Fatalf("socket should change across versions: %q", first.socket)
+	}
+	if first.lockFile == second.lockFile {
+		t.Fatalf("lock file should change across versions: %q", first.lockFile)
+	}
+}
+
 func TestPersistentDaemonSocketDirOverrideUsesPrivateChild(t *testing.T) {
 	rootBase := filepath.Join(t.TempDir(), "daemon-root")
 	socketParent := filepath.Join(t.TempDir(), "caller-socket-dir")

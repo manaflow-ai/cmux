@@ -1908,6 +1908,81 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(caller["tab_id"] as? String, restoredWorkspace.id.uuidString)
     }
 
+    func testPersistentSSHPTYReattachRewritesStaleRemoteRelayContextIDs() throws {
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("Relay Alias Reattach SSH")
+        let persistentDaemonSlot = "ssh-relay-reattach-alias"
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: "relay-reattach-alias-test",
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-relay-reattach-alias.sock",
+            terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: persistentDaemonSlot
+        )
+        remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+        let originalWorkspaceId = remoteWorkspace.id
+        let originalPanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
+        let sessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: originalWorkspaceId,
+            panelId: originalPanelId
+        )
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Relay Alias Reattach SSH" })
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+        let ended = restoredWorkspace.markRemotePTYAttachEnded(surfaceId: restoredPanelId, sessionID: sessionID)
+        XCTAssertTrue(ended.clearedRemotePTYSession)
+        XCTAssertTrue(ended.untrackedRemoteTerminal)
+
+        let paneId = try XCTUnwrap(restoredWorkspace.bonsplitController.allPaneIds.first)
+        let reattachedPanel = try XCTUnwrap(
+            restoredWorkspace.newTerminalSurface(
+                inPane: paneId,
+                focus: true,
+                initialCommand: Workspace.sshPTYAttachStartupCommand(sessionID: sessionID),
+                remotePTYSessionID: sessionID
+            )
+        )
+        XCTAssertNotEqual(reattachedPanel.id, restoredPanelId)
+
+        let request: [String: Any] = [
+            "id": "relay-reattach-alias-request",
+            "method": "surface.report_tty",
+            "params": [
+                "workspace_id": originalWorkspaceId.uuidString,
+                "surface_id": originalPanelId.uuidString,
+                "tab_id": originalPanelId.uuidString,
+                "workspace_ids": [originalWorkspaceId.uuidString],
+                "surface_ids": [originalPanelId.uuidString],
+                "session_id": sessionID,
+            ],
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request, options: []) + Data([0x0A])
+        let rewrittenData = restoredWorkspace.rewriteRemoteRelayCommandLine(requestData)
+        let rewritten = try XCTUnwrap(JSONSerialization.jsonObject(with: rewrittenData, options: []) as? [String: Any])
+        let params = try XCTUnwrap(rewritten["params"] as? [String: Any])
+
+        XCTAssertEqual(params["workspace_id"] as? String, restoredWorkspace.id.uuidString)
+        XCTAssertEqual(params["surface_id"] as? String, reattachedPanel.id.uuidString)
+        XCTAssertEqual(params["tab_id"] as? String, reattachedPanel.id.uuidString)
+        XCTAssertEqual(params["workspace_ids"] as? [String], [restoredWorkspace.id.uuidString])
+        XCTAssertEqual(params["surface_ids"] as? [String], [reattachedPanel.id.uuidString])
+        XCTAssertEqual(params["session_id"] as? String, sessionID)
+    }
+
     func testPersistentSSHPTYRestoreFallsBackToSnapshotPanelDefaultSessionID() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)

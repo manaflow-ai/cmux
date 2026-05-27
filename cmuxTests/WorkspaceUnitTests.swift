@@ -5615,7 +5615,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertFalse(startupCommand.contains("ssh-pty-attach"), startupCommand)
         XCTAssertEqual(
             startupCommand,
-            "ssh -p 2222 -i /Users/example/.ssh/cmux -o ControlMaster=auto -o ControlPersist=600 -tt cmux-macmini"
+            "ssh -p 2222 -i /Users/example/.ssh/cmux -tt cmux-macmini"
         )
     }
 

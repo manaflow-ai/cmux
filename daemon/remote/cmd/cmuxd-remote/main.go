@@ -324,7 +324,7 @@ func persistentDaemonPathsForSlot(rawSlot string) (persistentDaemonPaths, error)
 		}
 		rootBase = filepath.Join(home, ".cmux", "daemon")
 	}
-	root := filepath.Join(rootBase, slot)
+	root := filepath.Join(rootBase, persistentDaemonVersionComponent(), slot)
 	socketPath := persistentDaemonSocketPath(root, slot)
 	return persistentDaemonPaths{
 		slot:      slot,
@@ -334,6 +334,35 @@ func persistentDaemonPathsForSlot(rawSlot string) (persistentDaemonPaths, error)
 		logFile:   filepath.Join(root, "daemon.log"),
 		lockFile:  filepath.Join(root, "daemon.lock"),
 	}, nil
+}
+
+func persistentDaemonVersionComponent() string {
+	trimmed := strings.TrimSpace(version)
+	if trimmed == "" {
+		trimmed = "dev"
+	}
+	var builder strings.Builder
+	for _, r := range trimmed {
+		if (r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			r == '-' ||
+			r == '_' ||
+			r == '.' {
+			builder.WriteRune(r)
+		} else {
+			builder.WriteByte('_')
+		}
+	}
+	component := builder.String()
+	if component == "" || component == "." || component == ".." {
+		return "dev"
+	}
+	if len(component) <= 64 {
+		return component
+	}
+	digest := sha256.Sum256([]byte(trimmed))
+	return component[:48] + "-" + hex.EncodeToString(digest[:4])
 }
 
 func persistentDaemonSocketPath(root string, slot string) string {

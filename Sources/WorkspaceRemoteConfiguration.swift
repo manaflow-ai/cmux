@@ -10,16 +10,13 @@ private enum WorkspaceRemoteSSHOptionFilter {
         "controlpath",
         "controlpersist",
     ]
-    private static let relayScopedControlSocketKeys: Set<String> = [
-        "controlpath",
-    ]
 
     static func durableOptions(_ options: [String]) -> [String] {
         filteredOptions(options, droppingKeys: transientControlSocketKeys)
     }
 
     static func forkedWorkspaceOptions(_ options: [String]) -> [String] {
-        filteredOptions(options, droppingKeys: relayScopedControlSocketKeys)
+        filteredOptions(options, droppingKeys: transientControlSocketKeys)
     }
 
     static func trimmedOptions(_ options: [String]) -> [String] {
