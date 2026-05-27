@@ -3,6 +3,22 @@ import Foundation
 
 extension Workspace {
     @discardableResult
+    func openFileSurfacesInFocusedPane(
+        filePaths: [String],
+        focus: Bool? = nil,
+        reuseExisting: Bool = false
+    ) -> [any Panel] {
+        guard let target = focusedBonsplitPaneForCommands() else { return [] }
+        return openFileSurfaces(
+            inPane: target.paneId,
+            controller: target.controller,
+            filePaths: filePaths,
+            focus: focus,
+            reuseExisting: reuseExisting
+        )
+    }
+
+    @discardableResult
     func openFileSurfaces(
         inPane paneId: PaneID,
         controller targetController: BonsplitController? = nil,

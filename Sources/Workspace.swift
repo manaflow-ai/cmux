@@ -15843,6 +15843,20 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func openOrFocusRightSidebarToolSurfaceInFocusedPane(
+        mode: RightSidebarMode,
+        focus: Bool = true
+    ) -> RightSidebarToolPanel? {
+        guard let target = focusedBonsplitPaneForCommands() else { return nil }
+        return openOrFocusRightSidebarToolSurface(
+            inPane: target.paneId,
+            controller: target.controller,
+            mode: mode,
+            focus: focus
+        )
+    }
+
+    @discardableResult
     func clearSplitZoom() -> Bool {
         clearSplitZoom(in: currentFocusNavigationController())
     }

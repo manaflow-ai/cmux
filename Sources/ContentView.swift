@@ -2497,30 +2497,24 @@ struct ContentView: View {
 
     func openRightSidebarToolPane(_ mode: RightSidebarMode) {
         guard mode.canOpenAsPane,
-              let workspace = tabManager.selectedWorkspace,
-              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+              let workspace = tabManager.selectedWorkspace else {
             NSSound.beep()
             return
         }
 
         sidebarSelectionState.selection = .tabs
         workspace.clearSplitZoom()
-        _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
+        guard workspace.openOrFocusRightSidebarToolSurfaceInFocusedPane(mode: mode, focus: true) != nil else {
+            NSSound.beep()
+            return
+        }
     }
 
     private func openFilePreviewFromSidebar(filePath: String) {
         guard let workspace = tabManager.selectedWorkspace else { return }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
-            return
-        }
 
         sidebarSelectionState.selection = .tabs
-        _ = workspace.openFileSurfaces(
-            inPane: paneId,
-            filePaths: [filePath],
-            focus: true,
-            reuseExisting: true
-        )
+        _ = workspace.openFileSurfacesInFocusedPane(filePaths: [filePath], focus: true, reuseExisting: true)
     }
 
     private func syncFileExplorerDirectory() {

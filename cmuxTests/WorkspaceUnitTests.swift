@@ -5888,6 +5888,47 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, firstPanel.id)
     }
 
+    func testOpenOrFocusRightSidebarToolSurfaceInFocusedPaneUsesDockPane() throws {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        workspace.dockLayout.openEdge(.right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+
+        let toolPanel = try XCTUnwrap(
+            workspace.openOrFocusRightSidebarToolSurfaceInFocusedPane(mode: .files, focus: true)
+        )
+        let toolTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(toolPanel.id))
+
+        XCTAssertEqual(workspace.paneId(forPanelId: toolPanel.id), dockPaneId)
+        XCTAssertTrue(dock.controller.allTabIds.contains(toolTabId))
+        XCTAssertFalse(workspace.bonsplitController.allTabIds.contains(toolTabId))
+        XCTAssertEqual(workspace.focusedPanelId, toolPanel.id)
+    }
+
+    func testOpenFileSurfacesInFocusedPaneUsesDockPane() throws {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .bottom)
+        workspace.dockLayout.openEdge(.bottom)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+
+        let filePath = "/tmp/cmux-dock-focused-preview.txt"
+        let panels = workspace.openFileSurfacesInFocusedPane(
+            filePaths: [filePath],
+            focus: true,
+            reuseExisting: true
+        )
+        let previewPanel = try XCTUnwrap(panels.first as? FilePreviewPanel)
+        let previewTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(previewPanel.id))
+
+        XCTAssertEqual(previewPanel.filePath, filePath)
+        XCTAssertEqual(workspace.paneId(forPanelId: previewPanel.id), dockPaneId)
+        XCTAssertTrue(dock.controller.allTabIds.contains(previewTabId))
+        XCTAssertFalse(workspace.bonsplitController.allTabIds.contains(previewTabId))
+        XCTAssertEqual(workspace.focusedPanelId, previewPanel.id)
+    }
+
     func testRightSidebarToolFilePreviewOpensInOwningDockPane() throws {
         let workspace = Workspace()
         let dock = workspace.dockLayout.addDock(edge: .right)
