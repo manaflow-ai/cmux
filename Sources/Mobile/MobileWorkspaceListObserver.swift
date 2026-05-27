@@ -25,6 +25,9 @@ final class MobileWorkspaceListObserver {
 
     init(tabManager: TabManager) {
         self.tabManager = tabManager
+        #if DEBUG
+        cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
+        #endif
         attach(to: tabManager)
     }
 
@@ -40,6 +43,9 @@ final class MobileWorkspaceListObserver {
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] tabs in
                 guard let self else { return }
+                #if DEBUG
+                cmuxDebugLog("mobile.observer tabs sink fired count=\(tabs.count)")
+                #endif
                 self.refreshPerWorkspaceSubscriptions(tabs: tabs)
                 self.emitIfNeeded(force: false)
             }

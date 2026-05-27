@@ -9631,11 +9631,62 @@ class TerminalController {
             let vtTailed = tailTerminalLines(vtText, maxLines: lineLimit)
             let vtAligned = padToExactLines(vtTailed, lines: lineLimit)
             let vtPlainAligned = padToExactLines(Self.mobilePlainTerminalText(vtAligned), lines: lineLimit)
-            if vtPlainAligned == activeAligned {
+            if Self.rowsMatchIgnoringTrailingWhitespace(vtPlainAligned, activeAligned) {
                 return MobileTerminalSnapshotText(text: vtAligned, fidelity: "ansi_vt")
             }
+            #if DEBUG
+            Self.logVTAlignmentMismatch(vtPlain: vtPlainAligned, active: activeAligned, lineLimit: lineLimit)
+            #endif
         }
         return MobileTerminalSnapshotText(text: activeAligned, fidelity: "plain_text")
+    }
+
+    #if DEBUG
+    private static func logVTAlignmentMismatch(vtPlain: String, active: String, lineLimit: Int) {
+        let vtRows = vtPlain.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let activeRows = active.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        cmuxDebugLog("vtAlignFail rows vt=\(vtRows.count) active=\(activeRows.count) limit=\(lineLimit)")
+        for i in 0..<max(vtRows.count, activeRows.count) {
+            let v = i < vtRows.count ? vtRows[i] : "<missing>"
+            let a = i < activeRows.count ? activeRows[i] : "<missing>"
+            if Self.trimmedTrailingSpaces(Substring(v)) != Self.trimmedTrailingSpaces(Substring(a)) {
+                cmuxDebugLog("vtAlignFail row \(i): vt=\(v.prefix(80)) | active=\(a.prefix(80))")
+                if i >= 4 { return }
+            }
+        }
+    }
+    #endif
+
+    /// Per-row equality with trailing-whitespace tolerance. VT export's
+    /// formatter trims to the last non-space cell on each row while
+    /// POINT_ACTIVE pads to grid width with spaces, so a strict `==` would
+    /// fail even when the user-visible content lines up. We accept the VT
+    /// stream as long as the row count matches and each row matches modulo
+    /// trailing whitespace.
+    private static func rowsMatchIgnoringTrailingWhitespace(_ lhs: String, _ rhs: String) -> Bool {
+        let lhsRows = lhs.split(separator: "\n", omittingEmptySubsequences: false)
+        let rhsRows = rhs.split(separator: "\n", omittingEmptySubsequences: false)
+        guard lhsRows.count == rhsRows.count else { return false }
+        for index in 0..<lhsRows.count {
+            let left = trimmedTrailingSpaces(lhsRows[index])
+            let right = trimmedTrailingSpaces(rhsRows[index])
+            if left != right { return false }
+        }
+        return true
+    }
+
+    private static func trimmedTrailingSpaces(_ slice: Substring) -> Substring {
+        var end = slice.endIndex
+        while end > slice.startIndex {
+            let prev = slice.index(before: end)
+            let scalar = slice[prev]
+            if scalar == " " || scalar == "\u{0009}" {
+                end = prev
+            } else {
+                break
+            }
+        }
+        return slice[slice.startIndex..<end]
     }
 
     private func readPlainTerminalTextForMobileActiveArea(

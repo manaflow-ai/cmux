@@ -2066,6 +2066,7 @@ struct WorkspaceDetailView: View {
             TerminalPreviewSurface(
                 terminal: selectedTerminal,
                 fontScale: terminalFontScale,
+                fontScaleBinding: $terminalFontScale,
                 safeAreaContext: safeAreaContext,
                 bottomOverlayHeight: terminalSurfaceBottomOverlayHeight,
                 modifierState: $bottomActionModifierState,
@@ -2161,8 +2162,8 @@ struct WorkspaceDetailView: View {
         #endif
     }
 
-    private static let minimumTerminalFontScale: CGFloat = 0.8
-    private static let maximumTerminalFontScale: CGFloat = 1.5
+    private static let minimumTerminalFontScale: CGFloat = 0.5
+    private static let maximumTerminalFontScale: CGFloat = 3.0
     private static let terminalFontScaleStep: CGFloat = 0.1
 
     private func terminalBottomActionBar(expandsSafeArea: Bool) -> some View {
@@ -3304,6 +3305,10 @@ private enum PlatformPalette {
 struct TerminalPreviewSurface: View {
     let terminal: MobileTerminalPreview?
     var fontScale: CGFloat = 1
+    /// Optional two-way binding used to drive the pinch-to-zoom gesture. When
+    /// nil, the gesture overlay is hidden and `fontScale` stays exactly the
+    /// value the parent passed in.
+    var fontScaleBinding: Binding<CGFloat>?
     var safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth
     var bottomOverlayHeight: CGFloat = 0
     var modifierState: Binding<MobileTerminalModifierState>?
@@ -3315,8 +3320,13 @@ struct TerminalPreviewSurface: View {
     var performBottomAction: (MobileTerminalBottomAction) -> Void = { _ in }
     var requestKeyboardFocus: () -> Void = {}
     var onViewportChange: (MobileTerminalViewportSize) -> Void = { _ in }
+    var minimumFontScale: CGFloat = 0.5
+    var maximumFontScale: CGFloat = 3.0
     @Environment(\.displayScale) private var displayScale
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @State private var pinchBaseScale: CGFloat = 1
+    @State private var resetButtonVisible: Bool = false
+    @State private var resetButtonFadeTask: Task<Void, Never>?
 
     private var renderedRows: [MobileTerminalGhosttyRow] {
         guard let terminal else {
@@ -3381,6 +3391,17 @@ struct TerminalPreviewSurface: View {
                         focusTerminalInput()
                     }
             )
+            #if os(iOS)
+            .simultaneousGesture(pinchZoomGesture)
+            .overlay(alignment: .center) {
+                if let fontScaleBinding, resetButtonVisible, abs(fontScaleBinding.wrappedValue - 1) > 0.001 {
+                    resetZoomButton(binding: fontScaleBinding)
+                        .transition(.opacity.combined(with: .scale))
+                        .accessibilityIdentifier("MobileTerminalResetZoomButton")
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: resetButtonVisible)
+            #endif
             .task(id: viewportReportKey(proxy: proxy, keyboardVisible: keyboardVisible)) {
                 onViewportChange(viewportSize)
             }
@@ -3421,6 +3442,66 @@ struct TerminalPreviewSurface: View {
                 .allowsHitTesting(false)
         }
     }
+
+    #if os(iOS)
+    private var pinchZoomGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                guard let binding = fontScaleBinding else { return }
+                // Smooth, multiplicative scaling anchored on the value at the
+                // start of the pinch. Clamped to the configured range so the
+                // text never disappears or overflows the row buffer.
+                let next = min(max(pinchBaseScale * value, minimumFontScale), maximumFontScale)
+                binding.wrappedValue = next
+                resetButtonVisible = true
+                resetButtonFadeTask?.cancel()
+            }
+            .onEnded { _ in
+                guard let binding = fontScaleBinding else { return }
+                pinchBaseScale = binding.wrappedValue
+                scheduleResetButtonFade()
+            }
+    }
+
+    @ViewBuilder
+    private func resetZoomButton(binding: Binding<CGFloat>) -> some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.18)) {
+                binding.wrappedValue = 1.0
+            }
+            pinchBaseScale = 1.0
+            resetButtonFadeTask?.cancel()
+            resetButtonVisible = false
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                Text(verbatim: "\(Int((binding.wrappedValue * 100).rounded()))%")
+                    .monospacedDigit()
+            }
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(
+                Capsule().fill(Color.black.opacity(0.65))
+            )
+            .overlay(
+                Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func scheduleResetButtonFade() {
+        resetButtonFadeTask?.cancel()
+        resetButtonFadeTask = Task { @MainActor [self] in
+            try? await Task.sleep(nanoseconds: 1_400_000_000) // 1.4 s after the last pinch
+            if !Task.isCancelled {
+                resetButtonVisible = false
+            }
+        }
+    }
+    #endif
 
     private func viewportReportKey(proxy: GeometryProxy, keyboardVisible: Bool) -> String {
         let viewportSize = TerminalViewportMetrics.viewportSize(for: visibleTerminalSize(proxy: proxy), fontScale: fontScale)
