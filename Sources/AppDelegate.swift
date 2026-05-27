@@ -1005,7 +1005,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        _ = handleCmuxExternalURLs(from: urls)
+        if handleCmuxExternalURLs(from: urls) {
+            return
+        }
 
         let authCallbacks = urls.filter(AuthCallbackRouter.isAuthCallbackURL)
         for url in authCallbacks {
