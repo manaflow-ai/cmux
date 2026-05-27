@@ -8,6 +8,9 @@ struct TerminalPanelView: View {
     @ObservedObject var panel: TerminalPanel
     @AppStorage(NotificationPaneRingSettings.enabledKey)
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
+    @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
+    private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
+    @State private var terminalFontSize = GhosttyConfig.load().fontSize
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
@@ -15,31 +18,155 @@ struct TerminalPanelView: View {
     let isSplit: Bool
     let appearance: PanelAppearance
     let hasUnreadNotification: Bool
+    let terminalAgentContext: String
     let onFocus: () -> Void
+    let onResumeAgentHibernation: () -> Void
+    let onAutoResumeAgentHibernation: () -> Void
     let onTriggerFlash: () -> Void
 
     var body: some View {
-        // Layering contract: terminal find UI is mounted in GhosttySurfaceScrollView (AppKit portal layer)
-        // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
-        GhosttyTerminalView(
-            terminalSurface: panel.surface,
-            paneId: paneId,
-            isActive: isFocused,
-            isVisibleInUI: isVisibleInUI,
-            portalZPriority: portalPriority,
-            showsInactiveOverlay: isSplit && !isFocused,
-            showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
-            inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
-            inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
-            searchState: panel.searchState,
-            reattachToken: panel.viewReattachToken,
-            onFocus: { _ in onFocus() },
-            onTriggerFlash: onTriggerFlash
-        )
-        // Keep the NSViewRepresentable identity stable across bonsplit structural updates.
-        // This prevents transient teardown/recreate that can momentarily detach the hosted terminal view.
-        .id(panel.id)
-        .background(Color.clear)
+        if let hibernationState = panel.agentHibernationState {
+            hibernationBody(hibernationState)
+        } else {
+            terminalBody
+        }
+    }
+
+    @ViewBuilder
+    private func hibernationBody(_ hibernationState: AgentHibernationPanelState) -> some View {
+        if isVisibleInUI {
+            Color(nsColor: appearance.contentBackgroundColor)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .id("hibernated-resuming-\(panel.id.uuidString)")
+                .onAppear {
+                    onAutoResumeAgentHibernation()
+                }
+        } else {
+            AgentHibernationPlaceholderView(
+                state: hibernationState,
+                appearance: appearance,
+                onResume: onResumeAgentHibernation
+            )
+            .id("hibernated-\(panel.id.uuidString)")
+            .onChange(of: isVisibleInUI) { _, visible in
+                if visible {
+                    onAutoResumeAgentHibernation()
+                }
+            }
+        }
+    }
+
+    private var terminalBody: some View {
+        VStack(spacing: 0) {
+            // Layering contract: terminal find UI is mounted in GhosttySurfaceScrollView (AppKit portal layer)
+            // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
+            GhosttyTerminalView(
+                terminalSurface: panel.surface,
+                paneId: paneId,
+                isActive: isFocused,
+                isVisibleInUI: isVisibleInUI,
+                portalZPriority: portalPriority,
+                showsInactiveOverlay: isSplit && !isFocused,
+                showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
+                inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
+                inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
+                searchState: panel.searchState,
+                reattachToken: panel.viewReattachToken,
+                onFocus: { _ in
+                    panel.terminalDidBecomeFocused()
+                    onFocus()
+                },
+                onTriggerFlash: onTriggerFlash
+            )
+            // Keep the NSViewRepresentable identity stable across bonsplit structural updates.
+            // This prevents transient teardown/recreate that can momentarily detach the hosted terminal view.
+            .id(panel.id)
+            .background(Color.clear)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .layoutPriority(1)
+
+            if panel.isTextBoxActive {
+                TextBoxInputContainer(
+                    text: $panel.textBoxContent,
+                    attachments: $panel.textBoxAttachments,
+                    surface: panel.surface,
+                    terminalBackgroundColor: appearance.backgroundColor,
+                    terminalForegroundColor: appearance.foregroundColor,
+                    terminalFont: NSFont.monospacedSystemFont(
+                        ofSize: terminalFontSize,
+                        weight: .regular
+                    ),
+                    maxLines: TerminalTextBoxInputSettings.resolvedMaxLines(textBoxMaxLines),
+                    terminalAgentContext: terminalAgentContext,
+                    onFocusTextBox: {
+                        panel.textBoxDidBecomeFocused()
+                        onFocus()
+                    },
+                    onToggleFocus: {
+                        _ = panel.focusTextBoxInputOrTerminal()
+                    },
+                    onEscape: {
+                        panel.handleTextBoxEscape()
+                    },
+                    onTextViewCreated: { view in
+                        panel.registerTextBoxInputView(view)
+                    },
+                    onTextViewMovedToWindow: { view in
+                        panel.textBoxInputViewDidMoveToWindow(view)
+                    },
+                    onTextViewDismantled: { view in
+                        panel.preserveTextBoxContentForUnmount(from: view)
+                    }
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            terminalFontSize = GhosttyConfig.load().fontSize
+        }
+    }
+}
+
+private struct AgentHibernationPlaceholderView: View {
+    let state: AgentHibernationPanelState
+    let appearance: PanelAppearance
+    let onResume: () -> Void
+
+    private var lastActivityText: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: state.lastActivityAt, relativeTo: Date())
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "pause.circle")
+                .font(.system(size: 34, weight: .regular))
+                .foregroundStyle(.secondary)
+            VStack(spacing: 4) {
+                Text(String(localized: "terminal.agentHibernation.title", defaultValue: "Agent hibernated"))
+                    .font(.headline)
+                Text(state.agentDisplayName)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text(
+                    String.localizedStringWithFormat(
+                        String(localized: "terminal.agentHibernation.lastActivity", defaultValue: "Last activity %@"),
+                        lastActivityText
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            }
+            Button(String(localized: "terminal.agentHibernation.resume", defaultValue: "Resume")) {
+                onResume()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .accessibilityIdentifier("AgentHibernationResumeButton")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: appearance.contentBackgroundColor))
     }
 }
 

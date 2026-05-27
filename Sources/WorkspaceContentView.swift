@@ -109,8 +109,8 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
     @Published private(set) var flashStartedAt: Date?
     @Published private(set) var flashReason: WorkspaceAttentionFlashReason?
 
-    private var lastWorkspaceId: UUID?
-    private var lastFlashToken: UInt64?
+    private var currentWorkspaceId: UUID?
+    private var lastFlashTokenByWorkspaceId: [UUID: UInt64] = [:]
 
     func apply(
         _ state: TmuxWorkspacePaneOverlayRenderState,
@@ -120,20 +120,21 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
         flashRect = state.flashRect
         flashReason = state.flashReason
 
-        let didChangeWorkspace = lastWorkspaceId != state.workspaceId
-        if didChangeWorkspace {
-            lastWorkspaceId = state.workspaceId
-            lastFlashToken = state.flashToken
-            flashStartedAt = nil
-            return
-        }
-
-        if let lastFlashToken,
-           state.flashToken != lastFlashToken,
+        let didChangeWorkspace = currentWorkspaceId != state.workspaceId
+        let previousFlashToken = lastFlashTokenByWorkspaceId[state.workspaceId]
+        let didChangeFlashToken = previousFlashToken.map { state.flashToken != $0 } ?? (state.flashToken > 0)
+        if didChangeFlashToken,
            state.flashRect != nil {
             flashStartedAt = now()
+        } else if didChangeWorkspace {
+            flashStartedAt = nil
         }
-        self.lastFlashToken = state.flashToken
+        currentWorkspaceId = state.workspaceId
+        if (previousFlashToken == nil && state.flashToken == 0) ||
+            !didChangeFlashToken ||
+            state.flashRect != nil {
+            lastFlashTokenByWorkspaceId[state.workspaceId] = state.flashToken
+        }
     }
 
     func clear() {
@@ -141,8 +142,8 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
         flashRect = nil
         flashStartedAt = nil
         flashReason = nil
-        lastWorkspaceId = nil
-        lastFlashToken = nil
+        currentWorkspaceId = nil
+        lastFlashTokenByWorkspaceId = [:]
     }
 }
 
@@ -240,6 +241,7 @@ struct WorkspaceContentView: View {
                         usesWorkspacePaneOverlay: usesWorkspacePaneOverlay,
                         coveredByWorkspacePaneOverlay: true
                     ),
+                    terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
                     onFocus: {
                         // Keep bonsplit focus in sync with the AppKit first responder for the
                         // active workspace. This prevents divergence between the blue focused-tab
@@ -257,6 +259,16 @@ struct WorkspaceContentView: View {
                             in: NSApp.keyWindow ?? NSApp.mainWindow
                         )
                         workspace.focusPanel(panel.id)
+                    },
+                    onResumeAgentHibernation: {
+                        guard isWorkspaceInputActive else { return }
+                        guard workspace.panels[panel.id] != nil else { return }
+                        workspace.resumeAgentHibernation(panelId: panel.id, focus: true)
+                    },
+                    onAutoResumeAgentHibernation: {
+                        guard isWorkspaceInputActive else { return }
+                        guard workspace.panels[panel.id] != nil else { return }
+                        workspace.resumeAgentHibernation(panelId: panel.id, focus: false)
                     },
                     onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                 )
@@ -309,6 +321,7 @@ struct WorkspaceContentView: View {
         .onAppear {
             installMainBonsplitHandlers()
             syncBonsplitInteractivity()
+            updateAgentHibernationPresentationVisibility()
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
         }
@@ -319,8 +332,15 @@ struct WorkspaceContentView: View {
             syncBonsplitInteractivity()
         }
         .onChange(of: isWorkspaceVisible) { _, isVisible in
+            updateAgentHibernationPresentationVisibility()
             guard isVisible else { return }
             flushDeferredThemeRefreshIfNeeded()
+        }
+        .onChange(of: isWorkspaceInputActive) { _, _ in
+            updateAgentHibernationPresentationVisibility()
+        }
+        .onDisappear {
+            workspace.setAgentHibernationAutoResumePresentationVisible(false)
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
@@ -420,34 +440,34 @@ struct WorkspaceContentView: View {
         for controller in workspace.allBonsplitControllers {
             for paneId in controller.allPaneIds {
                 for tab in controller.tabs(inPane: paneId) {
-                let panelId = workspace.panelIdFromSurfaceId(tab.id)
-                let expectedKind = panelId.flatMap { workspace.panelKind(panelId: $0) }
-                let expectedPinned = panelId.map { workspace.isPanelPinned($0) } ?? false
-                let shouldShow = panelId.map {
-                    Workspace.shouldShowUnreadIndicator(
-                        hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
-                            forTabId: workspace.id,
-                            surfaceId: $0
-                        ),
-                        hasPanelUnreadIndicator: manualUnread.contains($0) || restoredUnread.contains($0),
-                        isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
-                        isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == $0
-                    )
-                } ?? false
-                let kindUpdate: String?? = expectedKind.map { .some($0) }
+                    let panelId = workspace.panelIdFromSurfaceId(tab.id)
+                    let expectedKind = panelId.flatMap { workspace.panelKind(panelId: $0) }
+                    let expectedPinned = panelId.map { workspace.isPanelPinned($0) } ?? false
+                    let shouldShow = panelId.map {
+                        Workspace.shouldShowUnreadIndicator(
+                            hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
+                                forTabId: workspace.id,
+                                surfaceId: $0
+                            ),
+                            hasPanelUnreadIndicator: manualUnread.contains($0) || restoredUnread.contains($0),
+                            isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                            isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == $0
+                        )
+                    } ?? false
+                    let kindUpdate: String?? = expectedKind.map { .some($0) }
 
-                if tab.showsNotificationBadge != shouldShow ||
-                    tab.isPinned != expectedPinned ||
-                    (expectedKind != nil && tab.kind != expectedKind) {
-                    controller.updateTab(
-                        tab.id,
-                        kind: kindUpdate,
-                        showsNotificationBadge: shouldShow,
-                        isPinned: expectedPinned
-                    )
+                    if tab.showsNotificationBadge != shouldShow ||
+                        tab.isPinned != expectedPinned ||
+                        (expectedKind != nil && tab.kind != expectedKind) {
+                        controller.updateTab(
+                            tab.id,
+                            kind: kindUpdate,
+                            showsNotificationBadge: shouldShow,
+                            isPinned: expectedPinned
+                        )
+                    }
                 }
             }
-        }
         }
     }
 
@@ -652,6 +672,10 @@ struct WorkspaceContentView: View {
         )
     }
 
+    private func updateAgentHibernationPresentationVisibility() {
+        workspace.setAgentHibernationAutoResumePresentationVisible(isWorkspaceVisible && isWorkspaceInputActive)
+    }
+
     private func refreshGhosttyAppearanceConfig(
         reason: String,
         backgroundOverride: NSColor? = nil,
@@ -763,6 +787,30 @@ struct WorkspaceContentView: View {
 }
 
 extension WorkspaceContentView {
+    static func terminalAgentContext(panel: any Panel, workspace: Workspace) -> String {
+        var parts: [String] = []
+        if let terminalPanel = panel as? TerminalPanel {
+            if let initialCommand = terminalPanel.surface.initialCommand {
+                parts.append("initialCommand:\(initialCommand)")
+            }
+            if let tmuxStartCommand = terminalPanel.surface.tmuxStartCommand {
+                parts.append("tmuxStartCommand:\(tmuxStartCommand)")
+            }
+        }
+        if let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[panel.id] {
+            parts.append("restoredAgent:\(restoredAgent.kind.rawValue)")
+        }
+        if let agentPIDKeys = workspace.agentPIDKeysByPanelId[panel.id], !agentPIDKeys.isEmpty {
+            for key in agentPIDKeys.sorted() {
+                parts.append("agentPIDKey:\(key)")
+            }
+        }
+        return parts
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+
     #if DEBUG
     static func debugPanelLookup(tab: Bonsplit.Tab, workspace: Workspace) {
         let found = workspace.panel(for: tab.id) != nil
@@ -1014,6 +1062,9 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
         WorkspaceDockPaneActions(
             controller: { dock.controller },
             panelForSurface: { tabId in workspace.panel(for: tabId) },
+            terminalAgentContext: { panel in
+                WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+            },
             selectedTabId: { paneId in dock.controller.selectedTab(inPane: paneId)?.id },
             focusedPanelId: { workspace.focusedPanelId },
             focusPane: { paneId in
@@ -1031,6 +1082,10 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
                     in: NSApp.keyWindow ?? NSApp.mainWindow
                 )
                 workspace.focusPanel(panelId)
+            },
+            resumeAgentHibernation: { panelId, focus in
+                guard workspace.panels[panelId] != nil else { return }
+                workspace.resumeAgentHibernation(panelId: panelId, focus: focus)
             },
             triggerFlash: { panelId in
                 workspace.triggerDebugFlash(panelId: panelId)
@@ -1241,15 +1296,18 @@ struct WorkspaceDockToggleCluster: View {
     @ObservedObject var layout: WorkspaceDockLayout
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
             ForEach(WorkspaceDockEdge.controlOrder) { edge in
                 Button {
                     layout.toggleEdge(edge)
                 } label: {
                     WorkspaceDockToggleIcon(edge: edge, isOpen: layout.isEdgeOpen(edge))
                 }
-                .buttonStyle(.plain)
-                .frame(width: 18, height: 16)
+                .buttonStyle(WorkspaceDockToggleButtonStyle())
+                .frame(
+                    width: HeaderChromeControlMetrics.buttonSize,
+                    height: HeaderChromeControlMetrics.buttonSize
+                )
                 .contentShape(Rectangle())
                 .accessibilityLabel(WorkspaceDockToggleText.helpTitle(edge: edge))
                 .help(WorkspaceDockToggleText.helpTitle(edge: edge))
@@ -1276,14 +1334,18 @@ struct WorkspaceDockToggleCluster: View {
                 }
             }
         }
-        .padding(.horizontal, 2)
-        .frame(width: 58, height: 18)
+        .frame(width: workspaceDockToggleClusterWidth, height: HeaderChromeControlMetrics.buttonSize)
         .background {
             Color.clear
             MinimalModeTitlebarControlHitRegionView()
             WorkspaceDockTitlebarStateBinder(layout: layout)
                 .allowsHitTesting(false)
         }
+    }
+
+    private var workspaceDockToggleClusterWidth: CGFloat {
+        CGFloat(WorkspaceDockEdge.controlOrder.count) * HeaderChromeControlMetrics.buttonSize +
+            CGFloat(max(0, WorkspaceDockEdge.controlOrder.count - 1)) * RightSidebarChromeMetrics.headerControlSpacing
     }
 }
 
@@ -1402,46 +1464,98 @@ private struct WorkspaceDockToggleIcon: View {
     let isOpen: Bool
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                .stroke(iconColor, lineWidth: 1)
-                .frame(width: 12, height: 9)
-            RoundedRectangle(cornerRadius: 1.4, style: .continuous)
-                .fill(iconColor.opacity(isOpen ? 0.95 : 0.45))
-                .frame(width: stripeSize.width, height: stripeSize.height)
-                .offset(stripeOffset)
+        WorkspaceDockToggleGlyph(edge: edge)
+            .stroke(
+                style: StrokeStyle(
+                    lineWidth: HeaderChromeIconStyle.sidebarGlyphStrokeWidth,
+                    lineCap: .round,
+                    lineJoin: .round
+                )
+            )
+            .frame(width: 13, height: 11)
+            .opacity(isOpen ? 1.0 : 0.44)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct WorkspaceDockToggleGlyph: Shape {
+    let edge: WorkspaceDockEdge
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let insetRect = rect.insetBy(dx: 0.5, dy: 0.5)
+        path.addRoundedRect(
+            in: insetRect,
+            cornerSize: CGSize(width: 2, height: 2)
+        )
+        switch edge {
+        case .left:
+            let dividerX = insetRect.minX + insetRect.width * 0.36
+            path.move(to: CGPoint(x: dividerX, y: insetRect.minY + 1.5))
+            path.addLine(to: CGPoint(x: dividerX, y: insetRect.maxY - 1.5))
+        case .right:
+            let dividerX = insetRect.maxX - insetRect.width * 0.36
+            path.move(to: CGPoint(x: dividerX, y: insetRect.minY + 1.5))
+            path.addLine(to: CGPoint(x: dividerX, y: insetRect.maxY - 1.5))
+        case .bottom:
+            let dividerY = insetRect.maxY - insetRect.height * 0.34
+            path.move(to: CGPoint(x: insetRect.minX + 1.5, y: dividerY))
+            path.addLine(to: CGPoint(x: insetRect.maxX - 1.5, y: dividerY))
         }
-        .frame(width: 16, height: 16)
-        .background(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(isOpen ? Color.primary.opacity(0.055) : Color.clear)
+        return path
+    }
+}
+
+private struct WorkspaceDockToggleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        WorkspaceDockToggleButtonStyleBody(configuration: configuration)
+    }
+}
+
+private struct WorkspaceDockToggleButtonStyleBody: View {
+    let configuration: ButtonStyle.Configuration
+    @State private var isHovering = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        configuration.label
+            .frame(
+                width: HeaderChromeControlMetrics.iconFrameSize,
+                height: HeaderChromeControlMetrics.iconFrameSize
+            )
+            .frame(
+                width: HeaderChromeControlMetrics.buttonSize,
+                height: HeaderChromeControlMetrics.buttonSize
+            )
+            .foregroundStyle(HeaderChromeIconStyle.foregroundColor.opacity(foregroundOpacity))
+            .background {
+                if backgroundOpacity > 0 {
+                    RoundedRectangle(cornerRadius: HeaderChromeControlMetrics.cornerRadius, style: .continuous)
+                        .fill(Color.primary.opacity(backgroundOpacity))
+                }
+            }
+            .contentShape(
+                RoundedRectangle(cornerRadius: HeaderChromeControlMetrics.cornerRadius, style: .continuous)
+            )
+            .onHover { isHovering = $0 }
+    }
+
+    private var foregroundOpacity: Double {
+        HeaderChromeIconStyle.foregroundOpacity(
+            isHovering: isHovering,
+            isPressed: configuration.isPressed,
+            isEnabled: isEnabled
         )
     }
 
-    private var iconColor: Color {
-        Color.primary.opacity(isOpen ? 0.58 : 0.30)
+    private var backgroundOpacity: Double {
+        HeaderChromeIconStyle.backgroundOpacity(
+            hoverBackground: false,
+            isHovering: isHovering,
+            isPressed: configuration.isPressed,
+            isEnabled: isEnabled
+        )
     }
-
-    private var stripeSize: CGSize {
-        switch edge {
-        case .left, .right:
-            return CGSize(width: 3.2, height: 7.4)
-        case .bottom:
-            return CGSize(width: 10, height: 3.2)
-        }
-    }
-
-    private var stripeOffset: CGSize {
-        switch edge {
-        case .left:
-            return CGSize(width: -3.8, height: 0)
-        case .right:
-            return CGSize(width: 3.8, height: 0)
-        case .bottom:
-            return CGSize(width: 0, height: 3.0)
-        }
-    }
-
 }
 
 private struct WorkspaceDockPaneSnapshot: Identifiable, Equatable {
@@ -1456,11 +1570,13 @@ private struct WorkspaceDockPaneSnapshot: Identifiable, Equatable {
 private struct WorkspaceDockPaneActions {
     let controller: () -> BonsplitController
     let panelForSurface: (TabID) -> (any Panel)?
+    let terminalAgentContext: (any Panel) -> String
     let selectedTabId: (PaneID) -> TabID?
     let focusedPanelId: () -> UUID?
     let focusPane: (PaneID) -> Void
     let focusPanelFromTerminalFirstResponder: (UUID) -> Void
     let requestPanelFocus: (UUID) -> Void
+    let resumeAgentHibernation: (UUID, Bool) -> Void
     let triggerFlash: (UUID) -> Void
     let isFocusedPane: (PaneID) -> Bool
     let performEmptyPaneAction: (EmptyPaneCreationAction, PaneID) -> Bool
@@ -1532,6 +1648,7 @@ private struct WorkspaceDockPaneView: View {
                         usesWorkspacePaneOverlay: usesWorkspacePaneOverlay,
                         coveredByWorkspacePaneOverlay: false
                     ),
+                    terminalAgentContext: actions.terminalAgentContext(panel),
                     onFocus: {
                         guard isWorkspaceInputActive else { return }
                         actions.focusPanelFromTerminalFirstResponder(panel.id)
@@ -1539,6 +1656,14 @@ private struct WorkspaceDockPaneView: View {
                     onRequestPanelFocus: {
                         guard isWorkspaceInputActive else { return }
                         actions.requestPanelFocus(panel.id)
+                    },
+                    onResumeAgentHibernation: {
+                        guard isWorkspaceInputActive else { return }
+                        actions.resumeAgentHibernation(panel.id, true)
+                    },
+                    onAutoResumeAgentHibernation: {
+                        guard isWorkspaceInputActive else { return }
+                        actions.resumeAgentHibernation(panel.id, false)
                     },
                     onTriggerFlash: { actions.triggerFlash(panel.id) }
                 )

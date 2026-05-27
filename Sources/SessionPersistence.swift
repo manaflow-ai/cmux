@@ -13,8 +13,11 @@ enum SessionSnapshotSchema {
 }
 
 enum SessionPersistencePolicy {
-    static let defaultSidebarWidth: Double = 200
-    static let minimumSidebarWidth: Double = 180
+    static let sidebarMinimumWidthKey = "sidebarMinimumWidth"
+    static let defaultSidebarWidth: Double = 220
+    static let defaultMinimumSidebarWidth: Double = 216
+    static let minimumSidebarWidth: Double = 216
+    static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
     static let minimumWindowHeight: Double = 200
@@ -25,10 +28,33 @@ enum SessionPersistencePolicy {
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
 
-    static func sanitizedSidebarWidth(_ candidate: Double?) -> Double {
-        let fallback = defaultSidebarWidth
+    static func sanitizedSidebarWidth(_ candidate: Double?, defaults: UserDefaults = .standard) -> Double {
+        let resolvedMinimum = resolvedMinimumSidebarWidth(defaults: defaults)
+        let fallback = min(max(defaultSidebarWidth, resolvedMinimum), maximumSidebarWidth)
         guard let candidate, candidate.isFinite else { return fallback }
-        return min(max(candidate, minimumSidebarWidth), maximumSidebarWidth)
+        return min(max(candidate, resolvedMinimum), maximumSidebarWidth)
+    }
+
+    static func resolvedMinimumSidebarWidth(defaults: UserDefaults = .standard) -> Double {
+        guard let candidate = storedSidebarMinimumWidth(defaults: defaults) else {
+            return defaultMinimumSidebarWidth
+        }
+        return sanitizedMinimumSidebarWidth(candidate)
+    }
+
+    static func sanitizedMinimumSidebarWidth(_ candidate: Double) -> Double {
+        guard candidate.isFinite else { return defaultMinimumSidebarWidth }
+        return min(max(candidate, sidebarMinimumWidthRange.lowerBound), sidebarMinimumWidthRange.upperBound)
+    }
+
+    private static func storedSidebarMinimumWidth(defaults: UserDefaults) -> Double? {
+        if let value = defaults.object(forKey: sidebarMinimumWidthKey) as? NSNumber {
+            return value.doubleValue
+        }
+        if let value = defaults.string(forKey: sidebarMinimumWidthKey) {
+            return Double(value)
+        }
+        return nil
     }
 
     static func truncatedScrollback(_ text: String?) -> String? {
@@ -333,6 +359,23 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
 
         let scriptInput = "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))\n"
         return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
+    }
+
+    func startupCommandWithLauncherScript(
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> String? {
+        guard let inlineInput = inlineStartupInput,
+              let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
+                  inlineInput: inlineInput,
+                  binding: self,
+                  fileManager: fileManager,
+                  temporaryDirectory: temporaryDirectory,
+                  returnToLoginShell: true
+              ) else {
+            return nil
+        }
+        return "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))"
     }
 
     private static func normalized(_ rawValue: String?) -> String? {
@@ -1169,6 +1212,34 @@ enum SurfaceResumeApprovalStore {
 #endif
 }
 
+nonisolated enum TerminalStartupReturnShellScript {
+    private static let shellLine = #"_cmux_resume_shell="${SHELL:-/bin/zsh}""#
+    private static let zshIntegrationReentryLines = [
+        #"if [[ "${_cmux_resume_shell:t}" == "zsh" && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" && -r "${CMUX_SHELL_INTEGRATION_DIR}/.zshenv" ]]; then"#,
+        #"  if [[ -n "${ZDOTDIR+X}" ]]; then"#,
+        #"    export CMUX_ZSH_ZDOTDIR="$ZDOTDIR""#,
+        #"  else"#,
+        #"    unset CMUX_ZSH_ZDOTDIR"#,
+        #"  fi"#,
+        #"  export ZDOTDIR="$CMUX_SHELL_INTEGRATION_DIR""#,
+        #"fi"#,
+    ]
+
+    static func commandThenReturnLines(command: String) -> [String] {
+        let quotedCommand = TerminalStartupShellQuoting.singleQuoted(command)
+        return [
+            shellLine,
+            #"case "${_cmux_resume_shell:t}" in"#,
+            #"  zsh|bash) "$_cmux_resume_shell" -lic \#(quotedCommand) ;;"#,
+            #"  csh|tcsh) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
+            #"  *) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
+            #"esac"#,
+        ] + zshIntegrationReentryLines + [
+            #"exec -l "$_cmux_resume_shell""#
+        ]
+    }
+}
+
 private enum SurfaceResumeBindingScriptStore {
     private static let directoryName = "cmux-surface-resume"
     private static let scriptTTL: TimeInterval = 24 * 60 * 60
@@ -1177,7 +1248,8 @@ private enum SurfaceResumeBindingScriptStore {
         inlineInput: String,
         binding: SurfaceResumeBindingSnapshot,
         fileManager: FileManager,
-        temporaryDirectory: URL
+        temporaryDirectory: URL,
+        returnToLoginShell: Bool = false
     ) -> URL? {
         let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
         do {
@@ -1190,7 +1262,16 @@ private enum SurfaceResumeBindingScriptStore {
                 "\(prefix)-\(UUID().uuidString).zsh",
                 isDirectory: false
             )
-            let contents = "#!/bin/zsh\nrm -f -- \"$0\" 2>/dev/null || true\n\(inlineInput)"
+            var lines = [
+                "#!/bin/zsh",
+                "rm -f -- \"$0\" 2>/dev/null || true"
+            ]
+            if returnToLoginShell {
+                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(command: inlineInput))
+            } else {
+                lines.append(inlineInput)
+            }
+            let contents = lines.joined(separator: "\n") + "\n"
             try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
             try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
             return scriptURL
@@ -1234,7 +1315,9 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
+    var hibernation: SessionAgentHibernationSnapshot?
     var resumeBinding: SurfaceResumeBindingSnapshot?
+    var textBoxDraft: SessionTextBoxInputDraftSnapshot?
     var remotePTYSessionID: String?
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
@@ -1245,7 +1328,9 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         scrollback: String? = nil,
         agent: SessionRestorableAgentSnapshot? = nil,
         tmuxStartCommand: String? = nil,
+        hibernation: SessionAgentHibernationSnapshot? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
+        textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil
     ) {
@@ -1253,11 +1338,103 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.scrollback = scrollback
         self.agent = agent
         self.tmuxStartCommand = tmuxStartCommand
+        self.hibernation = hibernation
         self.resumeBinding = resumeBinding
+        self.textBoxDraft = textBoxDraft
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
     }
 }
+
+struct SessionAgentHibernationSnapshot: Codable, Sendable {
+    var hibernatedAt: TimeInterval
+    var lastActivityAt: TimeInterval
+}
+
+struct SessionTextBoxInputDraftSnapshot: Codable, Equatable, Sendable {
+    var isActive: Bool
+    var parts: [SessionTextBoxInputDraftPart]
+}
+
+struct SessionTextBoxInputDraftPart: Codable, Equatable, Sendable {
+    enum Kind: String, Codable, Sendable {
+        case text
+        case attachment
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case text
+        case attachment
+    }
+
+    let kind: Kind
+    let text: String?
+    let attachment: SessionTextBoxInputAttachmentSnapshot?
+
+    private init(kind: Kind, text: String?, attachment: SessionTextBoxInputAttachmentSnapshot?) {
+        self.kind = kind
+        self.text = text
+        self.attachment = attachment
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try container.decode(Kind.self, forKey: .kind)
+        let text = try container.decodeIfPresent(String.self, forKey: .text)
+        let attachment = try container.decodeIfPresent(
+            SessionTextBoxInputAttachmentSnapshot.self,
+            forKey: .attachment
+        )
+
+        switch kind {
+        case .text:
+            guard text != nil, attachment == nil else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .text,
+                    in: container,
+                    debugDescription: "Text draft parts must contain text and no attachment."
+                )
+            }
+        case .attachment:
+            guard attachment != nil, text == nil else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .attachment,
+                    in: container,
+                    debugDescription: "Attachment draft parts must contain an attachment and no text."
+                )
+            }
+        }
+
+        self.kind = kind
+        self.text = text
+        self.attachment = attachment
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(text, forKey: .text)
+        try container.encodeIfPresent(attachment, forKey: .attachment)
+    }
+
+    static func text(_ text: String) -> SessionTextBoxInputDraftPart {
+        SessionTextBoxInputDraftPart(kind: .text, text: text, attachment: nil)
+    }
+
+    static func attachment(_ attachment: SessionTextBoxInputAttachmentSnapshot) -> SessionTextBoxInputDraftPart {
+        SessionTextBoxInputDraftPart(kind: .attachment, text: nil, attachment: attachment)
+    }
+}
+
+struct SessionTextBoxInputAttachmentSnapshot: Codable, Equatable, Sendable {
+    var displayName: String
+    var submissionText: String
+    var submissionPath: String
+    var localPath: String?
+    var cleanupLocalPathWhenDisposed: Bool
+}
+
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
     var profileID: UUID?
@@ -1276,7 +1453,21 @@ struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
 }
 
 struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
-    var mode: RightSidebarMode
+    var mode: RightSidebarMode?
+
+    init(mode: RightSidebarMode?) {
+        self.mode = mode
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case mode
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let raw = try container.decodeIfPresent(String.self, forKey: .mode)
+        self.mode = raw.flatMap { RightSidebarMode(rawValue: $0) }
+    }
 }
 
 struct SessionNotificationSnapshot: Codable, Sendable {
@@ -1348,6 +1539,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var isPinned: Bool
     var isManuallyUnread: Bool
     var hasUnreadIndicator: Bool? = nil
+    var restoredUnreadContributesToWorkspace: Bool? = nil
     var notifications: [SessionNotificationSnapshot]? = nil
     var gitBranch: SessionGitBranchSnapshot?
     var listeningPorts: [Int]
@@ -1457,6 +1649,18 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
     var remote: SessionRemoteWorkspaceSnapshot?
+}
+
+extension SessionWorkspaceSnapshot {
+    var hasRestorablePanels: Bool {
+        !panels.isEmpty
+    }
+}
+
+extension SessionWindowSnapshot {
+    var hasRestorablePanels: Bool {
+        tabManager.workspaces.contains { $0.hasRestorablePanels }
+    }
 }
 
 struct SessionTabManagerSnapshot: Codable, Sendable {

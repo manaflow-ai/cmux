@@ -325,6 +325,39 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: CloseTabWarningSettings.warnBeforeClosingTabKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "warnBeforeClosingTabXButton",
+                settingsKey: "app.warnBeforeClosingTabXButton",
+                title: {
+                    String(
+                        localized: "settings.app.warnBeforeClosingTabXButton",
+                        defaultValue: "Warn Before Tab Close Button"
+                    )
+                },
+                sectionTitle: app,
+                keywords: [
+                    "app.warnBeforeClosingTabXButton",
+                    "warn",
+                    "close",
+                    "tab",
+                    "x",
+                    "button",
+                    "confirmation",
+                ],
+                defaultValue: CloseTabWarningSettings.defaultWarnBeforeClosingTabXButton,
+                defaultsKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "hideTabCloseButton",
+                settingsKey: "app.hideTabCloseButton",
+                title: {
+                    String(localized: "settings.app.hideTabCloseButton", defaultValue: "Hide Tab Close Button")
+                },
+                sectionTitle: app,
+                keywords: ["app.hideTabCloseButton", "hide", "close", "tab", "x", "button"],
+                defaultValue: CloseTabWarningSettings.defaultHideTabCloseButton,
+                defaultsKey: CloseTabWarningSettings.hideTabCloseButtonKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "renameSelectsExistingName",
                 settingsKey: "app.renameSelectsExistingName",
                 title: {
@@ -384,6 +417,34 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "agentHibernation",
+                settingsKey: "terminal.agentHibernation.enabled",
+                title: {
+                    String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation")
+                },
+                sectionTitle: terminal,
+                keywords: [
+                    "terminal.agentHibernation.enabled",
+                    "terminal",
+                    "agent",
+                    "hibernation",
+                    "hibernate",
+                    "suspend",
+                    "claude",
+                    "codex",
+                    "opencode",
+                    "idle",
+                ],
+                isOn: { defaults in AgentHibernationSettings.isEnabled(defaults: defaults) },
+                setOn: { newValue, defaults, notificationCenter in
+                    AgentHibernationSettings.setValues(
+                        enabled: newValue,
+                        defaults: defaults,
+                        notificationCenter: notificationCenter
+                    )
+                }
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "hideAllSidebarDetails",
                 settingsKey: "sidebar.hideAllDetails",
                 title: {
@@ -393,6 +454,20 @@ enum CommandPaletteSettingsToggleCommands {
                 keywords: ["sidebar.hideAllDetails", "sidebar", "hide", "details", "compact", "title"],
                 defaultValue: SidebarWorkspaceDetailSettings.defaultHideAllDetails,
                 defaultsKey: SidebarWorkspaceDetailSettings.hideAllDetailsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "wrapWorkspaceTitlesInSidebar",
+                settingsKey: "sidebar.wrapWorkspaceTitles",
+                title: {
+                    String(
+                        localized: "settings.app.wrapWorkspaceTitles",
+                        defaultValue: "Wrap Workspace Titles in Sidebar"
+                    )
+                },
+                sectionTitle: sidebar,
+                keywords: ["sidebar.wrapWorkspaceTitles", "sidebar", "workspace", "title", "wrap", "pr", "pull", "request"],
+                defaultValue: SidebarWorkspaceTitleWrapSettings.defaultWrap,
+                defaultsKey: SidebarWorkspaceTitleWrapSettings.key
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "showWorkspaceDescriptionInSidebar",
