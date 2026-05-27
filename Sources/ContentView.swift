@@ -11236,6 +11236,7 @@ struct VerticalTabsSidebar: View {
         .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
             [tab.id: anchor]
         }
+        .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
     }
 
     @ViewBuilder
@@ -11304,6 +11305,12 @@ struct VerticalTabsSidebar: View {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
     }
+}
+
+private enum SidebarWorkspaceGroupingMetrics {
+    /// Leading inset applied to workspace rows that belong to a group, so members
+    /// visually nest under the group header (like Dia's tab groups).
+    static let memberIndent: CGFloat = 12
 }
 
 /// Dia-style collapsible group header that sits between workspace rows in the sidebar.

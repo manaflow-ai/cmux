@@ -1207,6 +1207,7 @@ class TabManager: ObservableObject {
         }
         didSet {
             guard selectedTabId != oldValue else { return }
+            expandWorkspaceGroupForSelectionIfNeeded()
             sentryBreadcrumb("workspace.switch", data: [
                 "tabCount": tabs.count
             ])
@@ -5789,10 +5790,24 @@ class TabManager: ObservableObject {
             }
         }
         reordered.append(contentsOf: ungrouped)
-        // Only assign when the order actually changes to avoid spurious republishes.
-        if reordered.map(\.id) != tabs.map(\.id) {
-            tabs = reordered
+        // Always reassign so SwiftUI consumers re-evaluate row modifiers that depend
+        // on `Workspace.groupId` (e.g. the sidebar indent applied to grouped rows).
+        // Without this, "add to group" on a workspace already in the right tab-array
+        // position would not re-render the row's indent.
+        tabs = reordered
+    }
+
+    /// Ensure the group containing the newly-selected workspace is expanded, so the
+    /// selected row is actually visible in the sidebar. Called from `selectedTabId`'s
+    /// didSet. No-op when the workspace is ungrouped or its group is already expanded.
+    private func expandWorkspaceGroupForSelectionIfNeeded() {
+        guard let selectedTabId,
+              let groupId = tabs.first(where: { $0.id == selectedTabId })?.groupId,
+              let index = workspaceGroups.firstIndex(where: { $0.id == groupId }),
+              workspaceGroups[index].isCollapsed else {
+            return
         }
+        workspaceGroups[index].isCollapsed = false
     }
 
     /// Remove any groups that no longer contain workspaces. Called after operations that
