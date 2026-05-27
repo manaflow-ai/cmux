@@ -3802,6 +3802,61 @@ extension SessionPersistenceTests {
         )
     }
 
+    func testAgentHookSurfaceResumeStartupInputRunsWhenSavedWorkingDirectoryWasDeleted() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-surface-resume-missing-cwd-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let deletedCwd = root.appendingPathComponent("deleted", isDirectory: true)
+            .appendingPathComponent("repo", isDirectory: true)
+        let outputURL = root.appendingPathComponent("codex-output.txt", isDirectory: false)
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let fakeCodex = bin.appendingPathComponent("codex", isDirectory: false)
+        try """
+        #!/bin/zsh
+        print -r -- "$PWD|$*" > "$CMUX_FAKE_CODEX_OUTPUT"
+        """.write(to: fakeCodex, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCodex.path)
+
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "cd '\(deletedCwd.path)' && codex resume session-duplicate-turn --yolo",
+            cwd: deletedCwd.path,
+            checkpointId: "session-duplicate-turn",
+            source: "agent-hook",
+            environment: [
+                "CLAUDE_CONFIG_DIR": root.appendingPathComponent("claude-profile", isDirectory: true).path
+            ],
+            autoResume: true
+        )
+
+        let startupInput = try XCTUnwrap(binding.startupInput)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", startupInput]
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(bin.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_FAKE_CODEX_OUTPUT"] = outputURL.path
+        process.environment = environment
+        let stderr = Pipe()
+        process.standardError = stderr
+
+        try process.run()
+        process.waitUntilExit()
+
+        let errorText = String(
+            data: stderr.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        XCTAssertEqual(process.terminationStatus, 0, errorText)
+
+        let output = try String(contentsOf: outputURL, encoding: .utf8)
+        XCTAssertTrue(output.contains("resume session-duplicate-turn --yolo"), output)
+        XCTAssertFalse(output.hasPrefix("\(deletedCwd.path)|"), output)
+    }
+
     func testSurfaceResumeBindingStartupInputUsesLauncherScriptWhenLong() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-surface-resume-test-\(UUID().uuidString)", isDirectory: true)
