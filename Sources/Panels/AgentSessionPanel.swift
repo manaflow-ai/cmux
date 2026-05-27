@@ -28,6 +28,9 @@ final class AgentSessionPanel: Panel, ObservableObject {
         self.initialProviderID = initialProviderID
         self.workingDirectory = workingDirectory
         self.displayTitle = Self.title(provider: initialProviderID, rendererKind: rendererKind)
+        self.rendererSession.onHasActiveProviderChanged = { [weak self] hasActiveProvider in
+            self?.setHasActiveProvider(hasActiveProvider)
+        }
     }
 
     nonisolated static func title(
@@ -48,6 +51,11 @@ final class AgentSessionPanel: Panel, ObservableObject {
 
     func close() {
         rendererSession.close()
+    }
+
+    private func setHasActiveProvider(_ hasActiveProvider: Bool) {
+        guard isDirty != hasActiveProvider else { return }
+        isDirty = hasActiveProvider
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {

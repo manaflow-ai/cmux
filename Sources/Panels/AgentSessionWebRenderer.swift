@@ -187,6 +187,11 @@ final class AgentSessionWebView: WKWebView {
 @MainActor
 final class AgentSessionWebRendererSession {
     private let ownedCoordinator = AgentSessionWebRenderer.Coordinator()
+    var onHasActiveProviderChanged: ((Bool) -> Void)? {
+        didSet {
+            ownedCoordinator.onHasActiveProviderChanged = onHasActiveProviderChanged
+        }
+    }
 
     func coordinator(
         panelId: UUID,
@@ -240,6 +245,11 @@ extension AgentSessionWebRenderer {
         private var isPanelFocused = false
         private var isClosed = false
         private var processStore = AgentSessionProcessStore()
+        var onHasActiveProviderChanged: ((Bool) -> Void)? {
+            didSet {
+                onHasActiveProviderChanged?(processStore.hasActiveProviderSession)
+            }
+        }
 
         func bind(
             panelId: UUID,
@@ -268,6 +278,9 @@ extension AgentSessionWebRenderer {
             }
             processStore.eventSink = { [weak self] event in
                 self?.sendEvent(event)
+            }
+            processStore.activeProviderSink = { [weak self] hasActiveProvider in
+                self?.onHasActiveProviderChanged?(hasActiveProvider)
             }
         }
 
@@ -1002,7 +1015,16 @@ private final class AgentSessionProcessStore {
     }
 
     var eventSink: (([String: Any]) -> Void)?
+    var activeProviderSink: ((Bool) -> Void)? {
+        didSet {
+            emitActiveProviderStateIfNeeded()
+        }
+    }
+    var hasActiveProviderSession: Bool {
+        !sessions.isEmpty
+    }
     private var sessions: [String: RunningSession] = [:]
+    private var lastEmittedHasActiveProviderSession: Bool?
 
     func start(plan: AgentSessionLaunchPlan, workingDirectory: String?) throws -> StartedSession {
         guard sessions.isEmpty else {
@@ -1058,6 +1080,7 @@ private final class AgentSessionProcessStore {
                       let session = self.sessions.removeValue(forKey: sessionId) else {
                     return
                 }
+                self.emitActiveProviderStateIfNeeded()
                 self.emitExit(
                     sessionId: sessionId,
                     providerID: session.providerID,
@@ -1068,12 +1091,14 @@ private final class AgentSessionProcessStore {
 
         do {
             try process.run()
+            emitActiveProviderStateIfNeeded()
             try running.codexAppServerSession?.start()
         } catch {
             if process.isRunning {
                 process.terminate()
             }
             sessions.removeValue(forKey: sessionId)
+            emitActiveProviderStateIfNeeded()
             throw error
         }
 
@@ -1113,6 +1138,7 @@ private final class AgentSessionProcessStore {
             session.process.terminate()
         }
         sessions.removeAll()
+        emitActiveProviderStateIfNeeded()
     }
 
     private func installReadHandler(_ fileHandle: FileHandle, sessionId: String, stream: String) {
@@ -1196,6 +1222,7 @@ private final class AgentSessionProcessStore {
                       removedSession === session else {
                     return
                 }
+                self.emitActiveProviderStateIfNeeded()
                 if session.process.isRunning {
                     session.process.terminate()
                 }
@@ -1323,6 +1350,13 @@ private final class AgentSessionProcessStore {
             "providerId": providerID.rawValue,
             "status": status
         ])
+    }
+
+    private func emitActiveProviderStateIfNeeded() {
+        let hasActiveProviderSession = self.hasActiveProviderSession
+        guard lastEmittedHasActiveProviderSession != hasActiveProviderSession else { return }
+        lastEmittedHasActiveProviderSession = hasActiveProviderSession
+        activeProviderSink?(hasActiveProviderSession)
     }
 
     private final class RunningSession {
