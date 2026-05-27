@@ -1046,6 +1046,23 @@ func titlebarShortcutHintShouldShow(
     !shortcut.isUnbound && (alwaysShowShortcutHints || (shortcut.command && modifierPressed))
 }
 
+private struct MainWindowContextRoleEnvironmentKey: EnvironmentKey {
+    static let defaultValue: AppDelegate.MainWindowContextRole = .standard
+}
+
+extension EnvironmentValues {
+    var mainWindowContextRole: AppDelegate.MainWindowContextRole {
+        get { self[MainWindowContextRoleEnvironmentKey.self] }
+        set { self[MainWindowContextRoleEnvironmentKey.self] = newValue }
+    }
+}
+
+extension View {
+    func mainWindowContextRole(_ role: AppDelegate.MainWindowContextRole) -> some View {
+        environment(\.mainWindowContextRole, role)
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let windowId: UUID
@@ -1055,6 +1072,7 @@ struct ContentView: View {
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
+    @Environment(\.mainWindowContextRole) private var mainWindowContextRole
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
@@ -2253,7 +2271,14 @@ struct ContentView: View {
     @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
     @AppStorage("bgGlassEnabled") private var bgGlassEnabled = false
     @State private var titlebarLeadingInset: CGFloat = 12
-    private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
+    private var windowIdentifier: String {
+        switch mainWindowContextRole {
+        case .standard:
+            return "cmux.main.\(windowId.uuidString)"
+        case .globalHotkeyPanel:
+            return GlobalHotkeyPanelConfiguration.windowIdentifier
+        }
+    }
     private var windowAppearanceSnapshot: WindowAppearanceSnapshot {
         _ = titlebarThemeGeneration
         return WindowAppearanceSnapshot.current(
@@ -3313,7 +3338,8 @@ struct ContentView: View {
                 sidebarState: sidebarState,
                 sidebarSelectionState: sidebarSelectionState,
                 fileExplorerState: fileExplorerState,
-                cmuxConfigStore: cmuxConfigStore
+                cmuxConfigStore: cmuxConfigStore,
+                role: mainWindowContextRole
             )
             installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
         }))

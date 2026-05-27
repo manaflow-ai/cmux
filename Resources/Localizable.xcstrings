@@ -76766,7 +76766,24 @@
             "state": "translated",
             "value": "글로벌 단축키"
           }
-        }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "الاختصار العام" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Globalna prečica" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Global genvejstast" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Globaler Hotkey" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Tecla rápida global" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Raccourci global" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Tasto rapido globale" } },
+        "km": { "stringUnit": { "state": "translated", "value": "គ្រាប់ចុចផ្លូវកាត់សកល" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Global hurtigtast" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Globalny skrót" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Tecla de atalho global" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Глобальная горячая клавиша" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ปุ่มลัดส่วนกลาง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Genel kısayol" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Глобальна гаряча клавіша" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "全局热键" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "全域熱鍵" } }
       }
     },
     "settings.section.keyboardShortcuts": {
@@ -77319,6 +77336,131 @@
         }
       }
     },
+    "globalHotkey.window.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Hotkey Window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ホットキーウィンドウ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 핫키 윈도우"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نافذة الاختصار في cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux prozor prečice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-hotkeyvindue"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Hotkey-Fenster"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ventana de tecla rápida de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fenêtre de raccourci cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finestra tasto rapido cmux"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្អួចគ្រាប់ចុចផ្លូវកាត់ cmux"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-hurtigtastvindu"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okno skrótu cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Janela de tecla de atalho do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Окно горячей клавиши cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าต่างปุ่มลัด cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Kısayol Penceresi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вікно гарячої клавіші cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 热键窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 熱鍵視窗"
+          }
+        }
+      }
+    },
     "settings.globalHotkey.enable": {
       "extractionState": "manual",
       "localizations": {
@@ -77339,7 +77481,24 @@
             "state": "translated",
             "value": "시스템 전체 단축키 활성화"
           }
-        }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "تفعيل الاختصار على مستوى النظام" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Omogući sistemsku prečicu" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Slå systemdækkende genvejstast til" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Systemweiten Hotkey aktivieren" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Activar tecla rápida en todo el sistema" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Activer le raccourci système" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Abilita tasto rapido a livello di sistema" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បើកគ្រាប់ចុចផ្លូវកាត់ទូទាំងប្រព័ន្ធ" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Aktiver systemomfattende hurtigtast" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Włącz skrót systemowy" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Ativar tecla de atalho em todo o sistema" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Включить системную горячую клавишу" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เปิดใช้ปุ่มลัดทั้งระบบ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Sistem genelinde kısayolu etkinleştir" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Увімкнути загальносистемну гарячу клавішу" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "启用系统级热键" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "啟用全系統熱鍵" } }
       }
     },
     "settings.globalHotkey.enable.subtitleOff": {
@@ -77348,21 +77507,38 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turn this on to show or hide all cmux windows from any app."
+            "value": "Turn this on to show or hide a cmux overlay from any app, including full-screen spaces."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "どのアプリからでも cmux のすべてのウィンドウを表示または非表示にするにはオンにします。"
+            "value": "フルスクリーンスペースを含むどのアプリからでも cmux オーバーレイを表示または非表示にするにはオンにします。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 옵션을 켜면 어떤 앱에서든 모든 cmux 윈도우를 표시하거나 숨길 수 있습니다."
+            "value": "이 옵션을 켜면 전체 화면 Spaces를 포함해 어떤 앱에서든 cmux 오버레이를 표시하거나 숨길 수 있습니다."
           }
-        }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "شغّل هذا الخيار لإظهار أو إخفاء تراكب cmux من أي تطبيق، بما في ذلك مساحات ملء الشاشة." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Uključite ovo da prikažete ili sakrijete cmux preklop iz bilo koje aplikacije, uključujući prostore preko cijelog ekrana." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Slå dette til for at vise eller skjule en cmux-overlejring fra enhver app, også fuldskærmsområder." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Aktivieren, um ein cmux-Overlay aus jeder App ein- oder auszublenden, auch in Vollbild-Spaces." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Activa esto para mostrar u ocultar una superposición de cmux desde cualquier app, incluidos los espacios de pantalla completa." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Activez cette option pour afficher ou masquer une superposition cmux depuis n'importe quelle app, y compris les espaces plein écran." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Attivalo per mostrare o nascondere un overlay cmux da qualsiasi app, inclusi gli spazi a schermo intero." } },
+        "km": { "stringUnit": { "state": "translated", "value": "បើកជម្រើសនេះ ដើម្បីបង្ហាញ ឬលាក់ស្រទាប់ cmux ពីកម្មវិធីណាមួយ រួមទាំង Spaces ពេញអេក្រង់។" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Slå dette på for å vise eller skjule et cmux-overlegg fra hvilken som helst app, også fullskjermsområder." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Włącz, aby pokazywać lub ukrywać nakładkę cmux z dowolnej aplikacji, także w przestrzeniach pełnoekranowych." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Ative isto para mostrar ou ocultar uma sobreposição do cmux a partir de qualquer app, incluindo espaços em tela cheia." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Включите, чтобы показывать или скрывать оверлей cmux из любого приложения, включая полноэкранные пространства." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เปิดตัวเลือกนี้เพื่อแสดงหรือซ่อนโอเวอร์เลย์ cmux จากแอปใดก็ได้ รวมถึง Spaces แบบเต็มหน้าจอ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Tam ekran alanlar dahil herhangi bir uygulamadan cmux katmanını göstermek veya gizlemek için bunu açın." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Увімкніть, щоб показувати або приховувати накладку cmux з будь-якої програми, зокрема в повноекранних просторах." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "开启后可从任何 App 显示或隐藏 cmux 覆盖层，包括全屏空间。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "開啟後可從任何 App 顯示或隱藏 cmux 覆蓋層，包括全螢幕空間。" } }
       }
     },
     "settings.globalHotkey.enable.subtitleOn": {
@@ -77371,21 +77547,38 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press the shortcut from any app to show or hide all cmux windows."
+            "value": "Press the shortcut from any app to show or hide the cmux hotkey window."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "どのアプリからでもこのショートカットで cmux のすべてのウィンドウを表示または非表示にできます。"
+            "value": "どのアプリからでもこのショートカットで cmux ホットキーウィンドウを表示または非表示にできます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "어떤 앱에서든 단축키를 눌러 모든 cmux 윈도우를 표시하거나 숨깁니다."
+            "value": "어떤 앱에서든 단축키를 눌러 cmux 핫키 윈도우를 표시하거나 숨깁니다."
           }
-        }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "اضغط على الاختصار من أي تطبيق لإظهار أو إخفاء نافذة اختصار cmux." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Pritisnite prečicu iz bilo koje aplikacije da prikažete ili sakrijete cmux prozor prečice." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Tryk på genvejen fra enhver app for at vise eller skjule cmux-hotkeyvinduet." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Drücken Sie den Kurzbefehl aus jeder App, um das cmux-Hotkey-Fenster ein- oder auszublenden." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Pulsa el atajo desde cualquier app para mostrar u ocultar la ventana de tecla rápida de cmux." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Appuyez sur le raccourci depuis n'importe quelle app pour afficher ou masquer la fenêtre de raccourci cmux." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Premi la scorciatoia da qualsiasi app per mostrare o nascondere la finestra tasto rapido cmux." } },
+        "km": { "stringUnit": { "state": "translated", "value": "ចុចគ្រាប់ចុចផ្លូវកាត់ពីកម្មវិធីណាមួយ ដើម្បីបង្ហាញ ឬលាក់បង្អួចគ្រាប់ចុចផ្លូវកាត់ cmux។" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Trykk på snarveien fra hvilken som helst app for å vise eller skjule cmux-hurtigtastvinduet." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Naciśnij skrót w dowolnej aplikacji, aby pokazać lub ukryć okno skrótu cmux." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Pressione o atalho em qualquer app para mostrar ou ocultar a janela de tecla de atalho do cmux." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Нажмите сочетание в любом приложении, чтобы показать или скрыть окно горячей клавиши cmux." } },
+        "th": { "stringUnit": { "state": "translated", "value": "กดปุ่มลัดจากแอปใดก็ได้เพื่อแสดงหรือซ่อนหน้าต่างปุ่มลัด cmux" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "cmux kısayol penceresini göstermek veya gizlemek için herhangi bir uygulamada kısayola basın." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Натисніть комбінацію в будь-якій програмі, щоб показати або приховати вікно гарячої клавіші cmux." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在任何 App 中按下快捷键即可显示或隐藏 cmux 热键窗口。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "在任何 App 中按下快捷鍵即可顯示或隱藏 cmux 熱鍵視窗。" } }
       }
     },
     "settings.globalHotkey.note": {
@@ -77394,21 +77587,38 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use Command, Option, or Control with another key. No extra macOS permission is required."
+            "value": "Use Command, Option, or Control with another key. The overlay uses a native panel that can appear over full-screen apps."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command、Option、または Control と別のキーを組み合わせてください。追加の macOS 権限は不要です。"
+            "value": "Command、Option、または Control と別のキーを組み合わせてください。このオーバーレイはフルスクリーンアプリの上に表示できるネイティブパネルを使用します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command, Option 또는 Control과 다른 키를 함께 사용하세요. 추가 macOS 권한이 필요하지 않습니다."
+            "value": "Command, Option 또는 Control과 다른 키를 함께 사용하세요. 이 오버레이는 전체 화면 앱 위에 표시될 수 있는 네이티브 패널을 사용합니다."
           }
-        }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "استخدم Command أو Option أو Control مع مفتاح آخر. يستخدم التراكب لوحة أصلية يمكن أن تظهر فوق تطبيقات ملء الشاشة." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Koristite Command, Option ili Control s drugom tipkom. Preklop koristi izvorni panel koji se može pojaviti iznad aplikacija preko cijelog ekrana." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Brug Command, Option eller Control sammen med en anden tast. Overlejringen bruger et indbygget panel, der kan vises over fuldskærmsapps." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verwenden Sie Command, Option oder Control mit einer weiteren Taste. Das Overlay nutzt ein natives Panel, das über Vollbild-Apps erscheinen kann." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Usa Command, Option o Control con otra tecla. La superposición usa un panel nativo que puede aparecer sobre apps de pantalla completa." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utilisez Command, Option ou Control avec une autre touche. La superposition utilise un panneau natif qui peut apparaître au-dessus des apps plein écran." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Usa Command, Option o Control con un altro tasto. L'overlay usa un pannello nativo che può apparire sopra le app a schermo intero." } },
+        "km": { "stringUnit": { "state": "translated", "value": "ប្រើ Command, Option ឬ Control ជាមួយគ្រាប់ចុចមួយទៀត។ ស្រទាប់នេះប្រើផ្ទាំងដើម ដែលអាចបង្ហាញលើកម្មវិធីពេញអេក្រង់។" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Bruk Command, Option eller Control sammen med en annen tast. Overlegget bruker et innebygd panel som kan vises over fullskjermsapper." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Użyj Command, Option lub Control z innym klawiszem. Nakładka używa natywnego panelu, który może pojawić się nad aplikacjami pełnoekranowymi." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Use Command, Option ou Control com outra tecla. A sobreposição usa um painel nativo que pode aparecer sobre apps em tela cheia." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Используйте Command, Option или Control с другой клавишей. Оверлей использует нативную панель, которая может появляться поверх полноэкранных приложений." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ใช้ Command, Option หรือ Control ร่วมกับปุ่มอื่น โอเวอร์เลย์นี้ใช้แผงแบบเนทีฟที่แสดงเหนือแอปเต็มหน้าจอได้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Command, Option veya Control tuşunu başka bir tuşla kullanın. Katman, tam ekran uygulamaların üzerinde görünebilen yerel bir panel kullanır." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Використовуйте Command, Option або Control з іншою клавішею. Накладка використовує нативну панель, яка може з'являтися поверх повноекранних програм." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "将 Command、Option 或 Control 与另一个按键组合使用。该覆盖层使用原生面板，可显示在全屏 App 上方。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "將 Command、Option 或 Control 與另一個按鍵組合使用。此覆蓋層使用原生面板，可顯示在全螢幕 App 上方。" } }
       }
     },
     "settings.globalHotkey.shortcut": {
@@ -77417,21 +77627,38 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show/Hide All Windows"
+            "value": "Show/Hide Hotkey Window"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべてのウィンドウを表示/非表示"
+            "value": "ホットキーウィンドウを表示/非表示"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모든 윈도우 표시/숨기기"
+            "value": "핫키 윈도우 표시/숨기기"
           }
-        }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "إظهار/إخفاء نافذة الاختصار" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Prikaži/sakrij prozor prečice" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Vis/skjul hotkeyvindue" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Hotkey-Fenster ein-/ausblenden" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Mostrar/ocultar ventana de tecla rápida" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Afficher/masquer la fenêtre de raccourci" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Mostra/nascondi finestra tasto rapido" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បង្ហាញ/លាក់បង្អួចគ្រាប់ចុចផ្លូវកាត់" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Vis/skjul hurtigtastvindu" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Pokaż/ukryj okno skrótu" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Mostrar/ocultar janela de tecla de atalho" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Показать/скрыть окно горячей клавиши" } },
+        "th": { "stringUnit": { "state": "translated", "value": "แสดง/ซ่อนหน้าต่างปุ่มลัด" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kısayol penceresini göster/gizle" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Показати/приховати вікно гарячої клавіші" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "显示/隐藏热键窗口" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "顯示/隱藏熱鍵視窗" } }
       }
     },
     "settings.shortcuts.chords": {
@@ -78818,115 +79045,121 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward システム ショートカット グローバル ホットキー キーボード 表示 非表示 前面"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window システム ショートカット グローバル ホットキー キーボード 表示 非表示 オーバーレイ フルスクリーン"
                 }
             },
             "ar": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward لوحة مفاتيح اختصار اختصارات مفتاح سريع أوامر تسجيل مظهر سمة لون ألوان مخطط فاتح داكن نظام وضع النظام عام تقدم"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window لوحة مفاتيح اختصار اختصارات مفتاح سريع أوامر تسجيل مظهر سمة لون ألوان مخطط فاتح داكن نظام وضع النظام عام تقدم"
                 }
             },
             "bs": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward tastatura prečica prečice hotkey komande tipke snimač izgled tema boja boje shema svijetlo tamno sistem način Sistemski Globalno Naprijed"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window tastatura prečica prečice hotkey komande tipke snimač izgled tema boja boje shema svijetlo tamno sistem način Sistemski Globalno Naprijed"
                 }
             },
             "da": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward tastatur genvej genveje hotkey kommandoer taster optager udseende tema farve farver skema lys mørk tilstand Globalt Frem"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window tastatur genvej genveje hotkey kommandoer taster optager udseende tema farve farver skema lys mørk tilstand Globalt Frem"
                 }
             },
             "de": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward tastatur kurzbefehl tastenkürzel hotkey befehle tasten rekorder darstellung design farbe farben schema hell dunkel modus Vor"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window tastatur kurzbefehl tastenkürzel hotkey befehle tasten rekorder darstellung design farbe farben schema hell dunkel modus Vor"
                 }
             },
             "es": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward teclado atajo atajos tecla rápida comandos teclas grabador apariencia tema color colores esquema claro oscuro sistema modo Adelante"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window teclado atajo atajos tecla rápida comandos teclas grabador apariencia tema color colores esquema claro oscuro sistema modo Adelante"
                 }
             },
             "fr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward clavier raccourci raccourcis touche globale commandes touches enregistreur apparence thème couleur couleurs schéma clair sombre système mode Général Suivant"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window clavier raccourci raccourcis touche globale commandes touches enregistreur apparence thème couleur couleurs schéma clair sombre système mode Général Suivant"
                 }
             },
             "it": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward tastiera scorciatoia scorciatoie tasto rapido comandi tasti registratore aspetto tema colore colori schema chiaro scuro sistema modalità Globale Avanti"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window tastiera scorciatoia scorciatoie tasto rapido comandi tasti registratore aspetto tema colore colori schema chiaro scuro sistema modalità Globale Avanti"
                 }
             },
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward 키보드 단축키 핫키 명령 키 기록기 외관 테마 색상 색 구성표 라이트 다크 시스템 모드 전역 앞으로"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window 키보드 단축키 핫키 명령 키 기록기 외관 테마 색상 색 구성표 라이트 다크 시스템 모드 전역 앞으로"
+                }
+            },
+            "km": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window ប្រព័ន្ធ ផ្លូវកាត់ សកល ក្តារចុច បង្ហាញ លាក់ ស្រទាប់ ពេញអេក្រង់ បង្អួច"
                 }
             },
             "nb": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward tastatur snarvei snarveier hurtigtast kommandoer taster opptaker utseende tema farge farger skjema lys mørk modus Globalt Fremover"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window tastatur snarvei snarveier hurtigtast kommandoer taster opptaker utseende tema farge farger skjema lys mørk modus Globalt Fremover"
                 }
             },
             "pl": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward klawiatura skrót skróty klawisz polecenia klawisze rejestrator wygląd motyw kolor kolory schemat jasny ciemny tryb Systemowy Globalne Do przodu"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window klawiatura skrót skróty klawisz polecenia klawisze rejestrator wygląd motyw kolor kolory schemat jasny ciemny tryb Systemowy Globalne Do przodu"
                 }
             },
             "pt-BR": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward teclado atalho atalhos tecla rápida comandos teclas gravador aparência tema cor cores esquema claro escuro sistema modo Avançar"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window teclado atalho atalhos tecla rápida comandos teclas gravador aparência tema cor cores esquema claro escuro sistema modo Avançar"
                 }
             },
             "ru": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward клавиатура сочетание клавиш горячая клавиша команды клавиши запись внешний вид тема цвет цвета схема светлый темный система режим Системное Глобальные Вперед Системный Системная"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window клавиатура сочетание клавиш горячая клавиша команды клавиши запись внешний вид тема цвет цвета схема светлый темный система режим Системное Глобальные Вперед Системный Системная"
                 }
             },
             "th": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward แป้นพิมพ์ ทางลัด ปุ่มลัด คำสั่ง คีย์ ตัวบันทึก ลักษณะ ธีม สี โครงร่าง สว่าง มืด ระบบ โหมด ทั่วไป ไปข้างหน้า"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window แป้นพิมพ์ ทางลัด ปุ่มลัด คำสั่ง คีย์ ตัวบันทึก ลักษณะ ธีม สี โครงร่าง สว่าง มืด ระบบ โหมด ทั่วไป ไปข้างหน้า"
                 }
             },
             "tr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward klavye kısayol kısayollar tuşu komutlar tuşlar kaydedici görünüm tema renk renkler şema açık koyu sistem mod Genel İleri"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window klavye kısayol kısayollar tuşu komutlar tuşlar kaydedici görünüm tema renk renkler şema açık koyu sistem mod Genel İleri"
                 }
             },
             "zh-Hans": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward 键盘 快捷键 热键 命令 按键 录制器 外观 主题 颜色 配色 浅色 深色 系统 模式 全局 前进"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window 键盘 快捷键 热键 命令 按键 录制器 外观 主题 颜色 配色 浅色 深色 系统 模式 全局 前进"
                 }
             },
             "zh-Hant": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward 鍵盤 快捷鍵 熱鍵 命令 按鍵 錄製器 外觀 主題 顏色 配色 淺色 深色 系統 模式 全域 下一頁"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window 鍵盤 快捷鍵 熱鍵 命令 按鍵 錄製器 外觀 主題 顏色 配色 淺色 深色 系統 模式 全域 下一頁"
                 }
             },
             "uk": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward клавіатура скорочення гарячі клавіші команди записувач вигляд тема колір кольори схема світлий темний система режим Системна Глобальна Вперед"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window клавіатура скорочення гарячі клавіші команди записувач вигляд тема колір кольори схема світлий темний система режим Системна Глобальна Вперед"
                 }
             }
         }
@@ -87658,115 +87891,121 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows グローバルホットキー 有効 システム全体 表示 非表示 全ウィンドウ"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen グローバルホットキー 有効 システム全体 表示 非表示 オーバーレイ フルスクリーン"
                 }
             },
             "ar": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows لوحة مفاتيح اختصار اختصارات مفتاح سريع أوامر تسجيل مظهر سمة لون ألوان مخطط فاتح داكن نظام وضع كلمة مرور سر رمز اعتماد وصول سماح تعطيل تمكين إذن غير آمن النظام عام"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen لوحة مفاتيح اختصار اختصارات مفتاح سريع أوامر تسجيل مظهر سمة لون ألوان مخطط فاتح داكن نظام وضع كلمة مرور سر رمز اعتماد وصول سماح تعطيل تمكين إذن غير آمن النظام عام"
                 }
             },
             "bs": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows tastatura prečica prečice komande tipke snimač izgled tema boja boje shema svijetlo tamno sistem način lozinka tajna token vjerodajnica pristup dozvoli onemogući omogući dozvola nesigurno Sistemski Globalno"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen tastatura prečica prečice komande tipke snimač izgled tema boja boje shema svijetlo tamno sistem način lozinka tajna token vjerodajnica pristup dozvoli onemogući omogući dozvola nesigurno Sistemski Globalno"
                 }
             },
             "da": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows tastatur genvej genveje kommandoer taster optager udseende tema farve farver skema lys mørk tilstand adgangskode hemmelighed token legitimationsoplysninger adgang tillad deaktiver aktiver tilladelse usikker Globalt"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen tastatur genvej genveje kommandoer taster optager udseende tema farve farver skema lys mørk tilstand adgangskode hemmelighed token legitimationsoplysninger adgang tillad deaktiver aktiver tilladelse usikker Globalt"
                 }
             },
             "de": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows tastatur kurzbefehl tastenkürzel befehle tasten rekorder darstellung design farbe farben schema hell dunkel modus passwort geheimnis token zugangsdaten zugriff erlauben deaktivieren aktivieren berechtigung unsicher"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen tastatur kurzbefehl tastenkürzel befehle tasten rekorder darstellung design farbe farben schema hell dunkel modus passwort geheimnis token zugangsdaten zugriff erlauben deaktivieren aktivieren berechtigung unsicher"
                 }
             },
             "es": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows teclado atajo atajos tecla rápida comandos teclas grabador apariencia tema color colores esquema claro oscuro sistema modo contraseña secreto token credencial acceso permitir desactivar activar permiso inseguro"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen teclado atajo atajos tecla rápida comandos teclas grabador apariencia tema color colores esquema claro oscuro sistema modo contraseña secreto token credencial acceso permitir desactivar activar permiso inseguro"
                 }
             },
             "fr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows clavier raccourci raccourcis touche globale commandes touches enregistreur apparence thème couleur couleurs schéma clair sombre système mode mot de passe secret jeton identifiant accès autoriser désactiver activer autorisation non sécurisé Général"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen clavier raccourci raccourcis touche globale commandes touches enregistreur apparence thème couleur couleurs schéma clair sombre système mode mot de passe secret jeton identifiant accès autoriser désactiver activer autorisation non sécurisé Général"
                 }
             },
             "it": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows tastiera scorciatoia scorciatoie tasto rapido comandi tasti registratore aspetto tema colore colori schema chiaro scuro sistema modalità password segreto token credenziale accesso consenti disabilita abilita autorizzazione non sicuro Globale"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen tastiera scorciatoia scorciatoie tasto rapido comandi tasti registratore aspetto tema colore colori schema chiaro scuro sistema modalità password segreto token credenziale accesso consenti disabilita abilita autorizzazione non sicuro Globale"
                 }
             },
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows 키보드 단축키 핫키 명령 키 기록기 외관 테마 색상 색 구성표 라이트 다크 시스템 모드 비밀번호 비밀 토큰 자격 증명 접근 허용 비활성화 활성화 권한 안전하지 않음 전역 글로벌 모든 윈도우 표시/숨기기"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen 키보드 단축키 핫키 명령 키 기록기 외관 테마 색상 색 구성표 라이트 다크 시스템 모드 비밀번호 비밀 토큰 자격 증명 접근 허용 비활성화 활성화 권한 안전하지 않음 전역 글로벌 오버레이 전체 화면"
+                }
+            },
+            "km": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen ក្តារចុច ផ្លូវកាត់ ហត់ឃី បង្ហាញ លាក់ ស្រទាប់ បង្អួច ពេញអេក្រង់ បើក អនុញ្ញាត ប្រព័ន្ធ"
                 }
             },
             "nb": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows tastatur snarvei snarveier hurtigtast kommandoer taster opptaker utseende tema farge farger skjema lys mørk modus passord hemmelighet token legitimasjon tilgang tillat deaktiver aktiver tillatelse usikker Globalt"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen tastatur snarvei snarveier hurtigtast kommandoer taster opptaker utseende tema farge farger skjema lys mørk modus passord hemmelighet token legitimasjon tilgang tillat deaktiver aktiver tillatelse usikker Globalt"
                 }
             },
             "pl": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows klawiatura skrót skróty klawisz polecenia klawisze rejestrator wygląd motyw kolor kolory schemat jasny ciemny tryb hasło sekret token poświadczenie dostęp zezwól wyłącz włącz uprawnienie niezabezpieczone Systemowy Globalne"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen klawiatura skrót skróty klawisz polecenia klawisze rejestrator wygląd motyw kolor kolory schemat jasny ciemny tryb hasło sekret token poświadczenie dostęp zezwól wyłącz włącz uprawnienie niezabezpieczone Systemowy Globalne"
                 }
             },
             "pt-BR": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows teclado atalho atalhos tecla rápida comandos teclas gravador aparência tema cor cores esquema claro escuro sistema modo senha segredo token credencial acesso permitir desativar ativar permissão inseguro"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen teclado atalho atalhos tecla rápida comandos teclas gravador aparência tema cor cores esquema claro escuro sistema modo senha segredo token credencial acesso permitir desativar ativar permissão inseguro"
                 }
             },
             "ru": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows клавиатура сочетание клавиш горячая клавиша команды клавиши запись внешний вид тема цвет цвета схема светлый темный система режим пароль секрет токен учетные данные доступ разрешить отключить включить разрешение небезопасно Системное Глобальные Системный Системная"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen клавиатура сочетание клавиш горячая клавиша команды клавиши запись внешний вид тема цвет цвета схема светлый темный система режим пароль секрет токен учетные данные доступ разрешить отключить включить разрешение небезопасно Системное Глобальные Системный Системная"
                 }
             },
             "th": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows แป้นพิมพ์ ทางลัด ปุ่มลัด คำสั่ง คีย์ ตัวบันทึก ลักษณะ ธีม สี โครงร่าง สว่าง มืด ระบบ โหมด รหัสผ่าน ความลับ โทเค็น ข้อมูลรับรอง เข้าถึง อนุญาต ปิด เปิด สิทธิ์ ไม่ปลอดภัย ทั่วไป"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen แป้นพิมพ์ ทางลัด ปุ่มลัด คำสั่ง คีย์ ตัวบันทึก ลักษณะ ธีม สี โครงร่าง สว่าง มืด ระบบ โหมด รหัสผ่าน ความลับ โทเค็น ข้อมูลรับรอง เข้าถึง อนุญาต ปิด เปิด สิทธิ์ ไม่ปลอดภัย ทั่วไป"
                 }
             },
             "tr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows klavye kısayol kısayollar tuşu komutlar tuşlar kaydedici görünüm tema renk renkler şema açık koyu sistem mod parola gizli token kimlik bilgisi erişim izin ver devre dışı etkinleştir güvensiz Genel"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen klavye kısayol kısayollar tuşu komutlar tuşlar kaydedici görünüm tema renk renkler şema açık koyu sistem mod parola gizli token kimlik bilgisi erişim izin ver devre dışı etkinleştir güvensiz Genel"
                 }
             },
             "zh-Hans": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows 键盘 快捷键 热键 命令 按键 录制器 外观 主题 颜色 配色 浅色 深色 系统 模式 密码 密钥 令牌 凭据 访问 允许 禁用 启用 权限 不安全 全局"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen 键盘 快捷键 热键 命令 按键 录制器 外观 主题 颜色 配色 浅色 深色 系统 模式 密码 密钥 令牌 凭据 访问 允许 禁用 启用 权限 不安全 全局"
                 }
             },
             "zh-Hant": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows 鍵盤 快捷鍵 熱鍵 命令 按鍵 錄製器 外觀 主題 顏色 配色 淺色 深色 系統 模式 密碼 密鑰 權杖 憑證 存取 允許 停用 啟用 權限 不安全 全域"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen 鍵盤 快捷鍵 熱鍵 命令 按鍵 錄製器 外觀 主題 顏色 配色 淺色 深色 系統 模式 密碼 密鑰 權杖 憑證 存取 允許 停用 啟用 權限 不安全 全域"
                 }
             },
             "uk": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows клавіатура скорочення гарячі клавіші команди записувач вигляд тема колір кольори схема світлий темний система режим пароль секрет токен облікові дані доступ дозволити вимкнути увімкнути дозвіл небезпечно Системна Глобальна"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen клавіатура скорочення гарячі клавіші команди записувач вигляд тема колір кольори схема світлий темний система режим пароль секрет токен облікові дані доступ дозволити вимкнути увімкнути дозвіл небезпечно Системна Глобальна"
                 }
             }
         }
@@ -87777,115 +88016,121 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control"
+                    "value": "global hotkey overlay shortcut recorder key command option control"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control グローバルホットキー ショートカット レコーダー command option control"
+                    "value": "global hotkey overlay shortcut recorder key command option control グローバルホットキー オーバーレイ ショートカット レコーダー command option control"
                 }
             },
             "ar": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control أتمتة واجهة برمجة سطر أوامر تحكم مأخذ وكيل خطافات منافذ بيئة لوحة مفاتيح اختصار اختصارات مفتاح سريع تسجيل عام"
+                    "value": "global hotkey overlay shortcut recorder key command option control أتمتة واجهة برمجة سطر أوامر تحكم مأخذ وكيل خطافات منافذ بيئة لوحة مفاتيح اختصار اختصارات مفتاح سريع تسجيل عام"
                 }
             },
             "bs": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control automatizacija api cli kontrola socket agent kuke portovi okruženje tastatura prečica prečice komande tipke snimač Globalno"
+                    "value": "global hotkey overlay shortcut recorder key command option control automatizacija api cli kontrola socket agent kuke portovi okruženje tastatura prečica prečice komande tipke snimač Globalno"
                 }
             },
             "da": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control automatisering api cli kontrol socket agent hooks porte miljø tastatur genvej genveje kommandoer taster optager Globalt"
+                    "value": "global hotkey overlay shortcut recorder key command option control automatisering api cli kontrol socket agent hooks porte miljø tastatur genvej genveje kommandoer taster optager Globalt"
                 }
             },
             "de": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control automatisierung api cli steuerung socket agent hooks ports umgebung tastatur kurzbefehl tastenkürzel befehle tasten rekorder"
+                    "value": "global hotkey overlay shortcut recorder key command option control automatisierung api cli steuerung socket agent hooks ports umgebung tastatur kurzbefehl tastenkürzel befehle tasten rekorder"
                 }
             },
             "es": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control automatización api cli socket agente hooks puertos entorno teclado atajo atajos tecla rápida comandos teclas grabador"
+                    "value": "global hotkey overlay shortcut recorder key command option control automatización api cli socket agente hooks puertos entorno teclado atajo atajos tecla rápida comandos teclas grabador"
                 }
             },
             "fr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control automatisation api cli contrôle socket agent hooks ports environnement clavier raccourci raccourcis touche globale commandes touches enregistreur Général"
+                    "value": "global hotkey overlay shortcut recorder key command option control automatisation api cli contrôle socket agent hooks ports environnement clavier raccourci raccourcis touche globale commandes touches enregistreur Général"
                 }
             },
             "it": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control automazione api cli controllo socket agente hook porte ambiente tastiera scorciatoia scorciatoie tasto rapido comandi tasti registratore Globale"
+                    "value": "global hotkey overlay shortcut recorder key command option control automazione api cli controllo socket agente hook porte ambiente tastiera scorciatoia scorciatoie tasto rapido comandi tasti registratore Globale"
                 }
             },
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control 자동화 api cli 제어 소켓 에이전트 훅 포트 환경 키보드 단축키 핫키 명령 키 기록기 전역 글로벌"
+                    "value": "global hotkey overlay shortcut recorder key command option control 자동화 api cli 제어 소켓 에이전트 훅 포트 환경 키보드 단축키 핫키 명령 키 기록기 전역 글로벌 오버레이"
+                }
+            },
+            "km": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "global hotkey overlay shortcut recorder key command option control សកល ហត់ឃី ស្រទាប់ ផ្លូវកាត់ កត់ត្រា គ្រាប់ចុច command option control ក្តារចុច"
                 }
             },
             "nb": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control automatisering api cli kontroll socket agent hooks porter miljø tastatur snarvei snarveier hurtigtast kommandoer taster opptaker Globalt"
+                    "value": "global hotkey overlay shortcut recorder key command option control automatisering api cli kontroll socket agent hooks porter miljø tastatur snarvei snarveier hurtigtast kommandoer taster opptaker Globalt"
                 }
             },
             "pl": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control automatyzacja api cli sterowanie gniazdo agent haki porty środowisko klawiatura skrót skróty klawisz polecenia klawisze rejestrator Globalne"
+                    "value": "global hotkey overlay shortcut recorder key command option control automatyzacja api cli sterowanie gniazdo agent haki porty środowisko klawiatura skrót skróty klawisz polecenia klawisze rejestrator Globalne"
                 }
             },
             "pt-BR": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control automação api cli controle socket agente hooks portas ambiente teclado atalho atalhos tecla rápida comandos teclas gravador"
+                    "value": "global hotkey overlay shortcut recorder key command option control automação api cli controle socket agente hooks portas ambiente teclado atalho atalhos tecla rápida comandos teclas gravador"
                 }
             },
             "ru": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control автоматизация api cli управление сокет агент хуки порты окружение клавиатура сочетание клавиш горячая клавиша команды клавиши запись Глобальные"
+                    "value": "global hotkey overlay shortcut recorder key command option control автоматизация api cli управление сокет агент хуки порты окружение клавиатура сочетание клавиш горячая клавиша команды клавиши запись Глобальные"
                 }
             },
             "th": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control อัตโนมัติ api cli ควบคุม ซ็อกเก็ต เอเจนต์ ฮุก พอร์ต สภาพแวดล้อม แป้นพิมพ์ ทางลัด ปุ่มลัด คำสั่ง คีย์ ตัวบันทึก ทั่วไป"
+                    "value": "global hotkey overlay shortcut recorder key command option control อัตโนมัติ api cli ควบคุม ซ็อกเก็ต เอเจนต์ ฮุก พอร์ต สภาพแวดล้อม แป้นพิมพ์ ทางลัด ปุ่มลัด คำสั่ง คีย์ ตัวบันทึก ทั่วไป"
                 }
             },
             "tr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control otomasyon api cli kontrol soket ajan kancalar portlar ortam klavye kısayol kısayollar tuşu komutlar tuşlar kaydedici Genel"
+                    "value": "global hotkey overlay shortcut recorder key command option control otomasyon api cli kontrol soket ajan kancalar portlar ortam klavye kısayol kısayollar tuşu komutlar tuşlar kaydedici Genel"
                 }
             },
             "zh-Hans": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control 自动化 api cli 控制 套接字 代理 钩子 端口 环境 键盘 快捷键 热键 命令 按键 录制器 全局"
+                    "value": "global hotkey overlay shortcut recorder key command option control 自动化 api cli 控制 套接字 代理 钩子 端口 环境 键盘 快捷键 热键 命令 按键 录制器 全局"
                 }
             },
             "zh-Hant": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control 自動化 api cli 控制 socket 代理程式 hook 連接埠 環境 鍵盤 快捷鍵 熱鍵 命令 按鍵 錄製器 全域"
+                    "value": "global hotkey overlay shortcut recorder key command option control 自動化 api cli 控制 socket 代理程式 hook 連接埠 環境 鍵盤 快捷鍵 熱鍵 命令 按鍵 錄製器 全域"
                 }
             },
             "uk": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control автоматизація api cli керування сокет агент хуки порти середовище клавіатура скорочення гарячі клавіші команди записувач Глобальна"
+                    "value": "global hotkey overlay shortcut recorder key command option control автоматизація api cli керування сокет агент хуки порти середовище клавіатура скорочення гарячі клавіші команди записувач Глобальна"
                 }
             }
         }

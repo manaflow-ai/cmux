@@ -575,12 +575,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Self.detectRunningUnderXCTest(env)
     }
 
+    enum MainWindowContextRole {
+        case standard
+        case globalHotkeyPanel
+
+        var isSessionRestorable: Bool {
+            switch self {
+            case .standard:
+                return true
+            case .globalHotkeyPanel:
+                return false
+            }
+        }
+    }
+
     @MainActor
     final class MainWindowContext {
         let windowId: UUID
         let tabManager: TabManager
         let sidebarState: SidebarState
         let sidebarSelectionState: SidebarSelectionState
+        let role: MainWindowContextRole
         var fileExplorerState: FileExplorerState?
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
@@ -591,6 +606,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager: TabManager,
             sidebarState: SidebarState,
             sidebarSelectionState: SidebarSelectionState,
+            role: MainWindowContextRole = .standard,
             fileExplorerState: FileExplorerState?,
             cmuxConfigStore: CmuxConfigStore?,
             window: NSWindow?
@@ -599,6 +615,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.tabManager = tabManager
             self.sidebarState = sidebarState
             self.sidebarSelectionState = sidebarSelectionState
+            self.role = role
             self.fileExplorerState = fileExplorerState
             self.cmuxConfigStore = cmuxConfigStore
             self.window = window
@@ -716,6 +733,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
+    private lazy var globalHotkeyPanelController = GlobalHotkeyPanelController(
+        appDelegate: self,
+        contentState: GlobalHotkeyPanelContentState()
+    )
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
     private struct PendingConfiguredShortcutChord {
@@ -3553,7 +3574,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !includeScrollback else { return nil }
 
         var hasher = Hasher()
-        let contexts = mainWindowContexts.values.sorted { lhs, rhs in
+        let contexts = mainWindowContexts.values.filter { $0.role.isSessionRestorable }.sorted { lhs, rhs in
             lhs.windowId.uuidString < rhs.windowId.uuidString
         }
         hasher.combine(contexts.count)
@@ -3987,7 +4008,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func sortedMainWindowContextsForSessionSnapshot() -> [MainWindowContext] {
-        mainWindowContexts.values.sorted { lhs, rhs in
+        mainWindowContexts.values.filter { $0.role.isSessionRestorable }.sorted { lhs, rhs in
             let lhsWindow = lhs.window ?? windowForMainWindowId(lhs.windowId)
             let rhsWindow = rhs.window ?? windowForMainWindowId(rhs.windowId)
             let lhsIsKey = lhsWindow?.isKeyWindow ?? false
@@ -4114,7 +4135,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarState: SidebarState,
         sidebarSelectionState: SidebarSelectionState,
         fileExplorerState: FileExplorerState? = nil,
-        cmuxConfigStore: CmuxConfigStore? = nil
+        cmuxConfigStore: CmuxConfigStore? = nil,
+        role: MainWindowContextRole = .standard
     ) {
         let key = ObjectIdentifier(window)
         forgetRecoverableMainWindowRoute(windowId: windowId)
@@ -4178,6 +4200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager: tabManager,
                 sidebarState: sidebarState,
                 sidebarSelectionState: sidebarSelectionState,
+                role: role,
                 fileExplorerState: fileExplorerState,
                 cmuxConfigStore: cmuxConfigStore,
                 window: window
@@ -4206,13 +4229,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
 
-        let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
-        if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
-            isTerminatingApp: isTerminatingApp,
-            didApplyStartupSessionRestore: didApplyStartupSessionRestore,
-            isApplyingSessionRestore: isApplyingSessionRestore
-        ) {
-            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
+        let registeredContextRole = mainWindowContexts[key]?.role ?? role
+        if registeredContextRole.isSessionRestorable {
+            let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
+            if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: isTerminatingApp,
+                didApplyStartupSessionRestore: didApplyStartupSessionRestore,
+                isApplyingSessionRestore: isApplyingSessionRestore
+            ) {
+                saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
+            }
         }
     }
 
@@ -5463,6 +5489,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func mainWindowId(from window: NSWindow) -> UUID? {
+        if let context = mainWindowContexts[ObjectIdentifier(window)] {
+            return context.windowId
+        }
         guard let raw = window.identifier?.rawValue else { return nil }
         let prefix = "cmux.main."
         guard raw.hasPrefix(prefix) else { return nil }
@@ -5537,7 +5566,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in removedKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
-        rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
+        if removed.role.isSessionRestorable {
+            rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
+        }
         notifyMainWindowContextsDidChange()
         return removed
     }
@@ -5549,7 +5580,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in contextKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
-        rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
+        if context.role.isSessionRestorable {
+            rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
+        }
         notifyMainWindowContextsDidChange()
 
         commandPaletteVisibilityByWindowId.removeValue(forKey: context.windowId)
@@ -5561,7 +5594,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteSnapshotByWindowId.removeValue(forKey: context.windowId)
 
         if tabManager === context.tabManager {
-            activateMainWindowContext(Array(mainWindowContexts.values).first { resolvedWindow(for: $0) != nil } ?? (allowWindowlessFallback ? mainWindowContexts.values.first : nil))
+            activateMainWindowContext(firstSessionRestorableMainWindowContext(allowWindowlessFallback: allowWindowlessFallback))
         }
 
         if let store = notificationStore {
@@ -5574,6 +5607,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func pruneWindowlessMainWindowContexts() {
         for context in Array(mainWindowContexts.values) where resolvedWindow(for: context) == nil {
             discardOrphanedMainWindowContext(context)
+        }
+    }
+
+    private func firstSessionRestorableMainWindowContext(allowWindowlessFallback: Bool = false) -> MainWindowContext? {
+        Array(mainWindowContexts.values).first { context in
+            context.role.isSessionRestorable && resolvedWindow(for: context) != nil
+        } ?? (allowWindowlessFallback ? mainWindowContexts.values.first { $0.role.isSessionRestorable } : nil)
+    }
+
+    private var liveSessionRestorableMainWindowContextCount: Int {
+        Array(mainWindowContexts.values).reduce(0) { count, context in
+            guard context.role.isSessionRestorable, resolvedWindow(for: context) != nil else { return count }
+            return count + 1
         }
     }
 
@@ -6622,6 +6668,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func hasVisibleMainTerminalWindow() -> Bool {
         mainWindowContexts.values.contains { context in
+            guard context.role.isSessionRestorable else { return false }
             guard let window = resolvedWindow(for: context) else { return false }
             return window.isVisible && !window.isMiniaturized && window.alphaValue > 0.001
         }
@@ -8044,10 +8091,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func toggleApplicationVisibilityFromGlobalHotkey() {
-        mainWindowVisibilityController.toggleApplicationVisibility(
-            windows: mainWindowsForVisibilityController(),
-            reason: .globalHotkey
-        )
+        globalHotkeyPanelController.toggle()
     }
 
     @discardableResult
@@ -8080,11 +8124,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func preferredMainWindowForVisibilityActivation() -> NSWindow? {
         if let keyWindow = NSApp.keyWindow,
-           isMainTerminalWindow(keyWindow) {
+           isSessionRestorableMainTerminalWindow(keyWindow) {
             return keyWindow
         }
         if let mainWindow = NSApp.mainWindow,
-           isMainTerminalWindow(mainWindow) {
+           isSessionRestorableMainTerminalWindow(mainWindow) {
             return mainWindow
         }
         if let visibleContext = sortedMainWindowContextsForSessionSnapshot().first(where: { context in
@@ -8132,7 +8176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 windows.append(window)
             }
         }
-        for window in NSApp.windows where isMainTerminalWindow(window) {
+        for window in NSApp.windows where isSessionRestorableMainTerminalWindow(window) {
             if !windows.contains(where: { $0 === window }) {
                 windows.append(window)
             }
@@ -14920,14 +14964,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
+    func restoreActiveMainWindowAfterHiding(_ hiddenWindow: NSWindow) {
+        guard let hiddenContext = contextForMainTerminalWindow(hiddenWindow, reindex: false),
+              tabManager === hiddenContext.tabManager else { return }
+
+        let nextContext = visibleSessionRestorableMainWindowContext(excluding: hiddenContext, hiddenWindow: hiddenWindow)
+        activateMainWindowContext(nextContext)
+#if DEBUG
+        cmuxDebugLog(
+            "mainWindow.active.restoreAfterHide hidden={\(debugWindowToken(hiddenWindow))} next={\(debugContextToken(nextContext))} \(debugShortcutRouteSnapshot())"
+        )
+#endif
+    }
+
+    private func visibleSessionRestorableMainWindowContext(
+        excluding excludedContext: MainWindowContext,
+        hiddenWindow: NSWindow
+    ) -> MainWindowContext? {
+        func candidate(from window: NSWindow?) -> MainWindowContext? {
+            guard let window, window !== hiddenWindow, window.isVisible else { return nil }
+            guard let context = contextForMainTerminalWindow(window),
+                  context !== excludedContext,
+                  context.role.isSessionRestorable else { return nil }
+            return context
+        }
+
+        if let context = candidate(from: NSApp.keyWindow) {
+            return context
+        }
+        if let context = candidate(from: NSApp.mainWindow) {
+            return context
+        }
+        for window in NSApp.orderedWindows {
+            if let context = candidate(from: window) {
+                return context
+            }
+        }
+        return mainWindowContexts.values.first { context in
+            guard context !== excludedContext, context.role.isSessionRestorable else { return false }
+            return resolvedWindow(for: context)?.isVisible == true
+        }
+    }
+
     private func handleMainTerminalWindowShouldClose() -> Bool {
-        // XCTest has no UI for the warn-before-quit dialog and would either block
-        // on runModal or have NSApp.terminate kill the test process.
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return true }
-        guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
+        guard shouldPromptBeforeClosingMainTerminalWindow() else { return true }
         _ = handleQuitShortcutWarning()
         return false
     }
+
+    private func shouldPromptBeforeClosingMainTerminalWindow(
+        isRunningUnderXCTest: Bool = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    ) -> Bool {
+        // XCTest has no UI for the warn-before-quit dialog and would either block
+        // on runModal or have NSApp.terminate kill the test process.
+        guard !isRunningUnderXCTest else { return false }
+        guard !isTerminatingApp else { return false }
+        return liveSessionRestorableMainWindowContextCount <= 1
+    }
+
+#if DEBUG
+    func shouldPromptBeforeClosingMainTerminalWindowForTesting(isRunningUnderXCTest: Bool = false) -> Bool {
+        shouldPromptBeforeClosingMainTerminalWindow(isRunningUnderXCTest: isRunningUnderXCTest)
+    }
+#endif
 
     private func unregisterMainWindow(_ window: NSWindow) {
         // Reset cascade point so the next new window appears near the closing
@@ -14966,10 +15065,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Repoint "active" pointers to any remaining main terminal window.
             let nextContext: MainWindowContext? = {
                 if let keyWindow = NSApp.keyWindow,
-                   let ctx = contextForMainTerminalWindow(keyWindow, reindex: false) {
+                   let ctx = contextForMainTerminalWindow(keyWindow, reindex: false),
+                   ctx.role.isSessionRestorable {
                     return ctx
                 }
-                return mainWindowContexts.values.first
+                return firstSessionRestorableMainWindowContext(allowWindowlessFallback: true)
             }()
 
             activateMainWindowContext(nextContext)
@@ -15026,6 +15126,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard let raw = window.identifier?.rawValue else { return false }
         return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+    }
+
+    private func isSessionRestorableMainTerminalWindow(_ window: NSWindow) -> Bool {
+        guard isMainTerminalWindow(window) else { return false }
+        return contextForMainTerminalWindow(window)?.role.isSessionRestorable ?? true
     }
 
     private func workspaceForMainActor(tabId: UUID) -> Workspace? {
