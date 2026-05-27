@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -315,6 +316,18 @@ const (
 
 var errPersistentDaemonAuthFailed = errors.New("persistent daemon authentication failed")
 
+const (
+	persistentDaemonStartupTimeout    = 5 * time.Second
+	persistentDaemonDialPollInterval  = 25 * time.Millisecond
+	persistentDaemonEmptyIdleTimeout  = 5 * time.Minute
+	persistentDaemonEmptyIdlePollStep = time.Second
+)
+
+type persistentDaemonServerConfig struct {
+	emptyIdleTimeout time.Duration
+	acceptPollStep   time.Duration
+}
+
 func persistentDaemonPathsForSlot(rawSlot string) (persistentDaemonPaths, error) {
 	slot, err := validatePersistentDaemonSlot(rawSlot)
 	if err != nil {
@@ -580,7 +593,11 @@ func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, st
 	_ = cmd.Process.Release()
 
 	if err := waitPersistentDaemonReady(readyReader, paths.logFile); err != nil {
-		if conn, dialErr := dialPersistentDaemon(paths.socket, token); dialErr == nil {
+		if conn, dialErr := waitForPersistentDaemonDial(
+			paths.socket,
+			token,
+			persistentDaemonStartupTimeout,
+		); dialErr == nil {
 			_ = conn.Close()
 			return nil
 		}
@@ -590,7 +607,7 @@ func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, st
 		return err
 	}
 
-	conn, err := dialPersistentDaemon(paths.socket, token)
+	conn, err := waitForPersistentDaemonDial(paths.socket, token, persistentDaemonStartupTimeout)
 	if err == nil {
 		_ = conn.Close()
 		return nil
@@ -599,6 +616,23 @@ func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, st
 		_, _ = fmt.Fprintf(stderr, "persistent daemon log: %s\n", paths.logFile)
 	}
 	return err
+}
+
+func waitForPersistentDaemonDial(socketPath string, token string, timeout time.Duration) (net.Conn, error) {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for {
+		conn, err := dialPersistentDaemon(socketPath, token)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, lastErr
+		}
+		time.Sleep(minDuration(remaining, persistentDaemonDialPollInterval))
+	}
 }
 
 func shouldRemovePersistentSocketAfterDialError(err error) bool {
@@ -664,7 +698,12 @@ func runPersistentDaemonServer(slot string, stderr io.Writer) error {
 	_ = os.Chmod(paths.socket, 0o600)
 
 	signalPersistentDaemonReady()
-	return servePersistentDaemonWithVerifier(listener, persistentDaemonFileTokenVerifier(token, paths.tokenFile), stderr)
+	return servePersistentDaemonWithVerifierConfig(
+		listener,
+		persistentDaemonFileTokenVerifier(token, paths.tokenFile),
+		stderr,
+		persistentDaemonServerConfig{emptyIdleTimeout: persistentDaemonEmptyIdleTimeout},
+	)
 }
 
 func signalPersistentDaemonReady() {
@@ -715,18 +754,85 @@ func persistentDaemonTokensEqual(provided string, token string) bool {
 }
 
 func servePersistentDaemonWithVerifier(listener net.Listener, verifier persistentDaemonTokenVerifier, stderr io.Writer) error {
+	return servePersistentDaemonWithVerifierConfig(listener, verifier, stderr, persistentDaemonServerConfig{})
+}
+
+func servePersistentDaemonWithVerifierConfig(
+	listener net.Listener,
+	verifier persistentDaemonTokenVerifier,
+	stderr io.Writer,
+	config persistentDaemonServerConfig,
+) error {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{}, stderr)
 	defer hub.closeAll()
+	var activeConnections int64
+	var idleSince time.Time
 	for {
+		if config.emptyIdleTimeout > 0 {
+			now := time.Now()
+			isEmpty := atomic.LoadInt64(&activeConnections) == 0 && hub.activeSessionCount() == 0
+			if isEmpty {
+				if idleSince.IsZero() {
+					idleSince = now
+				}
+				remaining := config.emptyIdleTimeout - now.Sub(idleSince)
+				if remaining <= 0 {
+					return nil
+				}
+				setPersistentDaemonAcceptDeadline(listener, now.Add(minDuration(
+					remaining,
+					persistentDaemonAcceptPollStep(config),
+				)))
+			} else {
+				idleSince = time.Time{}
+				setPersistentDaemonAcceptDeadline(listener, now.Add(persistentDaemonAcceptPollStep(config)))
+			}
+		}
 		conn, err := listener.Accept()
 		if err != nil {
+			if isTimeoutError(err) {
+				continue
+			}
 			if isClosedListenerError(err) {
 				return nil
 			}
 			return err
 		}
-		go handlePersistentDaemonConn(conn, verifier, hub)
+		atomic.AddInt64(&activeConnections, 1)
+		go func() {
+			defer atomic.AddInt64(&activeConnections, -1)
+			handlePersistentDaemonConn(conn, verifier, hub)
+		}()
 	}
+}
+
+func persistentDaemonAcceptPollStep(config persistentDaemonServerConfig) time.Duration {
+	if config.acceptPollStep > 0 {
+		return config.acceptPollStep
+	}
+	return persistentDaemonEmptyIdlePollStep
+}
+
+type deadlineListener interface {
+	SetDeadline(time.Time) error
+}
+
+func setPersistentDaemonAcceptDeadline(listener net.Listener, deadline time.Time) {
+	if deadlineListener, ok := listener.(deadlineListener); ok {
+		_ = deadlineListener.SetDeadline(deadline)
+	}
+}
+
+func minDuration(a time.Duration, b time.Duration) time.Duration {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func isTimeoutError(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func isClosedListenerError(err error) bool {

@@ -684,6 +684,117 @@ func TestPersistentDaemonPTYReattachSurvivesClientDisconnect(t *testing.T) {
 	}
 }
 
+func TestWaitForPersistentDaemonDialWaitsForPeerStartup(t *testing.T) {
+	socketDir, err := os.MkdirTemp("/tmp", "cmuxd-remote-race-*")
+	if err != nil {
+		t.Fatalf("create short socket dir: %v", err)
+	}
+	defer os.RemoveAll(socketDir)
+	socketPath := filepath.Join(socketDir, "rpc.sock")
+
+	type listenerResult struct {
+		listener net.Listener
+		err      error
+	}
+	listenerCh := make(chan listenerResult, 1)
+	done := make(chan error, 1)
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		listener, listenErr := net.Listen("unix", socketPath)
+		listenerCh <- listenerResult{listener: listener, err: listenErr}
+		if listenErr != nil {
+			done <- listenErr
+			return
+		}
+		done <- servePersistentDaemonWithVerifier(listener, persistentDaemonFixedTokenVerifier("race-token"), io.Discard)
+	}()
+
+	conn, err := waitForPersistentDaemonDial(socketPath, "race-token", time.Second)
+	if err != nil {
+		t.Fatalf("waitForPersistentDaemonDial returned error: %v", err)
+	}
+	_ = conn.Close()
+
+	gotListener := <-listenerCh
+	if gotListener.err != nil {
+		t.Fatalf("listen unix: %v", gotListener.err)
+	}
+	_ = gotListener.listener.Close()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("persistent daemon exited with error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("persistent daemon did not stop")
+	}
+}
+
+func TestPersistentDaemonServerExitsAfterEmptySlotIdleTimeout(t *testing.T) {
+	socketDir, err := os.MkdirTemp("/tmp", "cmuxd-remote-idle-*")
+	if err != nil {
+		t.Fatalf("create short socket dir: %v", err)
+	}
+	defer os.RemoveAll(socketDir)
+	socketPath := filepath.Join(socketDir, "rpc.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen unix: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- servePersistentDaemonWithVerifierConfig(
+			listener,
+			persistentDaemonFixedTokenVerifier("idle-token"),
+			io.Discard,
+			persistentDaemonServerConfig{
+				emptyIdleTimeout: 80 * time.Millisecond,
+				acceptPollStep:   10 * time.Millisecond,
+			},
+		)
+	}()
+
+	conn, reader, writer := openPersistentTestClient(t, socketPath, "idle-token")
+	attach := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "idle-session",
+			"attachment_id":           "idle-attachment",
+			"client_attachment_token": "idle-attachment-token",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "sleep 60",
+		},
+	})
+	if ok, _ := attach["ok"].(bool); !ok {
+		t.Fatalf("pty.attach failed: %v", attach)
+	}
+	readPersistentTestEvent(t, conn, reader, func(frame map[string]any) bool {
+		return frame["event"] == "pty.ready" && frame["attachment_id"] == "idle-attachment"
+	})
+
+	closeResp := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
+		ID:     2,
+		Method: "pty.close",
+		Params: map[string]any{"session_id": "idle-session"},
+	})
+	if ok, _ := closeResp["ok"].(bool); !ok {
+		t.Fatalf("pty.close failed: %v", closeResp)
+	}
+	_ = conn.Close()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("persistent daemon exited with error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("persistent daemon did not stop after empty idle timeout")
+	}
+}
+
 func TestRunStdioSlotRequiresPersistent(t *testing.T) {
 	var stderr bytes.Buffer
 	code := run([]string{"serve", "--stdio", "--slot", "slot-without-persistent"}, strings.NewReader(""), &bytes.Buffer{}, &stderr)
