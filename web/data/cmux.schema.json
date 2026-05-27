@@ -260,8 +260,8 @@
         },
         "openMarkdownInCmuxViewer": {
           "type": "boolean",
-          "default": false,
-          "description": "When enabled together with openSupportedFilesInCmux, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview."
+          "default": true,
+          "description": "When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview."
         },
         "reorderOnNotification": {
           "type": "boolean",

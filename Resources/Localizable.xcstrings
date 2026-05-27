@@ -113114,13 +113114,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When supported file routing is on, Cmd-clicking Markdown files opens the rendered cmux markdown viewer instead of the generic file preview."
+            "value": "Cmd-clicking Markdown files opens the rendered cmux markdown viewer instead of the generic file preview."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "対応ファイルのルーティングが有効な場合、Markdown ファイルを Cmd+クリックすると、汎用ファイルプレビューではなくレンダリング済みの cmux マークダウンビューアで開きます。"
+            "value": "Markdown ファイルを Cmd+クリックすると、汎用ファイルプレビューではなくレンダリング済みの cmux マークダウンビューアで開きます。"
           }
         },
         "ko": {
