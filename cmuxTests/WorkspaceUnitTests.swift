@@ -228,6 +228,36 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(background.color?.hexString(), "#C0392B")
         XCTAssertEqual(background.opacity, 0.7, accuracy: 0.001)
     }
+
+    @MainActor
+    func testBatchWorkspaceColorAppliesOnlyRequestedWorkspaces() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.applyWorkspaceColor("#C0392B", toWorkspaceIds: [second.id])
+
+        manager.applyWorkspaceColor("#1565C0", toWorkspaceIds: [first.id, third.id])
+
+        XCTAssertEqual(first.customColor, "#1565C0")
+        XCTAssertEqual(second.customColor, "#C0392B")
+        XCTAssertEqual(third.customColor, "#1565C0")
+    }
+
+    @MainActor
+    func testBatchWorkspaceTerminalScrollBarVisibilityAppliesOnlyRequestedWorkspaces() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.setWorkspaceTerminalScrollBarHidden(hidden: true, forWorkspaceIds: [first.id, second.id, third.id])
+
+        manager.setWorkspaceTerminalScrollBarHidden(hidden: false, forWorkspaceIds: [first.id, third.id])
+
+        XCTAssertFalse(first.terminalScrollBarHidden)
+        XCTAssertTrue(second.terminalScrollBarHidden)
+        XCTAssertFalse(third.terminalScrollBarHidden)
+    }
 }
 
 
@@ -3550,6 +3580,49 @@ final class SidebarWorkspaceAuxiliaryDetailVisibilityTests: XCTestCase {
             ),
             .hidden
         )
+    }
+}
+
+
+final class SidebarWorkspaceSelectionSyncPolicyTests: XCTestCase {
+    @MainActor
+    func testReconciledSelectionPreservesMultiSelectionAfterReorder() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let fourth = UUID()
+        let previousSelection: Set<UUID> = [second, third]
+
+        let result = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+            previousSelectionIds: previousSelection,
+            liveWorkspaceIds: [first, third, fourth, second],
+            fallbackSelectedWorkspaceId: second
+        )
+
+        XCTAssertEqual(result, previousSelection)
+        XCTAssertEqual(
+            SidebarWorkspaceSelectionSyncPolicy.anchorIndex(
+                preferredWorkspaceId: second,
+                selectedWorkspaceIds: result,
+                liveWorkspaceIds: [first, third, fourth, second]
+            ),
+            3
+        )
+    }
+
+    @MainActor
+    func testReconciledSelectionFallsBackToActiveWorkspaceWhenPreviousSelectionIsGone() {
+        let first = UUID()
+        let second = UUID()
+        let removed = UUID()
+
+        let result = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+            previousSelectionIds: [removed],
+            liveWorkspaceIds: [first, second],
+            fallbackSelectedWorkspaceId: second
+        )
+
+        XCTAssertEqual(result, [second])
     }
 }
 
