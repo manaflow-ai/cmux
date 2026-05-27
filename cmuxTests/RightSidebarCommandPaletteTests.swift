@@ -23,7 +23,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                     "Expected command palette contribution for \(mode.rawValue)"
                 )
 
-                XCTAssertEqual(contribution.title(context), mode.shortcutAction.label)
+                XCTAssertEqual(contribution.title(context), mode.shortcutAction?.label ?? mode.label)
                 XCTAssertEqual(
                     contribution.subtitle(context),
                     String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")

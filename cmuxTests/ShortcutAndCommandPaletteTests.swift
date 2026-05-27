@@ -773,6 +773,26 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
             )
         )
     }
+
+    func testTerminalFocusTextBoxCommandRestoresTextBoxAfterPaletteDismiss() {
+        XCTAssertEqual(
+            ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalFocusTextBoxInput"),
+            .terminal(.textBoxInput)
+        )
+    }
+
+    func testTerminalAttachTextBoxFileCommandRestoresTextBoxAfterPaletteDismiss() {
+        XCTAssertEqual(
+            ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalAttachTextBoxFile"),
+            .terminal(.textBoxInput)
+        )
+    }
+
+    func testOtherCommandPaletteCommandsDoNotForcePostRunFocusRestore() {
+        XCTAssertNil(
+            ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalToggleTextBoxInput")
+        )
+    }
 }
 
 
@@ -840,6 +860,19 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
 
 
 final class ShortcutHintModifierPolicyTests: XCTestCase {
+    func testTitlebarShortcutHintActionSlotsIncludeFocusHistoryNavigation() {
+        XCTAssertEqual(
+            TitlebarShortcutHintActionSlot.allCases.map(\.action),
+            [
+                .toggleSidebar,
+                .showNotifications,
+                .newTab,
+                .focusHistoryBack,
+                .focusHistoryForward,
+            ]
+        )
+    }
+
     func testTitlebarShortcutHintAlwaysShowAllowsBoundNonCommandShortcut() {
         let controlShortcut = StoredShortcut(key: "R", command: false, shift: false, option: false, control: true)
         let commandShortcut = StoredShortcut(key: "R", command: true, shift: false, option: false, control: false)
@@ -1405,7 +1438,7 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         XCTAssertEqual(ShortcutHintDebugSettings.defaultSidebarHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultSidebarHintY, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintX, 4.0)
-        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintY, 0.0)
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintY, -5.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintY, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultRightSidebarCloseHintX, -10.0)
@@ -1517,6 +1550,24 @@ final class ShortcutHintHorizontalPlannerTests: XCTestCase {
         let intervals: [ClosedRange<CGFloat>] = [0...12, 20...32, 40...52]
         let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 4)
         XCTAssertEqual(rightEdges, [12, 32, 52])
+    }
+
+    func testAssignRightEdgesKeepsCrowdedHintsInsideLeadingEdge() {
+        let intervals: [ClosedRange<CGFloat>] = [-2...24, 27...50, 50...76, 78...102, 104...128]
+        let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 6)
+
+        let adjustedIntervals = zip(intervals, rightEdges).map { interval, rightEdge in
+            let width = interval.upperBound - interval.lowerBound
+            return (rightEdge - width)...rightEdge
+        }
+
+        XCTAssertGreaterThanOrEqual(adjustedIntervals[0].lowerBound, 0)
+        for index in 1..<adjustedIntervals.count {
+            XCTAssertGreaterThanOrEqual(
+                adjustedIntervals[index].lowerBound - adjustedIntervals[index - 1].upperBound,
+                6
+            )
+        }
     }
 }
 

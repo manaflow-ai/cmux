@@ -67,10 +67,20 @@ const settingsFileExample = `{
   // "terminal": {
   //   "showScrollBar": false,
   //   "copyOnSelect": true,
-  //   "autoResumeAgentSessions": true
+  //   "autoResumeAgentSessions": true,
+  //   "agentHibernation": {
+  //     "enabled": false,
+  //     "idleSeconds": 3600,
+  //     "maxLiveTerminals": 12
+  //   },
+  //   "textBoxMaxLines": 10
   // },
 
   // "browser": {
+  //   "defaultSearchEngine": "kagi",
+  //   // For an unlisted provider, set "defaultSearchEngine": "custom" and fill these:
+  //   "customSearchEngineName": "My Search",
+  //   "customSearchEngineURLTemplate": "https://search.example.com/?q={query}",
   //   "openTerminalLinksInCmuxBrowser": true,
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
   // },

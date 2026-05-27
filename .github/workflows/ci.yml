@@ -33,6 +33,9 @@ jobs:
       - name: Validate GhosttyKit checksum verification
         run: ./tests/test_ci_ghosttykit_checksum_verification.sh
 
+      - name: Validate nightly tag push auth
+        run: ./tests/test_ci_nightly_tag_push_auth.sh
+
       - name: Validate release asset guard
         run: node scripts/release_asset_guard.test.js
 
@@ -50,6 +53,9 @@ jobs:
 
       - name: Validate pbxproj test-wiring lint
         run: ./tests/test_ci_pbxproj_test_wiring.sh
+
+      - name: Validate pbxproj objectVersion pin and normalization
+        run: ./scripts/check-pbxproj.sh
 
       # Paused: stale-base merge races (two PRs each fitting the budget can
       # overshoot when merged back-to-back without rebasing). CodeRabbit and
@@ -153,7 +159,7 @@ jobs:
 
   tests:
     runs-on: warp-macos-15-arm64-6x
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
       # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
@@ -184,12 +190,17 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Capture Ghostty revision
+        id: ghostty-revision
+        run: |
+          echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+          key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
@@ -215,10 +226,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/Library/Developer/Xcode/DerivedData/cmux-*
-          key: deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}
-          restore-keys: |
-            deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
-            deriveddata-tests-
+          key: deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -278,17 +286,9 @@ jobs:
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               CMUX_SKIP_ZIG_BUILD=1 \
-              -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests \
-              -skip-testing:cmuxTests/BrowserDeveloperToolsConfigurationTests \
-              -skip-testing:cmuxTests/BrowserDeveloperToolsVisibilityPersistenceTests \
-              -skip-testing:cmuxTests/BrowserPanelRemoteStoreTests \
-              -skip-testing:cmuxTests/BrowserPanelWebViewLifecycleTests \
-              -skip-testing:cmuxTests/BrowserSessionHistoryRestoreTests \
               -skip-testing:cmuxTests/CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields \
               -skip-testing:cmuxTests/CLINotifyProcessIntegrationRegressionTests/testGrokNotificationStillFiresOnRepeatedPromptWhenFeedTelemetryDoesNotReply \
               -skip-testing:cmuxTests/FileExplorerStoreTests/testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath \
-              -skip-testing:cmuxTests/FilePreviewPanelTextSavingTests \
-              -skip-testing:cmuxTests/FilePreviewReviewFeedbackTests \
               -skip-testing:cmuxTests/GhosttySurfaceOverlayTests \
               test 2>&1 &
             local xcodebuild_pid=$!
@@ -369,6 +369,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
+          python3 tests/test_stress_cli_socket_api.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_openagent_plugin_migration.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
           python3 tests/test_claude_wrapper_hooks.py
@@ -408,12 +409,17 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Capture Ghostty revision
+        id: ghostty-revision
+        run: |
+          echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit-lag
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+          key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit-lag.outputs.cache-hit != 'true'
@@ -439,10 +445,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/Library/Developer/Xcode/DerivedData/cmux-*
-          key: deriveddata-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}
-          restore-keys: |
-            deriveddata-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
-            deriveddata-build-
+          key: deriveddata-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -595,12 +598,17 @@ jobs:
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-path
 
+      - name: Capture Ghostty revision
+        id: ghostty-revision
+        run: |
+          echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit-release
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+          key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit-release.outputs.cache-hit != 'true'
@@ -626,10 +634,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: build-universal
-          key: deriveddata-release-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}
-          restore-keys: |
-            deriveddata-release-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
-            deriveddata-release-
+          key: deriveddata-release-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5

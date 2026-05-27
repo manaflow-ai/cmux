@@ -228,6 +228,36 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(background.color?.hexString(), "#C0392B")
         XCTAssertEqual(background.opacity, 0.7, accuracy: 0.001)
     }
+
+    @MainActor
+    func testBatchWorkspaceColorAppliesOnlyRequestedWorkspaces() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.applyWorkspaceColor("#C0392B", toWorkspaceIds: [second.id])
+
+        manager.applyWorkspaceColor("#1565C0", toWorkspaceIds: [first.id, third.id])
+
+        XCTAssertEqual(first.customColor, "#1565C0")
+        XCTAssertEqual(second.customColor, "#C0392B")
+        XCTAssertEqual(third.customColor, "#1565C0")
+    }
+
+    @MainActor
+    func testBatchWorkspaceTerminalScrollBarVisibilityAppliesOnlyRequestedWorkspaces() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.setWorkspaceTerminalScrollBarHidden(hidden: true, forWorkspaceIds: [first.id, second.id, third.id])
+
+        manager.setWorkspaceTerminalScrollBarHidden(hidden: false, forWorkspaceIds: [first.id, third.id])
+
+        XCTAssertFalse(first.terminalScrollBarHidden)
+        XCTAssertTrue(second.terminalScrollBarHidden)
+        XCTAssertFalse(third.terminalScrollBarHidden)
+    }
 }
 
 
@@ -301,8 +331,12 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testNextPreviousWorkspaceShortcutDefaultsAndMetadata() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.nextSidebarTab.label, "Next Workspace")
         XCTAssertEqual(KeyboardShortcutSettings.Action.prevSidebarTab.label, "Previous Workspace")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryBack.label, "Focus Back")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryForward.label, "Focus Forward")
         XCTAssertEqual(KeyboardShortcutSettings.Action.nextSidebarTab.defaultsKey, "shortcut.nextSidebarTab")
         XCTAssertEqual(KeyboardShortcutSettings.Action.prevSidebarTab.defaultsKey, "shortcut.prevSidebarTab")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryBack.defaultsKey, "shortcut.focusHistoryBack")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryForward.defaultsKey, "shortcut.focusHistoryForward")
 
         let nextShortcut = KeyboardShortcutSettings.Action.nextSidebarTab.defaultShortcut
         XCTAssertEqual(nextShortcut.key, "]")
@@ -317,6 +351,23 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(prevShortcut.shift)
         XCTAssertFalse(prevShortcut.option)
         XCTAssertTrue(prevShortcut.control)
+
+        let focusBackShortcut = KeyboardShortcutSettings.Action.focusHistoryBack.defaultShortcut
+        XCTAssertEqual(focusBackShortcut.key, "[")
+        XCTAssertTrue(focusBackShortcut.command)
+        XCTAssertFalse(focusBackShortcut.shift)
+        XCTAssertFalse(focusBackShortcut.option)
+        XCTAssertFalse(focusBackShortcut.control)
+
+        let focusForwardShortcut = KeyboardShortcutSettings.Action.focusHistoryForward.defaultShortcut
+        XCTAssertEqual(focusForwardShortcut.key, "]")
+        XCTAssertTrue(focusForwardShortcut.command)
+        XCTAssertFalse(focusForwardShortcut.shift)
+        XCTAssertFalse(focusForwardShortcut.option)
+        XCTAssertFalse(focusForwardShortcut.control)
+
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.focusHistoryBack))
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.focusHistoryForward))
     }
 
     func testNextPreviousWorkspaceShortcutsConvertToMenuShortcut() {
@@ -1053,6 +1104,53 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
 
         XCTAssertFalse(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled())
+    }
+
+    func testSettingsFileStoreParsesSidebarWorkspaceTitleWrapSetting() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SidebarWorkspaceTitleWrapSettings.key
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebar": {
+                "wrapWorkspaceTitles": true
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertTrue(SidebarWorkspaceTitleWrapSettings.wraps(defaults: defaults))
+        XCTAssertEqual(defaults.object(forKey: SidebarWorkspaceTitleWrapSettings.key) as? Bool, true)
     }
 
     func testSettingsFileStoreDoesNotApplyAutomaticAppIconDuringStartupReplay() throws {
@@ -1975,6 +2073,67 @@ final class StoredShortcutMatchingTests: XCTestCase {
                 modifierFlags: [.command],
                 eventCharacter: "q",
                 layoutCharacterProvider: { _, _ in nil }
+            )
+        )
+    }
+
+    func testCommandShortcutUsesPrintableEventLetterBeforePhysicalPunctuationFallback() {
+        let jumpToUnread = StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
+        let nextSurface = StoredShortcut(key: "]", command: true, shift: true, option: false, control: false)
+
+        XCTAssertTrue(
+            jumpToUnread.matches(
+                keyCode: 30,
+                modifierFlags: [.command, .shift],
+                eventCharacter: "u",
+                layoutCharacterProvider: { _, _ in "]" }
+            )
+        )
+        XCTAssertFalse(
+            nextSurface.matches(
+                keyCode: 30,
+                modifierFlags: [.command, .shift],
+                eventCharacter: "u",
+                layoutCharacterProvider: { _, _ in "]" }
+            )
+        )
+    }
+
+    func testCommandControlLetterCanUseLayoutFallbackForControlCharacter() {
+        let markUnreadAndJump = StoredShortcut(key: "u", command: true, shift: false, option: false, control: true)
+
+        XCTAssertTrue(
+            markUnreadAndJump.matches(
+                keyCode: 32,
+                modifierFlags: [.command, .control],
+                eventCharacter: "\u{15}",
+                layoutCharacterProvider: { keyCode, _ in keyCode == 32 ? "u" : nil }
+            )
+        )
+    }
+
+    func testCommandControlLetterCanUseLayoutFallbackForPrintableEventCharacter() {
+        let markUnreadAndJump = StoredShortcut(key: "u", command: true, shift: false, option: false, control: true)
+
+        XCTAssertTrue(
+            markUnreadAndJump.matches(
+                keyCode: 32,
+                modifierFlags: [.command, .control],
+                eventCharacter: "g",
+                layoutCharacterProvider: { keyCode, _ in keyCode == 32 ? "u" : nil }
+            )
+        )
+    }
+
+    func testCommandControlPunctuationDoesNotStealPrintableLetterShortcut() {
+        let nextWorkspace = StoredShortcut(key: "]", command: true, shift: false, option: false, control: true)
+
+        XCTAssertFalse(
+            nextWorkspace.matches(
+                keyCode: 30,
+                modifierFlags: [.command, .control],
+                eventCharacter: "u",
+                layoutCharacterProvider: { _, _ in "]" }
             )
         )
     }
@@ -3421,6 +3580,49 @@ final class SidebarWorkspaceAuxiliaryDetailVisibilityTests: XCTestCase {
             ),
             .hidden
         )
+    }
+}
+
+
+final class SidebarWorkspaceSelectionSyncPolicyTests: XCTestCase {
+    @MainActor
+    func testReconciledSelectionPreservesMultiSelectionAfterReorder() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let fourth = UUID()
+        let previousSelection: Set<UUID> = [second, third]
+
+        let result = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+            previousSelectionIds: previousSelection,
+            liveWorkspaceIds: [first, third, fourth, second],
+            fallbackSelectedWorkspaceId: second
+        )
+
+        XCTAssertEqual(result, previousSelection)
+        XCTAssertEqual(
+            SidebarWorkspaceSelectionSyncPolicy.anchorIndex(
+                preferredWorkspaceId: second,
+                selectedWorkspaceIds: result,
+                liveWorkspaceIds: [first, third, fourth, second]
+            ),
+            3
+        )
+    }
+
+    @MainActor
+    func testReconciledSelectionFallsBackToActiveWorkspaceWhenPreviousSelectionIsGone() {
+        let first = UUID()
+        let second = UUID()
+        let removed = UUID()
+
+        let result = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+            previousSelectionIds: [removed],
+            liveWorkspaceIds: [first, second],
+            fallbackSelectedWorkspaceId: second
+        )
+
+        XCTAssertEqual(result, [second])
     }
 }
 
@@ -5218,7 +5420,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/workspace fork repo")
         XCTAssertEqual(
             forkPanel.surface.initialInput,
-            "cd '/tmp/workspace fork repo' && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "{ cd -- '/tmp/workspace fork repo' 2>/dev/null || [ ! -d '/tmp/workspace fork repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
     }
 
@@ -5319,7 +5521,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.panelDirectories[forkPanel.id], "/Users/cmux/fallback repo")
         XCTAssertEqual(
             forkPanel.surface.initialInput,
-            "cd '/Users/cmux/fallback repo' && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "{ cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
     }
 
@@ -5477,7 +5679,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(launch.initialTerminalCommand, "ssh -tt cmux-macmini")
         XCTAssertEqual(
             launch.initialTerminalInput,
-            "cd '/Users/cmux/fallback repo' && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "{ cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
     }
 
@@ -5514,7 +5716,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.remoteConfiguration)
         XCTAssertEqual(
             launch.initialTerminalInput,
-            "cd '/tmp/local fork repo' && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "{ cd -- '/tmp/local fork repo' 2>/dev/null || [ ! -d '/tmp/local fork repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
     }
 
