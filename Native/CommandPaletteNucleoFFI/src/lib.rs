@@ -599,3 +599,95 @@ fn set_ascii_mask_bit(byte: u8, low: &mut u64, high: &mut u64) {
         *high |= 1_u64 << u64::from(byte - 64);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_candidate(title: &str, search_lines: &[&str], rank: i32) -> Candidate {
+        let search_text = search_lines.join("\n");
+        let ascii_prefilter_safe = title.is_ascii() && search_text.is_ascii();
+        let (title_low, title_high) = ascii_mask(title);
+        let (search_low, search_high) = ascii_mask(&search_text);
+        Candidate {
+            title: title.to_owned(),
+            search_text: search_text.clone(),
+            search_lines: search_text.lines().map(str::to_owned).collect(),
+            rank,
+            ascii_prefilter_safe,
+            ascii_mask_low: title_low | search_low,
+            ascii_mask_high: title_high | search_high,
+            title_initials: title_word_initials(title),
+            title_char_count: title.chars().count(),
+        }
+    }
+
+    fn search_candidate_indices(
+        candidates: Vec<Candidate>,
+        query: &str,
+        limit: usize,
+        boosts: Option<&[i32]>,
+    ) -> Vec<usize> {
+        let mut index = CmuxNucleoIndex { candidates };
+        let mut matches = vec![
+            CmuxNucleoMatch {
+                index: 0,
+                score: 0.0,
+                rank: 0,
+            };
+            limit
+        ];
+        let mut out_count = 0;
+
+        let status = unsafe {
+            cmux_nucleo_index_search_impl(
+                &mut index,
+                query.as_ptr(),
+                query.len(),
+                limit,
+                boosts.map(|values| values.as_ptr()).unwrap_or(std::ptr::null()),
+                boosts.map(|values| values.len()).unwrap_or(0),
+                matches.as_mut_ptr(),
+                matches.len(),
+                &mut out_count,
+            )
+        };
+
+        assert_eq!(status, 0);
+        matches.truncate(out_count);
+        matches.into_iter().map(|result| result.index).collect()
+    }
+
+    #[test]
+    fn title_phrase_prefix_beats_description_phrase_match() {
+        let matches = search_candidate_indices(
+            vec![
+                test_candidate(
+                    "owl browser engine",
+                    &[
+                        "owl browser engine",
+                        "Workspace",
+                        "workspace",
+                        "switch",
+                        "go",
+                        "open",
+                        "Use Owl 2 pieces that are ready: generated Mojo transports, Swift-owned pipe handles, and resize verification gates.",
+                        "owl",
+                        "2",
+                    ],
+                    0,
+                ),
+                test_candidate(
+                    "owl 2 aws",
+                    &["owl 2 aws", "Workspace", "workspace", "switch", "go", "open"],
+                    6,
+                ),
+            ],
+            "owl 2",
+            5,
+            None,
+        );
+
+        assert_eq!(matches.first(), Some(&1));
+    }
+}
