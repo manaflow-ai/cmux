@@ -40,7 +40,7 @@ enum ProcessPipeReader {
         from fileHandle: FileHandle,
         maxLength: Int = defaultChunkSize
     ) -> Result<ProcessPipeAvailableRead, ProcessPipeReadError> {
-        readOnceNonBlocking(
+        readOnceIfReady(
             fileDescriptor: fileHandle.fileDescriptor,
             maxLength: maxLength,
             operation: "readAvailableData"
@@ -180,57 +180,54 @@ enum ProcessPipeReader {
         }
     }
 
-    private static func readOnceNonBlocking(
+    private static func readOnceIfReady(
         fileDescriptor: Int32,
         maxLength: Int,
         operation: String
     ) -> Result<ProcessPipeAvailableRead, ProcessPipeReadError> {
         guard maxLength > 0 else { return .success(.wouldBlock) }
 
-        let originalFlags = Darwin.fcntl(fileDescriptor, F_GETFL)
-        guard originalFlags != -1 else {
+        // Do not toggle O_NONBLOCK here. The flag lives on the open file description,
+        // so changing it can affect concurrent writers that share a socket fd.
+        var descriptor = pollfd(
+            fd: fileDescriptor,
+            events: Int16(POLLIN | POLLERR | POLLHUP),
+            revents: 0
+        )
+        while true {
+            let pollResult = Darwin.poll(&descriptor, 1, 0)
+            if pollResult > 0 {
+                break
+            }
+            if pollResult == 0 {
+                return .success(.wouldBlock)
+            }
+
+            let code = errno
+            if code == EINTR {
+                continue
+            }
             return .failure(ProcessPipeReadError(
-                operation: "\(operation).fcntlGetFlags",
-                errnoCode: errno
+                operation: "\(operation).poll",
+                errnoCode: code
             ))
         }
 
-        let shouldRestoreFlags = (originalFlags & O_NONBLOCK) == 0
-        if shouldRestoreFlags {
-            guard Darwin.fcntl(fileDescriptor, F_SETFL, originalFlags | O_NONBLOCK) != -1 else {
-                return .failure(ProcessPipeReadError(
-                    operation: "\(operation).fcntlSetNonBlocking",
-                    errnoCode: errno
-                ))
-            }
+        if (descriptor.revents & Int16(POLLNVAL)) != 0 {
+            return .failure(ProcessPipeReadError(
+                operation: "\(operation).poll",
+                errnoCode: EBADF
+            ))
         }
 
-        let result = readAvailableOnce(
+        guard (descriptor.revents & Int16(POLLIN | POLLERR | POLLHUP)) != 0 else {
+            return .success(.wouldBlock)
+        }
+
+        return readAvailableOnce(
             fileDescriptor: fileDescriptor,
             maxLength: maxLength,
             operation: operation
         )
-
-        if shouldRestoreFlags,
-           Darwin.fcntl(fileDescriptor, F_SETFL, originalFlags) == -1 {
-            let restoreError = ProcessPipeReadError(
-                operation: "\(operation).fcntlRestoreFlags",
-                errnoCode: errno
-            )
-            let partialByteCount: Int
-            switch result {
-            case .success(.data(let data)):
-                partialByteCount = data.count
-            case .success(.wouldBlock), .success(.endOfFile), .failure:
-                partialByteCount = 0
-            }
-            logReadFailure(
-                restoreError,
-                fileDescriptor: fileDescriptor,
-                partialByteCount: partialByteCount
-            )
-        }
-
-        return result
     }
 }
