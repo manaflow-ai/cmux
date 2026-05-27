@@ -3325,8 +3325,6 @@ struct TerminalPreviewSurface: View {
     @Environment(\.displayScale) private var displayScale
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var pinchBaseScale: CGFloat = 1
-    @State private var resetButtonVisible: Bool = false
-    @State private var resetButtonFadeTask: Task<Void, Never>?
 
     private var renderedRows: [MobileTerminalGhosttyRow] {
         guard let terminal else {
@@ -3394,13 +3392,12 @@ struct TerminalPreviewSurface: View {
             #if os(iOS)
             .simultaneousGesture(pinchZoomGesture)
             .overlay(alignment: .center) {
-                if let fontScaleBinding, resetButtonVisible, abs(fontScaleBinding.wrappedValue - 1) > 0.001 {
+                if let fontScaleBinding, abs(fontScaleBinding.wrappedValue - 1) > 0.001 {
                     resetZoomButton(binding: fontScaleBinding)
                         .transition(.opacity.combined(with: .scale))
                         .accessibilityIdentifier("MobileTerminalResetZoomButton")
                 }
             }
-            .animation(.easeOut(duration: 0.2), value: resetButtonVisible)
             #endif
             .task(id: viewportReportKey(proxy: proxy, keyboardVisible: keyboardVisible)) {
                 onViewportChange(viewportSize)
@@ -3453,13 +3450,10 @@ struct TerminalPreviewSurface: View {
                 // text never disappears or overflows the row buffer.
                 let next = min(max(pinchBaseScale * value, minimumFontScale), maximumFontScale)
                 binding.wrappedValue = next
-                resetButtonVisible = true
-                resetButtonFadeTask?.cancel()
             }
             .onEnded { _ in
                 guard let binding = fontScaleBinding else { return }
                 pinchBaseScale = binding.wrappedValue
-                scheduleResetButtonFade()
             }
     }
 
@@ -3470,8 +3464,6 @@ struct TerminalPreviewSurface: View {
                 binding.wrappedValue = 1.0
             }
             pinchBaseScale = 1.0
-            resetButtonFadeTask?.cancel()
-            resetButtonVisible = false
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
@@ -3490,16 +3482,6 @@ struct TerminalPreviewSurface: View {
             )
         }
         .buttonStyle(.plain)
-    }
-
-    private func scheduleResetButtonFade() {
-        resetButtonFadeTask?.cancel()
-        resetButtonFadeTask = Task { @MainActor [self] in
-            try? await Task.sleep(nanoseconds: 1_400_000_000) // 1.4 s after the last pinch
-            if !Task.isCancelled {
-                resetButtonVisible = false
-            }
-        }
     }
     #endif
 
