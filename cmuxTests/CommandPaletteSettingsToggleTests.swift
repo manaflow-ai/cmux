@@ -80,7 +80,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
-    func testMenuBarOnlyCommandReportsAppearanceSection() throws {
+    func testMenuBarOnlyCommandReportsAppSection() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
                 CommandPaletteSettingsToggleCommands.descriptor(
@@ -88,10 +88,10 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
                 )
             )
 
-            let appearance = String(localized: "settings.app.appearance", defaultValue: "Appearance")
+            let app = String(localized: "settings.section.app", defaultValue: "App")
             let notifications = String(localized: "settings.section.notifications", defaultValue: "Notifications")
             let subtitle = descriptor.commandSubtitle(defaults: defaults)
-            XCTAssertTrue(subtitle.contains(appearance))
+            XCTAssertTrue(subtitle.contains(app))
             XCTAssertFalse(subtitle.contains(notifications))
         }
     }

@@ -29,7 +29,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .account:
             return String(localized: "settings.section.account", defaultValue: "Account")
         case .app:
-            return String(localized: "settings.app.appearance", defaultValue: "Appearance")
+            return String(localized: "settings.section.app", defaultValue: "App")
         case .workspacesAndTabs:
             return String(localized: "settings.section.workspacesAndTabs", defaultValue: "Workspaces & Tabs")
         case .filesAndLinks:

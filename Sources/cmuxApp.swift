@@ -5351,7 +5351,7 @@ struct SettingsView: View {
     @State private var showClearBrowserHistoryConfirmation = false
     @State private var showOpenAccessConfirmation = false
     @State private var showAgentHibernationHooksWarning = false
-    @State private var agentHibernationHasHookSetupEvidence = false
+    @State private var agentHibernationHasHookSetupEvidence: Bool?
     @State private var agentHibernationHookSetupEvidenceRefreshID = 0
     @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var browserHistoryEntryCount: Int = 0
@@ -5576,8 +5576,8 @@ struct SettingsView: View {
             get: { agentHibernationEnabled },
             set: { newValue in
                 guard agentHibernationEnabled != newValue else { return }
-                if newValue && !agentHibernationHasHookSetupEvidence {
-                    showAgentHibernationHooksWarning = true
+                if newValue && agentHibernationHasHookSetupEvidence != true {
+                    requestAgentHibernationEnableAfterHookEvidenceRefresh()
                     return
                 }
                 setAgentHibernationEnabled(newValue)
@@ -6121,12 +6121,31 @@ struct SettingsView: View {
     private func refreshAgentHibernationHookSetupEvidence() {
         agentHibernationHookSetupEvidenceRefreshID += 1
         let refreshID = agentHibernationHookSetupEvidenceRefreshID
+        agentHibernationHasHookSetupEvidence = nil
         Task { @MainActor in
             let hasHookSetupEvidence = await Task.detached(priority: .utility) {
                 AgentHibernationHookSetupEvidence.hasHookSetupEvidence(defaults: .standard)
             }.value
             guard refreshID == agentHibernationHookSetupEvidenceRefreshID else { return }
             agentHibernationHasHookSetupEvidence = hasHookSetupEvidence
+        }
+    }
+
+    private func requestAgentHibernationEnableAfterHookEvidenceRefresh() {
+        agentHibernationHookSetupEvidenceRefreshID += 1
+        let refreshID = agentHibernationHookSetupEvidenceRefreshID
+        agentHibernationHasHookSetupEvidence = nil
+        Task { @MainActor in
+            let hasHookSetupEvidence = await Task.detached(priority: .utility) {
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(defaults: .standard)
+            }.value
+            guard refreshID == agentHibernationHookSetupEvidenceRefreshID else { return }
+            agentHibernationHasHookSetupEvidence = hasHookSetupEvidence
+            if hasHookSetupEvidence {
+                setAgentHibernationEnabled(true)
+            } else {
+                showAgentHibernationHooksWarning = true
+            }
         }
     }
 
@@ -6220,7 +6239,7 @@ struct SettingsView: View {
                     }
                     .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .account, idSuffix: "account"))
 
-                    SettingsSectionHeader(title: String(localized: "settings.app.appearance", defaultValue: "Appearance"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .app))
                     SettingsCard {
                         SettingsCardRow(
@@ -6875,7 +6894,7 @@ struct SettingsView: View {
                                 )
                         }
 
-                        if agentHibernationEnabled && !agentHibernationHasHookSetupEvidence {
+                        if agentHibernationEnabled && agentHibernationHasHookSetupEvidence == false {
                             SettingsCardDivider()
                             SettingsCardNote(agentHibernationHookWarningMessage)
                         }

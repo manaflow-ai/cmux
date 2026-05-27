@@ -61,6 +61,7 @@ struct AgentHookSetupEvidenceDefinition: Sendable {
     }
 
     private static func contents(_ contents: String, containsBoundaryAwareMarker marker: String) -> Bool {
+        guard !marker.isEmpty else { return false }
         var searchRange = contents.startIndex..<contents.endIndex
         while let range = contents.range(of: marker, options: [], range: searchRange) {
             if isMarkerBoundary(contents.character(before: range.lowerBound))

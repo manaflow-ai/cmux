@@ -92,8 +92,8 @@ enum CommandPaletteSettingsToggleCommands {
     }
 
     static let descriptors: [CommandPaletteSettingToggleDescriptor] = {
-        let appearance: @Sendable () -> String = {
-            String(localized: "settings.app.appearance", defaultValue: "Appearance")
+        let app: @Sendable () -> String = {
+            String(localized: "settings.section.app", defaultValue: "App")
         }
         let workspacesAndTabs: @Sendable () -> String = {
             String(localized: "settings.section.workspacesAndTabs", defaultValue: "Workspaces & Tabs")
@@ -277,7 +277,7 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only")
                 },
-                sectionTitle: appearance,
+                sectionTitle: app,
                 keywords: ["app.menuBarOnly", "menu", "bar", "dock", "cmd-tab", "app", "switcher"],
                 defaultValue: MenuBarOnlySettings.defaultMenuBarOnly,
                 defaultsKey: MenuBarOnlySettings.menuBarOnlyKey
@@ -863,7 +863,7 @@ enum CommandPaletteSettingsToggleCommands {
 
         Task { @MainActor in
             let hasHookSetupEvidence = await Task.detached(priority: .utility) {
-                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(defaults: .standard)
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(defaults: defaults)
             }.value
             guard hasHookSetupEvidence || AgentHibernationEnableWarning.confirmEnableWithoutHooks() else {
                 return
