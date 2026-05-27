@@ -2457,7 +2457,18 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
           202 1 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56081:127.0.0.1:64049 cmux-macmini
           203 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote serve --stdio'
           204 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote 'serve' '--stdio' '--persistent' '--slot' 'ssh-test''
+          205 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote 'serve' '--stdio' '--persistent' '--slot' 'ssh-other''
         """
+
+        XCTAssertEqual(
+            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+                psOutput: psOutput,
+                destination: "cmux-macmini",
+                relayPort: 56081,
+                persistentDaemonSlot: "ssh-test"
+            ),
+            [202, 204]
+        )
 
         XCTAssertEqual(
             WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
@@ -2465,7 +2476,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
                 destination: "cmux-macmini",
                 relayPort: 56081
             ),
-            [202, 204]
+            [202]
         )
     }
 }
