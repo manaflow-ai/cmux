@@ -12475,7 +12475,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        guard let key, let id = value as? String else {
+        guard let id = value as? String else {
             return value
         }
 
@@ -12484,25 +12484,29 @@ final class Workspace: Identifiable, ObservableObject {
             return value
         }
 
-        if remoteRelaySurfaceIDKeys.contains(key),
-           let mapped = surfaceAliases[uuid] {
-            didRewrite = true
-            return mapped.uuidString
-        }
-        if remoteRelayWorkspaceIDKeys.contains(key),
-           let mapped = workspaceAliases[uuid] {
-            didRewrite = true
-            return mapped.uuidString
-        }
-        if remoteRelayAmbiguousIDKeys.contains(key) {
-            if let mapped = surfaceAliases[uuid] {
+        if let key {
+            if remoteRelaySurfaceIDKeys.contains(key),
+               let mapped = surfaceAliases[uuid] {
                 didRewrite = true
                 return mapped.uuidString
             }
-            if let mapped = workspaceAliases[uuid] {
+            if remoteRelayWorkspaceIDKeys.contains(key),
+               let mapped = workspaceAliases[uuid] {
                 didRewrite = true
                 return mapped.uuidString
             }
+            if !remoteRelayAmbiguousIDKeys.contains(key) {
+                return value
+            }
+        }
+
+        if let mapped = surfaceAliases[uuid] {
+            didRewrite = true
+            return mapped.uuidString
+        }
+        if let mapped = workspaceAliases[uuid] {
+            didRewrite = true
+            return mapped.uuidString
         }
 
         return value

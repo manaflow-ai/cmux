@@ -684,6 +684,17 @@ func TestPersistentDaemonPTYReattachSurvivesClientDisconnect(t *testing.T) {
 	}
 }
 
+func TestRunStdioSlotRequiresPersistent(t *testing.T) {
+	var stderr bytes.Buffer
+	code := run([]string{"serve", "--stdio", "--slot", "slot-without-persistent"}, strings.NewReader(""), &bytes.Buffer{}, &stderr)
+	if code != 2 {
+		t.Fatalf("run serve exit code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "serve --slot requires --persistent") {
+		t.Fatalf("stderr = %q, want --slot validation error", stderr.String())
+	}
+}
+
 func TestRunStdioInvalidJSONAndUnknownMethod(t *testing.T) {
 	input := strings.NewReader(
 		`{"id":1,"method":"hello","params":{}` + "\n" +

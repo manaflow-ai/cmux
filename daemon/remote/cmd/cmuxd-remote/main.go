@@ -176,6 +176,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			_, _ = fmt.Fprintln(stderr, "serve --persistent requires --stdio")
 			return 2
 		}
+		if strings.TrimSpace(*persistentSlot) != "" && !*persistent {
+			_, _ = fmt.Fprintln(stderr, "serve --slot requires --persistent")
+			return 2
+		}
 		if *ws {
 			if strings.TrimSpace(*authLeaseFile) == "" {
 				_, _ = fmt.Fprintln(stderr, "serve --ws requires --auth-lease-file")

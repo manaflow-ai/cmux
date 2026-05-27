@@ -1882,6 +1882,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 "tab_id": originalPanelId.uuidString,
                 "workspace_ids": [originalWorkspaceId.uuidString],
                 "surface_ids": [originalPanelId.uuidString],
+                "context_ids": [originalWorkspaceId.uuidString, originalPanelId.uuidString],
+                "context_id_groups": [[originalWorkspaceId.uuidString, originalPanelId.uuidString]],
                 "session_id": sessionID,
                 "caller": [
                     "workspace_id": originalWorkspaceId.uuidString,
@@ -1900,6 +1902,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(params["tab_id"] as? String, restoredPanelId.uuidString)
         XCTAssertEqual(params["workspace_ids"] as? [String], [restoredWorkspace.id.uuidString])
         XCTAssertEqual(params["surface_ids"] as? [String], [restoredPanelId.uuidString])
+        XCTAssertEqual(params["context_ids"] as? [String], [restoredWorkspace.id.uuidString, restoredPanelId.uuidString])
+        XCTAssertEqual(params["context_id_groups"] as? [[String]], [[restoredWorkspace.id.uuidString, restoredPanelId.uuidString]])
         XCTAssertEqual(params["session_id"] as? String, sessionID)
 
         let caller = try XCTUnwrap(params["caller"] as? [String: Any])
@@ -1967,6 +1971,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 "tab_id": originalPanelId.uuidString,
                 "workspace_ids": [originalWorkspaceId.uuidString],
                 "surface_ids": [originalPanelId.uuidString],
+                "context_ids": [originalWorkspaceId.uuidString, originalPanelId.uuidString],
                 "session_id": sessionID,
             ],
         ]
@@ -1980,6 +1985,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(params["tab_id"] as? String, reattachedPanel.id.uuidString)
         XCTAssertEqual(params["workspace_ids"] as? [String], [restoredWorkspace.id.uuidString])
         XCTAssertEqual(params["surface_ids"] as? [String], [reattachedPanel.id.uuidString])
+        XCTAssertEqual(params["context_ids"] as? [String], [restoredWorkspace.id.uuidString, reattachedPanel.id.uuidString])
         XCTAssertEqual(params["session_id"] as? String, sessionID)
     }
 

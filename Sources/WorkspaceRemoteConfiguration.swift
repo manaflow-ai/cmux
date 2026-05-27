@@ -16,7 +16,7 @@ private enum WorkspaceRemoteSSHOptionFilter {
     }
 
     static func forkedWorkspaceOptions(_ options: [String]) -> [String] {
-        filteredOptions(options, droppingKeys: transientControlSocketKeys)
+        durableOptions(options)
     }
 
     static func trimmedOptions(_ options: [String]) -> [String] {
@@ -466,6 +466,8 @@ extension SessionRemoteWorkspaceSnapshot {
             terminalStartupCommand: preservePTYSession
                 ? SSHPTYAttachStartupCommandBuilder.command(
                     foregroundAuth: foregroundAuth,
+                    // Restored panels get explicit require-existing attach commands with their
+                    // persisted session IDs; this workspace default is for new panes.
                     requireExisting: false
                 )
                 : sshReconnectCommand(
