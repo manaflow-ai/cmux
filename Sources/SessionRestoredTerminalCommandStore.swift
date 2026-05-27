@@ -26,7 +26,8 @@ enum SessionRestoredTerminalCommandStore {
                 "rm -f -- \"$0\" 2>/dev/null || true"
             ]
             if let workingDirectory = normalized(workingDirectory) {
-                lines.append("cd -- \(shellSingleQuoted(workingDirectory)) || exit $?")
+                let quotedDirectory = shellSingleQuoted(workingDirectory)
+                lines.append("{ [ ! -d \(quotedDirectory) ] || cd -- \(quotedDirectory); } || exit $?")
             }
             lines.append("exec \"${SHELL:-/bin/zsh}\" -lc \(shellSingleQuoted(trimmedCommand))")
 

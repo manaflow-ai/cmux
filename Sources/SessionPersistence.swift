@@ -325,7 +325,7 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     }
 
     var inlineStartupInput: String? {
-        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         guard let environment, !environment.isEmpty else {
             return trimmed + "\n"
@@ -336,6 +336,15 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         }
         let argv = ["/usr/bin/env"] + assignments + ["/bin/zsh", "-lc", trimmed]
         return argv.map(Self.shellSingleQuoted).joined(separator: " ") + "\n"
+    }
+
+    private var startupCommand: String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isAgentHookBinding else { return trimmed }
+        return TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
+            in: trimmed,
+            workingDirectory: cwd
+        )
     }
 
     func startupInputWithLauncherScript(

@@ -39,7 +39,7 @@ extension SocketListenerAcceptPolicyTests {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd '/tmp/hermes repo' && 'env' 'HERMES_HOME=/tmp/hermes home' '/opt/homebrew/bin/hermes' '--tui' '--model' 'anthropic/claude-sonnet-4.6' '--resume' 'hermes-session-123'"
+            "{ [ ! -d '/tmp/hermes repo' ] || cd -- '/tmp/hermes repo'; } && 'env' 'HERMES_HOME=/tmp/hermes home' '/opt/homebrew/bin/hermes' '--tui' '--model' 'anthropic/claude-sonnet-4.6' '--resume' 'hermes-session-123'"
         )
     }
 

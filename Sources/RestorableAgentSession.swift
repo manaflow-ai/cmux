@@ -32,6 +32,68 @@ fileprivate func shellSingleQuoted(_ value: String) -> String {
     TerminalStartupShellQuoting.singleQuoted(value)
 }
 
+nonisolated enum TerminalStartupWorkingDirectoryPrefix {
+    static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
+        guard let workingDirectory = normalized(workingDirectory) else { return nil }
+        let quoted = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
+        return "{ [ ! -d \(quoted) ] || cd -- \(quoted); } && "
+    }
+
+    static func prefix(_ command: String, workingDirectory: String?) -> String {
+        guard let prefix = optionalChangeDirectoryPrefix(for: workingDirectory) else {
+            return command
+        }
+        return prefix + command
+    }
+
+    static func replacingRequiredChangeDirectoryPrefix(
+        in command: String,
+        workingDirectory: String?
+    ) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let workingDirectory = normalized(workingDirectory) else { return trimmed }
+        if let existingPrefix = optionalChangeDirectoryPrefix(for: workingDirectory),
+           trimmed.hasPrefix(existingPrefix) {
+            return trimmed
+        }
+        let stripped = strippedRequiredChangeDirectoryPrefix(
+            from: trimmed,
+            workingDirectory: workingDirectory
+        )
+        return prefix(stripped, workingDirectory: workingDirectory)
+    }
+
+    private static func strippedRequiredChangeDirectoryPrefix(
+        from command: String,
+        workingDirectory: String
+    ) -> String {
+        let quotedCandidates = [
+            TerminalStartupShellQuoting.singleQuoted(workingDirectory),
+            legacySingleQuoted(workingDirectory)
+        ]
+        var seen = Set<String>()
+        for quoted in quotedCandidates where seen.insert(quoted).inserted {
+            let prefix = "cd \(quoted) && "
+            if command.hasPrefix(prefix) {
+                return String(command.dropFirst(prefix.count))
+            }
+        }
+        return command
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func legacySingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
 enum AgentResumeCommandBuilder {
     private static let claudeAuthSelectionEnvironmentKeys: Set<String> = [
         "ANTHROPIC_API_KEY",
@@ -119,14 +181,11 @@ enum AgentResumeCommandBuilder {
         }
         commandParts.append(contentsOf: argv)
 
-        var shellCommand = commandParts.map(shellSingleQuoted).joined(separator: " ")
+        let shellCommand = commandParts.map(shellSingleQuoted).joined(separator: " ")
         let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
             ? nil
             : normalized(workingDirectory ?? launchCommand?.workingDirectory)
-        if let cwd {
-            shellCommand = "cd \(shellSingleQuoted(cwd)) && \(shellCommand)"
-        }
-        return shellCommand
+        return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
     }
 
     static func openCodeVersionProbe(
