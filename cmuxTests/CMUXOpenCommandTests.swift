@@ -395,38 +395,12 @@ final class CMUXOpenCommandTests: XCTestCase {
 
     func testDiffCommandLinksOriginalDiffshubPRURL() throws {
         let cliPath = try bundledCLIPath()
-        let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let binURL = rootURL.appendingPathComponent("bin", isDirectory: true)
-        let curlURL = binURL.appendingPathComponent("curl")
-        try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
-        try """
-        #!/bin/sh
-        case "$*" in
-          *"https://github.com/oven-sh/bun/pull/30412.diff"*) ;;
-          *) echo "unexpected curl args: $*" >&2; exit 22 ;;
-        esac
-        cat <<'PATCH'
-        diff --git a/src/main.zig b/src/main.zig
-        index 1111111..2222222 100644
-        --- a/src/main.zig
-        +++ b/src/main.zig
-        @@ -1,2 +1,2 @@
-         const std = @import("std");
-        -old();
-        +new();
-        PATCH
-        """.write(to: curlURL, atomically: true, encoding: .utf8)
-        chmod(curlURL.path, 0o755)
-        defer { try? FileManager.default.removeItem(at: rootURL) }
 
         let originalURL = "https://diffshub.com/oven-sh/bun/pull/30412"
         let result = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
             arguments: ["diff", originalURL, "--title", "Bun PR"],
-            environmentOverrides: [
-                "PATH": "\(binURL.path):/usr/bin:/bin:/usr/sbin:/sbin"
-            ]
+            readPatchSidecar: false
         )
 
         XCTAssertEqual(result.params["show_omnibar"] as? Bool, false)
@@ -438,11 +412,11 @@ final class CMUXOpenCommandTests: XCTestCase {
         let patchFile = try XCTUnwrap(files.first { file in
             file["mime_type"] as? String == "text/x-diff"
         })
-        let patchFilePath = try XCTUnwrap(patchFile["file_path"] as? String)
-        defer { try? FileManager.default.removeItem(atPath: patchFilePath) }
-        let patchText = try String(contentsOfFile: patchFilePath, encoding: .utf8)
-        XCTAssertFalse(result.html.contains("src/main.zig"), result.html)
-        XCTAssertTrue(patchText.contains("src/main.zig"), patchText)
+        XCTAssertEqual(patchFile["file_path"] as? String, "")
+        XCTAssertEqual(patchFile["remote_url"] as? String, "https://github.com/oven-sh/bun/pull/30412.diff")
+        let viewerFileURL = try diffViewerHTMLFileURL(for: rawURL, from: result.params)
+        let patchSidecarURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: patchSidecarURL.path))
     }
 
     func testDiffCommandUsesBundledAppLocalizationsForViewerLabels() throws {
@@ -1611,6 +1585,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         arguments: [String],
         environmentOverrides: [String: String] = [:],
         currentDirectoryURL: URL? = nil,
+        readPatchSidecar: Bool = true,
         socketResponse: (@Sendable (String) -> String?)? = nil
     ) throws -> (html: String, patch: String, params: [String: Any], stdout: String) {
         let socketPath = makeSocketPath("diff-src")
@@ -1669,8 +1644,13 @@ final class CMUXOpenCommandTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: viewerFileURL) }
         let html = try String(contentsOf: viewerFileURL, encoding: .utf8)
         let patchURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
-        defer { try? FileManager.default.removeItem(at: patchURL) }
-        let patch = try String(contentsOf: patchURL, encoding: .utf8)
+        let patch: String
+        if readPatchSidecar {
+            defer { try? FileManager.default.removeItem(at: patchURL) }
+            patch = try String(contentsOf: patchURL, encoding: .utf8)
+        } else {
+            patch = ""
+        }
         return (html, patch, params, result.stdout)
     }
 
