@@ -178,12 +178,15 @@ enum AppearanceSettings {
 
     private static func applicationAppearance(
         for mode: AppearanceMode,
-        duringLaunch: Bool,
+        duringLaunch _: Bool,
         environment: LiveApplyEnvironment
     ) -> NSAppearance? {
         switch mode {
         case .system:
-            return duringLaunch ? environment.systemAppearance() : nil
+            // nil = let NSApplication track macOS system appearance dynamically.
+            // Setting a specific NSAppearance here (even at launch) would lock the app to the
+            // appearance that was active at launch time, ignoring later macOS appearance changes.
+            return nil
         case .light:
             return NSAppearance(named: .aqua)
         case .dark:

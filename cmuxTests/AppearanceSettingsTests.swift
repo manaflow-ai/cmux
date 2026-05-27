@@ -218,6 +218,46 @@ final class AppearanceSettingsTests: XCTestCase {
         XCTAssertTrue(synchronizedAppearanceWasCleared)
     }
 
+    func testSystemModeAtLaunchDoesNotLockAppearanceToLaunchTimeSystemTheme() {
+        // Regression: previously applyStoredMode(duringLaunch: true) with .system mode called
+        // systemAppearance() and set NSApplication.shared.appearance to a specific dark/light value.
+        // That locked the app to the appearance active at launch — switching macOS appearance later
+        // had no effect. Now .system always returns nil so NSApplication tracks dynamically.
+        let suiteName = "AppearanceSettingsTests.SystemLaunch.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var appliedAppearanceWasNil = false
+        var systemAppearanceCalled = false
+        let environment = AppearanceSettings.LiveApplyEnvironment(
+            setApplicationAppearance: { appearance in
+                appliedAppearanceWasNil = appearance == nil
+            },
+            synchronizeTerminalThemeWithAppearance: { _, _ in },
+            systemAppearance: {
+                systemAppearanceCalled = true
+                return NSAppearance(named: .darkAqua)
+            }
+        )
+
+        AppearanceSettings.applyStoredMode(
+            rawValue: AppearanceMode.system.rawValue,
+            defaults: defaults,
+            source: "test.launch",
+            duringLaunch: true,
+            synchronizeTerminalTheme: false,
+            environment: environment
+        )
+
+        XCTAssertTrue(appliedAppearanceWasNil,
+            "System mode at launch must set NSApplication.appearance = nil to allow dynamic macOS tracking")
+        XCTAssertFalse(systemAppearanceCalled,
+            "System mode must not resolve systemAppearance() — that would lock the appearance at launch time")
+    }
+
     private func withTemporaryAppearanceDefaults(
         appearanceMode: String,
         appleInterfaceStyle: String?,
