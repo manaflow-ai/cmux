@@ -4,9 +4,9 @@ enum SettingsSearchAliasIndex {
         case .account:
             return localized("settings.search.alias.section.account", defaultValue: "auth authentication login logout sign in sign out email user profile team")
         case .app:
-            return localized("settings.search.alias.section.app", defaultValue: "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry")
+            return localized("settings.search.alias.section.app", defaultValue: "appearance theme light dark system language locale icon dock app icon preferences prefs")
         case .workspacesAndTabs:
-            return localized("settings.search.alias.section.workspacesAndTabs", defaultValue: "app general workspace workspaces tab tabs pane panes surface cwd directory placement close focus imessage prompts reorder")
+            return localized("settings.search.alias.section.workspacesAndTabs", defaultValue: "app general workspace workspaces tab tabs pane panes surface cwd directory placement close focus minimal last")
         case .filesAndLinks:
             return localized("settings.search.alias.section.filesAndLinks", defaultValue: "app files file links urls editor previews markdown quick look ghostty config")
         case .notifications:
@@ -24,7 +24,7 @@ enum SettingsSearchAliasIndex {
         case .betaFeatures:
             return localized("settings.search.alias.section.betaFeatures", defaultValue: "beta experimental unstable preview dock right sidebar")
         case .automation:
-            return localized("settings.search.alias.section.automation", defaultValue: "api cli control socket mcp agents hooks ports")
+            return localized("settings.search.alias.section.automation", defaultValue: "api cli control socket mcp ports rg ripgrep env environment variables")
         case .agentIntegrations:
             return localized("settings.search.alias.section.agentIntegrations", defaultValue: "automation agents hooks integrations claude cursor gemini codex opencode subagent nested binary path")
         case .browser:

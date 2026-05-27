@@ -121,7 +121,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .app:
             return "\(title) app general preferences prefs appearance theme light dark language locale icon dock chrome colors"
         case .workspacesAndTabs:
-            return "\(title) app workspace workspaces tab tabs surface pane cwd directory placement close focus imessage prompt reorder"
+            return "\(title) app workspace workspaces tab tabs surface pane cwd directory placement close focus minimal last"
         case .filesAndLinks:
             return "\(title) app files links url open cmd click editor markdown preview pdf image audio video terminal config ghostty"
         case .notifications:

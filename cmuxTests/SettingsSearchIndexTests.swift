@@ -81,6 +81,12 @@ final class SettingsSearchIndexTests: XCTestCase {
         )
     }
 
+    func testMovedSettingsSearchTermsPreferCurrentSections() {
+        assertFirstSearchResult("telemetry", is: SettingsSearchIndex.sectionID(for: .safetyPrivacy))
+        assertFirstSearchResult("imessage", is: SettingsSearchIndex.sectionID(for: .notifications))
+        assertFirstSearchResult("hooks", is: SettingsSearchIndex.sectionID(for: .agentIntegrations))
+    }
+
     private func assertSearch(
         _ query: String,
         contains expectedID: String,
@@ -91,6 +97,22 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertTrue(
             resultIDs.contains(expectedID),
             "Expected settings search for '\(query)' to include \(expectedID), got \(resultIDs.sorted())",
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertFirstSearchResult(
+        _ query: String,
+        is expectedID: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let resultIDs = SettingsSearchIndex.entries(matching: query).map(\.id)
+        XCTAssertEqual(
+            resultIDs.first,
+            expectedID,
+            "Expected first settings search result for '\(query)' to be \(expectedID), got \(resultIDs)",
             file: file,
             line: line
         )

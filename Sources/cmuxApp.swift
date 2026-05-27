@@ -5205,111 +5205,199 @@ func openCmuxSettingsFileInEditor() {
     PreferredEditorSettings.open(url)
 }
 
-struct AgentHookSetupEvidenceCandidate: Sendable {
-    let relativeConfigPath: String
+struct AgentHookSetupEvidenceDefinition: Sendable {
+    let name: String
+    let configDir: String
+    let configFile: String
     let envOverride: String?
     let envOverrideSubpath: String?
-    let marker: String
+    let disableEnvVar: String
+    let markers: [String]
+    let isEnabled: @Sendable (UserDefaults) -> Bool
 
     init(
-        relativeConfigPath: String,
+        name: String,
+        configDir: String,
+        configFile: String,
         envOverride: String? = nil,
         envOverrideSubpath: String? = nil,
-        marker: String
+        disableEnvVar: String,
+        markers: [String],
+        isEnabled: @escaping @Sendable (UserDefaults) -> Bool = { _ in true }
     ) {
-        self.relativeConfigPath = relativeConfigPath
+        self.name = name
+        self.configDir = configDir
+        self.configFile = configFile
         self.envOverride = envOverride
         self.envOverrideSubpath = envOverrideSubpath
-        self.marker = marker
-    }
-}
-
-enum AgentHibernationHookSetupEvidence {
-    static func hasHookSetupEvidence(defaults: UserDefaults = .standard) -> Bool {
-        if ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults) {
-            return true
-        }
-        return hookSetupEvidenceCandidates.contains { candidate in
-            let fileURL = resolvedHookConfigURL(
-                relativeConfigPath: candidate.relativeConfigPath,
-                envOverride: candidate.envOverride,
-                envOverrideSubpath: candidate.envOverrideSubpath
-            )
-            guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else {
-                return false
-            }
-            return contents.contains(candidate.marker)
-        }
+        self.disableEnvVar = disableEnvVar
+        self.markers = markers
+        self.isEnabled = isEnabled
     }
 
-    private static let hookSetupEvidenceCandidates: [AgentHookSetupEvidenceCandidate] = [
-        AgentHookSetupEvidenceCandidate(
-            relativeConfigPath: ".codex/hooks.json",
-            envOverride: "CODEX_HOME",
-            marker: "cmux hooks codex"
-        ),
-        AgentHookSetupEvidenceCandidate(
-            relativeConfigPath: ".grok/hooks/cmux-session.json",
-            envOverride: "GROK_HOME",
-            envOverrideSubpath: "hooks",
-            marker: "cmux hooks grok"
-        ),
-        AgentHookSetupEvidenceCandidate(
-            relativeConfigPath: ".config/opencode/plugins/cmux-session.js",
-            envOverride: "OPENCODE_CONFIG_DIR",
-            envOverrideSubpath: "plugins",
-            marker: "cmux hooks opencode"
-        ),
-        AgentHookSetupEvidenceCandidate(
-            relativeConfigPath: ".pi/agent/extensions/cmux-session.ts",
-            envOverride: "PI_CODING_AGENT_DIR",
-            envOverrideSubpath: "extensions",
-            marker: "cmux hooks pi"
-        ),
-        AgentHookSetupEvidenceCandidate(
-            relativeConfigPath: ".config/amp/plugins/cmux-session.ts",
-            marker: "cmux hooks amp"
-        ),
-        AgentHookSetupEvidenceCandidate(
-            relativeConfigPath: ".cursor/hooks.json",
-            marker: "cmux hooks cursor"
-        ),
-        AgentHookSetupEvidenceCandidate(
-            relativeConfigPath: ".gemini/settings.json",
-            marker: "cmux hooks gemini"
-        ),
-        AgentHookSetupEvidenceCandidate(
-            relativeConfigPath: ".gemini/config/hooks.json",
-            marker: "cmux hooks antigravity"
-        ),
-        AgentHookSetupEvidenceCandidate(
-            relativeConfigPath: ".rovodev/config.yml",
-            marker: "cmux hooks rovodev"
-        ),
-        AgentHookSetupEvidenceCandidate(
-            relativeConfigPath: ".hermes/config.yaml",
-            envOverride: "HERMES_HOME",
-            marker: "cmux hooks hermes-agent"
-        )
-    ]
+    func isActive(defaults: UserDefaults, environment: [String: String]) -> Bool {
+        guard environment[disableEnvVar]?.trimmingCharacters(in: .whitespacesAndNewlines) != "1" else {
+            return false
+        }
+        return isEnabled(defaults)
+    }
 
-    private static func resolvedHookConfigURL(
-        relativeConfigPath: String,
-        envOverride: String?,
-        envOverrideSubpath: String? = nil
-    ) -> URL {
+    func configURL(environment: [String: String], homeDirectory: URL) -> URL {
+        let baseURL: URL
         if let envOverride,
-           let rawValue = ProcessInfo.processInfo.environment[envOverride]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let rawValue = environment[envOverride]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !rawValue.isEmpty {
             var url = URL(fileURLWithPath: NSString(string: rawValue).expandingTildeInPath, isDirectory: true)
             if let envOverrideSubpath, !envOverrideSubpath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 url.appendPathComponent(envOverrideSubpath, isDirectory: true)
             }
-            let fileName = URL(fileURLWithPath: relativeConfigPath).lastPathComponent
-            return url.appendingPathComponent(fileName, isDirectory: false)
+            baseURL = url
+        } else {
+            baseURL = homeDirectory.appendingPathComponent(configDir, isDirectory: true)
         }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(relativeConfigPath, isDirectory: false)
+        return Self.appendingRelativePath(configFile, to: baseURL)
     }
+
+    private static func appendingRelativePath(_ relativePath: String, to baseURL: URL) -> URL {
+        relativePath.split(separator: "/").reduce(baseURL) { url, component in
+            url.appendingPathComponent(String(component), isDirectory: false)
+        }
+    }
+}
+
+enum AgentHibernationHookSetupEvidence {
+    static func hasHookSetupEvidence(
+        defaults: UserDefaults = .standard,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> Bool {
+        if ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults),
+           environment["CMUX_CLAUDE_HOOKS_DISABLED"]?.trimmingCharacters(in: .whitespacesAndNewlines) != "1" {
+            return true
+        }
+        return hookSetupEvidenceDefinitions.contains { definition in
+            guard definition.isActive(defaults: defaults, environment: environment) else {
+                return false
+            }
+            let fileURL = definition.configURL(environment: environment, homeDirectory: homeDirectory)
+            guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else {
+                return false
+            }
+            return definition.markers.contains { contents.contains($0) }
+        }
+    }
+
+    private static let hookSetupEvidenceDefinitions: [AgentHookSetupEvidenceDefinition] = [
+        AgentHookSetupEvidenceDefinition(
+            name: "codex",
+            configDir: ".codex",
+            configFile: "hooks.json",
+            envOverride: "CODEX_HOME",
+            disableEnvVar: "CMUX_CODEX_HOOKS_DISABLED",
+            markers: ["cmux hooks codex", "cmux codex-hook"]
+        ),
+        AgentHookSetupEvidenceDefinition(
+            name: "grok",
+            configDir: ".grok/hooks",
+            configFile: "cmux-session.json",
+            envOverride: "GROK_HOME",
+            envOverrideSubpath: "hooks",
+            disableEnvVar: "CMUX_GROK_HOOKS_DISABLED",
+            markers: ["cmux-grok-hook-v2", "cmux hooks grok"]
+        ),
+        AgentHookSetupEvidenceDefinition(
+            name: "opencode",
+            configDir: ".config/opencode",
+            configFile: "plugins/cmux-session.js",
+            envOverride: "OPENCODE_CONFIG_DIR",
+            disableEnvVar: "CMUX_OPENCODE_HOOKS_DISABLED",
+            markers: ["cmux hooks opencode"]
+        ),
+        AgentHookSetupEvidenceDefinition(
+            name: "pi",
+            configDir: ".pi/agent",
+            configFile: "extensions/cmux-session.ts",
+            envOverride: "PI_CODING_AGENT_DIR",
+            disableEnvVar: "CMUX_PI_HOOKS_DISABLED",
+            markers: ["cmux hooks pi"]
+        ),
+        AgentHookSetupEvidenceDefinition(
+            name: "amp",
+            configDir: ".config/amp",
+            configFile: "plugins/cmux-session.ts",
+            disableEnvVar: "CMUX_AMP_HOOKS_DISABLED",
+            markers: ["cmux hooks amp"]
+        ),
+        AgentHookSetupEvidenceDefinition(
+            name: "cursor",
+            configDir: ".cursor",
+            configFile: "hooks.json",
+            disableEnvVar: "CMUX_CURSOR_HOOKS_DISABLED",
+            markers: ["cmux hooks cursor"],
+            isEnabled: { CursorIntegrationSettings.hooksEnabled(defaults: $0) }
+        ),
+        AgentHookSetupEvidenceDefinition(
+            name: "gemini",
+            configDir: ".gemini",
+            configFile: "settings.json",
+            disableEnvVar: "CMUX_GEMINI_HOOKS_DISABLED",
+            markers: ["cmux hooks gemini"],
+            isEnabled: { GeminiIntegrationSettings.hooksEnabled(defaults: $0) }
+        ),
+        AgentHookSetupEvidenceDefinition(
+            name: "antigravity",
+            configDir: ".gemini/config",
+            configFile: "hooks.json",
+            disableEnvVar: "CMUX_ANTIGRAVITY_HOOKS_DISABLED",
+            markers: ["cmux-antigravity-hook-v2", "cmux hooks antigravity"]
+        ),
+        AgentHookSetupEvidenceDefinition(
+            name: "rovodev",
+            configDir: ".rovodev",
+            configFile: "config.yml",
+            disableEnvVar: "CMUX_ROVODEV_HOOKS_DISABLED",
+            markers: ["cmux hooks rovodev"]
+        ),
+        AgentHookSetupEvidenceDefinition(
+            name: "hermes-agent",
+            configDir: ".hermes",
+            configFile: "config.yaml",
+            envOverride: "HERMES_HOME",
+            disableEnvVar: "CMUX_HERMES_AGENT_HOOKS_DISABLED",
+            markers: ["cmux hooks hermes-agent"]
+        ),
+        AgentHookSetupEvidenceDefinition(
+            name: "copilot",
+            configDir: ".copilot",
+            configFile: "config.json",
+            envOverride: "COPILOT_HOME",
+            disableEnvVar: "CMUX_COPILOT_HOOKS_DISABLED",
+            markers: ["cmux hooks copilot"]
+        ),
+        AgentHookSetupEvidenceDefinition(
+            name: "codebuddy",
+            configDir: ".codebuddy",
+            configFile: "settings.json",
+            envOverride: "CODEBUDDY_CONFIG_DIR",
+            disableEnvVar: "CMUX_CODEBUDDY_HOOKS_DISABLED",
+            markers: ["cmux hooks codebuddy"]
+        ),
+        AgentHookSetupEvidenceDefinition(
+            name: "factory",
+            configDir: ".factory",
+            configFile: "settings.json",
+            disableEnvVar: "CMUX_FACTORY_HOOKS_DISABLED",
+            markers: ["cmux hooks factory"]
+        ),
+        AgentHookSetupEvidenceDefinition(
+            name: "qoder",
+            configDir: ".qoder",
+            configFile: "settings.json",
+            envOverride: "QODER_CONFIG_DIR",
+            disableEnvVar: "CMUX_QODER_HOOKS_DISABLED",
+            markers: ["cmux hooks qoder"]
+        )
+    ]
 }
 
 enum AgentHibernationEnableWarning {

@@ -198,6 +198,76 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testAgentHibernationHookEvidenceIgnoresDisabledCursorIntegration() throws {
+        try withTemporaryDefaults { defaults in
+            let homeDirectory = try makeTemporaryHomeDirectory()
+            defer { try? FileManager.default.removeItem(at: homeDirectory) }
+            try writeHookConfig(
+                "cmux hooks cursor",
+                at: homeDirectory.appendingPathComponent(".cursor/hooks.json")
+            )
+
+            defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+            defaults.set(false, forKey: CursorIntegrationSettings.hooksEnabledKey)
+            XCTAssertFalse(
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(
+                    defaults: defaults,
+                    environment: [:],
+                    homeDirectory: homeDirectory
+                )
+            )
+
+            defaults.set(true, forKey: CursorIntegrationSettings.hooksEnabledKey)
+            XCTAssertTrue(
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(
+                    defaults: defaults,
+                    environment: [:],
+                    homeDirectory: homeDirectory
+                )
+            )
+        }
+    }
+
+    func testAgentHibernationHookEvidenceCoversGenericHookDefinitions() throws {
+        try withTemporaryDefaults { defaults in
+            let homeDirectory = try makeTemporaryHomeDirectory()
+            defer { try? FileManager.default.removeItem(at: homeDirectory) }
+            try writeHookConfig(
+                "cmux hooks copilot",
+                at: homeDirectory.appendingPathComponent(".copilot/config.json")
+            )
+
+            defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+            XCTAssertTrue(
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(
+                    defaults: defaults,
+                    environment: [:],
+                    homeDirectory: homeDirectory
+                )
+            )
+        }
+    }
+
+    func testAgentHibernationHookEvidenceDetectsPinnedHookMarkers() throws {
+        try withTemporaryDefaults { defaults in
+            let homeDirectory = try makeTemporaryHomeDirectory()
+            defer { try? FileManager.default.removeItem(at: homeDirectory) }
+            try writeHookConfig(
+                ": cmux-grok-hook-v2;",
+                at: homeDirectory.appendingPathComponent(".grok/hooks/cmux-session.json")
+            )
+
+            defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+            XCTAssertTrue(
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(
+                    defaults: defaults,
+                    environment: [:],
+                    homeDirectory: homeDirectory
+                )
+            )
+        }
+    }
+
     func testWarnBeforeQuitCommandWritesConfirmQuitSourceOfTruth() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
@@ -328,5 +398,20 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
         try body(defaults)
+    }
+
+    private func makeTemporaryHomeDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hook-evidence-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func writeHookConfig(_ contents: String, at url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try contents.write(to: url, atomically: true, encoding: .utf8)
     }
 }
