@@ -231,7 +231,7 @@ export async function generateMetadata({
   return {
     title: t(`${kind}.metaTitle`),
     description: t(`${kind}.metaDescription`),
-    alternates: buildAlternates(locale, `/deeplink/${rawKind}`),
+    alternates: buildAlternates(locale, `/deeplink/${kind}`),
   };
 }
 
