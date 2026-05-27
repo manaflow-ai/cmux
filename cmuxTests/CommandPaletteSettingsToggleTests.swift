@@ -58,6 +58,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             defer { notificationCenter.removeObserver(token) }
 
             XCTAssertTrue(descriptor.isOn(defaults))
+
             descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
 
             XCTAssertEqual(defaults.object(forKey: TerminalScrollBarSettings.showScrollBarKey) as? Bool, false)
@@ -76,6 +77,22 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             XCTAssertTrue(descriptor.isAvailable(defaults))
             defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
             XCTAssertFalse(descriptor.isAvailable(defaults))
+        }
+    }
+
+    func testMenuBarOnlyCommandReportsAppSection() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.menuBarOnly"
+                )
+            )
+
+            let app = String(localized: "settings.section.app", defaultValue: "App")
+            let notifications = String(localized: "settings.section.notifications", defaultValue: "Notifications")
+            let subtitle = descriptor.commandSubtitle(defaults: defaults)
+            XCTAssertTrue(subtitle.contains(app))
+            XCTAssertFalse(subtitle.contains(notifications))
         }
     }
 
@@ -129,6 +146,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testAgentHibernationCommandTogglesAndPostsChangeNotification() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
@@ -149,11 +167,180 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
 
             XCTAssertFalse(descriptor.isOn(defaults))
 
-            descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
+            AgentHibernationHookSetupEvidence.hasHookSetupEvidenceHandlerForTests = { _ in true }
+            defer { AgentHibernationHookSetupEvidence.hasHookSetupEvidenceHandlerForTests = nil }
+
+            CommandPaletteSettingsToggleCommands.toggleAgentHibernationForCommandPalette(
+                defaults: defaults,
+                notificationCenter: notificationCenter
+            )
 
             XCTAssertTrue(AgentHibernationSettings.isEnabled(defaults: defaults))
             XCTAssertTrue(descriptor.isOn(defaults))
             XCTAssertTrue(didNotify)
+        }
+    }
+
+    @MainActor
+    func testAgentHibernationCommandWarnsBeforeEnablingWithoutHookEvidence() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.agentHibernation"
+                )
+            )
+            defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+            AgentHibernationHookSetupEvidence.hasHookSetupEvidenceHandlerForTests = { _ in false }
+            defer { AgentHibernationHookSetupEvidence.hasHookSetupEvidenceHandlerForTests = nil }
+            var confirmationCount = 0
+            AgentHibernationEnableWarning.confirmationHandlerForTests = {
+                confirmationCount += 1
+                return false
+            }
+            defer { AgentHibernationEnableWarning.confirmationHandlerForTests = nil }
+
+            CommandPaletteSettingsToggleCommands.toggleAgentHibernationForCommandPalette(
+                defaults: defaults,
+                notificationCenter: NotificationCenter()
+            )
+
+            XCTAssertEqual(confirmationCount, 1)
+            XCTAssertFalse(AgentHibernationSettings.isEnabled(defaults: defaults))
+            XCTAssertFalse(descriptor.isOn(defaults))
+        }
+    }
+
+    @MainActor
+    func testAgentHibernationCommandEnablesAfterWarningConfirmation() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.agentHibernation"
+                )
+            )
+            defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+            AgentHibernationHookSetupEvidence.hasHookSetupEvidenceHandlerForTests = { _ in false }
+            defer { AgentHibernationHookSetupEvidence.hasHookSetupEvidenceHandlerForTests = nil }
+            AgentHibernationEnableWarning.confirmationHandlerForTests = { true }
+            defer { AgentHibernationEnableWarning.confirmationHandlerForTests = nil }
+
+            CommandPaletteSettingsToggleCommands.toggleAgentHibernationForCommandPalette(
+                defaults: defaults,
+                notificationCenter: NotificationCenter()
+            )
+
+            XCTAssertTrue(AgentHibernationSettings.isEnabled(defaults: defaults))
+            XCTAssertTrue(descriptor.isOn(defaults))
+        }
+    }
+
+    func testAgentHibernationHookEvidenceIgnoresDisabledCursorIntegration() throws {
+        try withTemporaryDefaults { defaults in
+            let homeDirectory = try makeTemporaryHomeDirectory()
+            defer { try? FileManager.default.removeItem(at: homeDirectory) }
+            try writeHookConfig(
+                "cmux hooks cursor",
+                at: homeDirectory.appendingPathComponent(".cursor/hooks.json")
+            )
+
+            defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+            defaults.set(false, forKey: CursorIntegrationSettings.hooksEnabledKey)
+            XCTAssertFalse(
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(
+                    defaults: defaults,
+                    environment: [:],
+                    homeDirectory: homeDirectory
+                )
+            )
+
+            defaults.set(true, forKey: CursorIntegrationSettings.hooksEnabledKey)
+            XCTAssertTrue(
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(
+                    defaults: defaults,
+                    environment: [:],
+                    homeDirectory: homeDirectory
+                )
+            )
+        }
+    }
+
+    func testAgentHibernationHookEvidenceCoversGenericHookDefinitions() throws {
+        try withTemporaryDefaults { defaults in
+            let homeDirectory = try makeTemporaryHomeDirectory()
+            defer { try? FileManager.default.removeItem(at: homeDirectory) }
+            try writeHookConfig(
+                "cmux hooks copilot",
+                at: homeDirectory.appendingPathComponent(".copilot/config.json")
+            )
+
+            defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+            XCTAssertTrue(
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(
+                    defaults: defaults,
+                    environment: [:],
+                    homeDirectory: homeDirectory
+                )
+            )
+        }
+    }
+
+    func testAgentHibernationHookEvidenceDetectsRoutedHookCommands() throws {
+        try withTemporaryDefaults { defaults in
+            let homeDirectory = try makeTemporaryHomeDirectory()
+            defer { try? FileManager.default.removeItem(at: homeDirectory) }
+            try writeHookConfig(
+                "$cmux_cli --socket \"$CMUX_SOCKET_PATH\" hooks codex session-start",
+                at: homeDirectory.appendingPathComponent(".codex/hooks.json")
+            )
+
+            defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+            XCTAssertTrue(
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(
+                    defaults: defaults,
+                    environment: [:],
+                    homeDirectory: homeDirectory
+                )
+            )
+        }
+    }
+
+    func testAgentHibernationHookEvidenceDoesNotMatchRoutedHookSubstrings() throws {
+        try withTemporaryDefaults { defaults in
+            let homeDirectory = try makeTemporaryHomeDirectory()
+            defer { try? FileManager.default.removeItem(at: homeDirectory) }
+            try writeHookConfig(
+                "webhooks pi and cmux hooks pico should not count as a cmux pi hook",
+                at: homeDirectory.appendingPathComponent(".pi/agent/extensions/cmux-session.ts")
+            )
+
+            defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+            XCTAssertFalse(
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(
+                    defaults: defaults,
+                    environment: [:],
+                    homeDirectory: homeDirectory
+                )
+            )
+        }
+    }
+
+    func testAgentHibernationHookEvidenceDetectsPinnedHookMarkers() throws {
+        try withTemporaryDefaults { defaults in
+            let homeDirectory = try makeTemporaryHomeDirectory()
+            defer { try? FileManager.default.removeItem(at: homeDirectory) }
+            try writeHookConfig(
+                ": cmux-grok-hook-v2;",
+                at: homeDirectory.appendingPathComponent(".grok/hooks/cmux-session.json")
+            )
+
+            defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+            XCTAssertTrue(
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(
+                    defaults: defaults,
+                    environment: [:],
+                    homeDirectory: homeDirectory
+                )
+            )
         }
     }
 
@@ -287,5 +474,20 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
         try body(defaults)
+    }
+
+    private func makeTemporaryHomeDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hook-evidence-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func writeHookConfig(_ contents: String, at url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try contents.write(to: url, atomically: true, encoding: .utf8)
     }
 }

@@ -85,14 +85,36 @@ struct CommandPaletteSettingToggleDescriptor: Sendable {
 
 enum CommandPaletteSettingsToggleCommands {
     static let commandIdPrefix = "palette.toggleSetting."
+    static let agentHibernationCommandId = commandIdPrefix + "agentHibernation"
+    @MainActor private static var agentHibernationToggleGeneration = 0
 
     static func descriptor(commandId: String) -> CommandPaletteSettingToggleDescriptor? {
         descriptors.first { $0.commandId == commandId }
     }
 
     static let descriptors: [CommandPaletteSettingToggleDescriptor] = {
-        let app: @Sendable () -> String = { String(localized: "settings.section.app", defaultValue: "App") }
+        let app: @Sendable () -> String = {
+            String(localized: "settings.section.app", defaultValue: "App")
+        }
+        let workspacesAndTabs: @Sendable () -> String = {
+            String(localized: "settings.section.workspacesAndTabs", defaultValue: "Workspaces & Tabs")
+        }
+        let filesAndLinks: @Sendable () -> String = {
+            String(localized: "settings.section.filesAndLinks", defaultValue: "Files & Links")
+        }
+        let notifications: @Sendable () -> String = {
+            String(localized: "settings.section.notifications", defaultValue: "Notifications")
+        }
+        let safetyPrivacy: @Sendable () -> String = {
+            String(localized: "settings.section.safetyPrivacy", defaultValue: "Safety & Privacy")
+        }
+        let commandPalette: @Sendable () -> String = {
+            String(localized: "settings.section.commandPalette", defaultValue: "Command Palette")
+        }
         let terminal: @Sendable () -> String = { String(localized: "settings.section.terminal", defaultValue: "Terminal") }
+        let agentSessions: @Sendable () -> String = {
+            String(localized: "settings.section.agentSessions", defaultValue: "Agent Sessions")
+        }
         let sidebar: @Sendable () -> String = {
             String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar")
         }
@@ -101,6 +123,9 @@ enum CommandPaletteSettingsToggleCommands {
         }
         let automation: @Sendable () -> String = {
             String(localized: "settings.section.automation", defaultValue: "Automation")
+        }
+        let agentIntegrations: @Sendable () -> String = {
+            String(localized: "settings.section.agentIntegrations", defaultValue: "Agent Integrations")
         }
         let browser: @Sendable () -> String = { String(localized: "settings.section.browser", defaultValue: "Browser") }
         let browserImport: @Sendable () -> String = {
@@ -136,8 +161,8 @@ enum CommandPaletteSettingsToggleCommands {
                         defaultValue: "Inherit Workspace Working Directory"
                     )
                 },
-                sectionTitle: app,
-                keywords: ["app.workspaceInheritWorkingDirectory", "workspace", "working", "directory", "cwd", "inherit"],
+                sectionTitle: workspacesAndTabs,
+                keywords: ["app.workspaceInheritWorkingDirectory", "workspace", "working", "directory", "cwd", "inherit", "tabs"],
                 defaultValue: WorkspaceWorkingDirectoryInheritanceSettings.defaultValue,
                 defaultsKey: WorkspaceWorkingDirectoryInheritanceSettings.key
             ),
@@ -150,8 +175,8 @@ enum CommandPaletteSettingsToggleCommands {
                         defaultValue: "Keep Workspace Open When Closing Last Surface"
                     )
                 },
-                sectionTitle: app,
-                keywords: ["app.keepWorkspaceOpenWhenClosingLastSurface", "close", "last", "surface", "pane", "workspace"],
+                sectionTitle: workspacesAndTabs,
+                keywords: ["app.keepWorkspaceOpenWhenClosingLastSurface", "close", "last", "surface", "pane", "workspace", "tabs"],
                 isOn: { defaults in !LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults) },
                 setOn: { newValue, defaults, _ in
                     defaults.set(!newValue, forKey: LastSurfaceCloseShortcutSettings.key)
@@ -163,8 +188,8 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click")
                 },
-                sectionTitle: app,
-                keywords: ["app.focusPaneOnFirstClick", "pane", "focus", "click", "activation", "mouse"],
+                sectionTitle: workspacesAndTabs,
+                keywords: ["app.focusPaneOnFirstClick", "pane", "focus", "click", "activation", "mouse", "workspace"],
                 defaultValue: PaneFirstClickFocusSettings.defaultEnabled,
                 defaultsKey: PaneFirstClickFocusSettings.enabledKey
             ),
@@ -177,7 +202,7 @@ enum CommandPaletteSettingsToggleCommands {
                         defaultValue: "Open Supported Files in cmux"
                     )
                 },
-                sectionTitle: app,
+                sectionTitle: filesAndLinks,
                 keywords: [
                     "app.openSupportedFilesInCmux",
                     "cmd",
@@ -209,7 +234,7 @@ enum CommandPaletteSettingsToggleCommands {
                         defaultValue: "Open Markdown in cmux Viewer"
                     )
                 },
-                sectionTitle: app,
+                sectionTitle: filesAndLinks,
                 keywords: ["app.openMarkdownInCmuxViewer", "markdown", "md", "viewer", "preview", "file"],
                 defaultValue: CmdClickMarkdownRouteSettings.defaultValue,
                 defaultsKey: CmdClickMarkdownRouteSettings.key
@@ -220,7 +245,7 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(localized: "settings.app.iMessageMode", defaultValue: "iMessage Mode")
                 },
-                sectionTitle: app,
+                sectionTitle: notifications,
                 keywords: ["app.iMessageMode", "imessage", "message", "chat", "prompt", "agent", "workspace", "reorder"],
                 defaultValue: IMessageModeSettings.defaultValue,
                 defaultsKey: IMessageModeSettings.key
@@ -231,7 +256,7 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification")
                 },
-                sectionTitle: app,
+                sectionTitle: notifications,
                 keywords: ["app.reorderOnNotification", "notification", "reorder", "workspace", "unread", "sort"],
                 defaultValue: WorkspaceAutoReorderSettings.defaultValue,
                 defaultsKey: WorkspaceAutoReorderSettings.key
@@ -242,7 +267,7 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(localized: "settings.app.dockBadge", defaultValue: "Dock Badge")
                 },
-                sectionTitle: app,
+                sectionTitle: notifications,
                 keywords: ["notifications.dockBadge", "dock", "badge", "notification", "unread", "count"],
                 defaultValue: NotificationBadgeSettings.defaultDockBadgeEnabled,
                 defaultsKey: NotificationBadgeSettings.dockBadgeEnabledKey
@@ -264,7 +289,7 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar")
                 },
-                sectionTitle: app,
+                sectionTitle: notifications,
                 keywords: ["notifications.showInMenuBar", "menu", "bar", "status", "tray", "extra"],
                 defaultValue: MenuBarExtraSettings.defaultShowInMenuBar,
                 defaultsKey: MenuBarExtraSettings.showInMenuBarKey,
@@ -276,7 +301,7 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring")
                 },
-                sectionTitle: app,
+                sectionTitle: notifications,
                 keywords: ["notifications.unreadPaneRing", "notification", "unread", "pane", "ring", "outline"],
                 defaultValue: NotificationPaneRingSettings.defaultEnabled,
                 defaultsKey: NotificationPaneRingSettings.enabledKey
@@ -287,7 +312,7 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash")
                 },
-                sectionTitle: app,
+                sectionTitle: notifications,
                 keywords: ["notifications.paneFlash", "notification", "pane", "flash", "highlight", "pulse"],
                 defaultValue: NotificationPaneFlashSettings.defaultEnabled,
                 defaultsKey: NotificationPaneFlashSettings.enabledKey
@@ -298,7 +323,7 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry")
                 },
-                sectionTitle: app,
+                sectionTitle: safetyPrivacy,
                 keywords: ["app.sendAnonymousTelemetry", "telemetry", "analytics", "crash", "reports", "privacy"],
                 defaultValue: TelemetrySettings.defaultSendAnonymousTelemetry,
                 defaultsKey: TelemetrySettings.sendAnonymousTelemetryKey
@@ -309,7 +334,7 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit")
                 },
-                sectionTitle: app,
+                sectionTitle: safetyPrivacy,
                 keywords: ["app.confirmQuit", "app.warnBeforeQuit", "warn", "quit", "confirmation", "cmd-q", "exit"],
                 isOn: { defaults in QuitWarningSettings.isEnabled(defaults: defaults) },
                 setOn: { newValue, defaults, _ in
@@ -322,7 +347,7 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(localized: "settings.app.warnBeforeClosingTab", defaultValue: "Warn Before Closing Tab")
                 },
-                sectionTitle: app,
+                sectionTitle: safetyPrivacy,
                 keywords: ["app.warnBeforeClosingTab", "warn", "close", "tab", "confirmation", "cmd-w"],
                 defaultValue: CloseTabWarningSettings.defaultWarnBeforeClosingTab,
                 defaultsKey: CloseTabWarningSettings.warnBeforeClosingTabKey
@@ -336,7 +361,7 @@ enum CommandPaletteSettingsToggleCommands {
                         defaultValue: "Warn Before Tab Close Button"
                     )
                 },
-                sectionTitle: app,
+                sectionTitle: safetyPrivacy,
                 keywords: [
                     "app.warnBeforeClosingTabXButton",
                     "warn",
@@ -355,7 +380,7 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(localized: "settings.app.hideTabCloseButton", defaultValue: "Hide Tab Close Button")
                 },
-                sectionTitle: app,
+                sectionTitle: safetyPrivacy,
                 keywords: ["app.hideTabCloseButton", "hide", "close", "tab", "x", "button"],
                 defaultValue: CloseTabWarningSettings.defaultHideTabCloseButton,
                 defaultsKey: CloseTabWarningSettings.hideTabCloseButtonKey
@@ -366,7 +391,7 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name")
                 },
-                sectionTitle: app,
+                sectionTitle: commandPalette,
                 keywords: ["app.renameSelectsExistingName", "rename", "select", "name", "title", "command", "palette"],
                 defaultValue: CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,
                 defaultsKey: CommandPaletteRenameSelectionSettings.selectAllOnFocusKey
@@ -380,7 +405,7 @@ enum CommandPaletteSettingsToggleCommands {
                         defaultValue: "Command Palette Searches All Surfaces"
                     )
                 },
-                sectionTitle: app,
+                sectionTitle: commandPalette,
                 keywords: ["app.commandPaletteSearchesAllSurfaces", "command", "palette", "search", "surfaces", "workspace"],
                 defaultValue: CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces,
                 defaultsKey: CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey
@@ -408,7 +433,7 @@ enum CommandPaletteSettingsToggleCommands {
                         defaultValue: "Resume Agent Sessions on Reopen"
                     )
                 },
-                sectionTitle: terminal,
+                sectionTitle: agentSessions,
                 keywords: ["terminal.autoResumeAgentSessions", "terminal", "agent", "resume", "sessions", "reopen", "restore"],
                 isOn: { defaults in AgentSessionAutoResumeSettings.isEnabled(defaults: defaults) },
                 setOn: { newValue, defaults, notificationCenter in
@@ -420,12 +445,12 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "agentHibernation",
+                commandId: agentHibernationCommandId,
                 settingsKey: "terminal.agentHibernation.enabled",
                 title: {
                     String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation")
                 },
-                sectionTitle: terminal,
+                sectionTitle: agentSessions,
                 keywords: [
                     "terminal.agentHibernation.enabled",
                     "terminal",
@@ -675,7 +700,7 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration")
                 },
-                sectionTitle: automation,
+                sectionTitle: agentIntegrations,
                 keywords: ["automation.claudeCodeIntegration", "claude", "code", "hooks", "agent", "integration"],
                 defaultValue: ClaudeCodeIntegrationSettings.defaultHooksEnabled,
                 defaultsKey: ClaudeCodeIntegrationSettings.hooksEnabledKey
@@ -689,7 +714,7 @@ enum CommandPaletteSettingsToggleCommands {
                         defaultValue: "Suppress Subagent Notifications"
                     )
                 },
-                sectionTitle: automation,
+                sectionTitle: agentIntegrations,
                 keywords: [
                     "automation.suppressSubagentNotifications",
                     "subagent",
@@ -709,7 +734,7 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration")
                 },
-                sectionTitle: automation,
+                sectionTitle: agentIntegrations,
                 keywords: ["automation.cursorIntegration", "cursor", "hooks", "agent", "integration"],
                 defaultValue: CursorIntegrationSettings.defaultHooksEnabled,
                 defaultsKey: CursorIntegrationSettings.hooksEnabledKey
@@ -720,7 +745,7 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration")
                 },
-                sectionTitle: automation,
+                sectionTitle: agentIntegrations,
                 keywords: ["automation.geminiIntegration", "gemini", "hooks", "agent", "integration"],
                 defaultValue: GeminiIntegrationSettings.defaultHooksEnabled,
                 defaultsKey: GeminiIntegrationSettings.hooksEnabledKey
@@ -805,6 +830,61 @@ enum CommandPaletteSettingsToggleCommands {
             ),
         ]
     }()
+
+    @MainActor
+    static func toggleAgentHibernationForCommandPalette(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        agentHibernationToggleGeneration += 1
+        let toggleGeneration = agentHibernationToggleGeneration
+        let newValue = !AgentHibernationSettings.isEnabled(defaults: defaults)
+        guard newValue else {
+            AgentHibernationSettings.setValues(
+                enabled: false,
+                defaults: defaults,
+                notificationCenter: notificationCenter
+            )
+            return
+        }
+
+#if DEBUG
+        if AgentHibernationHookSetupEvidence.hasHookSetupEvidenceHandlerForTests != nil {
+            guard AgentHibernationHookSetupEvidence.hasHookSetupEvidence(defaults: defaults)
+                || AgentHibernationEnableWarning.confirmEnableWithoutHooks()
+            else {
+                return
+            }
+            AgentHibernationSettings.setValues(
+                enabled: true,
+                defaults: defaults,
+                notificationCenter: notificationCenter
+            )
+            return
+        }
+#endif
+
+        Task { @MainActor in
+            let hasHookSetupEvidence = await Task.detached(priority: .utility) {
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(defaults: defaults)
+            }.value
+            guard toggleGeneration == agentHibernationToggleGeneration,
+                  !AgentHibernationSettings.isEnabled(defaults: defaults) else {
+                return
+            }
+            guard hasHookSetupEvidence || AgentHibernationEnableWarning.confirmEnableWithoutHooks() else {
+                return
+            }
+            guard toggleGeneration == agentHibernationToggleGeneration else {
+                return
+            }
+            AgentHibernationSettings.setValues(
+                enabled: true,
+                defaults: defaults,
+                notificationCenter: notificationCenter
+            )
+        }
+    }
 }
 
 extension ContentView {
@@ -823,7 +903,11 @@ extension ContentView {
     func registerSettingsToggleCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         for descriptor in CommandPaletteSettingsToggleCommands.descriptors {
             registry.register(commandId: descriptor.commandId) {
-                descriptor.toggle()
+                if descriptor.commandId == CommandPaletteSettingsToggleCommands.agentHibernationCommandId {
+                    CommandPaletteSettingsToggleCommands.toggleAgentHibernationForCommandPalette()
+                } else {
+                    descriptor.toggle()
+                }
             }
         }
     }

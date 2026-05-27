@@ -55,6 +55,12 @@
       "severity": "high"
     },
     {
+      "id": "cmux-settings-organization-search",
+      "rule": "Flag settings UI, navigation, search, command-palette setting toggle, or persisted settings-key changes that leave settings in stale or overloaded categories after re-evaluating the affected settings area, move settings without preserving old-name, old-section, and JSON-key aliases, break section or setting anchors, or omit common synonyms, command-palette wording, CLI/docs names, likely misspellings, and adjacent product vocabulary from search.",
+      "scope": ["Sources/**/*.swift", "Resources/*.xcstrings", "web/messages/**/*.json", "web/**/*.tsx"],
+      "severity": "high"
+    },
+    {
       "id": "cmux-algorithmic-complexity",
       "rule": "Flag production code that adds nested full-collection scans, per-target rescans for batch actions, repeated sort/filter/map work in hot UI/socket/search/process paths, in-memory joins that belong in the data store, or unbenchmarked slower algorithms for paths expected to handle about 1000 workspaces or similar user-owned records. Pass for tiny fixed-size collections, tests and benchmark harnesses, existing debt not worsened, and documented bounds with measurements.",
       "scope": ["**/*.swift", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.mjs", "**/*.cjs", "**/*.sh", "**/*.zsh"],

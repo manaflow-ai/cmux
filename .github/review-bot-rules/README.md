@@ -11,6 +11,7 @@ Current rules:
 - `algorithmic-complexity.md`
 - `full-internationalization.md`
 - `runtime-no-hacky-sleeps.md`
+- `settings-organization-search.md`
 - `swift-actor-isolation.md`
 - `swift-architectural-rethink.md`
 - `swift-auxiliary-window-close-shortcuts.md`
