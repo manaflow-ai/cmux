@@ -5538,12 +5538,56 @@ class TabManager: ObservableObject {
     @discardableResult
     func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int) -> Bool {
         guard let plan = workspaceReorderPlan(tabId: tabId, toIndex: targetIndex) else { return false }
-        if tabs.count <= 1 || plan.fromIndex == plan.toIndex { return true }
+        if tabs.count <= 1 || plan.fromIndex == plan.toIndex {
+            // Even when no array movement is needed, the drop may still imply
+            // a group membership change via neighbor inheritance — apply it.
+            applyDragInferredGroupMembership(workspaceId: tabId)
+            return true
+        }
 
         let workspace = tabs.remove(at: plan.fromIndex)
         tabs.insert(workspace, at: plan.toIndex)
+        applyDragInferredGroupMembership(workspaceId: tabId)
         postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
         return true
+    }
+
+    /// After a drag-driven reorder, infer the dragged workspace's group
+    /// membership from its new neighbors in `tabs[]`:
+    /// - If both neighbors share a non-nil groupId, join that group.
+    /// - If only one neighbor is in a group, join that neighbor's group when
+    ///   that group's anchor is the neighbor or another existing member
+    ///   (i.e. the dragged workspace sits "inside" the section).
+    /// - Otherwise, clear groupId. Pinned workspaces never gain a group via
+    ///   drag.
+    /// Anchors keep their group: their lifecycle is gated by group existence.
+    private func applyDragInferredGroupMembership(workspaceId: UUID) {
+        guard let index = tabs.firstIndex(where: { $0.id == workspaceId }) else { return }
+        let tab = tabs[index]
+        if tab.isPinned { return }
+        let isAnchor = workspaceGroups.contains(where: { $0.anchorWorkspaceId == workspaceId })
+        if isAnchor { return }
+        let before: Workspace? = index > 0 ? tabs[index - 1] : nil
+        let after: Workspace? = (index + 1) < tabs.count ? tabs[index + 1] : nil
+        let beforeGroup = before.flatMap { $0.isPinned ? nil : $0.groupId }
+        let afterGroup = after.flatMap { $0.isPinned ? nil : $0.groupId }
+        let inferred: UUID?
+        if let beforeGroup, beforeGroup == afterGroup {
+            inferred = beforeGroup
+        } else if let beforeGroup, afterGroup == nil {
+            // Sitting right after the last member of a group: keep it inside.
+            inferred = beforeGroup
+        } else if let afterGroup, beforeGroup == nil {
+            // Sitting right before the first member of a group: join it.
+            inferred = afterGroup
+        } else {
+            inferred = nil
+        }
+        if tab.groupId != inferred {
+            tab.groupId = inferred
+            // Renormalize after group change to keep tiers contiguous.
+            normalizeWorkspaceGroupContiguity()
+        }
     }
 
     func workspaceReorderPlan(tabId: UUID, toIndex targetIndex: Int) -> WorkspaceReorderPlanItem? {
