@@ -3442,6 +3442,42 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
         XCTAssertTrue(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_hourly_active"))
         XCTAssertFalse(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_other_event"))
     }
+
+    func testTerminationFlushReturnsWhileAnalyticsQueueIsBusy() {
+        let queue = DispatchQueue(label: "com.cmux.posthog.analytics.test")
+        let blockerStarted = DispatchSemaphore(value: 0)
+        let releaseBlocker = DispatchSemaphore(value: 0)
+        let returned = expectation(description: "termination flush returned")
+        let flushed = expectation(description: "queued flush eventually ran")
+
+        queue.async {
+            blockerStarted.signal()
+            releaseBlocker.wait()
+        }
+        XCTAssertEqual(blockerStarted.wait(timeout: .now() + 1), .success)
+
+        let analytics = PostHogAnalytics(
+            workQueue: queue,
+            didStart: true,
+            sdkFlush: {
+                flushed.fulfill()
+            }
+        )
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            analytics.flushForApplicationTermination()
+            returned.fulfill()
+        }
+
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [returned], timeout: 1),
+            .completed,
+            "Termination flush must not synchronously wait on the analytics queue"
+        )
+
+        releaseBlocker.signal()
+        XCTAssertEqual(XCTWaiter.wait(for: [flushed], timeout: 1), .completed)
+    }
 }
 
 final class GhosttyMouseFocusTests: XCTestCase {
