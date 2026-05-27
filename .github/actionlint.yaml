@@ -1,0 +1,16 @@
+self-hosted-runner:
+  labels:
+    - macfleet
+    - cmux
+    - mac-mini
+    - xcode-26-3
+    - warp-macos-15-arm64-6x
+    - warp-macos-26-arm64-6x
+    - mac3
+    - mac4
+    - mac6
+    - slot-1
+    - slot-2
+    - slot-3
+    - slot-4
+    - slot-5

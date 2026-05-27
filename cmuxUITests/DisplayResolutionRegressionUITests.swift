@@ -45,7 +45,9 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         super.tearDown()
     }
 
-    private let prelaunchManifestPath = "/tmp/cmux-ui-test-prelaunch.json"
+    private var prelaunchManifestPath: String {
+        ProcessInfo.processInfo.environment["CMUX_UI_TEST_PRELAUNCH_MANIFEST_PATH"] ?? "/tmp/cmux-ui-test-prelaunch.json"
+    }
 
     func testRapidDisplayResolutionChangesKeepTerminalResponsive() throws {
         // On CI, the app is pre-launched from the shell (outside the XCTest
