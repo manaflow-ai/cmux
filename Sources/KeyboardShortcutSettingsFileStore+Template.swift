@@ -164,6 +164,7 @@ extension CmuxSettingsFileStore {
             [
                 "browser": [
                     "defaultSearchEngine": BrowserSearchSettings.defaultSearchEngine.rawValue,
+                    "engine": BrowserEngineSettings.defaultEngine.rawValue,
                     "showSearchSuggestions": BrowserSearchSettings.defaultSearchSuggestionsEnabled,
                     "theme": BrowserThemeSettings.defaultMode.rawValue,
                     "discardHiddenWebViews": BrowserHiddenWebViewDiscardPolicy.defaultEnabled,
@@ -174,6 +175,7 @@ extension CmuxSettingsFileStore {
                     "urlsToAlwaysOpenExternally": [String](),
                     "insecureHttpHostsAllowedInEmbeddedBrowser": BrowserInsecureHTTPSettings.defaultAllowlistPatterns,
                     "showImportHintOnBlankTabs": BrowserImportHintSettings.defaultShowOnBlankTabs,
+                    "chromeExtensionDirectories": [String](),
                     "reactGrabVersion": ReactGrabSettings.defaultVersion,
                 ],
             ],

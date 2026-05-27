@@ -836,6 +836,16 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[BrowserSearchSettings.searchEngineKey] = .string(engine.rawValue)
         }
+        if let raw = jsonString(section["engine"]) {
+            let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard ["chromium", "chrome", "cef", "webkit", "web-kit", "wkwebview", "wk"].contains(normalized) else {
+                logInvalid("browser.engine", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[BrowserEngineSettings.engineKey] = .string(
+                BrowserEngineSettings.engine(for: raw).rawValue
+            )
+        }
         if let value = jsonBool(section["showSearchSuggestions"]) {
             snapshot.managedUserDefaults[BrowserSearchSettings.searchSuggestionsEnabledKey] = .bool(value)
         }
@@ -892,6 +902,16 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["showImportHintOnBlankTabs"]) {
             snapshot.managedUserDefaults[BrowserImportHintSettings.showOnBlankTabsKey] = .bool(value)
+        }
+        if let values = jsonStringArray(section["chromeExtensionDirectories"]) {
+            let normalized = values
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            snapshot.managedUserDefaults[BrowserEngineSettings.chromeExtensionDirectoriesKey] = .string(
+                normalized.joined(separator: "\n")
+            )
+        } else if section.keys.contains("chromeExtensionDirectories") {
+            logInvalid("browser.chromeExtensionDirectories", sourcePath: sourcePath)
         }
         if let raw = jsonString(section["reactGrabVersion"]) {
             snapshot.managedUserDefaults[ReactGrabSettings.versionKey] = .string(raw)
@@ -1426,6 +1446,11 @@ final class CmuxSettingsFileStore {
 
                 if change.defaultsKey == TerminalCopyOnSelectSettings.copyOnSelectKey {
                     TerminalCopyOnSelectSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
+                if change.defaultsKey == BrowserEngineSettings.engineKey ||
+                    change.defaultsKey == BrowserEngineSettings.chromeExtensionDirectoriesKey {
+                    notificationCenter.post(name: BrowserEngineSettings.didChangeNotification, object: nil)
                 }
 
                 if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {

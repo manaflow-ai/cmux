@@ -140,6 +140,7 @@ extension CmuxSettingsFileStore {
         "automation.portBase",
         "automation.portRange",
         "browser.defaultSearchEngine",
+        "browser.engine",
         "browser.showSearchSuggestions",
         "browser.theme",
         "browser.discardHiddenWebViews",
@@ -150,6 +151,7 @@ extension CmuxSettingsFileStore {
         "browser.urlsToAlwaysOpenExternally",
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
         "browser.showImportHintOnBlankTabs",
+        "browser.chromeExtensionDirectories",
         "browser.reactGrabVersion",
         "shortcuts.bindings",
     ]

@@ -5112,3 +5112,58 @@ final class BrowserOmnibarFocusPolicyTests: XCTestCase {
         )
     }
 }
+
+final class BrowserEngineSettingsTests: XCTestCase {
+    func testDefaultPreferredEngineIsChromium() {
+        let suiteName = "cmux.browserEngineSettings.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(BrowserEngineSettings.preferredEngine(defaults: defaults), .chromium)
+    }
+
+    func testExplicitWebKitEngineOverridesChromiumDefault() {
+        let suiteName = "cmux.browserEngineSettings.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("webkit", forKey: BrowserEngineSettings.engineKey)
+
+        XCTAssertEqual(BrowserEngineSettings.preferredEngine(defaults: defaults), .webKit)
+        XCTAssertEqual(
+            BrowserEngineSettings.effectiveEngine(chromiumHostAvailable: true, defaults: defaults),
+            .webKit
+        )
+    }
+
+    func testChromiumFallsBackToWebKitWhenHostUnavailable() {
+        let suiteName = "cmux.browserEngineSettings.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("chromium", forKey: BrowserEngineSettings.engineKey)
+
+        XCTAssertEqual(
+            BrowserEngineSettings.effectiveEngine(chromiumHostAvailable: false, defaults: defaults),
+            .webKit
+        )
+        XCTAssertEqual(
+            BrowserEngineSettings.effectiveEngine(chromiumHostAvailable: true, defaults: defaults),
+            .chromium
+        )
+    }
+
+    func testChromeExtensionDirectoriesParseNewlineList() {
+        let raw = """
+        /tmp/extension-a
+
+          /tmp/extension-b
+        # ignored
+        """
+
+        XCTAssertEqual(
+            BrowserEngineSettings.chromeExtensionDirectoryPaths(rawValue: raw),
+            ["/tmp/extension-a", "/tmp/extension-b"]
+        )
+    }
+}

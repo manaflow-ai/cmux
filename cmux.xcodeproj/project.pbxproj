@@ -292,6 +292,8 @@
 		B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */; };
 		B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */; };
 		A5001402 /* BrowserPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001412 /* BrowserPanel.swift */; };
+		C0FFEE000000000000000001 /* ChromiumBrowserEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE000000000000000002 /* ChromiumBrowserEngine.swift */; };
+		C0FFEE000000000000000003 /* CMUXChromiumBrowserView.mm in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE000000000000000004 /* CMUXChromiumBrowserView.mm */; };
 		B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3770BA00000000000000002 /* BrowserAutomation.swift */; };
 		4472A0014472A0014472A001 /* BrowserScreenshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4472B0014472B0014472B001 /* BrowserScreenshot.swift */; };
 		D7AB00000000000000000007 /* BrowserPanel+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */; };
@@ -878,6 +880,9 @@
 		B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHiddenWebViewDiscardPolicy.swift; sourceTree = "<group>"; };
 		B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHiddenWebViewDiscardManager.swift; sourceTree = "<group>"; };
 		A5001412 /* BrowserPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanel.swift; sourceTree = "<group>"; };
+		C0FFEE000000000000000002 /* ChromiumBrowserEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChromiumBrowserEngine.swift; sourceTree = "<group>"; };
+		C0FFEE000000000000000004 /* CMUXChromiumBrowserView.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = Panels/CMUXChromiumBrowserView.mm; sourceTree = "<group>"; };
+		C0FFEE000000000000000005 /* CMUXChromiumBrowserView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Panels/CMUXChromiumBrowserView.h; sourceTree = "<group>"; };
 		B3770BA00000000000000002 /* BrowserAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAutomation.swift; sourceTree = "<group>"; };
 		4472B0014472B0014472B001 /* BrowserScreenshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshot.swift; sourceTree = "<group>"; };
 		4472B0024472B0024472B002 /* BrowserScreenshotPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotPipeline.swift; sourceTree = "<group>"; };
@@ -1465,6 +1470,9 @@
 				B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */,
 				B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */,
 				A5001412 /* BrowserPanel.swift */,
+				C0FFEE000000000000000002 /* ChromiumBrowserEngine.swift */,
+				C0FFEE000000000000000005 /* CMUXChromiumBrowserView.h */,
+				C0FFEE000000000000000004 /* CMUXChromiumBrowserView.mm */,
 				B3770BA00000000000000002 /* BrowserAutomation.swift */,
 				4472B0014472B0014472B001 /* BrowserScreenshot.swift */,
 				4472B0024472B0024472B002 /* BrowserScreenshotPipeline.swift */,
@@ -2238,6 +2246,8 @@
 				B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */,
 				B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */,
 				A5001402 /* BrowserPanel.swift in Sources */,
+				C0FFEE000000000000000001 /* ChromiumBrowserEngine.swift in Sources */,
+				C0FFEE000000000000000003 /* CMUXChromiumBrowserView.mm in Sources */,
 				B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */,
 				4472A0014472A0014472A001 /* BrowserScreenshot.swift in Sources */,
 				4472A0024472A0024472A002 /* BrowserScreenshotPipeline.swift in Sources */,
