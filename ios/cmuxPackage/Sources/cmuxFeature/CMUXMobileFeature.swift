@@ -4683,6 +4683,12 @@ private struct TerminalStyledRowView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(row.trimmedPlainText)
         .accessibilityIdentifier("MobileTerminalRow-\(rowIndex)")
+        .accessibilityValue(hasVisibleCursor ? "cursor-column-\(cursor?.column ?? 0)" : "")
+    }
+
+    private var hasVisibleCursor: Bool {
+        guard let cursor else { return false }
+        return cursor.isVisible && rowIndex == cursor.row
     }
 }
 

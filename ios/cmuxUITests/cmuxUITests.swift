@@ -147,6 +147,92 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(0, label: "LAZYGIT", in: app)
     }
 
+    /// The mobile snapshot's `cursor.row` must address the same array index as
+    /// `visibleRows[i]`. Regression for the Mac-side bug where the snapshot
+    /// captured GHOSTTY_POINT_VIEWPORT (user-scrolled area) while the cursor
+    /// was reported from GHOSTTY_POINT_ACTIVE, so they could disagree by tens
+    /// of rows when the Mac had scrollback history. We now use POINT_ACTIVE
+    /// for both and the iOS render side compares row index directly to
+    /// `cursor.row`.
+    @MainActor
+    func testTerminalCursorRowAlignsWithSnapshotIndex() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        server.overrideCursor(workspaceID: "workspace-main", terminalID: "terminal-build", row: 2, column: 18, isVisible: true)
+
+        let app = try launchConnectedApp(port: port)
+        try openSelectedWorkspaceIfNeeded(app)
+
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 6))
+
+        let cursorRow = app.otherElements["MobileTerminalRow-2"]
+        XCTAssertTrue(cursorRow.waitForExistence(timeout: 4), "Expected MobileTerminalRow-2 to exist")
+        let predicate = NSPredicate { object, _ in
+            guard let element = object as? XCUIElement else { return false }
+            return element.value as? String == "cursor-column-18"
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: cursorRow)
+        XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 4), .completed,
+                       "Cursor must render on MobileTerminalRow-2 at column 18 — saw value=\(cursorRow.value ?? "nil")")
+
+        // Adjacent rows must NOT carry the cursor marker.
+        for index in [0, 1, 3, 4] {
+            let row = app.otherElements["MobileTerminalRow-\(index)"]
+            if row.exists {
+                XCTAssertEqual(row.value as? String ?? "", "",
+                               "Row \(index) unexpectedly has a cursor marker")
+            }
+        }
+    }
+
+    /// Tapping a text field opens the system keyboard with a non-zero overlap;
+    /// swiping the form dismisses it via `.scrollDismissesKeyboard(.interactively)`.
+    /// The Pair button must remain reachable at the bottom of the form in both
+    /// states (it floats via `.safeAreaInset(edge: .bottom)` with a gradient
+    /// backdrop).
+    @MainActor
+    func testAddDeviceKeyboardOpensAndDismissesViaSwipe() throws {
+        let app = launchAddDeviceApp()
+
+        let hostField = app.textFields["MobileAddDeviceHostField"]
+        XCTAssertTrue(hostField.waitForExistence(timeout: 4))
+        let pairButton = app.buttons["MobilePairButton"]
+        XCTAssertTrue(pairButton.waitForExistence(timeout: 4))
+        let initialPairFrame = pairButton.frame
+
+        hostField.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4),
+                      "Tapping the host field should bring up the keyboard")
+
+        // The pair button stays visible and hittable even with the keyboard up.
+        XCTAssertTrue(pairButton.exists, "Pair button must remain in the hierarchy with keyboard up")
+        let keyboardOpenFrame = pairButton.frame
+        XCTAssertLessThan(
+            keyboardOpenFrame.midY,
+            initialPairFrame.midY + 1,
+            "Pair button should sit at or above its keyboard-down position (got \(keyboardOpenFrame.midY) vs \(initialPairFrame.midY))"
+        )
+
+        // Swipe down on the form to dismiss the keyboard via
+        // .scrollDismissesKeyboard(.interactively).
+        let form = app.otherElements["MobileAddDeviceForm"]
+        let scrollTarget: XCUIElement = form.exists ? form : app
+        scrollTarget.swipeDown(velocity: .fast)
+
+        let dismissed = waitForKeyboardDismissal(in: app)
+        XCTAssertTrue(dismissed, "Keyboard should dismiss after a downward swipe")
+
+        // Pair button should return to its original placement (gradient backdrop
+        // never overlays its hit area).
+        let restoredFrame = pairButton.frame
+        XCTAssertEqual(restoredFrame.midY, initialPairFrame.midY, accuracy: 4,
+                       "Pair button must return to its original Y after keyboard dismissal")
+        XCTAssertTrue(pairButton.isHittable, "Pair button must be tappable after keyboard dismissal")
+    }
+
     @MainActor
     private func launchConnectedApp(port: UInt16) throws -> XCUIApplication {
         let attachURL = try attachURL(port: port)
@@ -864,15 +950,15 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         }) {
             selectedWorkspaceID = workspace.id
         }
-        let terminal = workspaces
+        let (terminal, workspaceID) = workspaces
             .lazy
-            .flatMap(\.terminals)
-            .first { $0.id == terminalID }
-            ?? workspaces[0].terminals[0]
+            .flatMap { ws in ws.terminals.map { ($0, ws.id) } }
+            .first { $0.0.id == terminalID }
+            ?? (workspaces[0].terminals[0], workspaces[0].id)
         streamOffset += 1
         return [
             "surface_id": terminal.id,
-            "snapshot": snapshot(for: terminal),
+            "snapshot": snapshot(for: terminal, workspaceID: workspaceID),
         ]
     }
 
@@ -897,9 +983,23 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         ]
     }
 
-    private func snapshot(for terminal: Terminal) -> [String: Any] {
+    func overrideCursor(workspaceID: String, terminalID: String, row: Int, column: Int, isVisible: Bool) {
+        queue.async { [weak self] in
+            self?.cursorOverrides["\(workspaceID)/\(terminalID)"] = CursorOverride(row: row, column: column, isVisible: isVisible)
+        }
+    }
+
+    private struct CursorOverride {
+        var row: Int
+        var column: Int
+        var isVisible: Bool
+    }
+    private var cursorOverrides: [String: CursorOverride] = [:]
+
+    private func snapshot(for terminal: Terminal, workspaceID: String) -> [String: Any] {
         let visibleRows = Array((terminal.lines + Array(repeating: "", count: 6)).prefix(6))
             .map { Self.row($0) }
+        let override = cursorOverrides["\(workspaceID)/\(terminal.id)"]
         return [
             "schemaVersion": 1,
             "terminalID": terminal.id,
@@ -911,9 +1011,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "scrollbackRows": [],
             "visibleRows": visibleRows,
             "cursor": [
-                "column": 0,
-                "row": 5,
-                "isVisible": false,
+                "column": override?.column ?? 0,
+                "row": override?.row ?? 5,
+                "isVisible": override?.isVisible ?? false,
                 "style": "block",
             ],
             "modes": [

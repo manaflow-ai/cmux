@@ -9600,25 +9600,41 @@ class TerminalController {
         lineLimit: Int,
         now: Date
     ) -> MobileTerminalSnapshotText? {
-        let attemptedVTExport = shouldAttemptMobileTerminalVTExport(surfaceID: terminalPanel.id, now: now)
-        if attemptedVTExport {
-            if let vtText = readTerminalTextFromVTExportForSnapshot(
-                terminalPanel: terminalPanel,
-                lineLimit: lineLimit
-            ) {
-                return MobileTerminalSnapshotText(text: tailTerminalLines(vtText, maxLines: lineLimit), fidelity: "ansi_vt")
-            }
-            mobileTerminalVTExportLastAttemptBySurfaceID[terminalPanel.id] = nil
-        }
-
-        guard let plainText = readPlainTerminalTextForSnapshot(
-            terminalPanel: terminalPanel,
-            includeScrollback: false,
-            lineLimit: nil
+        // IMPORTANT: read the .active region (where the cursor lives), not the
+        // .viewport (where the Mac user is currently scrolled). Mobile clients
+        // render Ghostty's cursor row/col directly against visibleRows[i],
+        // so the rows we send MUST be the 45-row active area or the cursor
+        // ends up offset by however much the Mac user has scrolled. VT export
+        // bundles history+active into a single styled stream whose line count
+        // does not equal the active row count, so we cannot tail it to recover
+        // the active area; use the plain-text active path instead.
+        guard let activeText = readPlainTerminalTextForMobileActiveArea(
+            terminalPanel: terminalPanel
         ) else {
             return nil
         }
-        return MobileTerminalSnapshotText(text: tailTerminalLines(plainText, maxLines: lineLimit), fidelity: "plain_text")
+        return MobileTerminalSnapshotText(text: padToExactLines(activeText, lines: lineLimit), fidelity: "plain_text")
+    }
+
+    private func readPlainTerminalTextForMobileActiveArea(
+        terminalPanel: TerminalPanel
+    ) -> String? {
+        guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileActiveAreaText") != nil else {
+            return nil
+        }
+        return readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_ACTIVE)
+    }
+
+    private func padToExactLines(_ text: String, lines: Int) -> String {
+        guard lines > 0 else { return "" }
+        let normalized = terminalTextDroppingFinalLineTerminator(text)
+        var split = normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if split.count > lines {
+            split = Array(split.suffix(lines))
+        } else {
+            while split.count < lines { split.append("") }
+        }
+        return split.joined(separator: "\n")
     }
 
     private func shouldAttemptMobileTerminalVTExport(surfaceID: UUID, now: Date) -> Bool {
