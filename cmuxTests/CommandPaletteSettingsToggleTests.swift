@@ -58,6 +58,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             defer { notificationCenter.removeObserver(token) }
 
             XCTAssertTrue(descriptor.isOn(defaults))
+
             descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
 
             XCTAssertEqual(defaults.object(forKey: TerminalScrollBarSettings.showScrollBarKey) as? Bool, false)
@@ -76,6 +77,22 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             XCTAssertTrue(descriptor.isAvailable(defaults))
             defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
             XCTAssertFalse(descriptor.isAvailable(defaults))
+        }
+    }
+
+    func testMenuBarOnlyCommandReportsAppearanceSection() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.menuBarOnly"
+                )
+            )
+
+            let appearance = String(localized: "settings.app.appearance", defaultValue: "Appearance")
+            let notifications = String(localized: "settings.section.notifications", defaultValue: "Notifications")
+            let subtitle = descriptor.commandSubtitle(defaults: defaults)
+            XCTAssertTrue(subtitle.contains(appearance))
+            XCTAssertFalse(subtitle.contains(notifications))
         }
     }
 
@@ -129,6 +146,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testAgentHibernationCommandTogglesAndPostsChangeNotification() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
@@ -149,7 +167,13 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
 
             XCTAssertFalse(descriptor.isOn(defaults))
 
-            descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
+            AgentHibernationHookSetupEvidence.hasHookSetupEvidenceHandlerForTests = { _ in true }
+            defer { AgentHibernationHookSetupEvidence.hasHookSetupEvidenceHandlerForTests = nil }
+
+            CommandPaletteSettingsToggleCommands.toggleAgentHibernationForCommandPalette(
+                defaults: defaults,
+                notificationCenter: notificationCenter
+            )
 
             XCTAssertTrue(AgentHibernationSettings.isEnabled(defaults: defaults))
             XCTAssertTrue(descriptor.isOn(defaults))
@@ -157,6 +181,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testAgentHibernationCommandWarnsBeforeEnablingWithoutHookEvidence() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
@@ -174,7 +199,10 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             }
             defer { AgentHibernationEnableWarning.confirmationHandlerForTests = nil }
 
-            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+            CommandPaletteSettingsToggleCommands.toggleAgentHibernationForCommandPalette(
+                defaults: defaults,
+                notificationCenter: NotificationCenter()
+            )
 
             XCTAssertEqual(confirmationCount, 1)
             XCTAssertFalse(AgentHibernationSettings.isEnabled(defaults: defaults))
@@ -182,6 +210,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testAgentHibernationCommandEnablesAfterWarningConfirmation() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
@@ -195,7 +224,10 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             AgentHibernationEnableWarning.confirmationHandlerForTests = { true }
             defer { AgentHibernationEnableWarning.confirmationHandlerForTests = nil }
 
-            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+            CommandPaletteSettingsToggleCommands.toggleAgentHibernationForCommandPalette(
+                defaults: defaults,
+                notificationCenter: NotificationCenter()
+            )
 
             XCTAssertTrue(AgentHibernationSettings.isEnabled(defaults: defaults))
             XCTAssertTrue(descriptor.isOn(defaults))

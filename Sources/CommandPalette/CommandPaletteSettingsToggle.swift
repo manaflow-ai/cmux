@@ -85,12 +85,16 @@ struct CommandPaletteSettingToggleDescriptor: Sendable {
 
 enum CommandPaletteSettingsToggleCommands {
     static let commandIdPrefix = "palette.toggleSetting."
+    static let agentHibernationCommandId = commandIdPrefix + "agentHibernation"
 
     static func descriptor(commandId: String) -> CommandPaletteSettingToggleDescriptor? {
         descriptors.first { $0.commandId == commandId }
     }
 
     static let descriptors: [CommandPaletteSettingToggleDescriptor] = {
+        let appearance: @Sendable () -> String = {
+            String(localized: "settings.app.appearance", defaultValue: "Appearance")
+        }
         let workspacesAndTabs: @Sendable () -> String = {
             String(localized: "settings.section.workspacesAndTabs", defaultValue: "Workspaces & Tabs")
         }
@@ -273,7 +277,7 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only")
                 },
-                sectionTitle: notifications,
+                sectionTitle: appearance,
                 keywords: ["app.menuBarOnly", "menu", "bar", "dock", "cmd-tab", "app", "switcher"],
                 defaultValue: MenuBarOnlySettings.defaultMenuBarOnly,
                 defaultsKey: MenuBarOnlySettings.menuBarOnlyKey
@@ -440,7 +444,7 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "agentHibernation",
+                commandId: agentHibernationCommandId,
                 settingsKey: "terminal.agentHibernation.enabled",
                 title: {
                     String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation")
@@ -460,11 +464,6 @@ enum CommandPaletteSettingsToggleCommands {
                 ],
                 isOn: { defaults in AgentHibernationSettings.isEnabled(defaults: defaults) },
                 setOn: { newValue, defaults, notificationCenter in
-                    if newValue,
-                       !AgentHibernationHookSetupEvidence.hasHookSetupEvidence(defaults: defaults),
-                       !AgentHibernationEnableWarning.confirmEnableWithoutHooks() {
-                        return
-                    }
                     AgentHibernationSettings.setValues(
                         enabled: newValue,
                         defaults: defaults,
@@ -830,6 +829,52 @@ enum CommandPaletteSettingsToggleCommands {
             ),
         ]
     }()
+
+    @MainActor
+    static func toggleAgentHibernationForCommandPalette(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let newValue = !AgentHibernationSettings.isEnabled(defaults: defaults)
+        guard newValue else {
+            AgentHibernationSettings.setValues(
+                enabled: false,
+                defaults: defaults,
+                notificationCenter: notificationCenter
+            )
+            return
+        }
+
+#if DEBUG
+        if AgentHibernationHookSetupEvidence.hasHookSetupEvidenceHandlerForTests != nil {
+            guard AgentHibernationHookSetupEvidence.hasHookSetupEvidence(defaults: defaults)
+                || AgentHibernationEnableWarning.confirmEnableWithoutHooks()
+            else {
+                return
+            }
+            AgentHibernationSettings.setValues(
+                enabled: true,
+                defaults: defaults,
+                notificationCenter: notificationCenter
+            )
+            return
+        }
+#endif
+
+        Task { @MainActor in
+            let hasHookSetupEvidence = await Task.detached(priority: .utility) {
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(defaults: .standard)
+            }.value
+            guard hasHookSetupEvidence || AgentHibernationEnableWarning.confirmEnableWithoutHooks() else {
+                return
+            }
+            AgentHibernationSettings.setValues(
+                enabled: true,
+                defaults: defaults,
+                notificationCenter: notificationCenter
+            )
+        }
+    }
 }
 
 extension ContentView {
@@ -848,7 +893,11 @@ extension ContentView {
     func registerSettingsToggleCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         for descriptor in CommandPaletteSettingsToggleCommands.descriptors {
             registry.register(commandId: descriptor.commandId) {
-                descriptor.toggle()
+                if descriptor.commandId == CommandPaletteSettingsToggleCommands.agentHibernationCommandId {
+                    CommandPaletteSettingsToggleCommands.toggleAgentHibernationForCommandPalette()
+                } else {
+                    descriptor.toggle()
+                }
             }
         }
     }
