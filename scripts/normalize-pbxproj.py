@@ -72,11 +72,11 @@ def sort_flat_section(lines: list[str], section: str) -> list[str]:
         return lines
 
     body = lines[start + 1 : stop]
-    # Preserve empty lines exactly where they are; they're not part of the entries.
+    # Separate content lines from blank lines; blanks are collapsed to a
+    # trailing group so they don't interleave with the sorted entries.
     entries = [l for l in body if l.strip()]
     blanks = [l for l in body if not l.strip()]
     entries.sort(key=entry_sort_key)
-    # All blanks (if any) get collapsed to a trailing newline group.
     new_body = entries + blanks
     return lines[: start + 1] + new_body + lines[stop:]
 
