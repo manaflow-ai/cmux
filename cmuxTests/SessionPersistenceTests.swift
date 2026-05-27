@@ -1,4 +1,5 @@
 import Darwin
+import AppKit
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -643,6 +644,57 @@ final class SessionPersistenceTests: XCTestCase {
             AppDelegate.shouldWriteSessionSnapshotSynchronously(
                 isTerminatingApp: true,
                 includeScrollback: true
+            )
+        )
+    }
+
+    func testQuitConfirmationDirtyWorkspaceScanPolicy() {
+        XCTAssertFalse(
+            AppDelegate.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+                isQuitWarningConfirmed: true,
+                buildFlavor: .stable,
+                confirmQuitMode: .dirtyOnly
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+                isQuitWarningConfirmed: false,
+                buildFlavor: .dev,
+                confirmQuitMode: .dirtyOnly
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+                isQuitWarningConfirmed: false,
+                buildFlavor: .stable,
+                confirmQuitMode: .always
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+                isQuitWarningConfirmed: false,
+                buildFlavor: .stable,
+                confirmQuitMode: .never
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+                isQuitWarningConfirmed: false,
+                buildFlavor: .stable,
+                confirmQuitMode: .dirtyOnly
+            )
+        )
+    }
+
+    func testWillTerminateSnapshotPolicySkipsAfterCommittedQuitSnapshot() {
+        XCTAssertTrue(
+            AppDelegate.shouldPersistSessionSnapshotDuringWillTerminate(
+                didPersistCommittedQuitSessionSnapshot: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldPersistSessionSnapshotDuringWillTerminate(
+                didPersistCommittedQuitSessionSnapshot: true
             )
         )
     }
