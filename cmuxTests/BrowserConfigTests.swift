@@ -3049,6 +3049,38 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
     }
 
+    private func closeBrowserPanel(_ panel: BrowserPanel) {
+        panel.close()
+        BrowserWindowPortalRegistry.detach(webView: panel.webView)
+        panel.webView.cmuxSetUnitTestInspector(nil)
+        panel.webView.removeFromSuperview()
+    }
+
+    private func closeWindow(_ window: NSWindow) {
+        window.contentView = nil
+        window.orderOut(nil)
+        window.close()
+    }
+
+    private func tearDownMainWindow(
+        _ window: NSWindow,
+        manager: TabManager
+    ) {
+        let browserPanels = manager.tabs.flatMap { workspace in
+            workspace.panels.values.compactMap { $0 as? BrowserPanel }
+        }
+        for workspace in manager.tabs {
+            workspace.teardownAllPanels()
+        }
+        for browserPanel in browserPanels {
+            BrowserWindowPortalRegistry.detach(webView: browserPanel.webView)
+            browserPanel.webView.cmuxSetUnitTestInspector(nil)
+            browserPanel.webView.removeFromSuperview()
+        }
+        closeWindow(window)
+        spinRunLoopOneTick()
+    }
+
     private func findWindowBrowserSlotView(in root: NSView) -> WindowBrowserSlotView? {
         if let slot = root as? WindowBrowserSlotView {
             return slot
@@ -3063,6 +3095,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testPaneCloseClosesVisibleInspectorSynchronouslyBeforeWebViewTeardown() {
         let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
@@ -3091,6 +3124,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             XCTFail("Expected main window with browser panel")
             return
         }
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        defer { tearDownMainWindow(window, manager: manager) }
 
         let inspector = FakeInspector()
         browserPanel.webView.cmuxSetUnitTestInspector(inspector)
@@ -3122,6 +3157,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testDetachedInspectorWindowUserCloseSynchronouslyClosesOwningInspector() {
         let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
             styleMask: [.titled, .closable],
@@ -3133,7 +3169,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         window.contentView?.addSubview(frontendWebView)
         window.contentView?.addSubview(WKInspectorProbeView(frame: window.contentView?.bounds ?? .zero))
         inspector.setFrontendWebView(frontendWebView)
-        defer { window.orderOut(nil) }
+        defer { closeWindow(window) }
 
         window.makeKeyAndOrderFront(nil)
         XCTAssertTrue(panel.showDeveloperTools())
@@ -3152,6 +3188,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testDetachedInspectorWillCloseDuringDockBackClosesInspectorBeforeWebKitAttachContinues() {
         let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
         let mainWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
             styleMask: [.titled, .closable],
@@ -3165,8 +3202,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             defer: false
         )
         defer {
-            inspectorWindow.orderOut(nil)
-            mainWindow.orderOut(nil)
+            closeWindow(inspectorWindow)
+            closeWindow(mainWindow)
         }
         guard let mainContentView = mainWindow.contentView,
               let inspectorContentView = inspectorWindow.contentView else {
@@ -3226,6 +3263,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             XCTFail("Expected main window with browser panel")
             return
         }
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        defer { tearDownMainWindow(mainWindow, manager: manager) }
 
         let inspector = FakeInspector()
         browserPanel.webView.cmuxSetUnitTestInspector(inspector)
@@ -3247,7 +3286,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         inspectorWindow.contentView?.addSubview(frontendWebView)
         inspector.setFrontendWebView(frontendWebView)
-        defer { inspectorWindow.orderOut(nil) }
+        defer { closeWindow(inspectorWindow) }
 
         inspectorWindow.makeKeyAndOrderFront(nil)
         inspectorWindow.makeKey()
@@ -3301,6 +3340,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             XCTFail("Expected main window with browser panel")
             return
         }
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        defer { tearDownMainWindow(mainWindow, manager: manager) }
 
         let inspector = FakeInspector()
         browserPanel.webView.cmuxSetUnitTestInspector(inspector)
@@ -3322,7 +3363,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         inspectorWindow.contentView?.addSubview(frontendWebView)
         inspector.setFrontendWebView(frontendWebView)
-        defer { inspectorWindow.orderOut(nil) }
+        defer { closeWindow(inspectorWindow) }
 
         inspectorWindow.makeKeyAndOrderFront(nil)
         inspectorWindow.makeKey()
@@ -3357,6 +3398,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             XCTFail("Expected main window with browser panel")
             return
         }
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        defer { tearDownMainWindow(mainWindow, manager: manager) }
 
         let inspector = FakeInspector()
         browserPanel.webView.cmuxSetUnitTestInspector(inspector)
@@ -3378,7 +3421,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         inspectorWindow.contentView?.addSubview(frontendWebView)
         inspector.setFrontendWebView(frontendWebView)
-        defer { inspectorWindow.orderOut(nil) }
+        defer { closeWindow(inspectorWindow) }
 
         inspectorWindow.makeKeyAndOrderFront(nil)
         inspectorWindow.makeKey()
@@ -3419,6 +3462,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             XCTFail("Expected main window with browser panel")
             return
         }
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        defer { tearDownMainWindow(mainWindow, manager: manager) }
 
         let inspector = FakeInspector()
         browserPanel.webView.cmuxSetUnitTestInspector(inspector)
@@ -3471,6 +3516,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             XCTFail("Expected main window with browser panel")
             return
         }
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        defer { tearDownMainWindow(mainWindow, manager: manager) }
 
         let inspector = FakeInspector()
         browserPanel.webView.cmuxSetUnitTestInspector(inspector)
@@ -3492,7 +3539,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         inspectorWindow.contentView?.addSubview(frontendWebView)
         inspector.setFrontendWebView(frontendWebView)
-        defer { inspectorWindow.orderOut(nil) }
+        defer { closeWindow(inspectorWindow) }
 
         inspectorWindow.makeKeyAndOrderFront(nil)
         inspectorWindow.makeKey()
@@ -3511,6 +3558,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testRestoreReopensInspectorAfterAttachWhenPreferredVisible() {
         let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
@@ -3528,13 +3576,14 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testAttachedInspectorRevealReattachesFrontendAfterLayoutReentry() {
         let (panel, inspector) = makePanelWithInspector(requiresAttachmentToShow: true)
+        defer { closeBrowserPanel(panel) }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
-        defer { window.orderOut(nil) }
+        defer { closeWindow(window) }
 
         let host = NSView(frame: window.contentView?.bounds ?? .zero)
         window.contentView?.addSubview(host)
@@ -3576,6 +3625,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testSyncRespectsManualCloseAndPreventsUnexpectedRestore() {
         let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertEqual(inspector.showCount, 1)
@@ -3591,6 +3641,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testSyncCanPreserveVisibleIntentDuringDetachChurn() {
         let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertEqual(inspector.showCount, 1)
@@ -3606,6 +3657,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testSyncDoesNotRepublishHiddenDeveloperToolsIntentWhenInspectorAlreadyHidden() {
         let (panel, inspector) = makePanelWithInspector(hideBehavior: .hides)
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
         waitForDeveloperToolsTransitions()
@@ -3634,6 +3686,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testForcedRefreshAfterAttachKeepsVisibleInspectorState() {
         let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
@@ -3655,6 +3708,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testRefreshRequestTracksPendingStateUntilRestoreRuns() {
         let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertFalse(panel.hasPendingDeveloperToolsRefreshAfterAttach())
@@ -3668,6 +3722,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testRapidToggleCoalescesToFinalVisibleIntentWithoutExtraInspectorCalls() {
         let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.toggleDeveloperTools())
         XCTAssertTrue(panel.toggleDeveloperTools())
@@ -3684,6 +3739,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testRapidToggleQueuesHideAfterOpenTransitionSettles() {
         let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.toggleDeveloperTools())
         XCTAssertTrue(panel.toggleDeveloperTools())
@@ -3699,6 +3755,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testToggleDeveloperToolsFallsBackToCloseWhenHideDoesNotConcealInspector() {
         let (panel, inspector) = makePanelWithInspector(hideBehavior: .noEffect)
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
@@ -3712,6 +3769,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testTransientHideAttachmentPreserveFollowsDeveloperToolsIntent() {
         let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
         XCTAssertTrue(panel.showDeveloperTools())
@@ -3722,6 +3780,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testWebViewDismantleKeepsPortalHostedWebViewAttachedWhenDeveloperToolsIntentIsVisible() {
         let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
         let paneId = PaneID(id: UUID())
         XCTAssertTrue(panel.showDeveloperTools())
 
@@ -3731,6 +3790,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        defer { closeWindow(window) }
         let anchor = NSView(frame: NSRect(x: 30, y: 30, width: 180, height: 140))
         window.contentView?.addSubview(anchor)
         window.makeKeyAndOrderFront(nil)
@@ -3760,11 +3820,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         WebViewRepresentable.dismantleNSView(anchor, coordinator: coordinator)
 
         XCTAssertNotNil(panel.webView.superview)
-        window.orderOut(nil)
     }
 
     func testWebViewDismantleKeepsPortalHostedWebViewAttachedWhenDeveloperToolsIntentIsHidden() {
         let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
         let paneId = PaneID(id: UUID())
         XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
 
@@ -3774,6 +3834,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        defer { closeWindow(window) }
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 200, height: 150))
         window.contentView?.addSubview(anchor)
         window.makeKeyAndOrderFront(nil)
@@ -3803,11 +3864,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         WebViewRepresentable.dismantleNSView(anchor, coordinator: coordinator)
 
         XCTAssertNotNil(panel.webView.superview)
-        window.orderOut(nil)
     }
 
     func testPortalBindDoesNotMoveInspectorFrontendOutOfDetachedWindowOwner() {
         let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
             styleMask: [.titled, .closable],
@@ -3815,8 +3876,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             defer: false
         )
         defer {
-            BrowserWindowPortalRegistry.detach(webView: panel.webView)
-            window.orderOut(nil)
+            closeWindow(window)
         }
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
@@ -3857,6 +3917,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testTransientHideAttachmentPreserveDisablesForSideDockedInspectorLayout() {
         let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
         XCTAssertTrue(panel.showDeveloperTools())
 
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
@@ -3876,6 +3937,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testTransientHideAttachmentPreserveStaysEnabledForBottomDockedInspectorLayout() {
         let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
         XCTAssertTrue(panel.showDeveloperTools())
 
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
@@ -3893,6 +3955,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testOffWindowReplacementLocalHostDoesNotStealVisibleDevToolsWebView() {
         let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
         XCTAssertTrue(panel.showDeveloperTools())
 
         let paneId = PaneID(id: UUID())
@@ -3918,10 +3981,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         window.isReleasedWhenClosed = false
         defer {
-            panel.closeDeveloperToolsForTeardown()
-            panel.webView.cmuxSetUnitTestInspector(nil)
-            panel.webView.removeFromSuperview()
-            window.close()
+            closeWindow(window)
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         guard let contentView = window.contentView else {
@@ -3987,6 +4047,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testVisibleReplacementLocalHostNormalizesBottomDockedInspectorFrames() {
         let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
         XCTAssertTrue(panel.showDeveloperTools())
 
         let paneId = PaneID(id: UUID())
@@ -4010,7 +4071,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        defer { window.orderOut(nil) }
+        defer { closeWindow(window) }
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
