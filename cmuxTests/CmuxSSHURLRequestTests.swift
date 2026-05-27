@@ -708,8 +708,26 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
-    func testRejectsTextURLControlCharacters() throws {
-        for value in ["hello\nworld", "hello\rworld", "hello\tworld"] {
+    func testParsesTextURLMultilineAndTabs() throws {
+        let value = "first line\nsecond line\r\n\tindented"
+        let url = try XCTUnwrap(textURL(host: "rules", queryItems: [
+            URLQueryItem(name: "text", value: value)
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.kind, .rules)
+            XCTAssertEqual(request.text, value)
+            XCTAssertEqual(request.pasteText, value)
+        case .success(nil):
+            XCTFail("Expected rules URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testRejectsTextURLUnsafeControlCharacters() throws {
+        for value in ["hello\u{0000}world", "hello\u{001B}world", "hello\u{007F}world"] {
             let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
                 URLQueryItem(name: "text", value: value)
             ]))
@@ -718,7 +736,7 @@ final class CmuxSSHURLRequestTests: XCTestCase {
             case .failure(.textContainsUnsafeCharacters):
                 break
             default:
-                XCTFail("Expected line break rejection for \(value.debugDescription)")
+                XCTFail("Expected unsafe control character rejection for \(value.debugDescription)")
             }
         }
     }
