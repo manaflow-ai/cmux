@@ -21042,10 +21042,12 @@ class TerminalController {
         includePrivateMetadata: Bool = true
     ) -> V2CallResult {
         let status = MobileHostService.shared.statusSnapshot()
+        let capabilities = ["events.v1"]
         guard includePrivateMetadata else {
             return .ok([
                 "routes": status.routes.map(\.mobileHostJSONObject),
-                "snapshot_fidelity": "plain_text"
+                "snapshot_fidelity": "plain_text",
+                "capabilities": capabilities,
             ])
         }
 
@@ -21057,7 +21059,8 @@ class TerminalController {
             "mac_display_name": v2OrNull(MobileHostIdentity.displayName()),
             "host_service": status.payload,
             "workspace_count": workspaceCount,
-            "snapshot_fidelity": "plain_text"
+            "snapshot_fidelity": "plain_text",
+            "capabilities": capabilities,
         ])
     }
 
