@@ -9626,7 +9626,11 @@ class TerminalController {
             // Ghostty's unwrap=true collapsed appear as fewer rows; pad with
             // empty trailing rows rather than dropping styling.
             let vtTailed = tailTerminalLines(vtText, maxLines: lineLimit)
-            return MobileTerminalSnapshotText(text: padToExactLines(vtTailed, lines: lineLimit), fidelity: "ansi_vt")
+            let vtAligned = padToExactLines(vtTailed, lines: lineLimit)
+            let vtPlainAligned = padToExactLines(Self.mobilePlainTerminalText(vtAligned), lines: lineLimit)
+            if vtPlainAligned == activeAligned {
+                return MobileTerminalSnapshotText(text: vtAligned, fidelity: "ansi_vt")
+            }
         }
         return MobileTerminalSnapshotText(text: activeAligned, fidelity: "plain_text")
     }
