@@ -5,8 +5,13 @@ import UniformTypeIdentifiers
 import WebKit
 
 extension WKWebView {
-    private static let cmuxSetPageMutedSelector = NSSelectorFromString("_setPageMuted:")
-    private static let cmuxMediaMutedStateAudio: UInt = 1 << 0
+    nonisolated private static var cmuxSetPageMutedSelector: Selector {
+        NSSelectorFromString("_setPageMuted:")
+    }
+
+    nonisolated private static var cmuxMediaMutedStateAudio: UInt {
+        1 << 0
+    }
 
     var cmuxCanSetPageAudioMuted: Bool {
         responds(to: Self.cmuxSetPageMutedSelector)
