@@ -4697,6 +4697,18 @@ final class BrowserSearchEngineTests: XCTestCase {
         XCTAssertTrue(url.absoluteString.contains("q=hello%20world"))
     }
 
+    func testCustomSearchURLTemplateFallbackEscapesPlusSigns() throws {
+        let url = try XCTUnwrap(BrowserSearchSettings.searchURL(
+            fromTemplate: "https://search.example.test/find?source=cmux",
+            query: "c++ && swift"
+        ))
+
+        XCTAssertEqual(url.host, "search.example.test")
+        XCTAssertTrue(url.absoluteString.contains("source=cmux"))
+        XCTAssertTrue(url.absoluteString.contains("q=c%2B%2B%20%26%26%20swift"))
+        XCTAssertFalse(url.absoluteString.contains("q=c++"))
+    }
+
     func testCustomSearchURLTemplateRejectsNonHTTPURLs() {
         XCTAssertNil(BrowserSearchSettings.searchURL(
             fromTemplate: "file:///tmp/search?q={query}",
@@ -4726,6 +4738,17 @@ final class BrowserSearchEngineTests: XCTestCase {
         XCTAssertEqual(configuration.remoteSuggestionsEngine, nil)
         XCTAssertEqual(url.host, "kagi.com")
         XCTAssertTrue(url.absoluteString.contains("q=swift%20actors"))
+    }
+
+    func testStaleRemoteSuggestionsSuppressedWhenProviderDoesNotSupportRemoteSuggestions() {
+        let suggestions = staleOmnibarRemoteSuggestionsForDisplay(
+            query: "swift",
+            previousRemoteQuery: "swi",
+            previousRemoteSuggestions: ["swift actors"],
+            allowsRemoteSuggestions: false
+        )
+
+        XCTAssertTrue(suggestions.isEmpty)
     }
 }
 

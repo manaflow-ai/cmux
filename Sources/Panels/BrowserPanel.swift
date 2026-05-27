@@ -273,9 +273,11 @@ enum BrowserSearchSettings {
         }
 
         guard var components = URLComponents(string: template) else { return nil }
-        var queryItems = components.queryItems ?? []
-        queryItems.append(URLQueryItem(name: "q", value: query))
-        components.queryItems = queryItems
+        let encodedQuery = percentEncodedSearchQuery(query)
+        let existingQuery = components.percentEncodedQuery ?? ""
+        components.percentEncodedQuery = existingQuery.isEmpty
+            ? "q=\(encodedQuery)"
+            : "\(existingQuery)&q=\(encodedQuery)"
         guard let url = components.url, isAllowedSearchURL(url) else { return nil }
         return url
     }

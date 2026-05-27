@@ -2313,11 +2313,19 @@ struct BrowserPanelView: View {
         }()
         let openTabMatches = query.isEmpty ? [] : matchingOpenTabSuggestions(for: query, limit: 12)
         let isSingleCharacterQuery = omnibarSingleCharacterQuery(for: query) != nil
+        let remoteSuggestionsEngine = searchConfiguration.remoteSuggestionsEngine
+        if remoteSuggestionsEngine == nil {
+            latestRemoteSuggestionQuery = ""
+            latestRemoteSuggestions = []
+        }
         let staleRemote: [String]
         if query.isEmpty || isSingleCharacterQuery {
             staleRemote = []
         } else {
-            staleRemote = staleRemoteSuggestionsForDisplay(query: query)
+            staleRemote = staleRemoteSuggestionsForDisplay(
+                query: query,
+                allowsRemoteSuggestions: remoteSuggestionsEngine != nil
+            )
         }
         let resolvedURL = query.isEmpty ? nil : panel.resolveNavigableURL(from: query)
         let items = buildOmnibarSuggestions(
@@ -2373,7 +2381,7 @@ struct BrowserPanelView: View {
         guard omnibarInputIntent(for: query) != .urlLike else { return }
 
         // Keep current remote rows visible while fetching fresh predictions.
-        guard let engine = searchConfiguration.remoteSuggestionsEngine else { return }
+        guard let engine = remoteSuggestionsEngine else { return }
         isLoadingRemoteSuggestions = true
         suggestionTask = Task {
             let remote = await BrowserSearchSuggestionService.shared.suggestions(engine: engine, query: query)
@@ -2410,11 +2418,15 @@ struct BrowserPanelView: View {
         }
     }
 
-    private func staleRemoteSuggestionsForDisplay(query: String) -> [String] {
+    private func staleRemoteSuggestionsForDisplay(
+        query: String,
+        allowsRemoteSuggestions: Bool = true
+    ) -> [String] {
         staleOmnibarRemoteSuggestionsForDisplay(
             query: query,
             previousRemoteQuery: latestRemoteSuggestionQuery,
-            previousRemoteSuggestions: latestRemoteSuggestions
+            previousRemoteSuggestions: latestRemoteSuggestions,
+            allowsRemoteSuggestions: allowsRemoteSuggestions
         )
     }
 
@@ -2969,8 +2981,10 @@ func staleOmnibarRemoteSuggestionsForDisplay(
     query: String,
     previousRemoteQuery: String,
     previousRemoteSuggestions: [String],
+    allowsRemoteSuggestions: Bool = true,
     limit: Int = 8
 ) -> [String] {
+    guard allowsRemoteSuggestions else { return [] }
     let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
     let trimmedPreviousQuery = previousRemoteQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     let loweredQuery = trimmedQuery.lowercased()
