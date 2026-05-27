@@ -3852,10 +3852,28 @@ extension SessionPersistenceTests {
         XCTAssertEqual(
             binding.command,
             TerminalStartupWorkingDirectoryPrefix.prefix(
-                "'codex' 'resume' 'session' '--append-system-prompt' 'use C:\\tmp' '--model' 'gpt-5.4'",
+                "codex resume session --append-system-prompt 'use C:\\tmp' --model gpt-5.4",
                 workingDirectory: "/tmp/project"
             )
         )
+    }
+
+    func testAgentHookSurfaceResumeBindingPreservesShellOperatorsWhenDroppingDuplicateWorkingDirectoryOption() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "cd '/tmp/project' && codex resume session --cd '/tmp/project' && echo done",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            updatedAt: 1
+        )
+
+        XCTAssertEqual(
+            binding.command,
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "codex resume session && echo done",
+                workingDirectory: "/tmp/project"
+            )
+        )
+        XCTAssertFalse(binding.command.contains("'&&'"), binding.command)
     }
 
     func testAgentHookSurfaceResumeBindingCanonicalizesLegacyGuardForNonASCIIWorkingDirectory() {
