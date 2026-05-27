@@ -80,6 +80,9 @@ extension TerminalSurface {
         if let claudeConfigDir = merged["CLAUDE_CONFIG_DIR"], !claudeConfigDir.isEmpty {
             merged["CLAUDE_CONFIG_DIR"] = ClaudeConfigDirectoryPath.preferredPath(claudeConfigDir)
         }
+        if let piConfigDir = merged["PI_CODING_AGENT_DIR"], !piConfigDir.isEmpty {
+            merged["PI_CODING_AGENT_DIR"] = PiConfigDirectoryPath.preferredPath(piConfigDir)
+        }
         return merged
     }
 }

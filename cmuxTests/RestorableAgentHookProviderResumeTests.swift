@@ -306,8 +306,8 @@ extension SocketListenerAcceptPolicyTests {
         let pi = SessionRestorableAgentSnapshot(
             kind: .pi, sessionId: "pi-session-123", workingDirectory: "/tmp/pi repo",
             launchCommand: AgentLaunchCommandSnapshot(
-                launcher: "pi", executablePath: "/Users/example/.bun/bin/pi",
-                arguments: ["/Users/example/.bun/bin/pi", "--model", "anthropic/claude-sonnet-4-5", "--session", "old-session", "--thinking", "high", "initial prompt should not replay"],
+                launcher: "pi", executablePath: "/Users/example/.local/bin/pir",
+                arguments: ["/Users/example/.local/bin/pir", "--model", "anthropic/claude-sonnet-4-5", "--session", "old-session", "--thinking", "high", "initial prompt should not replay"],
                 workingDirectory: "/tmp/pi repo", environment: ["PI_CODING_AGENT_DIR": "/tmp/pi home", "OPENAI_API_KEY": "secret"], capturedAt: 123, source: "process"
             )
         )
@@ -361,7 +361,7 @@ extension SocketListenerAcceptPolicyTests {
             grok.resumeCommand,
             "cd '/tmp/grok repo' && 'env' 'GROK_HOME=/tmp/grok home' '/Users/example/.grok/bin/grok' '-r' 'grok-session-123' '--model' 'grok-4' '--permission-mode' 'auto' '--cwd' '/tmp/grok repo'"
         )
-        XCTAssertEqual(pi.resumeCommand, "cd '/tmp/pi repo' && 'env' 'PI_CODING_AGENT_DIR=/tmp/pi home' '/Users/example/.bun/bin/pi' '--session' 'pi-session-123' '--model' 'anthropic/claude-sonnet-4-5' '--thinking' 'high'")
+        XCTAssertEqual(pi.resumeCommand, "cd '/tmp/pi repo' && 'env' 'PI_CODING_AGENT_DIR=/tmp/pi home' '/Users/example/.local/bin/pir' '--session' 'pi-session-123' '--model' 'anthropic/claude-sonnet-4-5' '--thinking' 'high'")
         XCTAssertEqual(
             amp.resumeCommand,
             "cd '/tmp/amp repo' && 'env' 'AMP_SETTINGS_FILE=/tmp/amp-settings.json' '/Users/example/.local/bin/amp' 'threads' 'continue' '--mode' 'smart' '--effort' 'high' 'T-019e032c-c31a-77a9-ad87-8298ec47029f'"

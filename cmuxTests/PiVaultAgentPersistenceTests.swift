@@ -66,6 +66,8 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
 
         XCTAssertEqual(agent.iconAssetName, "AgentIcons/Pi")
         XCTAssertEqual(SessionAgent.registered(agent).assetName, "AgentIcons/Pi")
+        XCTAssertEqual(CmuxVaultAgentRegistration.builtInPi.detect.processNames, ["pir", "pi-rust", "pi", "pi-coding-agent"])
+        XCTAssertEqual(CmuxVaultAgentRegistration.builtInPi.detect.argvContains, ["pi"])
     }
 
     func testBuiltInAntigravityRegistrationUsesBrandedIconAsset() {

@@ -11847,7 +11847,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, grok, opencode, pi, amp, cursor, gemini, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, grok, opencode, pi (alias: pir), amp, cursor, gemini, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -11867,6 +11867,7 @@ struct CMUXCLI {
             Examples:
               cmux hooks setup
               cmux hooks setup --agent codex
+              cmux hooks setup pir
               cmux hooks setup rovo
               cmux hooks uninstall rovo
               cmux hooks codex install
@@ -23889,15 +23890,17 @@ export default CMUXSessionRestore;
     private static let piExtensionMarker = "cmux-pi-session-extension-marker"
     private static let piExtensionFilename = "cmux-session.ts"
     private static let piExtensionSource = #"""
-// cmux-pi-session-extension-marker v1
+// cmux-pi-session-extension-marker v2
 // Bridges Pi session lifecycle events into cmux's restorable session store.
-// Installed by `cmux hooks pi install` or `cmux hooks setup`.
+// Installed by `cmux hooks pi install`, `cmux hooks pir install`, or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+
+const PI_EXECUTABLE_CANDIDATES = ["pir", "pi-rust", "pi"];
 
 function firstString(...values: unknown[]): string | null {
   for (const value of values) {
@@ -23919,9 +23922,17 @@ function resolveExecutable(name: string): string {
   return name;
 }
 
+function resolvePreferredPiExecutable(): string {
+  for (const name of PI_EXECUTABLE_CANDIDATES) {
+    const resolved = resolveExecutable(name);
+    if (resolved !== name) return resolved;
+  }
+  return resolveExecutable("pi");
+}
+
 function looksLikePiExecutable(value: string): boolean {
   const base = path.basename(value).toLowerCase();
-  return base === "pi" || base === "pi-coding-agent";
+  return base === "pir" || base === "pi-rust" || base === "pi" || base === "pi-coding-agent";
 }
 
 function looksLikePiScript(value: string): boolean {
@@ -23937,12 +23948,13 @@ function looksLikePiScript(value: string): boolean {
 
 function normalizedLaunchArgv(): string[] {
   const raw = Array.isArray(process.argv) ? process.argv.map((value) => String(value)) : [];
-  if (raw.length === 0) return [resolveExecutable("pi")];
+  const fallback = resolvePreferredPiExecutable();
+  if (raw.length === 0) return [fallback];
   if (looksLikePiExecutable(raw[0])) return raw;
   if (raw.length > 1 && looksLikePiScript(raw[1])) {
-    return [resolveExecutable("pi"), ...raw.slice(2)];
+    return [fallback, ...raw.slice(2)];
   }
-  return [resolveExecutable("pi"), ...raw.slice(1)];
+  return [fallback, ...raw.slice(1)];
 }
 
 function base64NulSeparated(values: string[]): string {
@@ -23960,7 +23972,7 @@ function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
   if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
     const argv = normalizedLaunchArgv();
     env.CMUX_AGENT_LAUNCH_KIND = "pi";
-    env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("pi");
+    env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolvePreferredPiExecutable();
     env.CMUX_AGENT_LAUNCH_ARGV_B64 = base64NulSeparated(argv);
     env.CMUX_AGENT_LAUNCH_CWD = cwd || process.cwd();
   }
@@ -24019,7 +24031,7 @@ function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<strin
     event: eventName(subcommand),
     ...extra,
   };
-  const cmux = process.env.CMUX_PI_CMUX_BIN || "cmux";
+  const cmux = process.env.CMUX_PI_CMUX_BIN || process.env.CMUX_BUNDLED_CLI_PATH || "cmux";
   try {
     spawnSync(cmux, ["hooks", "pi", subcommand], {
       input: JSON.stringify(payload),
@@ -29422,7 +29434,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             // On install, also skip agents whose binary isn't on PATH.
             // On uninstall, always proceed so stale configs can be
             // cleaned up regardless of whether the binary still exists.
-            if !isUninstall && !Self.isBinaryOnPath(def.binaryName) {
+            if !isUninstall && !Self.isAnyBinaryOnPath(def.binaryNames) {
                 print("  \(def.name): skipped (binary not found on PATH)")
                 skipped += 1
                 skippedNoBinary.append(def.name)
@@ -29445,6 +29457,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     /// Cross-platform `command -v <name>` for the install gate.
+    private static func isAnyBinaryOnPath(_ names: [String]) -> Bool {
+        names.contains { isBinaryOnPath($0) }
+    }
+
     private static func isBinaryOnPath(_ name: String) -> Bool {
         let process = Process()
         process.launchPath = "/bin/sh"

@@ -486,6 +486,16 @@ struct AgentLaunchSanitizerTests {
                 fallbackKind: "pi"
             ) == ["pi", "--model", "anthropic/claude-sonnet-4-5", "--thinking", "high"]
         )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "pir", "--session", "old-session", "--model", "anthropic/claude-sonnet-4-5",
+                    "--thinking", "high", "implement this",
+                ],
+                launcher: "pi",
+                fallbackKind: "pi"
+            ) == ["pir", "--model", "anthropic/claude-sonnet-4-5", "--thinking", "high"]
+        )
     }
 
     @Test("Preserves repeated Pi extension and skill flags without replaying prompt")

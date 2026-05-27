@@ -6155,6 +6155,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
            !inheritedClaudeConfigDir.isEmpty {
             env["CLAUDE_CONFIG_DIR"] = ClaudeConfigDirectoryPath.preferredPath(inheritedClaudeConfigDir)
         }
+        if let inheritedPiConfigDir = ProcessInfo.processInfo.environment["PI_CODING_AGENT_DIR"],
+           !inheritedPiConfigDir.isEmpty {
+            env["PI_CODING_AGENT_DIR"] = PiConfigDirectoryPath.preferredPath(inheritedPiConfigDir)
+        }
         if let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
            FileManager.default.isExecutableFile(atPath: bundledCLIURL.path) {
             setManagedEnvironmentValue("CMUX_BUNDLED_CLI_PATH", bundledCLIURL.path)

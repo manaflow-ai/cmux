@@ -132,6 +132,34 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 expectedEnvironment: ["GROK_HOME": "/tmp/grok home"]
             ),
             GenericHookPersistenceScenario(
+                agent: "pi",
+                subcommand: "session-start",
+                sessionId: "pi-session-123",
+                executable: "/Users/example/.local/bin/pir",
+                launchArguments: [
+                    "/Users/example/.local/bin/pir",
+                    "--model",
+                    "anthropic/claude-sonnet-4-5",
+                    "--session",
+                    "old-session",
+                    "--thinking",
+                    "high",
+                    "initial prompt should not persist"
+                ],
+                extraEnvironment: [
+                    "PI_CODING_AGENT_DIR": "/tmp/pi home",
+                    "OPENAI_API_KEY": "secret"
+                ],
+                expectedArguments: [
+                    "/Users/example/.local/bin/pir",
+                    "--model",
+                    "anthropic/claude-sonnet-4-5",
+                    "--thinking",
+                    "high"
+                ],
+                expectedEnvironment: ["PI_CODING_AGENT_DIR": "/tmp/pi home"]
+            ),
+            GenericHookPersistenceScenario(
                 agent: "copilot",
                 subcommand: "session-start",
                 sessionId: "copilot-session-123",
@@ -2413,6 +2441,50 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var isDirectory: ObjCBool = true
         XCTAssertTrue(FileManager.default.fileExists(atPath: hooksPath.path, isDirectory: &isDirectory))
         XCTAssertFalse(isDirectory.boolValue)
+    }
+
+    func testPirAliasSetupInstallsPiExtensionWhenOnlyPirIsOnPath() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-pir-hook-setup-\(UUID().uuidString)", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let pirURL = binDir.appendingPathComponent("pir", isDirectory: false)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(to: pirURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pirURL.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        let setupResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "setup", "pir", "--yes"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(setupResult.timedOut, setupResult.stderr)
+        XCTAssertEqual(setupResult.status, 0, setupResult.stderr)
+        XCTAssertTrue(setupResult.stdout.contains("pi:"), setupResult.stdout)
+        XCTAssertTrue(setupResult.stdout.contains("Pi hooks installed"), setupResult.stdout)
+
+        let extensionURL = root
+            .appendingPathComponent(".pi/agent/extensions/cmux-session.ts", isDirectory: false)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: extensionURL.path))
+
+        let reinstallResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "pir", "install", "--yes"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(reinstallResult.timedOut, reinstallResult.stderr)
+        XCTAssertEqual(reinstallResult.status, 0, reinstallResult.stderr)
+        XCTAssertTrue(reinstallResult.stdout.contains("Pi hooks already up to date"), reinstallResult.stdout)
     }
 
     func runGenericHookPersistenceScenario(_ scenario: GenericHookPersistenceScenario) throws {
