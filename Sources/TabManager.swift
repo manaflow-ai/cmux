@@ -6512,13 +6512,10 @@ class TabManager: ObservableObject {
         )
 #endif
 
-        // Exiting the last SSH surface should demote the workspace back to a local one.
-        // Route through Workspace close handling so remote teardown and replacement-panel
-        // logic run before TabManager considers removing the workspace itself, including
-        // session-end paths where remote configuration was cleared before Ghostty delivered
-        // the child-exit callback.
+        // A persistent SSH workspace must never silently replace a failed remote attach with
+        // a local login shell. Keep the exited surface visible so the user can see the error
+        // and retry instead of making a detached remote workspace look local after relaunch.
         if keepsRemoteWorkspaceOpen {
-            closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
             return
         }
 

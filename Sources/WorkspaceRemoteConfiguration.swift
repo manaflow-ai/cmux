@@ -142,7 +142,7 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         let requireExistingFlag = requireExisting ? " --require-existing" : ""
         let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\""
         lines += retryingAttachLines(command: attachCommand)
-        return lines.joined(separator: "\n")
+        return "/bin/sh -c \(shellQuote(lines.joined(separator: "\n")))"
     }
 
     private static func retryingAttachLines(command: String) -> [String] {
