@@ -822,6 +822,49 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(snapshot?.sessionId, fallback.sessionId)
     }
 
+    func testImmediateForkExecutionPrefersVerifiedCachedSnapshotForSynchronousFallback() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fallback = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "restored-codex-session",
+            workingDirectory: "/tmp/restored repo",
+            launchCommand: nil
+        )
+        let cached = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "live-codex-session",
+            workingDirectory: "/tmp/live repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/opt/homebrew/bin/codex",
+                arguments: ["/opt/homebrew/bin/codex", "resume", "live-codex-session"],
+                workingDirectory: "/tmp/live repo",
+                environment: nil,
+                capturedAt: 124,
+                source: "process"
+            )
+        )
+        let fingerprint = ContentView.commandPaletteForkSnapshotFingerprint(fallback)
+
+        let snapshot = ContentView.commandPaletteImmediateForkExecutionSnapshot(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            isRemoteTerminal: false,
+            supportedPanelKeys: [panelKey],
+            supportedRemoteContextsByPanelKey: [panelKey: false],
+            snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+            fallbackSnapshot: fallback,
+            cachedSnapshot: cached
+        )
+
+        XCTAssertEqual(snapshot?.sessionId, cached.sessionId)
+    }
+
     func testImmediateForkExecutionUsesProbeVerifiedFallbackSnapshot() {
         let workspaceId = UUID()
         let panelId = UUID()

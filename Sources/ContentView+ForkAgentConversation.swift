@@ -133,30 +133,51 @@ extension ContentView {
             workspaceId: workspaceId,
             panelId: panelId
         )
-        guard let snapshot = commandPaletteForkExecutionSnapshot(
-            indexSnapshot: nil,
-            fallbackSnapshot: fallbackSnapshot,
-            cachedSnapshot: cachedSnapshot
-        ) else {
-            return nil
-        }
-
-        switch commandPaletteSnapshotForkAvailability(snapshot, isRemoteTerminal: isRemoteTerminal) {
-        case .supportedWithoutProbe:
-            return snapshot
-        case .unsupported:
-            return nil
-        case .requiresProbe:
-            guard supportedPanelKeys.contains(panelKey),
+        func verifiedCachedSnapshot(expectedFingerprint: String?) -> SessionRestorableAgentSnapshot? {
+            guard let cachedSnapshot,
+                  supportedPanelKeys.contains(panelKey),
                   supportedRemoteContextsByPanelKey[panelKey] == isRemoteTerminal else {
                 return nil
             }
-            let expectedFingerprint = (fallbackSnapshot ?? cachedSnapshot).map(commandPaletteForkSnapshotFingerprint)
-            guard let expectedFingerprint,
-                  snapshotFingerprintsByPanelKey[panelKey] == expectedFingerprint else {
+            if let expectedFingerprint,
+               snapshotFingerprintsByPanelKey[panelKey] != expectedFingerprint {
                 return nil
             }
-            return cachedSnapshot ?? snapshot
+            guard commandPaletteSnapshotForkAvailability(
+                cachedSnapshot,
+                isRemoteTerminal: isRemoteTerminal
+            ) != .unsupported else {
+                return nil
+            }
+            return cachedSnapshot
+        }
+
+        if let fallbackSnapshot {
+            let fallbackFingerprint = commandPaletteForkSnapshotFingerprint(fallbackSnapshot)
+            switch commandPaletteSnapshotForkAvailability(
+                fallbackSnapshot,
+                isRemoteTerminal: isRemoteTerminal
+            ) {
+            case .supportedWithoutProbe:
+                return verifiedCachedSnapshot(expectedFingerprint: fallbackFingerprint) ?? fallbackSnapshot
+            case .unsupported:
+                return nil
+            case .requiresProbe:
+                return verifiedCachedSnapshot(expectedFingerprint: fallbackFingerprint)
+            }
+        }
+
+        guard let cachedSnapshot = verifiedCachedSnapshot(expectedFingerprint: nil) else {
+            return nil
+        }
+        switch commandPaletteSnapshotForkAvailability(
+            cachedSnapshot,
+            isRemoteTerminal: isRemoteTerminal
+        ) {
+        case .supportedWithoutProbe, .requiresProbe:
+            return cachedSnapshot
+        case .unsupported:
+            return nil
         }
     }
 }
