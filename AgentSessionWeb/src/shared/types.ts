@@ -46,6 +46,10 @@ export type AgentSessionCopy = {
   rateLimits: string;
   voiceInput: string;
   promptPlaceholder: string;
+  attachFile: string;
+  browseWeb: string;
+  autoContext: string;
+  tools: string;
   mentionMenuTitle: string;
   mentionCurrentWorkspace: string;
   skillMenuTitle: string;

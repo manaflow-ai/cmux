@@ -209,6 +209,23 @@ select {
   background: color-mix(in srgb, var(--color-token-input-background) 90%, transparent);
 }
 
+.codex-composer-single-line {
+  min-height: 0;
+}
+
+.composer-footer-single-line {
+  min-height: 44px;
+}
+
+.composer-input-single-line .ProseMirror {
+  max-height: 1.5rem;
+  overflow: hidden;
+}
+
+.composer-input-multiline .ProseMirror {
+  max-height: 200px;
+}
+
 .h-token-button-composer {
   height: var(--spacing-token-button-composer);
 }
@@ -294,7 +311,6 @@ select {
 
 .ProseMirror {
   min-width: 0;
-  max-height: 200px;
   overflow-y: auto;
   color: var(--agent-text);
   background: transparent;

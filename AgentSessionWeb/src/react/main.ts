@@ -62,9 +62,9 @@ function SessionSurface({
   const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
   const modelLabel = provider ? codexModelLabel(provider.displayName) : "GPT-5.5";
-  const modelBadge = provider ? providerBadgeLabel(provider.displayName) : "C";
   const editorRef = useRef<PromptEditorHandle | null>(null);
   const [menuKind, setMenuKind] = useState<ComposerMenuKind>(null);
+  const isSingleLineLayout = !state.input.includes("\n");
   const submit = () => {
     setMenuKind(null);
     void sendInput(state, dispatch);
@@ -73,6 +73,97 @@ function SessionSurface({
     editorRef.current?.insertText(value);
     setMenuKind(null);
   };
+  const composerInput = h(PromptEditor, {
+    ref: editorRef,
+    className: isSingleLineLayout
+      ? "composer-input composer-input-single-line min-w-0 text-base"
+      : "composer-input composer-input-multiline mb-1 flex-grow overflow-y-auto px-3 pt-4 text-base [&_.ProseMirror]:leading-5",
+    minHeight: isSingleLineLayout ? "1.25rem" : "2.75rem",
+    value: state.input,
+    placeholder: state.context?.copy.promptPlaceholder ?? "",
+    onTextChange: (input: string) => dispatch({ type: "setInput", input }),
+    onSubmit: submit,
+    onTriggerToken: (token: "@" | "$") => setMenuKind(token === "@" ? "mention" : "skill"),
+  });
+  const leftControls = h(
+    "div",
+    { className: "codex-left-rail flex min-w-0 items-center gap-1" },
+    codexIconButton("plus", state.context?.copy.attachFile ?? "Attach file", plusIcon()),
+    codexIconButton("browse", state.context?.copy.browseWeb ?? "Browse web", globeIcon()),
+    codexIconButton("context", state.context?.copy.autoContext ?? "Context", sparkleIcon()),
+    codexIconButton("tools", state.context?.copy.tools ?? "Tools", hammerIcon()),
+  );
+  const modelPicker = h(
+    "label",
+    { className: "model-picker h-token-button-composer max-w-40 rounded-full px-2 py-0 text-sm leading-[18px]" },
+    h("span", { className: "model-label composer-footer__label--sm" }, modelLabel),
+    h("span", { className: "model-chevron composer-footer__secondary-chevron", "aria-hidden": true }, chevronIcon()),
+    h(
+      "select",
+      {
+        className: "provider-select",
+        value: state.selectedProviderId,
+        disabled:
+          state.status === "running" ||
+          state.status === "starting" ||
+          state.status === "stopping",
+        "aria-label": state.context?.copy.provider ?? "",
+        onChange: (event: React.ChangeEvent<HTMLSelectElement>) =>
+          dispatch({ type: "selectProvider", providerId: event.target.value as ProviderId }),
+      },
+      state.providers.map((item) =>
+        h("option", { key: item.id, value: item.id }, item.displayName),
+      ),
+    ),
+  );
+  const rightActions = h(
+    "div",
+    { className: "flex min-w-0 shrink-0 items-center justify-end gap-2" },
+    modelPicker,
+    showStart
+      ? h(
+          "button",
+          {
+            className: "codex-action codex-start h-token-button-composer rounded-full px-3 py-0",
+            type: "button",
+            disabled: !canStart,
+            onClick: () => void startProvider(state, dispatch),
+          },
+          state.context?.copy.start ?? "Start",
+        )
+      : null,
+    h(
+      "button",
+      {
+        className: "codex-action codex-circle-action size-token-button-composer rounded-full",
+        type: "button",
+        disabled: !canStop,
+        "aria-label": state.context?.copy.stop ?? "Stop",
+        onClick: () => void stopProvider(state, dispatch),
+      },
+      "",
+    ),
+    h(
+      "button",
+      {
+        className: "codex-action codex-mic size-token-button-composer rounded-full",
+        type: "button",
+        disabled: true,
+        "aria-label": state.context?.copy.voiceInput ?? "",
+      },
+      micIcon(),
+    ),
+    h(
+      "button",
+      {
+        className: "codex-action send-button size-token-button-composer rounded-full",
+        type: "submit",
+        disabled: !canSend,
+        "aria-label": state.context?.copy.send ?? "Send",
+      },
+      sendIcon(),
+    ),
+  );
 
   return h(
     "section",
@@ -118,117 +209,42 @@ function SessionSurface({
               "div",
               {
                 className:
-                  "codex-composer-surface relative flex flex-col overflow-y-auto rounded-3xl bg-token-input-background/90 text-token-foreground ring ring-black/10 backdrop-blur-lg shadow-[0_4px_16px_0_rgba(0,0,0,0.05)]",
+                  `codex-composer-surface relative flex flex-col bg-token-input-background/90 text-token-foreground ring ring-black/10 backdrop-blur-lg shadow-[0_4px_16px_0_rgba(0,0,0,0.05)] ${isSingleLineLayout ? "codex-composer-single-line overflow-visible rounded-full" : "overflow-y-auto rounded-3xl"}`,
               },
               h(
                 "div",
                 { className: "relative z-10 flex min-h-0 flex-1 flex-col" },
-                h(PromptEditor, {
-                  ref: editorRef,
-                  className: "composer-input mb-1 flex-grow overflow-y-auto px-3 pt-4 text-base [&_.ProseMirror]:leading-5",
-                  minHeight: "2.75rem",
-                  value: state.input,
-                  placeholder: state.context?.copy.promptPlaceholder ?? "",
-                  onTextChange: (input: string) => dispatch({ type: "setInput", input }),
-                  onSubmit: submit,
-                  onTriggerToken: (token: "@" | "$") => setMenuKind(token === "@" ? "mention" : "skill"),
-                }),
-                h(
-                  "div",
-                  {
-                    className:
-                      "composer-footer composer-footer-codex mb-2 grid grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)] items-center gap-[5px] px-2",
-                  },
-                  h(
-                    "div",
-                    { className: "codex-left-rail flex min-w-0 items-center gap-1" },
-                    codexIconButton("plus", plusIcon()),
-                    codexIconButton("browse", globeIcon()),
-                    codexIconButton("context", sparkleIcon()),
-                    codexIconButton("tools", hammerIcon()),
-                  ),
-                  h("div", { className: "flex items-center", "aria-hidden": true }),
-                  h(
-                    "div",
-                    { className: "flex w-full min-w-0 items-center justify-end gap-2" },
-                    h(
+                isSingleLineLayout
+                  ? h(
                       "div",
-                      { className: "flex min-w-0 flex-1 justify-end" },
+                      {
+                        className:
+                          "composer-footer composer-footer-codex composer-footer-single-line grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1",
+                      },
+                      leftControls,
+                      composerInput,
+                      rightActions,
+                    )
+                  : h(
+                      React.Fragment,
+                      null,
+                      composerInput,
                       h(
-                        "label",
-                        { className: "model-picker h-token-button-composer max-w-40 rounded-full px-2 py-0 text-sm leading-[18px]" },
-                        h("span", { className: "model-icon", "aria-hidden": true }, modelBadge),
-                        h("span", { className: "model-label composer-footer__label--sm" }, modelLabel),
-                        h("span", { className: "model-chevron composer-footer__secondary-chevron", "aria-hidden": true }, chevronIcon()),
+                        "div",
+                        {
+                          className:
+                            "composer-footer composer-footer-codex mb-2 grid grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)] items-center gap-[5px] px-2",
+                        },
+                        leftControls,
+                        h("div", { className: "flex items-center", "aria-hidden": true }),
                         h(
-                          "select",
-                          {
-                            className: "provider-select",
-                            value: state.selectedProviderId,
-                            disabled:
-                              state.status === "running" ||
-                              state.status === "starting" ||
-                              state.status === "stopping",
-                            "aria-label": state.context?.copy.provider ?? "",
-                            onChange: (event: React.ChangeEvent<HTMLSelectElement>) =>
-                              dispatch({ type: "selectProvider", providerId: event.target.value as ProviderId }),
-                          },
-                          state.providers.map((item) =>
-                            h("option", { key: item.id, value: item.id }, item.displayName),
-                          ),
+                          "div",
+                          { className: "flex w-full min-w-0 items-center justify-end gap-2" },
+                          h("div", { className: "flex min-w-0 flex-1 justify-end" }),
+                          rightActions,
                         ),
                       ),
                     ),
-                    h(
-                      "div",
-                      { className: "flex shrink-0 items-center gap-2" },
-                      showStart
-                        ? h(
-                            "button",
-                            {
-                              className: "codex-action codex-start h-token-button-composer rounded-full px-3 py-0",
-                              type: "button",
-                              disabled: !canStart,
-                              onClick: () => void startProvider(state, dispatch),
-                            },
-                            state.context?.copy.start ?? "Start",
-                          )
-                        : null,
-                      h(
-                        "button",
-                        {
-                          className: "codex-action codex-circle-action size-token-button-composer rounded-full",
-                          type: "button",
-                          disabled: !canStop,
-                          "aria-label": state.context?.copy.stop ?? "Stop",
-                          onClick: () => void stopProvider(state, dispatch),
-                        },
-                        "",
-                      ),
-                      h(
-                        "button",
-                        {
-                          className: "codex-action codex-mic size-token-button-composer rounded-full",
-                          type: "button",
-                          disabled: true,
-                          "aria-label": state.context?.copy.voiceInput ?? "",
-                        },
-                        micIcon(),
-                      ),
-                      h(
-                        "button",
-                        {
-                          className:
-                            "codex-action send-button size-token-button-composer rounded-full bg-token-foreground",
-                          type: "submit",
-                          disabled: !canSend,
-                          "aria-label": state.context?.copy.send ?? "Send",
-                        },
-                        sendIcon(),
-                      ),
-                    )
-                  ),
-                ),
               ),
             ),
           ),
@@ -465,17 +481,13 @@ function hammerIcon() {
   );
 }
 
-function codexIconButton(kind: string, child: React.ReactNode, onClick?: () => void) {
+function codexIconButton(kind: string, ariaLabel: string, child: React.ReactNode, onClick?: () => void) {
   const props: React.ButtonHTMLAttributes<HTMLButtonElement> = {
     className: `codex-tool codex-tool-${kind} size-token-button-composer-sm rounded-full`,
     type: "button",
+    "aria-label": ariaLabel,
+    onClick: onClick ?? (() => undefined),
   };
-  if (onClick) {
-    props.onClick = onClick;
-  } else {
-    props.disabled = true;
-    props["aria-hidden"] = true;
-  }
   return h("button", props, child);
 }
 

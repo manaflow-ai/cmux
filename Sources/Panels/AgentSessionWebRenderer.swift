@@ -479,6 +479,13 @@ extension AgentSessionWebRenderer {
                             localized: "agentSession.web.promptPlaceholder",
                             defaultValue: "Ask anything"
                         ),
+                        "attachFile": String(
+                            localized: "agentSession.web.attachFile",
+                            defaultValue: "Attach file"
+                        ),
+                        "browseWeb": String(localized: "agentSession.web.browseWeb", defaultValue: "Browse web"),
+                        "autoContext": String(localized: "agentSession.web.autoContext", defaultValue: "Context"),
+                        "tools": String(localized: "agentSession.web.tools", defaultValue: "Tools"),
                         "mentionMenuTitle": String(
                             localized: "agentSession.web.mentionMenuTitle",
                             defaultValue: "Mention"
