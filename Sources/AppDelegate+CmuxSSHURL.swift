@@ -182,7 +182,7 @@ extension AppDelegate {
         let sshURLIntentCount = sshURLRequests.count + sshURLParseErrors.count
         guard sshURLIntentCount > 0 else { return false }
 
-        if urls.count > 1 || sshURLIntentCount > 1 {
+        if sshURLIntentCount > 1 {
             showCmuxSSHURLParseError(.multipleLinks)
         } else {
             for error in sshURLParseErrors {
@@ -212,7 +212,7 @@ extension AppDelegate {
         let textURLIntentCount = textURLRequests.count + textURLParseErrors.count
         guard textURLIntentCount > 0 else { return false }
 
-        if urls.count > 1 || textURLIntentCount > 1 {
+        if textURLIntentCount > 1 {
             showCmuxTextURLParseError(.multipleLinks)
         } else {
             for error in textURLParseErrors {

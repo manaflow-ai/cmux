@@ -556,6 +556,9 @@ struct CmuxTextURLRequest: Equatable {
               !value.isEmpty else {
             return nil
         }
+        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
         return value
     }
 
@@ -582,12 +585,6 @@ struct CmuxTextURLRequest: Equatable {
 
     private static func containsUnsafeTextCharacter(_ value: String) -> Bool {
         value.unicodeScalars.contains { scalar in
-            switch scalar.value {
-            case 0x09:
-                return false
-            default:
-                break
-            }
             switch scalar.properties.generalCategory {
             case .control, .format, .lineSeparator, .paragraphSeparator:
                 return true

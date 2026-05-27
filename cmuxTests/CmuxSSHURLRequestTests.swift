@@ -708,8 +708,8 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
-    func testRejectsTextURLLineBreaks() throws {
-        for value in ["hello\nworld", "hello\rworld"] {
+    func testRejectsTextURLControlCharacters() throws {
+        for value in ["hello\nworld", "hello\rworld", "hello\tworld"] {
             let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
                 URLQueryItem(name: "text", value: value)
             ]))
@@ -720,6 +720,49 @@ final class CmuxSSHURLRequestTests: XCTestCase {
             default:
                 XCTFail("Expected line break rejection for \(value.debugDescription)")
             }
+        }
+    }
+
+    func testRejectsTextURLWhitespaceOnlyText() throws {
+        let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
+            URLQueryItem(name: "text", value: "   ")
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .failure(.missingText):
+            break
+        default:
+            XCTFail("Expected whitespace-only text rejection")
+        }
+    }
+
+    func testAcceptsTextURLAtMaxLength() throws {
+        let text = String(repeating: "a", count: CmuxTextURLRequest.maxTextLength)
+        let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
+            URLQueryItem(name: "text", value: text)
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.text.count, CmuxTextURLRequest.maxTextLength)
+        case .success(nil):
+            XCTFail("Expected prompt URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testRejectsTextURLExceedingMaxLength() throws {
+        let text = String(repeating: "a", count: CmuxTextURLRequest.maxTextLength + 1)
+        let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
+            URLQueryItem(name: "text", value: text)
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .failure(.textTooLong(maxLength: CmuxTextURLRequest.maxTextLength)):
+            break
+        default:
+            XCTFail("Expected text length rejection")
         }
     }
 

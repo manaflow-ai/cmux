@@ -1005,12 +1005,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        if handleCmuxSSHURLs(from: urls) {
-            return
-        }
-        if handleCmuxTextURLs(from: urls) {
-            return
-        }
+        _ = handleCmuxSSHURLs(from: urls)
+        _ = handleCmuxTextURLs(from: urls)
 
         let authCallbacks = urls.filter(AuthCallbackRouter.isAuthCallbackURL)
         for url in authCallbacks {
@@ -7111,7 +7107,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if shouldBringToFront {
             workspace.focusPanel(terminalPanel.id)
         }
-        return terminalPanel.sendText(text)
+        terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+        sendTextWhenReady(text, to: workspace, preferredPanelId: terminalPanel.id)
+        return true
     }
 
     @discardableResult
