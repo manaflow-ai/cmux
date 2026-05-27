@@ -15875,43 +15875,9 @@ private struct TabItemView: View, Equatable {
 
     private func promptNewWorkspaceGroup(workspaceIds: [UUID]) {
         guard !workspaceIds.isEmpty else { return }
-        let alert = NSAlert()
-        alert.messageText = String(
-            localized: "alert.newWorkspaceGroup.title",
-            defaultValue: "New Group"
-        )
-        alert.informativeText = String(
-            localized: "alert.newWorkspaceGroup.message",
-            defaultValue: "Name this workspace group."
-        )
-        let input = NSTextField(string: "")
-        input.placeholderString = String(
-            localized: "alert.newWorkspaceGroup.placeholder",
-            defaultValue: "Group name"
-        )
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
-        alert.addButton(
-            withTitle: String(
-                localized: "alert.newWorkspaceGroup.create",
-                defaultValue: "Create"
-            )
-        )
-        alert.addButton(
-            withTitle: String(
-                localized: "alert.newWorkspaceGroup.cancel",
-                defaultValue: "Cancel"
-            )
-        )
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        DispatchQueue.main.async {
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
-        let response = alert.runModal()
-        guard response == .alertFirstButtonReturn else { return }
-        tabManager.createWorkspaceGroup(name: input.stringValue, childWorkspaceIds: workspaceIds)
+        // Skip the name prompt: TabManager auto-names the new group ("Group N").
+        // Users can rename via the header context menu.
+        tabManager.createWorkspaceGroup(name: "", childWorkspaceIds: workspaceIds)
     }
 
     private func promptRename() {

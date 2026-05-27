@@ -5782,7 +5782,7 @@ class TabManager: ObservableObject {
         }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedName = trimmedName.isEmpty
-            ? String(localized: "workspaceGroup.defaultName", defaultValue: "New Group")
+            ? nextAutoWorkspaceGroupName()
             : trimmedName
 
         let inferredCwd: String? = {
@@ -5935,6 +5935,21 @@ class TabManager: ObservableObject {
         normalizeWorkspaceGroupContiguity()
         let memberIds = tabs.filter { $0.groupId == groupId }.map(\.id)
         postWorkspaceOrderDidChange(movedWorkspaceIds: memberIds)
+    }
+
+    /// Pick the next "Group N" name that doesn't collide with an existing
+    /// group. Used when the user creates a group without naming it.
+    private func nextAutoWorkspaceGroupName() -> String {
+        let used = Set(workspaceGroups.map(\.name))
+        var n = workspaceGroups.count + 1
+        while true {
+            let candidate = String(
+                localized: "workspaceGroup.autoName.numbered",
+                defaultValue: "Group \(n)"
+            )
+            if !used.contains(candidate) { return candidate }
+            n += 1
+        }
     }
 
     private func assignGroup(workspaceId: UUID, groupId: UUID?) {
