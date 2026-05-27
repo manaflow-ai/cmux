@@ -9563,7 +9563,7 @@ class TerminalController {
 
     private func readTerminalTextFromVTExportForSnapshot(
         terminalPanel: TerminalPanel,
-        bindingAction: String = "write_screen_file:copy,vt",
+        bindingAction: String = "write_active_file:copy,vt",
         lineLimit: Int?
     ) -> String? {
         let exportedPath = GhosttyPasteboardHelper.captureNextStandardClipboardWrite {
