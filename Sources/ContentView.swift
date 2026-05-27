@@ -9525,7 +9525,7 @@ enum CmuxExtensionSidebarSelection {
     static let defaultProviderId = CmuxExtensionSidebarProviderID.defaultWorkspaces
 
     static var providers: [any CmuxExtensionSidebarProvider] {
-        []
+        CmuxUserSwiftSidebarRegistry.providers()
     }
 
     static var descriptors: [CmuxExtensionSidebarProviderDescriptor] {
@@ -9575,6 +9575,37 @@ enum CmuxExtensionSidebarSelection {
             item.state = selectedProviderId == descriptor.id ? .on : .off
             menu.addItem(item)
         }
+
+        menu.addItem(NSMenuItem.separator())
+
+        let loadItem = NSMenuItem(
+            title: String(localized: "sidebar.extension.swift.menu.load", defaultValue: "Load Swift Sidebar..."),
+            action: #selector(CmuxExtensionSidebarMenuTarget.loadSwiftSidebar(_:)),
+            keyEquivalent: ""
+        )
+        loadItem.target = CmuxExtensionSidebarMenuTarget.shared
+        menu.addItem(loadItem)
+
+        if CmuxUserSwiftSidebarRegistry.record(providerId: selectedProviderId) != nil {
+            let reloadItem = NSMenuItem(
+                title: String(localized: "sidebar.extension.swift.menu.reload", defaultValue: "Reload Swift Sidebar"),
+                action: #selector(CmuxExtensionSidebarMenuTarget.reloadSwiftSidebar(_:)),
+                keyEquivalent: ""
+            )
+            reloadItem.representedObject = selectedProviderId
+            reloadItem.target = CmuxExtensionSidebarMenuTarget.shared
+            menu.addItem(reloadItem)
+
+            let removeItem = NSMenuItem(
+                title: String(localized: "sidebar.extension.swift.menu.remove", defaultValue: "Remove Swift Sidebar"),
+                action: #selector(CmuxExtensionSidebarMenuTarget.removeSwiftSidebar(_:)),
+                keyEquivalent: ""
+            )
+            removeItem.representedObject = selectedProviderId
+            removeItem.target = CmuxExtensionSidebarMenuTarget.shared
+            menu.addItem(removeItem)
+        }
+
         menu.popUp(
             positioning: nil,
             at: NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
@@ -9590,6 +9621,21 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
     @objc func selectProvider(_ sender: NSMenuItem) {
         guard let providerId = sender.representedObject as? String else { return }
         CmuxExtensionSidebarSelection.setProviderId(providerId)
+    }
+
+    @objc func loadSwiftSidebar(_ sender: NSMenuItem) {
+        _ = sender
+        CmuxUserSwiftSidebarRegistry.presentOpenPanelAndLoad()
+    }
+
+    @objc func reloadSwiftSidebar(_ sender: NSMenuItem) {
+        guard let providerId = sender.representedObject as? String else { return }
+        CmuxUserSwiftSidebarRegistry.reload(providerId: providerId)
+    }
+
+    @objc func removeSwiftSidebar(_ sender: NSMenuItem) {
+        guard let providerId = sender.representedObject as? String else { return }
+        CmuxUserSwiftSidebarRegistry.remove(providerId: providerId)
     }
 }
 

@@ -172,6 +172,68 @@ final class CmuxExtensionKitTests: XCTestCase {
         XCTAssertEqual(decoded, mutation)
     }
 
+    func testSidebarExecutableRenderRequestRoundTrips() throws {
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 4,
+            selectedWorkspaceId: nil,
+            workspaces: [
+                workspace(title: "API", rootPath: "/tmp/cmux/api", projectRootPath: "/tmp/cmux")
+            ]
+        )
+        let request = CmuxExtensionSidebarExecutableRequest.render(
+            snapshot: snapshot,
+            context: CmuxExtensionSidebarRenderContext(now: Date(timeIntervalSinceReferenceDate: 10))
+        )
+
+        let data = try JSONEncoder.cmuxExtensionSidebarExecutable.encode(request)
+        let decoded = try JSONDecoder.cmuxExtensionSidebarExecutable.decode(
+            CmuxExtensionSidebarExecutableRequest.self,
+            from: data
+        )
+
+        XCTAssertEqual(decoded, request)
+    }
+
+    func testSidebarExecutableRenderResponseRoundTrips() throws {
+        let providerId = "example.sidebar"
+        let workspace = workspace(title: "API", rootPath: "/tmp/cmux/api", projectRootPath: "/tmp/cmux")
+        let response = CmuxExtensionSidebarExecutableResponse.render(
+            CmuxExtensionSidebarRenderModel(
+                providerId: providerId,
+                snapshotSequence: 8,
+                sections: [
+                    CmuxExtensionSidebarRenderSection(
+                        id: "all",
+                        treeSection: CmuxExtensionWorkspaceTreeSection(
+                            id: "all",
+                            title: "All",
+                            subtitle: nil,
+                            systemImageName: "folder",
+                            projectRootPath: nil,
+                            workspaceIds: [workspace.id]
+                        ),
+                        rows: [
+                            CmuxExtensionSidebarRenderRow(
+                                id: workspace.id,
+                                title: workspace.title,
+                                workspaceId: workspace.id,
+                                accessory: .inspector
+                            )
+                        ]
+                    )
+                ]
+            )
+        )
+
+        let data = try JSONEncoder.cmuxExtensionSidebarExecutable.encode(response)
+        let decoded = try JSONDecoder.cmuxExtensionSidebarExecutable.decode(
+            CmuxExtensionSidebarExecutableResponse.self,
+            from: data
+        )
+
+        XCTAssertEqual(decoded, response)
+    }
+
     func testPromptSubmittedEventUpdatesLastMessageProjection() {
         let workspace = workspace(title: "API", rootPath: "/tmp/cmux/api", projectRootPath: "/tmp/cmux")
         let date = Date(timeIntervalSinceReferenceDate: 300)
