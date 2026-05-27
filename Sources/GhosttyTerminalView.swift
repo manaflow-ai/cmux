@@ -5409,7 +5409,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 case .event(let event):
                     let shouldSchedule = await self.tmuxControlEventBuffer.enqueue(event)
                     guard shouldSchedule else { continue }
-                    await self.processPendingTmuxControlEvents()
+                    self.scheduleTmuxControlEventFlush()
                 case .reset(let generation):
                     await self.tmuxControlEventBuffer.reset(to: generation)
                 }
@@ -5421,6 +5421,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         tmuxControlEventProcessingTask?.cancel()
         tmuxControlEventProcessingTask = nil
         tmuxControlEventStream.finish()
+    }
+
+    private func scheduleTmuxControlEventFlush() {
+        Task { [weak self] in
+            guard let self else { return }
+            await self.processPendingTmuxControlEvents()
+        }
     }
 
     private func processPendingTmuxControlEvents() async {

@@ -4884,6 +4884,7 @@ struct CMUXCLI {
         "swap-pane",
         "tab-action",
         "themes",
+        "tmux",
         "top",
         "tree",
         "trigger-flash",
