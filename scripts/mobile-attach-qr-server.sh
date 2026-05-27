@@ -81,7 +81,93 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/ticket.json":
             self._serve_ticket_json()
             return
+        if path == "/open-tag":
+            self._open_tag()
+            return
         self._send(404, "text/plain", b"not found")
+
+    def do_POST(self):
+        # Mirror /open-tag so a `fetch('/open-tag', {method:'POST'})` works too.
+        if self.path.split("?", 1)[0] == "/open-tag":
+            self._open_tag()
+            return
+        self._send(404, "text/plain", b"not found")
+
+    def _open_tag(self) -> None:
+        # Fire two side effects in parallel: launch the tagged macOS `.app`
+        # via the CMUX Tag Opener at :17320, and launch the matching
+        # `dev.cmux.ios.mobile` app on the first connected iPhone via
+        # devicectl. Errors on either side don't abort the other.
+        mac_result = self._launch_mac_tag()
+        ios_result = self._launch_ios_app()
+        body = (
+            f"mac:{mac_result}\nios:{ios_result}\n"
+        ).encode("utf-8")
+        self._send(200, "text/plain", body)
+
+    def _launch_mac_tag(self) -> str:
+        url = f"http://127.0.0.1:17320/{TAG}"
+        try:
+            subprocess.run(
+                ["curl", "-fsS", "-o", "/dev/null", url],
+                check=True,
+                timeout=5,
+            )
+            return "ok"
+        except subprocess.CalledProcessError as exc:
+            return f"failed exit={exc.returncode}"
+        except subprocess.TimeoutExpired:
+            return "timeout"
+
+    def _launch_ios_app(self) -> str:
+        device_id = self._find_iphone_device_id()
+        if device_id is None:
+            return "no-iphone-attached"
+        try:
+            subprocess.run(
+                [
+                    "xcrun", "devicectl", "device", "process", "launch",
+                    "--device", device_id,
+                    "dev.cmux.ios.mobile",
+                ],
+                check=True,
+                timeout=15,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            return f"ok device={device_id[:8]}"
+        except subprocess.CalledProcessError as exc:
+            tail = (exc.stderr or b"").decode("utf-8", errors="replace").strip().splitlines()[-1:]
+            tail_text = (" ".join(tail)) if tail else ""
+            return f"failed exit={exc.returncode} {tail_text}"
+        except subprocess.TimeoutExpired:
+            return "timeout"
+
+    def _find_iphone_device_id(self) -> str | None:
+        try:
+            out = subprocess.run(
+                ["xcrun", "devicectl", "list", "devices"],
+                check=True, timeout=8,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            ).stdout.decode("utf-8", errors="replace")
+        except Exception:
+            return None
+        # Pick the first line that has an iPhone model and is reachable.
+        # devicectl prints state like "available (paired)" or "connected";
+        # both mean the host can talk to the device. Skip "unavailable".
+        for line in out.splitlines():
+            if "iPhone" not in line:
+                continue
+            if "unavailable" in line:
+                continue
+            if "available" not in line and "connected" not in line:
+                continue
+            # UUIDs are 36 chars with 4 dashes. Pick the first such token.
+            for part in line.split():
+                if len(part) == 36 and part.count("-") == 4:
+                    return part
+        return None
 
     def _serve_qr_page(self) -> None:
         ok, msg = regenerate()
@@ -118,9 +204,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         tag_bytes = TAG.encode("utf-8")
         body_marker = b"<body"
         banner = (
-            b'<a class="qr-open-tag" href="http://127.0.0.1:17320/' + tag_bytes
-            + b'" target="_blank" rel="noopener">Open <code>cmux DEV '
-            + tag_bytes + b'</code></a>'
+            b'<button class="qr-open-tag" type="button" '
+            b'onclick="fetch(\'/open-tag\',{method:\'POST\'});">'
+            b'Open <code>cmux DEV ' + tag_bytes + b'</code></button>'
             + b'<div class="qr-fresh-banner">live, regenerates every 45s</div>'
         )
         if body_marker in html:

@@ -9566,9 +9566,15 @@ class TerminalController {
         bindingAction: String = "write_active_file:copy,vt",
         lineLimit: Int?
     ) -> String? {
+        var actionSucceeded = false
         let exportedPath = GhosttyPasteboardHelper.captureNextStandardClipboardWrite {
-            terminalPanel.performBindingAction(bindingAction)
+            let ok = terminalPanel.performBindingAction(bindingAction)
+            actionSucceeded = ok
+            return ok
         }
+        #if DEBUG
+        cmuxDebugLog("mobile.vtExport action=\(bindingAction) succeeded=\(actionSucceeded) hasPath=\(exportedPath != nil)")
+        #endif
         guard let exportedPath = Self.normalizedExportedScreenPath(exportedPath) else {
             return nil
         }
@@ -9622,21 +9628,25 @@ class TerminalController {
         let attemptedVTExport = shouldAttemptMobileTerminalVTExport(surfaceID: terminalPanel.id, now: now)
         if attemptedVTExport,
            let vtText = readTerminalTextFromVTExportForSnapshot(terminalPanel: terminalPanel, lineLimit: lineLimit) {
-            // VT export emits ANSI escape sequences inline so cells carry
-            // foreground/background colors and SGR attributes. Tail to
-            // lineLimit and pad if needed so row indices line up with
-            // cursor.row from Ghostty's active screen. Wrapped lines that
-            // Ghostty's unwrap=true collapsed appear as fewer rows; pad with
-            // empty trailing rows rather than dropping styling.
+            // VT export from write_active_file emits ANSI-styled rows for
+            // exactly the active area (45 rows) — the same region that
+            // Ghostty's `terminal.screens.active.cursor.y` is anchored on.
+            // So VT row index N and cursor.row N reference the same line
+            // by construction; we don't need a row-by-row equality check
+            // against POINT_ACTIVE. Pad to lineLimit so any wrap-collapse
+            // by unwrap=true doesn't shrink the array iOS expects.
             let vtTailed = tailTerminalLines(vtText, maxLines: lineLimit)
             let vtAligned = padToExactLines(vtTailed, lines: lineLimit)
-            let vtPlainAligned = padToExactLines(Self.mobilePlainTerminalText(vtAligned), lines: lineLimit)
-            if Self.rowsMatchIgnoringTrailingWhitespace(vtPlainAligned, activeAligned) {
-                return MobileTerminalSnapshotText(text: vtAligned, fidelity: "ansi_vt")
-            }
             #if DEBUG
-            Self.logVTAlignmentMismatch(vtPlain: vtPlainAligned, active: activeAligned, lineLimit: lineLimit)
+            // Keep the comparator + log around for diagnostics: it lets us
+            // see whether VT and POINT_ACTIVE drift when the cursor looks
+            // wrong on iOS. We ship VT regardless.
+            let vtPlainAligned = padToExactLines(Self.mobilePlainTerminalText(vtAligned), lines: lineLimit)
+            if !Self.rowsMatchIgnoringTrailingWhitespace(vtPlainAligned, activeAligned) {
+                Self.logVTAlignmentMismatch(vtPlain: vtPlainAligned, active: activeAligned, lineLimit: lineLimit)
+            }
             #endif
+            return MobileTerminalSnapshotText(text: vtAligned, fidelity: "ansi_vt")
         }
         return MobileTerminalSnapshotText(text: activeAligned, fidelity: "plain_text")
     }
