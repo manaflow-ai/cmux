@@ -3,6 +3,7 @@ import { render } from "solid-js/web";
 import { subscribeToAgentEvents } from "../shared/bridge";
 import { insertComposerToken } from "../shared/composerTokens";
 import { isComposingEnter } from "../shared/keyboard";
+import { codexModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
 import {
   initialState,
   autoStartProvider,
@@ -11,13 +12,14 @@ import {
   loadInitialData,
   reduceSession,
   sendInput,
+  selectProvider,
   startProvider,
   statusLabel,
   stopProvider,
   type Action,
   type SessionState,
 } from "../shared/sessionModel";
-import type { ProviderId, ProviderInfo } from "../shared/types";
+import type { ProviderId } from "../shared/types";
 
 function App() {
   const [state, setState] = createSignal<SessionState>(initialState("solid"));
@@ -49,7 +51,7 @@ function SessionSurface({
   const provider = () => state().providers.find((item) => item.id === state().selectedProviderId);
   const canStart = () => canStartProvider(state());
   const canStop = () => canStopProvider(state());
-  const canSend = () => state().status === "running" && state().input.trim().length > 0;
+  const canSend = () => state().status === "running" && state().input.length > 0;
   const root = document.createElement("section");
   root.className = "agent-shell";
 
@@ -152,6 +154,7 @@ function SessionSurface({
   };
   createEffect(() => {
     textarea.placeholder = state().context?.copy.promptPlaceholder ?? "";
+    textarea.setAttribute("aria-label", state().context?.copy.promptPlaceholder ?? "");
     if (textarea.value !== state().input) {
       textarea.value = state().input;
     }
@@ -182,7 +185,7 @@ function SessionSurface({
   const select = document.createElement("select");
   select.className = "provider-select";
   select.addEventListener("change", () => {
-    dispatch({ type: "selectProvider", providerId: select.value as ProviderId });
+    selectProvider(select.value as ProviderId, dispatch);
   });
   modelPicker.append(select);
 
@@ -281,28 +284,6 @@ function SessionSurface({
   });
 
   return root;
-}
-
-function codexModelLabel(provider: ProviderInfo | undefined): string {
-  if (provider?.id === "codex") {
-    return "GPT-5.5";
-  }
-  return provider?.displayName ?? "GPT-5.5";
-}
-
-function providerBadgeLabel(provider: ProviderInfo): string {
-  const displayName = provider.displayName;
-  const lower = displayName.toLowerCase();
-  if (provider.id === "claude" || lower.includes("claude")) {
-    return "Cl";
-  }
-  if (provider.id === "opencode" || lower.includes("open")) {
-    return "O";
-  }
-  if (lower === "pi" || lower.includes(" pi")) {
-    return "Pi";
-  }
-  return displayName.trim().slice(0, 1).toUpperCase() || "C";
 }
 
 function sendIcon(): SVGSVGElement {

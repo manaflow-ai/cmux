@@ -14,7 +14,7 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
             panelId: panel.id,
             workspaceId: panel.workspaceId,
             rendererKind: panel.rendererKind,
-            initialProviderID: panel.initialProviderID,
+            initialProviderID: panel.currentProviderID,
             workingDirectory: panel.workingDirectory,
             theme: theme,
             isFocused: isFocused
@@ -40,7 +40,7 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
             panelId: panel.id,
             workspaceId: panel.workspaceId,
             rendererKind: panel.rendererKind,
-            initialProviderID: panel.initialProviderID,
+            initialProviderID: panel.currentProviderID,
             workingDirectory: panel.workingDirectory,
             theme: theme,
             isFocused: isFocused
@@ -192,6 +192,11 @@ final class AgentSessionWebRendererSession {
             ownedCoordinator.onHasActiveProviderChanged = onHasActiveProviderChanged
         }
     }
+    var onProviderIDChanged: ((AgentSessionProviderID) -> Void)? {
+        didSet {
+            ownedCoordinator.onProviderIDChanged = onProviderIDChanged
+        }
+    }
 
     func coordinator(
         panelId: UUID,
@@ -250,6 +255,7 @@ extension AgentSessionWebRenderer {
                 onHasActiveProviderChanged?(processStore.hasActiveProviderSession)
             }
         }
+        var onProviderIDChanged: ((AgentSessionProviderID) -> Void)?
 
         func bind(
             panelId: UUID,
@@ -571,11 +577,18 @@ extension AgentSessionWebRenderer {
                         "autoStart": provider.shouldAutoStartSession
                     ] as [String: Any]
                 }
+            case "provider.select":
+                let provider = try request.providerID()
+                initialProviderID = provider
+                onProviderIDChanged?(provider)
+                return ["providerId": provider.rawValue]
             case "provider.start":
                 guard !isClosed else {
                     throw AgentSessionBridgeError.invalidRequest
                 }
                 let provider = try request.providerID()
+                initialProviderID = provider
+                onProviderIDChanged?(provider)
                 let configuredExecutablePaths = AgentExecutableResolver.cmuxConfiguredExecutablePaths()
                 let plan = try await Task.detached(priority: .userInitiated) {
                     let resolver = AgentExecutableResolver(configuredExecutablePaths: configuredExecutablePaths)
@@ -597,7 +610,7 @@ extension AgentSessionWebRenderer {
             case "provider.writeLine":
                 try await processStore.writeLine(
                     sessionId: request.requiredString("sessionId"),
-                    text: request.requiredString("text")
+                    text: request.requiredRawString("text")
                 )
                 return ["sent": true]
             case "provider.stop":
@@ -668,6 +681,17 @@ private struct AgentSessionBridgeRequest {
         return value
     }
 
+    func rawString(_ key: String) -> String? {
+        params[key] as? String
+    }
+
+    func requiredRawString(_ key: String) throws -> String {
+        guard let value = rawString(key) else {
+            throw AgentSessionBridgeError.missingParameter(key)
+        }
+        return value
+    }
+
     func providerID() throws -> AgentSessionProviderID {
         let rawValue = try requiredString("providerId")
         guard let provider = AgentSessionProviderID(rawValue: rawValue) else {
@@ -695,25 +719,25 @@ private enum AgentSessionBridgeError: LocalizedError {
             _ = provider
             return String(
                 localized: "agentSession.bridge.error.invalidProvider",
-                defaultValue: "Unknown provider."
+                defaultValue: "The selected provider is unavailable."
             )
         case .missingParameter(let parameter):
             _ = parameter
             return String(
                 localized: "agentSession.bridge.error.missingParameter",
-                defaultValue: "The bridge request is missing required data."
+                defaultValue: "The request is incomplete."
             )
         case .unsupportedMethod(let method):
             _ = method
             return String(
                 localized: "agentSession.bridge.error.unsupportedMethod",
-                defaultValue: "Unsupported bridge method."
+                defaultValue: "This action is not supported."
             )
         case .sessionNotFound(let sessionId):
             _ = sessionId
             return String(
                 localized: "agentSession.bridge.error.sessionNotFound",
-                defaultValue: "The agent session has already ended."
+                defaultValue: "The agent session is no longer available."
             )
         case .sessionAlreadyRunning:
             return String(
@@ -780,16 +804,15 @@ final class CodexAppServerSession {
     }
 
     func submit(_ text: String) throws {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !text.isEmpty else { return }
         guard let threadID else {
-            queuedInputs.append(trimmed)
+            queuedInputs.append(text)
             if didInitialize {
                 try startThreadIfNeeded()
             }
             return
         }
-        try sendTurnStart(threadID: threadID, text: trimmed)
+        try sendTurnStart(threadID: threadID, text: text)
     }
 
     func consumeStdout(_ text: String) {
@@ -825,8 +848,7 @@ final class CodexAppServerSession {
 
         guard let id = requestID(from: object["id"]) else { return }
         if let error = object["error"] as? [String: Any] {
-            let message = error["message"] as? String ?? String(localized: "agentSession.codex.error.rpcFailed", defaultValue: "Codex app-server request failed.")
-            outputSink("stderr", message)
+            emitCodexRPCFailure(details: error["message"] as? String)
             return
         }
         handleResponse(id: id, result: object["result"] as? [String: Any])
@@ -839,7 +861,7 @@ final class CodexAppServerSession {
                 try sendNotification(method: "initialized")
                 try startThreadIfNeeded()
             } catch {
-                outputSink("stderr", error.localizedDescription)
+                emitCodexRPCFailure(error)
             }
             return
         }
@@ -869,9 +891,9 @@ final class CodexAppServerSession {
             }
         case "error":
             let error = params?["error"] as? [String: Any]
-            outputSink("stderr", error?["message"] as? String ?? String(localized: "agentSession.codex.error.rpcFailed", defaultValue: "Codex app-server request failed."))
+            emitCodexRPCFailure(details: error?["message"] as? String)
         case "warning", "guardianWarning", "configWarning", "deprecationNotice":
-            outputSink("stderr", codexMessage(from: params) ?? method)
+            outputSink("stderr", codexMessage(from: params) ?? Self.unknownWarningMessage())
         default:
             break
         }
@@ -901,7 +923,7 @@ final class CodexAppServerSession {
                     )
                 )
             } catch {
-                outputSink("stderr", error.localizedDescription)
+                emitCodexRPCFailure(error)
             }
             return
         }
@@ -909,7 +931,7 @@ final class CodexAppServerSession {
         do {
             try sendJSONObject(["id": id, "result": result])
         } catch {
-            outputSink("stderr", error.localizedDescription)
+            emitCodexRPCFailure(error)
         }
     }
 
@@ -921,7 +943,7 @@ final class CodexAppServerSession {
             do {
                 try sendTurnStart(threadID: threadID, text: input)
             } catch {
-                outputSink("stderr", error.localizedDescription)
+                emitCodexRPCFailure(error)
             }
         }
     }
@@ -1005,6 +1027,32 @@ final class CodexAppServerSession {
             return message
         }
         return nil
+    }
+
+    private func emitCodexRPCFailure(_ error: Error) {
+#if DEBUG
+        cmuxDebugLog("agentSession.codex.rpc.failed error=\(error.localizedDescription)")
+#endif
+        outputSink("stderr", Self.rpcFailedMessage())
+    }
+
+    private func emitCodexRPCFailure(details: String?) {
+#if DEBUG
+        if let details, !details.isEmpty {
+            cmuxDebugLog("agentSession.codex.rpc.failed details=\(details)")
+        }
+#else
+        _ = details
+#endif
+        outputSink("stderr", Self.rpcFailedMessage())
+    }
+
+    private static func rpcFailedMessage() -> String {
+        String(localized: "agentSession.codex.error.rpcFailed", defaultValue: "Codex app-server request failed.")
+    }
+
+    private static func unknownWarningMessage() -> String {
+        String(localized: "agentSession.codex.warning.unknown", defaultValue: "Codex app-server reported a warning.")
     }
 }
 

@@ -610,8 +610,8 @@ extension Workspace {
             rightSidebarToolSnapshot = nil
             agentSessionSnapshot = SessionAgentSessionPanelSnapshot(
                 rendererKind: agentPanel.rendererKind,
-                providerID: agentPanel.initialProviderID,
-                workingDirectory: directory ?? agentPanel.workingDirectory
+                providerID: agentPanel.currentProviderID,
+                workingDirectory: directory
             )
         }
 
@@ -10454,6 +10454,35 @@ final class Workspace: Identifiable, ObservableObject {
         panelSubscriptions[filePreviewPanel.id] = subscription
     }
 
+    private func installAgentSessionPanelSubscription(_ agentPanel: AgentSessionPanel) {
+        let subscription = Publishers.CombineLatest(
+            agentPanel.$displayTitle.removeDuplicates(),
+            agentPanel.$isDirty.removeDuplicates()
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self, weak agentPanel] newTitle, isDirty in
+            guard let self,
+                  let agentPanel,
+                  let tabId = self.surfaceIdFromPanelId(agentPanel.id) else { return }
+            guard let existing = self.bonsplitController.tab(tabId) else { return }
+
+            if self.panelTitles[agentPanel.id] != newTitle {
+                self.panelTitles[agentPanel.id] = newTitle
+            }
+            let resolvedTitle = self.resolvedPanelTitle(panelId: agentPanel.id, fallback: newTitle)
+            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+            let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
+            guard titleUpdate != nil || dirtyUpdate != nil else { return }
+            self.bonsplitController.updateTab(
+                tabId,
+                title: titleUpdate,
+                hasCustomTitle: self.panelCustomTitles[agentPanel.id] != nil,
+                isDirty: dirtyUpdate
+            )
+        }
+        panelSubscriptions[agentPanel.id] = subscription
+    }
+
     private func browserRemoteWorkspaceStatusSnapshot() -> BrowserRemoteWorkspaceStatus? {
         guard let target = remoteDisplayTarget else { return nil }
         return BrowserRemoteWorkspaceStatus(
@@ -13655,6 +13684,8 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
 
+        installAgentSessionPanelSubscription(agentPanel)
+
         return agentPanel
     }
 
@@ -14355,6 +14386,10 @@ final class Workspace: Identifiable, ObservableObject {
         if let filePreviewPanel = detached.panel as? FilePreviewPanel,
            panelSubscriptions[filePreviewPanel.id] == nil {
             installFilePreviewPanelSubscription(filePreviewPanel)
+        }
+        if let agentPanel = detached.panel as? AgentSessionPanel,
+           panelSubscriptions[agentPanel.id] == nil {
+            installAgentSessionPanelSubscription(agentPanel)
         }
         let didAdoptWorkspaceRemoteTracking = shouldAdoptDetachedWorkspaceRemoteTracking(detached)
         if didAdoptWorkspaceRemoteTracking,

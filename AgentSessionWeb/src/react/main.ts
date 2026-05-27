@@ -1,6 +1,7 @@
 import React, { useEffect, useReducer, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { subscribeToAgentEvents } from "../shared/bridge";
+import { codexModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
 import {
   initialState,
   autoStartProvider,
@@ -9,6 +10,7 @@ import {
   loadInitialData,
   reduceSession,
   sendInput,
+  selectProvider,
   startProvider,
   statusLabel,
   stopProvider,
@@ -35,7 +37,15 @@ function useNativeEvents(dispatch: React.Dispatch<Action>) {
 function useAutoStart(state: SessionState, dispatch: React.Dispatch<Action>) {
   useEffect(() => {
     void autoStartProvider(state, dispatch);
-  }, [state, dispatch]);
+  }, [
+    state.autoStartAttemptedProviderIds,
+    state.context,
+    state.providers,
+    state.runningSessionId,
+    state.selectedProviderId,
+    state.status,
+    dispatch,
+  ]);
 }
 
 function App() {
@@ -58,7 +68,7 @@ function SessionSurface({
   const provider = state.providers.find((item) => item.id === state.selectedProviderId);
   const canStart = canStartProvider(state);
   const canStop = canStopProvider(state);
-  const canSend = state.status === "running" && state.input.trim().length > 0;
+  const canSend = state.status === "running" && state.input.length > 0;
   const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
   const modelLabel = codexModelLabel(provider);
@@ -81,6 +91,7 @@ function SessionSurface({
       : "composer-input composer-input-multiline mb-1 flex-grow overflow-y-auto px-3 pt-4 text-base [&_.ProseMirror]:leading-5",
     minHeight: isSingleLineLayout ? "1.25rem" : "2.75rem",
     value: state.input,
+    ariaLabel: state.context?.copy.promptPlaceholder ?? "",
     placeholder: state.context?.copy.promptPlaceholder ?? "",
     onTextChange: (input: string) => dispatch({ type: "setInput", input }),
     onSubmit: submit,
@@ -110,7 +121,7 @@ function SessionSurface({
           state.status === "stopping",
         "aria-label": state.context?.copy.provider ?? "",
         onChange: (event: React.ChangeEvent<HTMLSelectElement>) =>
-          dispatch({ type: "selectProvider", providerId: event.target.value as ProviderId }),
+          selectProvider(event.target.value as ProviderId, dispatch),
       },
       state.providers.map((item) =>
         h("option", { key: item.id, value: item.id }, item.displayName),
@@ -361,28 +372,6 @@ type ComposerMenuItem = {
   label: string;
   value: string;
 };
-
-function codexModelLabel(provider: { id: string; displayName: string } | undefined): string {
-  if (provider?.id === "codex") {
-    return "GPT-5.5";
-  }
-  return provider?.displayName ?? "GPT-5.5";
-}
-
-function providerBadgeLabel(provider: { id: string; displayName: string }): string {
-  const displayName = provider.displayName;
-  const lower = displayName.toLowerCase();
-  if (provider.id === "claude" || lower.includes("claude")) {
-    return "Cl";
-  }
-  if (provider.id === "opencode" || lower.includes("open")) {
-    return "O";
-  }
-  if (lower === "pi" || lower.includes(" pi")) {
-    return "Pi";
-  }
-  return displayName.trim().slice(0, 1).toUpperCase() || "C";
-}
 
 function basename(path: string): string {
   const segments = path.split("/").filter(Boolean);

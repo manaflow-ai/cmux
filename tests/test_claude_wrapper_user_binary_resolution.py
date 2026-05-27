@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
+SHELL_INTEGRATION_DIR = ROOT / "Resources" / "shell-integration"
 
 
 def write_executable(path: Path, contents: str) -> None:
@@ -78,15 +79,59 @@ exec "{wrapper}" "$@"
             failures.append(f"expected user claude, got {output!r}")
 
 
+def test_shell_integration_does_not_shim_grok(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-grok-wrapper-resolution-") as td:
+        root = Path(td)
+        real_bin = root / "real-bin"
+        real_bin.mkdir(parents=True, exist_ok=True)
+        write_executable(
+            real_bin / "grok",
+            """#!/usr/bin/env bash
+echo real-grok "$@"
+""",
+        )
+
+        base_env = dict(os.environ)
+        base_env["CMUX_SHELL_INTEGRATION_DIR"] = str(SHELL_INTEGRATION_DIR)
+        base_env["PATH"] = f"{real_bin}:/usr/bin:/bin"
+        base_env.pop("CMUX_SURFACE_ID", None)
+        base_env.pop("CMUX_SOCKET_PATH", None)
+
+        shell_commands = [
+            [
+                "/bin/bash",
+                "--noprofile",
+                "--norc",
+                "-c",
+                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; grok --version',
+            ],
+            [
+                "/bin/zsh",
+                "-f",
+                "-c",
+                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; grok --version',
+            ],
+        ]
+        for argv in shell_commands:
+            result = run_wrapper(argv, base_env)
+            output = (result.stdout + result.stderr).strip()
+            shell_name = Path(argv[0]).name
+            if result.returncode != 0:
+                failures.append(f"{shell_name} grok wrapper exited {result.returncode}: {output}")
+            if output != "real-grok --version":
+                failures.append(f"{shell_name} expected user grok, got {output!r}")
+
+
 def main() -> int:
     failures: list[str] = []
     test_wrapper_skips_cmux_shims_and_bundled_claude(failures)
+    test_shell_integration_does_not_shim_grok(failures)
     if failures:
         print("FAIL: claude wrapper binary resolution checks failed")
         for failure in failures:
             print(f"- {failure}")
         return 1
-    print("PASS: claude wrapper resolves the user-owned claude binary")
+    print("PASS: provider wrappers resolve user-owned binaries without shim recursion")
     return 0
 
 

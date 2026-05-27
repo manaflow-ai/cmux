@@ -28,6 +28,7 @@ export type PromptEditorHandle = {
 };
 
 type PromptEditorProps = {
+  ariaLabel?: string;
   className?: string;
   minHeight?: string;
   onSubmit: () => void;
@@ -39,7 +40,7 @@ type PromptEditorProps = {
 
 export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorProps>(
   function PromptEditor(
-    { className, minHeight = "2.75rem", onSubmit, onTextChange, onTriggerToken, placeholder, value },
+    { ariaLabel, className, minHeight = "2.75rem", onSubmit, onTextChange, onTriggerToken, placeholder, value },
     ref,
   ) {
     const hostRef = useRef<HTMLDivElement | null>(null);
@@ -83,7 +84,9 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
           plugins: [placeholderPlugin(placeholder)],
         }),
         attributes: {
+          "aria-label": ariaLabel ?? placeholder,
           "data-codex-composer": "true",
+          role: "textbox",
           class: "ProseMirror prompt-editor-view",
           style: `min-height: ${minHeight};`,
         },
@@ -137,6 +140,27 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
       }
       view.dispatch(view.state.tr.setMeta(placeholderKey, placeholder));
     }, [placeholder]);
+
+    useLayoutEffect(() => {
+      const view = viewRef.current;
+      if (!view) {
+        return;
+      }
+      const nextLabel = ariaLabel ?? placeholder;
+      if (nextLabel) {
+        view.dom.setAttribute("aria-label", nextLabel);
+      } else {
+        view.dom.removeAttribute("aria-label");
+      }
+    }, [ariaLabel, placeholder]);
+
+    useLayoutEffect(() => {
+      const view = viewRef.current;
+      if (!view) {
+        return;
+      }
+      view.dom.style.minHeight = minHeight;
+    }, [minHeight]);
 
     useLayoutEffect(() => {
       const view = viewRef.current;

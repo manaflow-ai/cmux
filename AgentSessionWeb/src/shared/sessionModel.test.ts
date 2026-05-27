@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { makeClientId } from "./ids";
-import { canStopProvider, initialState, reduceSession, shouldAutoStartProvider, statusLabel } from "./sessionModel";
+import { canStopProvider, formatTemplate, initialState, reduceSession, shouldAutoStartProvider, statusLabel } from "./sessionModel";
 import type { AppContext, ProviderInfo } from "./types";
 
 const theme = {
@@ -79,7 +79,11 @@ const providers: ProviderInfo[] = [
 ];
 
 test("provider started event records running session", () => {
-  const state = reduceSession(initialState("react"), {
+  const starting = reduceSession(
+    reduceSession(initialState("react"), { type: "context", context }),
+    { type: "starting" },
+  );
+  const state = reduceSession(starting, {
     type: "event",
     event: {
       type: "provider.started",
@@ -132,6 +136,20 @@ test("provider output for a different session is ignored", () => {
       stream: "stdout",
       text: "{\"type\":\"assistant\"}",
     },
+  });
+
+  expect(state).toBe(running);
+});
+
+test("unknown provider events are ignored", () => {
+  const running = {
+    ...initialState("solid"),
+    status: "running" as const,
+    runningSessionId: "session-1",
+  };
+  const state = reduceSession(running, {
+    type: "event",
+    event: { type: "provider.unknown", sessionId: "session-1" } as never,
   });
 
   expect(state).toBe(running);
@@ -280,6 +298,31 @@ test("requested stop exits return to idle even with signal status", () => {
   expect(state.runningSessionId).toBeUndefined();
   expect(state.requestedStopSessionId).toBeUndefined();
   expect(state.log.at(-1)?.text).toBe("Stopped");
+});
+
+test("provider started during a requested stop is ignored", () => {
+  const stopping = {
+    ...reduceSession(initialState("react"), { type: "context", context }),
+    status: "stopping" as const,
+    runningSessionId: "session-1",
+    requestedStopSessionId: "session-1",
+  };
+  const state = reduceSession(stopping, {
+    type: "event",
+    event: {
+      type: "provider.started",
+      providerId: "codex",
+      sessionId: "session-1",
+      executablePath: "/usr/local/bin/codex",
+      arguments: ["app-server", "--listen", "stdio://"],
+    },
+  });
+
+  expect(state).toBe(stopping);
+});
+
+test("format templates honor positional specifiers", () => {
+  expect(formatTemplate("%2$@ %1$d", [7, "files"])).toBe("files 7");
 });
 
 test("failed calls with an active session keep stop available", () => {

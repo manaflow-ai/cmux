@@ -102,6 +102,8 @@ export function reduceSession(state: SessionState, action: Action): SessionState
       };
     case "event":
       return applyEvent(state, action.event);
+    default:
+      return state;
   }
 }
 
@@ -155,18 +157,22 @@ export async function autoStartProvider(state: SessionState, dispatch: (action: 
   await startProvider(state, dispatch);
 }
 
+export function selectProvider(providerId: ProviderId, dispatch: (action: Action) => void): void {
+  dispatch({ type: "selectProvider", providerId });
+  void callNative("provider.select", { providerId }).catch(() => {});
+}
+
 export async function sendInput(state: SessionState, dispatch: (action: Action) => void): Promise<void> {
   const submittedInput = state.input;
-  const text = submittedInput.trim();
-  if (!text || !state.runningSessionId) {
+  if (submittedInput.length === 0 || !state.runningSessionId) {
     return;
   }
   try {
     await callNative("provider.writeLine", {
       sessionId: state.runningSessionId,
-      text,
+      text: submittedInput,
     });
-    dispatch({ type: "sent", text, submittedInput });
+    dispatch({ type: "sent", text: submittedInput, submittedInput });
   } catch (error) {
     dispatch({ type: "failed", message: messageForError(error, state) });
   }
@@ -225,6 +231,18 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
         },
       };
     case "provider.started":
+      if (event.sessionId === state.requestedStopSessionId) {
+        return state;
+      }
+      if (state.runningSessionId && event.sessionId !== state.runningSessionId) {
+        return state;
+      }
+      if (!state.runningSessionId && state.status !== "starting") {
+        return state;
+      }
+      if (!state.runningSessionId && event.providerId !== state.selectedProviderId) {
+        return state;
+      }
       return {
         ...state,
         runningSessionId: event.sessionId,
@@ -264,6 +282,8 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
           formatCopy(state, "providerExitedFormat", "Provider exited %d", event.status),
         ),
       };
+    default:
+      return state;
   }
 }
 
@@ -307,9 +327,12 @@ function formatCopy<K extends keyof AppContext["copy"]>(
   return formatTemplate(copyText(state, key, fallback), values);
 }
 
-function formatTemplate(template: string, values: Array<string | number>): string {
+export function formatTemplate(template: string, values: Array<string | number>): string {
   let index = 0;
-  return template.replace(/%(?:\d+\$)?[@d]/g, () => String(values[index++] ?? ""));
+  return template.replace(/%(\d+\$)?[@d]/g, (_match, position: string | undefined) => {
+    const valueIndex = position ? Number(position.slice(0, -1)) - 1 : index++;
+    return String(values[valueIndex] ?? "");
+  });
 }
 
 export function messageForError(error: unknown, state?: SessionState): string {

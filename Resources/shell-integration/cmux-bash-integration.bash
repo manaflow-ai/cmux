@@ -196,7 +196,9 @@ _cmux_install_cli_wrapper() {
 
     existing_type="$(type -t "$command_name" 2>/dev/null || true)"
     printf -v "$wrapper_variable" '%s' "$wrapper_path"
-    _cmux_install_cli_command_shim "$command_name" "$wrapper_path"
+    if [[ "$command_name" == "claude" ]]; then
+        _cmux_install_cli_command_shim "$command_name" "$wrapper_path"
+    fi
     case "$existing_type" in
         alias|function)
             return 0
