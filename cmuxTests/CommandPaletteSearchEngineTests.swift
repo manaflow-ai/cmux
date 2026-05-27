@@ -989,6 +989,22 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertNil(snapshot)
     }
 
+    func testForkCommandsDismissPaletteBeforeRunning() {
+        let forkCommandIds = [
+            "palette.forkAgentConversationRight",
+            "palette.forkAgentConversationLeft",
+            "palette.forkAgentConversationTop",
+            "palette.forkAgentConversationBottom",
+            "palette.forkAgentConversationNewWorkspace"
+        ]
+
+        for commandId in forkCommandIds {
+            XCTAssertTrue(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: commandId))
+        }
+        XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: "palette.terminalSplitRight"))
+        XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: "palette.terminalFocusTextBoxInput"))
+    }
+
     func testForkableAgentCacheKeepsVerifiedOpenCodeVisible() {
         let workspaceId = UUID()
         let panelId = UUID()
