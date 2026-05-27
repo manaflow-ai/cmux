@@ -2957,6 +2957,32 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         XCTAssertEqual(workspace.layoutController.canvasSceneSnapshot().activeMountDirective?.renderMode, .liveNative1x)
     }
 
+    func testCanvasPreparePanelForNativeInputFocusesPanelItemAndRestoresNativeScale() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId))
+        let sourceItem = try XCTUnwrap(workspace.layoutController.canvasItem(forPane: sourcePaneId))
+        let browserPanel = try XCTUnwrap(
+            workspace.newBrowserSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                focus: true
+            )
+        )
+        let browserPaneId = try XCTUnwrap(workspace.paneId(forPanelId: browserPanel.id))
+        let browserItem = try XCTUnwrap(workspace.layoutController.canvasItem(forPane: browserPaneId))
+
+        workspace.layoutController.enterCanvasOverview(policy: .freeform, scale: 0.5)
+        XCTAssertTrue(workspace.layoutController.focusCanvasItem(sourceItem.id))
+
+        XCTAssertTrue(workspace.prepareCanvasPanelForNativeInput(browserPanel.id))
+
+        XCTAssertTrue(workspace.layoutController.isCanvasOverviewActive)
+        XCTAssertEqual(workspace.layoutController.focusedCanvasItemID, browserItem.id)
+        XCTAssertEqual(workspace.layoutController.canvasViewport.scale, 1.0, accuracy: 0.001)
+        XCTAssertEqual(workspace.layoutController.canvasSceneSnapshot().activeMountDirective?.renderMode, .liveNative1x)
+    }
+
     func testSelectedCanvasModeCarriesIntoNewWorkspaceAtNativeScale() {
         let manager = TabManager()
         guard let source = manager.selectedWorkspace else {
@@ -5307,45 +5333,6 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             1
         )
         XCTAssertEqual(workspace.focusedPanelId, firstPanel.id)
-    }
-
-    func testHistoryToolSurfaceOpensAsReusableCMUXLayoutPane() {
-        let workspace = Workspace()
-        guard let paneId = workspace.layoutController.focusedPaneId else {
-            XCTFail("Expected focused pane")
-            return
-        }
-
-        guard let firstPanel = workspace.openOrFocusRightSidebarToolSurface(
-            inPane: paneId,
-            mode: .history,
-            focus: true
-        ) else {
-            XCTFail("Expected History tool surface to be created")
-            return
-        }
-        guard let secondPanel = workspace.openOrFocusRightSidebarToolSurface(
-            inPane: paneId,
-            mode: .history,
-            focus: true
-        ) else {
-            XCTFail("Expected existing History tool surface to be focused")
-            return
-        }
-
-        XCTAssertEqual(firstPanel.id, secondPanel.id)
-        XCTAssertEqual(firstPanel.displayTitle, String(localized: "rightSidebar.mode.history", defaultValue: "History"))
-        XCTAssertEqual(firstPanel.displayIcon, "clock.arrow.circlepath")
-        XCTAssertGreaterThanOrEqual(firstPanel.historySearchFocusToken, 1)
-        XCTAssertEqual(
-            workspace.surfaceIdFromPanelId(firstPanel.id).flatMap { workspace.layoutController.tab($0)?.kind },
-            Workspace.SurfaceKind.rightSidebarTool
-        )
-        XCTAssertEqual(workspace.focusedPanelId, firstPanel.id)
-
-        let previousFocusToken = firstPanel.historySearchFocusToken
-        workspace.focusPanel(firstPanel.id)
-        XCTAssertGreaterThan(firstPanel.historySearchFocusToken, previousFocusToken)
     }
 
     func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {

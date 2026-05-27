@@ -14907,6 +14907,24 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func prepareCanvasPanelForNativeInput(_ panelID: UUID) -> Bool {
+        guard layoutController.isCanvasOverviewActive,
+              let paneID = paneId(forPanelId: panelID),
+              let item = layoutController.canvasItem(forPane: paneID) else {
+            return false
+        }
+        _ = layoutController.focusCanvasItem(item.id)
+        if layoutController.canvasViewport.scale < 0.99 {
+            setCanvasOverviewScale(CanvasOverviewZoom.defaultScale)
+        } else {
+            _ = layoutController.scrollCanvasItemIntoView(item.id)
+        }
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.canvasPrepareNativeInput")
+        return true
+    }
+
+    @discardableResult
     func activateFocusedCanvasItem() -> Bool {
         guard let itemID = layoutController.focusedCanvasItemID else { return false }
         return activateCanvasItem(itemID)

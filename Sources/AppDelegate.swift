@@ -12935,7 +12935,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .focusBrowserAddressBar) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             if let focusedPanel = routedManager?.focusedBrowserPanel {
-                focusBrowserAddressBar(in: focusedPanel)
+                _ = focusBrowserAddressBar(panelId: focusedPanel.id, tabManager: routedManager)
                 return true
             }
 
@@ -13232,6 +13232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         workspace.focusPanel(panel.id)
+        _ = workspace.prepareCanvasPanelForNativeInput(panel.id)
 #if DEBUG
         let focusedAfter = workspace.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
         cmuxDebugLog(
