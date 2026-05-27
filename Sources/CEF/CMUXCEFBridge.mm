@@ -31,10 +31,10 @@
 static int g_remoteDebuggingPort = 9433;
 static bool g_cefInitialized = false;
 static bool g_cefShuttingDown = false;
+static bool g_cefContextInitialized = false;
 static bool g_cefMessageLoopEnabled = false;
 static bool g_messagePumpActive = false;
 static bool g_messagePumpReentrancyDetected = false;
-static int g_cefLiveBrowserCount = 0;
 static CefRefPtr<CefApp> g_cefApp;
 static NSTimer* g_messagePumpTimer = nil;
 static std::map<std::string, CefRefPtr<CefRequestContext>> g_persistentRequestContexts;
@@ -210,6 +210,7 @@ static void CMUXCEFInvalidateMessagePumpTimer(void) {
 }
 
 static void CMUXCEFScheduleMessagePumpWork(int64_t delayMs);
+static void CMUXCEFNotifyContextInitialized(void);
 
 static bool CMUXCEFPerformMessagePumpWork(void) {
   if (!g_cefMessageLoopEnabled || g_cefShuttingDown) {
@@ -234,7 +235,7 @@ static void CMUXCEFRunMessagePumpWork(void) {
   bool wasReentrant = CMUXCEFPerformMessagePumpWork();
   if (wasReentrant) {
     CMUXCEFScheduleMessagePumpWork(0);
-  } else if (!g_messagePumpTimer && g_cefLiveBrowserCount > 0) {
+  } else if (!g_messagePumpTimer) {
     CMUXCEFScheduleMessagePumpWork(CMUXCEFMessagePumpTimerDelayPlaceholder);
   }
 }
@@ -312,12 +313,33 @@ class CMUXCEFApp : public CefApp, public CefBrowserProcessHandler {
     CMUXCEFScheduleMessagePumpWork(delay_ms);
   }
 
+  void OnContextInitialized() override {
+    g_cefContextInitialized = true;
+    CMUXCEFNotifyContextInitialized();
+  }
+
  private:
   IMPLEMENT_REFCOUNTING(CMUXCEFApp);
   DISALLOW_COPY_AND_ASSIGN(CMUXCEFApp);
 };
 
 @class CMUXCEFBrowserView;
+
+static NSHashTable<CMUXCEFBrowserView*>* CMUXCEFPendingBrowserViews(void) {
+  static NSHashTable<CMUXCEFBrowserView*>* pendingViews = nil;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    pendingViews = [NSHashTable weakObjectsHashTable];
+  });
+  return pendingViews;
+}
+
+static void CMUXCEFRegisterPendingBrowserView(CMUXCEFBrowserView* view) {
+  if (!view) {
+    return;
+  }
+  [CMUXCEFPendingBrowserViews() addObject:view];
+}
 
 class CMUXCEFBrowserClient : public CefClient,
                              public CefDisplayHandler,
@@ -394,7 +416,18 @@ class CMUXCEFBrowserClient : public CefClient,
                       errorCode:(NSInteger)errorCode
                       errorText:(NSString*)errorText;
 - (void)cmuxCEFHandleConsoleMessage:(NSString*)message source:(NSString*)source line:(NSInteger)line;
+- (void)cmuxCEFContextInitialized;
 @end
+
+static void CMUXCEFNotifyContextInitialized(void) {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    NSArray<CMUXCEFBrowserView*>* views = CMUXCEFPendingBrowserViews().allObjects;
+    [CMUXCEFPendingBrowserViews() removeAllObjects];
+    for (CMUXCEFBrowserView* view in views) {
+      [view cmuxCEFContextInitialized];
+    }
+  });
+}
 
 @implementation CMUXCEFBrowserView
 
@@ -491,7 +524,18 @@ class CMUXCEFBrowserClient : public CefClient,
 }
 
 - (void)createBrowserIfNeeded {
-  if (didCreateBrowser_ || !g_cefInitialized || !self.window) {
+  if (didCreateBrowser_) {
+    return;
+  }
+  if (!g_cefInitialized) {
+    return;
+  }
+  if (!g_cefContextInitialized) {
+    CMUXCEFRegisterPendingBrowserView(self);
+    CMUXCEFScheduleMessagePumpWork(0);
+    return;
+  }
+  if (!self.window) {
     return;
   }
   if (self.bounds.size.width < 1 || self.bounds.size.height < 1) {
@@ -506,16 +550,16 @@ class CMUXCEFBrowserClient : public CefClient,
 
   CefBrowserSettings browserSettings;
   browserSettings.background_color = CefColorSetARGB(255, 22, 22, 22);
-  CefRefPtr<CefRequestContext> requestContext = CMUXCEFRequestContextForProfile(profileIdentifier_);
+  std::string initialURL = initialURL_.length > 0 ? [initialURL_ UTF8String] : "about:blank";
 
   client_ = new CMUXCEFBrowserClient(self);
   browser_ = CefBrowserHost::CreateBrowserSync(
     windowInfo,
     client_,
-    CefString("about:blank"),
+    CefString(initialURL),
     browserSettings,
     nullptr,
-    requestContext);
+    nullptr);
   if (!browser_) {
     didCreateBrowser_ = NO;
     NSLog(@"[CEF] Failed to create browser for %@", initialURL_);
@@ -534,15 +578,10 @@ class CMUXCEFBrowserClient : public CefClient,
   if (!cefView_.superview) {
     [self addSubview:cefView_];
   }
-  g_cefLiveBrowserCount += 1;
   CMUXCEFScheduleMessagePumpWork(0);
   cefView_.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
   cefView_.frame = self.bounds;
   [self setNeedsLayout:YES];
-
-  if (initialURL_.length > 0) {
-    [self loadURLString:initialURL_];
-  }
 }
 
 - (void)loadURLString:(NSString*)urlString {
@@ -602,7 +641,6 @@ class CMUXCEFBrowserClient : public CefClient,
     }
     browser_->GetHost()->CloseBrowser(true);
     browser_ = nullptr;
-    g_cefLiveBrowserCount = std::max(0, g_cefLiveBrowserCount - 1);
   }
   if (cefView_) {
     [cefView_ removeFromSuperview];
@@ -657,6 +695,10 @@ class CMUXCEFBrowserClient : public CefClient,
   if (self.consoleMessageHandler) {
     self.consoleMessageHandler(message ?: @"", source ?: @"", line);
   }
+}
+
+- (void)cmuxCEFContextInitialized {
+  [self createBrowserIfNeeded];
 }
 
 @end
@@ -798,8 +840,9 @@ bool CMUXCEFPrepareApplication(void) {
 }
 
 bool CMUXCEFIsRuntimeAvailable(void) {
-  return [[NSFileManager defaultManager] fileExistsAtPath:CMUXCEFFrameworkExecutablePath()]
-    && [[NSFileManager defaultManager] fileExistsAtPath:CMUXCEFHelperExecutablePath()];
+  bool frameworkAvailable = [[NSFileManager defaultManager] fileExistsAtPath:CMUXCEFFrameworkExecutablePath()];
+  bool helperAvailable = [[NSFileManager defaultManager] fileExistsAtPath:CMUXCEFHelperExecutablePath()];
+  return frameworkAvailable && helperAvailable;
 }
 
 bool CMUXCEFIsInitialized(void) {
@@ -826,6 +869,7 @@ bool CMUXCEFInitialize(int argc, char* _Nullable argv[]) {
   settings.multi_threaded_message_loop = false;
   settings.external_message_pump = true;
   settings.windowless_rendering_enabled = false;
+  g_cefContextInitialized = false;
   g_remoteDebuggingPort = CMUXCEFFindAvailableRemoteDebuggingPort();
   settings.remote_debugging_port = g_remoteDebuggingPort;
 
@@ -891,6 +935,7 @@ void CMUXCEFShutdown(void) {
   g_persistentRequestContexts.clear();
   g_cefApp = nullptr;
   g_cefInitialized = false;
+  g_cefContextInitialized = false;
   g_cefShuttingDown = false;
 }
 

@@ -1179,6 +1179,7 @@ struct cmuxApp: App {
         FeedTextEditorDebugWindowController.shared.show()
         FeedButtonStyleDebugWindowController.shared.show()
         BonsplitTabBarDebugWindowController.shared.show()
+        CMUXCEFBrowserDebugWindowController.shared.show()
     }
 #endif
 }
