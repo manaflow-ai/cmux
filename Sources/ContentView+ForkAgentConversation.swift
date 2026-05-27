@@ -36,97 +36,84 @@ extension ContentView {
             panelId: panelId
         )
 
-        Task { @MainActor in
-            let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
-            guard let currentContext = focusedPanelContext,
-                  currentContext.workspace.id == workspaceId,
-                  currentContext.panelId == panelId,
-                  currentContext.panel.panelType == .terminal else {
-                NSSound.beep()
-                return
-            }
+        guard let currentContext = focusedPanelContext,
+              currentContext.workspace.id == workspaceId,
+              currentContext.panelId == panelId,
+              currentContext.panel.panelType == .terminal else {
+            NSSound.beep()
+            return
+        }
 
-            let snapshot = Self.commandPaletteForkExecutionSnapshot(
-                indexSnapshot: index.snapshot(workspaceId: workspaceId, panelId: panelId),
-                fallbackSnapshot: currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId],
-                cachedSnapshot: commandPaletteForkableAgentSnapshotsByPanelKey[panelKey]
-            )
-            guard let snapshot else {
-                commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
-                commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
-                NSSound.beep()
-                return
-            }
-            let isRemoteContext = currentContext.workspace.isRemoteTerminalSurface(panelId)
-            guard await AgentForkSupport.supportsFork(
+        let fallbackSnapshot = currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId]
+        let isRemoteContext = currentContext.workspace.isRemoteTerminalSurface(panelId)
+        let snapshot = Self.commandPaletteImmediateForkExecutionSnapshot(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            isRemoteTerminal: isRemoteContext,
+            supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
+            supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
+            snapshotFingerprintsByPanelKey: commandPaletteForkableAgentSnapshotFingerprintsByPanelKey,
+            fallbackSnapshot: fallbackSnapshot,
+            cachedSnapshot: commandPaletteForkableAgentSnapshotsByPanelKey[panelKey]
+        )
+        guard let snapshot else {
+            commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+            commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+            NSSound.beep()
+            return
+        }
+
+        let fallbackFingerprint = fallbackSnapshot.map(Self.commandPaletteForkSnapshotFingerprint)
+        commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
+        commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = snapshot
+        commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkCacheFingerprint(
+            snapshot: snapshot,
+            fallbackFingerprint: fallbackFingerprint
+        )
+        commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteContext
+
+        let didFork: Bool
+        switch destination {
+        case .split(let direction):
+            didFork = currentContext.workspace.forkAgentConversation(
+                fromPanelId: panelId,
                 snapshot: snapshot,
-                isRemoteContext: isRemoteContext
+                direction: direction
+            ) != nil
+        case .newWorkspace:
+            guard let launch = currentContext.workspace.forkAgentWorkspaceLaunch(
+                fromPanelId: panelId,
+                snapshot: snapshot
             ) else {
                 NSSound.beep()
                 return
             }
-            guard let postProbeContext = focusedPanelContext,
-                  Self.commandPaletteForkPostProbeContextStillMatches(
-                    expectedWorkspaceId: workspaceId,
-                    expectedPanelId: panelId,
-                    expectedIsRemoteContext: isRemoteContext,
-                    currentWorkspaceId: postProbeContext.workspace.id,
-                    currentPanelId: postProbeContext.panelId,
-                    currentPanelIsTerminal: postProbeContext.panel.panelType == .terminal,
-                    currentIsRemoteContext: postProbeContext.workspace.isRemoteTerminalSurface(panelId)
-                  ) else {
-                NSSound.beep()
-                return
-            }
-            commandPaletteForkableAgentSupportedPanelKeys.insert(
-                panelKey
+            let forkWorkspace = tabManager.addWorkspace(
+                workingDirectory: launch.terminalWorkingDirectory,
+                initialTerminalCommand: launch.initialTerminalCommand,
+                initialTerminalInput: launch.initialTerminalInput,
+                inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
+                autoWelcomeIfNeeded: false
             )
-            commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = snapshot
-            commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkSnapshotFingerprint(snapshot)
-            commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteContext
-
-            let didFork: Bool
-            switch destination {
-            case .split(let direction):
-                didFork = postProbeContext.workspace.forkAgentConversation(
-                    fromPanelId: panelId,
-                    snapshot: snapshot,
-                    direction: direction
-                ) != nil
-            case .newWorkspace:
-                guard let launch = postProbeContext.workspace.forkAgentWorkspaceLaunch(
-                    fromPanelId: panelId,
-                    snapshot: snapshot
-                ) else {
-                    NSSound.beep()
-                    return
-                }
-                let forkWorkspace = tabManager.addWorkspace(
-                    workingDirectory: launch.terminalWorkingDirectory,
-                    initialTerminalCommand: launch.initialTerminalCommand,
-                    initialTerminalInput: launch.initialTerminalInput,
-                    inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
-                    autoWelcomeIfNeeded: false
+            if let remoteConfiguration = launch.remoteConfiguration {
+                forkWorkspace.configureRemoteConnection(
+                    remoteConfiguration,
+                    autoConnect: launch.autoConnectRemoteConfiguration
                 )
-                if let remoteConfiguration = launch.remoteConfiguration {
-                    forkWorkspace.configureRemoteConnection(
-                        remoteConfiguration,
-                        autoConnect: launch.autoConnectRemoteConfiguration
-                    )
-                }
-                if let workingDirectory = launch.workingDirectory,
-                   launch.terminalWorkingDirectory == nil,
-                   let forkPanelId = forkWorkspace.focusedPanelId {
-                    forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
-                }
-                didFork = true
             }
+            if let workingDirectory = launch.workingDirectory,
+               launch.terminalWorkingDirectory == nil,
+               let forkPanelId = forkWorkspace.focusedPanelId {
+                forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
+            }
+            didFork = true
+        }
 
-            guard didFork else {
-                NSSound.beep()
-                return
-            }
+        guard didFork else {
+            NSSound.beep()
+            return
         }
     }
 }
@@ -138,6 +125,47 @@ extension ContentView {
         cachedSnapshot: SessionRestorableAgentSnapshot?
     ) -> SessionRestorableAgentSnapshot? {
         indexSnapshot ?? fallbackSnapshot ?? cachedSnapshot
+    }
+
+    static func commandPaletteImmediateForkExecutionSnapshot(
+        workspaceId: UUID,
+        panelId: UUID,
+        isRemoteTerminal: Bool,
+        supportedPanelKeys: Set<String>,
+        supportedRemoteContextsByPanelKey: [String: Bool],
+        snapshotFingerprintsByPanelKey: [String: String],
+        fallbackSnapshot: SessionRestorableAgentSnapshot?,
+        cachedSnapshot: SessionRestorableAgentSnapshot?
+    ) -> SessionRestorableAgentSnapshot? {
+        let panelKey = commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        guard let snapshot = commandPaletteForkExecutionSnapshot(
+            indexSnapshot: nil,
+            fallbackSnapshot: fallbackSnapshot,
+            cachedSnapshot: cachedSnapshot
+        ) else {
+            return nil
+        }
+
+        switch commandPaletteSnapshotForkAvailability(snapshot, isRemoteTerminal: isRemoteTerminal) {
+        case .supportedWithoutProbe:
+            return snapshot
+        case .unsupported:
+            return nil
+        case .requiresProbe:
+            guard supportedPanelKeys.contains(panelKey),
+                  supportedRemoteContextsByPanelKey[panelKey] == isRemoteTerminal else {
+                return nil
+            }
+            let expectedFingerprint = (fallbackSnapshot ?? cachedSnapshot).map(commandPaletteForkSnapshotFingerprint)
+            guard let expectedFingerprint,
+                  snapshotFingerprintsByPanelKey[panelKey] == expectedFingerprint else {
+                return nil
+            }
+            return snapshot
+        }
     }
 
     static func commandPaletteForkPostProbeContextStillMatches(

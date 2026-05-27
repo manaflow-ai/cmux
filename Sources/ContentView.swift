@@ -5858,13 +5858,13 @@ struct ContentView: View {
         "\(workspaceId.uuidString):\(panelId.uuidString)"
     }
 
-    private enum CommandPaletteForkSnapshotAvailability {
+    enum CommandPaletteForkSnapshotAvailability {
         case unsupported
         case supportedWithoutProbe
         case requiresProbe
     }
 
-    private static func commandPaletteSnapshotForkAvailability(
+    static func commandPaletteSnapshotForkAvailability(
         _ snapshot: SessionRestorableAgentSnapshot,
         isRemoteTerminal: Bool = false
     ) -> CommandPaletteForkSnapshotAvailability {

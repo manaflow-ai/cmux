@@ -859,6 +859,103 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testImmediateForkExecutionUsesFallbackSnapshotWithoutAsyncProbe() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let fallback = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "fallback-codex-session",
+            workingDirectory: "/tmp/fallback repo",
+            launchCommand: nil
+        )
+
+        let snapshot = ContentView.commandPaletteImmediateForkExecutionSnapshot(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            isRemoteTerminal: false,
+            supportedPanelKeys: [],
+            supportedRemoteContextsByPanelKey: [:],
+            snapshotFingerprintsByPanelKey: [:],
+            fallbackSnapshot: fallback,
+            cachedSnapshot: nil
+        )
+
+        XCTAssertEqual(snapshot?.sessionId, fallback.sessionId)
+    }
+
+    func testImmediateForkExecutionUsesProbeVerifiedFallbackSnapshot() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fallback = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode"],
+                workingDirectory: "/tmp/opencode repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let fingerprint = ContentView.commandPaletteForkSnapshotFingerprint(fallback)
+
+        let snapshot = ContentView.commandPaletteImmediateForkExecutionSnapshot(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            isRemoteTerminal: false,
+            supportedPanelKeys: [panelKey],
+            supportedRemoteContextsByPanelKey: [panelKey: false],
+            snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+            fallbackSnapshot: fallback,
+            cachedSnapshot: nil
+        )
+
+        XCTAssertEqual(snapshot?.sessionId, fallback.sessionId)
+    }
+
+    func testImmediateForkExecutionRejectsStaleProbeFingerprint() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fallback = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode"],
+                workingDirectory: "/tmp/opencode repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        let snapshot = ContentView.commandPaletteImmediateForkExecutionSnapshot(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            isRemoteTerminal: false,
+            supportedPanelKeys: [panelKey],
+            supportedRemoteContextsByPanelKey: [panelKey: false],
+            snapshotFingerprintsByPanelKey: [panelKey: "stale-fingerprint"],
+            fallbackSnapshot: fallback,
+            cachedSnapshot: nil
+        )
+
+        XCTAssertNil(snapshot)
+    }
+
     func testForkableAgentCacheKeepsVerifiedOpenCodeVisible() {
         let workspaceId = UUID()
         let panelId = UUID()
