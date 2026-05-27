@@ -137,6 +137,31 @@ test("provider output for a different session is ignored", () => {
   expect(state).toBe(running);
 });
 
+test("accepted start reply tracks session before provider started event", () => {
+  const starting = reduceSession(
+    reduceSession(initialState("react"), { type: "context", context }),
+    { type: "starting" },
+  );
+  const accepted = reduceSession(starting, { type: "startAccepted", sessionId: "session-1" });
+
+  expect(accepted.status).toBe("starting");
+  expect(accepted.runningSessionId).toBe("session-1");
+  expect(canStopProvider(accepted)).toBe(true);
+
+  const failed = reduceSession(accepted, {
+    type: "event",
+    event: {
+      type: "provider.exit",
+      providerId: "opencode",
+      sessionId: "session-1",
+      status: 1,
+    },
+  });
+
+  expect(failed.status).toBe("failed");
+  expect(failed.runningSessionId).toBeUndefined();
+});
+
 test("provider exit for a different session is ignored", () => {
   const running = {
     ...initialState("solid"),

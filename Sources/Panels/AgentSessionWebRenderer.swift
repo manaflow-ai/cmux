@@ -238,6 +238,7 @@ extension AgentSessionWebRenderer {
         private var hasFinishedNavigation = false
         private var hasCompletedVisiblePaintFlush = false
         private var isPanelFocused = false
+        private var isClosed = false
         private var processStore = AgentSessionProcessStore()
 
         func bind(
@@ -284,6 +285,7 @@ extension AgentSessionWebRenderer {
                 name: AgentSessionBridgeContract.handlerName
             )
             let webView = AgentSessionWebView(frame: .zero, configuration: configuration)
+            isClosed = false
             webView.onPointerDown = onPointerDown
             webView.setValue(false, forKey: "drawsBackground")
             webView.allowsBackForwardNavigationGestures = false
@@ -337,6 +339,7 @@ extension AgentSessionWebRenderer {
         }
 
         func close() {
+            isClosed = true
             processStore.closeAll()
             if let webView {
                 webView.stopLoading()
@@ -556,12 +559,18 @@ extension AgentSessionWebRenderer {
                     ] as [String: Any]
                 }
             case "provider.start":
+                guard !isClosed else {
+                    throw AgentSessionBridgeError.invalidRequest
+                }
                 let provider = try request.providerID()
                 let configuredExecutablePaths = AgentExecutableResolver.cmuxConfiguredExecutablePaths()
                 let plan = try await Task.detached(priority: .userInitiated) {
                     let resolver = AgentExecutableResolver(configuredExecutablePaths: configuredExecutablePaths)
                     return try resolver.resolve(provider)
                 }.value
+                guard !isClosed else {
+                    throw AgentSessionBridgeError.invalidRequest
+                }
                 let session = try processStore.start(
                     plan: plan,
                     workingDirectory: request.string("workingDirectory") ?? workingDirectory

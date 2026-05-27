@@ -13637,7 +13637,7 @@ final class Workspace: Identifiable, ObservableObject {
         publishCmuxSurfaceCreated(
             agentPanel.id,
             paneId: paneId,
-            kind: SurfaceKind.agentSession,
+            kind: "agent_session",
             origin: "agent_session_tab",
             focused: shouldFocusNewTab
         )

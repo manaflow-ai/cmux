@@ -28,6 +28,7 @@ export type Action =
   | { type: "setInput"; input: string }
   | { type: "autoStartAttempted"; providerId: ProviderId }
   | { type: "starting" }
+  | { type: "startAccepted"; sessionId: string }
   | { type: "stopping"; sessionId: string }
   | { type: "failed"; message: string }
   | { type: "stopped" }
@@ -73,6 +74,15 @@ export function reduceSession(state: SessionState, action: Action): SessionState
       };
     case "starting":
       return { ...state, status: "starting", log: appendLog(state, "info", copyText(state, "startingStatus", "Starting")) };
+    case "startAccepted":
+      if (state.runningSessionId) {
+        return state;
+      }
+      return {
+        ...state,
+        runningSessionId: action.sessionId,
+        requestedStopSessionId: undefined,
+      };
     case "stopping":
       return {
         ...state,
@@ -115,10 +125,11 @@ export async function startProvider(state: SessionState, dispatch: (action: Acti
   }
   dispatch({ type: "starting" });
   try {
-    await callNative("provider.start", {
+    const reply = await callNative<{ sessionId: string }>("provider.start", {
       providerId: state.selectedProviderId,
       workingDirectory: state.context?.workingDirectory,
     });
+    dispatch({ type: "startAccepted", sessionId: reply.sessionId });
   } catch (error) {
     dispatch({ type: "failed", message: messageForError(error, state) });
   }
