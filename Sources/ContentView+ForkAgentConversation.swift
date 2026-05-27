@@ -38,7 +38,7 @@ extension ContentView {
 
         let fallbackSnapshot = currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId]
         let isRemoteContext = currentContext.workspace.isRemoteTerminalSurface(panelId)
-        let snapshot = Self.commandPaletteImmediateForkExecutionSnapshot(
+        let selection = Self.commandPaletteImmediateForkExecutionSnapshotSelection(
             workspaceId: workspaceId,
             panelId: panelId,
             isRemoteTerminal: isRemoteContext,
@@ -48,11 +48,12 @@ extension ContentView {
             fallbackSnapshot: fallbackSnapshot,
             cachedSnapshot: commandPaletteForkableAgentSnapshotsByPanelKey[panelKey]
         )
-        guard let snapshot else {
+        guard let selection else {
             clearCommandPaletteForkableAgentCache(panelKey: panelKey)
             NSSound.beep()
             return
         }
+        let snapshot = selection.snapshot
 
         let fallbackFingerprint = fallbackSnapshot.map(Self.commandPaletteForkSnapshotFingerprint)
         commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
@@ -62,7 +63,7 @@ extension ContentView {
             fallbackFingerprint: fallbackFingerprint
         )
         commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteContext
-        commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = fallbackFingerprint != nil
+        commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = selection.usedFallbackSnapshot
 
         let didFork: Bool
         switch destination {
@@ -119,6 +120,11 @@ extension ContentView {
 }
 
 extension ContentView {
+    struct CommandPaletteForkSnapshotSelection {
+        let snapshot: SessionRestorableAgentSnapshot
+        let usedFallbackSnapshot: Bool
+    }
+
     static func commandPaletteImmediateForkExecutionSnapshot(
         workspaceId: UUID,
         panelId: UUID,
@@ -129,6 +135,28 @@ extension ContentView {
         fallbackSnapshot: SessionRestorableAgentSnapshot?,
         cachedSnapshot: SessionRestorableAgentSnapshot?
     ) -> SessionRestorableAgentSnapshot? {
+        commandPaletteImmediateForkExecutionSnapshotSelection(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            isRemoteTerminal: isRemoteTerminal,
+            supportedPanelKeys: supportedPanelKeys,
+            supportedRemoteContextsByPanelKey: supportedRemoteContextsByPanelKey,
+            snapshotFingerprintsByPanelKey: snapshotFingerprintsByPanelKey,
+            fallbackSnapshot: fallbackSnapshot,
+            cachedSnapshot: cachedSnapshot
+        )?.snapshot
+    }
+
+    static func commandPaletteImmediateForkExecutionSnapshotSelection(
+        workspaceId: UUID,
+        panelId: UUID,
+        isRemoteTerminal: Bool,
+        supportedPanelKeys: Set<String>,
+        supportedRemoteContextsByPanelKey: [String: Bool],
+        snapshotFingerprintsByPanelKey: [String: String],
+        fallbackSnapshot: SessionRestorableAgentSnapshot?,
+        cachedSnapshot: SessionRestorableAgentSnapshot?
+    ) -> CommandPaletteForkSnapshotSelection? {
         let panelKey = commandPaletteForkableAgentPanelKey(
             workspaceId: workspaceId,
             panelId: panelId
@@ -169,7 +197,16 @@ extension ContentView {
                 ) else {
                     return nil
                 }
-                return verifiedCachedSnapshot(expectedFingerprint: fallbackFingerprint) ?? fallbackSnapshot
+                if let cachedSnapshot = verifiedCachedSnapshot(expectedFingerprint: fallbackFingerprint) {
+                    return CommandPaletteForkSnapshotSelection(
+                        snapshot: cachedSnapshot,
+                        usedFallbackSnapshot: false
+                    )
+                }
+                return CommandPaletteForkSnapshotSelection(
+                    snapshot: fallbackSnapshot,
+                    usedFallbackSnapshot: true
+                )
             case .unsupported:
                 return nil
             case .requiresProbe:
@@ -183,7 +220,16 @@ extension ContentView {
                 ) else {
                     return nil
                 }
-                return verifiedCachedSnapshot(expectedFingerprint: fallbackFingerprint) ?? fallbackSnapshot
+                if let cachedSnapshot = verifiedCachedSnapshot(expectedFingerprint: fallbackFingerprint) {
+                    return CommandPaletteForkSnapshotSelection(
+                        snapshot: cachedSnapshot,
+                        usedFallbackSnapshot: false
+                    )
+                }
+                return CommandPaletteForkSnapshotSelection(
+                    snapshot: fallbackSnapshot,
+                    usedFallbackSnapshot: true
+                )
             }
         }
 
@@ -195,7 +241,10 @@ extension ContentView {
             isRemoteTerminal: isRemoteTerminal
         ) {
         case .supportedWithoutProbe, .requiresProbe:
-            return cachedSnapshot
+            return CommandPaletteForkSnapshotSelection(
+                snapshot: cachedSnapshot,
+                usedFallbackSnapshot: false
+            )
         case .unsupported:
             return nil
         }

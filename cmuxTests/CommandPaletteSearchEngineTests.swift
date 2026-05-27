@@ -846,7 +846,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
         let fingerprint = ContentView.commandPaletteForkSnapshotFingerprint(fallback)
 
-        let snapshot = ContentView.commandPaletteImmediateForkExecutionSnapshot(
+        let selection = ContentView.commandPaletteImmediateForkExecutionSnapshotSelection(
             workspaceId: workspaceId,
             panelId: panelId,
             isRemoteTerminal: false,
@@ -857,7 +857,20 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             cachedSnapshot: cached
         )
 
-        XCTAssertEqual(snapshot?.sessionId, cached.sessionId)
+        XCTAssertEqual(selection?.snapshot.sessionId, cached.sessionId)
+        XCTAssertEqual(selection?.usedFallbackSnapshot, false)
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldClearForkableAgentProbeResultBeforeProbe(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                cachedResultHadFallback: selection?.usedFallbackSnapshot ?? true,
+                panelChanged: false
+            )
+        )
     }
 
     func testImmediateForkExecutionUsesProbeVerifiedFallbackSnapshot() {
@@ -883,7 +896,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
         let fingerprint = ContentView.commandPaletteForkSnapshotFingerprint(fallback)
 
-        let snapshot = ContentView.commandPaletteImmediateForkExecutionSnapshot(
+        let selection = ContentView.commandPaletteImmediateForkExecutionSnapshotSelection(
             workspaceId: workspaceId,
             panelId: panelId,
             isRemoteTerminal: false,
@@ -894,7 +907,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             cachedSnapshot: nil
         )
 
-        XCTAssertEqual(snapshot?.sessionId, fallback.sessionId)
+        XCTAssertEqual(selection?.snapshot.sessionId, fallback.sessionId)
+        XCTAssertEqual(selection?.usedFallbackSnapshot, true)
     }
 
     func testImmediateForkExecutionPrefersProbeVerifiedCachedSnapshot() {
@@ -934,7 +948,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
         let fingerprint = ContentView.commandPaletteForkSnapshotFingerprint(fallback)
 
-        let snapshot = ContentView.commandPaletteImmediateForkExecutionSnapshot(
+        let selection = ContentView.commandPaletteImmediateForkExecutionSnapshotSelection(
             workspaceId: workspaceId,
             panelId: panelId,
             isRemoteTerminal: false,
@@ -945,7 +959,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             cachedSnapshot: cached
         )
 
-        XCTAssertEqual(snapshot?.sessionId, cached.sessionId)
+        XCTAssertEqual(selection?.snapshot.sessionId, cached.sessionId)
+        XCTAssertEqual(selection?.usedFallbackSnapshot, false)
     }
 
     func testImmediateForkExecutionRejectsStaleProbeFingerprint() {
