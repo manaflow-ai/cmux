@@ -5205,6 +5205,25 @@ func openCmuxSettingsFileInEditor() {
     PreferredEditorSettings.open(url)
 }
 
+private struct AgentHookSetupEvidenceCandidate {
+    let relativeConfigPath: String
+    let envOverride: String?
+    let envOverrideSubpath: String?
+    let marker: String
+
+    init(
+        relativeConfigPath: String,
+        envOverride: String? = nil,
+        envOverrideSubpath: String? = nil,
+        marker: String
+    ) {
+        self.relativeConfigPath = relativeConfigPath
+        self.envOverride = envOverride
+        self.envOverrideSubpath = envOverrideSubpath
+        self.marker = marker
+    }
+}
+
 struct SettingsView: View {
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
@@ -5348,6 +5367,7 @@ struct SettingsView: View {
     @State private var shortcutResetToken = UUID()
     @State private var showClearBrowserHistoryConfirmation = false
     @State private var showOpenAccessConfirmation = false
+    @State private var showAgentHibernationHooksWarning = false
     @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var browserHistoryEntryCount: Int = 0
     @State private var didLoadBrowserHistoryForSettings = false
@@ -5562,14 +5582,113 @@ struct SettingsView: View {
         )
     }
 
+    private var agentHibernationHasHookSetupEvidence: Bool {
+        if claudeCodeHooksEnabled {
+            return true
+        }
+        return agentHookSetupEvidenceCandidates.contains { candidate in
+            let fileURL = resolvedAgentHookConfigURL(
+                relativeConfigPath: candidate.relativeConfigPath,
+                envOverride: candidate.envOverride,
+                envOverrideSubpath: candidate.envOverrideSubpath
+            )
+            guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else {
+                return false
+            }
+            return contents.contains(candidate.marker)
+        }
+    }
+
+    private var agentHibernationHookWarningMessage: String {
+        String(
+            localized: "settings.terminal.agentHibernation.hooksWarning.message",
+            defaultValue: "Agent Hibernation relies on agent lifecycle hooks to know when sessions are idle. Enable or set up an agent integration first, or run `cmux hooks setup`, before relying on hibernation."
+        )
+    }
+
     private var agentHibernationEnabledBinding: Binding<Bool> {
         Binding(
             get: { agentHibernationEnabled },
             set: { newValue in
-                AgentHibernationSettings.setValues(enabled: newValue)
-                agentHibernationEnabled = newValue
+                guard agentHibernationEnabled != newValue else { return }
+                if newValue && !agentHibernationHasHookSetupEvidence {
+                    showAgentHibernationHooksWarning = true
+                    return
+                }
+                setAgentHibernationEnabled(newValue)
             }
         )
+    }
+
+    private var agentHookSetupEvidenceCandidates: [AgentHookSetupEvidenceCandidate] {
+        [
+            AgentHookSetupEvidenceCandidate(
+                relativeConfigPath: ".codex/hooks.json",
+                envOverride: "CODEX_HOME",
+                marker: "cmux hooks codex"
+            ),
+            AgentHookSetupEvidenceCandidate(
+                relativeConfigPath: ".grok/hooks/cmux-session.json",
+                envOverride: "GROK_HOME",
+                envOverrideSubpath: "hooks",
+                marker: "cmux hooks grok"
+            ),
+            AgentHookSetupEvidenceCandidate(
+                relativeConfigPath: ".config/opencode/plugins/cmux-session.js",
+                envOverride: "OPENCODE_CONFIG_DIR",
+                envOverrideSubpath: "plugins",
+                marker: "cmux hooks opencode"
+            ),
+            AgentHookSetupEvidenceCandidate(
+                relativeConfigPath: ".pi/agent/extensions/cmux-session.ts",
+                envOverride: "PI_CODING_AGENT_DIR",
+                envOverrideSubpath: "extensions",
+                marker: "cmux hooks pi"
+            ),
+            AgentHookSetupEvidenceCandidate(
+                relativeConfigPath: ".config/amp/plugins/cmux-session.ts",
+                marker: "cmux hooks amp"
+            ),
+            AgentHookSetupEvidenceCandidate(
+                relativeConfigPath: ".cursor/hooks.json",
+                marker: "cmux hooks cursor"
+            ),
+            AgentHookSetupEvidenceCandidate(
+                relativeConfigPath: ".gemini/settings.json",
+                marker: "cmux hooks gemini"
+            ),
+            AgentHookSetupEvidenceCandidate(
+                relativeConfigPath: ".gemini/config/hooks.json",
+                marker: "cmux hooks antigravity"
+            ),
+            AgentHookSetupEvidenceCandidate(
+                relativeConfigPath: ".rovodev/config.yml",
+                marker: "cmux hooks rovodev"
+            ),
+            AgentHookSetupEvidenceCandidate(
+                relativeConfigPath: ".hermes/config.yaml",
+                envOverride: "HERMES_HOME",
+                marker: "cmux hooks hermes-agent"
+            )
+        ]
+    }
+
+    private func resolvedAgentHookConfigURL(
+        relativeConfigPath: String,
+        envOverride: String?,
+        envOverrideSubpath: String? = nil
+    ) -> URL {
+        if let envOverride,
+           let rawValue = ProcessInfo.processInfo.environment[envOverride]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawValue.isEmpty {
+            var url = URL(fileURLWithPath: NSString(string: rawValue).expandingTildeInPath, isDirectory: true)
+            if let envOverrideSubpath, !envOverrideSubpath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                url.appendPathComponent(envOverrideSubpath, isDirectory: true)
+            }
+            let fileName = URL(fileURLWithPath: relativeConfigPath).lastPathComponent
+            return url.appendingPathComponent(fileName, isDirectory: false)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(relativeConfigPath, isDirectory: false)
     }
 
     private var agentHibernationIdleSecondsBinding: Binding<Double> {
@@ -6195,7 +6314,7 @@ struct SettingsView: View {
                     }
                     .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .account, idSuffix: "account"))
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
+                    SettingsSectionHeader(title: String(localized: "settings.app.appearance", defaultValue: "Appearance"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .app))
                     SettingsCard {
                         SettingsCardRow(
@@ -6252,8 +6371,11 @@ struct SettingsView: View {
                                 AppIconSettings.applyIcon(mode)
                             }
                         )
+                    }
 
-                        SettingsCardDivider()
+                    SettingsSectionHeader(title: String(localized: "settings.section.workspacesAndTabs", defaultValue: "Workspaces & Tabs"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .workspacesAndTabs))
+                    SettingsCard {
 
                         SettingsPickerRow(
                             configurationReview: .json("app.newWorkspacePlacement"),
@@ -6331,8 +6453,11 @@ struct SettingsView: View {
                                     String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click")
                                 )
                         }
+                    }
 
-                        SettingsCardDivider()
+                    SettingsSectionHeader(title: String(localized: "settings.section.filesAndLinks", defaultValue: "Files & Links"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .filesAndLinks))
+                    SettingsCard {
 
                         SettingsPickerRow(
                             configurationReview: .settingsOnly,
@@ -6345,7 +6470,7 @@ struct SettingsView: View {
                                 Text(behavior.displayName).tag(behavior.rawValue)
                             }
                         }
-                        .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .app, idSuffix: "file-drops"))
+                        .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .filesAndLinks, idSuffix: "file-drops"))
 
                         SettingsCardDivider()
 
@@ -6387,7 +6512,7 @@ struct SettingsView: View {
                                 defaultValue: "Open the cmux terminal config and generated preview in one utility window."
                             ),
                             controlWidth: pickerColumnWidth,
-                            searchAnchorID: SettingsSearchIndex.settingID(for: .app, idSuffix: "terminal-config")
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .filesAndLinks, idSuffix: "terminal-config")
                         ) {
                             Button {
                                 openWindow(id: ConfigSettingsView.windowID)
@@ -6413,8 +6538,11 @@ struct SettingsView: View {
                                     String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer")
                                 )
                         }
+                    }
 
-                        SettingsCardDivider()
+                    SettingsSectionHeader(title: String(localized: "settings.section.notifications", defaultValue: "Notifications"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .notifications))
+                    SettingsCard {
 
                         SettingsCardRow(
                             configurationReview: .json("app.iMessageMode"),
@@ -6521,7 +6649,7 @@ struct SettingsView: View {
                             configurationReview: .action,
                             String(localized: "settings.notifications.desktop", defaultValue: "Desktop Notifications"),
                             subtitle: notificationPermissionSubtitle,
-                            searchAnchorID: SettingsSearchIndex.settingID(for: .app, idSuffix: "desktop-notifications")
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .notifications, idSuffix: "desktop-notifications")
                         ) {
                             HStack(spacing: 6) {
                                 Text(notificationPermissionStatusText)
@@ -6621,8 +6749,11 @@ struct SettingsView: View {
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 200)
                         }
+                    }
 
-                        SettingsCardDivider()
+                    SettingsSectionHeader(title: String(localized: "settings.section.safetyPrivacy", defaultValue: "Safety & Privacy"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .safetyPrivacy))
+                    SettingsCard {
 
                         SettingsCardRow(
                             configurationReview: .json("app.sendAnonymousTelemetry"),
@@ -6701,8 +6832,11 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                    }
 
-                        SettingsCardDivider()
+                    SettingsSectionHeader(title: String(localized: "settings.section.commandPalette", defaultValue: "Command Palette"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .commandPalette))
+                    SettingsCard {
 
                         SettingsCardRow(
                             configurationReview: .json("app.renameSelectsExistingName"),
@@ -6795,8 +6929,11 @@ struct SettingsView: View {
                                 String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection")
                             )
                         }
+                    }
 
-                        SettingsCardDivider()
+                    SettingsSectionHeader(title: String(localized: "settings.section.agentSessions", defaultValue: "Agent Sessions"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .agentSessions))
+                    SettingsCard {
 
                         SettingsCardRow(
                             configurationReview: .json("terminal.autoResumeAgentSessions"),
@@ -6830,6 +6967,11 @@ struct SettingsView: View {
                                 .accessibilityLabel(
                                     String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation")
                                 )
+                        }
+
+                        if agentHibernationEnabled && !agentHibernationHasHookSetupEvidence {
+                            SettingsCardDivider()
+                            SettingsCardNote(agentHibernationHookWarningMessage)
                         }
 
                         SettingsCardDivider()
@@ -7167,6 +7309,44 @@ struct SettingsView: View {
 
                     SettingsCard {
                         SettingsCardRow(
+                            configurationReview: .json("automation.ripgrepBinaryPath"),
+                            String(localized: "settings.automation.ripgrep.customPath", defaultValue: "Ripgrep Binary Path"),
+                            subtitle: String(localized: "settings.automation.ripgrep.customPath.subtitle", defaultValue: "Custom path to the rg binary used by Find. Leave empty to use common install locations and PATH.")
+                        ) {
+                            TextField(
+                                String(localized: "settings.automation.ripgrep.customPath.placeholder", defaultValue: "e.g. /etc/profiles/per-user/you/bin/rg"),
+                                text: $customRipgrepPath
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 200)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(configurationReview: .json("automation.portBase"), String(localized: "settings.automation.portBase", defaultValue: "Port Base"), subtitle: String(localized: "settings.automation.portBase.subtitle", defaultValue: "Starting port for CMUX_PORT env var."), controlWidth: pickerColumnWidth) {
+                            TextField("", value: $cmuxPortBase, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.trailing)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(configurationReview: .json("automation.portRange"), String(localized: "settings.automation.portRange", defaultValue: "Port Range Size"), subtitle: String(localized: "settings.automation.portRange.subtitle", defaultValue: "Number of ports per workspace."), controlWidth: pickerColumnWidth) {
+                            TextField("", value: $cmuxPortRange, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.trailing)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote(String(localized: "settings.automation.port.note", defaultValue: "Each workspace gets CMUX_PORT and CMUX_PORT_END env vars with a dedicated port range. New terminals inherit these values."))
+                    }
+
+                    SettingsSectionHeader(title: String(localized: "settings.section.agentIntegrations", defaultValue: "Agent Integrations"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .agentIntegrations))
+
+                    SettingsCard {
+                        SettingsCardRow(
                             configurationReview: .json("automation.claudeCodeIntegration"),
                             String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"),
                             subtitle: claudeCodeHooksEnabled
@@ -7193,21 +7373,6 @@ struct SettingsView: View {
                             TextField(
                                 String(localized: "settings.automation.claudeCode.customPath.placeholder", defaultValue: "e.g. /usr/local/bin/claude"),
                                 text: $customClaudePath
-                            )
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 200)
-                        }
-                    }
-
-                    SettingsCard {
-                        SettingsCardRow(
-                            configurationReview: .json("automation.ripgrepBinaryPath"),
-                            String(localized: "settings.automation.ripgrep.customPath", defaultValue: "Ripgrep Binary Path"),
-                            subtitle: String(localized: "settings.automation.ripgrep.customPath.subtitle", defaultValue: "Custom path to the rg binary used by Find. Leave empty to use common install locations and PATH.")
-                        ) {
-                            TextField(
-                                String(localized: "settings.automation.ripgrep.customPath.placeholder", defaultValue: "e.g. /etc/profiles/per-user/you/bin/rg"),
-                                text: $customRipgrepPath
                             )
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 200)
@@ -7269,26 +7434,6 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardNote(String(localized: "settings.automation.gemini.note", defaultValue: "Hooks must be installed with `cmux hooks gemini install`. They no-op outside cmux terminals."))
-                    }
-
-                    SettingsCard {
-                        SettingsCardRow(configurationReview: .json("automation.portBase"), String(localized: "settings.automation.portBase", defaultValue: "Port Base"), subtitle: String(localized: "settings.automation.portBase.subtitle", defaultValue: "Starting port for CMUX_PORT env var."), controlWidth: pickerColumnWidth) {
-                            TextField("", value: $cmuxPortBase, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .multilineTextAlignment(.trailing)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(configurationReview: .json("automation.portRange"), String(localized: "settings.automation.portRange", defaultValue: "Port Range Size"), subtitle: String(localized: "settings.automation.portRange.subtitle", defaultValue: "Number of ports per workspace."), controlWidth: pickerColumnWidth) {
-                            TextField("", value: $cmuxPortRange, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .multilineTextAlignment(.trailing)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardNote(String(localized: "settings.automation.port.note", defaultValue: "Each workspace gets CMUX_PORT and CMUX_PORT_END env vars with a dedicated port range. New terminals inherit these values."))
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"))
@@ -7992,6 +8137,26 @@ struct SettingsView: View {
             Text(String(localized: "settings.automation.openAccess.dialog.message", defaultValue: "This disables ancestry and password checks and opens the socket to all local users. Only enable when you understand the risk."))
         }
         .confirmationDialog(
+            String(
+                localized: "settings.terminal.agentHibernation.hooksWarning.title",
+                defaultValue: "Enable Agent Hibernation without hooks?"
+            ),
+            isPresented: $showAgentHibernationHooksWarning,
+            titleVisibility: .visible
+        ) {
+            Button(
+                String(
+                    localized: "settings.terminal.agentHibernation.hooksWarning.enableAnyway",
+                    defaultValue: "Enable Anyway"
+                )
+            ) {
+                setAgentHibernationEnabled(true)
+            }
+            Button(String(localized: "common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(agentHibernationHookWarningMessage)
+        }
+        .confirmationDialog(
             String(localized: "settings.app.language.restartDialog.title", defaultValue: "Restart to apply language change?"),
             isPresented: $showLanguageRestartAlert,
             titleVisibility: .visible
@@ -8019,6 +8184,11 @@ struct SettingsView: View {
     private static func validateBypassedSettingsConfigurationReviews() {
         SettingsConfigurationReview.json("browser.insecureHttpHostsAllowedInEmbeddedBrowser").validate()
         SettingsConfigurationReview.json("browser.showImportHintOnBlankTabs").validate()
+    }
+
+    private func setAgentHibernationEnabled(_ newValue: Bool) {
+        AgentHibernationSettings.setValues(enabled: newValue)
+        agentHibernationEnabled = newValue
     }
 
     private func relaunchApp() {
@@ -8155,6 +8325,7 @@ struct SettingsView: View {
         sidebarTintOpacity = SidebarTintDefaults.opacity
         sidebarMatchTerminalBackground = false
         showOpenAccessConfirmation = false
+        showAgentHibernationHooksWarning = false
         pendingOpenAccessMode = nil
         draftState.socketPasswordDraft = ""
         socketPasswordStatusMessage = nil
@@ -8249,7 +8420,7 @@ private struct SurfaceResumeApprovalSettingsCard: View {
                     defaultValue: "Review signed command prefixes that can restore non-agent terminal surfaces."
                 ),
                 controlWidth: 170,
-                searchAnchorID: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "resume-commands")
+                searchAnchorID: SettingsSearchIndex.settingID(for: .agentSessions, idSuffix: "resume-commands")
             ) {
                 HStack(spacing: 8) {
                     Text(String(format: "%d", recordCount))

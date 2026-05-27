@@ -16,6 +16,9 @@ reviews:
     - path: "**/*.swift"
       instructions: |
         Apply the cmux custom Swift lint rules in `.github/review-bot-rules/` during review. Treat those files as the source of truth. Focus on production Swift changes and ignore test-only scaffolding unless it makes production behavior worse.
+    - path: "Sources/**/*.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/settings-organization-search.md` during review. For settings UI, navigation, search, and command-palette setting changes, flag stale or overloaded categorization, missing old-name aliases, missing JSON-key keywords, and broken section or setting anchors.
     - path: "**/Package.swift"
       instructions: |
         Apply the cmux custom Swift lint rules in `.github/review-bot-rules/`, especially the concurrency modernization, actor isolation, blocking runtime, file/package boundary, and architectural rethink rules.
@@ -82,6 +85,10 @@ reviews:
         mode: error
         instructions: |
           For production changes, fail when the diff violates `.github/review-bot-rules/full-internationalization.md`: user-facing Swift text must use `String(localized:defaultValue:)` or an equivalent localized API with a matching translated string-catalog entry, app string catalog or Info.plist additions and edits must include translated entries for every locale already supported by the touched catalog, and web UI, metadata, API response, rendered markdown, changelog, or user-facing data changes must read from `next-intl` or another locale-specific source and update every locale listed in `web/i18n/routing.ts` with matching `web/messages/` entries. Pass for tests, operational docs not shown to end users, developer-only comments, debug-only logs, literal protocol/config tokens, and existing untranslated strings not worsened by the PR.
+      - name: "cmux settings organization"
+        mode: error
+        instructions: |
+          For settings UI, navigation, search, command-palette setting toggles, or persisted settings-key changes, fail when the diff violates `.github/review-bot-rules/settings-organization-search.md`: stale or overloaded categories, moved settings without old-name and JSON-key aliases, broken search anchors, or too few synonyms for common names and adjacent product vocabulary. Pass for implementation-only changes that do not alter the visible settings surface.
       - name: "cmux SwiftUI state layout"
         mode: error
         instructions: |

@@ -3,10 +3,17 @@ import SwiftUI
 enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case account
     case app
+    case workspacesAndTabs
+    case filesAndLinks
+    case notifications
+    case safetyPrivacy
+    case commandPalette
     case terminal
+    case agentSessions
     case sidebarAppearance
     case betaFeatures
     case automation
+    case agentIntegrations
     case browser
     case browserImport
     case globalHotkey
@@ -22,9 +29,21 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .account:
             return String(localized: "settings.section.account", defaultValue: "Account")
         case .app:
-            return String(localized: "settings.section.app", defaultValue: "App")
+            return String(localized: "settings.app.appearance", defaultValue: "Appearance")
+        case .workspacesAndTabs:
+            return String(localized: "settings.section.workspacesAndTabs", defaultValue: "Workspaces & Tabs")
+        case .filesAndLinks:
+            return String(localized: "settings.section.filesAndLinks", defaultValue: "Files & Links")
+        case .notifications:
+            return String(localized: "settings.section.notifications", defaultValue: "Notifications")
+        case .safetyPrivacy:
+            return String(localized: "settings.section.safetyPrivacy", defaultValue: "Safety & Privacy")
+        case .commandPalette:
+            return String(localized: "settings.section.commandPalette", defaultValue: "Command Palette")
         case .terminal:
             return String(localized: "settings.section.terminal", defaultValue: "Terminal")
+        case .agentSessions:
+            return String(localized: "settings.section.agentSessions", defaultValue: "Agent Sessions")
         case .workspaceColors:
             return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .sidebarAppearance:
@@ -33,6 +52,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
         case .automation:
             return String(localized: "settings.section.automation", defaultValue: "Automation")
+        case .agentIntegrations:
+            return String(localized: "settings.section.agentIntegrations", defaultValue: "Agent Integrations")
         case .browser:
             return String(localized: "settings.section.browser", defaultValue: "Browser")
         case .browserImport:
@@ -53,9 +74,21 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .account:
             return "person.crop.circle"
         case .app:
-            return "gearshape"
+            return "paintbrush"
+        case .workspacesAndTabs:
+            return "rectangle.stack"
+        case .filesAndLinks:
+            return "link"
+        case .notifications:
+            return "bell"
+        case .safetyPrivacy:
+            return "hand.raised"
+        case .commandPalette:
+            return "command"
         case .terminal:
             return "terminal"
+        case .agentSessions:
+            return "moon.zzz"
         case .workspaceColors:
             return "paintpalette"
         case .sidebarAppearance:
@@ -64,6 +97,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "exclamationmark.triangle"
         case .automation:
             return "wand.and.sparkles"
+        case .agentIntegrations:
+            return "puzzlepiece.extension"
         case .browser:
             return "globe"
         case .browserImport:
@@ -84,9 +119,21 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .account:
             return "\(title) sign in team sync"
         case .app:
-            return "\(title) appearance language workspace notifications menu bar telemetry"
+            return "\(title) app general preferences prefs appearance theme light dark language locale icon dock chrome colors"
+        case .workspacesAndTabs:
+            return "\(title) app workspace workspaces tab tabs surface pane cwd directory placement close focus imessage prompt reorder"
+        case .filesAndLinks:
+            return "\(title) app files links url open cmd click editor markdown preview pdf image audio video terminal config ghostty"
+        case .notifications:
+            return "\(title) app notification notify alert sound dock badge menu bar menubar ring flash command"
+        case .safetyPrivacy:
+            return "\(title) app privacy telemetry warn warning confirm confirmation quit close tab x button"
+        case .commandPalette:
+            return "\(title) app command palette cmd p search switcher rename select all"
         case .terminal:
-            return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
+            return "\(title) shell scrollback scrollbar scroll bar textbox copy selection ghostty tty pty"
+        case .agentSessions:
+            return "\(title) terminal agent agents session sessions auto resume restore reopen relaunch quit claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
         case .workspaceColors:
             return "\(title) palette tabs"
         case .sidebarAppearance:
@@ -94,7 +141,9 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .betaFeatures:
             return "\(title) beta experimental unstable feed dock right sidebar"
         case .automation:
-            return "\(title) socket integrations hooks ports claude cursor gemini"
+            return "\(title) socket api cli control mcp ports rg ripgrep env environment variables"
+        case .agentIntegrations:
+            return "\(title) automation integration integrations hooks claude cursor gemini codex opencode subagent nested notifications wrapper binary path"
         case .browser:
             return "\(title) search engine links history theme"
         case .browserImport:
@@ -292,49 +341,49 @@ enum SettingsSearchIndex {
         setting(.app, "language", String(localized: "settings.app.language", defaultValue: "Language"), "locale translation japanese english restart"),
         setting(.app, "appearance", String(localized: "settings.app.appearance", defaultValue: "Appearance"), "theme light dark system"),
         setting(.app, "app-icon", String(localized: "settings.app.appIcon", defaultValue: "App Icon"), "dock icon alternate"),
-        setting(.app, "new-workspace-placement", String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"), "workspace order position"),
-        setting(.app, "workspace-inherit-working-directory", String(localized: "settings.app.workspaceInheritWorkingDirectory", defaultValue: "Inherit Workspace Working Directory"), "workspace cwd directory current ghostty working-directory"),
-        setting(.app, "minimal-mode", String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode"), "presentation compact chrome"),
-        setting(.app, "keep-workspace-open", String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Keep Workspace Open When Closing Last Surface"), "close last surface shortcut"),
-        setting(.app, "focus-pane-first-click", String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click"), "mouse click focus"),
-        setting(.app, "file-drops", String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"), "drag drop files finder path text terminal editor split preview shift"),
-        setting(.app, "preferred-editor", String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"), "editor code zed subl cmd click file"),
-        setting(.app, "supported-file-previews", String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux"), "cmd click file preview pdf image audio video quick look editor"),
-        setting(.app, "terminal-config", String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"), "ghostty config merged preview"),
-        setting(.app, "markdown-viewer", String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"), "md markdown viewer"),
-        setting(.app, "imessage-mode", String(localized: "settings.app.iMessageMode", defaultValue: "iMessage Mode"), "message messages imessage chat prompt prompts submitted message send agent workspace reorder move top"),
-        setting(.app, "reorder-notification", String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification"), "workspace notification order"),
-        setting(.app, "dock-badge", String(localized: "settings.app.dockBadge", defaultValue: "Dock Badge"), "unread count app icon"),
-        setting(.app, "menu-bar-only", String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only"), "dock icon cmd tab"),
-        setting(.app, "show-menu-bar", String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar"), "menu extra status item"),
-        setting(.app, "unread-pane-ring", String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring"), "notification blue ring pane"),
-        setting(.app, "pane-flash", String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"), "notification flash highlight"),
-        setting(.app, "desktop-notifications", String(localized: "settings.notifications.desktop", defaultValue: "Desktop Notifications"), "permission alerts test notification"),
-        setting(.app, "notification-sound", String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"), "custom sound alert audio"),
-        setting(.app, "notification-command", String(localized: "settings.notifications.command", defaultValue: "Notification Command"), "shell command environment variables"),
-        setting(.app, "telemetry", String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"), "analytics crash usage"),
-        setting(.app, "warn-before-quit", String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), "cmd q confirmation confirmQuit"),
-        setting(.app, "warn-before-closing-tab", String(localized: "settings.app.warnBeforeClosingTab", defaultValue: "Warn Before Closing Tab"), "cmd w close tab confirmation"),
+        setting(.workspacesAndTabs, "new-workspace-placement", String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"), "workspace order position"),
+        setting(.workspacesAndTabs, "workspace-inherit-working-directory", String(localized: "settings.app.workspaceInheritWorkingDirectory", defaultValue: "Inherit Workspace Working Directory"), "workspace cwd directory current ghostty working-directory"),
+        setting(.workspacesAndTabs, "minimal-mode", String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode"), "presentation compact chrome"),
+        setting(.workspacesAndTabs, "keep-workspace-open", String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Keep Workspace Open When Closing Last Surface"), "close last surface shortcut"),
+        setting(.workspacesAndTabs, "focus-pane-first-click", String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click"), "mouse click focus"),
+        setting(.notifications, "imessage-mode", String(localized: "settings.app.iMessageMode", defaultValue: "iMessage Mode"), "message messages imessage chat prompt prompts submitted message send agent workspace reorder move top"),
+        setting(.filesAndLinks, "file-drops", String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"), "drag drop files finder path text terminal editor split preview shift"),
+        setting(.filesAndLinks, "preferred-editor", String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"), "editor code zed subl cmd click file"),
+        setting(.filesAndLinks, "supported-file-previews", String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux"), "cmd click file preview pdf image audio video quick look editor"),
+        setting(.filesAndLinks, "terminal-config", String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"), "ghostty config merged preview"),
+        setting(.filesAndLinks, "markdown-viewer", String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"), "md markdown viewer"),
+        setting(.notifications, "reorder-notification", String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification"), "workspace notification order"),
+        setting(.notifications, "dock-badge", String(localized: "settings.app.dockBadge", defaultValue: "Dock Badge"), "unread count app icon"),
+        setting(.notifications, "menu-bar-only", String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only"), "dock icon cmd tab"),
+        setting(.notifications, "show-menu-bar", String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar"), "menu extra status item"),
+        setting(.notifications, "unread-pane-ring", String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring"), "notification blue ring pane"),
+        setting(.notifications, "pane-flash", String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"), "notification flash highlight"),
+        setting(.notifications, "desktop-notifications", String(localized: "settings.notifications.desktop", defaultValue: "Desktop Notifications"), "permission alerts test notification"),
+        setting(.notifications, "notification-sound", String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"), "custom sound alert audio"),
+        setting(.notifications, "notification-command", String(localized: "settings.notifications.command", defaultValue: "Notification Command"), "shell command environment variables"),
+        setting(.safetyPrivacy, "telemetry", String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"), "analytics crash usage"),
+        setting(.safetyPrivacy, "warn-before-quit", String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), "cmd q confirmation confirmQuit"),
+        setting(.safetyPrivacy, "warn-before-closing-tab", String(localized: "settings.app.warnBeforeClosingTab", defaultValue: "Warn Before Closing Tab"), "cmd w close tab confirmation"),
         setting(
-            .app,
+            .safetyPrivacy,
             "warn-before-closing-tab-x-button",
             String(localized: "settings.app.warnBeforeClosingTabXButton", defaultValue: "Warn Before Tab Close Button"),
             "x button close tab confirmation"
         ),
         setting(
-            .app,
+            .safetyPrivacy,
             "hide-tab-close-button",
             String(localized: "settings.app.hideTabCloseButton", defaultValue: "Hide Tab Close Button"),
             "hide x button close tab"
         ),
-        setting(.app, "rename-selects-name", String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"), "command palette rename text selection"),
-        setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
+        setting(.commandPalette, "rename-selects-name", String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"), "command palette rename text selection"),
+        setting(.commandPalette, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
         setting(.terminal, "textbox-max-lines", String(localized: "settings.terminal.textBoxMaxLines", defaultValue: "TextBox Max Lines"), "terminal textbox text box rich input prompt max height lines grow scroll"),
         setting(.terminal, "copy-on-select", String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), "terminal.copyOnSelect clipboard selection mouse double click triple click"),
-        setting(.terminal, "agent-auto-resume", String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
-        setting(.terminal, "agent-hibernation", String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"), "terminal.agentHibernation idle hibernate suspend background agents claude code codex opencode live terminals"),
-        setting(.terminal, "resume-commands", String(localized: "settings.terminal.resumeCommands", defaultValue: "Resume Commands"), "surface resume command approvals prefixes auto restore prompt manual tmux hibernation"),
+        setting(.agentSessions, "agent-auto-resume", String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
+        setting(.agentSessions, "agent-hibernation", String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"), "terminal.agentHibernation idle hibernate suspend background agents claude code codex opencode live terminals"),
+        setting(.agentSessions, "resume-commands", String(localized: "settings.terminal.resumeCommands", defaultValue: "Resume Commands"), "surface resume command approvals prefixes auto restore prompt manual tmux hibernation"),
         setting(.sidebarAppearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebar material transparency"),
         setting(.sidebarAppearance, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),
         setting(.sidebarAppearance, "show-workspace-description", String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"), "workspace description notes markdown"),
@@ -356,12 +405,12 @@ enum SettingsSearchIndex {
         setting(.betaFeatures, "dock", String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), "dock right sidebar terminal controls tui"),
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
-        setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
-        setting(.automation, "claude-path", String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), "custom claude executable"),
+        setting(.agentIntegrations, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
+        setting(.agentIntegrations, "claude-path", String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), "custom claude executable"),
         setting(.automation, "ripgrep-path", String(localized: "settings.automation.ripgrep.customPath", defaultValue: "Ripgrep Binary Path"), "custom ripgrep rg executable find search nix"),
-        setting(.automation, "subagent-notifications", String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"), "nested child agent codex claude hooks notifications"),
-        setting(.automation, "cursor", String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), "agent hooks notifications"),
-        setting(.automation, "gemini", String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), "agent hooks notifications"),
+        setting(.agentIntegrations, "subagent-notifications", String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"), "nested child agent codex claude hooks notifications"),
+        setting(.agentIntegrations, "cursor", String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), "agent hooks notifications"),
+        setting(.agentIntegrations, "gemini", String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), "agent hooks notifications"),
         setting(.automation, "port-base", String(localized: "settings.automation.portBase", defaultValue: "Port Base"), "CMUX_PORT start"),
         setting(.automation, "port-range", String(localized: "settings.automation.portRange", defaultValue: "Port Range Size"), "CMUX_PORT_END workspace ports"),
         setting(.browser, "search-engine", String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"), "address bar query google duckduckgo"),
@@ -404,34 +453,34 @@ enum SettingsSearchIndex {
         "app.language": settingID(for: .app, idSuffix: "language"),
         "app.appearance": settingID(for: .app, idSuffix: "appearance"),
         "app.appIcon": settingID(for: .app, idSuffix: "app-icon"),
-        "app.newWorkspacePlacement": settingID(for: .app, idSuffix: "new-workspace-placement"),
-        "app.workspaceInheritWorkingDirectory": settingID(for: .app, idSuffix: "workspace-inherit-working-directory"),
-        "app.minimalMode": settingID(for: .app, idSuffix: "minimal-mode"),
-        "app.keepWorkspaceOpenWhenClosingLastSurface": settingID(for: .app, idSuffix: "keep-workspace-open"),
-        "app.focusPaneOnFirstClick": settingID(for: .app, idSuffix: "focus-pane-first-click"),
-        "fileDrop.defaultBehavior": settingID(for: .app, idSuffix: "file-drops"),
-        "app.fileDropDefaultBehavior": settingID(for: .app, idSuffix: "file-drops"),
-        "app.preferredEditor": settingID(for: .app, idSuffix: "preferred-editor"),
-        "app.openSupportedFilesInCmux": settingID(for: .app, idSuffix: "supported-file-previews"),
-        "app.openMarkdownInCmuxViewer": settingID(for: .app, idSuffix: "markdown-viewer"),
-        "app.iMessageMode": settingID(for: .app, idSuffix: "imessage-mode"),
-        "app.reorderOnNotification": settingID(for: .app, idSuffix: "reorder-notification"),
-        "notifications.dockBadge": settingID(for: .app, idSuffix: "dock-badge"),
-        "app.menuBarOnly": settingID(for: .app, idSuffix: "menu-bar-only"),
-        "notifications.showInMenuBar": settingID(for: .app, idSuffix: "show-menu-bar"),
-        "notifications.unreadPaneRing": settingID(for: .app, idSuffix: "unread-pane-ring"),
-        "notifications.paneFlash": settingID(for: .app, idSuffix: "pane-flash"),
-        "notifications.sound": settingID(for: .app, idSuffix: "notification-sound"),
-        "notifications.customSoundFilePath": settingID(for: .app, idSuffix: "notification-sound"),
-        "notifications.command": settingID(for: .app, idSuffix: "notification-command"),
-        "app.sendAnonymousTelemetry": settingID(for: .app, idSuffix: "telemetry"),
-        "app.confirmQuit": settingID(for: .app, idSuffix: "warn-before-quit"),
-        "app.warnBeforeQuit": settingID(for: .app, idSuffix: "warn-before-quit"),
-        "app.warnBeforeClosingTab": settingID(for: .app, idSuffix: "warn-before-closing-tab"),
-        "app.warnBeforeClosingTabXButton": settingID(for: .app, idSuffix: "warn-before-closing-tab-x-button"),
-        "app.hideTabCloseButton": settingID(for: .app, idSuffix: "hide-tab-close-button"),
-        "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
-        "app.commandPaletteSearchesAllSurfaces": settingID(for: .app, idSuffix: "palette-search-all"),
+        "app.newWorkspacePlacement": settingID(for: .workspacesAndTabs, idSuffix: "new-workspace-placement"),
+        "app.workspaceInheritWorkingDirectory": settingID(for: .workspacesAndTabs, idSuffix: "workspace-inherit-working-directory"),
+        "app.minimalMode": settingID(for: .workspacesAndTabs, idSuffix: "minimal-mode"),
+        "app.keepWorkspaceOpenWhenClosingLastSurface": settingID(for: .workspacesAndTabs, idSuffix: "keep-workspace-open"),
+        "app.focusPaneOnFirstClick": settingID(for: .workspacesAndTabs, idSuffix: "focus-pane-first-click"),
+        "fileDrop.defaultBehavior": settingID(for: .filesAndLinks, idSuffix: "file-drops"),
+        "app.fileDropDefaultBehavior": settingID(for: .filesAndLinks, idSuffix: "file-drops"),
+        "app.preferredEditor": settingID(for: .filesAndLinks, idSuffix: "preferred-editor"),
+        "app.openSupportedFilesInCmux": settingID(for: .filesAndLinks, idSuffix: "supported-file-previews"),
+        "app.openMarkdownInCmuxViewer": settingID(for: .filesAndLinks, idSuffix: "markdown-viewer"),
+        "app.iMessageMode": settingID(for: .notifications, idSuffix: "imessage-mode"),
+        "app.reorderOnNotification": settingID(for: .notifications, idSuffix: "reorder-notification"),
+        "notifications.dockBadge": settingID(for: .notifications, idSuffix: "dock-badge"),
+        "app.menuBarOnly": settingID(for: .notifications, idSuffix: "menu-bar-only"),
+        "notifications.showInMenuBar": settingID(for: .notifications, idSuffix: "show-menu-bar"),
+        "notifications.unreadPaneRing": settingID(for: .notifications, idSuffix: "unread-pane-ring"),
+        "notifications.paneFlash": settingID(for: .notifications, idSuffix: "pane-flash"),
+        "notifications.sound": settingID(for: .notifications, idSuffix: "notification-sound"),
+        "notifications.customSoundFilePath": settingID(for: .notifications, idSuffix: "notification-sound"),
+        "notifications.command": settingID(for: .notifications, idSuffix: "notification-command"),
+        "app.sendAnonymousTelemetry": settingID(for: .safetyPrivacy, idSuffix: "telemetry"),
+        "app.confirmQuit": settingID(for: .safetyPrivacy, idSuffix: "warn-before-quit"),
+        "app.warnBeforeQuit": settingID(for: .safetyPrivacy, idSuffix: "warn-before-quit"),
+        "app.warnBeforeClosingTab": settingID(for: .safetyPrivacy, idSuffix: "warn-before-closing-tab"),
+        "app.warnBeforeClosingTabXButton": settingID(for: .safetyPrivacy, idSuffix: "warn-before-closing-tab-x-button"),
+        "app.hideTabCloseButton": settingID(for: .safetyPrivacy, idSuffix: "hide-tab-close-button"),
+        "app.renameSelectsExistingName": settingID(for: .commandPalette, idSuffix: "rename-selects-name"),
+        "app.commandPaletteSearchesAllSurfaces": settingID(for: .commandPalette, idSuffix: "palette-search-all"),
         "sidebar.hideAllDetails": settingID(for: .sidebarAppearance, idSuffix: "hide-sidebar-details"),
         "sidebar.showWorkspaceDescription": settingID(for: .sidebarAppearance, idSuffix: "show-workspace-description"),
         "sidebar.branchLayout": settingID(for: .sidebarAppearance, idSuffix: "sidebar-branch-layout"),
@@ -452,22 +501,22 @@ enum SettingsSearchIndex {
         "terminal.showScrollBar": settingID(for: .terminal, idSuffix: "scrollbar"),
         "terminal.textBoxMaxLines": settingID(for: .terminal, idSuffix: "textbox-max-lines"),
         "terminal.copyOnSelect": settingID(for: .terminal, idSuffix: "copy-on-select"),
-        "terminal.autoResumeAgentSessions": settingID(for: .terminal, idSuffix: "agent-auto-resume"),
-        "terminal.agentHibernation.enabled": settingID(for: .terminal, idSuffix: "agent-hibernation"),
-        "terminal.agentHibernation.idleSeconds": settingID(for: .terminal, idSuffix: "agent-hibernation"),
-        "terminal.agentHibernation.maxLiveTerminals": settingID(for: .terminal, idSuffix: "agent-hibernation"),
+        "terminal.autoResumeAgentSessions": settingID(for: .agentSessions, idSuffix: "agent-auto-resume"),
+        "terminal.agentHibernation.enabled": settingID(for: .agentSessions, idSuffix: "agent-hibernation"),
+        "terminal.agentHibernation.idleSeconds": settingID(for: .agentSessions, idSuffix: "agent-hibernation"),
+        "terminal.agentHibernation.maxLiveTerminals": settingID(for: .agentSessions, idSuffix: "agent-hibernation"),
         "workspaceColors.indicatorStyle": settingID(for: .workspaceColors, idSuffix: "indicator"),
         "workspaceColors.selectionColor": settingID(for: .workspaceColors, idSuffix: "selection"),
         "workspaceColors.notificationBadgeColor": settingID(for: .workspaceColors, idSuffix: "badge"),
         "sidebarAppearance.matchTerminalBackground": settingID(for: .sidebarAppearance, idSuffix: "match-terminal"),
         "automation.socketControlMode": settingID(for: .automation, idSuffix: "socket-mode"),
         "automation.socketPassword": settingID(for: .automation, idSuffix: "socket-password"),
-        "automation.claudeCodeIntegration": settingID(for: .automation, idSuffix: "claude-code"),
-        "automation.claudeBinaryPath": settingID(for: .automation, idSuffix: "claude-path"),
+        "automation.claudeCodeIntegration": settingID(for: .agentIntegrations, idSuffix: "claude-code"),
+        "automation.claudeBinaryPath": settingID(for: .agentIntegrations, idSuffix: "claude-path"),
         "automation.ripgrepBinaryPath": settingID(for: .automation, idSuffix: "ripgrep-path"),
-        "automation.suppressSubagentNotifications": settingID(for: .automation, idSuffix: "subagent-notifications"),
-        "automation.cursorIntegration": settingID(for: .automation, idSuffix: "cursor"),
-        "automation.geminiIntegration": settingID(for: .automation, idSuffix: "gemini"),
+        "automation.suppressSubagentNotifications": settingID(for: .agentIntegrations, idSuffix: "subagent-notifications"),
+        "automation.cursorIntegration": settingID(for: .agentIntegrations, idSuffix: "cursor"),
+        "automation.geminiIntegration": settingID(for: .agentIntegrations, idSuffix: "gemini"),
         "automation.portBase": settingID(for: .automation, idSuffix: "port-base"),
         "automation.portRange": settingID(for: .automation, idSuffix: "port-range"),
         "browser.enabled": settingID(for: .browser, idSuffix: "enable-browser"),

@@ -5,14 +5,28 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.account", defaultValue: "auth authentication login logout sign in sign out email user profile team")
         case .app:
             return localized("settings.search.alias.section.app", defaultValue: "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry")
+        case .workspacesAndTabs:
+            return localized("settings.search.alias.section.workspacesAndTabs", defaultValue: "app general workspace workspaces tab tabs pane panes surface cwd directory placement close focus imessage prompts reorder")
+        case .filesAndLinks:
+            return localized("settings.search.alias.section.filesAndLinks", defaultValue: "app files file links urls editor previews markdown quick look ghostty config")
+        case .notifications:
+            return localized("settings.search.alias.section.notifications", defaultValue: "app alerts notify unread dock badge menubar menu bar ring flash sound command")
+        case .safetyPrivacy:
+            return localized("settings.search.alias.section.safetyPrivacy", defaultValue: "app privacy telemetry analytics warnings warn confirm quit close tab x button")
+        case .commandPalette:
+            return localized("settings.search.alias.section.commandPalette", defaultValue: "app command palette cmd p switcher search rename select name")
         case .terminal:
             return localized("settings.search.alias.section.terminal", defaultValue: "shell scrollback scrollbar scroll bar ghostty tty pty")
+        case .agentSessions:
+            return localized("settings.search.alias.section.agentSessions", defaultValue: "terminal agents sessions resume restore hibernate hibernation suspend idle approvals commands prefixes")
         case .sidebarAppearance:
             return localized("settings.search.alias.section.sidebarAppearance", defaultValue: "sidebar left rail navigation details branches badges material terminal background")
         case .betaFeatures:
             return localized("settings.search.alias.section.betaFeatures", defaultValue: "beta experimental unstable preview dock right sidebar")
         case .automation:
             return localized("settings.search.alias.section.automation", defaultValue: "api cli control socket mcp agents hooks ports")
+        case .agentIntegrations:
+            return localized("settings.search.alias.section.agentIntegrations", defaultValue: "automation agents hooks integrations claude cursor gemini codex opencode subagent nested binary path")
         case .browser:
             return localized("settings.search.alias.section.browser", defaultValue: "web webview address bar omnibar links urls embedded default browser")
         case .browserImport:
@@ -31,11 +45,95 @@ enum SettingsSearchAliasIndex {
     }
 
     static func aliases(target: SettingsNavigationTarget, idSuffix: String) -> String {
-        let aliases = settingAliases["\(target.rawValue):\(idSuffix)"] ?? ""
+        let key = "\(target.rawValue):\(idSuffix)"
+        let aliases = settingAliases[key]
+            ?? legacyAliasKey(target: target, idSuffix: idSuffix).flatMap { settingAliases[$0] }
+            ?? ""
         if target == .keyboardShortcuts, idSuffix == "shortcuts" {
             return "\(aliases) \(keyboardShortcutActionAliases)"
         }
         return aliases
+    }
+
+    private static func legacyAliasKey(target: SettingsNavigationTarget, idSuffix: String) -> String? {
+        switch target {
+        case .workspacesAndTabs:
+            switch idSuffix {
+            case "new-workspace-placement",
+                 "workspace-inherit-working-directory",
+                 "minimal-mode",
+                 "keep-workspace-open",
+                 "focus-pane-first-click":
+                return "app:\(idSuffix)"
+            default:
+                return nil
+            }
+        case .filesAndLinks:
+            switch idSuffix {
+            case "file-drops",
+                 "preferred-editor",
+                 "supported-file-previews",
+                 "terminal-config",
+                 "markdown-viewer":
+                return "app:\(idSuffix)"
+            default:
+                return nil
+            }
+        case .notifications:
+            switch idSuffix {
+            case "imessage-mode",
+                 "reorder-notification",
+                 "dock-badge",
+                 "menu-bar-only",
+                 "show-menu-bar",
+                 "unread-pane-ring",
+                 "pane-flash",
+                 "desktop-notifications",
+                 "notification-sound",
+                 "notification-command":
+                return "app:\(idSuffix)"
+            default:
+                return nil
+            }
+        case .safetyPrivacy:
+            switch idSuffix {
+            case "telemetry",
+                 "warn-before-quit",
+                 "warn-before-closing-tab",
+                 "warn-before-closing-tab-x-button",
+                 "hide-tab-close-button":
+                return "app:\(idSuffix)"
+            default:
+                return nil
+            }
+        case .commandPalette:
+            switch idSuffix {
+            case "rename-selects-name", "palette-search-all":
+                return "app:\(idSuffix)"
+            default:
+                return nil
+            }
+        case .agentSessions:
+            switch idSuffix {
+            case "agent-auto-resume", "agent-hibernation", "resume-commands":
+                return "terminal:\(idSuffix)"
+            default:
+                return nil
+            }
+        case .agentIntegrations:
+            switch idSuffix {
+            case "claude-code",
+                 "claude-path",
+                 "subagent-notifications",
+                 "cursor",
+                 "gemini":
+                return "automation:\(idSuffix)"
+            default:
+                return nil
+            }
+        default:
+            return nil
+        }
     }
 
     private static let settingAliases: [String: String] = [
@@ -48,6 +146,7 @@ enum SettingsSearchAliasIndex {
         "app:minimal-mode": localized("settings.search.alias.setting.app.minimal-mode", defaultValue: "app.minimalMode minimal layout simple chrome compact titlebar controls"),
         "app:keep-workspace-open": localized("settings.search.alias.setting.app.keep-workspace-open", defaultValue: "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace"),
         "app:focus-pane-first-click": localized("settings.search.alias.setting.app.focus-pane-first-click", defaultValue: "app.focusPaneOnFirstClick click to focus focus follows mouse first click mouse activation"),
+        "app:file-drops": localized("settings.search.alias.setting.app.file-drops", defaultValue: "fileDrop.defaultBehavior app.fileDropDefaultBehavior drag drop file files folder folders finder path paste insert split pane text terminal editor preview shift option"),
         "app:preferred-editor": localized("settings.search.alias.setting.app.preferred-editor", defaultValue: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
         "app:supported-file-previews": localized("settings.search.alias.setting.app.supported-file-previews", defaultValue: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
         "app:terminal-config": localized("settings.search.alias.setting.app.terminal-config", defaultValue: "ghostty config configuration terminal settings preview merged file reload"),
@@ -76,7 +175,10 @@ enum SettingsSearchAliasIndex {
         "app:rename-selects-name": localized("settings.search.alias.setting.app.rename-selects-name", defaultValue: "app.renameSelectsExistingName rename select all existing title command palette workspace name"),
         "app:palette-search-all": localized("settings.search.alias.setting.app.palette-search-all", defaultValue: "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
         "terminal:scrollbar": localized("settings.search.alias.setting.terminal.scrollbar", defaultValue: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),
+        "terminal:textbox-max-lines": localized("settings.search.alias.setting.terminal.textbox-max-lines", defaultValue: "terminal.textBoxMaxLines textbox text box input prompt composer editor max lines height grow multi-line multiline scroll"),
         "terminal:copy-on-select": localized("settings.search.alias.setting.terminal.copy-on-select", defaultValue: "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
+        "terminal:agent-auto-resume": localized("settings.search.alias.setting.terminal.agent-auto-resume", defaultValue: "terminal.autoResumeAgentSessions auto resume restore reopen relaunch restart quit sessions agents terminals claude codex opencode rovo rovodev cursor gemini"),
+        "terminal:agent-hibernation": localized("settings.search.alias.setting.terminal.agent-hibernation", defaultValue: "terminal.agentHibernation hibernate hibernation suspend sleep idle background agents terminals live limit hooks lifecycle claude codex opencode rovo rovodev cursor gemini"),
         "terminal:resume-commands": localized("settings.search.alias.setting.terminal.resume-commands", defaultValue: "surface resume commands approvals command prefixes auto restore ask manual tmux hibernation sticky process"),
         "sidebarAppearance:match-terminal": localized("settings.search.alias.setting.sidebarAppearance.match-terminal", defaultValue: "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
         "sidebarAppearance:hide-sidebar-details": localized("settings.search.alias.setting.app.hide-sidebar-details", defaultValue: "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail"),

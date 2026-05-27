@@ -72981,6 +72981,34 @@
         }
       }
     },
+    "settings.section.workspacesAndTabs": {
+      "extractionState": "manual",
+      "localizations": {"ar":{"stringUnit":{"state":"translated","value":"مساحات العمل وعلامات التبويب"}},"bs":{"stringUnit":{"state":"translated","value":"Radni prostori i kartice"}},"da":{"stringUnit":{"state":"translated","value":"Arbejdsområder og faner"}},"de":{"stringUnit":{"state":"translated","value":"Arbeitsbereiche und Tabs"}},"en":{"stringUnit":{"state":"translated","value":"Workspaces & Tabs"}},"es":{"stringUnit":{"state":"translated","value":"Espacios de trabajo y pestañas"}},"fr":{"stringUnit":{"state":"translated","value":"Espaces de travail et onglets"}},"it":{"stringUnit":{"state":"translated","value":"Aree di lavoro e schede"}},"ja":{"stringUnit":{"state":"translated","value":"ワークスペースとタブ"}},"ko":{"stringUnit":{"state":"translated","value":"워크스페이스 및 탭"}},"nb":{"stringUnit":{"state":"translated","value":"Arbeidsområder og faner"}},"pl":{"stringUnit":{"state":"translated","value":"Obszary robocze i karty"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Espaços de trabalho e abas"}},"ru":{"stringUnit":{"state":"translated","value":"Рабочие области и вкладки"}},"th":{"stringUnit":{"state":"translated","value":"พื้นที่ทำงานและแท็บ"}},"tr":{"stringUnit":{"state":"translated","value":"Çalışma alanları ve sekmeler"}},"uk":{"stringUnit":{"state":"translated","value":"Робочі простори та вкладки"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"工作区和标签页"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"工作區和分頁"}}}
+    },
+    "settings.section.filesAndLinks": {
+      "extractionState": "manual",
+      "localizations": {"ar":{"stringUnit":{"state":"translated","value":"الملفات والروابط"}},"bs":{"stringUnit":{"state":"translated","value":"Datoteke i linkovi"}},"da":{"stringUnit":{"state":"translated","value":"Filer og links"}},"de":{"stringUnit":{"state":"translated","value":"Dateien und Links"}},"en":{"stringUnit":{"state":"translated","value":"Files & Links"}},"es":{"stringUnit":{"state":"translated","value":"Archivos y enlaces"}},"fr":{"stringUnit":{"state":"translated","value":"Fichiers et liens"}},"it":{"stringUnit":{"state":"translated","value":"File e link"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルとリンク"}},"ko":{"stringUnit":{"state":"translated","value":"파일 및 링크"}},"nb":{"stringUnit":{"state":"translated","value":"Filer og lenker"}},"pl":{"stringUnit":{"state":"translated","value":"Pliki i linki"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Arquivos e links"}},"ru":{"stringUnit":{"state":"translated","value":"Файлы и ссылки"}},"th":{"stringUnit":{"state":"translated","value":"ไฟล์และลิงก์"}},"tr":{"stringUnit":{"state":"translated","value":"Dosyalar ve bağlantılar"}},"uk":{"stringUnit":{"state":"translated","value":"Файли й посилання"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"文件与链接"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"檔案與連結"}}}
+    },
+    "settings.section.notifications": {
+      "extractionState": "manual",
+      "localizations": {"ar":{"stringUnit":{"state":"translated","value":"الإشعارات"}},"bs":{"stringUnit":{"state":"translated","value":"Obavještenja"}},"da":{"stringUnit":{"state":"translated","value":"Notifikationer"}},"de":{"stringUnit":{"state":"translated","value":"Benachrichtigungen"}},"en":{"stringUnit":{"state":"translated","value":"Notifications"}},"es":{"stringUnit":{"state":"translated","value":"Notificaciones"}},"fr":{"stringUnit":{"state":"translated","value":"Notifications"}},"it":{"stringUnit":{"state":"translated","value":"Notifiche"}},"ja":{"stringUnit":{"state":"translated","value":"通知"}},"ko":{"stringUnit":{"state":"translated","value":"알림"}},"nb":{"stringUnit":{"state":"translated","value":"Varsler"}},"pl":{"stringUnit":{"state":"translated","value":"Powiadomienia"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Notificações"}},"ru":{"stringUnit":{"state":"translated","value":"Уведомления"}},"th":{"stringUnit":{"state":"translated","value":"การแจ้งเตือน"}},"tr":{"stringUnit":{"state":"translated","value":"Bildirimler"}},"uk":{"stringUnit":{"state":"translated","value":"Сповіщення"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"通知"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"通知"}}}
+    },
+    "settings.section.safetyPrivacy": {
+      "extractionState": "manual",
+      "localizations": {"ar":{"stringUnit":{"state":"translated","value":"الأمان والخصوصية"}},"bs":{"stringUnit":{"state":"translated","value":"Sigurnost i privatnost"}},"da":{"stringUnit":{"state":"translated","value":"Sikkerhed og anonymitet"}},"de":{"stringUnit":{"state":"translated","value":"Sicherheit und Datenschutz"}},"en":{"stringUnit":{"state":"translated","value":"Safety & Privacy"}},"es":{"stringUnit":{"state":"translated","value":"Seguridad y privacidad"}},"fr":{"stringUnit":{"state":"translated","value":"Sécurité et confidentialité"}},"it":{"stringUnit":{"state":"translated","value":"Sicurezza e privacy"}},"ja":{"stringUnit":{"state":"translated","value":"安全とプライバシー"}},"ko":{"stringUnit":{"state":"translated","value":"안전 및 개인정보 보호"}},"nb":{"stringUnit":{"state":"translated","value":"Sikkerhet og personvern"}},"pl":{"stringUnit":{"state":"translated","value":"Bezpieczeństwo i prywatność"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Segurança e privacidade"}},"ru":{"stringUnit":{"state":"translated","value":"Безопасность и конфиденциальность"}},"th":{"stringUnit":{"state":"translated","value":"ความปลอดภัยและความเป็นส่วนตัว"}},"tr":{"stringUnit":{"state":"translated","value":"Güvenlik ve gizlilik"}},"uk":{"stringUnit":{"state":"translated","value":"Безпека і приватність"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"安全与隐私"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"安全與隱私"}}}
+    },
+    "settings.section.commandPalette": {
+      "extractionState": "manual",
+      "localizations": {"ar":{"stringUnit":{"state":"translated","value":"لوحة الأوامر"}},"bs":{"stringUnit":{"state":"translated","value":"Paleta komandi"}},"da":{"stringUnit":{"state":"translated","value":"Kommandopalet"}},"de":{"stringUnit":{"state":"translated","value":"Befehlspalette"}},"en":{"stringUnit":{"state":"translated","value":"Command Palette"}},"es":{"stringUnit":{"state":"translated","value":"Paleta de comandos"}},"fr":{"stringUnit":{"state":"translated","value":"Palette de commandes"}},"it":{"stringUnit":{"state":"translated","value":"Tavolozza comandi"}},"ja":{"stringUnit":{"state":"translated","value":"コマンドパレット"}},"ko":{"stringUnit":{"state":"translated","value":"명령 팔레트"}},"nb":{"stringUnit":{"state":"translated","value":"Kommandopalett"}},"pl":{"stringUnit":{"state":"translated","value":"Paleta poleceń"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Paleta de comandos"}},"ru":{"stringUnit":{"state":"translated","value":"Палитра команд"}},"th":{"stringUnit":{"state":"translated","value":"แผงคำสั่ง"}},"tr":{"stringUnit":{"state":"translated","value":"Komut paleti"}},"uk":{"stringUnit":{"state":"translated","value":"Палітра команд"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"命令面板"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"命令面板"}}}
+    },
+    "settings.section.agentSessions": {
+      "extractionState": "manual",
+      "localizations": {"ar":{"stringUnit":{"state":"translated","value":"جلسات الوكيل"}},"bs":{"stringUnit":{"state":"translated","value":"Agentske sesije"}},"da":{"stringUnit":{"state":"translated","value":"Agentsessioner"}},"de":{"stringUnit":{"state":"translated","value":"Agentensitzungen"}},"en":{"stringUnit":{"state":"translated","value":"Agent Sessions"}},"es":{"stringUnit":{"state":"translated","value":"Sesiones de agente"}},"fr":{"stringUnit":{"state":"translated","value":"Sessions d’agent"}},"it":{"stringUnit":{"state":"translated","value":"Sessioni agente"}},"ja":{"stringUnit":{"state":"translated","value":"エージェントセッション"}},"ko":{"stringUnit":{"state":"translated","value":"에이전트 세션"}},"nb":{"stringUnit":{"state":"translated","value":"Agentøkter"}},"pl":{"stringUnit":{"state":"translated","value":"Sesje agenta"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Sessões de agente"}},"ru":{"stringUnit":{"state":"translated","value":"Сеансы агента"}},"th":{"stringUnit":{"state":"translated","value":"เซสชันเอเจนต์"}},"tr":{"stringUnit":{"state":"translated","value":"Ajan oturumları"}},"uk":{"stringUnit":{"state":"translated","value":"Сеанси агента"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"代理会话"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"代理工作階段"}}}
+    },
+    "settings.section.agentIntegrations": {
+      "extractionState": "manual",
+      "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تكاملات الوكلاء"}},"bs":{"stringUnit":{"state":"translated","value":"Integracije agenata"}},"da":{"stringUnit":{"state":"translated","value":"Agentintegrationer"}},"de":{"stringUnit":{"state":"translated","value":"Agentenintegrationen"}},"en":{"stringUnit":{"state":"translated","value":"Agent Integrations"}},"es":{"stringUnit":{"state":"translated","value":"Integraciones de agentes"}},"fr":{"stringUnit":{"state":"translated","value":"Intégrations d’agents"}},"it":{"stringUnit":{"state":"translated","value":"Integrazioni agenti"}},"ja":{"stringUnit":{"state":"translated","value":"エージェント連携"}},"ko":{"stringUnit":{"state":"translated","value":"에이전트 통합"}},"nb":{"stringUnit":{"state":"translated","value":"Agentintegrasjoner"}},"pl":{"stringUnit":{"state":"translated","value":"Integracje agentów"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Integrações de agentes"}},"ru":{"stringUnit":{"state":"translated","value":"Интеграции агентов"}},"th":{"stringUnit":{"state":"translated","value":"การผสานรวมเอเจนต์"}},"tr":{"stringUnit":{"state":"translated","value":"Ajan entegrasyonları"}},"uk":{"stringUnit":{"state":"translated","value":"Інтеграції агентів"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"代理集成"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"代理整合"}}}
+    },
     "settings.section.automation": {
       "extractionState": "manual",
       "localizations": {
@@ -111295,6 +111323,27 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Idle background agent terminals can be hibernated when the live-terminal limit is exceeded." } },
         "ja": { "stringUnit": { "state": "translated", "value": "ライブ端末数の上限を超えると、アイドル状態のバックグラウンドエージェント端末を休止できます。" } }
+      }
+    },
+    "settings.terminal.agentHibernation.hooksWarning.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Enable Agent Hibernation without hooks?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "hooks なしでエージェント休止を有効にしますか？" } }
+      }
+    },
+    "settings.terminal.agentHibernation.hooksWarning.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent Hibernation relies on agent lifecycle hooks to know when sessions are idle. Enable or set up an agent integration first, or run `cmux hooks setup`, before relying on hibernation." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェント休止は、セッションがアイドル状態かどうかを判定するためにエージェントのライフサイクル hooks に依存します。休止機能を利用する前に、エージェント連携を有効化または設定するか、`cmux hooks setup` を実行してください。" } }
+      }
+    },
+    "settings.terminal.agentHibernation.hooksWarning.enableAnyway": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Enable Anyway" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "それでも有効にする" } }
       }
     },
     "settings.terminal.agentHibernation.idleSeconds": {
