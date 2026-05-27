@@ -4480,15 +4480,15 @@ private func styledPromptSnapshot(terminalID: String, suffix: String) throws -> 
 @MainActor
 private func waitForSelectedTerminal(
     in store: CMUXMobileShellStore,
-    maxYields: Int = 1_000,
+    maxAttempts: Int = 300,
     matching predicate: (MobileTerminalPreview) -> Bool
 ) async throws -> MobileTerminalPreview {
-    for _ in 0..<maxYields {
+    for _ in 0..<maxAttempts {
         if let terminal = store.selectedWorkspace?.terminals.first(where: { $0.id == store.selectedTerminalID }),
            predicate(terminal) {
             return terminal
         }
-        await Task.yield()
+        try await Task.sleep(nanoseconds: 10_000_000)
     }
     let terminal = try #require(store.selectedWorkspace?.terminals.first(where: { $0.id == store.selectedTerminalID }))
     #expect(predicate(terminal))
