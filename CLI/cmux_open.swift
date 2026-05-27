@@ -171,6 +171,7 @@ extension CMUXCLI {
         var defaultTitle: String
         var emptyMessage: String?
         var externalURL: String?
+        var remotePatchURL: URL? = nil
     }
 
     private struct EmptyDiffSourceError: Error {
@@ -254,19 +255,25 @@ extension CMUXCLI {
         var requestPath: String
         var filePath: String
         var mimeType: String
+        var remoteURL: String?
 
         enum CodingKeys: String, CodingKey {
             case requestPath = "request_path"
             case filePath = "file_path"
             case mimeType = "mime_type"
+            case remoteURL = "remote_url"
         }
 
         var jsonObject: [String: Any] {
-            [
+            var object: [String: Any] = [
                 "request_path": requestPath,
                 "file_path": filePath,
                 "mime_type": mimeType
             ]
+            if let remoteURL {
+                object["remote_url"] = remoteURL
+            }
+            return object
         }
     }
 
@@ -300,7 +307,17 @@ extension CMUXCLI {
             DiffViewerAllowedFile(
                 requestPath: try requestPath(for: fileURL),
                 filePath: fileURL.standardizedFileURL.resolvingSymlinksInPath().path,
-                mimeType: mimeType
+                mimeType: mimeType,
+                remoteURL: nil
+            )
+        }
+
+        func allowedRemotePatchFile(fileURL: URL, remoteURL: URL) throws -> DiffViewerAllowedFile {
+            DiffViewerAllowedFile(
+                requestPath: try requestPath(for: fileURL),
+                filePath: "",
+                mimeType: "text/x-diff",
+                remoteURL: remoteURL.absoluteString
             )
         }
 
@@ -334,7 +351,7 @@ extension CMUXCLI {
         var rootPath: String
     }
 
-    private static let diffViewerHTTPServerHealthResponse = Data("ok wait-v1\n".utf8)
+    private static let diffViewerHTTPServerHealthResponse = Data("ok wait-v2 remote-stream\n".utf8)
 
     private struct DiffViewerLabels {
         var values: [String: String]
@@ -1104,6 +1121,18 @@ extension CMUXCLI {
             )
         }
 
+        if let trustedRemoteURL = diffInputTrustedRemotePatchURL(rawInput) {
+            let sourceURL = URL(string: rawInput) ?? trustedRemoteURL
+            return DiffInput(
+                patch: "",
+                sourceLabel: sourceURL.absoluteString,
+                defaultTitle: diffInputURLTitle(sourceURL),
+                emptyMessage: nil,
+                externalURL: diffInputExternalURL(sourceURL).absoluteString,
+                remotePatchURL: trustedRemoteURL
+            )
+        }
+
         if let url = diffInputPatchURL(rawInput) {
             let sourceURL = URL(string: rawInput) ?? url
             do {
@@ -1220,6 +1249,88 @@ extension CMUXCLI {
         }
 
         return url
+    }
+
+    private func diffInputTrustedRemotePatchURL(_ rawInput: String) -> URL? {
+        guard let url = URL(string: rawInput),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "https",
+              let host = url.host?.lowercased() else {
+            return nil
+        }
+
+        if host == "diffshub.com" || host == "www.diffshub.com" {
+            let components = url.pathComponents
+            guard components.count >= 5,
+                  components[3] == "pull" else {
+                return nil
+            }
+            return trustedGitHubPullPatchURL(
+                owner: components[1],
+                repo: components[2],
+                pullComponent: components[4],
+                defaultExtension: "diff"
+            )
+        }
+
+        if host == "github.com" || host == "www.github.com" {
+            let components = url.pathComponents
+            guard components.count >= 5,
+                  components[3] == "pull" else {
+                return nil
+            }
+            return trustedGitHubPullPatchURL(
+                owner: components[1],
+                repo: components[2],
+                pullComponent: components[4],
+                defaultExtension: "diff"
+            )
+        }
+
+        return nil
+    }
+
+    private func trustedGitHubPullPatchURL(
+        owner: String,
+        repo: String,
+        pullComponent: String,
+        defaultExtension: String
+    ) -> URL? {
+        guard githubPathSegmentIsSafe(owner),
+              githubPathSegmentIsSafe(repo) else {
+            return nil
+        }
+
+        let suffix: String
+        let pullNumber: String
+        if pullComponent.hasSuffix(".patch") {
+            suffix = "patch"
+            pullNumber = String(pullComponent.dropLast(".patch".count))
+        } else if pullComponent.hasSuffix(".diff") {
+            suffix = "diff"
+            pullNumber = String(pullComponent.dropLast(".diff".count))
+        } else {
+            suffix = defaultExtension
+            pullNumber = pullComponent
+        }
+        guard suffix == "diff" || suffix == "patch",
+              pullNumber.unicodeScalars.allSatisfy({ $0.value >= 48 && $0.value <= 57 }),
+              Int(pullNumber).map({ $0 > 0 }) == true else {
+            return nil
+        }
+        return URL(string: "https://github.com/\(owner)/\(repo)/pull/\(pullNumber).\(suffix)")
+    }
+
+    private func githubPathSegmentIsSafe(_ component: String) -> Bool {
+        guard !component.isEmpty else { return false }
+        return component.unicodeScalars.allSatisfy { scalar in
+            (scalar.value >= 48 && scalar.value <= 57) ||
+                (scalar.value >= 65 && scalar.value <= 90) ||
+                (scalar.value >= 97 && scalar.value <= 122) ||
+                scalar == "-" ||
+                scalar == "_" ||
+                scalar == "."
+        }
     }
 
     private func diffInputExternalURL(_ url: URL) -> URL {
@@ -2649,9 +2760,11 @@ extension CMUXCLI {
         }
 
         let input = try readDiffInput(rawInput, source: nil, context: context)
-        let trimmedPatch = input.patch.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPatch.isEmpty else {
-            throw CLIError(message: input.emptyMessage ?? "diff input is empty")
+        if input.remotePatchURL == nil {
+            let trimmedPatch = input.patch.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedPatch.isEmpty else {
+                throw CLIError(message: input.emptyMessage ?? "diff input is empty")
+            }
         }
 
         let title = titleOverride ?? input.defaultTitle
@@ -2671,6 +2784,7 @@ extension CMUXCLI {
             title: title,
             sourceLabel: input.sourceLabel,
             externalURL: input.externalURL,
+            remotePatchURL: input.remotePatchURL,
             layout: layout,
             appearance: appearance,
             sourceOptions: []
@@ -2679,7 +2793,8 @@ extension CMUXCLI {
         let allowedFiles = try diffViewerAllowedFiles(
             pageURLs: [viewerFileURL],
             assets: assets,
-            mapper: mapper
+            mapper: mapper,
+            remotePatchURLsByPagePath: remotePatchURLMap(pageURL: viewerFileURL, remoteURL: input.remotePatchURL)
         )
         try writeDiffViewerHTTPManifest(
             token: mapper.token,
@@ -2930,6 +3045,7 @@ extension CMUXCLI {
             title: titleOverride ?? selectedInput.defaultTitle,
             sourceLabel: selectedInput.sourceLabel,
             externalURL: selectedInput.externalURL,
+            remotePatchURL: selectedInput.remotePatchURL,
             layout: layout,
             appearance: appearance,
             sourceOptions: sourceOptions,
@@ -2982,6 +3098,7 @@ extension CMUXCLI {
                     title: page.titleOverride ?? input.defaultTitle,
                     sourceLabel: input.sourceLabel,
                     externalURL: input.externalURL,
+                    remotePatchURL: input.remotePatchURL,
                     layout: sourceSet.layout,
                     appearance: sourceSet.appearance,
                     sourceOptions: page.sourceOptions,
@@ -3848,6 +3965,19 @@ extension CMUXCLI {
                   diffViewerHTTPPathExtensionMatchesMimeType(path: file.requestPath, mimeType: file.mimeType) else {
                 throw CLIError(message: "Invalid diff viewer manifest entry")
             }
+            if let remoteURLString = file.remoteURL {
+                guard file.mimeType == "text/x-diff",
+                      file.filePath.isEmpty,
+                      let remoteURL = URL(string: remoteURLString),
+                      diffViewerHTTPIsAllowedRemotePatchURL(remoteURL),
+                      files[file.requestPath] == nil else {
+                    throw CLIError(message: "Invalid diff viewer remote manifest entry")
+                }
+                var normalizedFile = file
+                normalizedFile.remoteURL = remoteURL.absoluteString
+                files[file.requestPath] = normalizedFile
+                continue
+            }
             let fileURL = URL(fileURLWithPath: file.filePath, isDirectory: false)
                 .standardizedFileURL
                 .resolvingSymlinksInPath()
@@ -3867,6 +3997,20 @@ extension CMUXCLI {
             files[file.requestPath] = normalizedFile
         }
         return files
+    }
+
+    private func diffViewerHTTPIsAllowedRemotePatchURL(_ url: URL) -> Bool {
+        guard let canonicalURL = diffInputTrustedRemotePatchURL(url.absoluteString),
+              canonicalURL.scheme == "https",
+              canonicalURL.host?.lowercased() == "github.com",
+              canonicalURL.path == url.path,
+              canonicalURL.query == nil,
+              canonicalURL.fragment == nil,
+              url.query == nil,
+              url.fragment == nil else {
+            return false
+        }
+        return canonicalURL.absoluteString == url.absoluteString
     }
 
     private func waitForDiffViewerHTTPReplacement(_ file: DiffViewerAllowedFile) -> Bool {
@@ -3922,6 +4066,18 @@ extension CMUXCLI {
         port: Int,
         omitBody: Bool
     ) throws {
+        if let remoteURLString = file.remoteURL,
+           let remoteURL = URL(string: remoteURLString),
+           diffViewerHTTPIsAllowedRemotePatchURL(remoteURL) {
+            try sendDiffViewerHTTPRemotePatch(
+                remoteURL,
+                fileDescriptor: fd,
+                port: port,
+                omitBody: omitBody
+            )
+            return
+        }
+
         let fileURL = URL(fileURLWithPath: file.filePath, isDirectory: false)
         var info = stat()
         guard stat(fileURL.path, &info) == 0,
@@ -3950,6 +4106,103 @@ extension CMUXCLI {
             }
             try sendAllDiffViewerHTTPData(data, fileDescriptor: fd)
         }
+    }
+
+    private func sendDiffViewerHTTPRemotePatch(
+        _ remoteURL: URL,
+        fileDescriptor fd: Int32,
+        port: Int,
+        omitBody: Bool
+    ) throws {
+        var headers = diffViewerHTTPBaseHeaders(port: port)
+        headers["Content-Type"] = diffViewerHTTPContentType("text/x-diff")
+        headers["X-CMUX-Diff-Viewer-Remote"] = "github"
+
+        if omitBody {
+            try sendDiffViewerHTTPHeader(
+                fileDescriptor: fd,
+                status: 200,
+                reason: "OK",
+                headers: headers
+            )
+            return
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [
+            "curl",
+            "-fL",
+            "--silent",
+            "--show-error",
+            "--max-time", "120",
+            remoteURL.absoluteString
+        ]
+        let stdoutPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardInput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            try sendDiffViewerHTTPResponse(
+                fileDescriptor: fd,
+                status: 502,
+                reason: "Bad Gateway",
+                headers: ["Content-Type": "text/plain; charset=utf-8"],
+                body: Data("502 Bad Gateway\n".utf8),
+                omitBody: false
+            )
+            return
+        }
+
+        defer {
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+
+        let handle = stdoutPipe.fileHandleForReading
+        let firstChunk = try handle.read(upToCount: 64 * 1024) ?? Data()
+        if firstChunk.isEmpty {
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else {
+                try sendDiffViewerHTTPResponse(
+                    fileDescriptor: fd,
+                    status: 502,
+                    reason: "Bad Gateway",
+                    headers: ["Content-Type": "text/plain; charset=utf-8"],
+                    body: Data("502 Bad Gateway\n".utf8),
+                    omitBody: false
+                )
+                return
+            }
+            try sendDiffViewerHTTPHeader(
+                fileDescriptor: fd,
+                status: 200,
+                reason: "OK",
+                headers: headers
+            )
+            return
+        }
+
+        try sendDiffViewerHTTPHeader(
+            fileDescriptor: fd,
+            status: 200,
+            reason: "OK",
+            headers: headers
+        )
+        try sendAllDiffViewerHTTPData(firstChunk, fileDescriptor: fd)
+
+        while true {
+            let data = try handle.read(upToCount: 64 * 1024) ?? Data()
+            if data.isEmpty {
+                break
+            }
+            try sendAllDiffViewerHTTPData(data, fileDescriptor: fd)
+        }
+        process.waitUntilExit()
     }
 
     private func sendDiffViewerHTTPNotFound(fileDescriptor fd: Int32, omitBody: Bool) throws {
@@ -4101,7 +4354,8 @@ extension CMUXCLI {
     private func diffViewerAllowedFiles(
         pageURLs: [URL],
         assets: DiffViewerAssets,
-        mapper: DiffViewerURLMapper
+        mapper: DiffViewerURLMapper,
+        remotePatchURLsByPagePath: [String: URL] = [:]
     ) throws -> [DiffViewerAllowedFile] {
         var seen: Set<String> = []
         var files: [DiffViewerAllowedFile] = []
@@ -4117,12 +4371,21 @@ extension CMUXCLI {
             let patchURL = diffViewerPatchFileURL(for: pageURL)
             if FileManager.default.fileExists(atPath: patchURL.path) {
                 try append(patchURL, mimeType: "text/x-diff")
+            } else if let remoteURL = remotePatchURLsByPagePath[pageURL.standardizedFileURL.path] {
+                let standardizedPath = patchURL.standardizedFileURL.path
+                guard seen.insert(standardizedPath).inserted else { continue }
+                files.append(try mapper.allowedRemotePatchFile(fileURL: patchURL, remoteURL: remoteURL))
             }
         }
         for assetURL in assets.files {
             try append(assetURL, mimeType: "text/javascript")
         }
         return files
+    }
+
+    private func remotePatchURLMap(pageURL: URL, remoteURL: URL?) -> [String: URL] {
+        guard let remoteURL else { return [:] }
+        return [pageURL.standardizedFileURL.path: remoteURL]
     }
 
     private func diffViewerPatchFileURL(for viewerURL: URL) -> URL {
@@ -4142,6 +4405,7 @@ extension CMUXCLI {
         title: String,
         sourceLabel: String,
         externalURL: String?,
+        remotePatchURL: URL? = nil,
         layout: String,
         appearance: DiffViewerAppearance,
         sourceOptions: [DiffViewerSourceOption],
@@ -4161,6 +4425,7 @@ extension CMUXCLI {
             title: title,
             sourceLabel: sourceLabel,
             externalURL: externalURL,
+            remotePatchURL: remotePatchURL,
             layout: layout,
             appearance: appearance,
             sourceOptions: sourceOptions,
@@ -4178,6 +4443,7 @@ extension CMUXCLI {
         title: String,
         sourceLabel: String,
         externalURL: String?,
+        remotePatchURL: URL? = nil,
         layout: String,
         appearance: DiffViewerAppearance,
         sourceOptions: [DiffViewerSourceOption],
@@ -4186,7 +4452,9 @@ extension CMUXCLI {
         repoRoot: String? = nil,
         branchBaseRef: String? = nil
     ) throws {
-        try writeDiffViewerPatchSidecar(patch, for: viewerURL)
+        if remotePatchURL == nil {
+            try writeDiffViewerPatchSidecar(patch, for: viewerURL)
+        }
         let labels = DiffViewerLabels.localized()
         var payload: [String: Any] = [
             "patchURL": diffViewerPatchURLString(for: viewerURL),
