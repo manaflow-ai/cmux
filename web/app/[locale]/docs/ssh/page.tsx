@@ -58,9 +58,10 @@ cmux ssh user@remote -i ~/.ssh/id_ed25519`}</CodeBlock>
       <p>{t("deepLinksDesc")}</p>
       <CodeBlock lang="text">{`cmux://ssh?host=dev.example.com
 cmux://ssh?host=dev.example.com&user=alice&port=2222&title=GPU%20box
+cmux://ssh?host=workspace123.vm-ssh.freestyle.sh&user=workspace123%2Csession-token
 cmux://ssh?host=dev.example.com&host-key-policy=accept-new&no-focus=true`}</CodeBlock>
       <p>{t("deepLinksWebFallbackDesc")}</p>
-      <CodeBlock lang="text">{`https://cmux.com/deeplink/ssh?host=dev.example.com&user=alice&port=2222&title=GPU%20box`}</CodeBlock>
+      <CodeBlock lang="text">{`https://cmux.com/deeplink/ssh?host=workspace123.vm-ssh.freestyle.sh&user=workspace123%2Csession-token&title=Freestyle`}</CodeBlock>
       <p>{t("deepLinksPromptRulesDesc")}</p>
       <CodeBlock lang="text">{`https://cmux.com/deeplink/prompt?text=Review%20this%20branch
 https://cmux.com/deeplink/rules?name=freestyle&text=Prefer%20commas,%20colons:%20and%20small%20PRs`}</CodeBlock>
@@ -69,10 +70,9 @@ https://cmux.com/deeplink/rules?name=freestyle&text=Prefer%20commas,%20colons:%2
 https://cmux.com/logo.png`}</CodeBlock>
       <p>{t("deepLinksButtonDesc")}</p>
       <CodeBlock lang="tsx">{`const params = new URLSearchParams({
-  host: "dev.example.com",
-  user: "alice",
-  port: "2222",
-  title: "GPU box",
+  host: "workspace123.vm-ssh.freestyle.sh",
+  user: "workspace123,session-token",
+  title: "Freestyle",
 });
 
 const href = "https://cmux.com/deeplink/ssh?" + params.toString();`}</CodeBlock>

@@ -116,7 +116,7 @@ function isAllowedSSHHost(value: string) {
 function isAllowedSSHUser(value: string) {
   return (
     !containsUnsafeHiddenCharacter(value) &&
-    /^[A-Za-z0-9._%+=-]+$/.test(value)
+    /^[A-Za-z0-9._%+=,:-]+$/.test(value)
   );
 }
 
