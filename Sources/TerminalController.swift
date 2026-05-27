@@ -9593,6 +9593,12 @@ class TerminalController {
               var output = String(data: data, encoding: .utf8) else {
             return nil
         }
+        #if DEBUG
+        let rawLines = output.split(separator: "\n", omittingEmptySubsequences: false).count
+        let plain = Self.mobilePlainTerminalText(output)
+        let nonEmpty = plain.split(separator: "\n", omittingEmptySubsequences: false).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count
+        cmuxDebugLog("mobile.vtFile bytes=\(data.count) lines=\(rawLines) nonEmptyLines=\(nonEmpty) action=\(bindingAction)")
+        #endif
         if let lineLimit {
             output = tailTerminalLines(output, maxLines: lineLimit)
         }
