@@ -2299,6 +2299,79 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
     }
 
+    func testTmuxAttachLocalPreservesCallerContextFocusAndResolvesCwd() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("tmuxattachctx")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+        let expectedWorkingDirectory = (FileManager.default.currentDirectoryPath as NSString)
+            .appendingPathComponent(".")
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "workspace.tmux.attach")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["session_name"] as? String, "cmuxcc")
+            XCTAssertEqual(params["focus"] as? Bool, true)
+            XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+            XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+            XCTAssertEqual(params["working_directory"] as? String, expectedWorkingDirectory)
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "workspace_id": workspaceId,
+                    "workspace_ref": "workspace:1",
+                    "surface_id": surfaceId,
+                    "surface_ref": "surface:1",
+                    "session_name": "cmuxcc",
+                    "mode": "local",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["tmux", "attach", "cmuxcc", "--cwd", "."],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK workspace=workspace:1 session=cmuxcc mode=local\n")
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+    }
+
+    func testTmuxAttachWorkspaceMethodAllowsExplicitFocus() {
+        XCTAssertTrue(TerminalController.explicitFocusParamAllowsFocus(
+            commandKey: "workspace.tmux.attach",
+            params: ["focus": true]
+        ))
+        XCTAssertFalse(TerminalController.explicitFocusParamAllowsFocus(
+            commandKey: "workspace.tmux.attach",
+            params: ["focus": false]
+        ))
+    }
+
     func testTmuxAttachSSHUsesPersistentPTYCommand() throws {
         let run = try runMockedSSH(
             arguments: [],

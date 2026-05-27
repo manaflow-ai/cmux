@@ -6592,11 +6592,9 @@ struct CMUXCLI {
             "create": options.create,
             "focus": !options.noFocus,
         ]
-        if let windowRaw = options.windowRaw {
-            params["window_id"] = try normalizeWindowHandle(windowRaw, client: client) ?? windowRaw
-        }
+        try applyWindowOrCallerContext(to: &params, client: client, windowRaw: options.windowRaw)
         if let workingDirectory = options.workingDirectory {
-            params["working_directory"] = workingDirectory
+            params["working_directory"] = resolvePath(workingDirectory)
         }
         if let workspaceName = options.workspaceName {
             params["title"] = workspaceName
