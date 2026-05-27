@@ -72,10 +72,16 @@ final class MobileWorkspaceListObserver {
         guard let tabManager else { return }
         let hash = Self.summaryHash(for: tabManager.tabs)
         if !force, hash == lastSummaryHash {
+            #if DEBUG
+            cmuxDebugLog("mobile.observer skip: hash unchanged=\(hash) tabs=\(tabManager.tabs.count)")
+            #endif
             return
         }
         lastSummaryHash = hash
         mobileWorkspaceObserverLog.debug("emitting workspace.updated (hash=\(hash, privacy: .public))")
+        #if DEBUG
+        cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
+        #endif
         MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
     }
 

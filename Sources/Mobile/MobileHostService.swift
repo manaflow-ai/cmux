@@ -186,9 +186,17 @@ final class MobileHostService {
     /// Safe to call from any actor/queue.
     nonisolated func emitEvent(topic: String, payload: [String: Any]) {
         let connections = MobileHostConnectionRegistry.shared.snapshot()
+        #if DEBUG
+        cmuxDebugLog("mobile.emit topic=\(topic) connections=\(connections.count)")
+        #endif
         guard !connections.isEmpty else { return }
         for connection in connections {
-            Task { await connection.sendEvent(topic: topic, payload: payload) }
+            Task {
+                let delivered = await connection.sendEvent(topic: topic, payload: payload)
+                #if DEBUG
+                cmuxDebugLog("mobile.emit -> connection delivered=\(delivered) topic=\(topic)")
+                #endif
+            }
         }
     }
 
@@ -1148,6 +1156,9 @@ actor MobileHostConnection {
                 return .failure(MobileHostRPCError(code: "invalid_params", message: "topics is required"))
             }
             subscribe(streamID: streamID, topics: topics)
+            #if DEBUG
+            cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) connID=\(self.id.uuidString)")
+            #endif
             return .ok([
                 "stream_id": streamID,
                 "topics": Array(topics).sorted(),
@@ -1192,17 +1203,30 @@ actor MobileHostConnection {
         return false
     }
 
-    /// Send a server-pushed event envelope to this connection. No-ops if the
-    /// connection isn't subscribed to the topic.
-    func sendEvent(topic: String, payload: [String: Any]) async {
-        guard !isClosed, isSubscribed(to: topic) else { return }
+    /// Send a server-pushed event envelope to this connection. Returns true
+    /// if the event was actually written to the wire. No-ops if the
+    /// connection is closed or not subscribed to the topic.
+    @discardableResult
+    func sendEvent(topic: String, payload: [String: Any]) async -> Bool {
+        guard !isClosed else {
+            #if DEBUG
+            cmuxDebugLog("mobile.send skip: closed topic=\(topic) connID=\(self.id.uuidString)")
+            #endif
+            return false
+        }
+        guard isSubscribed(to: topic) else {
+            #if DEBUG
+            cmuxDebugLog("mobile.send skip: not subscribed topic=\(topic) connID=\(self.id.uuidString) subs=\(subscriptions.count)")
+            #endif
+            return false
+        }
         let envelope: [String: Any] = [
             "kind": "event",
             "topic": topic,
             "payload": payload,
         ]
-        guard let data = try? JSONSerialization.data(withJSONObject: envelope) else { return }
-        _ = await sendResponse(data)
+        guard let data = try? JSONSerialization.data(withJSONObject: envelope) else { return false }
+        return await sendResponse(data)
     }
 
     private func sendResponse(_ response: Data) async -> Bool {
