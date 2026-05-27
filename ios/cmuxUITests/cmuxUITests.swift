@@ -216,13 +216,12 @@ final class cmuxUITests: XCTestCase {
             "Pair button should sit at or above its keyboard-down position (got \(keyboardOpenFrame.midY) vs \(initialPairFrame.midY))"
         )
 
-        // Swipe down inside the form's scroll area to dismiss the keyboard via
-        // .scrollDismissesKeyboard(.interactively). The MobileAddDeviceForm
-        // overlay identifier matches multiple elements (the form renders as a
-        // collection of sections), so use a coordinate swipe between the host
-        // field and the Pair button — both end up inside the scroll surface.
-        let start = hostField.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
+        // Drag a short distance downward, anchored on the host field, to
+        // trigger .scrollDismissesKeyboard(.interactively) without dragging
+        // far enough to invoke the sheet dismissal gesture (which kicks in
+        // when the drag spans the sheet's chrome). Stay inside the form body.
+        let start = hostField.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 1.0))
+        let end = hostField.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 6.0))
         start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.0)
 
         let dismissed = waitForKeyboardDismissal(in: app)

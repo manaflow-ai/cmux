@@ -9600,20 +9600,35 @@ class TerminalController {
         lineLimit: Int,
         now: Date
     ) -> MobileTerminalSnapshotText? {
-        // IMPORTANT: read the .active region (where the cursor lives), not the
-        // .viewport (where the Mac user is currently scrolled). Mobile clients
-        // render Ghostty's cursor row/col directly against visibleRows[i],
-        // so the rows we send MUST be the 45-row active area or the cursor
-        // ends up offset by however much the Mac user has scrolled. VT export
-        // bundles history+active into a single styled stream whose line count
-        // does not equal the active row count, so we cannot tail it to recover
-        // the active area; use the plain-text active path instead.
+        // The row we send MUST be the 45-row active area (POINT_ACTIVE), not
+        // POINT_VIEWPORT, so the cursor row aligns when the Mac user is
+        // scrolled into history. We prefer VT export for ANSI styling, but
+        // tailing the whole-buffer VT stream is unreliable for row alignment
+        // because Ghostty's formatter unwraps wrapped lines. Strategy:
+        //   1. Read plain text from POINT_ACTIVE as the row truth (exactly 45 lines).
+        //   2. Attempt VT export, tail to exactly `lineLimit` lines.
+        //   3. Use VT output only when its plain-stripped form matches the
+        //      POINT_ACTIVE truth; otherwise fall back to plain text active.
         guard let activeText = readPlainTerminalTextForMobileActiveArea(
             terminalPanel: terminalPanel
         ) else {
             return nil
         }
-        return MobileTerminalSnapshotText(text: padToExactLines(activeText, lines: lineLimit), fidelity: "plain_text")
+        let activeAligned = padToExactLines(activeText, lines: lineLimit)
+
+        let attemptedVTExport = shouldAttemptMobileTerminalVTExport(surfaceID: terminalPanel.id, now: now)
+        if attemptedVTExport,
+           let vtText = readTerminalTextFromVTExportForSnapshot(terminalPanel: terminalPanel, lineLimit: lineLimit) {
+            // VT export emits ANSI escape sequences inline so cells carry
+            // foreground/background colors and SGR attributes. Tail to
+            // lineLimit and pad if needed so row indices line up with
+            // cursor.row from Ghostty's active screen. Wrapped lines that
+            // Ghostty's unwrap=true collapsed appear as fewer rows; pad with
+            // empty trailing rows rather than dropping styling.
+            let vtTailed = tailTerminalLines(vtText, maxLines: lineLimit)
+            return MobileTerminalSnapshotText(text: padToExactLines(vtTailed, lines: lineLimit), fidelity: "ansi_vt")
+        }
+        return MobileTerminalSnapshotText(text: activeAligned, fidelity: "plain_text")
     }
 
     private func readPlainTerminalTextForMobileActiveArea(
