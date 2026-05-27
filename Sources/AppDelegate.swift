@@ -7102,7 +7102,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let workspace = context.tabManager.selectedWorkspace
             ?? context.tabManager.addWorkspace(select: shouldBringToFront, autoWelcomeIfNeeded: false)
         let terminalPanel = workspace.focusedTerminalPanel
-            ?? workspace.panels.values.compactMap { $0 as? TerminalPanel }.first
             ?? workspace.newTerminalSurfaceInFocusedPane(focus: shouldBringToFront)
         guard let terminalPanel else { return false }
 
