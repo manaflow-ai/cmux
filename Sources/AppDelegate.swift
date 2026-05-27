@@ -585,6 +585,7 @@ private final class QuitSessionSnapshotProgressController: NSObject {
 
         super.init()
 
+        panel.identifier = NSUserInterfaceItemIdentifier("cmux.quitSessionSnapshotProgress")
         panel.title = titleLabel.stringValue
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
@@ -1767,7 +1768,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             hasDirtyWorkspaces: hasDirtyWorkspaces,
             buildFlavor: buildFlavor
         ) {
-            closeAllWebInspectorsBeforeAppTeardown()
             let reason: String
             if isQuitWarningConfirmed {
                 reason = "confirmed"
@@ -1884,12 +1884,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             progressController: progressController,
             totalWorkspaces: totalWorkspaces
         ) else {
-            persistSessionSnapshot(
-                nil,
-                removeWhenEmpty: false,
-                persistedGeometryData: nil,
-                synchronously: true
-            )
             return false
         }
 
@@ -1903,9 +1897,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
 
-        // Ensure any earlier async metadata-only autosave cannot run after and overwrite
-        // the committed quit snapshot that includes scrollback.
-        sessionPersistenceQueue.sync {}
+        await waitForSessionPersistenceQueueToDrain()
 #if DEBUG
         debugLogSessionSaveSnapshot(snapshot, includeScrollback: true)
 #endif
@@ -1916,6 +1908,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             synchronously: true
         )
         return true
+    }
+
+    private func waitForSessionPersistenceQueueToDrain() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            sessionPersistenceQueue.async {
+                continuation.resume()
+            }
+        }
     }
 
     private func committedQuitSessionSnapshotWorkspaceCount() -> Int {
