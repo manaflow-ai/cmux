@@ -6,7 +6,7 @@ import os
 private let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedMacStore")
 
 /// A Mac paired with this iOS device, persisted across launches.
-/// Auth tokens are never persisted — only enough to re-mint a fresh attach
+/// Auth tokens are never persisted, only enough to re-mint a fresh attach
 /// ticket via the StackAuth-authenticated manual host flow on next launch.
 public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     public var macDeviceID: String
@@ -512,4 +512,3 @@ public enum MobileShellStorePairedMacStoreFactory {
         attempted = false
     }
 }
-
