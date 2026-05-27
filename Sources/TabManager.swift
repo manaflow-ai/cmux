@@ -6427,6 +6427,10 @@ class TabManager: ObservableObject {
             return panelId
         }
 
+        if workspace.panels.count == 1 {
+            return workspace.panels.keys.first
+        }
+
         return nil
     }
 
