@@ -488,6 +488,7 @@ public final class CMUXMobileShellStore {
         }
     }
     private var terminalRefreshPollTask: Task<Void, Never>?
+    private var terminalEventListenerTask: Task<Void, Never>?
     private var selectedTerminalSnapshotRefreshTask: Task<Void, Never>?
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
@@ -1819,6 +1820,79 @@ public final class CMUXMobileShellStore {
     }
 
     private func startTerminalRefreshPolling() {
+        guard let client = remoteClient else { return }
+        // Prefer the Mac's `terminal.updated` push events over polling. We
+        // start a single coordinator that tries to subscribe; only if the
+        // Mac is too old to advertise the `events.v1` capability do we
+        // fall back to the 750ms refresh loop.
+        guard terminalEventListenerTask == nil, terminalRefreshPollTask == nil else { return }
+        terminalEventListenerTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let supportsEvents = await self.tryActivateTerminalUpdates(via: client)
+            if Task.isCancelled { return }
+            if !supportsEvents {
+                self.startLegacyTerminalRefreshPolling()
+            }
+            self.terminalEventListenerTask = nil
+        }
+    }
+
+    private func tryActivateTerminalUpdates(via client: MobileCoreRPCClient) async -> Bool {
+        let stream = await client.subscribe(to: ["terminal.updated", "workspace.updated"])
+        let requestData: Data
+        do {
+            requestData = try MobileCoreRPCClient.requestData(
+                method: "mobile.events.subscribe",
+                params: ["topics": ["terminal.updated", "workspace.updated"]]
+            )
+        } catch {
+            mobileShellLog.error("subscribe payload encode failed: \(String(describing: error), privacy: .private)")
+            return false
+        }
+        do {
+            _ = try await client.sendRequest(requestData)
+        } catch let MobileShellConnectionError.rpcError(code, _) where code == "method_not_found" {
+            return false
+        } catch {
+            mobileShellLog.error("subscribe failed, falling back to poll: \(String(describing: error), privacy: .private)")
+            return false
+        }
+        // Listen for events; refresh on each one. The stream finishes when
+        // the transport tears down, so the loop exits cleanly.
+        Task { @MainActor [weak self, weak client] in
+            for await event in stream {
+                guard let self, let client else { return }
+                guard self.remoteClient === client, self.connectionState == .connected else { return }
+                if event.topic == "terminal.updated" {
+                    await self.refreshSelectedTerminalSnapshot()
+                } else if event.topic == "workspace.updated" {
+                    self.scheduleWorkspaceListRefreshFromEvent()
+                }
+            }
+        }
+        return true
+    }
+
+    private func scheduleWorkspaceListRefreshFromEvent() {
+        guard let client = remoteClient else { return }
+        workspaceListRefreshTask?.cancel()
+        workspaceListRefreshTask = Task { @MainActor [weak self] in
+            defer { self?.workspaceListRefreshTask = nil }
+            guard let self else { return }
+            do {
+                let request = try MobileCoreRPCClient.requestData(method: "mobile.workspace.list", params: [:])
+                let data = try await client.sendRequest(request)
+                let response = try MobileSyncWorkspaceListResponse.decode(data)
+                guard self.remoteClient === client, self.connectionState == .connected else { return }
+                self.applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
+                self.syncSelectedTerminalForWorkspace()
+            } catch {
+                mobileShellLog.error("workspace list event refresh failed: \(String(describing: error), privacy: .private)")
+            }
+        }
+    }
+
+    private func startLegacyTerminalRefreshPolling() {
         guard remoteClient != nil, terminalRefreshPollTask == nil else { return }
         terminalRefreshPollTask = Task { @MainActor [weak self] in
             defer {
@@ -1842,6 +1916,8 @@ public final class CMUXMobileShellStore {
     private func stopTerminalRefreshPolling() {
         terminalRefreshPollTask?.cancel()
         terminalRefreshPollTask = nil
+        terminalEventListenerTask?.cancel()
+        terminalEventListenerTask = nil
     }
 
     private func cancelSelectedTerminalSnapshotRefresh() {
@@ -2921,16 +2997,22 @@ private actor MobileCoreRPCSession {
         let transport = try await ensureConnected()
         let frame = try MobileSyncFrameCodec.encodeFrame(payload)
 
-        let result: Result<Data, MobileShellConnectionError> = await withCheckedContinuation { continuation in
-            // Register BEFORE sending so a fast response can't race past us.
-            pending[requestID] = continuation
-            Task {
-                do {
-                    try await transport.send(frame)
-                } catch {
-                    self.failPending(requestID: requestID, error: .connectionClosed)
-                    await self.tearDown(error: .connectionClosed)
+        let result: Result<Data, MobileShellConnectionError> = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                // Register BEFORE sending so a fast response can't race past us.
+                pending[requestID] = continuation
+                Task {
+                    do {
+                        try await transport.send(frame)
+                    } catch {
+                        await self.failPending(requestID: requestID, error: .connectionClosed)
+                        await self.tearDown(error: .connectionClosed)
+                    }
                 }
+            }
+        } onCancel: {
+            Task {
+                await self.failPending(requestID: requestID, error: .requestTimedOut)
             }
         }
         switch result {

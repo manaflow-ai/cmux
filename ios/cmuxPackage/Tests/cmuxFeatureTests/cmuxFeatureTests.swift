@@ -3945,48 +3945,25 @@ private actor RouteAttemptRecorder {
 private actor ScriptedTransportResponses {
     private var frames: [Data]
     private var sentPayloads: [Data] = []
-    private var pendingResponses: [Data] = []
-    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
-    private var isClosed = false
 
     init(_ frames: [Data]) {
         self.frames = frames
     }
 
-    func next() async -> Data? {
-        if !pendingResponses.isEmpty {
-            return pendingResponses.removeFirst()
-        }
-        if isClosed {
-            return nil
-        }
-        return await withCheckedContinuation { continuation in
-            receiveWaiters.append(continuation)
-        }
-    }
-
-    func recordSend(_ data: Data) throws {
+    func recordSend(_ data: Data) throws -> [Data] {
         var buffer = data
         let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+        var responses: [Data] = []
         for payload in payloads {
             sentPayloads.append(payload)
             guard !frames.isEmpty else {
-                close()
                 continue
             }
             let request = try recordedRPCRequest(from: payload)
             let response = try responseFrame(frames.removeFirst(), matching: request)
-            enqueue(response)
+            responses.append(response)
         }
-    }
-
-    func close() {
-        isClosed = true
-        let waiters = receiveWaiters
-        receiveWaiters = []
-        for waiter in waiters {
-            waiter.resume(returning: nil)
-        }
+        return responses
     }
 
     func sentRequests() throws -> [RecordedRPCRequest] {
@@ -4010,15 +3987,6 @@ private actor ScriptedTransportResponses {
                 attachToken: auth?["attach_token"] as? String,
                 stackAccessToken: auth?["stack_access_token"] as? String
             )
-        }
-    }
-
-    private func enqueue(_ response: Data) {
-        if receiveWaiters.isEmpty {
-            pendingResponses.append(response)
-        } else {
-            let waiter = receiveWaiters.removeFirst()
-            waiter.resume(returning: response)
         }
     }
 }
@@ -4072,6 +4040,9 @@ private func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest
 
 private actor ScriptedTransport: CmxByteTransport {
     private let responses: ScriptedTransportResponses
+    private var pendingResponses: [Data] = []
+    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
+    private var isClosed = false
 
     init(responses: ScriptedTransportResponses) {
         self.responses = responses
@@ -4080,15 +4051,48 @@ private actor ScriptedTransport: CmxByteTransport {
     func connect() async throws {}
 
     func receive() async throws -> Data? {
-        await responses.next()
+        await nextResponse()
     }
 
     func send(_ data: Data) async throws {
-        try await responses.recordSend(data)
+        let responseFrames = try await responses.recordSend(data)
+        for frame in responseFrames {
+            enqueue(frame)
+        }
     }
 
     func close() async {
-        await responses.close()
+        closeLocal()
+    }
+
+    private func nextResponse() async -> Data? {
+        if !pendingResponses.isEmpty {
+            return pendingResponses.removeFirst()
+        }
+        if isClosed {
+            return nil
+        }
+        return await withCheckedContinuation { continuation in
+            receiveWaiters.append(continuation)
+        }
+    }
+
+    private func enqueue(_ response: Data) {
+        if receiveWaiters.isEmpty {
+            pendingResponses.append(response)
+        } else {
+            let waiter = receiveWaiters.removeFirst()
+            waiter.resume(returning: response)
+        }
+    }
+
+    private func closeLocal() {
+        isClosed = true
+        let waiters = receiveWaiters
+        receiveWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
+        }
     }
 }
 
@@ -4101,6 +4105,9 @@ private actor FailingRouteTransport: CmxByteTransport {
     private let failingRouteID: String
     private let responses: ScriptedTransportResponses
     private let attempts: RouteAttemptRecorder
+    private var pendingResponses: [Data] = []
+    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
+    private var isClosed = false
 
     init(
         routeID: String,
@@ -4122,15 +4129,48 @@ private actor FailingRouteTransport: CmxByteTransport {
     }
 
     func receive() async throws -> Data? {
-        await responses.next()
+        await nextResponse()
     }
 
     func send(_ data: Data) async throws {
-        try await responses.recordSend(data)
+        let responseFrames = try await responses.recordSend(data)
+        for frame in responseFrames {
+            enqueue(frame)
+        }
     }
 
     func close() async {
-        await responses.close()
+        closeLocal()
+    }
+
+    private func nextResponse() async -> Data? {
+        if !pendingResponses.isEmpty {
+            return pendingResponses.removeFirst()
+        }
+        if isClosed {
+            return nil
+        }
+        return await withCheckedContinuation { continuation in
+            receiveWaiters.append(continuation)
+        }
+    }
+
+    private func enqueue(_ response: Data) {
+        if receiveWaiters.isEmpty {
+            pendingResponses.append(response)
+        } else {
+            let waiter = receiveWaiters.removeFirst()
+            waiter.resume(returning: response)
+        }
+    }
+
+    private func closeLocal() {
+        isClosed = true
+        let waiters = receiveWaiters
+        receiveWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
+        }
     }
 }
 

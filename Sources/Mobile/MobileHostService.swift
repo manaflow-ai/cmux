@@ -42,6 +42,14 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
         lock.unlock()
         return values
     }
+
+    /// Snapshot of current connections — caller fans out event delivery
+    /// without holding the registry lock across `await`.
+    func snapshot() -> [MobileHostConnection] {
+        lock.lock()
+        defer { lock.unlock() }
+        return Array(connections.values)
+    }
 }
 
 private enum MobileHostPublicStatusCache {
@@ -173,6 +181,16 @@ final class MobileHostService {
 
     private init() {}
 
+    /// Fan out a server-pushed event to every connection subscribed to `topic`.
+    /// Safe to call from any actor/queue.
+    nonisolated func emitEvent(topic: String, payload: [String: Any]) {
+        let connections = MobileHostConnectionRegistry.shared.snapshot()
+        guard !connections.isEmpty else { return }
+        for connection in connections {
+            Task { await connection.sendEvent(topic: topic, payload: payload) }
+        }
+    }
+
     func start() {
         guard listener == nil else {
             return
@@ -271,7 +289,11 @@ final class MobileHostService {
         let status = await publicStatusSnapshot()
         return .ok([
             "routes": status.routes.map(\.mobileHostJSONObject),
-            "snapshot_fidelity": "plain_text"
+            "snapshot_fidelity": "plain_text",
+            // Clients with "events.v1" can subscribe via mobile.events.subscribe
+            // instead of polling terminal snapshots. Old clients without this
+            // capability fall back to their 750ms refresh loop.
+            "capabilities": ["events.v1"],
         ])
     }
 
@@ -904,6 +926,9 @@ actor MobileHostConnection {
     private var idleTimeoutTask: Task<Void, Never>?
     private var didDecodeFirstFrame = false
     private var isClosed = false
+    /// stream_id → set of topics this connection is subscribed to.
+    /// Populated by `mobile.events.subscribe`; cleared on close.
+    private var subscriptions: [String: Set<String>] = [:]
 
     init(
         id: UUID,
@@ -945,6 +970,7 @@ actor MobileHostConnection {
         firstFrameTimeoutTask = nil
         idleTimeoutTask?.cancel()
         idleTimeoutTask = nil
+        subscriptions.removeAll()
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
         connection.stateUpdateHandler = nil
         connection.cancel()
@@ -1087,6 +1113,15 @@ actor MobileHostConnection {
                     MobileHostRequestActivity.endRequest()
                 }
             }
+            // Subscription RPCs are handled at the connection level; they
+            // don't touch terminal state, so we skip the global authorization
+            // path and short-circuit to the connection's own subscription
+            // table. This keeps the connection's subscription set
+            // self-contained.
+            if let intercepted = handleSubscriptionRPC(request) {
+                _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted))
+                return
+            }
             if let error = await authorizeRequest(request) {
                 _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error))
                 return
@@ -1100,6 +1135,32 @@ actor MobileHostConnection {
         }
     }
 
+    private func handleSubscriptionRPC(_ request: MobileHostRPCRequest) -> MobileHostRPCResult? {
+        switch request.method {
+        case "mobile.events.subscribe":
+            let streamID = (request.params["stream_id"] as? String) ?? UUID().uuidString
+            let topicsArray = (request.params["topics"] as? [String]) ?? []
+            let topics = Set(topicsArray.filter { !$0.isEmpty })
+            guard !topics.isEmpty else {
+                return .failure(MobileHostRPCError(code: "invalid_params", message: "topics is required"))
+            }
+            subscribe(streamID: streamID, topics: topics)
+            return .ok([
+                "stream_id": streamID,
+                "topics": Array(topics).sorted(),
+            ])
+        case "mobile.events.unsubscribe":
+            let streamID = request.params["stream_id"] as? String ?? ""
+            let removed = unsubscribe(streamID: streamID)
+            return .ok([
+                "stream_id": streamID,
+                "removed": removed,
+            ])
+        default:
+            return nil
+        }
+    }
+
     private static func isInteractiveMobileRequest(_ method: String) -> Bool {
         switch method {
         case "mobile.host.status", "mobile.terminal.snapshot", "terminal.snapshot":
@@ -1107,6 +1168,38 @@ actor MobileHostConnection {
         default:
             return true
         }
+    }
+
+    /// Add a subscription for this connection. Idempotent per stream_id.
+    func subscribe(streamID: String, topics: Set<String>) {
+        subscriptions[streamID] = topics
+    }
+
+    /// Remove a subscription by id. Returns true if it existed.
+    @discardableResult
+    func unsubscribe(streamID: String) -> Bool {
+        return subscriptions.removeValue(forKey: streamID) != nil
+    }
+
+    /// Check whether this connection has any subscriber registered for `topic`.
+    func isSubscribed(to topic: String) -> Bool {
+        for (_, topics) in subscriptions where topics.contains(topic) {
+            return true
+        }
+        return false
+    }
+
+    /// Send a server-pushed event envelope to this connection. No-ops if the
+    /// connection isn't subscribed to the topic.
+    func sendEvent(topic: String, payload: [String: Any]) async {
+        guard !isClosed, isSubscribed(to: topic) else { return }
+        let envelope: [String: Any] = [
+            "kind": "event",
+            "topic": topic,
+            "payload": payload,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: envelope) else { return }
+        _ = await sendResponse(data)
     }
 
     private func sendResponse(_ response: Data) async -> Bool {

@@ -21479,6 +21479,13 @@ class TerminalController {
         mobileTerminalSnapshotCacheBySurfaceID[surfaceID] = nil
         mobileTerminalVTExportLastAttemptBySurfaceID[surfaceID] = nil
         mobileTerminalSnapshotPendingEchoUntilBySurfaceID[surfaceID] = Date().addingTimeInterval(Self.mobileTerminalSnapshotPendingEchoTTL)
+        // Notify subscribed mobile clients so they can fetch a fresh snapshot
+        // without polling. Old clients without events.v1 capability fall back
+        // to their 750ms refresh loop.
+        MobileHostService.shared.emitEvent(
+            topic: "terminal.updated",
+            payload: ["surface_id": surfaceID.uuidString]
+        )
     }
 
     private func mobileTerminalSnapshotPendingEcho(surfaceID: UUID, now: Date) -> Bool {
