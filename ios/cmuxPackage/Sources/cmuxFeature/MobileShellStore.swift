@@ -611,7 +611,7 @@ public final class CMUXMobileShellStore {
         connectionError = nil
         activeTicket = nil
         activeRoute = nil
-        remoteClient = nil
+        replaceRemoteClient(with: nil)
         isRefreshingSelectedTerminalSnapshot = false
         needsSelectedTerminalSnapshotRefresh = false
         cancelSelectedTerminalSnapshotRefresh()
@@ -640,7 +640,7 @@ public final class CMUXMobileShellStore {
             return
         }
         let attemptID = beginPairingAttempt()
-        remoteClient = nil
+        replaceRemoteClient(with: nil)
         connectionError = nil
         activeTicket = nil
         activeRoute = nil
@@ -1128,7 +1128,7 @@ public final class CMUXMobileShellStore {
         activeTicket = ticket
         activeRoute = firstRoute
         connectedHostName = ticket.macDisplayName ?? ticket.macDeviceID
-        remoteClient = nil
+        replaceRemoteClient(with: nil)
         persistPairedMacFromTicket(ticket)
 
         guard let runtime else {
@@ -1160,7 +1160,7 @@ public final class CMUXMobileShellStore {
                     )
                     let response = try MobileSyncWorkspaceListResponse.decode(resultData)
                     guard generation == connectionGeneration, isSignedIn else { return }
-                    remoteClient = client
+                    replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()
                     connectionError = nil
                     applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
@@ -1328,8 +1328,18 @@ public final class CMUXMobileShellStore {
         connectionGeneration = UUID()
         cancelRemoteOperationTasks()
         clearActiveConnectionContext()
-        remoteClient = nil
+        replaceRemoteClient(with: nil)
         rawTerminalInputBuffer.clear()
+    }
+
+    /// Set `remoteClient` to a new value (possibly nil) and disconnect the
+    /// previous one so we don't leak a persistent transport.
+    private func replaceRemoteClient(with newValue: MobileCoreRPCClient?) {
+        let previous = remoteClient
+        remoteClient = newValue
+        if let previous, previous !== newValue {
+            Task { await previous.disconnect() }
+        }
     }
 
     private func cancelRemoteOperationTasks() {
@@ -2417,6 +2427,7 @@ final class MobileCoreRPCClient: @unchecked Sendable {
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
     private let allowsStackAuthFallback: Bool
+    private let session: MobileCoreRPCSession
 
     init(
         runtime: CMUXMobileRuntime,
@@ -2428,6 +2439,23 @@ final class MobileCoreRPCClient: @unchecked Sendable {
         self.route = route
         self.ticket = ticket
         self.allowsStackAuthFallback = allowsStackAuthFallback
+        self.session = MobileCoreRPCSession(
+            makeTransport: { [route, runtime] in
+                try runtime.transportFactory.makeTransport(for: route)
+            }
+        )
+    }
+
+    /// Tear down the persistent transport (called when the client is
+    /// replaced or the user signs out).
+    func disconnect() async {
+        await session.tearDown(error: .connectionClosed)
+    }
+
+    /// Subscribe to server-pushed events. Returns a stream of envelopes
+    /// matching any of the requested topics. Cancel by terminating iteration.
+    func subscribe(to topics: Set<String>) async -> AsyncStream<MobileEventEnvelope> {
+        await session.addEventListener(topics: topics).stream
     }
 
     static func requestData(
@@ -2444,24 +2472,31 @@ final class MobileCoreRPCClient: @unchecked Sendable {
     }
 
     func sendRequest(_ requestData: Data, timeoutNanoseconds: UInt64? = nil) async throws -> Data {
-        let transport = try runtime.transportFactory.makeTransport(for: route)
-        do {
-            let response = try await Self.withRequestTimeout(
-                timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
-            ) {
-                let authenticatedRequestData = try await self.requestDataWithAuth(requestData)
-                try await transport.connect()
-                let frame = try MobileSyncFrameCodec.encodeFrame(authenticatedRequestData)
-                try await transport.send(frame)
-                let responseFrame = try await self.receiveFrame(from: transport)
-                return try self.decodeResultEnvelope(responseFrame)
-            }
-            await transport.close()
-            return response
-        } catch {
-            await transport.close()
-            throw error
+        // Multiplexed over a persistent transport: each request gets a unique
+        // id, the session's reader task routes the response back here. No
+        // connect/close per RPC, no head-of-line blocking between calls.
+        let (id, augmented) = try Self.requestWithGuaranteedID(requestData)
+        let authenticated = try await requestDataWithAuth(augmented)
+        return try await Self.withRequestTimeout(
+            timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
+        ) {
+            try await self.session.send(payload: authenticated, requestID: id)
         }
+    }
+
+    private static func requestWithGuaranteedID(_ requestData: Data) throws -> (String, Data) {
+        guard var dict = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
+            throw MobileShellConnectionError.invalidResponse
+        }
+        let id: String
+        if let existing = dict["id"] as? String, !existing.isEmpty {
+            id = existing
+        } else {
+            id = UUID().uuidString
+            dict["id"] = id
+        }
+        let data = try JSONSerialization.data(withJSONObject: dict)
+        return (id, data)
     }
 
     private func requestDataWithAuth(_ requestData: Data) async throws -> Data {
@@ -2590,43 +2625,6 @@ final class MobileCoreRPCClient: @unchecked Sendable {
     private struct StringParamSelection {
         let value: String?
         let hasConflict: Bool
-    }
-
-    private func receiveFrame(from transport: any CmxByteTransport) async throws -> Data {
-        var buffer = Data()
-        while true {
-            guard let chunk = try await transport.receive() else {
-                throw MobileShellConnectionError.connectionClosed
-            }
-            guard !chunk.isEmpty else {
-                continue
-            }
-            buffer.append(chunk)
-            let frames = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
-            if let frame = frames.first {
-                return frame
-            }
-        }
-    }
-
-    private func decodeResultEnvelope(_ frame: Data) throws -> Data {
-        guard let envelope = try JSONSerialization.jsonObject(with: frame) as? [String: Any],
-              let ok = envelope["ok"] as? Bool else {
-            throw MobileShellConnectionError.invalidResponse
-        }
-        if ok {
-            let result = envelope["result"] ?? [:]
-            return try JSONSerialization.data(withJSONObject: result)
-        }
-        if let error = envelope["error"] as? [String: Any],
-           let message = error["message"] as? String {
-            let code = error["code"] as? String
-            if code == "unauthorized" {
-                throw MobileShellConnectionError.authorizationFailed(message)
-            }
-            throw MobileShellConnectionError.rpcError(code, message)
-        }
-        throw MobileShellConnectionError.invalidResponse
     }
 
     private static func withRequestTimeout<T: Sendable>(
@@ -2872,5 +2870,202 @@ enum PreviewMobileHost {
         } catch {
             preconditionFailure("Invalid mobile terminal preview snapshot: \(error)")
         }
+    }
+}
+
+// MARK: - MobileCoreRPCSession
+
+/// One server-pushed event delivered over the persistent transport.
+public struct MobileEventEnvelope: Sendable {
+    public let topic: String
+    public let payloadJSON: Data?
+    public let streamID: String?
+}
+
+/// Owns a single persistent transport for a `MobileCoreRPCClient`, multiplexes
+/// requests by id, and dispatches server-pushed events to registered listeners.
+/// No polling: the reader task runs continuously, parking on `transport.receive()`
+/// until the kernel delivers bytes. There is no `Task.sleep` or `asyncAfter`
+/// anywhere in this class; the only Task.sleep elsewhere in the file is the
+/// race-deadline in `withRequestTimeout`.
+private actor MobileCoreRPCSession {
+    typealias TransportFactory = @Sendable () throws -> any CmxByteTransport
+    typealias PendingContinuation = CheckedContinuation<Result<Data, MobileShellConnectionError>, Never>
+
+    struct EventSubscription {
+        let id: UUID
+        let stream: AsyncStream<MobileEventEnvelope>
+    }
+
+    private struct EventListener {
+        let topics: Set<String>
+        let continuation: AsyncStream<MobileEventEnvelope>.Continuation
+    }
+
+    private let makeTransport: TransportFactory
+    private var transport: (any CmxByteTransport)?
+    private var readerTask: Task<Void, Never>?
+    private var pending: [String: PendingContinuation] = [:]
+    private var listeners: [UUID: EventListener] = [:]
+    private var isTearingDown: Bool = false
+
+    init(makeTransport: @escaping TransportFactory) {
+        self.makeTransport = makeTransport
+    }
+
+    deinit {
+        readerTask?.cancel()
+    }
+
+    func send(payload: Data, requestID: String) async throws -> Data {
+        let transport = try await ensureConnected()
+        let frame = try MobileSyncFrameCodec.encodeFrame(payload)
+
+        let result: Result<Data, MobileShellConnectionError> = await withCheckedContinuation { continuation in
+            // Register BEFORE sending so a fast response can't race past us.
+            pending[requestID] = continuation
+            Task {
+                do {
+                    try await transport.send(frame)
+                } catch {
+                    self.failPending(requestID: requestID, error: .connectionClosed)
+                    await self.tearDown(error: .connectionClosed)
+                }
+            }
+        }
+        switch result {
+        case .success(let data):
+            return data
+        case .failure(let error):
+            throw error
+        }
+    }
+
+    func addEventListener(topics: Set<String>) -> EventSubscription {
+        let id = UUID()
+        var continuation: AsyncStream<MobileEventEnvelope>.Continuation!
+        let stream = AsyncStream<MobileEventEnvelope>(bufferingPolicy: .bufferingNewest(256)) { cont in
+            continuation = cont
+        }
+        listeners[id] = EventListener(topics: topics, continuation: continuation)
+        continuation.onTermination = { [weak self] _ in
+            guard let self else { return }
+            Task { await self.removeListener(id: id) }
+        }
+        return EventSubscription(id: id, stream: stream)
+    }
+
+    func removeListener(id: UUID) {
+        listeners.removeValue(forKey: id)
+    }
+
+    func tearDown(error: MobileShellConnectionError) async {
+        guard !isTearingDown else { return }
+        isTearingDown = true
+        let pendingSnapshot = pending
+        pending.removeAll()
+        for (_, cont) in pendingSnapshot {
+            cont.resume(returning: .failure(error))
+        }
+        let listenerSnapshot = listeners
+        listeners.removeAll()
+        for (_, listener) in listenerSnapshot {
+            listener.continuation.finish()
+        }
+        if let transport {
+            await transport.close()
+        }
+        transport = nil
+        readerTask?.cancel()
+        readerTask = nil
+        isTearingDown = false
+    }
+
+    // MARK: - private
+
+    private func ensureConnected() async throws -> any CmxByteTransport {
+        if let transport { return transport }
+        let candidate = try makeTransport()
+        try await candidate.connect()
+        transport = candidate
+        readerTask = Task { [weak self] in
+            await self?.readLoop(transport: candidate)
+        }
+        return candidate
+    }
+
+    private func readLoop(transport: any CmxByteTransport) async {
+        var buffer = Data()
+        while !Task.isCancelled {
+            let chunk: Data?
+            do {
+                chunk = try await transport.receive()
+            } catch {
+                await tearDown(error: .connectionClosed)
+                return
+            }
+            guard let chunk, !chunk.isEmpty else {
+                if chunk == nil {
+                    await tearDown(error: .connectionClosed)
+                    return
+                }
+                continue
+            }
+            buffer.append(chunk)
+            let frames: [Data]
+            do {
+                frames = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+            } catch {
+                await tearDown(error: .invalidResponse)
+                return
+            }
+            for frame in frames {
+                dispatch(frame: frame)
+            }
+        }
+    }
+
+    private func dispatch(frame: Data) {
+        let parsed = try? JSONSerialization.jsonObject(with: frame) as? [String: Any]
+        guard let envelope = parsed else { return }
+        if (envelope["kind"] as? String) == "event" {
+            guard let topic = envelope["topic"] as? String else { return }
+            let payloadData: Data?
+            if let payload = envelope["payload"] {
+                payloadData = try? JSONSerialization.data(withJSONObject: payload)
+            } else {
+                payloadData = nil
+            }
+            let streamID = envelope["stream_id"] as? String
+            let event = MobileEventEnvelope(topic: topic, payloadJSON: payloadData, streamID: streamID)
+            for (_, listener) in listeners where listener.topics.contains(topic) {
+                listener.continuation.yield(event)
+            }
+            return
+        }
+        guard let id = envelope["id"] as? String else { return }
+        guard let cont = pending.removeValue(forKey: id) else { return }
+        if (envelope["ok"] as? Bool) == true {
+            let result = envelope["result"] ?? [:]
+            if let data = try? JSONSerialization.data(withJSONObject: result) {
+                cont.resume(returning: .success(data))
+            } else {
+                cont.resume(returning: .failure(.invalidResponse))
+            }
+            return
+        }
+        let errorPayload = envelope["error"] as? [String: Any]
+        let message = (errorPayload?["message"] as? String) ?? "RPC error"
+        let code = errorPayload?["code"] as? String
+        if code == "unauthorized" {
+            cont.resume(returning: .failure(.authorizationFailed(message)))
+        } else {
+            cont.resume(returning: .failure(.rpcError(code, message)))
+        }
+    }
+
+    private func failPending(requestID: String, error: MobileShellConnectionError) {
+        guard let cont = pending.removeValue(forKey: requestID) else { return }
+        cont.resume(returning: .failure(error))
     }
 }

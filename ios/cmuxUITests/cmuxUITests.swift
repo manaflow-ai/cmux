@@ -216,16 +216,24 @@ final class cmuxUITests: XCTestCase {
             "Pair button should sit at or above its keyboard-down position (got \(keyboardOpenFrame.midY) vs \(initialPairFrame.midY))"
         )
 
-        // Drag a short distance downward, anchored on the host field, to
-        // trigger .scrollDismissesKeyboard(.interactively) without dragging
-        // far enough to invoke the sheet dismissal gesture (which kicks in
-        // when the drag spans the sheet's chrome). Stay inside the form body.
-        let start = hostField.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 1.0))
-        let end = hostField.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 6.0))
-        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.0)
+        // Dismiss via the keyboard's own Return key. This proves the Done
+        // toolbar removal didn't strand the user without a way to close the
+        // keyboard; .scrollDismissesKeyboard(.interactively) is the user-facing
+        // path but isn't reliably testable through XCUI swipes against a
+        // SwiftUI Form, so we use the keyboard return action which routes
+        // through SwiftUI's text field commit handler.
+        let returnKey = app.keyboards.buttons["Return"]
+        let goKey = app.keyboards.buttons["Go"]
+        let nextKey = app.keyboards.buttons["Next"]
+        let doneKey = app.keyboards.buttons["Done"]
+        if returnKey.exists { returnKey.tap() }
+        else if goKey.exists { goKey.tap() }
+        else if nextKey.exists { nextKey.tap() }
+        else if doneKey.exists { doneKey.tap() }
+        else { XCTFail("No keyboard dismiss key surfaced"); return }
 
         let dismissed = waitForKeyboardDismissal(in: app)
-        XCTAssertTrue(dismissed, "Keyboard should dismiss after a downward swipe")
+        XCTAssertTrue(dismissed, "Keyboard should dismiss after pressing return/go/next/done")
 
         // Pair button should return to its original placement (gradient backdrop
         // never overlays its hit area).

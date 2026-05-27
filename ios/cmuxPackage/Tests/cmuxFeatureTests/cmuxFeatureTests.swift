@@ -3869,7 +3869,9 @@ private actor RemoteCreateWorkspaceRouter: RequestAwareTransportRouter {
 
 private actor RequestAwareTransport: CmxByteTransport {
     private let router: any RequestAwareTransportRouter
-    private var request: RecordedRPCRequest?
+    private var pendingRequests: [RecordedRPCRequest] = []
+    private var receiveWaiters: [CheckedContinuation<RecordedRPCRequest?, Never>] = []
+    private var isClosed = false
 
     init(router: any RequestAwareTransportRouter) {
         self.router = router
@@ -3878,23 +3880,54 @@ private actor RequestAwareTransport: CmxByteTransport {
     func connect() async throws {}
 
     func receive() async throws -> Data? {
-        guard let request else {
+        guard let request = await nextRequest() else {
             return nil
         }
-        return try await router.response(for: request)
+        guard let response = try await router.response(for: request) else {
+            return nil
+        }
+        return try responseFrame(response, matching: request)
     }
 
     func send(_ data: Data) async throws {
         var buffer = data
-        guard let payload = try MobileSyncFrameCodec.decodeFrames(from: &buffer).last else {
-            return
+        let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+        for payload in payloads {
+            let request = try recordedRPCRequest(from: payload)
+            await router.record(request)
+            enqueue(request)
         }
-        let request = try recordedRPCRequest(from: payload)
-        self.request = request
-        await router.record(request)
     }
 
-    func close() async {}
+    func close() async {
+        isClosed = true
+        let waiters = receiveWaiters
+        receiveWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
+        }
+    }
+
+    private func nextRequest() async -> RecordedRPCRequest? {
+        if !pendingRequests.isEmpty {
+            return pendingRequests.removeFirst()
+        }
+        if isClosed {
+            return nil
+        }
+        return await withCheckedContinuation { continuation in
+            receiveWaiters.append(continuation)
+        }
+    }
+
+    private func enqueue(_ request: RecordedRPCRequest) {
+        if receiveWaiters.isEmpty {
+            pendingRequests.append(request)
+        } else {
+            let waiter = receiveWaiters.removeFirst()
+            waiter.resume(returning: request)
+        }
+    }
 }
 
 private actor RouteAttemptRecorder {
@@ -3912,21 +3945,48 @@ private actor RouteAttemptRecorder {
 private actor ScriptedTransportResponses {
     private var frames: [Data]
     private var sentPayloads: [Data] = []
+    private var pendingResponses: [Data] = []
+    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
+    private var isClosed = false
 
     init(_ frames: [Data]) {
         self.frames = frames
     }
 
-    func next() -> Data? {
-        guard !frames.isEmpty else {
+    func next() async -> Data? {
+        if !pendingResponses.isEmpty {
+            return pendingResponses.removeFirst()
+        }
+        if isClosed {
             return nil
         }
-        return frames.removeFirst()
+        return await withCheckedContinuation { continuation in
+            receiveWaiters.append(continuation)
+        }
     }
 
     func recordSend(_ data: Data) throws {
         var buffer = data
-        sentPayloads.append(contentsOf: try MobileSyncFrameCodec.decodeFrames(from: &buffer))
+        let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+        for payload in payloads {
+            sentPayloads.append(payload)
+            guard !frames.isEmpty else {
+                close()
+                continue
+            }
+            let request = try recordedRPCRequest(from: payload)
+            let response = try responseFrame(frames.removeFirst(), matching: request)
+            enqueue(response)
+        }
+    }
+
+    func close() {
+        isClosed = true
+        let waiters = receiveWaiters
+        receiveWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
+        }
     }
 
     func sentRequests() throws -> [RecordedRPCRequest] {
@@ -3935,6 +3995,7 @@ private actor ScriptedTransportResponses {
             let params = request["params"] as? [String: Any] ?? [:]
             let auth = request["auth"] as? [String: Any]
             return RecordedRPCRequest(
+                id: request["id"] as? String,
                 method: request["method"] as? String,
                 workspaceID: params["workspace_id"] as? String,
                 terminalID: params["terminal_id"] as? String ??
@@ -3951,9 +4012,19 @@ private actor ScriptedTransportResponses {
             )
         }
     }
+
+    private func enqueue(_ response: Data) {
+        if receiveWaiters.isEmpty {
+            pendingResponses.append(response)
+        } else {
+            let waiter = receiveWaiters.removeFirst()
+            waiter.resume(returning: response)
+        }
+    }
 }
 
 private struct RecordedRPCRequest: Sendable {
+    var id: String?
     var method: String?
     var workspaceID: String?
     var terminalID: String?
@@ -3984,6 +4055,7 @@ private func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest
     let params = request["params"] as? [String: Any] ?? [:]
     let auth = request["auth"] as? [String: Any]
     return RecordedRPCRequest(
+        id: request["id"] as? String,
         method: request["method"] as? String,
         workspaceID: params["workspace_id"] as? String,
         terminalID: params["terminal_id"] as? String ?? params["surface_id"] as? String,
@@ -4015,7 +4087,9 @@ private actor ScriptedTransport: CmxByteTransport {
         try await responses.recordSend(data)
     }
 
-    func close() async {}
+    func close() async {
+        await responses.close()
+    }
 }
 
 private enum FailingRouteTransportError: Error {
@@ -4055,7 +4129,31 @@ private actor FailingRouteTransport: CmxByteTransport {
         try await responses.recordSend(data)
     }
 
-    func close() async {}
+    func close() async {
+        await responses.close()
+    }
+}
+
+private func responseFrame(_ data: Data, matching request: RecordedRPCRequest) throws -> Data {
+    guard let requestID = request.id else {
+        return data
+    }
+    var buffer = data
+    let frames = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+    guard !frames.isEmpty else {
+        return data
+    }
+    var encoded = Data()
+    for frame in frames {
+        guard var envelope = try JSONSerialization.jsonObject(with: frame) as? [String: Any] else {
+            encoded.append(try MobileSyncFrameCodec.encodeFrame(frame))
+            continue
+        }
+        envelope["id"] = requestID
+        let envelopeData = try JSONSerialization.data(withJSONObject: envelope)
+        encoded.append(try MobileSyncFrameCodec.encodeFrame(envelopeData))
+    }
+    return encoded
 }
 
 private struct HangingTransportFactory: CmxByteTransportFactory {
