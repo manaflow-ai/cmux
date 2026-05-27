@@ -4755,6 +4755,7 @@ struct CMUXCLI {
         "current-workspace",
         "debug-terminals",
         "detach-tab",
+        "diff",
         "disable-browser",
         "dismiss-notification",
         "display-message",

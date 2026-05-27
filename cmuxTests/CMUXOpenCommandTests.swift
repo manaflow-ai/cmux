@@ -419,6 +419,36 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: patchSidecarURL.path))
     }
 
+    func testDiffCommandTakesPrecedenceOverLocalPathNamedDiff() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let shadowCommandURL = rootURL.appendingPathComponent("diff", isDirectory: false)
+        let patchURL = rootURL.appendingPathComponent("changes.patch", isDirectory: false)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try "not a command\n".write(to: shadowCommandURL, atomically: true, encoding: .utf8)
+        try """
+        diff --git a/hello.txt b/hello.txt
+        index 8ab686e..d95f3ad 100644
+        --- a/hello.txt
+        +++ b/hello.txt
+        @@ -1 +1 @@
+        -old
+        +new
+        """.write(to: patchURL, atomically: true, encoding: .utf8)
+
+        let result = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", patchURL.path, "--no-focus"],
+            currentDirectoryURL: rootURL
+        )
+
+        XCTAssertTrue(result.patch.contains("hello.txt"), result.patch)
+        XCTAssertEqual(result.params["show_omnibar"] as? Bool, false)
+    }
+
     func testDiffCommandUsesBundledAppLocalizationsForViewerLabels() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
