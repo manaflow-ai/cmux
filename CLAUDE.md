@@ -14,7 +14,7 @@ The team is pinned to Xcode 26.x. `.xcode-version` records the major; `cmux.xcod
 
 `scripts/setup.sh` installs a tracked pre-commit hook (`scripts/git-hooks/pre-commit`) that runs `scripts/normalize-pbxproj.py` on any staged `cmux.xcodeproj/project.pbxproj`, sorting the high-churn sections so Xcode's nondeterministic reordering never reaches a commit. The hook is idempotent. CI runs `scripts/check-pbxproj.sh` to enforce both the `objectVersion` pin and normalization, so anyone who skips the hook (or never ran setup) gets a clear failure on their PR.
 
-To bump the pin: edit `EXPECTED_OBJECT_VERSION` in `scripts/check-pbxproj.sh`, update this paragraph, and update `.xcode-version`.
+`.xcode-version` is the single source of truth. To bump the pin: edit `.xcode-version`, then add a case for the new Xcode major in `scripts/check-pbxproj.sh` mapping it to the `objectVersion` that Xcode major writes.
 
 ## Local dev
 
