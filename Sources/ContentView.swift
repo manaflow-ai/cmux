@@ -6045,7 +6045,7 @@ struct ContentView: View {
                 commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
                 commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
                 commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = true
-                if panelChanged || !probeResultMatches {
+                if !probeResultMatches {
                     commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = fallbackSnapshot
                     commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = fallbackFingerprint
                 }
@@ -6089,11 +6089,6 @@ struct ContentView: View {
                     commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
                     commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
                     commandPaletteForkableAgentResultHadFallbackByPanelKey.removeValue(forKey: panelKey)
-                } else if panelChanged {
-                    commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = fallbackSnapshot
-                    commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = fallbackFingerprint
-                    commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
-                    commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = true
                 }
                 startCommandPaletteForkableAgentAvailabilityProbe(
                     panelKey: panelKey,
