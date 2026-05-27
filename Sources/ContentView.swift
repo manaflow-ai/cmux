@@ -16114,18 +16114,25 @@ private struct TabItemView: View, Equatable {
             }()
             let hasAnyGroupedTarget = eligibleTargets.contains { $0.groupId != nil }
 
-            Button(
-                isMulti
-                    ? String(
-                        localized: "contextMenu.workspaceGroup.newFromSelection",
-                        defaultValue: "New Group from Selection…"
-                    )
-                    : String(
-                        localized: "contextMenu.workspaceGroup.newFromWorkspace",
-                        defaultValue: "New Group from Workspace…"
-                    )
-            ) {
-                promptNewWorkspaceGroup(workspaceIds: eligibleTargetIds)
+            let groupSelectedShortcut = KeyboardShortcutSettings.shortcut(for: .groupSelectedWorkspaces)
+            let groupSelectedLabel = isMulti
+                ? String(
+                    localized: "contextMenu.workspaceGroup.newFromSelection",
+                    defaultValue: "New Group from Selection"
+                )
+                : String(
+                    localized: "contextMenu.workspaceGroup.newFromWorkspace",
+                    defaultValue: "New Group from Workspace"
+                )
+            if let key = groupSelectedShortcut.keyEquivalent {
+                Button(groupSelectedLabel) {
+                    promptNewWorkspaceGroup(workspaceIds: eligibleTargetIds)
+                }
+                .keyboardShortcut(key, modifiers: groupSelectedShortcut.eventModifiers)
+            } else {
+                Button(groupSelectedLabel) {
+                    promptNewWorkspaceGroup(workspaceIds: eligibleTargetIds)
+                }
             }
 
             Menu(
