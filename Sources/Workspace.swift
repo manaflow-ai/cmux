@@ -12413,6 +12413,8 @@ final class Workspace: Identifiable, ObservableObject {
         "preferred_surface_id",
         "target_surface_id",
         "created_surface_id",
+        "before_surface_id",
+        "after_surface_id",
     ]
 
     private nonisolated static let remoteRelayAmbiguousIDKeys: Set<String> = [

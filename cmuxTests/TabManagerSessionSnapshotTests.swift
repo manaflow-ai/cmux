@@ -1918,6 +1918,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 "workspace_id": originalWorkspaceId.uuidString,
                 "surface_id": originalPanelId.uuidString,
                 "tab_id": originalPanelId.uuidString,
+                "before_surface_id": originalPanelId.uuidString,
+                "after_surface_id": originalPanelId.uuidString,
                 "workspace_ids": [originalWorkspaceId.uuidString],
                 "surface_ids": [originalPanelId.uuidString],
                 "tab_ids": [originalWorkspaceId.uuidString, originalPanelId.uuidString],
@@ -1938,6 +1940,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(params["workspace_id"] as? String, restoredWorkspace.id.uuidString)
         XCTAssertEqual(params["surface_id"] as? String, restoredPanelId.uuidString)
         XCTAssertEqual(params["tab_id"] as? String, restoredPanelId.uuidString)
+        XCTAssertEqual(params["before_surface_id"] as? String, restoredPanelId.uuidString)
+        XCTAssertEqual(params["after_surface_id"] as? String, restoredPanelId.uuidString)
         XCTAssertEqual(params["workspace_ids"] as? [String], [restoredWorkspace.id.uuidString])
         XCTAssertEqual(params["surface_ids"] as? [String], [restoredPanelId.uuidString])
         XCTAssertEqual(params["tab_ids"] as? [String], [restoredWorkspace.id.uuidString, restoredPanelId.uuidString])
@@ -2012,6 +2016,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 "workspace_id": originalWorkspaceId.uuidString,
                 "surface_id": originalPanelId.uuidString,
                 "tab_id": originalPanelId.uuidString,
+                "before_surface_id": originalPanelId.uuidString,
+                "after_surface_id": originalPanelId.uuidString,
                 "workspace_ids": [originalWorkspaceId.uuidString],
                 "surface_ids": [originalPanelId.uuidString],
                 "tab_ids": [originalWorkspaceId.uuidString, originalPanelId.uuidString],
@@ -2026,6 +2032,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(params["workspace_id"] as? String, restoredWorkspace.id.uuidString)
         XCTAssertEqual(params["surface_id"] as? String, reattachedPanel.id.uuidString)
         XCTAssertEqual(params["tab_id"] as? String, reattachedPanel.id.uuidString)
+        XCTAssertEqual(params["before_surface_id"] as? String, reattachedPanel.id.uuidString)
+        XCTAssertEqual(params["after_surface_id"] as? String, reattachedPanel.id.uuidString)
         XCTAssertEqual(params["workspace_ids"] as? [String], [restoredWorkspace.id.uuidString])
         XCTAssertEqual(params["surface_ids"] as? [String], [reattachedPanel.id.uuidString])
         XCTAssertEqual(params["tab_ids"] as? [String], [restoredWorkspace.id.uuidString, reattachedPanel.id.uuidString])
