@@ -42,6 +42,14 @@ final class TaskManagerWindowController: NSWindowController, NSWindowDelegate {
         NSRunningApplication.current.activate(options: [.activateAllWindows])
     }
 
+#if DEBUG
+    func debugSnapshotPayload() -> [String: Any] {
+        var payload = model.debugSnapshotPayload()
+        payload["visible"] = window?.isVisible == true
+        return payload
+    }
+#endif
+
     func windowWillClose(_ notification: Notification) {
         model.stop()
     }
@@ -280,6 +288,29 @@ final class CmuxTaskManagerModel {
         sortedAggregateRows = sortOrder.sortedRows(snapshot.aggregateRows)
         sortedChildMemoryRows = sortOrder.sortedRows(snapshot.childMemoryRows)
     }
+
+#if DEBUG
+    func debugSnapshotPayload() -> [String: Any] {
+        let allRows = sortedAgentRows + sortedAggregateRows + sortedChildMemoryRows + sortedRows
+        let workspaceIds = Array(Set(allRows.compactMap { $0.workspaceId?.uuidString })).sorted()
+        return [
+            "has_loaded_resource_usage": snapshot.hasLoadedResourceUsage,
+            "is_initial_loading": isInitialLoading,
+            "is_refreshing": isRefreshing,
+            "error_message": errorMessage ?? NSNull(),
+            "row_count": allRows.count,
+            "hierarchy_row_count": sortedRows.count,
+            "agent_row_count": sortedAgentRows.count,
+            "aggregate_row_count": sortedAggregateRows.count,
+            "child_memory_row_count": sortedChildMemoryRows.count,
+            "workspace_row_count": allRows.filter { $0.kind == .workspace }.count,
+            "terminal_surface_row_count": allRows.filter { $0.kind == .terminalSurface }.count,
+            "workspace_ids": workspaceIds,
+            "workspace_count": workspaceIds.count,
+            "sampled": snapshot.sampledAt != nil
+        ]
+    }
+#endif
 
     private func sendSignal(_ signal: Int32, toProcessId processId: Int) -> String? {
         guard processId > 1, processId != Int(getpid()) else { return nil }

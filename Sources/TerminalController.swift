@@ -276,6 +276,7 @@ class TerminalController {
         "debug.command_palette.toggle",
         "debug.notification.focus",
         "debug.app.activate",
+        "debug.task_manager.show",
         "debug.right_sidebar.focus",
         "feed.jump"
     ]
@@ -3740,6 +3741,10 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugTextBoxInteract(params: params))
         case "debug.app.activate":
             return v2Result(id: id, self.v2DebugActivateApp())
+        case "debug.task_manager.show":
+            return v2Result(id: id, self.v2DebugTaskManagerShow())
+        case "debug.task_manager.snapshot":
+            return v2Result(id: id, self.v2DebugTaskManagerSnapshot())
         case "debug.command_palette.toggle":
             return v2Result(id: id, self.v2DebugToggleCommandPalette(params: params))
         case "debug.command_palette.rename_tab.open":
@@ -4015,6 +4020,8 @@ class TerminalController {
             "debug.textbox.inline_fixture",
             "debug.textbox.interact",
             "debug.app.activate",
+            "debug.task_manager.show",
+            "debug.task_manager.snapshot",
             "debug.command_palette.toggle",
             "debug.command_palette.rename_tab.open",
             "debug.command_palette.visible",
@@ -15134,6 +15141,31 @@ class TerminalController {
     private func v2DebugActivateApp() -> V2CallResult {
         let resp = activateApp()
         return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    private func v2DebugTaskManagerShow() -> V2CallResult {
+        var visible = false
+        // DEBUG socket command handlers are invoked off the main thread; keep
+        // this in the existing v2MainSync pattern until the V2 dispatcher is async.
+        v2MainSync {
+            TaskManagerWindowController.shared.show()
+            visible = TaskManagerWindowController.shared.window?.isVisible == true
+        }
+        return .ok(["visible": visible])
+    }
+
+    private func v2DebugTaskManagerSnapshot() -> V2CallResult {
+#if DEBUG
+        var payload: [String: Any] = [:]
+        // DEBUG socket command handlers are invoked off the main thread; keep
+        // this in the existing v2MainSync pattern until the V2 dispatcher is async.
+        v2MainSync {
+            payload = TaskManagerWindowController.shared.debugSnapshotPayload()
+        }
+        return .ok(payload)
+#else
+        return .err(code: "unavailable", message: "Debug methods are unavailable in Release builds", data: nil)
+#endif
     }
 
     private func v2DebugToggleCommandPalette(params: [String: Any]) -> V2CallResult {

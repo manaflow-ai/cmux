@@ -29,6 +29,7 @@ check_warp_runner() {
 check_warp_runner "$CI_FILE" "tests"
 check_warp_runner "$CI_FILE" "tests-build-and-lag"
 check_warp_runner "$CI_FILE" "release-build"
+check_warp_runner "$CI_FILE" "task-manager-memory-leak"
 check_warp_runner "$CI_FILE" "ui-regressions"
 
 # build-ghosttykit.yml
