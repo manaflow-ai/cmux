@@ -268,6 +268,24 @@ struct SSHFileExplorerConnection: Equatable, Sendable {
     let sshOptions: [String]
 }
 
+extension SSHFileExplorerConnection {
+    func sshProcessArguments(command: String) -> [String] {
+        var args: [String] = []
+        if let port {
+            args += ["-p", String(port)]
+        }
+        if let identityFile {
+            args += ["-i", identityFile]
+        }
+        for option in sshOptions {
+            args += ["-o", option]
+        }
+        args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
+        args += [destination, command]
+        return args
+    }
+}
+
 protocol SSHFileExplorerTransport: AnyObject {
     nonisolated func resolveHomePath(connection: SSHFileExplorerConnection) async throws -> String
     nonisolated func listDirectory(
@@ -442,7 +460,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
 
         init(connection: SSHFileExplorerConnection, command: String) {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-            process.arguments = ProcessSSHFileExplorerTransport.sshArguments(connection: connection, command: command)
+            process.arguments = connection.sshProcessArguments(command: command)
             process.standardOutput = outPipe
             process.standardError = errPipe
         }
@@ -525,23 +543,6 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         return result.stdout
     }
 
-    private static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
-        var args: [String] = []
-        if let port = connection.port {
-            args += ["-p", String(port)]
-        }
-        if let identityFile = connection.identityFile {
-            args += ["-i", identityFile]
-        }
-        for option in connection.sshOptions {
-            args += ["-o", option]
-        }
-        // Batch mode, no TTY, connection timeout
-        args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
-        args += [connection.destination, command]
-        return args
-    }
-
     private static func runSSHListCommand(
         path: String,
         connection: SSHFileExplorerConnection,
@@ -607,12 +608,18 @@ enum FileExplorerSelectionRestoration {
 /// because NSOutlineView data source/delegate methods are called on the main thread
 /// but are not annotated @MainActor.
 final class FileExplorerStore: ObservableObject {
-    @Published var rootPath: String = ""
-    @Published var rootNodes: [FileExplorerNode] = []
+    @Published private(set) var rootPath: String = ""
+    @Published private(set) var rootNodes: [FileExplorerNode] = []
     @Published private(set) var isRootLoading: Bool = false
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
     @Published private(set) var contentRevision = 0
     @Published private(set) var rootStatusMessage: String?
+
+    /// AppKit outline invalidation token. Every mutation that changes visible
+    /// rows, disclosure state, loading/error state, or row decoration must go
+    /// through `mutateOutline(_:)` so parent SwiftUI updates cannot repaint the
+    /// file tree unless Files-owned state actually changed.
+    private(set) var outlineRevision: UInt64 = 0
 
     var provider: FileExplorerProvider?
 
@@ -621,6 +628,18 @@ final class FileExplorerStore: ObservableObject {
 
     /// Watches the root directory for filesystem changes (local only).
     private var directoryWatcher: FileExplorerDirectoryWatcher?
+    private var localGitStatusFetcher: (String) -> [String: GitFileStatus] = {
+        GitStatusProvider.fetchStatus(directory: $0)
+    }
+    private var sshGitStatusFetcher: (String, String, Int?, String?, [String]) -> [String: GitFileStatus] = {
+        GitStatusProvider.fetchStatusSSH(
+            directory: $0,
+            destination: $1,
+            port: $2,
+            identityFile: $3,
+            sshOptions: $4
+        )
+    }
 
     /// Paths that are logically expanded (persisted across provider changes)
     private(set) var expandedPaths: Set<String> = []
@@ -718,29 +737,35 @@ final class FileExplorerStore: ObservableObject {
 
     func refreshGitStatus() {
         guard !rootPath.isEmpty else {
-            gitStatusByPath = [:]
+            applyGitStatus([:])
             return
         }
         let path = rootPath
         if let sshProvider = provider as? SSHFileExplorerProvider {
-            let dest = sshProvider.destination
-            let port = sshProvider.port
-            let identity = sshProvider.identityFile
-            let opts = sshProvider.sshOptions
+            let connection = sshProvider.connection
+            let fetchStatus = sshGitStatusFetcher
             DispatchQueue.global(qos: .utility).async {
-                let status = GitStatusProvider.fetchStatusSSH(
-                    directory: path, destination: dest, port: port,
-                    identityFile: identity, sshOptions: opts
+                let status = fetchStatus(
+                    path,
+                    connection.destination,
+                    connection.port,
+                    connection.identityFile,
+                    connection.sshOptions
                 )
                 DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                    guard let self,
+                          self.rootPath == path,
+                          (self.provider as? SSHFileExplorerProvider)?.connection == connection else { return }
+                    self.applyGitStatus(status)
                 }
             }
         } else {
+            let fetchStatus = localGitStatusFetcher
             DispatchQueue.global(qos: .utility).async {
-                let status = GitStatusProvider.fetchStatus(directory: path)
+                let status = fetchStatus(path)
                 DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                    guard let self, self.rootPath == path else { return }
+                    self.applyGitStatus(status)
                 }
             }
         }
@@ -760,6 +785,20 @@ final class FileExplorerStore: ObservableObject {
         }
     }
 
+    #if DEBUG
+    func setLocalGitStatusFetcherForTesting(
+        _ fetcher: @escaping (String) -> [String: GitFileStatus]
+    ) {
+        localGitStatusFetcher = fetcher
+    }
+
+    func setSSHGitStatusFetcherForTesting(
+        _ fetcher: @escaping (String, String, Int?, String?, [String]) -> [String: GitFileStatus]
+    ) {
+        sshGitStatusFetcher = fetcher
+    }
+    #endif
+
     private func setProvider(_ newProvider: FileExplorerProvider?, reloadIfAvailable: Bool = true) {
         #if DEBUG
         NSLog("[FileExplorer] setProvider: \(type(of: newProvider).self) available=\(newProvider?.isAvailable ?? false)")
@@ -775,20 +814,33 @@ final class FileExplorerStore: ObservableObject {
     func setProviderForTesting(_ newProvider: FileExplorerProvider?, reloadIfAvailable: Bool = true) {
         setProvider(newProvider, reloadIfAvailable: reloadIfAvailable)
     }
+
+    func setRootForTesting(path: String, nodes: [FileExplorerNode] = []) {
+        mutateOutline {
+            rootPath = path
+            rootNodes = nodes
+            nodesByPath = nodes.reduce(into: [:]) { result, node in
+                result[node.path] = node
+            }
+            isRootLoading = false
+        }
+    }
     #endif
 
     func reload() {
         #if DEBUG
         NSLog("[FileExplorer] reload() path=\(rootPath) provider=\(type(of: provider).self)")
         #endif
-        contentRevision &+= 1
-        cancelAllLoads()
-        rootNodes = []
-        nodesByPath = [:]
+        mutateOutline {
+            contentRevision &+= 1
+            cancelAllLoads()
+            rootNodes = []
+            nodesByPath = [:]
+        }
         guard !rootPath.isEmpty, provider != nil else { return }
         isRootLoading = true
         let path = rootPath
-        let task = Task { [weak self] in
+        let task = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.loadChildren(for: nil, at: path)
         }
@@ -797,24 +849,41 @@ final class FileExplorerStore: ObservableObject {
 
     func expand(node: FileExplorerNode) {
         guard node.isDirectory else { return }
-        expandedPaths.insert(node.path)
-        if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
-            node.isLoading = true
-            node.error = nil
+        let nodePath = node.path
+        let shouldLoadChildren = node.children == nil
+            && loadTasks[nodePath] == nil
+            && !loadingPaths.contains(nodePath)
+        let shouldMarkExpanded = !expandedPaths.contains(nodePath)
+        if shouldMarkExpanded || shouldLoadChildren {
+            mutateOutline {
+                expandedPaths.insert(nodePath)
+                if shouldLoadChildren {
+                    loadingPaths.insert(nodePath)
+                    node.isLoading = true
+                    node.error = nil
+                }
+            }
             objectWillChange.send()
-            let nodePath = node.path
-            let task = Task { [weak self] in
+        }
+        if shouldLoadChildren {
+            loadTasks[nodePath] = Task { @MainActor [weak self] in
                 guard let self else { return }
                 await self.loadChildren(for: node, at: nodePath)
             }
-            loadTasks[node.path] = task
         }
     }
 
     func collapse(node: FileExplorerNode) {
-        expandedPaths.remove(node.path)
-        if pendingDescendIntoFirstChildPath == node.path {
-            pendingDescendIntoFirstChildPath = nil
+        let shouldRemoveExpansion = expandedPaths.contains(node.path)
+        let shouldClearPendingDescend = pendingDescendIntoFirstChildPath == node.path
+        guard shouldRemoveExpansion || shouldClearPendingDescend else { return }
+        mutateOutline {
+            if shouldRemoveExpansion {
+                expandedPaths.remove(node.path)
+            }
+            if shouldClearPendingDescend {
+                pendingDescendIntoFirstChildPath = nil
+            }
         }
         objectWillChange.send()
     }
@@ -860,7 +929,9 @@ final class FileExplorerStore: ObservableObject {
         prefetchWorkItems[path]?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self, node.children == nil, !self.loadingPaths.contains(path) else { return }
+                guard let self else { return }
+                defer { self.prefetchWorkItems.removeValue(forKey: path) }
+                guard node.children == nil, !self.loadingPaths.contains(path) else { return }
                 // Silent prefetch: don't show loading indicator
                 await self.loadChildren(for: node, at: path, silent: true)
             }
@@ -886,13 +957,27 @@ final class FileExplorerStore: ObservableObject {
 
     // MARK: - Private
 
+    private func mutateOutline(_ body: () -> Void) {
+        outlineRevision &+= 1
+        body()
+    }
+
+    private func applyGitStatus(_ status: [String: GitFileStatus]) {
+        guard gitStatusByPath != status else { return }
+        mutateOutline {
+            gitStatusByPath = status
+        }
+    }
+
     @MainActor
     private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
         guard let provider else { return }
 
-        if !silent {
-            loadingPaths.insert(path)
-            parentNode?.error = nil
+        if !silent && (!loadingPaths.contains(path) || parentNode?.error != nil) {
+            mutateOutline {
+                loadingPaths.insert(path)
+                parentNode?.error = nil
+            }
             objectWillChange.send()
         }
 
@@ -908,42 +993,63 @@ final class FileExplorerStore: ObservableObject {
                 return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
             }
 
-            if let parentNode {
-                parentNode.children = children
-                parentNode.isLoading = false
-                parentNode.error = nil
-                if pendingDescendIntoFirstChildPath == parentNode.path {
-                    let path = children.first?.path ?? parentNode.path
-                    selectedPath = path
-                    selectedPaths = [path]
-                    pendingDescendIntoFirstChildPath = nil
+            let applyLoadedChildren = { [self] in
+                if let parentNode {
+                    parentNode.children = children
+                    parentNode.isLoading = false
+                    parentNode.error = nil
+                    if pendingDescendIntoFirstChildPath == parentNode.path {
+                        let targetPath = children.first?.path ?? parentNode.path
+                        selectedPath = targetPath
+                        selectedPaths = [targetPath]
+                        pendingDescendIntoFirstChildPath = nil
+                    }
+                } else {
+                    rootNodes = children
+                    isRootLoading = false
+                    setRootStatusMessage(nil)
+                    if selectedPath == nil {
+                        selectedPath = children.first?.path
+                        selectedPaths = selectedPath.map { Set([$0]) } ?? []
+                    }
                 }
-            } else {
-                rootNodes = children
-                isRootLoading = false
-                setRootStatusMessage(nil)
-                if selectedPath == nil {
-                    selectedPath = children.first?.path
-                    selectedPaths = selectedPath.map { Set([$0]) } ?? []
-                }
+                loadingPaths.remove(path)
+                loadTasks.removeValue(forKey: path)
             }
-            loadingPaths.remove(path)
-            loadTasks.removeValue(forKey: path)
-            objectWillChange.send()
+
+            if silent {
+                applyLoadedChildren()
+            } else {
+                mutateOutline(applyLoadedChildren)
+                objectWillChange.send()
+            }
 
             // Auto-expand children that were previously expanded
-            for child in children where child.isDirectory && expandedPaths.contains(child.path) {
-                child.isLoading = true
-                objectWillChange.send()
-                let childPath = child.path
-                let childTask = Task { [weak self] in
-                    guard let self else { return }
-                    await self.loadChildren(for: child, at: childPath)
+            if !silent {
+                for child in children where child.isDirectory && expandedPaths.contains(child.path) {
+                    let childPath = child.path
+                    mutateOutline {
+                        loadingPaths.insert(childPath)
+                        child.isLoading = true
+                    }
+                    objectWillChange.send()
+                    let childTask = Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        await self.loadChildren(for: child, at: childPath)
+                    }
+                    loadTasks[child.path] = childTask
                 }
-                loadTasks[child.path] = childTask
             }
         } catch {
-            if !Task.isCancelled {
+            guard !Task.isCancelled else { return }
+            if silent {
+#if DEBUG
+                NSLog("[FileExplorer] silent prefetch failed path=\(path): \(error.localizedDescription)")
+#endif
+                return
+            }
+
+            mutateOutline {
                 if let parentNode {
                     parentNode.isLoading = false
                     parentNode.error = error.localizedDescription
@@ -953,8 +1059,8 @@ final class FileExplorerStore: ObservableObject {
                 }
                 loadingPaths.remove(path)
                 loadTasks.removeValue(forKey: path)
-                objectWillChange.send()
             }
+            objectWillChange.send()
         }
     }
 

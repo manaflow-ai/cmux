@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -162,7 +163,7 @@ final class FileExplorerStoreTests: XCTestCase {
         let provider = MockFileExplorerProvider(homePath: "/home/user")
         let store = FileExplorerStore()
         store.setProviderForTesting(provider)
-        store.rootPath = "/home/user/project"
+        store.setRootForTesting(path: "/home/user/project")
         XCTAssertEqual(store.displayRootPath, "~/project")
     }
 
@@ -487,6 +488,225 @@ final class FileExplorerStoreTests: XCTestCase {
         )
     }
 
+    func testCoordinatorSkipsOutlineRefreshWhenStoreRevisionIsUnchanged() {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let srcNode = FileExplorerNode(name: "src", path: "/project/src", isDirectory: true)
+        srcNode.children = [
+            FileExplorerNode(name: "main.swift", path: "/project/src/main.swift", isDirectory: false),
+        ]
+        store.setRootForTesting(path: "/project", nodes: [srcNode])
+
+        let outlineView = CountingFileExplorerOutlineView(items: [srcNode])
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        coordinator.outlineView = outlineView
+
+        coordinator.reloadIfNeeded()
+        XCTAssertEqual(outlineView.reloadDataCallCount, 1)
+        XCTAssertEqual(outlineView.reloadItemCallCount, 0)
+
+        coordinator.reloadIfNeeded()
+
+        XCTAssertEqual(outlineView.reloadDataCallCount, 1)
+        XCTAssertEqual(
+            outlineView.reloadItemCallCount,
+            0,
+            "Unrelated parent SwiftUI updates must not refresh loaded file tree rows."
+        )
+    }
+
+    func testCoordinatorRefreshesOutlineWhenStoreRevisionChanges() {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let srcNode = FileExplorerNode(name: "src", path: "/project/src", isDirectory: true)
+        srcNode.children = [
+            FileExplorerNode(name: "main.swift", path: "/project/src/main.swift", isDirectory: false),
+        ]
+        store.setRootForTesting(path: "/project", nodes: [srcNode])
+
+        let outlineView = CountingFileExplorerOutlineView(items: [srcNode])
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        coordinator.outlineView = outlineView
+
+        coordinator.reloadIfNeeded()
+        XCTAssertEqual(outlineView.reloadDataCallCount, 1)
+        XCTAssertEqual(outlineView.reloadItemCallCount, 0)
+
+        store.expand(node: srcNode)
+        coordinator.reloadIfNeeded()
+
+        XCTAssertEqual(outlineView.reloadDataCallCount, 1)
+        XCTAssertEqual(
+            outlineView.reloadItemCallCount,
+            1,
+            "Files-owned store mutations must still refresh loaded file tree rows."
+        )
+        XCTAssertTrue(outlineView.isItemExpanded(srcNode))
+    }
+
+    func testExpandStartsChildLoadWithoutRedundantOutlineRevision() async throws {
+        let provider = DeferredListFileExplorerProvider()
+        let store = FileExplorerStore()
+        let srcNode = FileExplorerNode(name: "src", path: "/project/src", isDirectory: true)
+        store.setProviderForTesting(provider, reloadIfAvailable: false)
+        store.setRootForTesting(path: "/project", nodes: [srcNode])
+
+        let revisionBeforeExpand = store.outlineRevision
+        store.expand(node: srcNode)
+        let revisionAfterExpand = store.outlineRevision
+
+        XCTAssertEqual(revisionAfterExpand, revisionBeforeExpand + 1)
+        XCTAssertTrue(store.loadingPaths.contains(srcNode.path))
+        XCTAssertTrue(srcNode.isLoading)
+
+        try await waitFor("child load started") {
+            provider.listCallPaths.contains(srcNode.path)
+        }
+
+        XCTAssertEqual(
+            store.outlineRevision,
+            revisionAfterExpand,
+            "Starting the async child load should reuse the expand mutation instead of dirtying the outline again."
+        )
+
+        provider.resumeListing(returning: [])
+        try await waitFor("child load completed") {
+            srcNode.children?.isEmpty == true
+        }
+        XCTAssertEqual(store.outlineRevision, revisionAfterExpand + 1)
+    }
+
+    func testRefreshGitStatusIgnoresStaleRootsAndDuplicateStatus() async throws {
+        let store = FileExplorerStore()
+        let activeRoot = "/project"
+        let staleRoot = "/other"
+        let activeStatus: [String: GitFileStatus] = [
+            "\(activeRoot)/changed.swift": .modified,
+        ]
+        let staleStatus: [String: GitFileStatus] = [
+            "\(staleRoot)/deleted.swift": .deleted,
+        ]
+        let duplicateFetchCompleted = expectation(description: "duplicate git status fetched")
+        let staleFetchCompleted = expectation(description: "stale git status fetched")
+        let fetchCountsLock = NSLock()
+        var fetchCounts: [String: Int] = [:]
+
+        store.setLocalGitStatusFetcherForTesting { path in
+            fetchCountsLock.lock()
+            fetchCounts[path, default: 0] += 1
+            let fetchCount = fetchCounts[path] ?? 0
+            fetchCountsLock.unlock()
+
+            if path == activeRoot, fetchCount == 2 {
+                duplicateFetchCompleted.fulfill()
+            }
+            if path == staleRoot {
+                staleFetchCompleted.fulfill()
+                Thread.sleep(forTimeInterval: 0.05)
+                return staleStatus
+            }
+            return activeStatus
+        }
+
+        store.setRootForTesting(path: activeRoot)
+        store.refreshGitStatus()
+        try await waitFor("initial git status applied") {
+            store.gitStatusByPath == activeStatus
+        }
+        let revisionAfterInitialStatus = store.outlineRevision
+
+        store.refreshGitStatus()
+        await fulfillment(of: [duplicateFetchCompleted], timeout: 1.0)
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertEqual(store.gitStatusByPath, activeStatus)
+        XCTAssertEqual(
+            store.outlineRevision,
+            revisionAfterInitialStatus,
+            "Identical git status should not dirty the file outline."
+        )
+
+        store.setRootForTesting(path: staleRoot)
+        store.refreshGitStatus()
+        store.setRootForTesting(path: activeRoot)
+        let revisionBeforeStaleStatusReturns = store.outlineRevision
+        await fulfillment(of: [staleFetchCompleted], timeout: 1.0)
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertEqual(store.gitStatusByPath, activeStatus)
+        XCTAssertEqual(
+            store.outlineRevision,
+            revisionBeforeStaleStatusReturns,
+            "A git status result for a previous root must not dirty the current file outline."
+        )
+    }
+
+    func testRefreshGitStatusIgnoresStaleSSHProviderWithSameRoot() async throws {
+        let store = FileExplorerStore()
+        let root = "/home/dev/project"
+        let staleFetchStarted = expectation(description: "stale ssh git fetch started")
+        let activeFetchCompleted = expectation(description: "active ssh git fetch completed")
+        let staleStatus: [String: GitFileStatus] = [
+            "\(root)/stale.swift": .deleted,
+        ]
+        let activeStatus: [String: GitFileStatus] = [
+            "\(root)/current.swift": .modified,
+        ]
+
+        store.setSSHGitStatusFetcherForTesting { path, destination, _, _, _ in
+            if path == root, destination == "old@example.com" {
+                staleFetchStarted.fulfill()
+                Thread.sleep(forTimeInterval: 0.05)
+                return staleStatus
+            }
+            activeFetchCompleted.fulfill()
+            return activeStatus
+        }
+
+        let oldProvider = SSHFileExplorerProvider(
+            destination: "old@example.com",
+            port: 2222,
+            identityFile: "/Users/alice/.ssh/old",
+            sshOptions: ["ControlPath /tmp/old-%C"],
+            homePath: "/home/dev",
+            isAvailable: true,
+            transport: MockSSHFileExplorerTransport()
+        )
+        let currentProvider = SSHFileExplorerProvider(
+            destination: "new@example.com",
+            port: 2222,
+            identityFile: "/Users/alice/.ssh/new",
+            sshOptions: ["ControlPath /tmp/new-%C"],
+            homePath: "/home/dev",
+            isAvailable: true,
+            transport: MockSSHFileExplorerTransport()
+        )
+
+        store.setProviderForTesting(oldProvider, reloadIfAvailable: false)
+        store.setRootForTesting(path: root)
+        store.refreshGitStatus()
+        await fulfillment(of: [staleFetchStarted], timeout: 1.0)
+
+        store.setProviderForTesting(currentProvider, reloadIfAvailable: false)
+        store.setRootForTesting(path: root)
+        store.refreshGitStatus()
+        await fulfillment(of: [activeFetchCompleted], timeout: 1.0)
+        try await waitFor("active ssh git status applied") {
+            store.gitStatusByPath == activeStatus
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertEqual(store.gitStatusByPath, activeStatus)
+    }
+
     // MARK: - Collapse/Expand
 
     func testCollapseRemovesFromExpandedPaths() {
@@ -500,11 +720,81 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertFalse(store.isExpanded(node))
     }
 
+    func testCollapseAlreadyCollapsedNodeDoesNotDirtyOutline() {
+        let store = FileExplorerStore()
+        let node = FileExplorerNode(name: "src", path: "/project/src", isDirectory: true)
+        node.children = []
+
+        let revisionBeforeNoOpCollapse = store.outlineRevision
+
+        store.collapse(node: node)
+
+        XCTAssertEqual(
+            store.outlineRevision,
+            revisionBeforeNoOpCollapse,
+            "Collapsing an already-collapsed node must not invalidate the Files outline."
+        )
+    }
+
     func testExpandNonDirectoryDoesNothing() {
         let store = FileExplorerStore()
         let node = FileExplorerNode(name: "file.txt", path: "/project/file.txt", isDirectory: false)
         store.expand(node: node)
         XCTAssertFalse(store.isExpanded(node))
+    }
+}
+
+private final class CountingFileExplorerOutlineView: NSOutlineView {
+    private let items: [FileExplorerNode]
+    private var expandedObjectIDs: Set<ObjectIdentifier> = []
+    private(set) var reloadDataCallCount = 0
+    private(set) var reloadItemCallCount = 0
+
+    init(items: [FileExplorerNode]) {
+        self.items = items
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var numberOfRows: Int {
+        items.count
+    }
+
+    override func item(atRow row: Int) -> Any? {
+        guard items.indices.contains(row) else { return nil }
+        return items[row]
+    }
+
+    override func isExpandable(_ item: Any?) -> Bool {
+        (item as? FileExplorerNode)?.isExpandable == true
+    }
+
+    override func isItemExpanded(_ item: Any?) -> Bool {
+        guard let node = item as? FileExplorerNode else { return false }
+        return expandedObjectIDs.contains(ObjectIdentifier(node))
+    }
+
+    override func expandItem(_ item: Any?, expandChildren: Bool) {
+        if let node = item as? FileExplorerNode {
+            expandedObjectIDs.insert(ObjectIdentifier(node))
+        }
+    }
+
+    override func collapseItem(_ item: Any?, collapseChildren: Bool) {
+        if let node = item as? FileExplorerNode {
+            expandedObjectIDs.remove(ObjectIdentifier(node))
+        }
+    }
+
+    override func reloadData() {
+        reloadDataCallCount += 1
+    }
+
+    override func reloadItem(_ item: Any?, reloadChildren: Bool) {
+        reloadItemCallCount += 1
     }
 }
 
@@ -550,7 +840,7 @@ final class FileSearchControllerTests: XCTestCase {
         var snapshots: [FileSearchSnapshot] = []
         controller.onSnapshotChanged = { snapshots.append($0) }
 
-        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true)
+        controller.search(query: "needle", rootPath: rootURL.path, scope: .local)
         let finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
 
         XCTAssertEqual(finalSnapshot.status, .matches)
@@ -595,7 +885,7 @@ final class FileSearchControllerTests: XCTestCase {
         var snapshots: [FileSearchSnapshot] = []
         controller.onSnapshotChanged = { snapshots.append($0) }
 
-        controller.search(query: "issue3817Token", rootPath: rootURL.path, isLocal: true)
+        controller.search(query: "issue3817Token", rootPath: rootURL.path, scope: .local, contentRevision: 0)
         let finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
 
         XCTAssertEqual(finalSnapshot.status, .matches)
@@ -623,7 +913,7 @@ final class FileSearchControllerTests: XCTestCase {
         var snapshots: [FileSearchSnapshot] = []
         controller.onSnapshotChanged = { snapshots.append($0) }
 
-        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true)
+        controller.search(query: "needle", rootPath: rootURL.path, scope: .local, contentRevision: 0)
         let finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
 
         XCTAssertEqual(finalSnapshot.status, .limited(500))
@@ -642,7 +932,7 @@ final class FileSearchControllerTests: XCTestCase {
         var snapshots: [FileSearchSnapshot] = []
         controller.onSnapshotChanged = { snapshots.append($0) }
 
-        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 1)
+        controller.search(query: "needle", rootPath: rootURL.path, scope: .local, contentRevision: 1)
         let emptySnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
         XCTAssertEqual(emptySnapshot.status, .noMatches)
 
@@ -652,7 +942,7 @@ final class FileSearchControllerTests: XCTestCase {
             encoding: .utf8
         )
 
-        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 2)
+        controller.search(query: "needle", rootPath: rootURL.path, scope: .local, contentRevision: 2)
         let refreshedSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
 
         XCTAssertEqual(refreshedSnapshot.status, .matches)
@@ -674,17 +964,99 @@ final class FileSearchControllerTests: XCTestCase {
         var snapshots: [FileSearchSnapshot] = []
         controller.onSnapshotChanged = { snapshots.append($0) }
 
-        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 1)
+        controller.search(query: "needle", rootPath: rootURL.path, scope: .local, contentRevision: 1)
         let emptySnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
         XCTAssertEqual(emptySnapshot.status, .noMatches)
 
         try "fresh needle\n".write(to: fileURL, atomically: true, encoding: .utf8)
 
-        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 1)
+        controller.search(query: "needle", rootPath: rootURL.path, scope: .local, contentRevision: 1)
         let refreshedSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
 
         XCTAssertEqual(refreshedSnapshot.status, .matches)
         XCTAssertEqual(refreshedSnapshot.results.map(\.relativePath), ["editable.txt"])
+    }
+
+    func testUnsupportedSearchScopeTakesPrecedenceOverEmptyRoot() {
+        let controller = FileSearchController()
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "needle", rootPath: "", scope: .unsupported, contentRevision: 0)
+
+        XCTAssertEqual(snapshots.last?.status, .unsupported)
+        XCTAssertEqual(snapshots.last?.isSearching, false)
+
+        controller.search(query: "needle", rootPath: "", scope: .local, contentRevision: 0)
+
+        XCTAssertEqual(snapshots.last?.status, .noMatches)
+        XCTAssertEqual(snapshots.last?.isSearching, false)
+    }
+
+    func testFindPresentationKeepsSearchHiddenWhileRootIsLoading() throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .files,
+            searchController: SpyFileSearchController()
+        )
+        store.setRootForTesting(path: "/tmp/cmux-loading")
+        container.updateHeader(store: store)
+        container.updateVisibility(hasContent: true, isLoading: true, statusMessage: nil)
+
+        container.updatePresentation(.find)
+        let searchField = try XCTUnwrap(Self.findSearchField(in: container))
+
+        XCTAssertTrue(
+            searchField.superview?.isHidden ?? false,
+            "Switching to find while the Files root is loading must not reveal search controls."
+        )
+
+        container.updatePresentation(.find)
+        XCTAssertTrue(
+            searchField.superview?.isHidden ?? false,
+            "Repeated find presentation updates must preserve the loading-aware layout."
+        )
+
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        XCTAssertFalse(searchField.superview?.isHidden ?? true)
+    }
+
+    func testFindPresentationBeforeVisibilitySnapshotKeepsSearchHidden() throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .files,
+            searchController: SpyFileSearchController()
+        )
+        store.setRootForTesting(path: "/tmp/cmux-loading")
+        container.updateHeader(store: store)
+
+        container.updatePresentation(.find)
+        let searchField = try XCTUnwrap(Self.findSearchField(in: container))
+
+        XCTAssertTrue(
+            searchField.superview?.isHidden ?? false,
+            "Find presentation must not reveal search controls before Files applies a visibility snapshot."
+        )
+
+        container.updateVisibility(hasContent: true, isLoading: true, statusMessage: nil)
+        XCTAssertTrue(searchField.superview?.isHidden ?? false)
+
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        XCTAssertFalse(searchField.superview?.isHidden ?? true)
     }
 
     func testTypingBurstDebouncesFindSearches() async throws {
@@ -701,7 +1073,7 @@ final class FileSearchControllerTests: XCTestCase {
             presentation: .find,
             searchController: searchController
         )
-        store.provider = MockFileExplorerProvider(homePath: "/tmp")
+        store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
         store.setRootPath("/tmp/cmux-find-debounce-test")
         container.updateHeader(store: store)
         container.updatePresentation(.find)
@@ -722,6 +1094,124 @@ final class FileSearchControllerTests: XCTestCase {
             "A burst of typing should coalesce into one ripgrep search per debounce window."
         )
         XCTAssertEqual(searchController.searchRequests.last?.query, "private")
+        XCTAssertEqual(searchController.searchRequests.last?.scope, .local)
+    }
+
+    func testFindSearchUsesSSHScopeForSSHProvider() throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let searchController = SpyFileSearchController()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .files,
+            searchController: searchController
+        )
+        let connection = SSHFileExplorerConnection(
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: "/Users/alice/.ssh/id_ed25519",
+            sshOptions: ["ControlPath /tmp/cmux-%C"]
+        )
+        let provider = SSHFileExplorerProvider(
+            connection: connection,
+            displayTarget: "dev@example.com:2222",
+            homePath: "/home/dev",
+            isAvailable: true,
+            transport: MockSSHFileExplorerTransport()
+        )
+        store.setProviderForTesting(provider, reloadIfAvailable: false)
+        store.setRootForTesting(path: "/home/dev/project")
+        container.updateHeader(store: store)
+
+        let searchField = try XCTUnwrap(Self.findSearchField(in: container))
+        searchField.stringValue = "needle"
+        container.updatePresentation(.find)
+
+        XCTAssertEqual(searchController.searchRequests.last?.rootPath, "/home/dev/project")
+        XCTAssertEqual(searchController.searchRequests.last?.scope, .remoteSSH(connection))
+    }
+
+    func testRemoteSearchCommandRunsRipgrepOverSSH() throws {
+        let connection = SSHFileExplorerConnection(
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: "/Users/alice/.ssh/id_ed25519",
+            sshOptions: ["ControlPath /tmp/cmux-%C"]
+        )
+
+        let command = try XCTUnwrap(FileSearchController.searchProcessCommand(
+            query: "it's here",
+            rootPath: "/home/dev/My Project",
+            scope: .remoteSSH(connection)
+        ))
+
+        XCTAssertEqual(command.executableURL.path, "/usr/bin/ssh")
+        XCTAssertEqual(
+            Array(command.arguments.prefix(11)),
+            [
+                "-p", "2222",
+                "-i", "/Users/alice/.ssh/id_ed25519",
+                "-o", "ControlPath /tmp/cmux-%C",
+                "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=5",
+                "-T",
+            ]
+        )
+        XCTAssertEqual(command.arguments.dropLast().last, "dev@example.com")
+
+        let remoteCommand = try XCTUnwrap(command.arguments.last)
+        XCTAssertTrue(remoteCommand.hasPrefix("'rg' '--json'"))
+        XCTAssertTrue(remoteCommand.contains("'--fixed-strings'"))
+        XCTAssertTrue(remoteCommand.contains("'it'\\''s here'"))
+        XCTAssertTrue(remoteCommand.contains("'/home/dev/My Project'"))
+    }
+
+    func testRemoteSearchMissingSSHReportsUnavailable() {
+        let connection = SSHFileExplorerConnection(
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: []
+        )
+        let controller = FileSearchController(isExecutableFile: { _ in false })
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "needle", rootPath: "/home/dev/project", scope: .remoteSSH(connection), contentRevision: 0)
+
+        XCTAssertEqual(snapshots.last?.status, .unsupported)
+        XCTAssertEqual(snapshots.last?.isSearching, false)
+    }
+
+    func testLocalSearchMissingExecutableReportsCommandNameOnly() throws {
+        let rootPath = "/tmp/cmux-find"
+        guard let command = FileSearchController.searchProcessCommand(
+            query: "needle",
+            rootPath: rootPath,
+            scope: .local
+        ) else {
+            throw XCTSkip("ripgrep is not installed")
+        }
+        let controller = FileSearchController(isExecutableFile: { _ in false })
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "needle", rootPath: rootPath, scope: .local, contentRevision: 0)
+
+        XCTAssertEqual(
+            snapshots.last?.status,
+            .failed("Search executable is missing: \(command.executableURL.lastPathComponent)")
+        )
+        if case .failed(let message) = snapshots.last?.status {
+            XCTAssertFalse(message.contains(command.executableURL.deletingLastPathComponent().path))
+        } else {
+            XCTFail("Expected missing local executable failure.")
+        }
     }
 
     func testContentRevisionChangeDoesNotRestartActiveFindSearch() async throws {
@@ -738,7 +1228,7 @@ final class FileSearchControllerTests: XCTestCase {
             presentation: .find,
             searchController: searchController
         )
-        store.provider = MockFileExplorerProvider(homePath: "/tmp")
+        store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
         store.setRootPath("/tmp/cmux-find-content-revision-test")
         container.updateHeader(store: store)
         container.updatePresentation(.find)
@@ -777,6 +1267,48 @@ final class FileSearchControllerTests: XCTestCase {
 
         XCTAssertEqual(searchController.searchRequests.count, originalRequestCount + 1)
         XCTAssertEqual(searchController.searchRequests.last?.contentRevision, store.contentRevision)
+    }
+
+    func testSameFindPresentationUpdateDoesNotRestartCompletedSearch() async throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let searchController = SpyFileSearchController()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
+        store.setRootPath("/tmp/cmux-find-rerender-test")
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+
+        let searchField = try XCTUnwrap(Self.findSearchField(in: container))
+        searchField.stringValue = "needle"
+        container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField))
+
+        try await waitForSearchRequestCount(1, in: searchController)
+        searchController.publish(FileSearchSnapshot(
+            query: "needle",
+            results: [Self.searchResult(relativePath: "first.txt")],
+            status: .matches,
+            isSearching: false
+        ))
+        let completedRequestCount = searchController.searchRequests.count
+
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+
+        XCTAssertEqual(
+            searchController.searchRequests.count,
+            completedRequestCount,
+            "A same-presentation SwiftUI update must not clear and restart completed Find results."
+        )
     }
 
     func testRipgrepResolverPrefersConfiguredBinaryPath() {
@@ -953,7 +1485,7 @@ final class FileSearchControllerTests: XCTestCase {
         struct SearchRequest: Equatable {
             let query: String
             let rootPath: String
-            let isLocal: Bool
+            let scope: FileSearchScope
             let contentRevision: Int
         }
 
@@ -961,11 +1493,11 @@ final class FileSearchControllerTests: XCTestCase {
         var searchRequests: [SearchRequest] = []
         var cancelCount = 0
 
-        func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int) {
+        func search(query rawQuery: String, rootPath: String, scope: FileSearchScope, contentRevision: Int) {
             searchRequests.append(SearchRequest(
                 query: rawQuery,
                 rootPath: rootPath,
-                isLocal: isLocal,
+                scope: scope,
                 contentRevision: contentRevision
             ))
         }

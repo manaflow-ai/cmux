@@ -66,6 +66,34 @@ struct FileSearchSnapshot: Equatable, Sendable {
     static let empty = FileSearchSnapshot(query: "", results: [], status: .idle, isSearching: false)
 }
 
+enum FileSearchScope: Equatable, Sendable {
+    case unsupported
+    case local
+    case remoteSSH(SSHFileExplorerConnection)
+
+    init(provider: FileExplorerProvider?) {
+        if provider is LocalFileExplorerProvider {
+            self = .local
+        } else if let sshProvider = provider as? SSHFileExplorerProvider,
+                  sshProvider.isAvailable {
+            self = .remoteSSH(sshProvider.connection)
+        } else {
+            self = .unsupported
+        }
+    }
+
+    var debugName: String {
+        switch self {
+        case .unsupported:
+            return "unsupported"
+        case .local:
+            return "local"
+        case .remoteSSH:
+            return "remoteSSH"
+        }
+    }
+}
+
 enum RipgrepIntegrationSettings {
     static let customRipgrepPathKey = "ripgrepCustomBinaryPath"
 
@@ -183,7 +211,7 @@ enum FileExplorerSearchMessages {
 protocol FileSearchControlling: AnyObject {
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)? { get set }
 
-    func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int)
+    func search(query rawQuery: String, rootPath: String, scope: FileSearchScope, contentRevision: Int)
     func cancel(clear: Bool)
 }
 
@@ -418,10 +446,15 @@ private enum FileSearchPipeReader {
 
 @MainActor
 final class FileSearchController: FileSearchControlling {
+    struct SearchProcessCommand: Equatable {
+        let executableURL: URL
+        let arguments: [String]
+    }
+
     private struct Request: Equatable {
         let query: String
         let rootPath: String
-        let isLocal: Bool
+        let scope: FileSearchScope
         let contentRevision: Int
     }
 
@@ -429,7 +462,7 @@ final class FileSearchController: FileSearchControlling {
 
     private let maxResults = 500
     private let snapshotInterval: TimeInterval = 0.05
-    private let excludedSearchGlobs = [
+    private static let excludedSearchGlobs = [
         "!.git/**",
         "!**/.git/**",
         "!node_modules/**",
@@ -447,13 +480,18 @@ final class FileSearchController: FileSearchControlling {
     private var results: [FileSearchResult] = []
     private var pipeline: FileSearchOutputPipeline?
     private var searchTask: Task<Void, Never>?
+    private let isExecutableFile: (String) -> Bool
 
-    func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int = 0) {
+    init(isExecutableFile: @escaping (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }) {
+        self.isExecutableFile = isExecutableFile
+    }
+
+    func search(query rawQuery: String, rootPath: String, scope: FileSearchScope, contentRevision: Int = 0) {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         let nextRequest = Request(
             query: query,
             rootPath: rootPath,
-            isLocal: isLocal,
+            scope: scope,
             contentRevision: contentRevision
         )
         if nextRequest == request, process?.isRunning == true {
@@ -468,30 +506,61 @@ final class FileSearchController: FileSearchControlling {
             emit(status: .idle, isSearching: false)
             return
         }
-        guard isLocal else {
+        let command: SearchProcessCommand
+        switch scope {
+        case .unsupported:
             emit(status: .unsupported, isSearching: false)
             return
-        }
-        guard !rootPath.isEmpty else {
-            emit(status: .noMatches, isSearching: false)
-            return
-        }
-        let resolution = RipgrepExecutableResolver.resolution()
-        let executable: FileSearchRipgrepExecutable
-        switch resolution {
-        case .found(let resolvedExecutable):
-            executable = resolvedExecutable
-        case .configuredPathNotExecutable(let path):
-            emit(
-                status: .failed(FileExplorerSearchMessages.configuredRipgrepPathNotExecutable(path)),
-                isSearching: false
+        case .local:
+            guard !rootPath.isEmpty else {
+                emit(status: .noMatches, isSearching: false)
+                return
+            }
+            let resolution = RipgrepExecutableResolver.resolution()
+            let executable: FileSearchRipgrepExecutable
+            switch resolution {
+            case .found(let resolvedExecutable):
+                executable = resolvedExecutable
+            case .configuredPathNotExecutable(let path):
+                emit(
+                    status: .failed(FileExplorerSearchMessages.configuredRipgrepPathNotExecutable(path)),
+                    isSearching: false
+                )
+                return
+            case .notFound:
+                emit(
+                    status: .failed(String(localized: "fileExplorer.search.rgNotInstalled", defaultValue: "ripgrep (rg) is not installed or is not on PATH.")),
+                    isSearching: false
+                )
+                return
+            }
+            command = SearchProcessCommand(
+                executableURL: executable.url,
+                arguments: executable.prefixArguments + Self.ripgrepArguments(query: query, rootPath: rootPath)
             )
-            return
-        case .notFound:
-            emit(
-                status: .failed(String(localized: "fileExplorer.search.rgNotInstalled", defaultValue: "ripgrep (rg) is not installed or is not on PATH.")),
-                isSearching: false
+        case .remoteSSH(let connection):
+            guard !rootPath.isEmpty else {
+                emit(status: .noMatches, isSearching: false)
+                return
+            }
+            let remoteCommand = (["rg"] + Self.ripgrepArguments(query: query, rootPath: rootPath))
+                .map(ShellCommandQuoting.singleQuoted)
+                .joined(separator: " ")
+            command = SearchProcessCommand(
+                executableURL: URL(fileURLWithPath: "/usr/bin/ssh"),
+                arguments: connection.sshProcessArguments(command: remoteCommand)
             )
+        }
+
+        guard isExecutableFile(command.executableURL.path) else {
+            if case .remoteSSH = scope {
+                emit(status: .unsupported, isSearching: false)
+            } else {
+                emit(
+                    status: .failed(String(format: String(localized: "fileExplorer.search.executableMissing", defaultValue: "Search executable is missing: %@"), command.executableURL.lastPathComponent)),
+                    isSearching: false
+                )
+            }
             return
         }
 
@@ -500,22 +569,8 @@ final class FileSearchController: FileSearchControlling {
         emit(status: .searching, isSearching: true)
 
         let process = Process()
-        process.executableURL = executable.url
-        process.arguments = executable.prefixArguments + [
-            "--json",
-            "--line-number",
-            "--column",
-            "--smart-case",
-            "--fixed-strings",
-            "--max-columns", "300",
-            "--max-columns-preview",
-            "--color", "never",
-            "--hidden",
-        ] + excludedSearchGlobs.flatMap { ["--glob", $0] } + [
-            "--",
-            query,
-            rootPath,
-        ]
+        process.executableURL = command.executableURL
+        process.arguments = command.arguments
 
         let stdout = Pipe()
         let stderr = Pipe()
@@ -577,6 +632,45 @@ final class FileSearchController: FileSearchControlling {
             self.pipeline = nil
             emit(status: .failed(error.localizedDescription), isSearching: false)
         }
+    }
+
+    static func searchProcessCommand(query: String, rootPath: String, scope: FileSearchScope) -> SearchProcessCommand? {
+        switch scope {
+        case .unsupported:
+            return nil
+        case .local:
+            guard let executable = RipgrepExecutableResolver.resolve() else { return nil }
+            return SearchProcessCommand(
+                executableURL: executable.url,
+                arguments: executable.prefixArguments + ripgrepArguments(query: query, rootPath: rootPath)
+            )
+        case .remoteSSH(let connection):
+            let remoteCommand = (["rg"] + ripgrepArguments(query: query, rootPath: rootPath))
+                .map(ShellCommandQuoting.singleQuoted)
+                .joined(separator: " ")
+            return SearchProcessCommand(
+                executableURL: URL(fileURLWithPath: "/usr/bin/ssh"),
+                arguments: connection.sshProcessArguments(command: remoteCommand)
+            )
+        }
+    }
+
+    private static func ripgrepArguments(query: String, rootPath: String) -> [String] {
+        [
+            "--json",
+            "--line-number",
+            "--column",
+            "--smart-case",
+            "--fixed-strings",
+            "--max-columns", "300",
+            "--max-columns-preview",
+            "--color", "never",
+            "--hidden",
+        ] + excludedSearchGlobs.flatMap { ["--glob", $0] } + [
+            "--",
+            query,
+            rootPath,
+        ]
     }
 
     func cancel(clear: Bool) {

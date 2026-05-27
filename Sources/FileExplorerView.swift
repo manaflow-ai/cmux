@@ -8,6 +8,31 @@ private func fileExplorerDebugResponder(_ responder: NSResponder?) -> String {
     guard let responder else { return "nil" }
     return String(describing: type(of: responder))
 }
+
+@MainActor
+enum FileExplorerDebugCounters {
+    static var updateNSViewCount = 0
+    static var visibilityUpdateCount = 0
+    static var searchLayoutInvalidationCount = 0
+    static var outlineReloadCount = 0
+    static var outlineRefreshCount = 0
+
+    static func reset() {
+        updateNSViewCount = 0
+        visibilityUpdateCount = 0
+        searchLayoutInvalidationCount = 0
+        outlineReloadCount = 0
+        outlineRefreshCount = 0
+    }
+
+    static var summary: String {
+        "updateNSView=\(updateNSViewCount) " +
+            "visibilityUpdates=\(visibilityUpdateCount) " +
+            "searchLayoutInvalidations=\(searchLayoutInvalidationCount) " +
+            "outlineReloads=\(outlineReloadCount) " +
+            "outlineRefreshes=\(outlineRefreshCount)"
+    }
+}
 #endif
 
 private final class FileExplorerExternalOpenRequest: NSObject {
@@ -124,12 +149,17 @@ struct FileExplorerPanelView: NSViewRepresentable {
     }
 
     func updateNSView(_ container: FileExplorerContainerView, context: Context) {
-        context.coordinator.store = store
-        context.coordinator.state = state
-        context.coordinator.onOpenFilePreview = onOpenFilePreview
-        context.coordinator.placement = placement
-        context.coordinator.onFocus = onFocus
-        context.coordinator.onContainerChange = onContainerChange
+#if DEBUG
+        FileExplorerDebugCounters.updateNSViewCount += 1
+#endif
+        context.coordinator.updateBindings(
+            store: store,
+            state: state,
+            onOpenFilePreview: onOpenFilePreview,
+            placement: placement,
+            onFocus: onFocus,
+            onContainerChange: onContainerChange
+        )
         context.coordinator.onContainerChange?(container)
         container.updateHeader(store: store)
         container.updatePresentation(presentation)
@@ -154,6 +184,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         weak var containerView: FileExplorerContainerView?
         weak var outlineView: NSOutlineView?
         private var lastRootNodeCount: Int = -1
+        private var lastAppliedOutlineRevision: UInt64?
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
@@ -186,6 +217,28 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     self.restoreExpansionState(self.store.expandedPaths, in: outlineView)
                     self.applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
                 }
+            }
+        }
+
+        func updateBindings(
+            store: FileExplorerStore,
+            state: FileExplorerState,
+            onOpenFilePreview: @escaping (String) -> Void,
+            placement: FileExplorerPanelPlacement,
+            onFocus: (() -> Void)?,
+            onContainerChange: ((FileExplorerContainerView?) -> Void)?
+        ) {
+            let didChangeStore = self.store !== store
+            self.store = store
+            self.state = state
+            self.onOpenFilePreview = onOpenFilePreview
+            self.placement = placement
+            self.onFocus = onFocus
+            self.onContainerChange = onContainerChange
+            if didChangeStore {
+                lastRootNodeCount = -1
+                lastAppliedOutlineRevision = nil
+                observeStore()
             }
         }
 
@@ -232,21 +285,32 @@ struct FileExplorerPanelView: NSViewRepresentable {
         func reloadIfNeeded() {
             guard let outlineView else { return }
 
-            // Update empty state vs tree visibility
             containerView?.updateVisibility(
                 hasContent: !store.rootPath.isEmpty,
                 isLoading: store.isRootLoading,
                 statusMessage: store.rootStatusMessage
             )
+            guard lastAppliedOutlineRevision != store.outlineRevision else { return }
+            lastAppliedOutlineRevision = store.outlineRevision
 
             let newCount = store.rootNodes.count
             withProgrammaticOutlineUpdate {
                 if newCount != lastRootNodeCount {
                     lastRootNodeCount = newCount
                     let expandedPaths = store.expandedPaths
+#if DEBUG
+                    MainActor.assumeIsolated {
+                        FileExplorerDebugCounters.outlineReloadCount += 1
+                    }
+#endif
                     outlineView.reloadData()
                     restoreExpansionState(expandedPaths, in: outlineView)
                 } else {
+#if DEBUG
+                    MainActor.assumeIsolated {
+                        FileExplorerDebugCounters.outlineRefreshCount += 1
+                    }
+#endif
                     refreshLoadedNodes(in: outlineView)
                 }
                 applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
@@ -718,7 +782,7 @@ final class FileExplorerContainerView: NSView {
     private var searchBarHeightConstraint: NSLayoutConstraint!
     private(set) var searchSnapshot = FileSearchSnapshot.empty
     private var currentRootPath = ""
-    private var currentProviderIsLocal = false
+    private var currentSearchScope: FileSearchScope = .unsupported
     private var currentContentRevision = 0
     private let searchDebounceSubject = PassthroughSubject<Int, Never>()
     private var searchDebounceCancellable: AnyCancellable?
@@ -998,6 +1062,14 @@ final class FileExplorerContainerView: NSView {
         AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFileExplorerHost(self)
     }
 
+    private struct VisibilityState: Equatable {
+        let hasContent: Bool
+        let isLoading: Bool
+        let statusMessage: String?
+    }
+
+    private var lastAppliedVisibility: VisibilityState?
+
     override func layout() {
 #if DEBUG
         let debugLayoutStart = ProcessInfo.processInfo.systemUptime
@@ -1011,14 +1083,14 @@ final class FileExplorerContainerView: NSView {
 
     func updateHeader(store: FileExplorerStore) {
         let nextRootPath = store.rootPath
-        let nextProviderIsLocal = store.provider is LocalFileExplorerProvider
+        let nextSearchScope = FileSearchScope(provider: store.provider)
         let nextContentRevision = store.contentRevision
         let searchScopeChanged = nextRootPath != currentRootPath ||
-            nextProviderIsLocal != currentProviderIsLocal
+            nextSearchScope != currentSearchScope
         let contentRevisionChanged = nextContentRevision != currentContentRevision
 
         currentRootPath = nextRootPath
-        currentProviderIsLocal = nextProviderIsLocal
+        currentSearchScope = nextSearchScope
         currentContentRevision = nextContentRevision
         headerView.update(displayPath: store.displayRootPath)
         if searchScopeChanged {
@@ -1037,7 +1109,7 @@ final class FileExplorerContainerView: NSView {
         guard presentation != nextPresentation else {
             if presentation == .find {
                 isSearchVisible = true
-                updateSearchLayout()
+                updateSearchLayoutForCurrentVisibility()
             }
             return
         }
@@ -1051,7 +1123,7 @@ final class FileExplorerContainerView: NSView {
             isSearchVisible = true
             refreshSearchIfNeeded()
         }
-        updateSearchLayout()
+        updateSearchLayoutForCurrentVisibility()
         registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 
@@ -1059,14 +1131,37 @@ final class FileExplorerContainerView: NSView {
         let normalizedStatus = statusMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasStatus = normalizedStatus?.isEmpty == false
         let canShowTree = hasContent && !hasStatus
-        headerView.isHidden = !hasContent && !hasStatus
+        let nextVisibility = VisibilityState(
+            hasContent: hasContent,
+            isLoading: isLoading,
+            statusMessage: normalizedStatus
+        )
+        guard nextVisibility != lastAppliedVisibility else { return }
+        lastAppliedVisibility = nextVisibility
+#if DEBUG
+        FileExplorerDebugCounters.visibilityUpdateCount += 1
+#endif
+
+        let shouldHideHeader = !hasContent && !hasStatus
+        if headerView.isHidden != shouldHideHeader {
+            headerView.isHidden = shouldHideHeader
+        }
         updateSearchLayout(hasContent: canShowTree, isLoading: isLoading)
         let searchCanShow = isSearchVisible && canShowTree && !isLoading
-        emptyLabel.stringValue = hasStatus
+        let nextEmptyText = hasStatus
             ? normalizedStatus!
             : String(localized: "fileExplorer.empty", defaultValue: "No folder open")
-        emptyLabel.isHidden = canShowTree || searchCanShow || isLoading
-        loadingIndicator.isHidden = !isLoading
+        if emptyLabel.stringValue != nextEmptyText {
+            emptyLabel.stringValue = nextEmptyText
+        }
+        let shouldHideEmpty = canShowTree || searchCanShow || isLoading
+        if emptyLabel.isHidden != shouldHideEmpty {
+            emptyLabel.isHidden = shouldHideEmpty
+        }
+        let shouldHideLoading = !isLoading
+        if loadingIndicator.isHidden != shouldHideLoading {
+            loadingIndicator.isHidden = shouldHideLoading
+        }
         if isLoading {
             loadingIndicator.startAnimation(nil)
         } else {
@@ -1164,7 +1259,7 @@ final class FileExplorerContainerView: NSView {
 #if DEBUG
         dlog(
             "file.search.request queryLen=\(searchField.stringValue.count) " +
-            "rootReady=\(currentRootPath.isEmpty ? 0 : 1) local=\(currentProviderIsLocal ? 1 : 0) " +
+            "rootReady=\(currentRootPath.isEmpty ? 0 : 1) scope=\(currentSearchScope.debugName) " +
             "revision=\(currentContentRevision) results=\(searchSnapshot.results.count) " +
             "fieldW=\(debugSearchNumber(searchField.frame.width)) statusW=\(debugSearchNumber(searchStatusLabel.frame.width))"
         )
@@ -1172,7 +1267,7 @@ final class FileExplorerContainerView: NSView {
         searchController.search(
             query: searchField.stringValue,
             rootPath: currentRootPath,
-            isLocal: currentProviderIsLocal,
+            scope: currentSearchScope,
             contentRevision: currentContentRevision
         )
     }
@@ -1237,11 +1332,48 @@ final class FileExplorerContainerView: NSView {
         let effectiveHasContent = hasContent ?? !currentRootPath.isEmpty
         let effectiveIsLoading = isLoading ?? false
         let showSearch = isSearchVisible && effectiveHasContent && !effectiveIsLoading
-        searchBarView.isHidden = !showSearch
-        searchBarHeightConstraint.constant = showSearch ? searchBarVisibleHeight : 0
-        searchScrollView.isHidden = !showSearch
-        scrollView.isHidden = showSearch || !effectiveHasContent || effectiveIsLoading
-        needsLayout = true
+        var didChangeLayout = false
+
+        let shouldHideSearchBar = !showSearch
+        if searchBarView.isHidden != shouldHideSearchBar {
+            searchBarView.isHidden = shouldHideSearchBar
+            didChangeLayout = true
+        }
+
+        let nextSearchHeight = showSearch ? searchBarVisibleHeight : 0
+        if searchBarHeightConstraint.constant != nextSearchHeight {
+            searchBarHeightConstraint.constant = nextSearchHeight
+            didChangeLayout = true
+        }
+
+        let shouldHideSearchScroll = !showSearch
+        if searchScrollView.isHidden != shouldHideSearchScroll {
+            searchScrollView.isHidden = shouldHideSearchScroll
+            didChangeLayout = true
+        }
+
+        let shouldHideOutlineScroll = showSearch || !effectiveHasContent || effectiveIsLoading
+        if scrollView.isHidden != shouldHideOutlineScroll {
+            scrollView.isHidden = shouldHideOutlineScroll
+            didChangeLayout = true
+        }
+
+        if didChangeLayout {
+#if DEBUG
+            FileExplorerDebugCounters.searchLayoutInvalidationCount += 1
+#endif
+            needsLayout = true
+        }
+    }
+
+    private func updateSearchLayoutForCurrentVisibility() {
+        guard let lastAppliedVisibility else { return }
+        let hasStatus = lastAppliedVisibility.statusMessage?.isEmpty == false
+        let canShowTree = lastAppliedVisibility.hasContent && !hasStatus
+        updateSearchLayout(
+            hasContent: canShowTree,
+            isLoading: lastAppliedVisibility.isLoading
+        )
     }
 
     private func applySearchSnapshot(_ snapshot: FileSearchSnapshot) {
@@ -1311,7 +1443,7 @@ final class FileExplorerContainerView: NSView {
         case .idle:
             return ""
         case .unsupported:
-            return String(localized: "fileExplorer.search.unsupported", defaultValue: "Local folders only")
+            return String(localized: "fileExplorer.search.unsupported", defaultValue: "Search unavailable")
         case .searching:
             return String(
                 format: String(localized: "fileExplorer.search.searching", defaultValue: "%d matches, searching"),
@@ -1888,6 +2020,7 @@ final class FileExplorerHeaderView: NSView {
     }
 
     func update(displayPath: String) {
+        guard self.displayPath != displayPath else { return }
         self.displayPath = displayPath
         applyHeaderState()
     }

@@ -91066,6 +91066,23 @@
         }
       }
     },
+    "fileExplorer.search.executableMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search executable is missing: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索実行ファイルが見つかりません: %@"
+          }
+        }
+      }
+    },
     "fileExplorer.search.searching": {
       "extractionState": "manual",
       "localizations": {
@@ -91112,13 +91129,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Local folders only"
+            "value": "Search unavailable"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ローカルフォルダのみ"
+            "value": "検索できません"
           }
         }
       }
