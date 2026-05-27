@@ -4687,6 +4687,15 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertFalse(state.needsFrameClock)
     }
 
+    func testCanvasCameraInteractionMarksCameraEventsForUnifiedPresentation() {
+        XCTAssertTrue(CanvasCameraInteractionEvent.began(.panning).requiresUnifiedCanvasPresentation)
+        XCTAssertTrue(CanvasCameraInteractionEvent.changed(.zooming).requiresUnifiedCanvasPresentation)
+        XCTAssertTrue(CanvasCameraInteractionEvent.unphasedUpdate(.panning).requiresUnifiedCanvasPresentation)
+        XCTAssertFalse(CanvasCameraInteractionEvent.began(.draggingSurface).requiresUnifiedCanvasPresentation)
+        XCTAssertFalse(CanvasCameraInteractionEvent.changed(.resizingSurface).requiresUnifiedCanvasPresentation)
+        XCTAssertFalse(CanvasCameraInteractionEvent.ended.requiresUnifiedCanvasPresentation)
+    }
+
     @MainActor
     func testCanvasSceneSnapshotPromotesFocusedItemToNativeMount() throws {
         let controller = WorkspaceLayoutController()

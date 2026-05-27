@@ -2445,6 +2445,16 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         }
     }
 
+    private func parkCanvasNativeSurfaces(
+        forCameraInteraction event: CanvasCameraInteractionEvent,
+        presentation: CanvasPresentationState,
+        activeItemID: LayoutItemID?
+    ) {
+        guard event.requiresUnifiedCanvasPresentation else { return }
+        parkCanvasNativeSurfaces(in: presentation)
+        parkCanvasNativeSurface(activeItemID: activeItemID)
+    }
+
     private func canvasViewport(_ items: [CanvasItem], activeItemID: LayoutItemID?) -> some View {
         GeometryReader { proxy in
             let viewport = displayedCanvasViewport()
@@ -2540,6 +2550,11 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 CanvasPanEventMonitorLayer(
                     scrollPassthroughFrames: scrollPassthroughFrames,
                     onCameraInteraction: { event in
+                        parkCanvasNativeSurfaces(
+                            forCameraInteraction: event,
+                            presentation: presentation,
+                            activeItemID: activeItemID
+                        )
                         applyCanvasCameraInteraction(event)
                     },
                     onPan: { delta in
