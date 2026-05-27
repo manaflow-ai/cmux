@@ -1041,6 +1041,111 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(try posixPermissions(at: snapshotFile), 0o600)
     }
 
+    func testAgentTurnDiffBaselineKeepsFirstSnapshotForDuplicateTurnHook() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
+        let stateURL = rootURL.appendingPathComponent("state", isDirectory: true)
+        let fileURL = repoURL.appendingPathComponent("story.txt")
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stateURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try runGit(["init"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try "one\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        try runGit(["add", "story.txt"], in: repoURL)
+        try runGit(["commit", "-m", "initial"], in: repoURL)
+
+        let workspaceId = UUID().uuidString.lowercased()
+        let surfaceId = UUID().uuidString.lowercased()
+        let sessionId = "session-duplicate-turn"
+        let turnId = "turn-duplicate"
+
+        func runPromptSubmit() throws -> ProcessRunResult {
+            let socketPath = makeSocketPath("hookdu")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+            }
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = Self.v2Payload(from: line),
+                      let id = payload["id"] as? String,
+                      let method = payload["method"] as? String else {
+                    return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+                }
+                if method == "surface.list" {
+                    return Self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "surfaces": [
+                                [
+                                    "id": surfaceId,
+                                    "ref": "surface:1",
+                                    "index": 1,
+                                    "focused": true
+                                ] as [String: Any]
+                            ]
+                        ]
+                    )
+                }
+                return Self.v2Response(id: id, ok: true, result: [:])
+            }
+            let inputData = try JSONSerialization.data(
+                withJSONObject: [
+                    "session_id": sessionId,
+                    "turn_id": turnId,
+                    "cwd": repoURL.path
+                ],
+                options: [.sortedKeys]
+            )
+            let result = runCLI(
+                cliPath: cliPath,
+                socketPath: socketPath,
+                arguments: ["hooks", "codex", "prompt-submit", "--workspace", workspaceId, "--surface", surfaceId],
+                environmentOverrides: [
+                    "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
+                    "PWD": repoURL.path
+                ],
+                currentDirectoryURL: repoURL,
+                stdinText: String(data: inputData, encoding: .utf8)
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        let firstHook = try runPromptSubmit()
+        XCTAssertFalse(firstHook.timedOut, firstHook.stderr)
+        XCTAssertEqual(firstHook.status, 0, firstHook.stderr)
+        try "one\ntwo\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let duplicateHook = try runPromptSubmit()
+        XCTAssertFalse(duplicateHook.timedOut, duplicateHook.stderr)
+        XCTAssertEqual(duplicateHook.status, 0, duplicateHook.stderr)
+
+        let storeData = try Data(contentsOf: stateURL.appendingPathComponent("agent-turn-diff-baselines.json"))
+        let store = try JSONSerialization.jsonObject(with: storeData, options: []) as? [String: Any]
+        let records = try XCTUnwrap(store?["records"] as? [[String: Any]])
+        XCTAssertEqual(records.filter { $0["turnId"] as? String == turnId }.count, 1)
+
+        let lastTurn = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--last-turn"],
+            environmentOverrides: [
+                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId
+            ],
+            currentDirectoryURL: repoURL
+        )
+        XCTAssertTrue(lastTurn.patch.contains("+two"), lastTurn.patch)
+    }
+
     func testDiffCommandGitSourcesDrainLargeDiffOutput() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
@@ -1442,7 +1547,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         socketPath: String,
         arguments: [String],
         environmentOverrides: [String: String] = [:],
-        currentDirectoryURL: URL? = nil
+        currentDirectoryURL: URL? = nil,
+        stdinText: String? = nil
     ) -> ProcessRunResult {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
@@ -1456,7 +1562,8 @@ final class CMUXOpenCommandTests: XCTestCase {
             arguments: arguments,
             environment: environment,
             timeout: 15,
-            currentDirectoryURL: currentDirectoryURL
+            currentDirectoryURL: currentDirectoryURL,
+            stdinText: stdinText
         )
     }
 
@@ -1706,16 +1813,25 @@ final class CMUXOpenCommandTests: XCTestCase {
         arguments: [String],
         environment: [String: String],
         timeout: TimeInterval,
-        currentDirectoryURL: URL? = nil
+        currentDirectoryURL: URL? = nil,
+        stdinText: String? = nil
     ) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
+        let stdinPipe: Pipe?
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         process.environment = environment
         process.currentDirectoryURL = currentDirectoryURL
-        process.standardInput = FileHandle.nullDevice
+        if stdinText != nil {
+            let pipe = Pipe()
+            process.standardInput = pipe
+            stdinPipe = pipe
+        } else {
+            process.standardInput = FileHandle.nullDevice
+            stdinPipe = nil
+        }
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
@@ -1729,6 +1845,10 @@ final class CMUXOpenCommandTests: XCTestCase {
         DispatchQueue.global(qos: .userInitiated).async {
             process.waitUntilExit()
             exitSignal.signal()
+        }
+        if let stdinText, let stdinPipe {
+            stdinPipe.fileHandleForWriting.write(Data(stdinText.utf8))
+            stdinPipe.fileHandleForWriting.closeFile()
         }
 
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut

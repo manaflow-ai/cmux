@@ -1938,16 +1938,32 @@ extension CMUXCLI {
         )
         do {
             var removedRecords: [CMUXAgentTurnDiffBaselineRecord] = []
+            var shouldRemoveNewSnapshot = untrackedSnapshot.snapshotId != nil
             try updateAgentTurnDiffBaselineStore(path: storePath, update: { store in
+                func matchesCurrentScope(_ existing: CMUXAgentTurnDiffBaselineRecord) -> Bool {
+                    standardizedDiffSourcePath(existing.repoRoot) == repoRoot &&
+                        diffScopeIdentifierEquals(existing.workspaceId, workspaceId) &&
+                        diffScopeIdentifierEquals(existing.surfaceId, surfaceId) &&
+                        existing.sessionId == record.sessionId
+                }
+
+                let previousRecords = store.records
+                if let turnId = record.turnId,
+                   store.records.contains(where: { matchesCurrentScope($0) && $0.turnId == turnId }) {
+                    pruneAgentTurnDiffBaselineStore(&store)
+                    removedRecords = previousRecords.filter { previous in
+                        !store.records.contains { agentTurnDiffBaselineRecordEquals($0, previous) }
+                    }
+                    removedRecords.append(record)
+                    return
+                }
+
                 if let snapshotId = untrackedSnapshot.snapshotId {
                     try publishAgentTurnDiffBaselineSnapshot(snapshotId: snapshotId, storePath: storePath)
+                    shouldRemoveNewSnapshot = false
                 }
-                let previousRecords = store.records
                 store.records.removeAll { existing in
-                    guard standardizedDiffSourcePath(existing.repoRoot) == repoRoot,
-                          diffScopeIdentifierEquals(existing.workspaceId, workspaceId),
-                          diffScopeIdentifierEquals(existing.surfaceId, surfaceId),
-                          existing.sessionId == record.sessionId else {
+                    guard matchesCurrentScope(existing) else {
                         return false
                     }
                     if let turnId = record.turnId {
@@ -1967,6 +1983,9 @@ extension CMUXCLI {
                     retainedRecords: store.records
                 )
             })
+            if shouldRemoveNewSnapshot, let snapshotId = untrackedSnapshot.snapshotId {
+                removeAgentTurnDiffBaselineSnapshot(snapshotId: snapshotId, storePath: storePath)
+            }
         } catch {
             if let snapshotId = untrackedSnapshot.snapshotId {
                 removeAgentTurnDiffBaselineSnapshot(snapshotId: snapshotId, storePath: storePath)
