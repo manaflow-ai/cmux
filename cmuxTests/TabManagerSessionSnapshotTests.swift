@@ -1834,6 +1834,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let restoredDefaultRemoteCommand = try XCTUnwrap(
             Self.decodedSSHPTYCommandB64(in: terminalStartupCommand)
         )
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
         XCTAssertTrue(
             restoredDefaultRemoteCommand.contains("export CMUX_SOCKET_PATH=127.0.0.1:64003"),
             restoredDefaultRemoteCommand
@@ -1843,9 +1844,51 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             restoredDefaultRemoteCommand
         )
         XCTAssertTrue(restoredDefaultRemoteCommand.contains("CMUX_SHELL_INTEGRATION_DIR"), restoredDefaultRemoteCommand)
-        XCTAssertTrue(restoredDefaultRemoteCommand.contains("__CMUX_WORKSPACE_ID__"), restoredDefaultRemoteCommand)
-        XCTAssertTrue(restoredDefaultRemoteCommand.contains("__CMUX_SURFACE_ID__"), restoredDefaultRemoteCommand)
-        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+        XCTAssertTrue(
+            restoredDefaultRemoteCommand.contains("cmux_workspace_id='__CMUX_WORKSPACE_ID__'"),
+            restoredDefaultRemoteCommand
+        )
+        XCTAssertTrue(
+            restoredDefaultRemoteCommand.contains("'__CMUX_''WORKSPACE_ID__'"),
+            restoredDefaultRemoteCommand
+        )
+        XCTAssertFalse(
+            restoredDefaultRemoteCommand.contains("[ -n '__CMUX_WORKSPACE_ID__' ]"),
+            restoredDefaultRemoteCommand
+        )
+        XCTAssertTrue(
+            restoredDefaultRemoteCommand.contains("cmux_surface_id='__CMUX_SURFACE_ID__'"),
+            restoredDefaultRemoteCommand
+        )
+        XCTAssertTrue(
+            restoredDefaultRemoteCommand.contains("'__CMUX_''SURFACE_ID__'"),
+            restoredDefaultRemoteCommand
+        )
+        XCTAssertFalse(
+            restoredDefaultRemoteCommand.contains("[ -n '__CMUX_SURFACE_ID__' ]"),
+            restoredDefaultRemoteCommand
+        )
+        let substitutedRestoredDefaultRemoteCommand = restoredDefaultRemoteCommand
+            .replacingOccurrences(of: "__CMUX_WORKSPACE_ID__", with: restoredWorkspace.id.uuidString)
+            .replacingOccurrences(of: "__CMUX_SURFACE_ID__", with: restoredPanelId.uuidString)
+        XCTAssertTrue(
+            substitutedRestoredDefaultRemoteCommand.contains(
+                "cmux_workspace_id='\(restoredWorkspace.id.uuidString)'"
+            ),
+            substitutedRestoredDefaultRemoteCommand
+        )
+        XCTAssertTrue(
+            substitutedRestoredDefaultRemoteCommand.contains("cmux_surface_id='\(restoredPanelId.uuidString)'"),
+            substitutedRestoredDefaultRemoteCommand
+        )
+        XCTAssertFalse(
+            substitutedRestoredDefaultRemoteCommand.contains("CMUX_WORKSPACE_ID=__CMUX_WORKSPACE_ID__"),
+            substitutedRestoredDefaultRemoteCommand
+        )
+        XCTAssertFalse(
+            substitutedRestoredDefaultRemoteCommand.contains("CMUX_SURFACE_ID=__CMUX_SURFACE_ID__"),
+            substitutedRestoredDefaultRemoteCommand
+        )
         let restoredInitialCommand = try XCTUnwrap(
             restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()
         )

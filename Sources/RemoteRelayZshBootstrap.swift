@@ -174,10 +174,15 @@ enum RemoteInteractiveShellBootstrapBuilder {
         if let relaySocket {
             lines.append("export CMUX_SOCKET_PATH=\(relaySocket)")
         }
+        // The assignment placeholders are replaced by `ssh-pty-attach` before
+        // this script runs. Split the sentinel patterns so a missed replacement
+        // does not export literal placeholder IDs into the remote shell.
         lines.append(contentsOf: [
-            "if [ -n '__CMUX_WORKSPACE_ID__' ]; then export CMUX_WORKSPACE_ID='__CMUX_WORKSPACE_ID__'; fi",
-            "if [ -n '__CMUX_WORKSPACE_ID__' ]; then export CMUX_TAB_ID='__CMUX_WORKSPACE_ID__'; fi",
-            "if [ -n '__CMUX_SURFACE_ID__' ]; then export CMUX_SURFACE_ID='__CMUX_SURFACE_ID__'; export CMUX_PANEL_ID='__CMUX_SURFACE_ID__'; fi",
+            "cmux_workspace_id='__CMUX_WORKSPACE_ID__'",
+            "case \"$cmux_workspace_id\" in \"\"|'__CMUX_''WORKSPACE_ID__') ;; *) export CMUX_WORKSPACE_ID=\"$cmux_workspace_id\"; export CMUX_TAB_ID=\"$cmux_workspace_id\" ;; esac",
+            "cmux_surface_id='__CMUX_SURFACE_ID__'",
+            "case \"$cmux_surface_id\" in \"\"|'__CMUX_''SURFACE_ID__') ;; *) export CMUX_SURFACE_ID=\"$cmux_surface_id\"; export CMUX_PANEL_ID=\"$cmux_surface_id\" ;; esac",
+            "unset cmux_workspace_id cmux_surface_id",
             "hash -r >/dev/null 2>&1 || true",
             "rehash >/dev/null 2>&1 || true",
         ])
