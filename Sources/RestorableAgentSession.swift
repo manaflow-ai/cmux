@@ -116,10 +116,6 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         var range: Range<String.Index>
     }
 
-    private static func shellWords(_ command: String) -> [String] {
-        shellWordRanges(command).map(\.value)
-    }
-
     private static func shellWordRanges(_ command: String) -> [ShellWordRange] {
         enum Quote {
             case single
