@@ -15824,11 +15824,8 @@ private extension NSWindow {
             let responderWebView = self.firstResponder.flatMap {
                 Self.cmuxOwningWebView(for: $0, in: self, event: event)
             }
-            let hitWebView = Self.cmuxHitViewForEventDispatch(in: self, event: event).flatMap {
-                Self.cmuxOwningWebView(for: $0)
-            }
             let firstResponderType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-            return "browser=\((responderWebView != nil || hitWebView != nil) ? 1 : 0) firstResponder=\(firstResponderType)"
+            return "browser=\(responderWebView != nil ? 1 : 0) firstResponder=\(firstResponderType)"
         }()
         if event.type == .keyDown {
             CmuxTypingTiming.logEventDelay(path: "window.sendEvent", event: event)
@@ -15873,7 +15870,7 @@ private extension NSWindow {
         let previousContextHitView = cmuxFirstResponderGuardHitViewContext
         let previousContextWindowNumber = cmuxFirstResponderGuardContextWindowNumber
         cmuxFirstResponderGuardCurrentEventContext = event
-        cmuxFirstResponderGuardHitViewContext = Self.cmuxHitViewForEventDispatch(in: self, event: event)
+        cmuxFirstResponderGuardHitViewContext = Self.cmuxHitViewForFirstResponderGuard(in: self, event: event)
         cmuxFirstResponderGuardContextWindowNumber = self.windowNumber
 #if DEBUG
         if event.type == .keyDown {
@@ -16520,6 +16517,11 @@ private extension NSWindow {
             return nil
         }
         return cmuxTopHitViewForEvent(in: window, event: event)
+    }
+
+    private static func cmuxHitViewForFirstResponderGuard(in window: NSWindow, event: NSEvent) -> NSView? {
+        guard cmuxIsPointerDownEvent(event) else { return nil }
+        return cmuxHitViewForEventDispatch(in: window, event: event)
     }
 
     private static func cmuxHitViewForCurrentEvent(in window: NSWindow, event: NSEvent) -> NSView? {

@@ -36,6 +36,8 @@ final class BrowserPaneDropTargetView: NSView {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
     ) -> Bool {
+        guard canCaptureHitTesting(for: eventType) else { return false }
+
         let hasFileURL = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
         let fileDropBehavior = DragOverlayRoutingPolicy.resolvedFileDropBehavior(
             pasteboardTypes: pasteboardTypes,
@@ -49,8 +51,12 @@ final class BrowserPaneDropTargetView: NSView {
         let shouldCaptureFilePreviewTransfer = hasFilePreviewTransfer && (!hasFileURL || fileDropWantsPreview)
         let shouldCaptureBonsplitTransfer = hasBonsplitTransfer && !hasFilePreviewTransfer
         guard shouldCaptureBonsplitTransfer || shouldCaptureFilePreviewTransfer || shouldCaptureFileDrop else { return false }
-        guard let eventType else { return false }
 
+        return true
+    }
+
+    private static func canCaptureHitTesting(for eventType: NSEvent.EventType?) -> Bool {
+        guard let eventType else { return false }
         switch eventType {
         case .cursorUpdate,
              .mouseEntered,
@@ -74,12 +80,13 @@ final class BrowserPaneDropTargetView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard bounds.contains(point), dropContext != nil else { return nil }
+        let eventType = NSApp.currentEvent?.type
+        guard Self.canCaptureHitTesting(for: eventType) else { return nil }
         if shouldDeferToPaneTabBar(at: point) {
             return nil
         }
 
         let pasteboardTypes = NSPasteboard(name: .drag).types
-        let eventType = NSApp.currentEvent?.type
         let capture = Self.shouldCaptureHitTesting(
             pasteboardTypes: pasteboardTypes,
             eventType: eventType
