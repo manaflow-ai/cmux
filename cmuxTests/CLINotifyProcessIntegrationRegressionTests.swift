@@ -247,6 +247,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNil(environment["ANTHROPIC_BASE_URL"])
         XCTAssertNil(environment["ANTHROPIC_MODEL"])
         XCTAssertNil(environment["CLAUDE_CONFIG_DIR"])
+        XCTAssertEqual(
+            request["command"] as? String,
+            "cd '\(context.root.path)' && 'env' 'ANTHROPIC_BASE_URL=https://api.example.test' 'ANTHROPIC_MODEL=claude-sonnet-test' 'CLAUDE_CONFIG_DIR=\(context.root.path)/claude-config' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=ANTHROPIC_BASE_URL,ANTHROPIC_MODEL,CLAUDE_CONFIG_DIR' 'claude' '--resume' '\(sessionId)' '--model' 'sonnet'"
+        )
+        XCTAssertFalse(
+            (request["command"] as? String)?.contains("/usr/local/bin/claude") ?? true,
+            "Claude resume binding must use bare claude so the cmux wrapper injects hooks."
+        )
     }
 
     func testClaudeSessionEndChecksConsumedWorkspaceBeforeClearingVisibleState() throws {
