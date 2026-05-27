@@ -20224,7 +20224,7 @@ struct CMUXCLI {
             let message = String(response.dropFirst("ERROR:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
             if jsonOutput {
                 print(jsonString(["ok": false, "message": message]))
-                return
+                throw CLIError(message: message)
             }
             throw CLIError(message: message)
         }
