@@ -28,7 +28,7 @@ find_real_claude() {
         if [[ -x "$d/claude" ]]; then
             # Skip other cmux claude wrappers to prevent shim loops when both
             # the debug build and release app bins are in PATH simultaneously.
-            head -3 "$d/claude" 2>/dev/null | grep -qF "cmux claude wrapper" && continue
+            head -3 "$d/claude" 2>/dev/null | grep -qF "cmux claude wrapper - injects hooks and session tracking" && continue
             printf '%s' "$d/claude" && return 0
         fi
     done

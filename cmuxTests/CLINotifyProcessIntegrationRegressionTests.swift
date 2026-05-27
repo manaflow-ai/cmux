@@ -527,21 +527,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(notification.status, 0, notification.stderr)
 
         let notifCommands = Array(context.state.commands.dropFirst(notifStart))
+        // Non-blocking notifications skip UI updates entirely; the stop hook fires immediately
+        // after and owns the idle transition. Only verify needsInput is NOT set and the
+        // session store reflects idle.
         XCTAssertFalse(
             notifCommands.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput") },
             "Startup idle notification must not set needsInput, saw \(notifCommands)"
         )
-        XCTAssertTrue(
-            notifCommands.contains { $0.hasPrefix("set_agent_lifecycle claude_code idle") },
-            "Startup idle notification must set idle, saw \(notifCommands)"
-        )
         XCTAssertFalse(
             notifCommands.contains { $0.contains("Needs input") },
             "Startup idle notification must not display 'Needs input', saw \(notifCommands)"
-        )
-        XCTAssertTrue(
-            notifCommands.contains { $0.hasPrefix("set_status claude_code Standby") },
-            "Startup idle notification must display 'Standby', saw \(notifCommands)"
         )
 
         let record = try readClaudeHookSession(sessionId, context: context)
@@ -655,13 +650,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(notification.status, 0, notification.stderr)
 
         let notifCommands = Array(context.state.commands.dropFirst(notifStart))
+        // Non-blocking notifications skip UI updates entirely; the stop hook fires immediately
+        // after and owns the idle transition. Only verify needsInput is NOT set and the
+        // session store reflects idle.
         XCTAssertFalse(
             notifCommands.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput") },
             "Completed notification must not set needsInput, saw \(notifCommands)"
-        )
-        XCTAssertTrue(
-            notifCommands.contains { $0.hasPrefix("set_agent_lifecycle claude_code idle") },
-            "Completed notification must set idle, saw \(notifCommands)"
         )
         XCTAssertFalse(
             notifCommands.contains { $0.contains("Needs input") },
