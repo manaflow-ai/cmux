@@ -4703,7 +4703,7 @@ struct CMUXCLI {
             return true
         }
         guard !arg.hasPrefix("-"),
-              !Self.topLevelCommandNames.contains(arg.lowercased()) else {
+              !Self.topLevelCommandNames.contains(arg) else {
             return false
         }
         return FileManager.default.fileExists(atPath: resolvePath(arg))
