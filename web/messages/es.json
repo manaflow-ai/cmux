@@ -1040,7 +1040,7 @@
       "daemonTitle": "demonio de retransmisión",
       "daemonDesc": "En la primera conexión, cmux sondea el host remoto (uname -s, uname -m) y carga un binario cmuxd-remote versionado. El binario habla JSON-RPC sobre stdio y maneja tres cosas:",
       "daemonFeature": "Característica",
-      "daemonHow": "como",
+      "daemonHow": "Cómo",
       "daemonProxy": "Proxy de tráfico del navegador",
       "daemonProxyHow": "SOCKS5 y HTTP CONNECT a través del canal stdio del demonio",
       "daemonRelay": "Relé CLI",

@@ -95,6 +95,10 @@ function conflictingParams(kind: LinkKind, params: SearchParams) {
   return [];
 }
 
+function uniqueParamNames(params: string[]) {
+  return Array.from(new Set(params));
+}
+
 function isBoundedInteger(value: string, min: number, max: number) {
   if (!/^[0-9]+$/.test(value)) return false;
   const integer = Number(value);
@@ -229,13 +233,23 @@ function invalidParams(kind: LinkKind, params: SearchParams) {
   return invalid;
 }
 
+function nativeQueryValue(name: string, value: string) {
+  if (name === "text") return value;
+  const normalized = value.trim();
+  if (normalized !== "") return normalized;
+  return name === "no-focus" ? "" : null;
+}
+
 function nativeHref(kind: LinkKind, params: SearchParams) {
   const definition = definitions[kind];
   const query = new URLSearchParams();
   for (const name of definition.allowedParams) {
     const value = firstString(params[name]);
-    if (value != null && (value.trim() !== "" || name === "no-focus")) {
-      query.set(name, value);
+    if (value != null) {
+      const queryValue = nativeQueryValue(name, value);
+      if (queryValue != null) {
+        query.set(name, queryValue);
+      }
     }
   }
   const queryString = query.toString().replace(/\+/g, "%20");
@@ -288,7 +302,7 @@ export default async function DeeplinkPage({
   );
   const duplicates = duplicatedParams(resolvedSearchParams, definition.allowedParams);
   const conflicts = conflictingParams(kind, resolvedSearchParams);
-  const invalid = invalidParams(kind, resolvedSearchParams);
+  const invalid = uniqueParamNames(invalidParams(kind, resolvedSearchParams));
   const missing = missingParams(resolvedSearchParams, definition.requiredParams);
   const href = nativeHref(kind, resolvedSearchParams);
   const canOpen =
@@ -315,7 +329,7 @@ export default async function DeeplinkPage({
         <div className="mb-8 flex items-center gap-4">
           <Image
             src="/logo.png"
-            alt="cmux icon"
+            alt=""
             width={44}
             height={44}
             className="rounded-xl"

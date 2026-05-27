@@ -1094,7 +1094,7 @@
   "deeplink": {
     "section": "Link direto",
     "open": "Abrir em cmux",
-    "download": "Baixarcmux",
+    "download": "Baixar cmux",
     "nativeURL": "URL nativo",
     "missingParams": "Este link não contém parâmetros obrigatórios: {params}",
     "duplicateParams": "Este link repete os parâmetros que o cmux rejeitará: {params}",
