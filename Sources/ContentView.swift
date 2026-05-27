@@ -5968,6 +5968,12 @@ struct ContentView: View {
         )
     }
 
+    static func commandPaletteForkMatchedFallbackProbeResultHadFallback(
+        cachedResultHadFallback: Bool?
+    ) -> Bool {
+        cachedResultHadFallback ?? true
+    }
+
     static func commandPalettePanelHasForkableAgent(
         workspaceId: UUID,
         panelId: UUID,
@@ -6040,7 +6046,10 @@ struct ContentView: View {
                 if probeResultMatches {
                     commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
                     commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
-                    commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = true
+                    commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] =
+                        Self.commandPaletteForkMatchedFallbackProbeResultHadFallback(
+                            cachedResultHadFallback: commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey]
+                        )
                 } else {
                     commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
                     commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
@@ -6077,7 +6086,10 @@ struct ContentView: View {
                     isRemoteTerminal: isRemoteTerminal
                 )
                 if probeResultMatches {
-                    commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = true
+                    commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] =
+                        Self.commandPaletteForkMatchedFallbackProbeResultHadFallback(
+                            cachedResultHadFallback: commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey]
+                        )
                 }
                 if probeResultMatches && !panelChanged {
                     return

@@ -1279,6 +1279,24 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testForkableAgentMatchedFallbackProbePreservesVerifiedCacheUsage() {
+        XCTAssertFalse(
+            ContentView.commandPaletteForkMatchedFallbackProbeResultHadFallback(
+                cachedResultHadFallback: false
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteForkMatchedFallbackProbeResultHadFallback(
+                cachedResultHadFallback: true
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteForkMatchedFallbackProbeResultHadFallback(
+                cachedResultHadFallback: nil
+            )
+        )
+    }
+
     func testForkableAgentProbeResultMatchIgnoresPaletteSession() {
         let workspaceId = UUID()
         let panelId = UUID()
