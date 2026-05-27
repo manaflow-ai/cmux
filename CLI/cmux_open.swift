@@ -250,10 +250,16 @@ extension CMUXCLI {
         var files: [URL]
     }
 
-    private struct DiffViewerAllowedFile {
+    private struct DiffViewerAllowedFile: Codable {
         var requestPath: String
         var filePath: String
         var mimeType: String
+
+        enum CodingKeys: String, CodingKey {
+            case requestPath = "request_path"
+            case filePath = "file_path"
+            case mimeType = "mime_type"
+        }
 
         var jsonObject: [String: Any] {
             [
@@ -274,12 +280,15 @@ extension CMUXCLI {
 
         var token: String
         var rootDirectory: URL
+        var origin: URL
 
         func viewerURL(for fileURL: URL) throws -> URL {
-            var components = URLComponents()
-            components.scheme = Self.scheme
-            components.host = token
-            components.percentEncodedPath = try requestPath(for: fileURL)
+            guard var components = URLComponents(url: origin, resolvingAgainstBaseURL: false) else {
+                throw CLIError(message: "Failed to build diff viewer URL")
+            }
+            components.percentEncodedPath = "/\(token)\(try requestPath(for: fileURL))"
+            components.query = nil
+            components.fragment = nil
             guard let url = components.url else {
                 throw CLIError(message: "Failed to build diff viewer URL")
             }
@@ -311,6 +320,17 @@ extension CMUXCLI {
             }
             return "/" + encodedComponents.joined(separator: "/")
         }
+    }
+
+    private struct DiffViewerHTTPManifest: Codable {
+        var token: String
+        var files: [DiffViewerAllowedFile]
+    }
+
+    private struct DiffViewerHTTPServerState: Codable {
+        var port: Int
+        var pid: Int32
+        var rootPath: String
     }
 
     private struct DiffViewerLabels {
@@ -720,10 +740,12 @@ extension CMUXCLI {
         var params: [String: Any] = [
             "url": viewer.url.absoluteString,
             "focus": focus,
-            "show_omnibar": false,
-            "diff_viewer_token": viewer.url.host ?? "",
-            "diff_viewer_files": viewer.allowedFiles.map(\.jsonObject)
+            "show_omnibar": false
         ]
+        if viewer.url.scheme == DiffViewerURLMapper.scheme {
+            params["diff_viewer_token"] = viewer.url.host ?? ""
+            params["diff_viewer_files"] = viewer.allowedFiles.map(\.jsonObject)
+        }
         if let windowHandle { params["window_id"] = windowHandle }
         if let workspaceHandle { params["workspace_id"] = workspaceHandle }
         if let surfaceHandle { params["surface_id"] = surfaceHandle }
@@ -2631,9 +2653,11 @@ extension CMUXCLI {
 
         let title = titleOverride ?? input.defaultTitle
         let directory = try diffViewerDirectory()
+        let origin = try diffViewerHTTPServerOrigin(rootDirectory: directory)
         let mapper = DiffViewerURLMapper(
             token: UUID().uuidString.lowercased(),
-            rootDirectory: directory
+            rootDirectory: directory,
+            origin: origin
         )
         let timestamp = Int(Date().timeIntervalSince1970)
         let filename = "diff-\(timestamp)-\(UUID().uuidString.prefix(8)).html"
@@ -2649,16 +2673,22 @@ extension CMUXCLI {
             sourceOptions: []
         )
         let assets = try ensureDiffViewerAssets(nextTo: viewerFileURL)
+        let allowedFiles = try diffViewerAllowedFiles(
+            pageURLs: [viewerFileURL],
+            assets: assets,
+            mapper: mapper
+        )
+        try writeDiffViewerHTTPManifest(
+            token: mapper.token,
+            files: allowedFiles,
+            rootDirectory: directory
+        )
         return DiffViewerWriteResult(
             fileURL: viewerFileURL,
             url: try mapper.viewerURL(for: viewerFileURL),
             title: title,
             input: input,
-            allowedFiles: try diffViewerAllowedFiles(
-                pageURLs: [viewerFileURL],
-                assets: assets,
-                mapper: mapper
-            )
+            allowedFiles: allowedFiles
         )
     }
 
@@ -2670,9 +2700,11 @@ extension CMUXCLI {
         context: DiffSourceContext
     ) throws -> DiffViewerWriteResult {
         let directory = try diffViewerDirectory()
+        let origin = try diffViewerHTTPServerOrigin(rootDirectory: directory)
         let mapper = DiffViewerURLMapper(
             token: UUID().uuidString.lowercased(),
-            rootDirectory: directory
+            rootDirectory: directory,
+            origin: origin
         )
         let timestamp = Int(Date().timeIntervalSince1970)
         let groupID = "\(timestamp)-\(UUID().uuidString.prefix(8))"
@@ -2905,17 +2937,23 @@ extension CMUXCLI {
         )
         let assets = try ensureDiffViewerAssets(nextTo: selectedFileURL)
         let pageURLs = [selectedFileURL] + deferredPages.map(\.url)
+        let allowedFiles = try diffViewerAllowedFiles(
+            pageURLs: pageURLs,
+            assets: assets,
+            mapper: mapper
+        )
+        try writeDiffViewerHTTPManifest(
+            token: mapper.token,
+            files: allowedFiles,
+            rootDirectory: directory
+        )
 
         return DiffViewerWriteResult(
             fileURL: selectedFileURL,
             url: selectedURL,
             title: titleOverride ?? selectedInput.defaultTitle,
             input: selectedInput,
-            allowedFiles: try diffViewerAllowedFiles(
-                pageURLs: pageURLs,
-                assets: assets,
-                mapper: mapper
-            ),
+            allowedFiles: allowedFiles,
             deferredSourceSet: DiffViewerDeferredSourceSet(
                 pages: deferredPages,
                 layout: layout,
@@ -3269,6 +3307,659 @@ extension CMUXCLI {
         }
     }
 
+    func runDiffViewerServerCommand(commandArgs: [String]) throws {
+        var rootPath: String?
+        var index = 0
+        while index < commandArgs.count {
+            let arg = commandArgs[index]
+            if arg == "--root" {
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "diff-viewer-server --root requires a path")
+                }
+                rootPath = commandArgs[index + 1]
+                index += 2
+                continue
+            }
+            throw CLIError(message: "Unexpected diff-viewer-server argument: \(arg)")
+        }
+
+        guard let rootPath else {
+            throw CLIError(message: "diff-viewer-server requires --root")
+        }
+
+        let rootDirectory = URL(fileURLWithPath: rootPath, isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        try validateSecureDiffViewerDirectory(rootDirectory, repairPermissions: false)
+        try runDiffViewerHTTPServer(rootDirectory: rootDirectory)
+    }
+
+    private func diffViewerHTTPServerOrigin(rootDirectory: URL) throws -> URL {
+        let rootDirectory = rootDirectory.standardizedFileURL.resolvingSymlinksInPath()
+        try validateSecureDiffViewerDirectory(rootDirectory, repairPermissions: false)
+
+        if let state = try? readDiffViewerHTTPServerState(rootDirectory: rootDirectory),
+           state.rootPath == rootDirectory.path,
+           (1...65535).contains(state.port),
+           diffViewerHTTPServerIsReachable(port: state.port) {
+            guard let url = URL(string: "http://127.0.0.1:\(state.port)") else {
+                throw CLIError(message: "Failed to build diff viewer server URL")
+            }
+            return url
+        }
+
+        return try startDiffViewerHTTPServer(rootDirectory: rootDirectory)
+    }
+
+    private func readDiffViewerHTTPServerState(rootDirectory: URL) throws -> DiffViewerHTTPServerState {
+        let data = try Data(contentsOf: diffViewerHTTPServerStateURL(rootDirectory: rootDirectory))
+        return try JSONDecoder().decode(DiffViewerHTTPServerState.self, from: data)
+    }
+
+    private func writeDiffViewerHTTPServerState(_ state: DiffViewerHTTPServerState, rootDirectory: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let url = diffViewerHTTPServerStateURL(rootDirectory: rootDirectory)
+        try encoder.encode(state).write(to: url, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    private func startDiffViewerHTTPServer(rootDirectory: URL) throws -> URL {
+        guard let executableURL = resolvedExecutableURL() else {
+            throw CLIError(message: "Failed to resolve cmux executable for diff viewer server")
+        }
+
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = ["diff-viewer-server", "--root", rootDirectory.path]
+        process.environment = ProcessInfo.processInfo.environment
+
+        let stdoutPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        if let nullInput = FileHandle(forReadingAtPath: "/dev/null") {
+            process.standardInput = nullInput
+        }
+        if let nullOutput = FileHandle(forWritingAtPath: "/dev/null") {
+            process.standardError = nullOutput
+        }
+
+        do {
+            try process.run()
+        } catch {
+            throw CLIError(message: "Failed to start diff viewer server: \(error.localizedDescription)")
+        }
+
+        let port = try readDiffViewerHTTPServerPort(from: stdoutPipe.fileHandleForReading, process: process)
+        guard diffViewerHTTPServerIsReachable(port: port) else {
+            process.terminate()
+            throw CLIError(message: "Diff viewer server did not become reachable")
+        }
+        guard let url = URL(string: "http://127.0.0.1:\(port)") else {
+            throw CLIError(message: "Failed to build diff viewer server URL")
+        }
+        return url
+    }
+
+    private func readDiffViewerHTTPServerPort(from handle: FileHandle, process: Process) throws -> Int {
+        let finished = DispatchSemaphore(value: 0)
+        var result: Result<Int, Error>?
+
+        DispatchQueue.global(qos: .utility).async {
+            var data = Data()
+            while data.count < 64 {
+                let byte = handle.readData(ofLength: 1)
+                if byte.isEmpty {
+                    break
+                }
+                if byte == Data([0x0a]) {
+                    break
+                }
+                data.append(byte)
+            }
+
+            let line = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if let port = Int(line), (1...65535).contains(port) {
+                result = .success(port)
+            } else {
+                result = .failure(CLIError(message: "Diff viewer server returned an invalid port"))
+            }
+            finished.signal()
+        }
+
+        if finished.wait(timeout: .now() + 5) == .timedOut {
+            process.terminate()
+            throw CLIError(message: "Timed out starting diff viewer server")
+        }
+
+        switch result {
+        case .success(let port):
+            return port
+        case .failure(let error):
+            process.terminate()
+            throw error
+        case .none:
+            process.terminate()
+            throw CLIError(message: "Failed to read diff viewer server port")
+        }
+    }
+
+    private func diffViewerHTTPServerIsReachable(port: Int) -> Bool {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/__cmux_diff_viewer_healthz") else {
+            return false
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 1
+        configuration.timeoutIntervalForResource = 1
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+
+        let finished = DispatchSemaphore(value: 0)
+        var reachable = false
+        let task = session.dataTask(with: url) { data, response, _ in
+            let statusCode = (response as? HTTPURLResponse)?.statusCode
+            reachable = statusCode == 200 && data == Data("ok\n".utf8)
+            finished.signal()
+        }
+        task.resume()
+        if finished.wait(timeout: .now() + 1) == .timedOut {
+            task.cancel()
+            return false
+        }
+        return reachable
+    }
+
+    private func writeDiffViewerHTTPManifest(
+        token: String,
+        files: [DiffViewerAllowedFile],
+        rootDirectory: URL
+    ) throws {
+        guard diffViewerHTTPIsValidToken(token) else {
+            throw CLIError(message: "Invalid diff viewer token")
+        }
+        guard !files.isEmpty, files.count <= 4096 else {
+            throw CLIError(message: "Invalid diff viewer allowlist size")
+        }
+        let manifest = DiffViewerHTTPManifest(token: token, files: files)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let url = diffViewerHTTPManifestURL(token: token, rootDirectory: rootDirectory)
+        try encoder.encode(manifest).write(to: url, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    private func runDiffViewerHTTPServer(rootDirectory: URL) throws -> Never {
+        _ = signal(SIGPIPE, SIG_IGN)
+        let serverFD = try bindDiffViewerHTTPServerSocket()
+        let port = try diffViewerHTTPServerPort(fileDescriptor: serverFD)
+        let manifestCache = DiffViewerHTTPManifestCache(owner: self, rootDirectory: rootDirectory)
+        defer { close(serverFD) }
+
+        try writeDiffViewerHTTPServerState(
+            DiffViewerHTTPServerState(port: port, pid: getpid(), rootPath: rootDirectory.path),
+            rootDirectory: rootDirectory
+        )
+        FileHandle.standardOutput.write(Data("\(port)\n".utf8))
+
+        while true {
+            let clientFD = accept(serverFD, nil, nil)
+            if clientFD < 0 {
+                if errno == EINTR {
+                    continue
+                }
+                throw CLIError(message: "Diff viewer server accept failed: \(posixErrorMessage(errno))")
+            }
+            DispatchQueue.global(qos: .userInitiated).async {
+                self.handleDiffViewerHTTPConnection(
+                    fileDescriptor: clientFD,
+                    port: port,
+                    manifestCache: manifestCache
+                )
+            }
+        }
+    }
+
+    private final class DiffViewerHTTPManifestCache: @unchecked Sendable {
+        private let owner: CMUXCLI
+        private let rootDirectory: URL
+        private let lock = NSLock()
+        private var filesByToken: [String: [String: DiffViewerAllowedFile]] = [:]
+
+        init(owner: CMUXCLI, rootDirectory: URL) {
+            self.owner = owner
+            self.rootDirectory = rootDirectory
+        }
+
+        func file(token: String, requestPath: String) throws -> DiffViewerAllowedFile? {
+            lock.lock()
+            if let files = filesByToken[token] {
+                let file = files[requestPath]
+                lock.unlock()
+                return file
+            }
+            lock.unlock()
+
+            let files = try owner.loadDiffViewerHTTPManifestFiles(token: token, rootDirectory: rootDirectory)
+
+            lock.lock()
+            filesByToken[token] = files
+            let file = files[requestPath]
+            lock.unlock()
+            return file
+        }
+    }
+
+    private func bindDiffViewerHTTPServerSocket() throws -> Int32 {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw CLIError(message: "Failed to create diff viewer server socket: \(posixErrorMessage(errno))")
+        }
+
+        var yes: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+        _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
+
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(0).bigEndian
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.bind(fd, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            let bindErrno = errno
+            close(fd)
+            throw CLIError(message: "Failed to bind diff viewer server socket: \(posixErrorMessage(bindErrno))")
+        }
+
+        guard listen(fd, SOMAXCONN) == 0 else {
+            let listenErrno = errno
+            close(fd)
+            throw CLIError(message: "Failed to listen on diff viewer server socket: \(posixErrorMessage(listenErrno))")
+        }
+
+        return fd
+    }
+
+    private func diffViewerHTTPServerPort(fileDescriptor fd: Int32) throws -> Int {
+        var address = sockaddr_in()
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let result = withUnsafeMutablePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                getsockname(fd, sockaddrPointer, &length)
+            }
+        }
+        guard result == 0 else {
+            throw CLIError(message: "Failed to inspect diff viewer server socket: \(posixErrorMessage(errno))")
+        }
+        return Int(in_port_t(bigEndian: address.sin_port))
+    }
+
+    private func handleDiffViewerHTTPConnection(
+        fileDescriptor fd: Int32,
+        port: Int,
+        manifestCache: DiffViewerHTTPManifestCache
+    ) {
+        defer { close(fd) }
+
+        do {
+            guard let request = try readDiffViewerHTTPRequest(fileDescriptor: fd) else {
+                return
+            }
+            guard request.method == "GET" || request.method == "HEAD" else {
+                try sendDiffViewerHTTPResponse(
+                    fileDescriptor: fd,
+                    status: 405,
+                    reason: "Method Not Allowed",
+                    headers: ["Allow": "GET, HEAD"],
+                    body: Data("405 Method Not Allowed\n".utf8),
+                    omitBody: request.method == "HEAD"
+                )
+                return
+            }
+
+            if request.path == "/__cmux_diff_viewer_healthz" {
+                try sendDiffViewerHTTPResponse(
+                    fileDescriptor: fd,
+                    status: 200,
+                    reason: "OK",
+                    headers: ["Content-Type": "text/plain; charset=utf-8"],
+                    body: Data("ok\n".utf8),
+                    omitBody: request.method == "HEAD"
+                )
+                return
+            }
+
+            guard let file = try diffViewerHTTPAllowedFile(
+                requestPath: request.path,
+                manifestCache: manifestCache
+            ) else {
+                try sendDiffViewerHTTPNotFound(fileDescriptor: fd, omitBody: request.method == "HEAD")
+                return
+            }
+
+            try sendDiffViewerHTTPFile(
+                file,
+                fileDescriptor: fd,
+                port: port,
+                omitBody: request.method == "HEAD"
+            )
+        } catch {
+            try? sendDiffViewerHTTPResponse(
+                fileDescriptor: fd,
+                status: 500,
+                reason: "Internal Server Error",
+                headers: ["Content-Type": "text/plain; charset=utf-8"],
+                body: Data("500 Internal Server Error\n".utf8),
+                omitBody: false
+            )
+        }
+    }
+
+    private struct DiffViewerHTTPRequest {
+        var method: String
+        var path: String
+    }
+
+    private func readDiffViewerHTTPRequest(fileDescriptor fd: Int32) throws -> DiffViewerHTTPRequest? {
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 1024)
+        let headerEnd = Data("\r\n\r\n".utf8)
+
+        while data.count < 16 * 1024 {
+            let count = buffer.withUnsafeMutableBytes { rawBuffer -> Int in
+                guard let baseAddress = rawBuffer.baseAddress else { return -1 }
+                return recv(fd, baseAddress, rawBuffer.count, 0)
+            }
+            if count == 0 {
+                return nil
+            }
+            if count < 0 {
+                if errno == EINTR {
+                    continue
+                }
+                throw CLIError(message: "Failed to read diff viewer request: \(posixErrorMessage(errno))")
+            }
+            buffer.withUnsafeBufferPointer { pointer in
+                if let baseAddress = pointer.baseAddress {
+                    data.append(baseAddress, count: count)
+                }
+            }
+            if data.range(of: headerEnd) != nil {
+                break
+            }
+        }
+
+        guard let header = String(data: data, encoding: .utf8),
+              let firstLine = header.components(separatedBy: "\r\n").first else {
+            throw CLIError(message: "Invalid diff viewer request")
+        }
+        let parts = firstLine.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+        guard parts.count >= 2 else {
+            throw CLIError(message: "Invalid diff viewer request")
+        }
+
+        let method = String(parts[0]).uppercased()
+        var target = String(parts[1])
+        if target.hasPrefix("http://") || target.hasPrefix("https://") {
+            guard let components = URLComponents(string: target) else {
+                throw CLIError(message: "Invalid diff viewer request target")
+            }
+            target = components.percentEncodedPath
+        }
+        if let queryIndex = target.firstIndex(of: "?") {
+            target = String(target[..<queryIndex])
+        }
+        guard target.hasPrefix("/") else {
+            throw CLIError(message: "Invalid diff viewer request path")
+        }
+        return DiffViewerHTTPRequest(method: method, path: target)
+    }
+
+    private func diffViewerHTTPAllowedFile(
+        requestPath rawPath: String,
+        manifestCache: DiffViewerHTTPManifestCache
+    ) throws -> DiffViewerAllowedFile? {
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/") else { return nil }
+        let withoutLeadingSlash = String(trimmed.dropFirst())
+        guard let separator = withoutLeadingSlash.firstIndex(of: "/") else {
+            return nil
+        }
+
+        let token = String(withoutLeadingSlash[..<separator])
+        let requestPath = "/" + String(withoutLeadingSlash[withoutLeadingSlash.index(after: separator)...])
+        guard diffViewerHTTPIsValidToken(token),
+              diffViewerHTTPIsValidRequestPath(requestPath) else {
+            return nil
+        }
+        return try manifestCache.file(token: token, requestPath: requestPath)
+    }
+
+    private func loadDiffViewerHTTPManifestFiles(
+        token: String,
+        rootDirectory: URL
+    ) throws -> [String: DiffViewerAllowedFile] {
+        let url = diffViewerHTTPManifestURL(token: token, rootDirectory: rootDirectory)
+        let manifest = try JSONDecoder().decode(DiffViewerHTTPManifest.self, from: Data(contentsOf: url))
+        guard manifest.token == token,
+              !manifest.files.isEmpty,
+              manifest.files.count <= 4096 else {
+            throw CLIError(message: "Invalid diff viewer manifest")
+        }
+
+        let rootPath = rootDirectory.standardizedFileURL.resolvingSymlinksInPath().path
+        var files: [String: DiffViewerAllowedFile] = [:]
+        for file in manifest.files {
+            guard diffViewerHTTPIsValidRequestPath(file.requestPath),
+                  diffViewerHTTPIsAllowedMimeType(file.mimeType),
+                  diffViewerHTTPPathExtensionMatchesMimeType(path: file.requestPath, mimeType: file.mimeType) else {
+                throw CLIError(message: "Invalid diff viewer manifest entry")
+            }
+            let fileURL = URL(fileURLWithPath: file.filePath, isDirectory: false)
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+            guard fileURL.path.hasPrefix(rootPath + "/") else {
+                throw CLIError(message: "Diff viewer manifest file is outside the viewer directory")
+            }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue,
+                  FileManager.default.isReadableFile(atPath: fileURL.path),
+                  files[file.requestPath] == nil else {
+                throw CLIError(message: "Invalid diff viewer manifest file")
+            }
+
+            var normalizedFile = file
+            normalizedFile.filePath = fileURL.path
+            files[file.requestPath] = normalizedFile
+        }
+        return files
+    }
+
+    private func sendDiffViewerHTTPFile(
+        _ file: DiffViewerAllowedFile,
+        fileDescriptor fd: Int32,
+        port: Int,
+        omitBody: Bool
+    ) throws {
+        let fileURL = URL(fileURLWithPath: file.filePath, isDirectory: false)
+        var info = stat()
+        guard stat(fileURL.path, &info) == 0,
+              (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
+            try sendDiffViewerHTTPNotFound(fileDescriptor: fd, omitBody: omitBody)
+            return
+        }
+
+        var headers = diffViewerHTTPBaseHeaders(port: port)
+        headers["Content-Type"] = diffViewerHTTPContentType(file.mimeType)
+        headers["Content-Length"] = "\(info.st_size)"
+        try sendDiffViewerHTTPHeader(
+            fileDescriptor: fd,
+            status: 200,
+            reason: "OK",
+            headers: headers
+        )
+        guard !omitBody else { return }
+
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer { try? handle.close() }
+        while true {
+            let data = try handle.read(upToCount: 64 * 1024) ?? Data()
+            if data.isEmpty {
+                break
+            }
+            try sendAllDiffViewerHTTPData(data, fileDescriptor: fd)
+        }
+    }
+
+    private func sendDiffViewerHTTPNotFound(fileDescriptor fd: Int32, omitBody: Bool) throws {
+        try sendDiffViewerHTTPResponse(
+            fileDescriptor: fd,
+            status: 404,
+            reason: "Not Found",
+            headers: ["Content-Type": "text/plain; charset=utf-8"],
+            body: Data("404 Not Found\n".utf8),
+            omitBody: omitBody
+        )
+    }
+
+    private func sendDiffViewerHTTPResponse(
+        fileDescriptor fd: Int32,
+        status: Int,
+        reason: String,
+        headers: [String: String],
+        body: Data,
+        omitBody: Bool
+    ) throws {
+        var responseHeaders = diffViewerHTTPBaseHeaders(port: nil)
+        for (key, value) in headers {
+            responseHeaders[key] = value
+        }
+        responseHeaders["Content-Length"] = "\(body.count)"
+        try sendDiffViewerHTTPHeader(
+            fileDescriptor: fd,
+            status: status,
+            reason: reason,
+            headers: responseHeaders
+        )
+        if !omitBody {
+            try sendAllDiffViewerHTTPData(body, fileDescriptor: fd)
+        }
+    }
+
+    private func sendDiffViewerHTTPHeader(
+        fileDescriptor fd: Int32,
+        status: Int,
+        reason: String,
+        headers: [String: String]
+    ) throws {
+        var header = "HTTP/1.1 \(status) \(reason)\r\n"
+        for key in headers.keys.sorted() {
+            guard let value = headers[key] else { continue }
+            header += "\(key): \(value)\r\n"
+        }
+        header += "\r\n"
+        try sendAllDiffViewerHTTPData(Data(header.utf8), fileDescriptor: fd)
+    }
+
+    private func sendAllDiffViewerHTTPData(_ data: Data, fileDescriptor fd: Int32) throws {
+        try data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return }
+            var offset = 0
+            while offset < rawBuffer.count {
+                let sent = Darwin.send(
+                    fd,
+                    baseAddress.advanced(by: offset),
+                    rawBuffer.count - offset,
+                    0
+                )
+                if sent < 0 {
+                    if errno == EINTR {
+                        continue
+                    }
+                    throw CLIError(message: "Failed to write diff viewer response: \(posixErrorMessage(errno))")
+                }
+                if sent == 0 {
+                    throw CLIError(message: "Failed to write diff viewer response")
+                }
+                offset += sent
+            }
+        }
+    }
+
+    private func diffViewerHTTPBaseHeaders(port: Int?) -> [String: String] {
+        var headers: [String: String] = [
+            "Cache-Control": "no-store",
+            "Connection": "close",
+            "Cross-Origin-Resource-Policy": "same-origin",
+            "X-Content-Type-Options": "nosniff"
+        ]
+        if let port {
+            headers["Origin-Agent-Cluster"] = "?1"
+            headers["Referrer-Policy"] = "no-referrer"
+            headers["X-CMUX-Diff-Viewer-Origin"] = "http://127.0.0.1:\(port)"
+        }
+        return headers
+    }
+
+    private func diffViewerHTTPContentType(_ mimeType: String) -> String {
+        if mimeType.hasPrefix("text/") {
+            return "\(mimeType); charset=utf-8"
+        }
+        return mimeType
+    }
+
+    private func diffViewerHTTPServerStateURL(rootDirectory: URL) -> URL {
+        rootDirectory.appendingPathComponent(".server.json", isDirectory: false)
+    }
+
+    private func diffViewerHTTPManifestURL(token: String, rootDirectory: URL) -> URL {
+        rootDirectory.appendingPathComponent(".manifest-\(token).json", isDirectory: false)
+    }
+
+    private func diffViewerHTTPIsValidToken(_ token: String) -> Bool {
+        guard (16...80).contains(token.count) else { return false }
+        return token.unicodeScalars.allSatisfy { scalar in
+            CharacterSet.alphanumerics.contains(scalar) || scalar == "-"
+        }
+    }
+
+    private func diffViewerHTTPIsValidRequestPath(_ path: String) -> Bool {
+        guard path.hasPrefix("/"),
+              !path.contains("\\"),
+              !path.contains("//") else {
+            return false
+        }
+        let components = path.split(separator: "/", omittingEmptySubsequences: false).dropFirst()
+        guard !components.isEmpty else { return false }
+        return components.allSatisfy { component in
+            !component.isEmpty && component != "." && component != ".."
+        }
+    }
+
+    private func diffViewerHTTPIsAllowedMimeType(_ mimeType: String) -> Bool {
+        mimeType == "text/html" || mimeType == "text/javascript" || mimeType == "text/x-diff"
+    }
+
+    private func diffViewerHTTPPathExtensionMatchesMimeType(path: String, mimeType: String) -> Bool {
+        if mimeType == "text/html" {
+            return path.hasSuffix(".html")
+        }
+        if mimeType == "text/javascript" {
+            return path.hasSuffix(".mjs")
+        }
+        if mimeType == "text/x-diff" {
+            return path.hasSuffix(".patch")
+        }
+        return false
+    }
+
     private func posixErrorMessage(_ code: Int32) -> String {
         String(cString: strerror(code))
     }
@@ -3470,8 +4161,11 @@ extension CMUXCLI {
             #app {
               height: 100vh;
               min-height: 0;
-              display: flex;
-              flex-direction: column;
+              display: grid;
+              grid-template-rows: auto minmax(0, 1fr);
+              overflow: hidden;
+              overscroll-behavior: contain;
+              contain: strict;
               background: inherit;
               color: inherit;
             }
@@ -3696,8 +4390,9 @@ extension CMUXCLI {
               grid-template-columns: minmax(0, 1fr) var(--cmux-diff-files-width);
               grid-template-rows: minmax(0, 1fr);
               grid-template-areas: "viewer files";
-              overflow: visible;
+              overflow: hidden;
               overscroll-behavior: contain;
+              contain: strict;
               background: inherit;
             }
             body[data-files-hidden="true"] #content {
@@ -3727,9 +4422,8 @@ extension CMUXCLI {
               transition: transform 120ms ease, opacity 120ms ease, visibility 0s linear 120ms;
             }
             #files-header {
-              position: sticky;
-              top: 0;
-              z-index: 2;
+              position: relative;
+              z-index: 1;
               display: flex;
               align-items: center;
               justify-content: space-between;
@@ -3892,9 +4586,11 @@ extension CMUXCLI {
               min-width: 0;
               position: relative;
               overflow-y: auto;
-              overflow-x: auto;
+              overflow-x: clip;
               overscroll-behavior: contain;
               overflow-anchor: none;
+              contain: strict;
+              will-change: scroll-position;
               border-bottom: 1px solid var(--cmux-diff-border);
               background: inherit;
             }
@@ -3919,12 +4615,9 @@ extension CMUXCLI {
               --diffs-font-size: var(--cmux-diff-font-size);
               --diffs-line-height: var(--cmux-diff-line-height);
               --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
+              overflow: clip;
+              contain: layout paint style;
               box-shadow: 0 -1px 0 var(--cmux-diff-border), 0 1px 0 var(--cmux-diff-border);
-            }
-            #viewer diffs-container [data-diffs-header][data-sticky] {
-              backface-visibility: hidden;
-              transform: translateZ(0);
-              will-change: transform;
             }
             #status {
               padding: 16px;
@@ -4026,6 +4719,7 @@ extension CMUXCLI {
             const diffItems = [];
             const codeViewItems = [];
             let codeViewItemIds = new Set();
+            let fileTreeSource = null;
             let fileTreeStatsByPath = new Map();
             let patchTextPromise = { value: null };
             let activeFileId = "";
@@ -4079,7 +4773,9 @@ extension CMUXCLI {
               window.__cmuxDiffViewer = { codeView, items: diffItems, state: appState, workerPool };
               observeWorkerPool(workerPool);
               const workerInitialization = workerPool?.initialize?.();
-              workerInitialization?.catch?.((error) => console.warn("cmux diff worker pool initialization failed", error));
+              workerInitialization
+                ?.then?.(() => recordWorkerPoolStats(workerPool?.getStats?.()))
+                ?.catch?.((error) => console.warn("cmux diff worker pool initialization failed", error));
               window.addEventListener("pagehide", () => workerPool?.terminate?.(), { once: true });
 
               await streamPatchIntoCodeView({
@@ -4154,17 +4850,13 @@ extension CMUXCLI {
             function workerHighlighterOptions() {
               return {
                 theme: payload.appearance.theme,
-                langs: defaultWorkerLanguages(),
+                langs: [],
                 preferredHighlighter: "shiki-wasm",
                 lineDiffType: appState.wordDiffs ? "word" : "none",
                 maxLineDiffLength: 1000,
                 tokenizeMaxLineLength: 1000,
                 useTokenTransformer: false,
               };
-            }
-
-            function defaultWorkerLanguages() {
-              return ["cpp", "css", "go", "python", "rust", "sh", "swift", "tsx", "typescript", "zig"];
             }
 
             async function streamPatchIntoCodeView({ parsePatchFiles, processFile, treesModule }) {
@@ -4183,13 +4875,12 @@ extension CMUXCLI {
                 maxBatchSize: 0,
                 treeRefreshCount: 0,
               };
-              let deferNavigationUpdates = false;
               let lastYieldAt = performance.now();
               let lastFlushAt = performance.now();
               let firstRender = true;
               let renderedInitialCodeBatch = false;
               const batchConfig = {
-                initialBatchSize: 100,
+                initialBatchSize: getInitialFileTreeRowCount(),
                 incrementalBatchSize: 25,
                 initialMaxWait: 500,
                 incrementalMaxWait: 100,
@@ -4264,19 +4955,14 @@ extension CMUXCLI {
                     codeViewItemIds.add(item.id);
                   }
                   codeView.addItems(codeBatch);
-                  codeView.syncContainerHeight?.();
                   if (!renderedInitialCodeBatch) {
                     codeView.render(true);
                     renderedInitialCodeBatch = true;
                   }
                 }
-                if (!deferNavigationUpdates) {
-                  appendJumpOptions(batch);
-                }
+                appendJumpOptions(batch);
                 updateDiffStatsFromModel(diffModel);
-                if (!deferNavigationUpdates) {
-                  scheduleNavigationRefresh(treesModule, false);
-                }
+                scheduleNavigationRefresh(treesModule, false);
                 streamMetrics.flushCount += 1;
                 streamMetrics.maxBatchSize = Math.max(streamMetrics.maxBatchSize, batch.length);
                 streamMetrics.fileCount = diffItems.length;
@@ -4341,26 +5027,6 @@ extension CMUXCLI {
                 throw new Error(`${label("loadingDiff")} (${response.status})`);
               }
 
-              if (shouldUseBulkPatchParser(payload.patchURL)) {
-                batchConfig.initialBatchSize = 256;
-                batchConfig.incrementalBatchSize = 256;
-                batchConfig.initialMaxWait = 250;
-                batchConfig.incrementalMaxWait = 60;
-                const text = await response.text();
-                deferNavigationUpdates = true;
-                try {
-                  await appendParsedPatchText(text, parsePatchFiles, enqueueFileDiff);
-                  await maybeFlushPendingItems(true);
-                } finally {
-                  deferNavigationUpdates = false;
-                }
-                finalizeCodeViewLayout();
-                scheduleNavigationRefresh(treesModule, true);
-                streamMetrics.completedAt = performance.now();
-                recordStreamMetrics(streamMetrics);
-                return;
-              }
-
               if (!response.body?.getReader) {
                 const text = await response.text();
                 await appendParsedPatchText(text, parsePatchFiles, enqueueFileDiff);
@@ -4375,21 +5041,47 @@ extension CMUXCLI {
               const reader = response.body.getReader();
               const gitMarker = "diff --git ";
               const gitMarkerWithNewline = "\\n" + gitMarker;
-              let buffer = "";
-              let fallbackPrefix = "";
-              let sawGitBoundary = false;
+              const gitMarkerSearchTailLength = gitMarkerWithNewline.length - 1;
+              const commitMetadataPattern = /^From\\s+([a-f0-9]+)\\s/im;
+              const nonWhitespacePattern = /\\S/;
 
-              function firstGitBoundaryIndex(text) {
-                if (text.startsWith(gitMarker)) {
+              function nextGitBoundaryIndex(text, start) {
+                const offset = Math.max(start, 0);
+                if (offset === 0 && text.startsWith(gitMarker)) {
                   return 0;
                 }
-                const index = text.indexOf(gitMarkerWithNewline);
-                return index === -1 ? -1 : index + 1;
+                const index = text.indexOf(gitMarkerWithNewline, offset);
+                return index === -1 ? undefined : index + 1;
               }
 
-              function nextGitBoundaryIndex(text) {
-                const index = text.indexOf(gitMarkerWithNewline, 1);
-                return index === -1 ? -1 : index + 1;
+              function nextGitBoundarySearchStart(text, start) {
+                return Math.max(start, text.length - gitMarkerSearchTailLength);
+              }
+
+              function commitMetadataBoundaryIndex(text, start, end) {
+                const minimum = Math.max(start, 0);
+                const maximum = Math.min(end, text.length);
+                if (minimum >= maximum) {
+                  return undefined;
+                }
+                let index = text.lastIndexOf("\\nFrom ", maximum - 1);
+                while (index !== -1) {
+                  const boundary = index + 1;
+                  if (boundary < minimum) {
+                    return undefined;
+                  }
+                  if (boundary >= maximum) {
+                    index = text.lastIndexOf("\\nFrom ", index - 1);
+                    continue;
+                  }
+                  const lineEnd = text.indexOf("\\n", boundary + 1);
+                  const line = text.slice(boundary, lineEnd === -1 || lineEnd > maximum ? maximum : lineEnd);
+                  if (commitMetadataPattern.test(line)) {
+                    return boundary;
+                  }
+                  index = text.lastIndexOf("\\nFrom ", index - 1);
+                }
+                return undefined;
               }
 
               async function appendCompleteFileText(fileText) {
@@ -4403,45 +5095,100 @@ extension CMUXCLI {
                 }));
               }
 
-              async function drainBuffer(force) {
-                if (!sawGitBoundary) {
-                  const firstBoundary = firstGitBoundaryIndex(buffer);
-                  if (firstBoundary === -1) {
-                    return;
+              function createStreamingPatchFileSplitter() {
+                let boundaryIndex;
+                let buffer = "";
+                let searchStart = 0;
+                let sawGitBoundary = false;
+
+                function takeAvailableFile() {
+                  if (boundaryIndex == null) {
+                    boundaryIndex = nextGitBoundaryIndex(buffer, searchStart);
+                    if (boundaryIndex == null) {
+                      searchStart = nextGitBoundarySearchStart(buffer, 0);
+                      return null;
+                    }
+                    sawGitBoundary = true;
+                    searchStart = boundaryIndex + 1;
                   }
-                  fallbackPrefix += buffer.slice(0, firstBoundary);
-                  buffer = buffer.slice(firstBoundary);
-                  sawGitBoundary = true;
+
+                  while (true) {
+                    const currentBoundary = boundaryIndex;
+                    if (currentBoundary == null) {
+                      return null;
+                    }
+                    const nextBoundary = nextGitBoundaryIndex(buffer, searchStart);
+                    if (nextBoundary == null) {
+                      searchStart = nextGitBoundarySearchStart(buffer, currentBoundary + 1);
+                      return null;
+                    }
+                    const splitBoundary = commitMetadataBoundaryIndex(buffer, currentBoundary + 1, nextBoundary) ?? nextBoundary;
+                    const fileText = buffer.slice(0, splitBoundary);
+                    buffer = buffer.slice(splitBoundary);
+                    boundaryIndex = nextGitBoundaryIndex(buffer, 0);
+                    searchStart = boundaryIndex == null ? 0 : boundaryIndex + 1;
+                    if (nonWhitespacePattern.test(fileText)) {
+                      return fileText;
+                    }
+                  }
                 }
 
-                while (true) {
-                  const nextBoundary = nextGitBoundaryIndex(buffer);
-                  if (nextBoundary === -1) {
-                    break;
-                  }
-                  await appendCompleteFileText(buffer.slice(0, nextBoundary));
-                  buffer = buffer.slice(nextBoundary);
-                }
+                return {
+                  push(text) {
+                    if (text.length > 0) {
+                      buffer += text;
+                    }
+                  },
+                  takeAvailableFile,
+                  finish() {
+                    const fileText = takeAvailableFile();
+                    if (fileText != null) {
+                      return { fileText };
+                    }
+                    if (!nonWhitespacePattern.test(buffer)) {
+                      buffer = "";
+                      return {};
+                    }
+                    if (!sawGitBoundary) {
+                      const fallbackPatchContent = buffer;
+                      buffer = "";
+                      return { fallbackPatchContent };
+                    }
+                    const trailingFileText = buffer;
+                    buffer = "";
+                    return { fileText: trailingFileText };
+                  },
+                };
+              }
 
-                if (force && buffer.trim() !== "") {
-                  await appendCompleteFileText(buffer);
-                  buffer = "";
+              async function drainPatchFileSplitter(splitter) {
+                let fileText;
+                while ((fileText = splitter.takeAvailableFile()) != null) {
+                  await appendCompleteFileText(fileText);
                 }
               }
 
+              const splitter = createStreamingPatchFileSplitter();
               while (true) {
                 const { done, value } = await reader.read();
                 if (done) {
-                  buffer += decoder.decode();
+                  const tail = decoder.decode();
+                  if (tail.length > 0) {
+                    splitter.push(tail);
+                    await drainPatchFileSplitter(splitter);
+                  }
                   break;
                 }
-                buffer += decoder.decode(value, { stream: true });
-                await drainBuffer(false);
+                splitter.push(decoder.decode(value, { stream: true }));
+                await drainPatchFileSplitter(splitter);
               }
 
-              await drainBuffer(true);
-              if (!sawGitBoundary) {
-                await appendParsedPatchText(fallbackPrefix + buffer, parsePatchFiles, enqueueFileDiff);
+              const finalFile = splitter.finish();
+              if (finalFile.fileText != null) {
+                await appendCompleteFileText(finalFile.fileText);
+                await drainPatchFileSplitter(splitter);
+              } else if (finalFile.fallbackPatchContent != null) {
+                await appendParsedPatchText(finalFile.fallbackPatchContent, parsePatchFiles, enqueueFileDiff);
               }
               await maybeFlushPendingItems(true);
               finalizeCodeViewLayout();
@@ -4512,13 +5259,6 @@ extension CMUXCLI {
               });
             }
 
-            function shouldUseBulkPatchParser(patchURL) {
-              if (typeof patchURL !== "string") {
-                return false;
-              }
-              return patchURL.startsWith("./") || patchURL.startsWith("/");
-            }
-
             async function loadPatchText() {
               if (patchTextPromise.value == null) {
                 patchTextPromise.value = fetch(payload.patchURL, { cache: "no-store" }).then(async (response) => {
@@ -4581,6 +5321,7 @@ extension CMUXCLI {
 
             function codeViewOptions() {
               return {
+                layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
                 diffStyle: appState.layout,
                 diffIndicators: appState.diffIndicators,
                 overflow: appState.wordWrap ? "wrap" : "scroll",
@@ -4600,6 +5341,21 @@ extension CMUXCLI {
 
             function codeViewUnsafeCSS() {
               return `
+                [data-diffs-header] {
+                  container-type: scroll-state;
+                  container-name: sticky-header;
+                }
+                @container sticky-header scroll-state(stuck: top) {
+                  [data-diffs-header]::after {
+                    position: absolute;
+                    bottom: -1px;
+                    left: 0;
+                    width: 100%;
+                    height: 1px;
+                    content: '';
+                    background-color: var(--cmux-diff-border);
+                  }
+                }
                 [data-diffs-header=default],
                 [data-diffs-header=default] [data-additions-count],
                 [data-diffs-header=default] [data-deletions-count],
@@ -4916,6 +5672,7 @@ extension CMUXCLI {
                 fileTree.cleanUp?.();
                 fileTree = null;
               }
+              fileTreeSource = null;
               appState.fileSearchOpen = false;
               resetTreePathMaps();
               fileList.textContent = "";
@@ -4952,11 +5709,10 @@ extension CMUXCLI {
 
             function setupPierreFileTree(items, treesModule) {
               const { FileTree, preparePresortedFileTreeInput } = treesModule;
-              const treeEntries = buildTreeEntries(items);
-              const sortedTreeEntries = [...treeEntries].sort(compareTreeEntryPaths);
-              const paths = sortedTreeEntries.map((entry) => entry.path);
-              const initialSelectedPath = treeEntries[0]?.path;
-              replaceFileTreeStats(treeEntries);
+              const source = createFileTreeSource(items);
+              fileTreeSource = source;
+              const initialSelectedPath = source.entries[0]?.path;
+              replaceFileTreeStats(source.entries);
               fileList.dataset.treeMode = "pierre";
               fileTree = new FileTree({
                 flattenEmptyDirectories: true,
@@ -4966,12 +5722,12 @@ extension CMUXCLI {
                 initialVisibleRowCount: getInitialFileTreeRowCount(),
                 itemHeight: 24,
                 overscan: 12,
-                preparedInput: preparePresortedFileTreeInput(paths),
+                preparedInput: preparePresortedFileTreeInput(source.paths),
                 presorted: true,
                 search: true,
                 searchBlurBehavior: "retain",
                 stickyFolders: true,
-                gitStatus: sortedTreeEntries.map((entry) => ({ path: entry.path, status: entry.status })),
+                gitStatus: source.gitStatus,
                 renderRowDecoration(context) {
                   if (context.item.kind !== "file") {
                     return null;
@@ -5002,14 +5758,47 @@ extension CMUXCLI {
             }
 
             function refreshPierreFileTree(items, treesModule) {
-              const treeEntries = buildTreeEntries(items);
-              const sortedTreeEntries = [...treeEntries].sort(compareTreeEntryPaths);
-              const paths = sortedTreeEntries.map((entry) => entry.path);
-              replaceFileTreeStats(treeEntries);
-              fileTree.resetPaths(paths, {
-                preparedInput: treesModule.preparePresortedFileTreeInput(paths),
-              });
-              fileTree.setGitStatus(sortedTreeEntries.map((entry) => ({ path: entry.path, status: entry.status })));
+              const previousSource = fileTreeSource;
+              const source = createFileTreeSource(items);
+              fileTreeSource = source;
+              replaceFileTreeStats(source.entries);
+              if (previousSource && isPathPrefix(previousSource.paths, source.paths) && source.pathCount >= previousSource.pathCount) {
+                const addedPaths = source.paths.slice(previousSource.pathCount);
+                if (addedPaths.length > 0) {
+                  fileTree.batch(addedPaths.map((path) => ({ type: "add", path })));
+                }
+              } else {
+                fileTree.resetPaths(source.paths, {
+                  preparedInput: treesModule.preparePresortedFileTreeInput(source.paths),
+                });
+              }
+              fileTree.setGitStatus(source.gitStatus);
+            }
+
+            function createFileTreeSource(items) {
+              const entries = buildTreeEntries(items);
+              const sortedEntries = [...entries].sort(compareTreeEntryPaths);
+              const paths = sortedEntries.map((entry) => entry.path);
+              const pathToItemId = new Map(sortedEntries.map((entry) => [entry.path, entry.item.id]));
+              return {
+                entries,
+                gitStatus: sortedEntries.map((entry) => ({ path: entry.path, status: entry.status })),
+                pathCount: paths.length,
+                paths,
+                pathToItemId,
+              };
+            }
+
+            function isPathPrefix(previousPaths, nextPaths) {
+              if (!Array.isArray(previousPaths) || !Array.isArray(nextPaths) || previousPaths.length > nextPaths.length) {
+                return false;
+              }
+              for (let index = 0; index < previousPaths.length; index += 1) {
+                if (previousPaths[index] !== nextPaths[index]) {
+                  return false;
+                }
+              }
+              return true;
             }
 
             function replaceFileTreeStats(treeEntries) {
@@ -5656,7 +6445,7 @@ extension CMUXCLI {
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.contentModificationDateKey, .creationDateKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles]
+            options: []
         ) else {
             return
         }
@@ -5685,6 +6474,15 @@ extension CMUXCLI {
                 continue
             }
             try? FileManager.default.removeItem(at: patchURL)
+        }
+
+        for manifestURL in entries where manifestURL.lastPathComponent.hasPrefix(".manifest-") && manifestURL.pathExtension == "json" {
+            guard let values = try? manifestURL.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey, .isRegularFileKey]),
+                  values.isRegularFile == true,
+                  now.timeIntervalSince(values.contentModificationDate ?? values.creationDate ?? .distantPast) > 24 * 60 * 60 else {
+                continue
+            }
+            try? FileManager.default.removeItem(at: manifestURL)
         }
     }
 
