@@ -20789,22 +20789,26 @@ class TerminalController {
                 return
             }
 
-            // Get target pane
-            let paneId: PaneID?
-            let paneIds = tab.bonsplitController.allPaneIds
+            // Get target pane. Keep the legacy v1 command aligned with the v2 surface.create
+            // route so focused dock panes receive new terminal/browser surfaces too.
+            let paneLocation: (controller: BonsplitController, paneId: PaneID)?
             if let paneArg {
+                let paneEntries = v2PaneEntries(in: tab)
                 if let uuid = UUID(uuidString: paneArg) {
-                    paneId = paneIds.first(where: { $0.id == uuid })
-                } else if let idx = Int(paneArg), idx >= 0, idx < paneIds.count {
-                    paneId = paneIds[idx]
+                    paneLocation = paneEntries
+                        .first(where: { $0.paneId.id == uuid })
+                        .map { ($0.controller, $0.paneId) }
+                } else if let idx = Int(paneArg), idx >= 0, idx < paneEntries.count {
+                    let entry = paneEntries[idx]
+                    paneLocation = (entry.controller, entry.paneId)
                 } else {
-                    paneId = nil
+                    paneLocation = nil
                 }
             } else {
-                paneId = tab.bonsplitController.focusedPaneId
+                paneLocation = tab.focusedBonsplitPaneForCommands()
             }
 
-            guard let targetPaneId = paneId else {
+            guard let paneLocation else {
                 result = "ERROR: Pane not found"
                 return
             }
@@ -20812,13 +20816,18 @@ class TerminalController {
             let newPanelId: UUID?
             if panelType == .browser {
                 newPanelId = tab.newBrowserSurface(
-                    inPane: targetPaneId,
+                    inPane: paneLocation.paneId,
+                    controller: paneLocation.controller,
                     url: url,
                     focus: focus,
                     creationPolicy: .automationPreload
                 )?.id
             } else {
-                newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: focus)?.id
+                newPanelId = tab.newTerminalSurface(
+                    inPane: paneLocation.paneId,
+                    controller: paneLocation.controller,
+                    focus: focus
+                )?.id
             }
 
             if let id = newPanelId {
