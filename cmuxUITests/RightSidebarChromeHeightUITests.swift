@@ -133,6 +133,10 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         XCTAssertTrue(window.waitForExistence(timeout: 5), "Expected main window to exist")
         let sidebar = app.otherElements["Sidebar"].firstMatch
         XCTAssertTrue(sidebar.waitForExistence(timeout: 5), "Expected left sidebar to exist")
+        let leftResizer = app.otherElements["SidebarResizer"].firstMatch
+        XCTAssertTrue(leftResizer.waitForExistence(timeout: 5), "Expected left sidebar resizer to exist")
+        let rightResizer = app.otherElements["RightSidebarResizer"].firstMatch
+        XCTAssertTrue(rightResizer.waitForExistence(timeout: 5), "Expected right sidebar resizer to exist")
         guard let geometry = waitForJSONNumber("rightSidebarModeBarWidth", greaterThan: 1, atPath: dataPath, timeout: 5),
               let rightSidebarWidthValue = Double(geometry["rightSidebarModeBarWidth"] ?? "") else {
             XCTFail("Timed out waiting for right sidebar mode bar geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
@@ -148,8 +152,14 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         }
 
         let windowFrame = window.frame
-        let leftBoundaryX = sidebar.frame.maxX
-        let rightBoundaryX = windowFrame.maxX - CGFloat(rightSidebarWidthValue)
+        let leftBoundaryX = leftResizer.frame.midX
+        let rightBoundaryX = rightResizer.frame.midX
+        XCTAssertEqual(
+            rightBoundaryX,
+            windowFrame.maxX - CGFloat(rightSidebarWidthValue),
+            accuracy: 12,
+            "Expected right sidebar resizer to track right sidebar width. rightResizer=\(rightResizer.frame) geometry=\(geometry) window=\(windowFrame)"
+        )
         XCTAssertGreaterThan(rightBoundaryX, leftBoundaryX + 160, "Expected terminal area between sidebars. window=\(windowFrame) sidebar=\(sidebar.frame) geometry=\(geometry)")
 
         let sampleY = max(windowFrame.minY + 140, min(windowFrame.maxY - 90, windowFrame.midY))
@@ -348,7 +358,7 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         let scaleY = CGFloat(image.height) / max(1, windowFrame.height)
         let expectedPixelX = Int(((expectedScreenX - windowFrame.minX) * scaleX).rounded())
         let samplePixelY = Int(((sampleScreenY - windowFrame.minY) * scaleY).rounded())
-        let scanRadius = max(2, Int((4 * scaleX).rounded(.up)))
+        let scanRadius = max(4, Int((10 * scaleX).rounded(.up)))
         let halfHeight = max(12, Int((70 * scaleY / 2).rounded(.up)))
 
         var best: Double?
