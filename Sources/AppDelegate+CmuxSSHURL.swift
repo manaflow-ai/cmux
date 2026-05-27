@@ -188,7 +188,7 @@ extension AppDelegate {
         if handleCmuxTextURLs(from: urls) {
             return true
         }
-        return true
+        return false
     }
 
     private struct CmuxExternalURLIntentCounts {
@@ -598,7 +598,7 @@ extension AppDelegate {
         let localizedKind = request.kind == .prompt
             ? String(localized: "dialog.textURL.kind.prompt", defaultValue: "Prompt")
             : String(localized: "dialog.textURL.kind.rules", defaultValue: "Rules")
-        let displayTitle = request.name ?? request.title ?? localizedKind
+        let displayTitle = request.name ?? request.title
         let kindLabel = NSTextField(labelWithString: String(
             format: String(localized: "dialog.textURL.kindLabel", defaultValue: "Link type: %@"),
             localizedKind
@@ -606,12 +606,15 @@ extension AppDelegate {
         kindLabel.lineBreakMode = .byTruncatingTail
         kindLabel.maximumNumberOfLines = 1
 
-        let titleLabel = NSTextField(labelWithString: String(
-            format: String(localized: "dialog.textURL.titleLabel", defaultValue: "Title: %@"),
-            displayTitle
-        ))
-        titleLabel.lineBreakMode = .byTruncatingMiddle
-        titleLabel.maximumNumberOfLines = 1
+        let titleLabel = displayTitle.map { displayTitle in
+            let label = NSTextField(labelWithString: String(
+                format: String(localized: "dialog.textURL.titleLabel", defaultValue: "Title: %@"),
+                displayTitle
+            ))
+            label.lineBreakMode = .byTruncatingMiddle
+            label.maximumNumberOfLines = 1
+            return label
+        }
 
         let previewLabel = NSTextField(labelWithString: String(
             localized: "dialog.textURL.previewLabel",
@@ -622,21 +625,26 @@ extension AppDelegate {
         let preview = cmuxSSHURLTextPreview(request.pasteText, height: 180)
 
         stack.addArrangedSubview(kindLabel)
-        stack.addArrangedSubview(titleLabel)
+        if let titleLabel {
+            stack.addArrangedSubview(titleLabel)
+        }
         stack.addArrangedSubview(previewLabel)
         stack.addArrangedSubview(preview)
 
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 238))
         container.addSubview(stack)
-        NSLayoutConstraint.activate([
+        var constraints: [NSLayoutConstraint] = [
             stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             stack.topAnchor.constraint(equalTo: container.topAnchor),
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             kindLabel.widthAnchor.constraint(equalTo: container.widthAnchor),
-            titleLabel.widthAnchor.constraint(equalTo: container.widthAnchor),
             preview.widthAnchor.constraint(equalTo: container.widthAnchor)
-        ])
+        ]
+        if let titleLabel {
+            constraints.append(titleLabel.widthAnchor.constraint(equalTo: container.widthAnchor))
+        }
+        NSLayoutConstraint.activate(constraints)
         return container
     }
 
