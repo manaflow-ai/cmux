@@ -5,10 +5,13 @@ import Sparkle
 class UpdateDriver: NSObject, SPUUserDriver {
     let viewModel: UpdateViewModel
     private let minimumCheckDuration: TimeInterval
-    private let stateTimeoutDuration: TimeInterval
+    private let checkingTimeoutDuration: TimeInterval
+    private let downloadingTimeoutDuration: TimeInterval
+    private let preparingTimeoutDuration: TimeInterval
+    private let scheduler: UpdateOperationScheduling
     private var lastCheckStart: Date?
-    private var pendingCheckTransition: DispatchWorkItem?
-    private var stateTimeoutTimer: Timer?
+    private var pendingCheckTransition: UpdateScheduledAction?
+    private var stateTimeoutAction: UpdateScheduledAction?
     private var currentOperationGeneration: Int = 0
     private var timedOutOperationGeneration: Int?
     private var lastFeedURLString: String?
@@ -38,10 +41,14 @@ class UpdateDriver: NSObject, SPUUserDriver {
     init(viewModel: UpdateViewModel,
          hostBundle _: Bundle,
          minimumCheckDuration: TimeInterval = UpdateTiming.minimumCheckDisplayDuration,
-         stateTimeoutDuration: TimeInterval = UpdateTiming.stateTimeoutDuration) {
+         stateTimeoutDuration: TimeInterval? = nil,
+         scheduler: UpdateOperationScheduling = DispatchUpdateOperationScheduler.shared) {
         self.viewModel = viewModel
         self.minimumCheckDuration = minimumCheckDuration
-        self.stateTimeoutDuration = stateTimeoutDuration
+        self.checkingTimeoutDuration = stateTimeoutDuration ?? UpdateTiming.checkingTimeoutDuration
+        self.downloadingTimeoutDuration = stateTimeoutDuration ?? UpdateTiming.downloadingInactivityTimeoutDuration
+        self.preparingTimeoutDuration = stateTimeoutDuration ?? UpdateTiming.preparingTimeoutDuration
+        self.scheduler = scheduler
         super.init()
     }
 
@@ -315,7 +322,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
             }
 
             let delay = minimumCheckDuration - elapsed
-            let workItem = DispatchWorkItem { [weak self] in
+            pendingCheckTransition = scheduler.schedule(after: delay) { [weak self] in
                 guard let self else { return }
                 guard case .checking = self.viewModel.state else { return }
                 guard !self.operationHasTimedOut else {
@@ -325,8 +332,6 @@ class UpdateDriver: NSObject, SPUUserDriver {
                 self.lastCheckStart = nil
                 self.applyState(newState)
             }
-            pendingCheckTransition = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
         }
     }
 
@@ -355,15 +360,26 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
 
     private func cancelStateTimeout() {
-        stateTimeoutTimer?.invalidate()
-        stateTimeoutTimer = nil
+        stateTimeoutAction?.cancel()
+        stateTimeoutAction = nil
     }
 
     private func scheduleStateTimeout(stage: TimeoutStage, cancellation: (() -> Void)? = nil) {
         let generation = currentOperationGeneration
-        stateTimeoutTimer = Timer.scheduledTimer(withTimeInterval: stateTimeoutDuration, repeats: false) { [weak self] _ in
+        stateTimeoutAction = scheduler.schedule(after: timeoutDuration(for: stage)) { [weak self] in
             guard let self else { return }
             self.failOperationIfStillCurrent(stage: stage, generation: generation, cancellation: cancellation)
+        }
+    }
+
+    private func timeoutDuration(for stage: TimeoutStage) -> TimeInterval {
+        switch stage {
+        case .checking:
+            return checkingTimeoutDuration
+        case .downloading:
+            return downloadingTimeoutDuration
+        case .preparing:
+            return preparingTimeoutDuration
         }
     }
 
@@ -381,12 +397,13 @@ class UpdateDriver: NSObject, SPUUserDriver {
             guard case .extracting = viewModel.state else { return }
         }
 
-        UpdateLogStore.shared.append("\(stage.logName) timed out after \(Int(stateTimeoutDuration.rounded()))s")
+        let timeoutDuration = timeoutDuration(for: stage)
+        UpdateLogStore.shared.append("\(stage.logName) timed out after \(Int(timeoutDuration.rounded()))s")
         timedOutOperationGeneration = generation
         pendingCheckTransition?.cancel()
         pendingCheckTransition = nil
-        stateTimeoutTimer?.invalidate()
-        stateTimeoutTimer = nil
+        stateTimeoutAction?.cancel()
+        stateTimeoutAction = nil
         lastCheckStart = nil
         cancellation?()
         applyState(.error(.init(
@@ -400,7 +417,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
             dismiss: { [weak viewModel] in
                 viewModel?.state = .idle
             },
-            technicalDetails: "\(stage.logName) timed out after \(Int(stateTimeoutDuration.rounded()))s",
+            technicalDetails: "\(stage.logName) timed out after \(Int(timeoutDuration.rounded()))s",
             feedURLString: lastFeedURLString
         )))
     }

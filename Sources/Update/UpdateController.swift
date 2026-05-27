@@ -56,14 +56,13 @@ class UpdateController {
     private var didObserveAttemptUpdateProgress: Bool = false
     private var noUpdateDismissCancellable: AnyCancellable?
     private var noUpdateDismissWorkItem: DispatchWorkItem?
-    private var readyCheckWorkItem: DispatchWorkItem?
+    private var readyCheckDeadline: UpdateScheduledAction?
+    private var readyCheckGeneration: Int = 0
+    private var canCheckForUpdatesObservation: NSKeyValueObservation?
     private var backgroundProbeTimer: Timer?
     private var didStartUpdater: Bool = false
-    private let readyRetryDelay: TimeInterval = 0.5
-    private var readyRetryCount: Int {
-        Int(ceil(UpdateTiming.updaterReadyTimeoutDuration / readyRetryDelay))
-    }
     private let backgroundProbeInterval: TimeInterval = UpdateSettings.scheduledCheckInterval
+    private let scheduler: UpdateOperationScheduling
 
     var viewModel: UpdateViewModel {
         userDriver.viewModel
@@ -74,12 +73,13 @@ class UpdateController {
         installCancellable != nil
     }
 
-    init() {
+    init(scheduler: UpdateOperationScheduling = DispatchUpdateOperationScheduler.shared) {
         let defaults = UserDefaults.standard
         UpdateSettings.apply(to: defaults)
 
         let hostBundle = Bundle.main
-        self.userDriver = UpdateDriver(viewModel: .init(), hostBundle: hostBundle)
+        self.scheduler = scheduler
+        self.userDriver = UpdateDriver(viewModel: .init(), hostBundle: hostBundle, scheduler: scheduler)
         self.updater = SPUUpdater(
             hostBundle: hostBundle,
             applicationBundle: hostBundle,
@@ -87,6 +87,7 @@ class UpdateController {
             delegate: userDriver
         )
         installNoUpdateDismissObserver()
+        installUpdaterReadinessObserver()
     }
 
     deinit {
@@ -94,7 +95,8 @@ class UpdateController {
         attemptInstallCancellable?.cancel()
         noUpdateDismissCancellable?.cancel()
         noUpdateDismissWorkItem?.cancel()
-        readyCheckWorkItem?.cancel()
+        readyCheckDeadline?.cancel()
+        canCheckForUpdatesObservation?.invalidate()
         backgroundProbeTimer?.invalidate()
     }
 
@@ -226,26 +228,24 @@ class UpdateController {
     }
 
     private func performCheckForUpdates() {
+        readyCheckDeadline?.cancel()
+        readyCheckDeadline = nil
         startUpdaterIfNeeded()
         ensureSparkleInstallationCache()
-        if viewModel.state == .idle {
-            updater.checkForUpdates()
+        guard updater.canCheckForUpdates else {
+            waitForUpdaterReadiness()
             return
         }
 
         installCancellable?.cancel()
-        viewModel.cancelActiveStateForNewCheck()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in
-            self?.updater.checkForUpdates()
+        if viewModel.state != .idle {
+            viewModel.cancelActiveStateForNewCheck()
         }
+        updater.checkForUpdates()
     }
 
     /// Check for updates once the updater is ready (used by UI tests).
-    func checkForUpdatesWhenReady(retries: Int? = nil) {
-        let remainingRetries = retries ?? readyRetryCount
-        readyCheckWorkItem?.cancel()
-        readyCheckWorkItem = nil
+    func checkForUpdatesWhenReady(retries _: Int? = nil) {
         startUpdaterIfNeeded()
         ensureSparkleInstallationCache()
         let canCheck = updater.canCheckForUpdates
@@ -254,25 +254,58 @@ class UpdateController {
             performCheckForUpdates()
             return
         }
-        if retries == nil || viewModel.state.isIdle {
+        waitForUpdaterReadiness()
+    }
+
+    private func waitForUpdaterReadiness() {
+        readyCheckDeadline?.cancel()
+        readyCheckGeneration += 1
+        let generation = readyCheckGeneration
+        if !isCheckingState(viewModel.state) {
             viewModel.cancelActiveStateForNewCheck()
         }
-        guard remainingRetries > 0 else {
-            UpdateLogStore.shared.append("checkForUpdatesWhenReady timed out")
-            if case .checking = viewModel.state {
-                viewModel.state = .error(.init(
-                    error: UpdateTimeoutError.make(stage: .starting),
-                    retry: { [weak self] in self?.checkForUpdates() },
-                    dismiss: { [weak self] in self?.viewModel.state = .idle }
-                ))
-            }
+        UpdateLogStore.shared.append("waiting for updater readiness")
+        readyCheckDeadline = scheduler.schedule(after: UpdateTiming.updaterReadyTimeoutDuration) { [weak self] in
+            self?.failReadyCheckIfNeeded(generation: generation)
+        }
+    }
+
+    private func failReadyCheckIfNeeded(generation: Int) {
+        guard generation == readyCheckGeneration else { return }
+        guard readyCheckDeadline != nil else { return }
+        guard !updater.canCheckForUpdates else {
+            continueReadyCheckIfPossible()
             return
         }
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.checkForUpdatesWhenReady(retries: remainingRetries - 1)
+        readyCheckDeadline?.cancel()
+        readyCheckDeadline = nil
+        UpdateLogStore.shared.append("checkForUpdatesWhenReady timed out")
+        if case .checking = viewModel.state {
+            viewModel.state = .error(.init(
+                error: UpdateTimeoutError.make(stage: .starting),
+                retry: { [weak self] in self?.checkForUpdates() },
+                dismiss: { [weak self] in self?.viewModel.state = .idle },
+                technicalDetails: "updater did not become ready after \(Int(UpdateTiming.updaterReadyTimeoutDuration.rounded()))s"
+            ))
         }
-        readyCheckWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + readyRetryDelay, execute: workItem)
+    }
+
+    private func continueReadyCheckIfPossible() {
+        guard readyCheckDeadline != nil else { return }
+        guard updater.canCheckForUpdates else { return }
+        readyCheckDeadline?.cancel()
+        readyCheckDeadline = nil
+        UpdateLogStore.shared.append("updater became ready; continuing update check")
+        performCheckForUpdates()
+    }
+
+    private func isCheckingState(_ state: UpdateState) -> Bool {
+        switch state {
+        case .checking:
+            return true
+        default:
+            return false
+        }
     }
 
     /// Validate the check for updates menu item.
@@ -296,6 +329,19 @@ class UpdateController {
             .sink { [weak self] state, overrideState in
                 self?.scheduleNoUpdateDismiss(for: state, overrideState: overrideState)
             }
+    }
+
+    private func installUpdaterReadinessObserver() {
+        canCheckForUpdatesObservation = updater.observe(\.canCheckForUpdates, options: [.new]) { [weak self] _, change in
+            guard change.newValue == true else { return }
+            if Thread.isMainThread {
+                self?.continueReadyCheckIfPossible()
+            } else {
+                DispatchQueue.main.async { [weak self] in
+                    self?.continueReadyCheckIfPossible()
+                }
+            }
+        }
     }
 
     private func scheduleNoUpdateDismiss(for state: UpdateState, overrideState: UpdateState?) {

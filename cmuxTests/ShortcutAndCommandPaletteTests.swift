@@ -2011,19 +2011,22 @@ final class UpdateViewModelPresentationTests: XCTestCase {
     }
 }
 
+@MainActor
 final class UpdateDriverTimeoutTests: XCTestCase {
-    private let timeoutDuration: TimeInterval = 0.05
+    private let timeoutDuration: TimeInterval = 10
 
     func testCheckingTimeoutCancelsAndShowsFailure() {
         let viewModel = UpdateViewModel()
-        let driver = makeDriver(viewModel: viewModel)
+        let scheduler = ManualUpdateOperationScheduler()
+        let driver = makeDriver(viewModel: viewModel, scheduler: scheduler)
         var cancelCount = 0
 
         driver.showUserInitiatedUpdateCheck {
             cancelCount += 1
         }
 
-        let error = waitForTimeoutError(viewModel: viewModel)
+        scheduler.advance(by: timeoutDuration)
+        let error = timeoutError(viewModel: viewModel)
         XCTAssertNotNil(error)
         XCTAssertEqual(cancelCount, 1)
         XCTAssertEqual(UpdateViewModel.userFacingErrorTitle(for: error!), "Update Timed Out")
@@ -2035,7 +2038,8 @@ final class UpdateDriverTimeoutTests: XCTestCase {
 
     func testDownloadingTimeoutCancelsAndShowsFailure() {
         let viewModel = UpdateViewModel()
-        let driver = makeDriver(viewModel: viewModel)
+        let scheduler = ManualUpdateOperationScheduler()
+        let driver = makeDriver(viewModel: viewModel, scheduler: scheduler)
         var cancelCount = 0
 
         driver.showUserInitiatedUpdateCheck {}
@@ -2043,7 +2047,8 @@ final class UpdateDriverTimeoutTests: XCTestCase {
             cancelCount += 1
         }
 
-        let error = waitForTimeoutError(viewModel: viewModel)
+        scheduler.advance(by: timeoutDuration)
+        let error = timeoutError(viewModel: viewModel)
         XCTAssertNotNil(error)
         XCTAssertEqual(cancelCount, 1)
         XCTAssertEqual(
@@ -2054,12 +2059,14 @@ final class UpdateDriverTimeoutTests: XCTestCase {
 
     func testPreparingTimeoutShowsFailure() {
         let viewModel = UpdateViewModel()
-        let driver = makeDriver(viewModel: viewModel)
+        let scheduler = ManualUpdateOperationScheduler()
+        let driver = makeDriver(viewModel: viewModel, scheduler: scheduler)
 
         driver.showUserInitiatedUpdateCheck {}
         driver.showDownloadDidStartExtractingUpdate()
 
-        let error = waitForTimeoutError(viewModel: viewModel)
+        scheduler.advance(by: timeoutDuration)
+        let error = timeoutError(viewModel: viewModel)
         XCTAssertNotNil(error)
         XCTAssertEqual(
             UpdateViewModel.userFacingErrorMessage(for: error!),
@@ -2069,7 +2076,8 @@ final class UpdateDriverTimeoutTests: XCTestCase {
 
     func testRestartRequiredStateDoesNotTimeOut() {
         let viewModel = UpdateViewModel()
-        let driver = makeDriver(viewModel: viewModel)
+        let scheduler = ManualUpdateOperationScheduler()
+        let driver = makeDriver(viewModel: viewModel, scheduler: scheduler)
         var retryCount = 0
 
         driver.showUserInitiatedUpdateCheck {}
@@ -2078,12 +2086,7 @@ final class UpdateDriverTimeoutTests: XCTestCase {
             retryCount += 1
         }
 
-        XCTAssertNotNil(waitForState(viewModel: viewModel, timeout: 0.3) { state in
-            if case .installing = state { return true }
-            return false
-        })
-
-        RunLoop.main.run(until: Date().addingTimeInterval(timeoutDuration * 3))
+        scheduler.advance(by: timeoutDuration * 3)
         guard case .installing = viewModel.state else {
             XCTFail("Expected restart prompt to remain visible, got \(viewModel.state)")
             return
@@ -2093,10 +2096,12 @@ final class UpdateDriverTimeoutTests: XCTestCase {
 
     func testRetryAfterTimeoutKeepsCheckingVisible() {
         let viewModel = UpdateViewModel()
-        let driver = makeDriver(viewModel: viewModel)
+        let scheduler = ManualUpdateOperationScheduler()
+        let driver = makeDriver(viewModel: viewModel, scheduler: scheduler)
 
         driver.showUserInitiatedUpdateCheck {}
-        XCTAssertNotNil(waitForTimeoutError(viewModel: viewModel))
+        scheduler.advance(by: timeoutDuration)
+        XCTAssertNotNil(timeoutError(viewModel: viewModel))
 
         viewModel.cancelActiveStateForNewCheck()
 
@@ -2106,40 +2111,91 @@ final class UpdateDriverTimeoutTests: XCTestCase {
         }
     }
 
-    private func makeDriver(viewModel: UpdateViewModel) -> UpdateDriver {
+    func testDownloadingProgressExtendsTimeoutForSlowNetwork() {
+        let viewModel = UpdateViewModel()
+        let scheduler = ManualUpdateOperationScheduler()
+        let driver = makeDriver(viewModel: viewModel, scheduler: scheduler)
+        var cancelCount = 0
+
+        driver.showUserInitiatedUpdateCheck {}
+        driver.showDownloadInitiated {
+            cancelCount += 1
+        }
+
+        scheduler.advance(by: timeoutDuration - 1)
+        XCTAssertNil(timeoutError(viewModel: viewModel))
+
+        driver.showDownloadDidReceiveData(ofLength: 1)
+        scheduler.advance(by: 1.5)
+        XCTAssertNil(timeoutError(viewModel: viewModel))
+        guard case .downloading(let download) = viewModel.state else {
+            XCTFail("Expected slow download to keep running, got \(viewModel.state)")
+            return
+        }
+        XCTAssertEqual(download.progress, 1)
+        XCTAssertEqual(cancelCount, 0)
+
+        scheduler.advance(by: timeoutDuration)
+        XCTAssertNotNil(timeoutError(viewModel: viewModel))
+        XCTAssertEqual(cancelCount, 1)
+    }
+
+    private func makeDriver(viewModel: UpdateViewModel, scheduler: ManualUpdateOperationScheduler) -> UpdateDriver {
         UpdateDriver(
             viewModel: viewModel,
             hostBundle: Bundle.main,
             minimumCheckDuration: 0,
-            stateTimeoutDuration: timeoutDuration
+            stateTimeoutDuration: timeoutDuration,
+            scheduler: scheduler
         )
     }
 
-    private func waitForTimeoutError(viewModel: UpdateViewModel) -> (any Error)? {
-        guard let state = waitForState(viewModel: viewModel, timeout: 1.0, predicate: { state in
-            guard case .error(let error) = state else { return false }
-            return UpdateTimeoutError.isTimeout(error.error as NSError)
-        }) else {
-            return nil
-        }
-
-        guard case .error(let error) = state else { return nil }
+    private func timeoutError(viewModel: UpdateViewModel) -> (any Error)? {
+        guard case .error(let error) = viewModel.state else { return nil }
+        guard UpdateTimeoutError.isTimeout(error.error as NSError) else { return nil }
         return error.error
     }
+}
 
-    private func waitForState(viewModel: UpdateViewModel,
-                              timeout: TimeInterval,
-                              predicate: (UpdateState) -> Bool) -> UpdateState? {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            let state = viewModel.state
-            if predicate(state) {
-                return state
-            }
-            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+private final class ManualUpdateOperationScheduler: UpdateOperationScheduling {
+    private struct Entry {
+        let deadline: TimeInterval
+        let action: () -> Void
+        let token: Token
+    }
+
+    private final class Token: UpdateScheduledAction {
+        var isCancelled = false
+
+        func cancel() {
+            isCancelled = true
         }
-        let state = viewModel.state
-        return predicate(state) ? state : nil
+    }
+
+    private var now: TimeInterval = 0
+    private var entries: [Entry] = []
+
+    @discardableResult
+    func schedule(after interval: TimeInterval, _ action: @escaping () -> Void) -> UpdateScheduledAction {
+        let token = Token()
+        entries.append(.init(deadline: now + interval, action: action, token: token))
+        return token
+    }
+
+    func advance(by interval: TimeInterval) {
+        now += interval
+        while let index = nextDueEntryIndex() {
+            let entry = entries.remove(at: index)
+            guard !entry.token.isCancelled else { continue }
+            entry.token.cancel()
+            entry.action()
+        }
+    }
+
+    private func nextDueEntryIndex() -> Int? {
+        entries.indices
+            .filter { !entries[$0].token.isCancelled && entries[$0].deadline <= now }
+            .min { entries[$0].deadline < entries[$1].deadline }
     }
 }
 
