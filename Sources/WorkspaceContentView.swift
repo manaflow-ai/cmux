@@ -1826,19 +1826,6 @@ private struct EmptyPanelView: View {
         case grid
         case iconGrid
 
-        static func resolving(size: CGSize) -> LauncherLayout {
-            if size.height <= 150 {
-                return .bottomStrip
-            }
-            if size.width <= 140 {
-                return .iconGrid
-            }
-            if size.width <= 260 {
-                return .sideStack
-            }
-            return .grid
-        }
-
         var showsText: Bool {
             switch self {
             case .iconGrid:
@@ -1989,6 +1976,7 @@ private struct EmptyPanelView: View {
                 }
             }
             .frame(maxWidth: 168)
+            .frame(minWidth: 141)
             .padding(8)
         case .grid:
             LazyVGrid(
@@ -2002,6 +1990,7 @@ private struct EmptyPanelView: View {
                 }
             }
             .frame(maxWidth: 500)
+            .frame(minWidth: 260)
             .padding(12)
         case .iconGrid:
             LazyVGrid(
@@ -2021,11 +2010,14 @@ private struct EmptyPanelView: View {
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            let layout = LauncherLayout.resolving(size: proxy.size)
-            launcherContent(layout: layout)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        ViewThatFits(in: [.horizontal, .vertical]) {
+            launcherContent(layout: .grid)
+            launcherContent(layout: .sideStack)
+            launcherContent(layout: .bottomStrip)
+                .frame(minWidth: 180)
+            launcherContent(layout: .iconGrid)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
 #if DEBUG
