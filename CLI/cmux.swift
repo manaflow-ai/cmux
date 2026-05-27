@@ -3887,7 +3887,20 @@ struct CMUXCLI {
                             let paneIds = (tmuxControl["pane_ids"] as? [Any] ?? [])
                                 .map { String(describing: $0) }
                                 .joined(separator: ",")
-                            tmuxControlStr = paneIds.isEmpty ? " tmux=active" : " tmux=active panes=[\(paneIds)]"
+                            if paneIds.isEmpty {
+                                tmuxControlStr = " " + String(
+                                    localized: "cli.surfaceHealth.tmuxActive",
+                                    defaultValue: "tmux=active"
+                                )
+                            } else {
+                                tmuxControlStr = " " + String.localizedStringWithFormat(
+                                    String(
+                                        localized: "cli.surfaceHealth.tmuxActivePanes",
+                                        defaultValue: "tmux=active panes=[%@]"
+                                    ),
+                                    paneIds
+                                )
+                            }
                         } else {
                             tmuxControlStr = ""
                         }
@@ -12666,6 +12679,10 @@ struct CMUXCLI {
               cmux reload-config
             """
         case "surface-health":
+            let includeTmuxPaneTextDescription = String(
+                localized: "cli.surfaceHealth.flag.includeTmuxPaneText",
+                defaultValue: "Include raw tmux control pane text in JSON output"
+            )
             return """
             Usage: cmux surface-health [--workspace <id|ref|index>] [--window <id|ref|index>] [--include-tmux-pane-text]
 
@@ -12674,7 +12691,7 @@ struct CMUXCLI {
             Flags:
               --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>      Window context for workspace refs and indexes
-              --include-tmux-pane-text      Include raw tmux control pane text in JSON output
+              --include-tmux-pane-text      \(includeTmuxPaneTextDescription)
 
             Example:
               cmux surface-health
