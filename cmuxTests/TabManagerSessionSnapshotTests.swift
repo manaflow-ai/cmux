@@ -1,4 +1,5 @@
 import Darwin
+import CoreGraphics
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -1515,6 +1516,64 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         ))
     }
 
+    func testRestoredPersistentSSHBrowserSiblingAcceptsPortalHostAfterTerminalSplit() throws {
+        let terminalPanelId = UUID()
+        let browserPanelId = UUID()
+        let snapshot = Self.persistentSSHWorkspaceSnapshot(
+            panels: [
+                Self.terminalPanelSnapshot(id: terminalPanelId),
+                Self.browserPanelSnapshot(id: browserPanelId)
+            ],
+            layout: .split(SessionSplitLayoutSnapshot(
+                orientation: .horizontal,
+                dividerPosition: 0.5,
+                first: .pane(SessionPaneLayoutSnapshot(
+                    panelIds: [terminalPanelId],
+                    selectedPanelId: terminalPanelId
+                )),
+                second: .pane(SessionPaneLayoutSnapshot(
+                    panelIds: [browserPanelId],
+                    selectedPanelId: browserPanelId
+                ))
+            )),
+            focusedPanelId: terminalPanelId
+        )
+        let workspace = Workspace()
+        let restoredPanelIds = workspace.restoreSessionSnapshot(snapshot)
+        let restoredTerminalPanelId = try XCTUnwrap(restoredPanelIds[terminalPanelId])
+        let restoredBrowserPanelId = try XCTUnwrap(restoredPanelIds[browserPanelId])
+        let browserPanel = try XCTUnwrap(workspace.browserPanel(for: restoredBrowserPanelId))
+        let browserPaneId = try XCTUnwrap(workspace.paneId(forPanelId: restoredBrowserPanelId))
+        let initialHost = PortalHostClaimToken()
+        let replacementHost = PortalHostClaimToken()
+        let hostBounds = CGRect(x: 0, y: 0, width: 800, height: 600)
+
+        workspace.focusPanel(restoredTerminalPanelId)
+        XCTAssertTrue(browserPanel.claimPortalHost(
+            hostId: ObjectIdentifier(initialHost),
+            paneId: browserPaneId,
+            inWindow: true,
+            bounds: hostBounds,
+            reason: "test.initial"
+        ))
+
+        let splitPanel = try XCTUnwrap(workspace.newTerminalSplit(
+            from: restoredTerminalPanelId,
+            orientation: .horizontal,
+            focus: true
+        ))
+        XCTAssertNotEqual(workspace.paneId(forPanelId: splitPanel.id), browserPaneId)
+        XCTAssertEqual(workspace.paneId(forPanelId: restoredBrowserPanelId), browserPaneId)
+
+        XCTAssertTrue(browserPanel.claimPortalHost(
+            hostId: ObjectIdentifier(replacementHost),
+            paneId: browserPaneId,
+            inWindow: true,
+            bounds: hostBounds,
+            reason: "test.afterTerminalSplit"
+        ))
+    }
+
     func testSessionSnapshotIncludesRemoteWorkspacesForRestore() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
@@ -1912,6 +1971,21 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         panel: SessionPanelSnapshot,
         focusedPanelId: UUID
     ) -> SessionWorkspaceSnapshot {
+        persistentSSHWorkspaceSnapshot(
+            panels: [panel],
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: [focusedPanelId],
+                selectedPanelId: focusedPanelId
+            )),
+            focusedPanelId: focusedPanelId
+        )
+    }
+
+    private static func persistentSSHWorkspaceSnapshot(
+        panels: [SessionPanelSnapshot],
+        layout: SessionWorkspaceLayoutSnapshot,
+        focusedPanelId: UUID
+    ) -> SessionWorkspaceSnapshot {
         SessionWorkspaceSnapshot(
             processTitle: "Persistent SSH",
             customTitle: "Persistent SSH",
@@ -1921,11 +1995,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             terminalScrollBarHidden: nil,
             currentDirectory: NSHomeDirectory(),
             focusedPanelId: focusedPanelId,
-            layout: .pane(SessionPaneLayoutSnapshot(
-                panelIds: [focusedPanelId],
-                selectedPanelId: focusedPanelId
-            )),
-            panels: [panel],
+            layout: layout,
+            panels: panels,
             statusEntries: [],
             logEntries: [],
             progress: nil,
@@ -1988,3 +2059,5 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
     }
 }
+
+private final class PortalHostClaimToken {}
