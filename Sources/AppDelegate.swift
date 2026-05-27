@@ -1008,6 +1008,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if handleCmuxSSHURLs(from: urls) {
             return
         }
+        if handleCmuxTextURLs(from: urls) {
+            return
+        }
 
         let authCallbacks = urls.filter(AuthCallbackRouter.isAuthCallbackURL)
         for url in authCallbacks {
@@ -7062,6 +7065,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    func pasteTextInPreferredMainWindowFromExternalLink(
+        _ text: String,
+        preferredWindow: NSWindow? = nil,
+        shouldBringToFront: Bool = true,
+        debugSource: String = "externalLink"
+    ) -> Bool {
+        let context: MainWindowContext? = {
+            if let existing = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) {
+                return existing
+            }
+            let windowId = createMainWindow(initialTerminalInput: "")
+            return mainWindowContexts.values.first { $0.windowId == windowId }
+        }()
+        guard let context else { return false }
+
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        if shouldBringToFront, let window {
+            bringToFront(window)
+            setActiveMainWindow(window)
+        }
+
+        let workspace = context.tabManager.selectedWorkspace
+            ?? context.tabManager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+        let terminalPanel = workspace.focusedTerminalPanel
+            ?? workspace.panels.values.compactMap { $0 as? TerminalPanel }.first
+            ?? workspace.newTerminalSurfaceInFocusedPane(focus: true)
+        guard let terminalPanel else { return false }
+
+#if DEBUG
+        cmuxDebugLog("textURL.paste source=\(debugSource) workspace=\(workspace.id.uuidString.prefix(8)) surface=\(terminalPanel.id.uuidString.prefix(8)) chars=\(text.count)")
+#endif
+        workspace.focusPanel(terminalPanel.id)
+        sendTextWhenReady(text, to: workspace, preferredPanelId: terminalPanel.id)
+        return true
+    }
+
+    @discardableResult
     func openFilePreviewInPreferredMainWindow(
         filePath: String,
         preferredWindow: NSWindow? = nil,
@@ -8286,7 +8326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return tab.focusedTerminalPanel
     }
 
-    private func sendTextWhenReady(
+    func sendTextWhenReady(
         _ text: String,
         to tab: Tab,
         preferredPanelId: UUID? = nil,
