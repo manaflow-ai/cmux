@@ -2322,9 +2322,15 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         let createdAt: Date
     }
 
+    private final class SchemeTaskState: @unchecked Sendable {
+        let condition = NSCondition()
+        var isStopped = false
+        var callbacksInFlight = 0
+    }
+
     private let lock = NSLock()
     private var sessions: [String: Session] = [:]
-    private var activeSchemeTasks: Set<ObjectIdentifier> = []
+    private var activeSchemeTasks: [ObjectIdentifier: SchemeTaskState] = [:]
     private let streamQueue = DispatchQueue(label: "com.manaflow.cmux.diff-viewer-stream", qos: .userInitiated)
     private let maxSessionAge: TimeInterval = 24 * 60 * 60
     private let trustedRootURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
@@ -2414,9 +2420,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
-        lock.lock()
-        activeSchemeTasks.remove(taskID)
-        lock.unlock()
+        stopSchemeTask(taskID)
     }
 
     static func registeredFile(from object: [String: Any]) -> RegisteredFile? {
@@ -2482,8 +2486,9 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         urlSchemeTask: WKURLSchemeTask
     ) {
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
+        let state = SchemeTaskState()
         lock.lock()
-        activeSchemeTasks.insert(taskID)
+        activeSchemeTasks[taskID] = state
         lock.unlock()
 
         streamQueue.async { [weak self] in
@@ -2501,8 +2506,9 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                     textEncodingName: "utf-8"
                 )
 
-                guard self.isSchemeTaskActive(taskID) else { return }
-                urlSchemeTask.didReceive(response)
+                guard self.performSchemeTaskCallback(taskID, {
+                    urlSchemeTask.didReceive(response)
+                }) else { return }
 
                 let handle = try FileHandle(forReadingFrom: file.fileURL)
                 defer {
@@ -2514,31 +2520,78 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                     if data.isEmpty {
                         break
                     }
-                    guard self.isSchemeTaskActive(taskID) else { return }
-                    urlSchemeTask.didReceive(data)
+                    guard self.performSchemeTaskCallback(taskID, {
+                        urlSchemeTask.didReceive(data)
+                    }) else { return }
                 }
 
-                guard self.finishSchemeTask(taskID) else { return }
-                urlSchemeTask.didFinish()
+                guard self.performSchemeTaskCallback(taskID, {
+                    urlSchemeTask.didFinish()
+                }) else { return }
+                self.finishSchemeTask(taskID)
             } catch {
-                guard self.finishSchemeTask(taskID) else { return }
-                urlSchemeTask.didFailWithError(error)
+                guard self.performSchemeTaskCallback(taskID, {
+                    urlSchemeTask.didFailWithError(error)
+                }) else { return }
+                self.finishSchemeTask(taskID)
             }
         }
     }
 
     private func isSchemeTaskActive(_ taskID: ObjectIdentifier) -> Bool {
         lock.lock()
-        let active = activeSchemeTasks.contains(taskID)
+        let state = activeSchemeTasks[taskID]
         lock.unlock()
+        guard let state else { return false }
+
+        state.condition.lock()
+        let active = !state.isStopped
+        state.condition.unlock()
         return active
     }
 
-    private func finishSchemeTask(_ taskID: ObjectIdentifier) -> Bool {
+    private func performSchemeTaskCallback(_ taskID: ObjectIdentifier, _ callback: () -> Void) -> Bool {
         lock.lock()
-        let active = activeSchemeTasks.remove(taskID) != nil
+        let state = activeSchemeTasks[taskID]
         lock.unlock()
+        guard let state else { return false }
+
+        state.condition.lock()
+        guard !state.isStopped else {
+            state.condition.unlock()
+            return false
+        }
+        state.callbacksInFlight += 1
+        state.condition.unlock()
+
+        callback()
+
+        state.condition.lock()
+        state.callbacksInFlight -= 1
+        if state.callbacksInFlight == 0 {
+            state.condition.broadcast()
+        }
+        let active = !state.isStopped
+        state.condition.unlock()
         return active
+    }
+
+    private func finishSchemeTask(_ taskID: ObjectIdentifier) {
+        stopSchemeTask(taskID)
+    }
+
+    private func stopSchemeTask(_ taskID: ObjectIdentifier) {
+        lock.lock()
+        let state = activeSchemeTasks.removeValue(forKey: taskID)
+        lock.unlock()
+        guard let state else { return }
+
+        state.condition.lock()
+        state.isStopped = true
+        while state.callbacksInFlight > 0 {
+            state.condition.wait()
+        }
+        state.condition.unlock()
     }
 
     private static func fileSize(for url: URL) -> Int {
