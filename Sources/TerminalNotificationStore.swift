@@ -846,6 +846,10 @@ final class TerminalNotificationStore: ObservableObject {
         label: "com.cmuxterm.opencode-fswatch-rearm",
         qos: .utility
     )
+    /// Guards the one-shot re-arm so the asyncAfter retry fires at most once per app lifetime.
+    /// Reset to false when watchers are successfully created so that a future directory
+    /// creation can trigger exactly one more retry if needed.
+    private var didScheduleOpenCodeWatchRearm = false
     private var indexes = NotificationIndexes()
 
     private init() {
@@ -914,8 +918,10 @@ final class TerminalNotificationStore: ObservableObject {
         }
 
         if watchDirectories.isEmpty {
-            // Bounded re-arm: directories don't exist yet. Retry once after 10 seconds.
-            // This is not a repeating poll — it's a single delayed attempt to start watching.
+            // Bounded re-arm: directories don't exist yet. Retry at most once after 10 seconds.
+            // If the retry also finds no directories, it returns without scheduling again.
+            guard !didScheduleOpenCodeWatchRearm else { return }
+            didScheduleOpenCodeWatchRearm = true
             Self.openCodeWatchRearmQueue.asyncAfter(deadline: .now() + 10.0) { [weak self] in
                 guard let self else { return }
                 DispatchQueue.main.async {
@@ -924,6 +930,10 @@ final class TerminalNotificationStore: ObservableObject {
             }
             return
         }
+
+        // Watchers created successfully — allow a future retry if directories disappear
+        // and reappear (e.g. user installs OpenCode after app launch).
+        didScheduleOpenCodeWatchRearm = false
 
         for directoryPath in watchDirectories {
             let fd = open(directoryPath, O_EVTONLY)

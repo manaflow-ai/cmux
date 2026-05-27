@@ -10851,11 +10851,17 @@ struct VerticalTabsSidebar: View {
 
         if let notificationText = snapshot.latestNotificationText?.trimmingCharacters(in: .whitespacesAndNewlines),
            !notificationText.isEmpty {
-            return "\(row.title) - \(notificationText)"
+            return String(
+                localized: "workspace.row.tooltip.notificationAndPath",
+                defaultValue: "\(row.title) - \(notificationText)"
+            )
         }
 
         if let fullPath = extensionBrowserStackFullPath(from: snapshot) {
-            return "\(row.title) - \(fullPath)"
+            return String(
+                localized: "workspace.row.tooltip.titleAndPath",
+                defaultValue: "\(row.title) - \(fullPath)"
+            )
         }
 
         if snapshot.rootPath?.trimmingCharacters(in: .whitespacesAndNewlines) == "~" {
