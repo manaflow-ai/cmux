@@ -62,6 +62,7 @@ function SessionSurface({
   const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
   const modelLabel = provider ? codexModelLabel(provider.displayName) : "GPT-5.5";
+  const visibleLogEntries = state.log.filter((entry) => entry.level !== "info");
   const editorRef = useRef<PromptEditorHandle | null>(null);
   const [menuKind, setMenuKind] = useState<ComposerMenuKind>(null);
   const isSingleLineLayout = !state.input.includes("\n");
@@ -171,7 +172,7 @@ function SessionSurface({
     h(
       "div",
       { className: "agent-log" },
-      state.log.map((entry) =>
+      visibleLogEntries.map((entry) =>
         h(
           "div",
           { className: `agent-log-line ${entry.level}`, key: entry.id },
@@ -252,11 +253,12 @@ function SessionSurface({
       ),
       h(
         "div",
-        { className: "rate-line" },
-        h("span", { className: `status-dot ${state.status}`, "aria-hidden": true }),
-        h("span", null, `${provider?.displayName ?? renderer} ${statusLabel(state)}`),
-        h("span", { className: "rate-dot", "aria-hidden": true }, "•"),
-        h("span", null, provider?.transportKind ?? "stdio-jsonrpc"),
+        {
+          className: "rate-line",
+          role: "status",
+          "aria-label": `${provider?.displayName ?? renderer} ${statusLabel(state)} ${provider?.transportKind ?? ""}`.trim(),
+        },
+        h("span", null, state.context?.copy.rateLimits ?? "Rate limits"),
       ),
     ),
   );

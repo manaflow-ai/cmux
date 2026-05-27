@@ -40,7 +40,7 @@
   --radius-2xl: 1rem;
   --radius-3xl: 1.25rem;
   --radius-4xl: 1.5rem;
-  --spacing-token-button-composer: 2rem;
+  --spacing-token-button-composer: 1.75rem;
   --spacing-token-button-composer-sm: 1.75rem;
 }
 
@@ -213,6 +213,9 @@ select {
   min-height: 122px;
   color: var(--color-token-foreground);
   background: color-mix(in srgb, var(--color-token-input-background) 90%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--agent-border-strong) 72%, transparent),
+    0 4px 16px rgba(0, 0, 0, 0.05);
 }
 
 .codex-composer-single-line {
@@ -538,7 +541,7 @@ select {
   white-space: nowrap;
 }
 
-.rate-line span:nth-child(2) {
+.rate-line span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
