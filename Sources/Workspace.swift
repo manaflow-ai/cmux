@@ -8202,13 +8202,29 @@ final class WorkspaceRemoteSessionController {
         for index in tokens.indices {
             let token = tokens[index]
             if token == "--slot" {
-                return tokens.indices.contains(index + 1) && tokens[index + 1] == slot
+                return nextNonShellEscapeToken(after: index, in: tokens) == slot
             }
             if token.hasPrefix("--slot=") {
                 return String(token.dropFirst("--slot=".count)) == slot
             }
         }
         return false
+    }
+
+    private static func nextNonShellEscapeToken(after index: Int, in tokens: [String]) -> String? {
+        var nextIndex = index + 1
+        while tokens.indices.contains(nextIndex) {
+            let token = tokens[nextIndex]
+            if !isShellEscapeNoiseToken(token) {
+                return token
+            }
+            nextIndex += 1
+        }
+        return nil
+    }
+
+    private static func isShellEscapeNoiseToken(_ token: String) -> Bool {
+        !token.isEmpty && token.allSatisfy { $0 == "\\" }
     }
 
     private static func commandContainsDestination(_ command: String, destination: String) -> Bool {
