@@ -844,10 +844,11 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             2,
             "Expected the setup to create a second main window. data=\(setup)"
         )
-        XCTAssertGreaterThanOrEqual(
-            canvasItemCount(windowId: secondaryWindowId),
-            1,
-            "Expected the second window canvas to expose canvas items"
+        XCTAssertTrue(
+            waitForCondition(timeout: 6.0) {
+                self.canvasItemCount(windowId: secondaryWindowId) >= 1
+            },
+            "Expected the second window canvas to expose canvas items. layout=\(String(describing: canvasLayout(windowId: secondaryWindowId))) data=\(setup)"
         )
 
         let extraChip = canvasTabChip(app, paneId: terminalPaneId, surfaceId: extraSurfaceId)
