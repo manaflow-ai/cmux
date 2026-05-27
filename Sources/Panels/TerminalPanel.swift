@@ -640,9 +640,10 @@ final class TerminalPanel: Panel, ObservableObject {
 
     // MARK: - Terminal-specific methods
 
-    func sendText(_ text: String) {
+    @discardableResult
+    func sendText(_ text: String) -> Bool {
         resumeForExplicitInputIfNeeded()
-        surface.sendText(text)
+        return surface.sendText(text)
     }
 
     func sendInput(_ text: String) {

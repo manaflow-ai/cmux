@@ -499,6 +499,11 @@
         },
         "terminal": {
           "copyOnSelect": "Seçim kesinleştiğinde seçilen terminal metnini sistem panosuna kopyalar; çift ve üçlü tıklamayla yapılan sözcük ve satır seçimleri dahil."
+        },
+        "browser": {
+          "defaultSearchEngine": "Tarayıcı adres çubuğundaki URL olmayan sorgular için varsayılan arama motoru. Diğer sağlayıcılar için custom ile customSearchEngineURLTemplate kullanın.",
+          "customSearchEngineName": "defaultSearchEngine custom olduğunda kullanılan görünen ad.",
+          "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler."
         }
       }
     },
@@ -992,6 +997,62 @@
       "underHoodMore": "Normal <configLink>configuration docs</configLink> cmux.json'u kapsar. Session restore app layout'unu Ghostty terminal rendering ayarlarından ayrı tutar.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
+    },
+    "ssh": {
+      "title": "SSH",
+      "metaTitle": "SSH",
+      "metaDescription": "cmux ssh ile uzaktaki makinelere bağlanın. Tarayıcı bölmeleri uzak ağ üzerinden yönlendirilir, scp yoluyla görüntüler sürükleyip bırakılır ve aracı bildirimleri eve gelir.",
+      "intro": "cmux ssh uzaktaki bir makine için bir çalışma alanı oluşturur. Tarayıcı bölmeleri uzak ağ üzerinden yönlendirilir, dosyalar scp yoluyla sürükleyip bırakılır, kodlama aracıları yerel kenar çubuğunuza bildirimler gönderir ve oturumlar bağlantı kesildiğinde yeniden bağlanır.",
+      "usage": "Kullanım",
+      "usageDesc": "cmux ssh, ana bilgisayar takma adları, kimlik dosyaları ve proxy ayarları için ~/.ssh/config dosyanızı okur. Tüm bayraklar ssh eşdeğerlerini yansıtır.",
+      "flagsTitle": "Bayraklar",
+      "flagName": "Bayrak",
+      "flagDesc": "Açıklama",
+      "flagNameVal": "Çalışma alanı başlığını ayarlayın",
+      "flagPort": "SSH bağlantı noktası (varsayılan 22)",
+      "flagIdentity": "Kimlik dosyasının yolu",
+      "flagSshOption": "İsteğe bağlı SSH seçeneklerini iletin (ör. -o StrictHostKeyChecking=no)",
+      "flagNoFocus": "Geçiş yapmadan çalışma alanını oluşturun",
+      "deepLinksTitle": "SSH derin bağlantıları",
+      "deepLinksDesc": "Bir web sitesi veya araç cmux'da aç düğmesi sunmak istediğinde cmux SSH derin bağlantılarını kullanın. Bağlantı cmux'u açar, bir onay istemi gösterir ve kullanıcı onayladıktan sonra eşdeğer cmux ssh komutunu çalıştırır.",
+      "deepLinksWebFallbackDesc": "Web sitesi düğmeleri için cmux.com yedek URL'sini kullanın. Yerel bağlantıyı açar ve cmux yüklü değilse indirme işlemini gösterir.",
+      "deepLinksPromptRulesDesc": "Bilgi istemi ve kurallar düğmeleri aynı geri dönüş şeklini kullanır. Virgüller, iki nokta üst üste ve gerçek artı işaretleri, URL olarak kodlandıklarında korunur:",
+      "deepLinksIconDesc": "Kontrol paneli düğmeleri için SVG simgesini veya taramalı görüntü gerektiğinde PNG logosunu kullanın:",
+      "deepLinksButtonDesc": "Başlıkların, ana makine takma adlarının ve kullanıcı adlarının güvenli bir şekilde kodlanması için URLSearchParams ile yedek URL'yi oluşturun:",
+      "deepLinkParam": "Parametre",
+      "deepLinkMeaning": "Anlamı",
+      "deepLinkHost": "Gerekli SSH ana bilgisayarı veya ~/.ssh/config takma adı.",
+      "deepLinkUser": "İsteğe bağlı SSH kullanıcısı. cmux, onu user@host olarak Host ile birleştirir.",
+      "deepLinkPort": "İsteğe bağlı SSH bağlantı noktası, 1 ila 65535.",
+      "deepLinkTitle": "İsteğe bağlı çalışma alanı başlığı. Başlık veya adlardan yalnızca birini kullanın.",
+      "deepLinkConnectTimeout": "Saniye cinsinden isteğe bağlı ConnectTimeout değeri, 1'den 600'e kadar.",
+      "deepLinkServerAliveInterval": "İsteğe bağlı ServerAliveInterval değeri saniye cinsinden, 1'den 3600'e kadar.",
+      "deepLinkServerAliveCountMax": "İsteğe bağlı ServerAliveCountMax değeri, 1'den 100'e kadar.",
+      "deepLinkHostKeyPolicy": "İsteğe bağlı StrictHostKeyChecking politikası: yeniyi kabul et, sor, katı veya evet.",
+      "deepLinkNoFocus": "İsteğe bağlı boole. true çalışma alanını ona geçmeden oluşturur.",
+      "deepLinksSchemeDesc": "Kararlı uygulama için cmux://, Nightly için cmux-nightly:// ve Hata Ayıklama veya etiketli geliştirme yapıları için cmux-dev:// kullanın.",
+      "deepLinksSecurityDesc": "Harici bağlantılar kimlik dosyalarını, ham ssh seçeneklerini, komutları, ProxyCommand'ı veya iletim kurallarını aktaramaz. Bunun yerine anahtarları, ProxyJump'ı, Ana BilgisayarAdı'nı ve gelişmiş seçenekleri ~/.ssh/config içine yerleştirin. cmux komut önizlemesini görüntüler ve kullanıcının bağlanmadan önce SSH hedefine güvenmesini gerektirir.",
+      "browserTitle": "Tarayıcı bölmeleri",
+      "browserDesc": "Uzak çalışma alanındaki tarayıcı bölmeleri, tüm HTTP ve WebSocket trafiğini uzak makinenin ağı üzerinden yönlendirir. localhost:3000 yazın ve uzak kutuda çalışan dev sunucusuna bakıyorsunuz. -L bayrağı yok, manuel bağlantı noktası yönlendirme yok. Her uzak çalışma alanı yalıtılmış bir çerez deposuna sahip olur, böylece oturumlar bağlantı başına kapsamlanır.",
+      "dragDropTitle": "Sürükle ve bırak",
+      "dragDropDesc": "Bir görüntüyü veya dosyayı uzak bir terminale sürükleyin ve cmux bunu mevcut SSH bağlantısı üzerinden scp aracılığıyla yükler. cmux, TTY tarafından ön plandaki SSH işlemini algılar ve yüklemeyi ControlMaster çoğullaması yoluyla yönlendirir.",
+      "notificationsTitle": "Bildirimler",
+      "notificationsDesc": "Uzak makinedeki işlemler, yerel örneğinizde yürütülen cmux komutlarını çalıştırabilir. Bir kodlama aracısı uzak kutuda cmux notify'ı çağırdığında, bildirim yerel kenar çubuğunuzda görünür. Çalışma alanı sekmesinde mavi halka yanar. Cmd+Shift+U ona atlar. Kesintili bağlantılardan gelen spam bildirimleri, ana bilgisayar başına bekleme süresiyle bastırılır.",
+      "agentsTitle": "SSH üzerinden kodlama aracıları",
+      "agentsDesc": "cmux Claude-teams ve cmux omo'nun her ikisi de SSH oturumlarında çalışır. Uzak ana bilgisayardaki Go geçiş arka plan programı, yerel Swift CLI'nin yaptığı tmux uyumlu çevirinin aynısını işler. Ekip arkadaşı ajanları, hesaplama uzak kutuda çalışırken yerel makinenizde yerel cmux bölünmeleri olarak ortaya çıkar.",
+      "reconnectTitle": "Yeniden bağlan",
+      "reconnectDesc": "Bağlantı kesildiğinde cmux üstel geri çekilmeyle yeniden bağlanır (3 sn, 6 sn, 12 sn, 60 sn'ye kadar). Uzak oturum devam eder ve cmux yeniden bağlanıldığında yeniden bağlanır ve en küçük ekran kazanma semantiğiyle yeniden boyutlandırılır. Varsayılan canlı tutma seçenekleri (ServerAliveInterval=20, ServerAliveCountMax=2), yapılandırmanız bunları zaten ayarlamadığı sürece eklenir.",
+      "daemonTitle": "Aktarma arka plan programı",
+      "daemonDesc": "İlk bağlantıda cmux uzak ana bilgisayarı inceler (uname -s, uname -m) ve sürümlendirilmiş bir cmuxd-remote ikili dosyasını yükler. İkili dosya stdio üzerinden JSON-RPC'yi konuşur ve üç şeyi yönetir:",
+      "daemonFeature": "Özellik",
+      "daemonHow": "Nasıl",
+      "daemonProxy": "Tarayıcı trafiği proxy'si oluşturma",
+      "daemonProxyHow": "Arka plan programının stdio kanalı üzerinden SOCKS5 ve HTTP CONNECT",
+      "daemonRelay": "CLI geçişi",
+      "daemonRelayHow": "Uzak işlemlerin cmux komutlarını yerel olarak çağırabilmesi için HMAC-SHA256 kimlik doğrulamasıyla TCP tünelini tersine çevirin",
+      "daemonSession": "Oturum yönetimi",
+      "daemonSessionHow": "Yeniden bağlantılarda oturumları sürdürür, birden fazla ekte PTY'nin yeniden boyutlandırılmasını koordine eder",
+      "daemonPath": "Arka plan programı ikili dosyası, uzak ana bilgisayarda ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote konumunda depolanır ve uygulamaya katıştırılmış bir SHA-256 bildirimine göre doğrulanır."
     }
   },
   "legal": {
@@ -1034,5 +1095,40 @@
   },
   "languageSwitcher": {
     "label": "Dil"
+  },
+  "deeplink": {
+    "section": "Derin bağlantı",
+    "open": "cmux'ta aç",
+    "download": "cmux'u indirin",
+    "nativeURL": "Yerel URL",
+    "missingParams": "Bu bağlantıda gerekli parametreler eksik: {params}",
+    "duplicateParams": "Bu bağlantı cmux'un reddedeceği parametreleri tekrarlar: {params}",
+    "unsupportedParams": "Bu bağlantı cmux'un reddedeceği desteklenmeyen parametreler içeriyor: {params}",
+    "conflictingParams": "Bu bağlantı birlikte kullanılamayan parametreleri içerir: {params}",
+    "invalidParams": "Bu bağlantı geçersiz parametre değerleri içeriyor: {params}",
+    "fixParams": "URL parametrelerini düzeltin ve ardından bu sayfayı yeniden yükleyin.",
+    "examplePrefix": "Bir gör",
+    "exampleLink": "örnek bağlantı",
+    "ssh": {
+      "metaTitle": "SSH'yi cmux'ta açın",
+      "metaDescription": "cmux kullanılamadığında geri yükleme ile web'den bir cmux SSH derin bağlantısı açın.",
+      "title": "SSH'yi cmux'ta açın",
+      "intro": "Bu sayfa, incelenen bir cmux SSH bağlantısını açar.",
+      "fallback": "cmux açılmazsa cmux'u yükleyin ve cmux'da aç'a tekrar tıklayın."
+    },
+    "prompt": {
+      "metaTitle": "İstemi cmux'da aç",
+      "metaDescription": "cmux kullanılamadığında geri yüklemeyi kullanarak web'den bir cmux istemi derin bağlantısı açın.",
+      "title": "İstemi cmux'da aç",
+      "intro": "Bu sayfa mevcut cmux çalışma alanında bir bilgi istemi açar.",
+      "fallback": "cmux önce istemi gösterir ve onu mevcut çalışma alanına yapıştırmadan önce sorar. cmux açılmazsa cmux'u yükleyin ve cmux'da aç'a tekrar tıklayın."
+    },
+    "rules": {
+      "metaTitle": "Kuralları cmux'ta açın",
+      "metaDescription": "cmux kullanılamadığında geri yükleme ile web'den bir cmux kuralları derin bağlantısı açın.",
+      "title": "Kuralları cmux'ta açın",
+      "intro": "Bu sayfa geçerli cmux çalışma alanındaki kuralları açar.",
+      "fallback": "cmux önce kuralları gösterir ve bunları geçerli çalışma alanına yapıştırmadan önce sorar. cmux açılmazsa cmux'u yükleyin ve cmux'da aç'a tekrar tıklayın."
+    }
   }
 }

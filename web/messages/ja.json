@@ -559,6 +559,11 @@
         },
         "terminal": {
           "copyOnSelect": "選択が確定したとき、ダブルクリックやトリプルクリックによる単語・行の選択を含め、選択したターミナルテキストをシステムクリップボードへコピーします。"
+        },
+        "browser": {
+          "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
+          "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",
+          "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。"
         }
       }
     },
@@ -1228,6 +1233,62 @@
       "agentPromptIntro": "コーディングエージェントにDockコントロールを作成させたいときは、このプロンプトを使ってください。エージェントに `cmux docs dock` を実行し、プロジェクトを調べ、推測する前に質問するよう指示します。",
       "agentPromptCodeTitle": "エージェント用プロンプト",
       "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+    },
+    "ssh": {
+      "title": "SSH",
+      "metaTitle": "SSH",
+      "metaDescription": "cmux ssh を使用してリモート マシンに接続します。ブラウザ ペインはリモート ネットワーク経由でルーティングされ、scp 経由で画像がドラッグ アンド ドロップされ、エージェント通知が自宅に届きます。",
+      "intro": "cmux ssh は、リモート マシンのワークスペースを作成します。ブラウザ ペインはリモート ネットワーク経由でルーティングされ、ファイルは scp 経由でドラッグ アンド ドロップされ、コーディング エージェントはローカル サイドバーに通知を送信し、ドロップ時にセッションが再接続されます。",
+      "usage": "使用法",
+      "usageDesc": "cmux ssh は、~/.ssh/config を読み取り、ホスト エイリアス、ID ファイル、およびプロキシ設定を確認します。すべてのフラグは、対応する ssh をミラーリングします。",
+      "flagsTitle": "フラグ",
+      "flagName": "旗",
+      "flagDesc": "説明",
+      "flagNameVal": "ワークスペースのタイトルを設定する",
+      "flagPort": "SSH ポート (デフォルトは 22)",
+      "flagIdentity": "ID ファイルへのパス",
+      "flagSshOption": "任意の SSH オプションを渡します (例: -o StrictHostKeyChecking=no)",
+      "flagNoFocus": "ワークスペースに切り替えずに作成する",
+      "deepLinksTitle": "SSHディープリンク",
+      "deepLinksDesc": "Web サイトまたはツールで [cmux で開く] ボタンを提供する必要がある場合は、cmux SSH ディープ リンクを使用します。リンクにより cmux が開き、確認プロンプトが表示され、ユーザーが確認した後に同等の cmux ssh コマンドが実行されます。",
+      "deepLinksWebFallbackDesc": "Web サイトのボタンには cmux.com フォールバック URL を使用します。 cmux がインストールされていない場合は、ネイティブ リンクが開き、ダウンロードが表示されます。",
+      "deepLinksPromptRulesDesc": "プロンプト ボタンとルール ボタンは同じフォールバック形状を使用します。カンマ、コロン、およびリテラルのプラス記号は、URL エンコード時に保持されます。",
+      "deepLinksIconDesc": "ダッシュボード ボタンには SVG アイコンを使用し、ラスター イメージが必要な場合は PNG ロゴを使用します。",
+      "deepLinksButtonDesc": "タイトル、ホスト エイリアス、ユーザー名が安全にエンコードされるように、URLSearchParams を使用してフォールバック URL を構築します。",
+      "deepLinkParam": "パラメータ",
+      "deepLinkMeaning": "意味",
+      "deepLinkHost": "必須の SSH ホストまたは ~/.ssh/config エイリアス。",
+      "deepLinkUser": "オプションの SSH ユーザー。 cmux はそれを user@host としてホストと組み合わせます。",
+      "deepLinkPort": "オプションの SSH ポート、1 ～ 65535。",
+      "deepLinkTitle": "オプションのワークスペースのタイトル。タイトルまたは名前のいずれか 1 つだけを使用します。",
+      "deepLinkConnectTimeout": "オプションの ConnectTimeout 値 (秒単位)、1 ～ 600。",
+      "deepLinkServerAliveInterval": "秒単位のオプションの ServerAliveInterval 値 (1 ～ 3600)。",
+      "deepLinkServerAliveCountMax": "オプションの ServerAliveCountMax 値 (1 ～ 100)。",
+      "deepLinkHostKeyPolicy": "オプションの StrictHostKeyChecking ポリシー: accept-new、ask、strict、または yes。",
+      "deepLinkNoFocus": "オプションのブール値。 true は、ワークスペースに切り替えずにワークスペースを作成します。",
+      "deepLinksSchemeDesc": "安定したアプリには cmux://、Nightly には cmux-nightly://、デバッグまたはタグ付き開発ビルドには cmux-dev:// を使用します。",
+      "deepLinksSecurityDesc": "外部リンクは、ID ファイル、生の SSH オプション、コマンド、ProxyCommand、または転送ルールを渡すことはできません。代わりに、キー、ProxyJump、HostName、および詳細オプションを ~/.ssh/config に配置します。 cmux はコマンド プレビューを表示し、接続する前に SSH ターゲットを信頼することをユーザーに要求します。",
+      "browserTitle": "ブラウザペイン",
+      "browserDesc": "リモート ワークスペースのブラウザ ペインは、すべての HTTP および WebSocket トラフィックをリモート マシンのネットワーク経由でルーティングします。 「localhost:3000」と入力すると、リモート ボックス上で実行されている開発サーバーが表示されます。 -L フラグなし、手動ポート転送なし。各リモート ワークスペースは分離された Cookie ストアを取得するため、セッションは接続ごとにスコープ設定されます。",
+      "dragDropTitle": "ドラッグアンドドロップ",
+      "dragDropDesc": "画像またはファイルをリモート端末にドラッグすると、cmux は既存の SSH 接続を介して scp 経由でアップロードします。 cmux は、TTY によってフォアグラウンド SSH プロセスを検出し、ControlMaster 多重化を通じてアップロードをルーティングします。",
+      "notificationsTitle": "通知",
+      "notificationsDesc": "リモート マシン上のプロセスは、ローカル インスタンス上で実行される cmux コマンドを実行できます。コーディング エージェントがリモート ボックス上で cmux Notice を呼び出すと、通知がローカル サイドバーに表示されます。ワークスペースタブで青いリングが点灯します。 Cmd+Shift+U でそこにジャンプします。不安定な接続からの通知スパムは、ホストごとのクールダウンによって抑制されます。",
+      "agentsTitle": "SSH 経由でエージェントをコーディングする",
+      "agentsDesc": "cmux claude-teams と cmux omo はどちらも SSH セッション内で動作します。リモート ホスト上の Go リレー デーモンは、ローカルの Swift CLI と同じ tmux-compat 変換を処理します。 Teammate エージェントは、リモート ボックスで計算が実行されている間、ローカル マシン上でネイティブ cmux スプリットとして生成されます。",
+      "reconnectTitle": "再接続",
+      "reconnectDesc": "接続が切断されると、cmux は指数バックオフ (3 秒、6 秒、12 秒、最大 60 秒) で再接続します。リモート セッションは持続し、再接続時に cmux が再接続され、最小画面勝利セマンティクスでサイズが変更されます。デフォルトのキープアライブ オプション (ServerAliveInterval=20、ServerAliveCountMax=2) は、構成ですでに設定されていない限り挿入されます。",
+      "daemonTitle": "リレーデーモン",
+      "daemonDesc": "最初の接続時に、cmux はリモート ホスト (uname -s、uname -m) をプローブし、バージョン管理された cmuxd-remote バイナリをアップロードします。バイナリは標準入出力上で JSON-RPC を話し、次の 3 つのことを処理します。",
+      "daemonFeature": "特徴",
+      "daemonHow": "どうやって",
+      "daemonProxy": "ブラウザトラフィックプロキシ",
+      "daemonProxyHow": "デーモンの stdio チャネルを介した SOCKS5 と HTTP CONNECT",
+      "daemonRelay": "CLIリレー",
+      "daemonRelayHow": "HMAC-SHA256 認証を使用したリバース TCP トンネルにより、リモート プロセスが cmux コマンドをローカルに呼び出すことができます",
+      "daemonSession": "セッション管理",
+      "daemonSessionHow": "再接続後もセッションを維持し、複数の添付ファイル間で PTY のサイズ変更を調整します",
+      "daemonPath": "デーモン バイナリはリモート ホストの ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote に保存され、アプリに埋め込まれた SHA-256 マニフェストに対して検証されます。"
     }
   },
   "legal": {
@@ -1270,5 +1331,40 @@
   },
   "languageSwitcher": {
     "label": "言語"
+  },
+  "deeplink": {
+    "section": "ディープリンク",
+    "open": "cmux で開く",
+    "download": "cmuxをダウンロード",
+    "nativeURL": "ネイティブURL",
+    "missingParams": "このリンクには必須パラメータがありません: {params}",
+    "duplicateParams": "このリンクは cmux が拒否するパラメータを繰り返します: {params}",
+    "unsupportedParams": "このリンクには、cmux が拒否するサポートされていないパラメータが含まれています: {params}",
+    "conflictingParams": "このリンクには、一緒に使用できないパラメータが含まれています: {params}",
+    "invalidParams": "このリンクには無効なパラメータ値が含まれています: {params}",
+    "fixParams": "URL パラメータを修正して、このページを再読み込みします。",
+    "examplePrefix": "を参照してください。",
+    "exampleLink": "リンク例",
+    "ssh": {
+      "metaTitle": "cmux で SSH を開く",
+      "metaDescription": "cmux が使用できない場合はフォールバックをインストールして、Web から cmux SSH ディープリンクを開きます。",
+      "title": "cmux で SSH を開く",
+      "intro": "このページでは、レビュー済みの cmux SSH リンクが開きます。",
+      "fallback": "cmux が開かない場合は、cmux をインストールし、もう一度 cmux で開くをクリックします。"
+    },
+    "prompt": {
+      "metaTitle": "cmuxでプロンプトを開く",
+      "metaDescription": "cmux が使用できない場合はフォールバックをインストールして、Web から cmux プロンプトのディープリンクを開きます。",
+      "title": "cmuxでプロンプトを開く",
+      "intro": "このページでは、現在の cmux ワークスペースでプロンプトが開きます。",
+      "fallback": "cmux は最初にプロンプトを表示し、現在のワークスペースに貼り付ける前に質問します。 cmux が開かない場合は、cmux をインストールし、もう一度 cmux で開くをクリックします。"
+    },
+    "rules": {
+      "metaTitle": "cmux のオープンルール",
+      "metaDescription": "cmux が使用できない場合はフォールバックをインストールして、Web から cmux ルールのディープリンクを開きます。",
+      "title": "cmux のオープンルール",
+      "intro": "このページでは、現在の cmux ワークスペースのルールが開きます。",
+      "fallback": "cmux は最初にルールを表示し、現在のワークスペースに貼り付ける前に質問します。 cmux が開かない場合は、cmux をインストールし、もう一度 cmux で開くをクリックします。"
+    }
   }
 }
