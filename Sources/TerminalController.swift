@@ -8831,6 +8831,10 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
+        if params["include_tmux_pane_text"] != nil,
+           v2Bool(params, "include_tmux_pane_text") == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid include_tmux_pane_text", data: nil)
+        }
         let includeTmuxPaneText = v2Bool(params, "include_tmux_pane_text") ?? false
 
         var payload: [String: Any]?

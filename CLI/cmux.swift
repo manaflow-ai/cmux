@@ -29936,7 +29936,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           drag-surface-to-split --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
           refresh-surfaces
           reload-config
-          surface-health [--workspace <id|ref|index>] [--window <id|ref|index>]
+          surface-health [--workspace <id|ref|index>] [--window <id|ref|index>] [--include-tmux-pane-text]
           debug-terminals
           trigger-flash [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           list-panels [--workspace <id|ref|index>] [--window <id|ref|index>]
