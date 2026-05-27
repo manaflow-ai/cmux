@@ -4224,6 +4224,7 @@ private actor ScriptedTransport: CmxByteTransport {
     private let responses: ScriptedTransportResponses
     private var pendingResponses: [Data] = []
     private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
+    private var inFlightSends = 0
     private var isClosed = false
 
     init(responses: ScriptedTransportResponses) {
@@ -4237,10 +4238,20 @@ private actor ScriptedTransport: CmxByteTransport {
     }
 
     func send(_ data: Data) async throws {
-        let responseFrames = try await responses.recordSend(data)
+        inFlightSends += 1
+        let responseFrames: [Data]
+        do {
+            responseFrames = try await responses.recordSend(data)
+        } catch {
+            inFlightSends -= 1
+            await finishExhaustedReceiversIfIdle()
+            throw error
+        }
         for frame in responseFrames {
             enqueue(frame)
         }
+        inFlightSends -= 1
+        await finishExhaustedReceiversIfIdle()
     }
 
     func close() async {
@@ -4254,10 +4265,17 @@ private actor ScriptedTransport: CmxByteTransport {
         if isClosed {
             return nil
         }
+        if inFlightSends > 0 {
+            return await waitForResponse()
+        }
         guard await responses.hasRemainingFrames() else {
             return nil
         }
-        return await withCheckedContinuation { continuation in
+        return await waitForResponse()
+    }
+
+    private func waitForResponse() async -> Data? {
+        await withCheckedContinuation { continuation in
             receiveWaiters.append(continuation)
         }
     }
@@ -4268,6 +4286,17 @@ private actor ScriptedTransport: CmxByteTransport {
         } else {
             let waiter = receiveWaiters.removeFirst()
             waiter.resume(returning: response)
+        }
+    }
+
+    private func finishExhaustedReceiversIfIdle() async {
+        guard inFlightSends == 0, pendingResponses.isEmpty, !(await responses.hasRemainingFrames()) else {
+            return
+        }
+        let waiters = receiveWaiters
+        receiveWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
         }
     }
 
@@ -4292,6 +4321,7 @@ private actor FailingRouteTransport: CmxByteTransport {
     private let attempts: RouteAttemptRecorder
     private var pendingResponses: [Data] = []
     private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
+    private var inFlightSends = 0
     private var isClosed = false
 
     init(
@@ -4318,10 +4348,20 @@ private actor FailingRouteTransport: CmxByteTransport {
     }
 
     func send(_ data: Data) async throws {
-        let responseFrames = try await responses.recordSend(data)
+        inFlightSends += 1
+        let responseFrames: [Data]
+        do {
+            responseFrames = try await responses.recordSend(data)
+        } catch {
+            inFlightSends -= 1
+            await finishExhaustedReceiversIfIdle()
+            throw error
+        }
         for frame in responseFrames {
             enqueue(frame)
         }
+        inFlightSends -= 1
+        await finishExhaustedReceiversIfIdle()
     }
 
     func close() async {
@@ -4335,10 +4375,17 @@ private actor FailingRouteTransport: CmxByteTransport {
         if isClosed {
             return nil
         }
+        if inFlightSends > 0 {
+            return await waitForResponse()
+        }
         guard await responses.hasRemainingFrames() else {
             return nil
         }
-        return await withCheckedContinuation { continuation in
+        return await waitForResponse()
+    }
+
+    private func waitForResponse() async -> Data? {
+        await withCheckedContinuation { continuation in
             receiveWaiters.append(continuation)
         }
     }
@@ -4349,6 +4396,17 @@ private actor FailingRouteTransport: CmxByteTransport {
         } else {
             let waiter = receiveWaiters.removeFirst()
             waiter.resume(returning: response)
+        }
+    }
+
+    private func finishExhaustedReceiversIfIdle() async {
+        guard inFlightSends == 0, pendingResponses.isEmpty, !(await responses.hasRemainingFrames()) else {
+            return
+        }
+        let waiters = receiveWaiters
+        receiveWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
         }
     }
 
