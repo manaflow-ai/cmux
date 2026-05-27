@@ -536,6 +536,18 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testTitlePhraseScoreTreatsBackslashAsBoundary() throws {
+        let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery("project")
+        let preparedTitle = try XCTUnwrap(CommandPaletteFuzzyMatcher.prepareCandidateText("org\\project"))
+
+        XCTAssertNotNil(
+            CommandPaletteFuzzyMatcher.titlePhraseScore(
+                preparedQuery: preparedQuery,
+                preparedTitle: preparedTitle
+            )
+        )
+    }
+
     func testForkableAgentCacheKeepsPanelVisibleWithoutFallbackSnapshot() {
         let workspaceId = UUID()
         let panelId = UUID()

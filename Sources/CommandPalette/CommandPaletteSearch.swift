@@ -135,7 +135,7 @@ enum CommandPaletteSwitcherSearchIndexer {
 }
 
 enum CommandPaletteFuzzyMatcher {
-    private static let tokenBoundaryChars: Set<Character> = [" ", "-", "_", "/", ".", ":"]
+    private static let tokenBoundaryChars: Set<Character> = [" ", "-", "_", "/", "\\", ".", ":"]
 
     struct WordSegment: Hashable, Sendable {
         let start: Int
@@ -397,6 +397,38 @@ enum CommandPaletteFuzzyMatcher {
             }
         }
         return scores
+    }
+
+    static func titlePhraseScore(
+        preparedQuery: PreparedQuery,
+        preparedTitle: PreparedCandidateText
+    ) -> Int? {
+        let queryText = preparedQuery.normalizedText
+        guard !queryText.isEmpty else { return nil }
+
+        let titleText = preparedTitle.normalizedText
+        let titleChars = preparedTitle.characters
+        let queryLength = queryText.count
+        let queryTokenCount = max(1, preparedQuery.tokens.count)
+        guard queryLength <= titleChars.count else { return nil }
+
+        if titleText == queryText {
+            return (80_000 * queryTokenCount) + (queryLength * 20)
+        }
+
+        guard let range = titleText.range(of: queryText) else { return nil }
+        let start = titleText.distance(from: titleText.startIndex, to: range.lowerBound)
+        let end = start + queryLength
+        let startsOnBoundary = start == 0 || tokenBoundaryChars.contains(titleChars[start - 1])
+        let endsOnBoundary = end == titleChars.count || tokenBoundaryChars.contains(titleChars[end])
+        guard startsOnBoundary, endsOnBoundary else { return nil }
+
+        let trailingPenalty = max(0, titleChars.count - queryLength) * 6
+        if start == 0 {
+            return (70_000 * queryTokenCount) + (queryLength * 20) - trailingPenalty
+        }
+
+        return (60_000 * queryTokenCount) + (queryLength * 20) - (start * 30) - trailingPenalty
     }
 
     static func matchCharacterIndices(query: String, candidate: String) -> Set<Int> {
@@ -1397,14 +1429,24 @@ enum CommandPaletteSearchEngine {
         ) else {
             return nil
         }
-        if let preparedTitle = entry.preparedTitle,
-           preparedQuery.tokens.allSatisfy({ $0.couldMatch(preparedTitle) }),
-           let titleScore = CommandPaletteFuzzyMatcher.score(
-                preparedQuery: preparedQuery,
-                preparedCandidate: preparedTitle
-            ) {
-            return max(fuzzyScore, titleScore + titleMatchBonus)
+        var bestScore = fuzzyScore
+        if let preparedTitle = entry.preparedTitle {
+            bestScore = max(
+                bestScore,
+                CommandPaletteFuzzyMatcher.titlePhraseScore(
+                    preparedQuery: preparedQuery,
+                    preparedTitle: preparedTitle
+                ) ?? Int.min
+            )
+
+            if preparedQuery.tokens.allSatisfy({ $0.couldMatch(preparedTitle) }),
+               let titleScore = CommandPaletteFuzzyMatcher.score(
+                   preparedQuery: preparedQuery,
+                   preparedCandidate: preparedTitle
+               ) {
+                bestScore = max(bestScore, titleScore + titleMatchBonus)
+            }
         }
-        return fuzzyScore
+        return bestScore
     }
 }
