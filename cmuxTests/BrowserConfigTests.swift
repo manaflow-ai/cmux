@@ -4740,6 +4740,19 @@ final class BrowserSearchEngineTests: XCTestCase {
         XCTAssertTrue(url.absoluteString.contains("q=swift%20actors"))
     }
 
+    func testCurrentSearchConfigurationFallsBackForInvalidCustomURLTemplate() throws {
+        let configuration = BrowserSearchSettings.configuration(
+            engineRaw: BrowserSearchEngine.custom.rawValue,
+            customName: "",
+            customURLTemplate: "ftp://search.example.test?q={query}"
+        )
+        let url = try XCTUnwrap(configuration.searchURL(query: "swift actors"))
+
+        XCTAssertEqual(configuration.displayName, BrowserSearchEngine.custom.displayName)
+        XCTAssertEqual(url.host, "www.google.com")
+        XCTAssertTrue(url.absoluteString.contains("q=swift%20actors"))
+    }
+
     func testStaleRemoteSuggestionsSuppressedWhenProviderDoesNotSupportRemoteSuggestions() {
         let suggestions = staleOmnibarRemoteSuggestionsForDisplay(
             query: "swift",

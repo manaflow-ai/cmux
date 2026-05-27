@@ -194,7 +194,7 @@ struct BrowserSearchConfiguration: Equatable {
     var displayName: String {
         guard engine == .custom else { return engine.displayName }
         return BrowserSearchSettings.normalizedCustomSearchEngineName(customName)
-            ?? BrowserSearchSettings.defaultCustomSearchEngineName
+            ?? engine.displayName
     }
 
     var remoteSuggestionsEngine: BrowserSearchEngine? {
@@ -242,10 +242,13 @@ enum BrowserSearchSettings {
         customURLTemplate: String?
     ) -> BrowserSearchConfiguration {
         let engine = engineRaw.flatMap(BrowserSearchEngine.init(rawValue:)) ?? defaultSearchEngine
+        let resolvedCustomURLTemplate = customURLTemplate
+            .flatMap { isValidSearchURLTemplate($0) ? $0 : nil }
+            ?? defaultCustomSearchEngineURLTemplate
         return BrowserSearchConfiguration(
             engine: engine,
             customName: customName ?? defaultCustomSearchEngineName,
-            customURLTemplate: customURLTemplate ?? defaultCustomSearchEngineURLTemplate
+            customURLTemplate: resolvedCustomURLTemplate
         )
     }
 

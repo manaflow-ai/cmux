@@ -499,6 +499,11 @@
         },
         "terminal": {
           "copyOnSelect": "Kopiert ausgewählten Terminaltext in die Systemzwischenablage, sobald die Auswahl bestätigt wird, einschließlich Wort- und Zeilenauswahl per Doppel- und Dreifachklick."
+        },
+        "browser": {
+          "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",
+          "customSearchEngineName": "Anzeigename, der verwendet wird, wenn defaultSearchEngine custom ist.",
+          "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu."
         }
       }
     },

@@ -499,6 +499,11 @@
         },
         "terminal": {
           "copyOnSelect": "Kopierer markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes, inklusive ord- og linjemarkeringer fra dobbelt- og tredobbeltklik."
+        },
+        "browser": {
+          "defaultSearchEngine": "Standardsøgemaskine for forespørgsler i browserens adresselinje, der ikke er URLer. Brug custom med customSearchEngineURLTemplate til andre udbydere.",
+          "customSearchEngineName": "Visningsnavn brugt når defaultSearchEngine er custom.",
+          "customSearchEngineURLTemplate": "Søge-URL brugt når defaultSearchEngine er custom. Medtag forespørgselspladsholderen eller %s for den kodede søgning. Uden en pladsholder tilføjer cmux q= til URLen."
         }
       }
     },

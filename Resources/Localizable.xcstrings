@@ -82642,103 +82642,103 @@
             "ar": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider تطبيق عام تفضيلات سلوك شريط القائمة حالة الشريط الجانبي متصفح ويب عرض العنوان روابط عناوين مضمّن صفحة تبويبات بحث اقتراحات إكمال تلقائي مزود محرك المتصفح • %@"
+                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider تطبيق عام تفضيلات سلوك شريط القائمة حالة الشريط الجانبي متصفح ويب عرض العنوان روابط عناوين مضمّن صفحة تبويبات بحث اقتراحات إكمال تلقائي مزود محرك المتصفح browser.customSearchEngineName browser.customSearchEngineURLTemplate kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider موفر بحث مخصص • %@"
                 }
             },
             "bs": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider aplikacija opće postavke ponašanje dock traka menija status bočna preglednik web webview adresna linkovi url ugrađen stranica kartice pretraga prijedlozi automatsko dovršavanje pružatelj pretraživač Pretraži • %@"
+                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider aplikacija opće postavke ponašanje dock traka menija status bočna preglednik web webview adresna linkovi url ugrađen stranica kartice pretraga prijedlozi automatsko dovršavanje pružatelj pretraživač Pretraži browser.customSearchEngineName browser.customSearchEngineURLTemplate kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider prilagođeni pružatelj pretrage • %@"
                 }
             },
             "da": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider app generelt indstillinger adfærd dock menulinje status sidepanel browser web webvisning adresselinje links url indlejret side faner søgning forslag autofuldførelse udbyder søgemaskine Søg • %@"
+                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider app generelt indstillinger adfærd dock menulinje status sidepanel browser web webvisning adresselinje links url indlejret side faner søgning forslag autofuldførelse udbyder søgemaskine Søg browser.customSearchEngineName browser.customSearchEngineURLTemplate kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider tilpasset søgeudbyder • %@"
                 }
             },
             "de": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider app allgemein einstellungen verhalten dock menüleiste status seitenleiste browser web webview adressleiste links urls eingebettet seite tabs suche vorschläge autovervollständigung anbieter suchmaschine Suchen • %@"
+                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider app allgemein einstellungen verhalten dock menüleiste status seitenleiste browser web webview adressleiste links urls eingebettet seite tabs suche vorschläge autovervollständigung anbieter suchmaschine Suchen browser.customSearchEngineName browser.customSearchEngineURLTemplate kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider benutzerdefinierter Suchanbieter • %@"
                 }
             },
             "es": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider aplicación general preferencias comportamiento dock barra de menú estado lateral navegador web webview direcciones enlaces urls integrado página pestañas búsqueda sugerencias autocompletar proveedor motor Buscar • %@"
+                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider aplicación general preferencias comportamiento dock barra de menú estado lateral navegador web webview direcciones enlaces urls integrado página pestañas búsqueda sugerencias autocompletar proveedor motor Buscar browser.customSearchEngineName browser.customSearchEngineURLTemplate kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider proveedor de búsqueda personalizado • %@"
                 }
             },
             "fr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider application général préférences comportement dock barre de menus état latérale navigateur web webview adresse liens urls intégré page onglets recherche suggestions saisie automatique fournisseur moteur Rechercher • %@"
+                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider application général préférences comportement dock barre de menus état latérale navigateur web webview adresse liens urls intégré page onglets recherche suggestions saisie automatique fournisseur moteur Rechercher browser.customSearchEngineName browser.customSearchEngineURLTemplate kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider fournisseur de recherche personnalisé • %@"
                 }
             },
             "it": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider app generale preferenze comportamento dock barra menu stato laterale browser web webview indirizzi link url incorporato pagina schede ricerca suggerimenti completamento automatico motore di Cerca • %@"
+                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider app generale preferenze comportamento dock barra menu stato laterale browser web webview indirizzi link url incorporato pagina schede ricerca suggerimenti completamento automatico motore di Cerca browser.customSearchEngineName browser.customSearchEngineURLTemplate kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider provider di ricerca personalizzato • %@"
                 }
             },
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 브라우저 웹 웹뷰 주소 표시줄 링크 url 내장 페이지 탭 검색 제안 자동완성 제공자 엔진 브라우저: %@ •"
+                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 브라우저 웹 웹뷰 주소 표시줄 링크 url 내장 페이지 탭 검색 제안 자동완성 제공자 엔진 브라우저: browser.customSearchEngineName browser.customSearchEngineURLTemplate kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider 사용자 지정 검색 제공자 %@ •"
                 }
             },
             "nb": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider app generelt innstillinger oppførsel dock menylinje status sidepanel nettleser web webvisning adresselinje lenker url innebygd side faner søk forslag autofullføring leverandør søkemotor • %@"
+                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider app generelt innstillinger oppførsel dock menylinje status sidepanel nettleser web webvisning adresselinje lenker url innebygd side faner søk forslag autofullføring leverandør søkemotor browser.customSearchEngineName browser.customSearchEngineURLTemplate kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider tilpasset søkeleverandør • %@"
                 }
             },
             "pl": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider aplikacja ogólne preferencje zachowanie dock pasek menu status boczny przeglądarka web webview adresu linki url osadzony strona karty wyszukiwanie sugestie autouzupełnianie dostawca silnik wyszukiwania Szukaj • %@"
+                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider aplikacja ogólne preferencje zachowanie dock pasek menu status boczny przeglądarka web webview adresu linki url osadzony strona karty wyszukiwanie sugestie autouzupełnianie dostawca silnik wyszukiwania Szukaj browser.customSearchEngineName browser.customSearchEngineURLTemplate kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider niestandardowy dostawca wyszukiwania • %@"
                 }
             },
             "pt-BR": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider app geral preferências comportamento dock barra de menu status lateral navegador web webview endereço links urls incorporado página abas pesquisa sugestões autocompletar provedor mecanismo busca Pesquisar • %@"
+                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider app geral preferências comportamento dock barra de menu status lateral navegador web webview endereço links urls incorporado página abas pesquisa sugestões autocompletar provedor mecanismo busca Pesquisar browser.customSearchEngineName browser.customSearchEngineURLTemplate kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider provedor de pesquisa personalizado • %@"
                 }
             },
             "ru": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider приложение общие настройки поведение док строка меню статус боковая панель браузер веб webview адресная ссылки url встроенный страница вкладки поиск предложения автозаполнение провайдер поисковая система • %@"
+                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider приложение общие настройки поведение док строка меню статус боковая панель браузер веб webview адресная ссылки url встроенный страница вкладки поиск предложения автозаполнение провайдер поисковая система browser.customSearchEngineName browser.customSearchEngineURLTemplate kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider пользовательский поисковый провайдер • %@"
                 }
             },
             "th": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider แอป ทั่วไป ค่ากำหนด พฤติกรรม ด็อก แถบเมนู สถานะ แถบด้านข้าง เบราว์เซอร์ เว็บ เว็บวิว แถบที่อยู่ ลิงก์ url ฝัง หน้า แท็บ ค้นหา คำแนะนำ เติมอัตโนมัติ ผู้ให้บริการ เครื่องมือค้นหา • %@"
+                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider แอป ทั่วไป ค่ากำหนด พฤติกรรม ด็อก แถบเมนู สถานะ แถบด้านข้าง เบราว์เซอร์ เว็บ เว็บวิว แถบที่อยู่ ลิงก์ url ฝัง หน้า แท็บ ค้นหา คำแนะนำ เติมอัตโนมัติ ผู้ให้บริการ เครื่องมือค้นหา browser.customSearchEngineName browser.customSearchEngineURLTemplate kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider ผู้ให้บริการค้นหาแบบกำหนดเอง • %@"
                 }
             },
             "tr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider uygulama genel tercihler davranış dock menü çubuğu durum kenar tarayıcı web webview adres bağlantılar url gömülü sayfa sekmeler arama öneriler otomatik tamamlama sağlayıcı motoru Ara • %@"
+                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider uygulama genel tercihler davranış dock menü çubuğu durum kenar tarayıcı web webview adres bağlantılar url gömülü sayfa sekmeler arama öneriler otomatik tamamlama sağlayıcı motoru Ara browser.customSearchEngineName browser.customSearchEngineURLTemplate kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider özel arama sağlayıcısı • %@"
                 }
             },
             "zh-Hans": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider 应用 通用 偏好设置 行为 程序坞 菜单栏 状态 侧边栏 浏览器 网页 WebView 地址栏 链接 URL 内嵌 页面 标签页 搜索 建议 自动完成 提供商 搜索引擎 • %@"
+                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider 应用 通用 偏好设置 行为 程序坞 菜单栏 状态 侧边栏 浏览器 网页 WebView 地址栏 链接 URL 内嵌 页面 标签页 搜索 建议 自动完成 提供商 搜索引擎 browser.customSearchEngineName browser.customSearchEngineURLTemplate kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider 自定义搜索提供商 • %@"
                 }
             },
             "zh-Hant": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 瀏覽器 網頁 WebView 位址列 連結 URL 內嵌 頁面 分頁 搜尋 建議 自動完成 提供者 搜尋引擎 • %@"
+                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 瀏覽器 網頁 WebView 位址列 連結 URL 內嵌 頁面 分頁 搜尋 建議 自動完成 提供者 搜尋引擎 browser.customSearchEngineName browser.customSearchEngineURLTemplate kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider 自訂搜尋提供者 • %@"
                 }
             },
             "uk": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider програма загальні параметри поведінка док рядок меню статус бічна панель браузер веб webview адресний посилання url вбудований сторінка вкладки пошук пропозиції автодоповнення постачальник пошукова система Браузер: %@ •"
+                    "value": "browser.defaultSearchEngine omnibar address bar google duckduckgo bing search provider програма загальні параметри поведінка док рядок меню статус бічна панель браузер веб webview адресний посилання url вбудований сторінка вкладки пошук пропозиції автодоповнення постачальник пошукова система Браузер: browser.customSearchEngineName browser.customSearchEngineURLTemplate kagi brave startpage perplexity yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider користувацький постачальник пошуку %@ •"
                 }
             }
         }
