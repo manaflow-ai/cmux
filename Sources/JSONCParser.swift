@@ -77,6 +77,14 @@ enum JSONCParser {
         }
     }
 
+    static func isLineTerminator(_ character: Character) -> Bool {
+        // Swift treats "\r\n" as a single extended grapheme cluster, so comparing
+        // against "\n" alone misses CRLF line endings and would let line comments
+        // run to end-of-file. Match any character whose first scalar is CR or LF.
+        guard let scalar = character.unicodeScalars.first else { return false }
+        return scalar == "\n" || scalar == "\r"
+    }
+
     private static func stripComments(from source: String) throws -> String {
         var result = ""
         var index = source.startIndex
@@ -112,7 +120,7 @@ enum JSONCParser {
                     let next = source[nextIndex]
                     if next == "/" {
                         index = source.index(after: nextIndex)
-                        while index < source.endIndex && source[index] != "\n" {
+                        while index < source.endIndex && !JSONCParser.isLineTerminator(source[index]) {
                             index = source.index(after: index)
                         }
                         continue
@@ -355,7 +363,7 @@ enum JSONCObjectEditor {
                 let next = source.index(after: index)
                 if next < source.endIndex, source[next] == "/" {
                     index = source.index(after: next)
-                    while index < source.endIndex, source[index] != "\n" {
+                    while index < source.endIndex, !JSONCParser.isLineTerminator(source[index]) {
                         index = source.index(after: index)
                     }
                     continue
@@ -452,7 +460,7 @@ enum JSONCObjectEditor {
                 let next = source.index(after: index)
                 if next < source.endIndex, source[next] == "/" {
                     index = source.index(after: next)
-                    while index < source.endIndex, source[index] != "\n" {
+                    while index < source.endIndex, !JSONCParser.isLineTerminator(source[index]) {
                         index = source.index(after: index)
                     }
                     continue
@@ -483,7 +491,7 @@ enum JSONCObjectEditor {
         var lineStart = index
         while lineStart > source.startIndex {
             let previous = source.index(before: lineStart)
-            if source[previous] == "\n" || source[previous] == "\r" {
+            if JSONCParser.isLineTerminator(source[previous]) {
                 break
             }
             lineStart = previous

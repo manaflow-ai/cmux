@@ -233,6 +233,22 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testWrapWorkspaceTitlesCommandTogglesDefaultAndReportsState() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.wrapWorkspaceTitlesInSidebar"
+                )
+            )
+
+            XCTAssertFalse(descriptor.isOn(defaults))
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertEqual(defaults.object(forKey: SidebarWorkspaceTitleWrapSettings.key) as? Bool, true)
+            XCTAssertTrue(descriptor.isOn(defaults))
+        }
+    }
+
     func testUnavailableCommandDoesNotToggleStoredValue() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
