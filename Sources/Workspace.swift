@@ -15880,7 +15880,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    private func clearSplitZoom(in controller: BonsplitController) -> Bool {
+    func clearSplitZoom(in controller: BonsplitController) -> Bool {
         controller.clearPaneZoom()
     }
 

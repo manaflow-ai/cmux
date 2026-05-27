@@ -4519,6 +4519,42 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertGreaterThan(workspace.focusedBonsplitControllerRevision, leftFocusedRevision)
     }
 
+    func testClearSplitZoomCanTargetCapturedControllerAfterFocusMoves() throws {
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let zoomedPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+        _ = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: dockPaneId,
+                controller: dock.controller,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil,
+                focus: false
+            )
+        )
+
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: zoomedPanel.id))
+        let captured = try XCTUnwrap(workspace.focusedBonsplitPaneForCommands())
+
+        workspace.focusPanel(mainPanelId)
+        XCTAssertFalse(captured.controller === workspace.focusedBonsplitControllerForCommands())
+        XCTAssertTrue(dock.controller.isSplitZoomed)
+
+        workspace.clearSplitZoom(in: captured.controller)
+
+        XCTAssertFalse(dock.controller.isSplitZoomed)
+    }
+
     func testFocusedBonsplitPaneForCommandsKeepsFocusedEmptyPaneWithSiblingSelection() throws {
         let workspace = Workspace()
         let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
