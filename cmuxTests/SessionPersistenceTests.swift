@@ -4716,6 +4716,45 @@ extension SessionPersistenceTests {
         XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
     }
 
+    func testHermesAgentHookSurfaceResumeBootstrapsSubrouterAndRewritesStaleCodexProvider() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-surface-resume-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try """
+        model = "gpt-5.5"
+        openai_base_url = "http://subrouter-team:31415/v1"
+        chatgpt_base_url = "http://subrouter-team:31415/backend-api"
+        """.write(to: codexHome.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "hermes-agent",
+            command: "cd '/tmp/project' && 'hermes' '--provider' 'openai-codex' '--resume' 'hermes-session-123'",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            environment: [
+                "CODEX_HOME": codexHome.path,
+                "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+            ],
+            autoResume: true
+        )
+
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false
+        ))
+
+        XCTAssertTrue(input.contains("hermes config set model.provider"))
+        XCTAssertTrue(input.contains("hermes config set model.base_url"))
+        XCTAssertTrue(input.contains("hermes config set model.api_mode"))
+        XCTAssertTrue(input.contains("codex_responses"))
+        XCTAssertTrue(input.contains("gpt-5.5"))
+        XCTAssertTrue(input.contains("'--provider' '\\''custom'\\'''") || input.contains("'--provider' 'custom'"))
+        XCTAssertFalse(input.contains("openai-codex"))
+    }
+
     private func makeSurfaceResumeApprovalStoreURL() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-surface-resume-approvals-\(UUID().uuidString)", isDirectory: true)

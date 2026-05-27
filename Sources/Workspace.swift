@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import AppKit
 import Bonsplit
+import CMUXAgentLaunch
 import Combine
 import CryptoKit
 import Darwin
@@ -813,22 +814,102 @@ extension Workspace {
         approvalStoreURL: URL = SurfaceResumeApprovalStore.defaultURL(),
         approvalSigningSecret: Data? = nil
     ) -> String? {
+        guard let effectiveBinding = surfaceResumeBindingForStartup(
+            resumeBinding,
+            autoResumeAgentSessions: autoResumeAgentSessions,
+            promptForApproval: promptForApproval,
+            approvalStoreURL: approvalStoreURL,
+            approvalSigningSecret: approvalSigningSecret
+        ) else {
+            return nil
+        }
+        return effectiveBinding.startupInputWithLauncherScript(allowLauncherScript: allowLauncherScript)
+    }
+
+    nonisolated private static func surfaceResumeBindingForStartup(
+        _ resumeBinding: SurfaceResumeBindingSnapshot?,
+        autoResumeAgentSessions: Bool,
+        promptForApproval: Bool = true,
+        approvalStoreURL: URL = SurfaceResumeApprovalStore.defaultURL(),
+        approvalSigningSecret: Data? = nil
+    ) -> SurfaceResumeBindingSnapshot? {
         guard let resumeBinding else { return nil }
-        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+        var effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
             to: resumeBinding,
             fileURL: approvalStoreURL,
             signingSecret: approvalSigningSecret
         )
+        effectiveBinding = hermesAgentSubrouterBindingForStartup(effectiveBinding)
         if effectiveBinding.source == "agent-hook", !autoResumeAgentSessions {
             return nil
         }
         if effectiveBinding.approvalPolicy == .prompt {
             guard promptForApproval else { return nil }
             guard shouldRunPromptedSurfaceResume(effectiveBinding) else { return nil }
-            return effectiveBinding.startupInputWithLauncherScript(allowLauncherScript: allowLauncherScript)
+            return effectiveBinding
         }
         guard effectiveBinding.allowsAutomaticResume else { return nil }
-        return effectiveBinding.startupInputWithLauncherScript(allowLauncherScript: allowLauncherScript)
+        return effectiveBinding
+    }
+
+    nonisolated private static func hermesAgentSubrouterBindingForStartup(
+        _ binding: SurfaceResumeBindingSnapshot
+    ) -> SurfaceResumeBindingSnapshot {
+        guard binding.source == "agent-hook",
+              binding.kind == "hermes-agent" else {
+            return binding
+        }
+
+        var environment = binding.environment ?? [:]
+        environment = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(to: environment)
+        guard let baseURL = normalizedSurfaceResumeValue(
+            environment[HermesAgentCodexEnvironment.customBaseURLEnvironmentKey]
+        ) else {
+            return binding
+        }
+
+        var result = binding
+        result.environment = environment.isEmpty ? nil : environment
+        result.command = hermesAgentCommandByReplacingOpenAICodexProvider(result.command)
+        guard !result.command.contains("model.api_mode") else {
+            return result
+        }
+
+        var bootstrap = [
+            "hermes config set model.provider \(surfaceResumeShellQuote(HermesAgentCodexEnvironment.defaultProvider)) >/dev/null",
+            "hermes config set model.base_url \(surfaceResumeShellQuote(baseURL)) >/dev/null",
+            "hermes config set model.api_mode \(surfaceResumeShellQuote(HermesAgentCodexEnvironment.codexResponsesAPIMode)) >/dev/null"
+        ]
+        if let model = HermesAgentCodexEnvironment.defaultCodexModel(environment: environment) {
+            bootstrap.append("hermes config set model.default \(surfaceResumeShellQuote(model)) >/dev/null")
+        }
+        result.command = bootstrap.joined(separator: " && ") + " && " + result.command
+        return result
+    }
+
+    nonisolated private static func hermesAgentCommandByReplacingOpenAICodexProvider(_ command: String) -> String {
+        var result = command
+        let replacements = [
+            ("'--provider' 'openai-codex'", "'--provider' 'custom'"),
+            ("\"--provider\" \"openai-codex\"", "\"--provider\" \"custom\""),
+            ("--provider openai-codex", "--provider custom"),
+            ("'--provider=openai-codex'", "'--provider=custom'"),
+            ("\"--provider=openai-codex\"", "\"--provider=custom\""),
+            ("--provider=openai-codex", "--provider=custom")
+        ]
+        for (old, new) in replacements {
+            result = result.replacingOccurrences(of: old, with: new)
+        }
+        return result
+    }
+
+    nonisolated private static func normalizedSurfaceResumeValue(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    nonisolated private static func surfaceResumeShellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     nonisolated private static func shouldRunPromptedSurfaceResume(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
@@ -1112,11 +1193,13 @@ extension Workspace {
                 (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
                     ? nil
                     : resumeBinding
-            let restoredBindingInput = Self.surfaceResumeStartupInput(
+            let effectiveResumeBindingForStartup = Self.surfaceResumeBindingForStartup(
                 resumeBindingForStartup,
                 autoResumeAgentSessions: shouldAutoResumeAgent,
-                allowLauncherScript: true
+                promptForApproval: true
             )
+            let restoredBindingInput = effectiveResumeBindingForStartup?
+                .startupInputWithLauncherScript(allowLauncherScript: true)
             let effectiveResumeBinding = restoredBindingInput == nil ? nil : resumeBinding
             let workingDirectory =
                 effectiveResumeBinding?.cwd
@@ -1190,8 +1273,8 @@ extension Workspace {
             ) else {
                 return nil
             }
-            if let resumeBinding {
-                surfaceResumeBindingsByPanelId[terminalPanel.id] = resumeBinding
+            if let storedResumeBinding = effectiveResumeBindingForStartup ?? resumeBinding {
+                surfaceResumeBindingsByPanelId[terminalPanel.id] = storedResumeBinding
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }

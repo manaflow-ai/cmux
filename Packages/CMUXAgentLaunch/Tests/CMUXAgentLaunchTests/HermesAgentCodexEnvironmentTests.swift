@@ -58,6 +58,10 @@ struct HermesAgentCodexEnvironmentTests {
             HermesAgentCodexEnvironment.customBaseURL(fromCodexConfigContent: content)
                 == "http://subrouter-team:31415/v1"
         )
+        #expect(
+            HermesAgentCodexEnvironment.codexModel(fromCodexConfigContent: content)
+                == "gpt-5.5"
+        )
     }
 
     @Test("Applies Codex base URL from CODEX_HOME without overriding explicit Hermes URL")

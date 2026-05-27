@@ -23122,11 +23122,13 @@ struct CMUXCLI {
         cwd: String?,
         launchCommand: AgentHookLaunchCommandRecord?
     ) {
+        let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
         guard let command = agentSurfaceResumeCommand(
             kind: kind,
             sessionId: sessionId,
             launchCommand: launchCommand,
-            workingDirectory: cwd
+            workingDirectory: cwd,
+            environment: resumeEnvironment
         ) else {
             clearAgentSurfaceResumeBinding(
                 client: client,
@@ -23148,9 +23150,8 @@ struct CMUXCLI {
         if let cwd = normalizedHookValue(cwd) ?? normalizedHookValue(launchCommand?.workingDirectory) {
             params["cwd"] = cwd
         }
-        if let environment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment),
-           !environment.isEmpty {
-            params["environment"] = environment
+        if let resumeEnvironment, !resumeEnvironment.isEmpty {
+            params["environment"] = resumeEnvironment
         }
         _ = try? client.sendV2(method: "surface.resume.set", params: params)
     }
@@ -23176,7 +23177,8 @@ struct CMUXCLI {
         kind: String,
         sessionId: String,
         launchCommand: AgentHookLaunchCommandRecord?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        environment: [String: String]?
     ) -> String? {
         let normalizedSessionId = normalizedHookValue(sessionId)
         guard let normalizedSessionId else { return nil }
@@ -23227,7 +23229,9 @@ struct CMUXCLI {
         guard let argv, !argv.isEmpty else { return nil }
         return agentSurfaceResumeShellCommand(
             argv: argv,
-            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory
+            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
+            kind: kind,
+            environment: environment
         )
     }
 
@@ -23324,16 +23328,62 @@ struct CMUXCLI {
 
     private func agentSurfaceResumeShellCommand(
         argv: [String],
-        workingDirectory: String?
+        workingDirectory: String?,
+        kind: String,
+        environment: [String: String]?
     ) -> String {
         var commandParts: [String] = []
         commandParts.append(contentsOf: argv)
 
         var command = commandParts.map(cliShellQuote).joined(separator: " ")
+        if kind == "hermes-agent" {
+            command = hermesAgentSubrouterResumeCommand(command, environment: environment)
+        }
         if let cwd = normalizedHookValue(workingDirectory) {
             command = "cd \(cliShellQuote(cwd)) && \(command)"
         }
         return command
+    }
+
+    private func hermesAgentSubrouterResumeCommand(
+        _ command: String,
+        environment: [String: String]?
+    ) -> String {
+        var result = hermesAgentCommandByReplacingOpenAICodexProvider(command)
+        guard !result.contains("model.api_mode"),
+              let environment,
+              let baseURL = normalizedHookValue(environment[HermesAgentCodexEnvironment.customBaseURLEnvironmentKey]) else {
+            return result
+        }
+
+        var bootstrap = [
+            "hermes config set model.provider \(cliShellQuote(HermesAgentCodexEnvironment.defaultProvider)) >/dev/null",
+            "hermes config set model.base_url \(cliShellQuote(baseURL)) >/dev/null",
+            "hermes config set model.api_mode \(cliShellQuote(HermesAgentCodexEnvironment.codexResponsesAPIMode)) >/dev/null"
+        ]
+        if let model = HermesAgentCodexEnvironment.defaultCodexModel(
+            environment: environment,
+            ambientEnvironment: ProcessInfo.processInfo.environment
+        ) {
+            bootstrap.append("hermes config set model.default \(cliShellQuote(model)) >/dev/null")
+        }
+        return bootstrap.joined(separator: " && ") + " && " + result
+    }
+
+    private func hermesAgentCommandByReplacingOpenAICodexProvider(_ command: String) -> String {
+        var result = command
+        let replacements = [
+            ("'--provider' 'openai-codex'", "'--provider' 'custom'"),
+            ("\"--provider\" \"openai-codex\"", "\"--provider\" \"custom\""),
+            ("--provider openai-codex", "--provider custom"),
+            ("'--provider=openai-codex'", "'--provider=custom'"),
+            ("\"--provider=openai-codex\"", "\"--provider=custom\""),
+            ("--provider=openai-codex", "--provider=custom")
+        ]
+        for (old, new) in replacements {
+            result = result.replacingOccurrences(of: old, with: new)
+        }
+        return result
     }
 
     private func agentSurfaceResumeEnvironment(

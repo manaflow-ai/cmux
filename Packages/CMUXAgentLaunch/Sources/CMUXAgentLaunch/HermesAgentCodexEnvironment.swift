@@ -2,6 +2,7 @@ import Foundation
 
 public enum HermesAgentCodexEnvironment {
     public static let defaultProvider = "custom"
+    public static let codexResponsesAPIMode = "codex_responses"
     public static let codexBaseURLEnvironmentKey = "HERMES_CODEX_BASE_URL"
     public static let customBaseURLEnvironmentKey = "CUSTOM_BASE_URL"
 
@@ -54,6 +55,17 @@ public enum HermesAgentCodexEnvironment {
         return customBaseURL(fromCodexConfigContent: content)
     }
 
+    public static func defaultCodexModel(
+        environment: [String: String],
+        ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        guard let content = codexConfigContent(
+            environment: environment,
+            ambientEnvironment: ambientEnvironment
+        ) else { return nil }
+        return codexModel(fromCodexConfigContent: content)
+    }
+
     public static func codexBaseURL(fromCodexConfigContent content: String) -> String? {
         for rawLine in content.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(rawLine).trimmingCharacters(in: .whitespaces)
@@ -85,6 +97,20 @@ public enum HermesAgentCodexEnvironment {
             }
         }
         return fallbackChatGPTBaseURL
+    }
+
+    public static func codexModel(fromCodexConfigContent content: String) -> String? {
+        for rawLine in content.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(rawLine).trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") {
+                return nil
+            }
+            guard let value = tomlStringValue(forKey: "model", in: line) else {
+                continue
+            }
+            return normalized(value)
+        }
+        return nil
     }
 
     public static func codexBaseURL(fromChatGPTBaseURL rawValue: String) -> String? {
