@@ -2176,7 +2176,7 @@ struct ContentView: View {
             rightSidebarPanel
         }
         .overlay(alignment: .leading) {
-            if rightSidebarVisible, appearance.shouldDrawSidebarSeparator(for: .rightSidebar) {
+            if rightSidebarVisible {
                 WindowChromeBorder(orientation: .vertical)
             }
         }

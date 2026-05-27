@@ -205,21 +205,6 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertEqual(sidebarPolicy.tintColor.hexString(includeAlpha: true), "#FF000066")
     }
 
-    func testMatchedSidebarBackdropsKeepWorkspaceBoundarySeparators() {
-        let snapshot = makeSnapshot(unifySurfaceBackdrops: true)
-
-        XCTAssertTrue(snapshot.shouldDrawSidebarSeparator(for: .leftSidebar))
-        XCTAssertTrue(snapshot.shouldDrawSidebarSeparator(for: .rightSidebar))
-        XCTAssertTrue(snapshot.shouldDrawSidebarSeparator(for: .titlebar))
-    }
-
-    func testSeparateSidebarBackdropsKeepSidebarSeparators() {
-        let snapshot = makeSnapshot(unifySurfaceBackdrops: false)
-
-        XCTAssertTrue(snapshot.shouldDrawSidebarSeparator(for: .leftSidebar))
-        XCTAssertTrue(snapshot.shouldDrawSidebarSeparator(for: .rightSidebar))
-    }
-
     func testOpaqueTerminalUsesOpaqueWindowFill() {
         let snapshot = makeSnapshot(unifySurfaceBackdrops: false, backgroundOpacity: 1.0)
         let plan = snapshot.backdropPlan(glassEffectAvailable: false)

@@ -307,13 +307,6 @@ struct WindowAppearanceSnapshot {
         unifySurfaceBackdrops ? chromeColorScheme : sidebarSettings.colorScheme
     }
 
-    func shouldDrawSidebarSeparator(for role: WindowBackdropRole) -> Bool {
-        switch role {
-        case .leftSidebar, .rightSidebar, .windowRoot, .terminalCanvas, .bonsplitChrome, .titlebar, .browserSurface:
-            return true
-        }
-    }
-
     func policy(for role: WindowBackdropRole) -> WindowBackdropPolicy {
         switch role {
         case .windowRoot:
