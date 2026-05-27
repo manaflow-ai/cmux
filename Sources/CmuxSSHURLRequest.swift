@@ -397,6 +397,11 @@ struct CmuxTextURLRequest: Equatable {
         text
     }
 
+    private struct ParsedQueryItem {
+        let name: String
+        let value: String?
+    }
+
     static func parse(
         _ url: URL,
         supportedSchemes: Set<String> = activeSupportedSchemes
@@ -415,7 +420,7 @@ struct CmuxTextURLRequest: Equatable {
             return .failure(.missingText)
         }
 
-        let queryItems = components.queryItems ?? []
+        let queryItems = parsedQueryItems(from: components)
         let allowedQueryNames: Set<String> = ["text", "name", "title", "no-focus"]
         var seenQueryNames = Set<String>()
         for item in queryItems {
@@ -517,16 +522,38 @@ struct CmuxTextURLRequest: Equatable {
         return pathComponents.first.map { kind(named: $0.lowercased()) != nil } == true && pathComponents.count > 1
     }
 
-    private static func normalizedQueryValue(namedAnyOf names: Set<String>, in queryItems: [URLQueryItem]) -> String? {
+    private static func parsedQueryItems(from components: URLComponents) -> [ParsedQueryItem] {
+        guard let query = components.percentEncodedQuery,
+              !query.isEmpty else {
+            return []
+        }
+        return query
+            .split(separator: "&", omittingEmptySubsequences: false)
+            .map { rawPair in
+                let parts = rawPair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                let name = formDecodedQueryComponent(String(parts[0])) ?? String(parts[0])
+                let value = parts.count > 1
+                    ? formDecodedQueryComponent(String(parts[1])) ?? String(parts[1])
+                    : nil
+                return ParsedQueryItem(name: name, value: value)
+            }
+    }
+
+    private static func formDecodedQueryComponent(_ value: String) -> String? {
+        value
+            .replacingOccurrences(of: "+", with: " ")
+            .removingPercentEncoding
+    }
+
+    private static func normalizedQueryValue(namedAnyOf names: Set<String>, in queryItems: [ParsedQueryItem]) -> String? {
         guard let value = queryItems.first(where: { names.contains($0.name.lowercased()) })?.value else {
             return nil
         }
-        let decodedFormSpaces = value.replacingOccurrences(of: "+", with: " ")
-        let normalized = decodedFormSpaces.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return normalized.isEmpty ? nil : normalized
     }
 
-    private static func normalizedBooleanValue(named name: String, in queryItems: [URLQueryItem]) -> Result<Bool, CmuxTextURLParseError> {
+    private static func normalizedBooleanValue(named name: String, in queryItems: [ParsedQueryItem]) -> Result<Bool, CmuxTextURLParseError> {
         guard let item = queryItems.first(where: { $0.name.lowercased() == name }) else {
             return .success(false)
         }

@@ -564,6 +564,19 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
+    func testParsesPromptURLLiteralPlusCommasAndColons() throws {
+        let url = try XCTUnwrap(URL(string: "\(supportedScheme)://prompt?text=C%2B%2B,%20Rust:%20compare"))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.text, "C++, Rust: compare")
+        case .success(nil):
+            XCTFail("Expected prompt URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
     func testParsesRulesURLWithName() throws {
         let url = try XCTUnwrap(textURL(host: "rules", queryItems: [
             URLQueryItem(name: "name", value: "freestyle"),
