@@ -16190,38 +16190,54 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Snapshot used by the right-click fork path. Prefers the workspace's restored snapshot
-    /// (filled on session restore / hibernation), then falls back to a cached read of the
-    /// on-disk hook session store (`~/.cmuxterm/*-hook-sessions.json`), which is populated
-    /// for every Claude / Codex session launched through cmux's shell hook. Cheap synchronous
-    /// JSON reads are fine here; the heavier process-scan probe path stays scoped to the
-    /// command palette flow that already runs it asynchronously.
+    /// (filled on session restore / hibernation), then falls back to a process-wide cached
+    /// `RestorableAgentSessionIndex` populated by a background refresh task. The on-disk
+    /// hook session store load runs `sysctl(KERN_PROCARGS2)` per live record for live-PID
+    /// filtering, which is too expensive to do synchronously during SwiftUI menu evaluation
+    /// (the provider closure is called on every TabBarView body refresh). Reading a stale
+    /// cache is acceptable for the right-click affordance because the agent's own
+    /// `--resume`/`--fork-session` path reads transcripts from disk and tolerates a dead
+    /// PID; the worst case is the menu item appearing briefly for a session that was just
+    /// terminated, where the fork still completes against the persisted transcript.
     func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
         if let snapshot = restoredAgentSnapshotsByPanelId[panelId] {
             return snapshot
         }
-        return Self.cachedLiveAgentIndex().snapshot(workspaceId: id, panelId: panelId)
+        Self.scheduleLiveAgentIndexRefreshIfStale()
+        return Self.liveAgentIndexCache?.snapshot(workspaceId: id, panelId: panelId)
     }
 
-    // MainActor-isolated since the enclosing `Workspace` class is `@MainActor` and these
-    // statics are mutated synchronously from the bonsplit context-menu provider closure,
-    // which itself runs during SwiftUI body evaluation on the main actor. The explicit
-    // annotation makes the isolation contract visible and avoids a Swift 6 strict-
-    // concurrency violation once that mode is enabled (manaflow-ai/cmux#4888 review).
+    // Process-wide cache: a single hook-session index serves every workspace. Mutations are
+    // pinned to `@MainActor` because the enclosing `Workspace` class is `@MainActor` and the
+    // provider closure runs synchronously during SwiftUI body evaluation on the main actor.
     @MainActor private static var liveAgentIndexCache: RestorableAgentSessionIndex?
     @MainActor private static var liveAgentIndexCacheLoadedAt: Date?
-    private static let liveAgentIndexCacheTTL: TimeInterval = 0.5
+    @MainActor private static var liveAgentIndexRefreshTask: Task<Void, Never>?
+    private static let liveAgentIndexCacheTTL: TimeInterval = 1.0
 
-    @MainActor private static func cachedLiveAgentIndex() -> RestorableAgentSessionIndex {
+    /// Kick off a background refresh of the shared hook-session index if no refresh is
+    /// already in flight and the cached snapshot has aged out. Returns immediately and does
+    /// not block the caller — the work runs on `Task.detached(priority: .utility)`.
+    @MainActor private static func scheduleLiveAgentIndexRefreshIfStale() {
+        if liveAgentIndexRefreshTask != nil { return }
         let now = Date()
-        if let cache = liveAgentIndexCache,
-           let loadedAt = liveAgentIndexCacheLoadedAt,
+        if let loadedAt = liveAgentIndexCacheLoadedAt,
            now.timeIntervalSince(loadedAt) < liveAgentIndexCacheTTL {
-            return cache
+            return
         }
-        let index = RestorableAgentSessionIndex.load()
-        liveAgentIndexCache = index
-        liveAgentIndexCacheLoadedAt = now
-        return index
+        liveAgentIndexRefreshTask = Task { @MainActor in
+            let index = await Task.detached(priority: .utility) {
+                RestorableAgentSessionIndex.load()
+            }.value
+            liveAgentIndexCache = index
+            liveAgentIndexCacheLoadedAt = Date()
+            liveAgentIndexRefreshTask = nil
+            // The new snapshot won't be visible until something re-evaluates the bonsplit
+            // tab bar body. SwiftUI re-renders on hover / focus / selection changes, which
+            // are common in normal interaction, so the cache catches up within a frame or
+            // two without a forced re-render. The first right-click immediately after a
+            // fresh Claude session may briefly miss the menu item; the next one shows it.
+        }
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately

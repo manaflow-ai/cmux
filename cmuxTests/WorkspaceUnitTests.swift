@@ -6327,6 +6327,26 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    private func makeForkableCodexSnapshot(
+        sessionId: String = "019dad34-d218-7943-b81a-eddac5c87951",
+        workingDirectory: String = "/tmp/fork repo"
+    ) -> SessionRestorableAgentSnapshot {
+        SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionId,
+            workingDirectory: workingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: ["/Users/example/.bun/bin/codex"],
+                workingDirectory: workingDirectory,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+    }
+
     func testForkAgentConversationToNewTabCreatesSiblingTabWithForkStartupInput() throws {
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -6421,6 +6441,42 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
     func testCanForkAgentConversationFromPanelReturnsFalseForUnknownPanel() {
         let workspace = Workspace()
         XCTAssertFalse(workspace.canForkAgentConversationFromPanel(UUID()))
+    }
+
+    func testForkConversationContextMenuActionWorksForCodexSnapshot() throws {
+        // Parity coverage with the Claude path: Codex sessions are also `.supportedWithoutProbe`
+        // and should reach the same forkAgentConversationToNewTab path through the context-menu
+        // dispatcher (PR #4888 review).
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId))
+        let anchorTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanelId))
+        let snapshot = makeForkableCodexSnapshot()
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelId)
+
+        XCTAssertTrue(workspace.canForkAgentConversationFromPanel(sourcePanelId))
+
+        let anchorTab = try XCTUnwrap(
+            workspace.bonsplitController.tabs(inPane: sourcePaneId).first { $0.id == anchorTabId }
+        )
+
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestTabContextAction: .forkConversation,
+            for: anchorTab,
+            inPane: sourcePaneId
+        )
+
+        let tabsAfter = workspace.bonsplitController.tabs(inPane: sourcePaneId)
+        XCTAssertEqual(tabsAfter.count, 2, "Codex fork should also spawn a sibling tab")
+        let forkPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertNotEqual(forkPanelId, sourcePanelId, "Codex fork should focus the new tab")
+        let forkPanel = try XCTUnwrap(workspace.terminalPanel(for: forkPanelId))
+        XCTAssertEqual(
+            forkPanel.surface.initialInput,
+            snapshot.forkCommand.map { $0 + "\n" },
+            "Codex fork tab should boot with the Codex --fork-session command"
+        )
     }
 
     func testForkConversationContextMenuActionCreatesSiblingTab() throws {
