@@ -8846,10 +8846,13 @@ class TerminalController {
                 var tmuxControl: Any = NSNull()
                 if let tp = panel as? TerminalPanel {
                     inWindow = tp.surface.isViewInWindow
-                    tmuxControl = ws.tmuxControlReport(
+                    var tmuxPayload = ws.tmuxControlReport(
                         forPanelId: tp.id,
                         includePaneText: includeTmuxPaneText
-                    ) ?? NSNull()
+                    )
+                    tmuxPayload?["surface_id"] = tp.id.uuidString
+                    tmuxPayload?["surface_ref"] = v2Ref(kind: .surface, uuid: tp.id)
+                    tmuxControl = tmuxPayload ?? NSNull()
                 } else if let bp = panel as? BrowserPanel {
                     inWindow = bp.webView.window != nil
                 }

@@ -10709,9 +10709,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func tmuxControlReport(forPanelId panelId: UUID, includePaneText: Bool = false) -> [String: Any]? {
         guard let panel = panels[panelId] as? TerminalPanel else { return nil }
-        var payload = panel.tmuxControlReportPayload(includePaneText: includePaneText)
-        payload["surface_id"] = panel.id.uuidString
-        return payload
+        return panel.tmuxControlReportPayload(includePaneText: includePaneText)
     }
 
     func panelTitle(panelId: UUID) -> String? {
