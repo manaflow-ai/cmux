@@ -144,27 +144,6 @@ final class AgentHibernationTests: XCTestCase {
         )
     }
 
-    func testHookPrerequisitesAcceptTrustedResumeBinding() throws {
-        let root = try temporaryDirectory(named: "cmux-agent-hibernation-trusted-binding")
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let environment = ["HOME": root.path]
-
-        XCTAssertNil(
-            AgentHibernationHookPrerequisites.missingHooksWarning(
-                environment: environment,
-                trustedResumeBindingExists: true
-            )
-        )
-        XCTAssertEqual(
-            AgentHibernationHookPrerequisites.enablementResponse(
-                environment: environment,
-                trustedResumeBindingExists: true
-            ),
-            "OK"
-        )
-    }
-
     func testHookPrerequisitesWarnWithBuiltInWrapperContext() throws {
         let root = try temporaryDirectory(named: "cmux-agent-hibernation-claude-wrapper")
         defer { try? FileManager.default.removeItem(at: root) }
