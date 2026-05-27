@@ -5205,7 +5205,7 @@ func openCmuxSettingsFileInEditor() {
     PreferredEditorSettings.open(url)
 }
 
-private struct AgentHookSetupEvidenceCandidate {
+struct AgentHookSetupEvidenceCandidate: Sendable {
     let relativeConfigPath: String
     let envOverride: String?
     let envOverrideSubpath: String?
@@ -5221,6 +5221,136 @@ private struct AgentHookSetupEvidenceCandidate {
         self.envOverride = envOverride
         self.envOverrideSubpath = envOverrideSubpath
         self.marker = marker
+    }
+}
+
+enum AgentHibernationHookSetupEvidence {
+    static func hasHookSetupEvidence(defaults: UserDefaults = .standard) -> Bool {
+        if ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults) {
+            return true
+        }
+        return hookSetupEvidenceCandidates.contains { candidate in
+            let fileURL = resolvedHookConfigURL(
+                relativeConfigPath: candidate.relativeConfigPath,
+                envOverride: candidate.envOverride,
+                envOverrideSubpath: candidate.envOverrideSubpath
+            )
+            guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else {
+                return false
+            }
+            return contents.contains(candidate.marker)
+        }
+    }
+
+    private static let hookSetupEvidenceCandidates: [AgentHookSetupEvidenceCandidate] = [
+        AgentHookSetupEvidenceCandidate(
+            relativeConfigPath: ".codex/hooks.json",
+            envOverride: "CODEX_HOME",
+            marker: "cmux hooks codex"
+        ),
+        AgentHookSetupEvidenceCandidate(
+            relativeConfigPath: ".grok/hooks/cmux-session.json",
+            envOverride: "GROK_HOME",
+            envOverrideSubpath: "hooks",
+            marker: "cmux hooks grok"
+        ),
+        AgentHookSetupEvidenceCandidate(
+            relativeConfigPath: ".config/opencode/plugins/cmux-session.js",
+            envOverride: "OPENCODE_CONFIG_DIR",
+            envOverrideSubpath: "plugins",
+            marker: "cmux hooks opencode"
+        ),
+        AgentHookSetupEvidenceCandidate(
+            relativeConfigPath: ".pi/agent/extensions/cmux-session.ts",
+            envOverride: "PI_CODING_AGENT_DIR",
+            envOverrideSubpath: "extensions",
+            marker: "cmux hooks pi"
+        ),
+        AgentHookSetupEvidenceCandidate(
+            relativeConfigPath: ".config/amp/plugins/cmux-session.ts",
+            marker: "cmux hooks amp"
+        ),
+        AgentHookSetupEvidenceCandidate(
+            relativeConfigPath: ".cursor/hooks.json",
+            marker: "cmux hooks cursor"
+        ),
+        AgentHookSetupEvidenceCandidate(
+            relativeConfigPath: ".gemini/settings.json",
+            marker: "cmux hooks gemini"
+        ),
+        AgentHookSetupEvidenceCandidate(
+            relativeConfigPath: ".gemini/config/hooks.json",
+            marker: "cmux hooks antigravity"
+        ),
+        AgentHookSetupEvidenceCandidate(
+            relativeConfigPath: ".rovodev/config.yml",
+            marker: "cmux hooks rovodev"
+        ),
+        AgentHookSetupEvidenceCandidate(
+            relativeConfigPath: ".hermes/config.yaml",
+            envOverride: "HERMES_HOME",
+            marker: "cmux hooks hermes-agent"
+        )
+    ]
+
+    private static func resolvedHookConfigURL(
+        relativeConfigPath: String,
+        envOverride: String?,
+        envOverrideSubpath: String? = nil
+    ) -> URL {
+        if let envOverride,
+           let rawValue = ProcessInfo.processInfo.environment[envOverride]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawValue.isEmpty {
+            var url = URL(fileURLWithPath: NSString(string: rawValue).expandingTildeInPath, isDirectory: true)
+            if let envOverrideSubpath, !envOverrideSubpath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                url.appendPathComponent(envOverrideSubpath, isDirectory: true)
+            }
+            let fileName = URL(fileURLWithPath: relativeConfigPath).lastPathComponent
+            return url.appendingPathComponent(fileName, isDirectory: false)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(relativeConfigPath, isDirectory: false)
+    }
+}
+
+enum AgentHibernationEnableWarning {
+#if DEBUG
+    static var confirmationHandlerForTests: (() -> Bool)?
+#endif
+
+    static var title: String {
+        String(
+            localized: "settings.terminal.agentHibernation.hooksWarning.title",
+            defaultValue: "Enable Agent Hibernation without hooks?"
+        )
+    }
+
+    static var message: String {
+        String(
+            localized: "settings.terminal.agentHibernation.hooksWarning.message",
+            defaultValue: "Agent Hibernation relies on agent lifecycle hooks to know when sessions are idle. Enable or set up an agent integration first, or run `cmux hooks setup`, before relying on hibernation."
+        )
+    }
+
+    static var enableAnywayTitle: String {
+        String(
+            localized: "settings.terminal.agentHibernation.hooksWarning.enableAnyway",
+            defaultValue: "Enable Anyway"
+        )
+    }
+
+    static func confirmEnableWithoutHooks() -> Bool {
+#if DEBUG
+        if let confirmationHandlerForTests {
+            return confirmationHandlerForTests()
+        }
+#endif
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: enableAnywayTitle)
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        return alert.runModal() == .alertFirstButtonReturn
     }
 }
 
@@ -5585,27 +5715,11 @@ struct SettingsView: View {
     }
 
     private var agentHibernationHasHookSetupEvidence: Bool {
-        if claudeCodeHooksEnabled {
-            return true
-        }
-        return agentHookSetupEvidenceCandidates.contains { candidate in
-            let fileURL = resolvedAgentHookConfigURL(
-                relativeConfigPath: candidate.relativeConfigPath,
-                envOverride: candidate.envOverride,
-                envOverrideSubpath: candidate.envOverrideSubpath
-            )
-            guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else {
-                return false
-            }
-            return contents.contains(candidate.marker)
-        }
+        AgentHibernationHookSetupEvidence.hasHookSetupEvidence(defaults: .standard)
     }
 
     private var agentHibernationHookWarningMessage: String {
-        String(
-            localized: "settings.terminal.agentHibernation.hooksWarning.message",
-            defaultValue: "Agent Hibernation relies on agent lifecycle hooks to know when sessions are idle. Enable or set up an agent integration first, or run `cmux hooks setup`, before relying on hibernation."
-        )
+        AgentHibernationEnableWarning.message
     }
 
     private var agentHibernationEnabledBinding: Binding<Bool> {
@@ -5620,77 +5734,6 @@ struct SettingsView: View {
                 setAgentHibernationEnabled(newValue)
             }
         )
-    }
-
-    private var agentHookSetupEvidenceCandidates: [AgentHookSetupEvidenceCandidate] {
-        [
-            AgentHookSetupEvidenceCandidate(
-                relativeConfigPath: ".codex/hooks.json",
-                envOverride: "CODEX_HOME",
-                marker: "cmux hooks codex"
-            ),
-            AgentHookSetupEvidenceCandidate(
-                relativeConfigPath: ".grok/hooks/cmux-session.json",
-                envOverride: "GROK_HOME",
-                envOverrideSubpath: "hooks",
-                marker: "cmux hooks grok"
-            ),
-            AgentHookSetupEvidenceCandidate(
-                relativeConfigPath: ".config/opencode/plugins/cmux-session.js",
-                envOverride: "OPENCODE_CONFIG_DIR",
-                envOverrideSubpath: "plugins",
-                marker: "cmux hooks opencode"
-            ),
-            AgentHookSetupEvidenceCandidate(
-                relativeConfigPath: ".pi/agent/extensions/cmux-session.ts",
-                envOverride: "PI_CODING_AGENT_DIR",
-                envOverrideSubpath: "extensions",
-                marker: "cmux hooks pi"
-            ),
-            AgentHookSetupEvidenceCandidate(
-                relativeConfigPath: ".config/amp/plugins/cmux-session.ts",
-                marker: "cmux hooks amp"
-            ),
-            AgentHookSetupEvidenceCandidate(
-                relativeConfigPath: ".cursor/hooks.json",
-                marker: "cmux hooks cursor"
-            ),
-            AgentHookSetupEvidenceCandidate(
-                relativeConfigPath: ".gemini/settings.json",
-                marker: "cmux hooks gemini"
-            ),
-            AgentHookSetupEvidenceCandidate(
-                relativeConfigPath: ".gemini/config/hooks.json",
-                marker: "cmux hooks antigravity"
-            ),
-            AgentHookSetupEvidenceCandidate(
-                relativeConfigPath: ".rovodev/config.yml",
-                marker: "cmux hooks rovodev"
-            ),
-            AgentHookSetupEvidenceCandidate(
-                relativeConfigPath: ".hermes/config.yaml",
-                envOverride: "HERMES_HOME",
-                marker: "cmux hooks hermes-agent"
-            )
-        ]
-    }
-
-    private func resolvedAgentHookConfigURL(
-        relativeConfigPath: String,
-        envOverride: String?,
-        envOverrideSubpath: String? = nil
-    ) -> URL {
-        if let envOverride,
-           let rawValue = ProcessInfo.processInfo.environment[envOverride]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !rawValue.isEmpty {
-            var url = URL(fileURLWithPath: NSString(string: rawValue).expandingTildeInPath, isDirectory: true)
-            if let envOverrideSubpath, !envOverrideSubpath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                url.appendPathComponent(envOverrideSubpath, isDirectory: true)
-            }
-            let fileName = URL(fileURLWithPath: relativeConfigPath).lastPathComponent
-            return url.appendingPathComponent(fileName, isDirectory: false)
-        }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(relativeConfigPath, isDirectory: false)
     }
 
     private var agentHibernationIdleSecondsBinding: Binding<Double> {
@@ -8153,19 +8196,11 @@ struct SettingsView: View {
             Text(String(localized: "settings.automation.openAccess.dialog.message", defaultValue: "This disables ancestry and password checks and opens the socket to all local users. Only enable when you understand the risk."))
         }
         .confirmationDialog(
-            String(
-                localized: "settings.terminal.agentHibernation.hooksWarning.title",
-                defaultValue: "Enable Agent Hibernation without hooks?"
-            ),
+            AgentHibernationEnableWarning.title,
             isPresented: $showAgentHibernationHooksWarning,
             titleVisibility: .visible
         ) {
-            Button(
-                String(
-                    localized: "settings.terminal.agentHibernation.hooksWarning.enableAnyway",
-                    defaultValue: "Enable Anyway"
-                )
-            ) {
+            Button(AgentHibernationEnableWarning.enableAnywayTitle) {
                 setAgentHibernationEnabled(true)
             }
             Button(String(localized: "common.cancel", defaultValue: "Cancel"), role: .cancel) {}

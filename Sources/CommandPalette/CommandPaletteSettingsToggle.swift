@@ -460,6 +460,11 @@ enum CommandPaletteSettingsToggleCommands {
                 ],
                 isOn: { defaults in AgentHibernationSettings.isEnabled(defaults: defaults) },
                 setOn: { newValue, defaults, notificationCenter in
+                    if newValue,
+                       !AgentHibernationHookSetupEvidence.hasHookSetupEvidence(defaults: defaults),
+                       !AgentHibernationEnableWarning.confirmEnableWithoutHooks() {
+                        return
+                    }
                     AgentHibernationSettings.setValues(
                         enabled: newValue,
                         defaults: defaults,

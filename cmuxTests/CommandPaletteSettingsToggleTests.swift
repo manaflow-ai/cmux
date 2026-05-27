@@ -157,6 +157,47 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testAgentHibernationCommandWarnsBeforeEnablingWithoutHookEvidence() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.agentHibernation"
+                )
+            )
+            defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+            var confirmationCount = 0
+            AgentHibernationEnableWarning.confirmationHandlerForTests = {
+                confirmationCount += 1
+                return false
+            }
+            defer { AgentHibernationEnableWarning.confirmationHandlerForTests = nil }
+
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertEqual(confirmationCount, 1)
+            XCTAssertFalse(AgentHibernationSettings.isEnabled(defaults: defaults))
+            XCTAssertFalse(descriptor.isOn(defaults))
+        }
+    }
+
+    func testAgentHibernationCommandEnablesAfterWarningConfirmation() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.agentHibernation"
+                )
+            )
+            defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+            AgentHibernationEnableWarning.confirmationHandlerForTests = { true }
+            defer { AgentHibernationEnableWarning.confirmationHandlerForTests = nil }
+
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertTrue(AgentHibernationSettings.isEnabled(defaults: defaults))
+            XCTAssertTrue(descriptor.isOn(defaults))
+        }
+    }
+
     func testWarnBeforeQuitCommandWritesConfirmQuitSourceOfTruth() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
