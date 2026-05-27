@@ -5614,8 +5614,15 @@ class TabManager: ObservableObject {
     }
 
     func applyWorkspaceColor(_ color: String?, toWorkspaceIds workspaceIds: [UUID]) {
-        for workspaceId in workspaceIds {
+        guard !workspaceIds.isEmpty else { return }
+        if workspaceIds.count == 1, let workspaceId = workspaceIds.first {
             setTabColor(tabId: workspaceId, color: color)
+            return
+        }
+
+        let targetIds = Set(workspaceIds)
+        for tab in tabs where targetIds.contains(tab.id) {
+            tab.setCustomColor(color)
         }
     }
 
@@ -5629,6 +5636,19 @@ class TabManager: ObservableObject {
         tab.setTerminalScrollBarHidden(hidden)
     }
 
+    func setWorkspaceTerminalScrollBarHidden(hidden: Bool, forWorkspaceIds workspaceIds: [UUID]) {
+        guard !workspaceIds.isEmpty else { return }
+        if workspaceIds.count == 1, let workspaceId = workspaceIds.first {
+            setWorkspaceTerminalScrollBarHidden(tabId: workspaceId, hidden: hidden)
+            return
+        }
+
+        let targetIds = Set(workspaceIds)
+        for tab in tabs where targetIds.contains(tab.id) {
+            tab.setTerminalScrollBarHidden(hidden)
+        }
+    }
+
     func togglePin(tabId: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let tab = tabs[index]
@@ -5640,6 +5660,50 @@ class TabManager: ObservableObject {
         tab.isPinned = pinned
         reorderTabForPinnedState(tab)
         postWorkspaceOrderDidChange(movedWorkspaceIds: [tab.id])
+    }
+
+    @discardableResult
+    func setPinned(workspaceIds: [UUID], pinned: Bool) -> [UUID] {
+        guard !workspaceIds.isEmpty else { return [] }
+        if workspaceIds.count == 1,
+           let workspaceId = workspaceIds.first,
+           let tab = tabs.first(where: { $0.id == workspaceId }) {
+            let changed = tab.isPinned != pinned
+            setPinned(tab, pinned: pinned)
+            return changed ? [workspaceId] : []
+        }
+
+        var seen = Set<UUID>()
+        let orderedTargetIds = workspaceIds.filter { seen.insert($0).inserted }
+        let targetIds = Set(orderedTargetIds)
+        var workspacesById: [UUID: Workspace] = [:]
+        var changedIdSet = Set<UUID>()
+
+        for workspace in tabs {
+            workspacesById[workspace.id] = workspace
+            guard targetIds.contains(workspace.id), workspace.isPinned != pinned else { continue }
+            workspace.isPinned = pinned
+            changedIdSet.insert(workspace.id)
+        }
+
+        guard !changedIdSet.isEmpty else { return [] }
+        let changedIds = orderedTargetIds.filter { changedIdSet.contains($0) }
+
+        let changedWorkspaces: [Workspace]
+        if pinned {
+            changedWorkspaces = changedIds.compactMap { workspacesById[$0] }
+        } else {
+            // Keep parity with reorderTabForPinnedState: each unpinned item
+            // is inserted at the front of the unpinned segment, so rebuilding a
+            // batch in one pass must reverse the changed input order.
+            changedWorkspaces = changedIds.reversed().compactMap { workspacesById[$0] }
+        }
+
+        let remainingPinned = tabs.filter { $0.isPinned && !changedIdSet.contains($0.id) }
+        let remainingUnpinned = tabs.filter { !$0.isPinned && !changedIdSet.contains($0.id) }
+        tabs = remainingPinned + changedWorkspaces + remainingUnpinned
+        postWorkspaceOrderDidChange(movedWorkspaceIds: changedIds)
+        return changedIds
     }
 
     private func reorderTabForPinnedState(_ tab: Workspace) {

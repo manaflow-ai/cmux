@@ -86,6 +86,31 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
+    func testParsesSSHURLWithFreestyleUserDelimiters() throws {
+        let cases = [
+            "workspace123,session-token_ABC.2yi9kzY-dysFsVBKh",
+            "workspace123:session-token_ABC.2yi9kzY-dysFsVBKh"
+        ]
+
+        for user in cases {
+            let host = "workspace123.vm-ssh.freestyle.sh"
+            let url = try XCTUnwrap(sshURL(queryItems: [
+                URLQueryItem(name: "host", value: host),
+                URLQueryItem(name: "user", value: user)
+            ]))
+
+            switch CmuxSSHURLRequest.parse(url) {
+            case .success(.some(let request)):
+                XCTAssertEqual(request.destination, "\(user)@\(host)")
+                XCTAssertEqual(request.cliArguments, ["ssh", "\(user)@\(host)"])
+            case .success(nil):
+                XCTFail("Expected SSH URL request")
+            case .failure(let error):
+                XCTFail("Unexpected parse error for \(user): \(error)")
+            }
+        }
+    }
+
     func testCommandPreviewIncludesSocketPathWhenProvided() throws {
         let url = try XCTUnwrap(sshURL(queryItems: [
             URLQueryItem(name: "host", value: "dev.example.com"),
@@ -517,7 +542,7 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         components.host = "ssh"
         components.queryItems = [
             URLQueryItem(name: "host", value: "dev.example.com"),
-            URLQueryItem(name: "user", value: "alice:bad")
+            URLQueryItem(name: "user", value: "alice;bad")
         ]
         let url = try XCTUnwrap(components.url)
 
@@ -526,6 +551,229 @@ final class CmuxSSHURLRequestTests: XCTestCase {
             break
         default:
             XCTFail("Expected unsafe user rejection")
+        }
+    }
+
+    func testParsesPromptURLWithTextTitleAndNoFocus() throws {
+        let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
+            URLQueryItem(name: "text", value: "Review this branch without running tests yet."),
+            URLQueryItem(name: "title", value: "Review prompt"),
+            URLQueryItem(name: "no-focus", value: "true")
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.kind, .prompt)
+            XCTAssertEqual(request.text, "Review this branch without running tests yet.")
+            XCTAssertEqual(request.title, "Review prompt")
+            XCTAssertNil(request.name)
+            XCTAssertTrue(request.noFocus)
+            XCTAssertEqual(request.pasteText, request.text)
+        case .success(nil):
+            XCTFail("Expected prompt URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testPreservesPromptURLTextWhitespace() throws {
+        let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
+            URLQueryItem(name: "text", value: "  indented prompt  ")
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.text, "  indented prompt  ")
+            XCTAssertEqual(request.pasteText, "  indented prompt  ")
+        case .success(nil):
+            XCTFail("Expected prompt URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testParsesPromptURLPercentEncodedSpaces() throws {
+        let url = try XCTUnwrap(URL(string: "\(supportedScheme)://prompt?text=Review%20this%20branch"))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.text, "Review this branch")
+        case .success(nil):
+            XCTFail("Expected prompt URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testParsesPromptURLPreservesURLComponentsLiteralPlus() throws {
+        let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
+            URLQueryItem(name: "text", value: "C++ tips")
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.text, "C++ tips")
+        case .success(nil):
+            XCTFail("Expected prompt URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testParsesPromptURLLiteralPlusCommasAndColons() throws {
+        let url = try XCTUnwrap(URL(string: "\(supportedScheme)://prompt?text=C%2B%2B,%20Rust:%20compare"))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.text, "C++, Rust: compare")
+        case .success(nil):
+            XCTFail("Expected prompt URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testParsesRulesURLWithName() throws {
+        let url = try XCTUnwrap(textURL(host: "rules", queryItems: [
+            URLQueryItem(name: "name", value: "freestyle"),
+            URLQueryItem(name: "text", value: "Prefer small PRs.")
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.kind, .rules)
+            XCTAssertEqual(request.name, "freestyle")
+            XCTAssertEqual(request.text, "Prefer small PRs.")
+            XCTAssertEqual(request.pasteText, "Prefer small PRs.")
+        case .success(nil):
+            XCTFail("Expected rules URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testParsesSingularRuleAlias() throws {
+        let url = try XCTUnwrap(textURL(host: "rule", queryItems: [
+            URLQueryItem(name: "text", value: "Prefer small PRs.")
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.kind, .rules)
+        case .success(nil):
+            XCTFail("Expected rules URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testRejectsTextURLDuplicateParameters() throws {
+        let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
+            URLQueryItem(name: "text", value: "one"),
+            URLQueryItem(name: "text", value: "two")
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .failure(.duplicateParameter("text")):
+            break
+        default:
+            XCTFail("Expected duplicate text parameter rejection")
+        }
+    }
+
+    func testRejectsTextURLUnsupportedParameter() throws {
+        let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
+            URLQueryItem(name: "text", value: "hello"),
+            URLQueryItem(name: "command", value: "rm -rf /")
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .failure(.unsupportedParameter("command")):
+            break
+        default:
+            XCTFail("Expected unsupported command parameter rejection")
+        }
+    }
+
+    func testRejectsTextURLUnsafeFormattingCharacter() throws {
+        let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
+            URLQueryItem(name: "text", value: "hello\u{202E}world")
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .failure(.textContainsUnsafeCharacters):
+            break
+        default:
+            XCTFail("Expected unsafe text character rejection")
+        }
+    }
+
+    func testRejectsTextURLControlCharacters() throws {
+        for value in ["hello\nworld", "hello\rworld", "hello\tworld", "hello\u{0000}world", "hello\u{001B}world"] {
+            let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
+                URLQueryItem(name: "text", value: value)
+            ]))
+
+            switch CmuxTextURLRequest.parse(url) {
+            case .failure(.textContainsUnsafeCharacters):
+                break
+            default:
+                XCTFail("Expected control character rejection for \(value.debugDescription)")
+            }
+        }
+    }
+
+    func testRejectsTextURLWhitespaceOnlyText() throws {
+        let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
+            URLQueryItem(name: "text", value: "   ")
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .failure(.missingText):
+            break
+        default:
+            XCTFail("Expected whitespace-only text rejection")
+        }
+    }
+
+    func testAcceptsTextURLAtMaxLength() throws {
+        let text = String(repeating: "a", count: CmuxTextURLRequest.maxTextLength)
+        let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
+            URLQueryItem(name: "text", value: text)
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.text.count, CmuxTextURLRequest.maxTextLength)
+        case .success(nil):
+            XCTFail("Expected prompt URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testRejectsTextURLExceedingMaxLength() throws {
+        let text = String(repeating: "a", count: CmuxTextURLRequest.maxTextLength + 1)
+        let url = try XCTUnwrap(textURL(host: "prompt", queryItems: [
+            URLQueryItem(name: "text", value: text)
+        ]))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .failure(.textTooLong(maxLength: CmuxTextURLRequest.maxTextLength)):
+            break
+        default:
+            XCTFail("Expected text length rejection")
+        }
+    }
+
+    func testRejectsTextURLPathPayload() throws {
+        let url = try XCTUnwrap(URL(string: "\(supportedScheme)://prompt/run?text=hello"))
+
+        switch CmuxTextURLRequest.parse(url) {
+        case .failure(.unsupportedParameter("path")):
+            break
+        default:
+            XCTFail("Expected path payload rejection")
         }
     }
 
@@ -544,5 +792,104 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         components.host = "ssh"
         components.queryItems = queryItems
         return components.url
+    }
+
+    private func textURL(host: String, queryItems: [URLQueryItem]) -> URL? {
+        var components = URLComponents()
+        components.scheme = supportedScheme
+        components.host = host
+        components.queryItems = queryItems
+        return components.url
+    }
+}
+
+final class CmuxNavigationURLRequestTests: XCTestCase {
+    private let supportedScheme = "cmux-test"
+    private let workspaceId = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+    private let paneId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+    private let surfaceId = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+
+    func testParsesWorkspacePaneAndSurfaceLinks() throws {
+        let workspaceURL = try XCTUnwrap(URL(string: "\(supportedScheme)://workspace/\(workspaceId.uuidString)"))
+        let paneURL = try XCTUnwrap(URL(string: "\(supportedScheme)://workspace/\(workspaceId.uuidString)/pane/\(paneId.uuidString)"))
+        let surfaceURL = try XCTUnwrap(URL(string: "\(supportedScheme)://workspace/\(workspaceId.uuidString)/surface/\(surfaceId.uuidString)"))
+        let panelAliasURL = try XCTUnwrap(URL(string: "\(supportedScheme)://workspace/\(workspaceId.uuidString)/panel/\(surfaceId.uuidString)"))
+
+        XCTAssertEqual(try parsedTarget(workspaceURL), .workspace(workspaceId))
+        XCTAssertEqual(try parsedTarget(paneURL), .pane(workspaceId: workspaceId, paneId: paneId))
+        XCTAssertEqual(try parsedTarget(surfaceURL), .surface(workspaceId: workspaceId, surfaceId: surfaceId))
+        XCTAssertEqual(try parsedTarget(panelAliasURL), .surface(workspaceId: workspaceId, surfaceId: surfaceId))
+    }
+
+    func testGeneratedLinksRoundTrip() throws {
+        let workspaceURL = try XCTUnwrap(URL(string: CmuxNavigationURLRequest.workspaceLink(workspaceId: workspaceId, scheme: supportedScheme)))
+        let paneURL = try XCTUnwrap(URL(string: CmuxNavigationURLRequest.paneLink(workspaceId: workspaceId, paneId: paneId, scheme: supportedScheme)))
+        let surfaceURL = try XCTUnwrap(URL(string: CmuxNavigationURLRequest.surfaceLink(workspaceId: workspaceId, surfaceId: surfaceId, scheme: supportedScheme)))
+
+        XCTAssertEqual(try parsedTarget(workspaceURL), .workspace(workspaceId))
+        XCTAssertEqual(try parsedTarget(paneURL), .pane(workspaceId: workspaceId, paneId: paneId))
+        XCTAssertEqual(try parsedTarget(surfaceURL), .surface(workspaceId: workspaceId, surfaceId: surfaceId))
+    }
+
+    func testIgnoresOtherCmuxRoutesAndInactiveSchemes() throws {
+        let sshURL = try XCTUnwrap(URL(string: "\(supportedScheme)://ssh?host=dev.example.com"))
+        let authURL = try XCTUnwrap(URL(string: "\(supportedScheme)://auth-callback?stack_refresh=abc"))
+        let inactiveURL = try XCTUnwrap(URL(string: "cmux-other://workspace/\(workspaceId.uuidString)"))
+
+        XCTAssertNil(try parsedOptional(sshURL))
+        XCTAssertNil(try parsedOptional(authURL))
+        XCTAssertNil(try parsedOptional(inactiveURL))
+    }
+
+    func testRejectsQueryFragmentAuthorityAndExtraPathComponents() throws {
+        let cases = [
+            "\(supportedScheme)://workspace/\(workspaceId.uuidString)?command=id",
+            "\(supportedScheme)://workspace/\(workspaceId.uuidString)#fragment",
+            "\(supportedScheme)://user@workspace/\(workspaceId.uuidString)",
+            "\(supportedScheme)://workspace:123/\(workspaceId.uuidString)",
+            "\(supportedScheme)://workspace/\(workspaceId.uuidString)/surface/\(surfaceId.uuidString)/run"
+        ]
+
+        for rawURL in cases {
+            let url = try XCTUnwrap(URL(string: rawURL))
+            switch CmuxNavigationURLRequest.parse(url, supportedSchemes: [supportedScheme]) {
+            case .failure(.unsupportedURLShape):
+                break
+            default:
+                XCTFail("Expected unsupported URL shape rejection for \(rawURL)")
+            }
+        }
+    }
+
+    func testRejectsNonUUIDIdentifiersAndRelativeRefs() throws {
+        let cases = [
+            ("\(supportedScheme)://workspace/workspace:1", "workspace"),
+            ("\(supportedScheme)://workspace/\(workspaceId.uuidString)/pane/pane:1", "pane"),
+            ("\(supportedScheme)://workspace/\(workspaceId.uuidString)/surface/surface:1", "surface")
+        ]
+
+        for (rawURL, component) in cases {
+            let url = try XCTUnwrap(URL(string: rawURL))
+            switch CmuxNavigationURLRequest.parse(url, supportedSchemes: [supportedScheme]) {
+            case .failure(.invalidIdentifier(component)):
+                break
+            default:
+                XCTFail("Expected invalid \(component) rejection for \(rawURL)")
+            }
+        }
+    }
+
+    private func parsedOptional(_ url: URL) throws -> CmuxNavigationURLRequest? {
+        switch CmuxNavigationURLRequest.parse(url, supportedSchemes: [supportedScheme]) {
+        case .success(let request):
+            return request
+        case .failure(let error):
+            throw error
+        }
+    }
+
+    private func parsedTarget(_ url: URL) throws -> CmuxNavigationURLRequest.Target {
+        let request = try XCTUnwrap(parsedOptional(url))
+        return request.target
     }
 }

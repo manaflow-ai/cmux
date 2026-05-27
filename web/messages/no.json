@@ -499,6 +499,11 @@
         },
         "terminal": {
           "copyOnSelect": "Kopierer markert terminaltekst til systemutklippstavlen når markeringen bekreftes, inkludert ord- og linjemarkeringer fra dobbelt- og trippelklikk."
+        },
+        "browser": {
+          "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",
+          "customSearchEngineName": "Visningsnavn som brukes når defaultSearchEngine er custom.",
+          "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen."
         }
       }
     },
@@ -992,6 +997,62 @@
       "underHoodMore": "Vanlige <configLink>konfigurasjonsdokumenter</configLink> dekker cmux.json. Sesjongjenoppretting holder app-layout separat fra Ghostty-terminalens renderingsinnstillinger.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
+    },
+    "ssh": {
+      "title": "SSH",
+      "metaTitle": "SSH",
+      "metaDescription": "Koble til eksterne maskiner med cmux ssh. Nettleserruter ruter gjennom det eksterne nettverket, bilder dra-og-slipp via scp, og agentvarsler kommer hjem.",
+      "intro": "cmux ssh oppretter et arbeidsområde for en ekstern maskin. Nettleserruter ruter gjennom det eksterne nettverket, filer dra-og-slipp via scp, kodingsagenter sender varsler til din lokale sidefelt, og økter kobles til på nytt ved slipp.",
+      "usage": "Bruk",
+      "usageDesc": "cmux ssh leser ~/.ssh/config for vertsaliaser, identitetsfiler og proxy-innstillinger. Alle flagg gjenspeiler deres ssh-ekvivalenter.",
+      "flagsTitle": "Flagg",
+      "flagName": "Flagg",
+      "flagDesc": "Beskrivelse",
+      "flagNameVal": "Angi arbeidsområdetittelen",
+      "flagPort": "SSH-port (standard 22)",
+      "flagIdentity": "Sti til identitetsfil",
+      "flagSshOption": "Send vilkårlige SSH-alternativer (f.eks. -o StrictHostKeyChecking=no)",
+      "flagNoFocus": "Lag arbeidsområdet uten å bytte til det",
+      "deepLinksTitle": "SSH dyplenker",
+      "deepLinksDesc": "Bruk cmux SSH-dypkoblinger når et nettsted eller et verktøy ønsker å tilby en Åpne i cmux-knapp. Koblingen åpner cmux, viser en bekreftelsesmelding, og kjører deretter den tilsvarende cmux ssh-kommandoen etter at brukeren har bekreftet.",
+      "deepLinksWebFallbackDesc": "Bruk cmux.com reserve-URL for nettsideknapper. Den åpner den opprinnelige koblingen og viser nedlastingen hvis cmux ikke er installert.",
+      "deepLinksPromptRulesDesc": "Spørre- og reglerknapper bruker samme reserveform. Kommaer, koloner og bokstavelige plusstegn bevares når de er URL-kodet:",
+      "deepLinksIconDesc": "Bruk SVG-ikonet for dashbordknapper, eller PNG-logoen når et rasterbilde kreves:",
+      "deepLinksButtonDesc": "Bygg reservenettadressen med URLSearchParams slik at titler, vertsaliaser og brukernavn kodes trygt:",
+      "deepLinkParam": "Parameter",
+      "deepLinkMeaning": "Mening",
+      "deepLinkHost": "Nødvendig SSH-vert eller ~/.ssh/config-alias.",
+      "deepLinkUser": "Valgfri SSH-bruker. cmux kombinerer det med vert som bruker@vert.",
+      "deepLinkPort": "Valgfri SSH-port, 1 til 65535.",
+      "deepLinkTitle": "Valgfri arbeidsområdetittel. Bruk bare én av tittel eller navn.",
+      "deepLinkConnectTimeout": "Valgfri ConnectTimeout-verdi i sekunder, 1 til 600.",
+      "deepLinkServerAliveInterval": "Valgfri ServerAliveInterval-verdi i sekunder, 1 til 3600.",
+      "deepLinkServerAliveCountMax": "Valgfri ServerAliveCountMax-verdi, 1 til 100.",
+      "deepLinkHostKeyPolicy": "Valgfri StrictHostKeyChecking-policy: godta-ny, spør, streng eller ja.",
+      "deepLinkNoFocus": "Valgfri boolsk. true skaper arbeidsområdet uten å bytte til det.",
+      "deepLinksSchemeDesc": "Bruk cmux:// for den stabile appen, cmux-nightly:// for Nightly, og cmux-dev:// for feilsøking eller merkede dev-bygg.",
+      "deepLinksSecurityDesc": "Eksterne lenker kan ikke sende identitetsfiler, rå ssh-alternativer, kommandoer, ProxyCommand eller videresendingsregler. Sett nøkler, ProxyJump, HostName og avanserte alternativer i ~/.ssh/config i stedet. cmux viser kommandoforhåndsvisningen og krever at brukeren stoler på SSH-målet før tilkobling.",
+      "browserTitle": "Nettleserruter",
+      "browserDesc": "Nettleserruter i et eksternt arbeidsområde ruter all HTTP- og WebSocket-trafikk gjennom den eksterne maskinens nettverk. Skriv localhost:3000 og du ser på utviklerserveren som kjører på den eksterne boksen. Ingen -L-flagg, ingen manuell portvideresending. Hvert eksternt arbeidsområde får en isolert lagring av informasjonskapsler, slik at øktene er begrenset per tilkobling.",
+      "dragDropTitle": "Dra og slipp",
+      "dragDropDesc": "Dra et bilde eller en fil til en ekstern terminal og cmux laster det opp via scp gjennom den eksisterende SSH-tilkoblingen. cmux oppdager SSH-prosessen i forgrunnen av TTY og ruter opplastingen gjennom ControlMaster-multipleksing.",
+      "notificationsTitle": "Varsler",
+      "notificationsDesc": "Prosesser på den eksterne maskinen kan kjøre cmux-kommandoer som kjøres på din lokale forekomst. Når en kodeagent ringer cmux-varsling på den eksterne boksen, vises varselet i din lokale sidefelt. Den blå ringen lyser på arbeidsområdefanen. Cmd+Shift+U hopper til den. Varslingsspam fra ustabile tilkoblinger undertrykkes med en nedkjøling per vert.",
+      "agentsTitle": "Kodemidler over SSH",
+      "agentsDesc": "cmux claude-teams og cmux omo jobber begge i SSH-økter. Go relay daemon på den eksterne verten håndterer den samme tmux-kompat-oversettelsen som den lokale Swift CLI gjør. Lagkamerater gyter når native cmux splitter på din lokale maskin mens beregningen kjører på den eksterne boksen.",
+      "reconnectTitle": "Koble til på nytt",
+      "reconnectDesc": "Når tilkoblingen faller, kobles cmux til igjen med eksponentiell backoff (3s, 6s, 12s, opptil 60s). Den eksterne økten vedvarer og cmux kobles til på nytt ved tilkobling, endre størrelse med semantikk for minste skjermvinner. Standard keepalive-alternativer (ServerAliveInterval=20, ServerAliveCountMax=2) injiseres med mindre konfigurasjonen din allerede angir dem.",
+      "daemonTitle": "Stafettdemon",
+      "daemonDesc": "Ved første tilkobling sonderer cmux den eksterne verten (uname -s, uname -m) og laster opp en versjonert cmuxd-remote binær. Binæren snakker JSON-RPC over stdio og håndterer tre ting:",
+      "daemonFeature": "Funksjon",
+      "daemonHow": "Hvordan",
+      "daemonProxy": "Nettlesertrafikk proxying",
+      "daemonProxyHow": "SOCKS5 og HTTP CONNECT over daemonens stdio-kanal",
+      "daemonRelay": "CLI-relé",
+      "daemonRelayHow": "Omvendt TCP-tunnel med HMAC-SHA256-autentisering slik at eksterne prosesser kan kalle cmux-kommandoer lokalt",
+      "daemonSession": "Sesjonsledelse",
+      "daemonSessionHow": "Vedvarer økter på tvers av gjentilkoblinger, koordinerer PTY-endring på tvers av flere vedlegg",
+      "daemonPath": "Daemon-binæren er lagret på ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote på den eksterne verten og verifisert mot et SHA-256-manifest innebygd i appen."
     }
   },
   "legal": {
@@ -1034,5 +1095,40 @@
   },
   "languageSwitcher": {
     "label": "Språk"
+  },
+  "deeplink": {
+    "section": "Dyplink",
+    "open": "Åpne i cmux",
+    "download": "Last ned cmux",
+    "nativeURL": "Innebygd URL",
+    "missingParams": "Denne koblingen mangler nødvendige parametere: {params}",
+    "duplicateParams": "Denne lenken gjentar parametere cmux vil avvise: {params}",
+    "unsupportedParams": "Denne koblingen inneholder parametere som ikke støttes cmux vil avvise: {params}",
+    "conflictingParams": "Denne koblingen inneholder parametere som ikke kan brukes sammen: {params}",
+    "invalidParams": "Denne koblingen inneholder ugyldige parameterverdier: {params}",
+    "fixParams": "Fiks URL-parametrene, og last deretter inn denne siden på nytt.",
+    "examplePrefix": "Se en",
+    "exampleLink": "eksempel lenke",
+    "ssh": {
+      "metaTitle": "Åpne SSH i cmux",
+      "metaDescription": "Åpne en cmux SSH-dyplink fra nettet, med installeringsreserve når cmux ikke er tilgjengelig.",
+      "title": "Åpne SSH i cmux",
+      "intro": "Denne siden åpner en anmeldt cmux SSH-lenke.",
+      "fallback": "Hvis cmux ikke åpnes, installer cmux og klikk Åpne i cmux igjen."
+    },
+    "prompt": {
+      "metaTitle": "Åpne ledetekst i cmux",
+      "metaDescription": "Åpne en cmux-prompt-dyplink fra nettet, med installeringsreserve når cmux ikke er tilgjengelig.",
+      "title": "Åpne ledetekst i cmux",
+      "intro": "Denne siden åpner en ledetekst i det gjeldende cmux-arbeidsområdet.",
+      "fallback": "cmux viser ledeteksten først og spør før du limer den inn i gjeldende arbeidsområde. Hvis cmux ikke åpnes, installer cmux og klikk Åpne i cmux igjen."
+    },
+    "rules": {
+      "metaTitle": "Åpne regler i cmux",
+      "metaDescription": "Åpne en dypkobling for cmux-regler fra nettet, med installeringsalternativ når cmux ikke er tilgjengelig.",
+      "title": "Åpne regler i cmux",
+      "intro": "Denne siden åpner regler i det gjeldende cmux-arbeidsområdet.",
+      "fallback": "cmux viser reglene først og spør før de limes inn i gjeldende arbeidsområde. Hvis cmux ikke åpnes, installer cmux og klikk Åpne i cmux igjen."
+    }
   }
 }
