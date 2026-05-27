@@ -558,6 +558,11 @@
           "default": false,
           "description": "Hide all per-workspace detail rows."
         },
+        "wrapWorkspaceTitles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line."
+        },
         "showWorkspaceDescription": {
           "type": "boolean",
           "default": true,

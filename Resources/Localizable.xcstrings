@@ -56421,6 +56421,381 @@
         }
       }
     },
+    "settings.app.wrapWorkspaceTitles": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التفاف عناوين مساحات العمل في الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prelomi naslove radnih prostora u bočnoj traci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ombryd arbejdsområdetitler i sidepanelet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereichstitel in der Seitenleiste umbrechen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wrap Workspace Titles in Sidebar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar títulos de espacios de trabajo en la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renvoyer les titres des espaces de travail à la ligne dans la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vai a capo per i titoli degli spazi di lavoro nella barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのワークスペースタイトルを折り返す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បត់ចំណងជើងកន្លែងធ្វើការនៅក្នុងរបារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에서 워크스페이스 제목 줄바꿈"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bryt arbeidsområdetitler i sidepanelet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zawijaj tytuły obszarów roboczych na pasku bocznym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quebrar títulos de espaços de trabalho na barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переносить названия рабочих областей в боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัดบรรทัดชื่อเวิร์กสเปซในแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğunda çalışma alanı başlıklarını kaydır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переносити назви робочих областей на бічній панелі"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在边栏中换行显示工作区标题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在側邊欄中換行顯示工作區標題"
+          }
+        }
+      }
+    },
+    "settings.app.wrapWorkspaceTitles.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى عناوين مساحات العمل في سطر واحد وتُختصر في النهاية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naslovi radnih prostora ostaju u jednom redu i skraćuju se na kraju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbejdsområdetitler vises på én linje og afkortes i slutningen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereichstitel bleiben in einer Zeile und werden am Ende gekürzt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace titles stay on one line and truncate at the end."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los títulos de los espacios de trabajo permanecen en una línea y se truncan al final."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les titres des espaces de travail restent sur une seule ligne et sont tronqués à la fin."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I titoli degli spazi di lavoro restano su una riga e vengono troncati alla fine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースタイトルは1行で表示され、末尾で省略されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំណងជើងកន្លែងធ្វើការនឹងនៅលើបន្ទាត់តែមួយ ហើយត្រូវកាត់ឱ្យខ្លីនៅចុង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 제목은 한 줄로 유지되고 끝에서 잘립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeidsområdetitler vises på én linje og avkortes på slutten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tytuły obszarów roboczych pozostają w jednym wierszu i są ucinane na końcu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os títulos dos espaços de trabalho ficam em uma linha e são truncados no final."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Названия рабочих областей остаются в одной строке и обрезаются в конце."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ชื่อเวิร์กสเปซจะแสดงในบรรทัดเดียวและถูกตัดท้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma alanı başlıkları tek satırda kalır ve sonunda kısaltılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назви робочих областей залишаються в одному рядку й обрізаються в кінці."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区标题保持一行显示，并在末尾截断。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區標題會維持單行顯示，並在結尾截斷。"
+          }
+        }
+      }
+    },
+    "settings.app.wrapWorkspaceTitles.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن لعناوين مساحات العمل الطويلة استخدام أي عدد تحتاجه من الأسطر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dugi naslovi radnih prostora mogu koristiti onoliko redova koliko im treba."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lange arbejdsområdetitler kan bruge så mange linjer, som de har brug for."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lange Arbeitsbereichstitel können so viele Zeilen verwenden, wie sie brauchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Long workspace titles can use as many lines as they need."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los títulos largos de espacios de trabajo pueden usar tantas líneas como necesiten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les titres longs des espaces de travail peuvent utiliser autant de lignes que nécessaire."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I titoli lunghi degli spazi di lavoro possono usare tutte le righe necessarie."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長いワークスペースタイトルは必要な行数で表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំណងជើងកន្លែងធ្វើការដែលវែង អាចប្រើចំនួនបន្ទាត់ដែលត្រូវការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "긴 워크스페이스 제목은 필요한 만큼 여러 줄을 사용할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lange arbeidsområdetitler kan bruke så mange linjer de trenger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Długie tytuły obszarów roboczych mogą zajmować tyle wierszy, ile potrzebują."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Títulos longos de espaços de trabalho podem usar quantas linhas forem necessárias."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Длинные названия рабочих областей могут занимать столько строк, сколько нужно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ชื่อเวิร์กสเปซที่ยาวสามารถใช้กี่บรรทัดก็ได้ตามต้องการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzun çalışma alanı başlıkları ihtiyaç duyduğu kadar satır kullanabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Довгі назви робочих областей можуть займати стільки рядків, скільки потрібно."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "较长的工作区标题可以按需要使用任意行数。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "較長的工作區標題可依需要使用任意行數。"
+          }
+        }
+      }
+    },
     "settings.app.showWorkspaceDescription": {
       "extractionState": "manual",
       "localizations": {
@@ -79154,6 +79529,131 @@
                     "state": "translated",
                     "value": "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail програма загальні параметри поведінка док рядок меню статус бічна панель навігація ліворуч деталі приховати макет Лівий рейл"
                 }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.wrap-workspace-titles": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request مساحة العمل عنوان التفاف متعدد الأسطر طلب سحب الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request radni prostor naslov prelom više redova bočna traka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request arbejdsområde titel ombryd flere linjer sidepanel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request arbeitsbereich titel umbrechen mehrzeilig seitenleiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request espacio de trabajo título ajustar varias líneas barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request espace de travail titre retour ligne multiligne barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request spazio di lavoro titolo a capo multilinea barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request ワークスペース タイトル 折り返し 複数行 PR プルリクエスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request កន្លែងធ្វើការ ចំណងជើង បត់ ច្រើនបន្ទាត់ របារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request 워크스페이스 제목 줄바꿈 여러 줄 사이드바"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request arbeidsområde tittel bryt flere linjer sidepanel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request obszar roboczy tytuł zawijanie wiele wierszy pasek boczny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request espaço de trabalho título quebra várias linhas barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request рабочая область название перенос несколько строк боковая панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request เวิร์กสเปซ ชื่อ ตัดบรรทัด หลายบรรทัด แถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request çalışma alanı başlık kaydır çok satır kenar çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request робоча область назва перенос кілька рядків бічна панель"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request 工作区 标题 换行 多行 边栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request 工作區 標題 換行 多行 側邊欄"
+          }
         }
       }
     },

@@ -579,13 +579,35 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
     func resumeStartupInput(
         fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        allowLauncherScript: Bool = true,
+        allowOversizedInlineInput: Bool = false
     ) -> String? {
         startupInput(
             command: resumeCommand,
             fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory
+            temporaryDirectory: temporaryDirectory,
+            allowLauncherScript: allowLauncherScript,
+            allowOversizedInlineInput: allowOversizedInlineInput
         )
+    }
+
+    func resumeStartupCommand(
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> String? {
+        guard let command = resumeCommand,
+              let scriptURL = AgentResumeScriptStore.writeLauncherScript(
+                  command: command,
+                  kind: kind,
+                  sessionId: sessionId,
+                  fileManager: fileManager,
+                  temporaryDirectory: temporaryDirectory,
+                  returnToLoginShell: true
+              ) else {
+            return nil
+        }
+        return "/bin/zsh \(shellSingleQuoted(scriptURL.path))"
     }
 
     func forkStartupInput(
@@ -605,11 +627,15 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         command: String?,
         fileManager: FileManager,
         temporaryDirectory: URL,
-        allowLauncherScript: Bool = true
+        allowLauncherScript: Bool = true,
+        allowOversizedInlineInput: Bool = false
     ) -> String? {
         guard let command else { return nil }
         let inlineInput = command + "\n"
         guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
+            return inlineInput
+        }
+        guard !allowOversizedInlineInput else {
             return inlineInput
         }
         guard allowLauncherScript else { return nil }
@@ -647,7 +673,8 @@ private enum AgentResumeScriptStore {
         kind: RestorableAgentKind,
         sessionId: String,
         fileManager: FileManager,
-        temporaryDirectory: URL
+        temporaryDirectory: URL,
+        returnToLoginShell: Bool = false
     ) -> URL? {
         let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
         do {
@@ -664,11 +691,16 @@ private enum AgentResumeScriptStore {
                 "\(kind.rawValue)-\(String(safeSessionPrefix))-\(UUID().uuidString).zsh",
                 isDirectory: false
             )
-            let contents = """
-            #!/bin/zsh
-            rm -f -- "$0" 2>/dev/null || true
-            \(command)
-            """
+            var lines = [
+                "#!/bin/zsh",
+                "rm -f -- \"$0\" 2>/dev/null || true"
+            ]
+            if returnToLoginShell {
+                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(command: command))
+            } else {
+                lines.append(command)
+            }
+            let contents = lines.joined(separator: "\n") + "\n"
             try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
             try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: scriptURL.path)
             return scriptURL
