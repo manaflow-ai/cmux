@@ -120,39 +120,55 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         var words: [String] = []
         var current = ""
         var quote: Quote?
-        var escaping = false
+        var hasCurrentWord = false
+        let characters = Array(command)
+        let doubleQuoteEscapable: Set<Character> = ["$", "`", "\"", "\\", "\n"]
 
         func finishWord() {
-            guard !current.isEmpty else { return }
+            guard hasCurrentWord else { return }
             words.append(current)
             current = ""
+            hasCurrentWord = false
         }
 
-        for character in command {
-            if escaping {
-                current.append(character)
-                escaping = false
-                continue
-            }
-            if character == "\\" {
-                escaping = true
-                continue
-            }
+        var index = 0
+        while index < characters.count {
+            let character = characters[index]
             switch (quote, character) {
             case (.single, "'"), (.double, "\""):
                 quote = nil
             case (nil, "'"):
                 quote = .single
+                hasCurrentWord = true
             case (nil, "\""):
                 quote = .double
+                hasCurrentWord = true
+            case (.double, "\\"):
+                if index + 1 < characters.count,
+                   doubleQuoteEscapable.contains(characters[index + 1]) {
+                    current.append(characters[index + 1])
+                    hasCurrentWord = true
+                    index += 2
+                    continue
+                }
+                current.append(character)
+                hasCurrentWord = true
+            case (nil, "\\"):
+                if index + 1 < characters.count {
+                    current.append(characters[index + 1])
+                    hasCurrentWord = true
+                    index += 2
+                    continue
+                }
+                current.append(character)
+                hasCurrentWord = true
             case (nil, " "), (nil, "\t"), (nil, "\n"):
                 finishWord()
             default:
                 current.append(character)
+                hasCurrentWord = true
             }
-        }
-        if escaping {
-            current.append("\\")
+            index += 1
         }
         finishWord()
         return words

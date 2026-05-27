@@ -671,5 +671,11 @@ struct AgentLaunchSanitizerTests {
                 workingDirectory: "/tmp/project"
             ) == ["qoder", "--workspace", "/tmp/other"]
         )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["qoder", "-w", "/tmp/project", "--model", "best"],
+                workingDirectory: "/tmp/project"
+            ) == ["qoder", "--model", "best"]
+        )
     }
 }

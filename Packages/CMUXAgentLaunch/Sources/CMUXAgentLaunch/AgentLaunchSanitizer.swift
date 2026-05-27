@@ -159,7 +159,7 @@ public enum AgentLaunchSanitizer {
             return args
         }
 
-        let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--workspace"]
+        let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--workspace", "-w"]
         let optionPrefixes = valueOptions.map { "\($0)=" }
         var result: [String] = []
         var index = 0

@@ -3843,7 +3843,7 @@ extension SessionPersistenceTests {
 
     func testAgentHookSurfaceResumeBindingDropsDuplicateWorkingDirectoryOption() {
         let binding = SurfaceResumeBindingSnapshot(
-            command: "cd '/tmp/project' && codex resume session --cd '/tmp/project' --model gpt-5.4",
+            command: "cd '/tmp/project' && codex resume session --append-system-prompt 'use C:\\tmp' --cd '/tmp/project' --model gpt-5.4",
             cwd: "/tmp/project",
             source: "agent-hook",
             updatedAt: 1
@@ -3852,7 +3852,7 @@ extension SessionPersistenceTests {
         XCTAssertEqual(
             binding.command,
             TerminalStartupWorkingDirectoryPrefix.prefix(
-                "'codex' 'resume' 'session' '--model' 'gpt-5.4'",
+                "'codex' 'resume' 'session' '--append-system-prompt' 'use C:\\tmp' '--model' 'gpt-5.4'",
                 workingDirectory: "/tmp/project"
             )
         )
