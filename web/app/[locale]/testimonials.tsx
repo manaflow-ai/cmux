@@ -21,16 +21,6 @@ export const testimonials = [
     platform: "x" as const,
   },
   {
-    key: "davidondrej1",
-    name: "David Ondrej",
-    handle: "@DavidOndrej1",
-    avatar: "/avatars/davidondrej1.jpg",
-    text: "> learn cmux\n> trust me",
-    lang: "en",
-    url: "https://x.com/DavidOndrej1/status/2059360111336865901",
-    platform: "x" as const,
-  },
-  {
     key: "schrockn",
     name: "Nick Schrock",
     handle: "@schrockn",
@@ -50,6 +40,16 @@ export const testimonials = [
     text: "I've been using this all weekend and it's amazing.",
     lang: "en",
     url: "https://x.com/egrefen/status/2026806171563184199",
+    platform: "x" as const,
+  },
+  {
+    key: "davidondrej1",
+    name: "David Ondrej",
+    handle: "@DavidOndrej1",
+    avatar: "/avatars/davidondrej1.jpg",
+    text: "> learn cmux\n> trust me",
+    lang: "en",
+    url: "https://x.com/DavidOndrej1/status/2059360111336865901",
     platform: "x" as const,
   },
   {
@@ -331,7 +331,7 @@ export function TestimonialCard({
         {testimonial.text}
       </p>
       {translation && (
-        <p className="text-xs text-muted/60 mt-1.5 italic">
+        <p className="text-xs text-muted/60 mt-1.5 italic whitespace-pre-line">
           {translation}
         </p>
       )}
