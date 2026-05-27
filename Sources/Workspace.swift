@@ -8192,13 +8192,17 @@ final class WorkspaceRemoteSessionController {
             .replacingOccurrences(of: "'", with: " ")
             .replacingOccurrences(of: "\"", with: " ")
         guard normalized.contains(" --persistent") else { return false }
-        let escapedSlot = NSRegularExpression.escapedPattern(for: slot)
-        let pattern = "(^|\\s)--slot(=|\\s+)\(escapedSlot)($|\\s)"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return normalized.contains(" --slot \(slot) ") || normalized.contains(" --slot=\(slot) ")
+        let tokens = normalized.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        for index in tokens.indices {
+            let token = tokens[index]
+            if token == "--slot" {
+                return tokens.indices.contains(index + 1) && tokens[index + 1] == slot
+            }
+            if token.hasPrefix("--slot=") {
+                return String(token.dropFirst("--slot=".count)) == slot
+            }
         }
-        let range = NSRange(normalized.startIndex..<normalized.endIndex, in: normalized)
-        return regex.firstMatch(in: normalized, options: [], range: range) != nil
+        return false
     }
 
     private static func commandContainsDestination(_ command: String, destination: String) -> Bool {
