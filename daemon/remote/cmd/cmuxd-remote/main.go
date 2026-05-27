@@ -402,11 +402,11 @@ func persistentDaemonToken(paths persistentDaemonPaths) (string, error) {
 	}
 	token := hex.EncodeToString(raw)
 
-	tmpPath := filepath.Join(filepath.Dir(paths.tokenFile), fmt.Sprintf(".auth.token.%d.%d.tmp", os.Getpid(), time.Now().UnixNano()))
-	file, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	file, err := os.CreateTemp(filepath.Dir(paths.tokenFile), ".auth.token.*.tmp")
 	if err != nil {
 		return "", err
 	}
+	tmpPath := file.Name()
 	closeOK := false
 	defer func() {
 		if !closeOK {
