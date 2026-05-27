@@ -145,6 +145,7 @@ _cmux_restore_scrollback_once() {
 }
 _cmux_restore_scrollback_once
 _CMUX_CLAUDE_WRAPPER="${_CMUX_CLAUDE_WRAPPER:-}"
+_CMUX_CODEX_WRAPPER="${_CMUX_CODEX_WRAPPER:-}"
 _CMUX_GROK_WRAPPER="${_CMUX_GROK_WRAPPER:-}"
 _cmux_install_cli_wrapper() {
     local command_name="$1"
@@ -172,6 +173,7 @@ _cmux_install_cli_wrapper() {
     eval "$command_name() { \"\${$wrapper_variable}\" \"\$@\"; }"
 }
 _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER
+_cmux_install_cli_wrapper codex _CMUX_CODEX_WRAPPER
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
 _cmux_now() {
     printf '%s\n' "${EPOCHSECONDS:-$SECONDS}"
