@@ -4988,8 +4988,11 @@ extension CMUXCLI {
               min-width: 0;
               position: relative;
               overflow-y: auto;
-              overflow-x: hidden;
+              overflow-x: clip;
               overscroll-behavior: contain;
+              overflow-anchor: none;
+              contain: strict;
+              will-change: scroll-position;
               border-bottom: 1px solid var(--cmux-diff-border);
               background: inherit;
             }
@@ -5014,6 +5017,9 @@ extension CMUXCLI {
               --diffs-font-size: var(--cmux-diff-font-size);
               --diffs-line-height: var(--cmux-diff-line-height);
               --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
+              display: block;
+              overflow: clip;
+              contain: layout paint style;
               box-shadow: 0 -1px 0 var(--cmux-diff-border), 0 1px 0 var(--cmux-diff-border);
             }
             #status {
@@ -5163,7 +5169,6 @@ extension CMUXCLI {
               workerPool = await createCodeViewWorkerPool();
               codeView = new CodeView(codeViewOptions(), workerPool ?? undefined);
               codeView.setup(viewerElement);
-              codeView.render(true);
               setupJumpSelector(diffItems);
               updateToolbarState();
               window.__cmuxDiffViewer = { codeView, items: diffItems, state: appState, workerPool };
@@ -5246,7 +5251,6 @@ extension CMUXCLI {
             function workerHighlighterOptions() {
               return {
                 theme: payload.appearance.theme,
-                langs: [],
                 preferredHighlighter: "shiki-wasm",
                 lineDiffType: appState.wordDiffs ? "word" : "none",
                 maxLineDiffLength: 1000,
@@ -5335,6 +5339,15 @@ extension CMUXCLI {
                   return;
                 }
                 const now = performance.now();
+                if (!force &&
+                    firstRender &&
+                    now - lastYieldAt >= 8 &&
+                    pendingItems.length < batchConfig.initialBatchSize &&
+                    now - lastFlushAt < batchConfig.initialMaxWait) {
+                  await yieldToNextFrame();
+                  lastYieldAt = performance.now();
+                  return;
+                }
                 const batchSize = firstRender ? batchConfig.initialBatchSize : batchConfig.incrementalBatchSize;
                 const maxWait = firstRender ? batchConfig.initialMaxWait : batchConfig.incrementalMaxWait;
                 const shouldFlush = force ||
@@ -5345,10 +5358,6 @@ extension CMUXCLI {
                   await yieldToNextFrame();
                   lastYieldAt = performance.now();
                   return;
-                }
-                if (now - lastYieldAt >= 8) {
-                  await yieldToNextFrame();
-                  lastYieldAt = performance.now();
                 }
               }
 
@@ -5373,8 +5382,7 @@ extension CMUXCLI {
                 }
                 appendJumpOptions(batch);
                 updateDiffStatsFromModel(diffModel);
-                currentTreeSource = createFileTreeSourceFromModel(diffModel);
-                scheduleNavigationRefresh(treesModule, false);
+                scheduleNavigationRefresh(treesModule, false, batch.length);
                 streamMetrics.flushCount += 1;
                 streamMetrics.maxBatchSize = Math.max(streamMetrics.maxBatchSize, batch.length);
                 streamMetrics.fileCount = diffItems.length;
@@ -5398,9 +5406,9 @@ extension CMUXCLI {
                 codeView.render(true);
               }
 
-              function scheduleNavigationRefresh(treesModule, force) {
+              function scheduleNavigationRefresh(treesModule, force, dirtyCount = 1) {
                 navigationRefreshState.treesModule = treesModule;
-                navigationRefreshState.dirtyCount += 1;
+                navigationRefreshState.dirtyCount += dirtyCount;
                 if (force || navigationRefreshState.lastRefreshAt === 0) {
                   refreshNavigation(navigationRefreshState.treesModule);
                   return;
@@ -5428,7 +5436,8 @@ extension CMUXCLI {
                 navigationRefreshState.dirtyCount = 0;
                 navigationRefreshState.lastRefreshAt = performance.now();
                 streamMetrics.treeRefreshCount += 1;
-                refreshFileExplorerSource(currentTreeSource ?? createFileTreeSource(diffItems), treesModule);
+                currentTreeSource = createFileTreeSourceFromModel(diffModel);
+                refreshFileExplorerSource(currentTreeSource, treesModule);
                 updateToolbarState();
                 recordStreamMetrics(streamMetrics);
               }
@@ -5693,20 +5702,27 @@ extension CMUXCLI {
             function yieldToNextFrame() {
               return new Promise((resolve) => {
                 let resolved = false;
+                let timeout = 0;
                 const done = () => {
                   if (resolved) {
                     return;
                   }
                   resolved = true;
+                  if (timeout !== 0) {
+                    window.clearTimeout(timeout);
+                  }
                   resolve();
                 };
-                if (typeof MessageChannel !== "undefined") {
+                if (document.visibilityState === "visible" && document.hasFocus()) {
+                  timeout = window.setTimeout(done, 50);
+                  window.requestAnimationFrame(done);
+                } else if (typeof MessageChannel !== "undefined") {
                   const channel = new MessageChannel();
                   channel.port1.onmessage = done;
                   channel.port2.postMessage(undefined);
+                } else {
+                  queueMicrotask(done);
                 }
-                window.requestAnimationFrame(done);
-                window.setTimeout(done, 16);
               });
             }
 
