@@ -54,6 +54,9 @@ jobs:
       - name: Validate pbxproj test-wiring lint
         run: ./tests/test_ci_pbxproj_test_wiring.sh
 
+      - name: Validate pbxproj objectVersion pin and normalization
+        run: ./scripts/check-pbxproj.sh
+
       # Paused: stale-base merge races (two PRs each fitting the budget can
       # overshoot when merged back-to-back without rebasing). CodeRabbit and
       # Greptile already flag large-file growth on PRs. Re-enable by uncommenting
@@ -281,17 +284,13 @@ jobs:
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               CMUX_SKIP_ZIG_BUILD=1 \
-              -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests \
-              -skip-testing:cmuxTests/BrowserDeveloperToolsConfigurationTests \
+              -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
               -skip-testing:cmuxTests/BrowserDeveloperToolsVisibilityPersistenceTests \
-              -skip-testing:cmuxTests/BrowserPanelRemoteStoreTests \
-              -skip-testing:cmuxTests/BrowserPanelWebViewLifecycleTests \
               -skip-testing:cmuxTests/BrowserSessionHistoryRestoreTests \
               -skip-testing:cmuxTests/CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields \
               -skip-testing:cmuxTests/CLINotifyProcessIntegrationRegressionTests/testGrokNotificationStillFiresOnRepeatedPromptWhenFeedTelemetryDoesNotReply \
               -skip-testing:cmuxTests/FileExplorerStoreTests/testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath \
               -skip-testing:cmuxTests/FilePreviewPanelTextSavingTests \
-              -skip-testing:cmuxTests/FilePreviewReviewFeedbackTests \
               -skip-testing:cmuxTests/GhosttySurfaceOverlayTests \
               test 2>&1 &
             local xcodebuild_pid=$!

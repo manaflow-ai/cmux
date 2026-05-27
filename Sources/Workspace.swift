@@ -517,7 +517,7 @@ extension Workspace {
             ) && Self.shouldReplaySessionScrollback(
                 restorableAgent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
-                resumeStartupInput: resumeStartupInput
+                hasResumeStartupWork: resumeStartupInput != nil
             )
 #if DEBUG
             let allowDebugFallbackScrollback = debugSessionSnapshotScrollbackFallbackPanelIds.contains(panelId)
@@ -785,12 +785,12 @@ extension Workspace {
     nonisolated static func shouldReplaySessionScrollback(
         restorableAgent: SessionRestorableAgentSnapshot?,
         tmuxStartCommand: String? = nil,
-        resumeStartupInput: String? = nil
+        hasResumeStartupWork: Bool = false
     ) -> Bool {
         // Agent restores relaunch from the provider's session ID. Replaying the
-        // old TUI scrollback can print stale launch commands and race the resume input.
+        // old TUI scrollback can print stale launch commands and race resume startup work.
         // OMX HUD panes restore from their tmux start command for the same reason.
-        restorableAgent == nil && restorableTmuxStartCommand(tmuxStartCommand) == nil && resumeStartupInput == nil
+        restorableAgent == nil && restorableTmuxStartCommand(tmuxStartCommand) == nil && !hasResumeStartupWork
     }
 
     nonisolated static func shouldAutoConnectRestoredRemote(
@@ -805,6 +805,25 @@ extension Workspace {
         return !snapshot.panels.contains { $0.terminal != nil }
     }
 
+    nonisolated enum SurfaceResumeStartupLaunch {
+        case command(String)
+        case input(String)
+
+        var initialCommand: String? {
+            if case .command(let command) = self {
+                return command
+            }
+            return nil
+        }
+
+        var initialInput: String? {
+            if case .input(let input) = self {
+                return input
+            }
+            return nil
+        }
+    }
+
     nonisolated static func surfaceResumeStartupInput(
         _ resumeBinding: SurfaceResumeBindingSnapshot?,
         autoResumeAgentSessions: Bool,
@@ -813,6 +832,60 @@ extension Workspace {
         approvalStoreURL: URL = SurfaceResumeApprovalStore.defaultURL(),
         approvalSigningSecret: Data? = nil
     ) -> String? {
+        guard let effectiveBinding = approvedSurfaceResumeBinding(
+            resumeBinding,
+            autoResumeAgentSessions: autoResumeAgentSessions,
+            promptForApproval: promptForApproval,
+            approvalStoreURL: approvalStoreURL,
+            approvalSigningSecret: approvalSigningSecret
+        ) else {
+            return nil
+        }
+        return effectiveBinding.startupInputWithLauncherScript(allowLauncherScript: allowLauncherScript)
+    }
+
+    nonisolated static func surfaceResumeStartupLaunch(
+        _ resumeBinding: SurfaceResumeBindingSnapshot?,
+        autoResumeAgentSessions: Bool,
+        allowLauncherScript: Bool = true,
+        promptForApproval: Bool = true,
+        approvalStoreURL: URL = SurfaceResumeApprovalStore.defaultURL(),
+        approvalSigningSecret: Data? = nil,
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> SurfaceResumeStartupLaunch? {
+        guard let effectiveBinding = approvedSurfaceResumeBinding(
+            resumeBinding,
+            autoResumeAgentSessions: autoResumeAgentSessions,
+            promptForApproval: promptForApproval,
+            approvalStoreURL: approvalStoreURL,
+            approvalSigningSecret: approvalSigningSecret
+        ) else {
+            return nil
+        }
+        if effectiveBinding.isAgentHookBinding,
+           allowLauncherScript,
+           let command = effectiveBinding.startupCommandWithLauncherScript(
+               fileManager: fileManager,
+               temporaryDirectory: temporaryDirectory
+           ) {
+            return .command(command)
+        }
+        guard let input = effectiveBinding.startupInputWithLauncherScript(
+            allowLauncherScript: allowLauncherScript
+        ) else {
+            return nil
+        }
+        return .input(input)
+    }
+
+    nonisolated private static func approvedSurfaceResumeBinding(
+        _ resumeBinding: SurfaceResumeBindingSnapshot?,
+        autoResumeAgentSessions: Bool,
+        promptForApproval: Bool,
+        approvalStoreURL: URL,
+        approvalSigningSecret: Data?
+    ) -> SurfaceResumeBindingSnapshot? {
         guard let resumeBinding else { return nil }
         let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
             to: resumeBinding,
@@ -825,10 +898,10 @@ extension Workspace {
         if effectiveBinding.approvalPolicy == .prompt {
             guard promptForApproval else { return nil }
             guard shouldRunPromptedSurfaceResume(effectiveBinding) else { return nil }
-            return effectiveBinding.startupInputWithLauncherScript(allowLauncherScript: allowLauncherScript)
+            return effectiveBinding
         }
         guard effectiveBinding.allowsAutomaticResume else { return nil }
-        return effectiveBinding.startupInputWithLauncherScript(allowLauncherScript: allowLauncherScript)
+        return effectiveBinding
     }
 
     nonisolated private static func shouldRunPromptedSurfaceResume(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
@@ -1112,20 +1185,28 @@ extension Workspace {
                 (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
                     ? nil
                     : resumeBinding
-            let restoredBindingInput = Self.surfaceResumeStartupInput(
-                resumeBindingForStartup,
-                autoResumeAgentSessions: shouldAutoResumeAgent,
-                allowLauncherScript: true
-            )
-            let effectiveResumeBinding = restoredBindingInput == nil ? nil : resumeBinding
+            let remoteStartupCommand = remoteTerminalStartupCommand()
+            let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if remoteStartupCommand != nil {
+                Self.surfaceResumeStartupInput(
+                    resumeBindingForStartup,
+                    autoResumeAgentSessions: shouldAutoResumeAgent,
+                    allowLauncherScript: false
+                ).map(SurfaceResumeStartupLaunch.input)
+            } else {
+                Self.surfaceResumeStartupLaunch(
+                    resumeBindingForStartup,
+                    autoResumeAgentSessions: shouldAutoResumeAgent,
+                    allowLauncherScript: true
+                )
+            }
+            let effectiveResumeBinding = restoredBindingLaunch == nil ? nil : resumeBinding
             let workingDirectory =
                 effectiveResumeBinding?.cwd
                 ?? snapshot.terminal?.workingDirectory
                 ?? restorableAgent?.workingDirectory
                 ?? snapshot.directory
                 ?? currentDirectory
-            let localWorkingDirectory = remoteTerminalStartupCommand() == nil ? workingDirectory : nil
-            let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingInput == nil
+            let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingLaunch == nil
                 ? Self.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                 : nil
             let restoredTmuxStartupScript = restorableTmuxStartCommand.flatMap {
@@ -1135,24 +1216,56 @@ extension Workspace {
                 )
             }
             let restoredTmuxStartCommand = restoredTmuxStartupScript == nil ? nil : restorableTmuxStartCommand
+            let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
+                if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil {
+                    if remoteStartupCommand != nil {
+                        restorableAgent?.resumeStartupInput(
+                            allowLauncherScript: false,
+                            allowOversizedInlineInput: true
+                        )
+                            .map(SurfaceResumeStartupLaunch.input)
+                    } else {
+                        restorableAgent?.resumeStartupCommand()
+                            .map(SurfaceResumeStartupLaunch.command)
+                    }
+                } else {
+                    nil
+                }
             let shouldReplayScrollback = Self.shouldReplaySessionScrollback(
                 restorableAgent: restorableAgent,
                 tmuxStartCommand: restoredTmuxStartCommand,
-                resumeStartupInput: restoredBindingInput
-            )
-            let restoredAgentResumeInput = shouldAutoResumeAgent && restoredHibernation == nil
-                ? (restoredBindingInput == nil ? restorableAgent?.resumeStartupInput() : nil)
-                : nil
-            let restoredStartupInput = restoredBindingInput ?? restoredAgentResumeInput
-            let restoredAgentWillRunStartupInput = restorableAgent != nil && (
-                restoredAgentResumeInput != nil ||
-                (restoredBindingInput != nil && resumeBinding?.isAgentHookBinding == true)
+                hasResumeStartupWork: restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil
             )
             // Snapshot session IDs belong to the previous app run's remote daemon.
             // Restored persistent SSH terminals start a fresh attach path and replay
             // local scrollback until the new remote PTY is ready.
             let restoredRemotePTYSessionID: String? = nil
             let restoredRemotePTYAttachCommand: String? = nil
+            let restoredStartupCommand =
+                restoredRemotePTYAttachCommand
+                ?? restoredTmuxStartupScript?.path
+                ?? restoredBindingLaunch?.initialCommand
+                ?? restoredAgentResumeLaunch?.initialCommand
+            let restoredStartupInput = restoredRemotePTYAttachCommand == nil
+                ? (restoredBindingLaunch?.initialInput ?? restoredAgentResumeLaunch?.initialInput)
+                : nil
+            let startupHandlesWorkingDirectory =
+                restoredTmuxStartupScript != nil ||
+                restoredAgentResumeLaunch != nil ||
+                (restoredBindingLaunch != nil && resumeBinding?.isAgentHookBinding == true)
+            // Guarded startup commands cd themselves and tolerate deleted saved directories.
+            // Passing the same cwd to Ghostty can fail before the guarded command runs.
+            let localWorkingDirectory = remoteStartupCommand == nil && !startupHandlesWorkingDirectory
+                ? workingDirectory
+                : nil
+            let restoredAgentWillRunStartupCommand = restorableAgent != nil && (
+                restoredAgentResumeLaunch?.initialCommand != nil ||
+                (restoredBindingLaunch?.initialCommand != nil && resumeBinding?.isAgentHookBinding == true)
+            )
+            let restoredAgentWillRunStartupInput = restorableAgent != nil && (
+                restoredAgentResumeLaunch?.initialInput != nil ||
+                (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
+            )
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -1161,7 +1274,7 @@ extension Workspace {
                     "session.restore.agent panel=\(snapshot.id.uuidString.prefix(5)) " +
                     "kind=\(restorableAgent.kind.rawValue) session=\(sessionPreview) " +
                     "hasLaunch=\(restorableAgent.launchCommand == nil ? 0 : 1) " +
-                    "launchArgc=\(launchArgc) hasResume=\(restoredAgentResumeInput == nil ? 0 : 1) " +
+                    "launchArgc=\(launchArgc) hasResume=\(restoredAgentResumeLaunch == nil ? 0 : 1) " +
                     "autoResume=\(autoResumeAgentSessions ? 1 : 0) " +
                     "replayScrollback=\(shouldReplayScrollback ? 1 : 0)"
                 )
@@ -1170,7 +1283,7 @@ extension Workspace {
                 cmuxDebugLog(
                     "session.restore.surfaceResume panel=\(snapshot.id.uuidString.prefix(5)) " +
                     "kind=\(resumeBinding.kind ?? "unknown") source=\(resumeBinding.source ?? "unknown") " +
-                    "hasInput=\(restoredBindingInput == nil ? 0 : 1) " +
+                    "hasLaunch=\(restoredBindingLaunch == nil ? 0 : 1) " +
                     "replayScrollback=\(shouldReplayScrollback ? 1 : 0)"
                 )
             }
@@ -1182,9 +1295,9 @@ extension Workspace {
                 inPane: paneId,
                 focus: false,
                 workingDirectory: localWorkingDirectory,
-                initialCommand: restoredRemotePTYAttachCommand ?? restoredTmuxStartupScript?.path,
+                initialCommand: restoredStartupCommand,
                 tmuxStartCommand: restoredTmuxStartCommand,
-                initialInput: restoredRemotePTYAttachCommand == nil ? restoredStartupInput : nil,
+                initialInput: restoredStartupInput,
                 startupEnvironment: replayEnvironment,
                 remotePTYSessionID: restoredRemotePTYSessionID
             ) else {
@@ -1203,7 +1316,9 @@ extension Workspace {
             }
             if let restorableAgent {
                 restoredAgentSnapshotsByPanelId[terminalPanel.id] = restorableAgent
-                if restoredAgentWillRunStartupInput {
+                if restoredAgentWillRunStartupCommand {
+                    restoredAgentResumeStatesByPanelId[terminalPanel.id] = .autoResumeCommandRunning
+                } else if restoredAgentWillRunStartupInput {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .awaitingAutoResumeCommand
                 } else {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .manualResumeAvailable
