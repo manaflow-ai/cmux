@@ -992,6 +992,60 @@
       "underHoodMore": "A <configLink>documentação de configuração</configLink> normal cobre cmux.json. A restauração de sessão mantém o layout do app separado das configurações de renderização do terminal Ghostty.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
+    },
+    "ssh": {
+      "title": "SSH",
+      "metaTitle": "SSH",
+      "metaDescription": "Connect to remote machines with cmux ssh. Browser panes route through the remote network, images drag-and-drop via scp, and agent notifications come home.",
+      "intro": "cmux ssh creates a workspace for a remote machine. Browser panes route through the remote network, files drag-and-drop via scp, coding agents send notifications to your local sidebar, and sessions reconnect on drops.",
+      "usage": "Usage",
+      "usageDesc": "cmux ssh reads your ~/.ssh/config for host aliases, identity files, and proxy settings. All flags mirror their ssh equivalents.",
+      "flagsTitle": "Flags",
+      "flagName": "Flag",
+      "flagDesc": "Description",
+      "flagNameVal": "Set the workspace title",
+      "flagPort": "SSH port (default 22)",
+      "flagIdentity": "Path to identity file",
+      "flagSshOption": "Pass arbitrary SSH options (e.g. -o StrictHostKeyChecking=no)",
+      "flagNoFocus": "Create the workspace without switching to it",
+      "deepLinksTitle": "SSH deep links",
+      "deepLinksDesc": "Use cmux SSH deep links when a website or tool wants to offer an Open in cmux button. The link opens cmux, shows a confirmation prompt, then runs the equivalent cmux ssh command after the user confirms.",
+      "deepLinksWebFallbackDesc": "Use the cmux.com fallback URL for website buttons. It opens the native link and shows the download if cmux is not installed.",
+      "deepLinksButtonDesc": "Build the fallback URL with URLSearchParams so titles, host aliases, and user names are encoded safely:",
+      "deepLinkParam": "Parameter",
+      "deepLinkMeaning": "Meaning",
+      "deepLinkHost": "Required SSH host or ~/.ssh/config alias.",
+      "deepLinkUser": "Optional SSH user. cmux combines it with host as user@host.",
+      "deepLinkPort": "Optional SSH port, 1 through 65535.",
+      "deepLinkTitle": "Optional workspace title. Use only one of title or name.",
+      "deepLinkConnectTimeout": "Optional ConnectTimeout value in seconds, 1 through 600.",
+      "deepLinkServerAliveInterval": "Optional ServerAliveInterval value in seconds, 1 through 3600.",
+      "deepLinkServerAliveCountMax": "Optional ServerAliveCountMax value, 1 through 100.",
+      "deepLinkHostKeyPolicy": "Optional StrictHostKeyChecking policy: accept-new, ask, strict, or yes.",
+      "deepLinkNoFocus": "Optional boolean. true creates the workspace without switching to it.",
+      "deepLinksSchemeDesc": "Use cmux:// for the stable app, cmux-nightly:// for Nightly, and cmux-dev:// for Debug or tagged dev builds.",
+      "deepLinksSecurityDesc": "External links cannot pass identity files, raw ssh options, commands, ProxyCommand, or forwarding rules. Put keys, ProxyJump, HostName, and advanced options in ~/.ssh/config instead. cmux displays the command preview and requires the user to trust the SSH target before connecting.",
+      "browserTitle": "Browser panes",
+      "browserDesc": "Browser panes in a remote workspace route all HTTP and WebSocket traffic through the remote machine's network. Type localhost:3000 and you're looking at the dev server running on the remote box. No -L flags, no manual port forwarding. Each remote workspace gets an isolated cookie store so sessions are scoped per-connection.",
+      "dragDropTitle": "Drag and drop",
+      "dragDropDesc": "Drag an image or file into a remote terminal and cmux uploads it via scp through the existing SSH connection. cmux detects the foreground SSH process by TTY and routes the upload through ControlMaster multiplexing.",
+      "notificationsTitle": "Notifications",
+      "notificationsDesc": "Processes on the remote machine can run cmux commands that execute on your local instance. When a coding agent calls cmux notify on the remote box, the notification appears in your local sidebar. The blue ring lights up on the workspace tab. Cmd+Shift+U jumps to it. Notification spam from flaky connections is suppressed with a per-host cooldown.",
+      "agentsTitle": "Coding agents over SSH",
+      "agentsDesc": "cmux claude-teams and cmux omo both work inside SSH sessions. The Go relay daemon on the remote host handles the same tmux-compat translation that the local Swift CLI does. Teammate agents spawn as native cmux splits on your local machine while computation runs on the remote box.",
+      "reconnectTitle": "Reconnect",
+      "reconnectDesc": "When the connection drops, cmux reconnects with exponential backoff (3s, 6s, 12s, up to 60s). The remote session persists and cmux reattaches on reconnect, resizing with smallest-screen-wins semantics. Default keepalive options (ServerAliveInterval=20, ServerAliveCountMax=2) are injected unless your config already sets them.",
+      "daemonTitle": "Relay daemon",
+      "daemonDesc": "On first connect, cmux probes the remote host (uname -s, uname -m) and uploads a versioned cmuxd-remote binary. The binary speaks JSON-RPC over stdio and handles three things:",
+      "daemonFeature": "Feature",
+      "daemonHow": "How",
+      "daemonProxy": "Browser traffic proxying",
+      "daemonProxyHow": "SOCKS5 and HTTP CONNECT over the daemon's stdio channel",
+      "daemonRelay": "CLI relay",
+      "daemonRelayHow": "Reverse TCP tunnel with HMAC-SHA256 auth so remote processes can call cmux commands locally",
+      "daemonSession": "Session management",
+      "daemonSessionHow": "Persists sessions across reconnects, coordinates PTY resize across multiple attachments",
+      "daemonPath": "The daemon binary is stored at ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote on the remote host and verified against a SHA-256 manifest embedded in the app."
     }
   },
   "legal": {
@@ -1034,5 +1088,37 @@
   },
   "languageSwitcher": {
     "label": "Idioma"
+  },
+  "deeplink": {
+    "section": "Deeplink",
+    "open": "Open in cmux",
+    "download": "Download cmux",
+    "nativeURL": "Native URL",
+    "missingParams": "This link is missing required parameters: {params}",
+    "duplicateParams": "This link repeats parameters cmux will reject: {params}",
+    "fixParams": "Fix the URL parameters, then reload this page.",
+    "examplePrefix": "See an",
+    "exampleLink": "example link",
+    "ssh": {
+      "metaTitle": "Open SSH in cmux",
+      "metaDescription": "Open a cmux SSH deeplink from the web, with install fallback when cmux is not available.",
+      "title": "Open SSH in cmux",
+      "intro": "This page opens a reviewed cmux SSH link.",
+      "fallback": "If cmux does not open, install cmux and click Open in cmux again."
+    },
+    "prompt": {
+      "metaTitle": "Open Prompt in cmux",
+      "metaDescription": "Open a cmux prompt deeplink from the web, with install fallback when cmux is not available.",
+      "title": "Open Prompt in cmux",
+      "intro": "This page opens a prompt in the current cmux workspace.",
+      "fallback": "cmux shows the prompt first and asks before pasting it into the current workspace. If cmux does not open, install cmux and click Open in cmux again."
+    },
+    "rules": {
+      "metaTitle": "Open Rules in cmux",
+      "metaDescription": "Open a cmux rules deeplink from the web, with install fallback when cmux is not available.",
+      "title": "Open Rules in cmux",
+      "intro": "This page opens rules in the current cmux workspace.",
+      "fallback": "cmux shows the rules first and asks before pasting them into the current workspace. If cmux does not open, install cmux and click Open in cmux again."
+    }
   }
 }
