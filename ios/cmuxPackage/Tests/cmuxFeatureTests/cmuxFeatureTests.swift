@@ -3060,8 +3060,14 @@ private func testRuntime(
     stackAccessToken: String? = "test-stack-token",
     rpcRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultRPCRequestTimeoutNanoseconds,
     pairingRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingRequestTimeoutNanoseconds,
-    now: @escaping @Sendable () -> Date = Date.init
+    now: @escaping @Sendable () -> Date = Date.init,
+    supportsServerPushEvents: Bool = false
 ) -> CMUXMobileRuntime {
+    // Tests script every response and assert on exact request order, so by
+    // default they opt out of the new mobile.events.subscribe activation
+    // step — otherwise the subscribe RPC would swallow scripted responses
+    // meant for the next workspace/snapshot call. New tests that exercise
+    // the event path should pass `supportsServerPushEvents: true`.
     CMUXMobileRuntime(
         supportedRouteKinds: supportedRouteKinds,
         transportFactory: transportFactory,
@@ -3073,7 +3079,8 @@ private func testRuntime(
         },
         rpcRequestTimeoutNanoseconds: rpcRequestTimeoutNanoseconds,
         pairingRequestTimeoutNanoseconds: pairingRequestTimeoutNanoseconds,
-        now: now
+        now: now,
+        supportsServerPushEvents: supportsServerPushEvents
     )
 }
 
@@ -3869,8 +3876,8 @@ private actor RemoteCreateWorkspaceRouter: RequestAwareTransportRouter {
 
 private actor RequestAwareTransport: CmxByteTransport {
     private let router: any RequestAwareTransportRouter
-    private var pendingRequests: [RecordedRPCRequest] = []
-    private var receiveWaiters: [CheckedContinuation<RecordedRPCRequest?, Never>] = []
+    private var pendingResponses: [Data] = []
+    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
     private var isClosed = false
 
     init(router: any RequestAwareTransportRouter) {
@@ -3880,13 +3887,15 @@ private actor RequestAwareTransport: CmxByteTransport {
     func connect() async throws {}
 
     func receive() async throws -> Data? {
-        guard let request = await nextRequest() else {
+        if !pendingResponses.isEmpty {
+            return pendingResponses.removeFirst()
+        }
+        if isClosed {
             return nil
         }
-        guard let response = try await router.response(for: request) else {
-            return nil
+        return await withCheckedContinuation { continuation in
+            receiveWaiters.append(continuation)
         }
-        return try responseFrame(response, matching: request)
     }
 
     func send(_ data: Data) async throws {
@@ -3895,7 +3904,20 @@ private actor RequestAwareTransport: CmxByteTransport {
         for payload in payloads {
             let request = try recordedRPCRequest(from: payload)
             await router.record(request)
-            enqueue(request)
+            // Process each request concurrently so a router that blocks one
+            // request (e.g. a delayed terminal.create) doesn't head-of-line
+            // block subsequent RPCs the persistent transport sends. Matches
+            // the Mac-side semantics we'd want once respond() goes
+            // concurrent on a single connection.
+            Task { [router, weak self] in
+                guard let response = try? await router.response(for: request) else {
+                    return
+                }
+                guard let stamped = try? responseFrame(response, matching: request) else {
+                    return
+                }
+                await self?.deliver(stamped)
+            }
         }
     }
 
@@ -3908,24 +3930,12 @@ private actor RequestAwareTransport: CmxByteTransport {
         }
     }
 
-    private func nextRequest() async -> RecordedRPCRequest? {
-        if !pendingRequests.isEmpty {
-            return pendingRequests.removeFirst()
-        }
-        if isClosed {
-            return nil
-        }
-        return await withCheckedContinuation { continuation in
-            receiveWaiters.append(continuation)
-        }
-    }
-
-    private func enqueue(_ request: RecordedRPCRequest) {
-        if receiveWaiters.isEmpty {
-            pendingRequests.append(request)
+    private func deliver(_ response: Data) {
+        if let waiter = receiveWaiters.first {
+            receiveWaiters.removeFirst()
+            waiter.resume(returning: response)
         } else {
-            let waiter = receiveWaiters.removeFirst()
-            waiter.resume(returning: request)
+            pendingResponses.append(response)
         }
     }
 }

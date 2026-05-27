@@ -250,6 +250,12 @@ public struct CMUXMobileRuntime: Sendable {
     public var rpcRequestTimeoutNanoseconds: UInt64
     public var pairingRequestTimeoutNanoseconds: UInt64
     public var now: @Sendable () -> Date
+    /// When false, `MobileShellStore` skips the `mobile.events.subscribe`
+    /// activation step and goes straight to the legacy 750ms poll. Tests
+    /// that drive scripted transport responses set this off so the new
+    /// subscribe RPC doesn't consume a scripted response intended for a
+    /// regular method. Production sets it on (the default).
+    public var supportsServerPushEvents: Bool
 
     private static var defaultStackAccessTokenProvider: @Sendable () async throws -> String {
         {
@@ -268,7 +274,8 @@ public struct CMUXMobileRuntime: Sendable {
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultRPCRequestTimeoutNanoseconds,
         pairingRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingRequestTimeoutNanoseconds,
-        now: @escaping @Sendable () -> Date = Date.init
+        now: @escaping @Sendable () -> Date = Date.init,
+        supportsServerPushEvents: Bool = true
     ) {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
@@ -276,6 +283,7 @@ public struct CMUXMobileRuntime: Sendable {
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
         self.now = now
+        self.supportsServerPushEvents = supportsServerPushEvents
     }
 
     public init(
@@ -283,13 +291,15 @@ public struct CMUXMobileRuntime: Sendable {
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultRPCRequestTimeoutNanoseconds,
         pairingRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingRequestTimeoutNanoseconds,
-        now: @escaping @Sendable () -> Date = Date.init
+        now: @escaping @Sendable () -> Date = Date.init,
+        supportsServerPushEvents: Bool = true
     ) {
         self.supportedRouteKinds = transportFactory.supportedKinds
         self.transportFactory = transportFactory
         self.stackAccessTokenProvider = stackAccessTokenProvider ?? Self.defaultStackAccessTokenProvider
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
+        self.supportsServerPushEvents = supportsServerPushEvents
         self.now = now
     }
 }
@@ -1824,8 +1834,14 @@ public final class CMUXMobileShellStore {
         // Prefer the Mac's `terminal.updated` push events over polling. We
         // start a single coordinator that tries to subscribe; only if the
         // Mac is too old to advertise the `events.v1` capability do we
-        // fall back to the 750ms refresh loop.
+        // fall back to the 750ms refresh loop. Runtimes that opt out of
+        // push events (e.g. scripted-transport tests that expect exactly
+        // one response per request) skip subscribe entirely.
         guard terminalEventListenerTask == nil, terminalRefreshPollTask == nil else { return }
+        guard runtime?.supportsServerPushEvents ?? true else {
+            startLegacyTerminalRefreshPolling()
+            return
+        }
         terminalEventListenerTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let supportsEvents = await self.tryActivateTerminalUpdates(via: client)
@@ -1849,12 +1865,21 @@ public final class CMUXMobileShellStore {
             mobileShellLog.error("subscribe payload encode failed: \(String(describing: error), privacy: .private)")
             return false
         }
+        let responseData: Data
         do {
-            _ = try await client.sendRequest(requestData)
+            responseData = try await client.sendRequest(requestData)
         } catch let MobileShellConnectionError.rpcError(code, _) where code == "method_not_found" {
             return false
         } catch {
             mobileShellLog.error("subscribe failed, falling back to poll: \(String(describing: error), privacy: .private)")
+            return false
+        }
+        // Require a well-formed subscribe ack ({"stream_id": "..."}) so we
+        // don't latch onto a stray response from a Mac that doesn't know
+        // about events.v1. Anything else means the request reached an old
+        // handler and shouldn't activate the event path.
+        let responseObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+        guard let object = responseObject, (object["stream_id"] as? String)?.isEmpty == false else {
             return false
         }
         // Listen for events; refresh on each one. The stream finishes when
@@ -2984,6 +3009,12 @@ private actor MobileCoreRPCSession {
     private var pending: [String: PendingContinuation] = [:]
     private var listeners: [UUID: EventListener] = [:]
     private var isTearingDown: Bool = false
+    /// Pending writes drained by `writerTask`. Serializes `transport.send` so
+    /// two concurrent `send(payload:requestID:)` callers never trip
+    /// `CmxNetworkByteTransport.sendAlreadyInProgress`. AsyncStream backed so
+    /// the writer parks on `await` instead of polling.
+    private var writeQueue: AsyncStream<Data>.Continuation?
+    private var writerTask: Task<Void, Never>?
 
     init(makeTransport: @escaping TransportFactory) {
         self.makeTransport = makeTransport
@@ -2991,24 +3022,27 @@ private actor MobileCoreRPCSession {
 
     deinit {
         readerTask?.cancel()
+        writerTask?.cancel()
+        writeQueue?.finish()
     }
 
     func send(payload: Data, requestID: String) async throws -> Data {
-        let transport = try await ensureConnected()
+        _ = try await ensureConnected()
         let frame = try MobileSyncFrameCodec.encodeFrame(payload)
 
         let result: Result<Data, MobileShellConnectionError> = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                // Register BEFORE sending so a fast response can't race past us.
+                // Register BEFORE handing the frame to the writer so a fast
+                // response can't race past us. Writer pulls frames serially
+                // from `writeQueue`, so concurrent senders never overlap a
+                // `transport.send()` call.
                 pending[requestID] = continuation
-                Task {
-                    do {
-                        try await transport.send(frame)
-                    } catch {
-                        await self.failPending(requestID: requestID, error: .connectionClosed)
-                        await self.tearDown(error: .connectionClosed)
-                    }
+                guard let queue = writeQueue else {
+                    pending.removeValue(forKey: requestID)
+                    continuation.resume(returning: .failure(.connectionClosed))
+                    return
                 }
+                _ = queue.yield(frame)
             }
         } onCancel: {
             Task {
@@ -3054,6 +3088,13 @@ private actor MobileCoreRPCSession {
         for (_, listener) in listenerSnapshot {
             listener.continuation.finish()
         }
+        // Stop the writer loop before closing the transport so we don't try to
+        // write into a half-closed socket and never trigger
+        // sendAlreadyInProgress on a torn-down state.
+        writeQueue?.finish()
+        writeQueue = nil
+        writerTask?.cancel()
+        writerTask = nil
         if let transport {
             await transport.close()
         }
@@ -3070,10 +3111,32 @@ private actor MobileCoreRPCSession {
         let candidate = try makeTransport()
         try await candidate.connect()
         transport = candidate
+        // Reader: dispatches inbound frames by id (response) or topic (event).
         readerTask = Task { [weak self] in
             await self?.readLoop(transport: candidate)
         }
+        // Writer: drains queued frames one at a time so concurrent send()
+        // callers don't trigger CmxNetworkByteTransport.sendAlreadyInProgress.
+        // Failures tear the whole session down which fails every pending
+        // continuation.
+        let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
+        writeQueue = continuation
+        writerTask = Task { [weak self] in
+            await self?.writeLoop(transport: candidate, frames: stream)
+        }
         return candidate
+    }
+
+    private func writeLoop(transport: any CmxByteTransport, frames: AsyncStream<Data>) async {
+        for await frame in frames {
+            if Task.isCancelled { return }
+            do {
+                try await transport.send(frame)
+            } catch {
+                await tearDown(error: .connectionClosed)
+                return
+            }
+        }
     }
 
     private func readLoop(transport: any CmxByteTransport) async {
