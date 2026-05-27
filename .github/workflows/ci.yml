@@ -290,7 +290,6 @@ jobs:
               -skip-testing:cmuxTests/CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields \
               -skip-testing:cmuxTests/CLINotifyProcessIntegrationRegressionTests/testGrokNotificationStillFiresOnRepeatedPromptWhenFeedTelemetryDoesNotReply \
               -skip-testing:cmuxTests/FileExplorerStoreTests/testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath \
-              -skip-testing:cmuxTests/FilePreviewPanelTextSavingTests \
               -skip-testing:cmuxTests/GhosttySurfaceOverlayTests \
               test 2>&1 &
             local xcodebuild_pid=$!
