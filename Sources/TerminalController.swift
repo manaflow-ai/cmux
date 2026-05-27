@@ -3740,6 +3740,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugTextBoxInteract(params: params))
         case "debug.app.activate":
             return v2Result(id: id, self.v2DebugActivateApp())
+        case "debug.cef_browser.open":
+            return v2Result(id: id, self.v2DebugOpenCEFBrowserDebugWindow())
         case "debug.command_palette.toggle":
             return v2Result(id: id, self.v2DebugToggleCommandPalette(params: params))
         case "debug.command_palette.rename_tab.open":
@@ -4015,6 +4017,7 @@ class TerminalController {
             "debug.textbox.inline_fixture",
             "debug.textbox.interact",
             "debug.app.activate",
+            "debug.cef_browser.open",
             "debug.command_palette.toggle",
             "debug.command_palette.rename_tab.open",
             "debug.command_palette.visible",
@@ -15134,6 +15137,13 @@ class TerminalController {
     private func v2DebugActivateApp() -> V2CallResult {
         let resp = activateApp()
         return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    private func v2DebugOpenCEFBrowserDebugWindow() -> V2CallResult {
+        v2MainSync {
+            CMUXCEFBrowserDebugWindowController.shared.show()
+        }
+        return .ok([:])
     }
 
     private func v2DebugToggleCommandPalette(params: [String: Any]) -> V2CallResult {

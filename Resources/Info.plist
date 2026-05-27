@@ -80,7 +80,7 @@
 		</dict>
 	</array>
 	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
+	<string>CMUXCEFApplication</string>
 	<key>NSAppleScriptEnabled</key>
 	<true/>
 	<key>OSAScriptingDefinition</key>

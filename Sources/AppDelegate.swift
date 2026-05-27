@@ -930,6 +930,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // Set to true when the user has already confirmed quit via the warning dialog,
     // so applicationShouldTerminate does not show a second alert.
     private var isQuitWarningConfirmed = false
+    private var isFlushingCEFBeforeTerminate = false
+    private var didFlushCEFBeforeTerminate = false
     private var didInstallLifecycleSnapshotObservers = false
     private var didDisableSuddenTermination = false
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
@@ -1612,6 +1614,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 reason = "policy"
             }
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
+            if flushCEFBeforeTerminateIfNeeded(sender: sender, completion: {
+                sender.reply(toApplicationShouldTerminate: true)
+            }) {
+                return .terminateLater
+            }
             return .terminateNow
         }
 
@@ -1637,6 +1644,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.isQuitWarningConfirmed = true
                 self.closeAllWebInspectorsBeforeAppTeardown()
                 StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
+                if self.flushCEFBeforeTerminateIfNeeded(sender: sender, completion: {
+                    sender.reply(toApplicationShouldTerminate: true)
+                }) {
+                    return
+                }
             } else {
                 // Reset so that the next quit attempt can show the dialog again.
                 self.isTerminatingApp = false
@@ -1646,6 +1658,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
+    }
+
+    private func flushCEFBeforeTerminateIfNeeded(
+        sender _: NSApplication,
+        completion: @escaping () -> Void
+    ) -> Bool {
+        guard CMUXCEFIsInitialized(), !didFlushCEFBeforeTerminate else {
+            return false
+        }
+        guard !isFlushingCEFBeforeTerminate else {
+            return true
+        }
+
+        isFlushingCEFBeforeTerminate = true
+        StartupBreadcrumbLog.append("appDelegate.shouldTerminate.cefFlush.begin")
+        CMUXCEFFlushBrowserState { [weak self] in
+            guard let self else {
+                completion()
+                return
+            }
+            self.didFlushCEFBeforeTerminate = true
+            self.isFlushingCEFBeforeTerminate = false
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.cefFlush.complete")
+            completion()
+        }
+        return true
     }
 
     private func hasQuitConfirmationDirtyWorkspaces() -> Bool {
@@ -1693,6 +1731,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         GhosttyPasteboardHelper.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
+        if CMUXCEFIsInitialized() {
+            CMUXCEFShutdown()
+        }
         if TelemetrySettings.enabledForCurrentLaunch {
             PostHogAnalytics.shared.flush()
         }

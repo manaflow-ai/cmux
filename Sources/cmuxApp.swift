@@ -35,6 +35,11 @@ struct cmuxApp: App {
         CLIForwardingLaunchRouter.forwardToBundledCLIIfNeeded()
 
         StartupBreadcrumbLog.append("app.init.begin")
+        let preparedCEFApplication = CMUXCEFPrepareApplication()
+        StartupBreadcrumbLog.append(
+            "app.init.cefApplication.prepared",
+            fields: ["prepared": preparedCEFApplication ? "1" : "0"]
+        )
         UITestLaunchManifest.applyIfPresent()
         StartupBreadcrumbLog.append("app.init.uiTestManifest.applied")
 
@@ -42,6 +47,14 @@ struct cmuxApp: App {
             StartupBreadcrumbLog.append("app.init.blockUntaggedDebugLaunch")
             Self.terminateForMissingLaunchTag()
         }
+
+        let cefRuntimeAvailable = preparedCEFApplication && CMUXCEFIsRuntimeAvailable()
+        StartupBreadcrumbLog.append(
+            "app.init.cefRuntime.available",
+            fields: [
+                "available": cefRuntimeAvailable ? "1" : "0"
+            ]
+        )
 
         Self.configureGhosttyEnvironment()
         StartupBreadcrumbLog.append("app.init.ghosttyEnvironment.configured")
@@ -432,6 +445,14 @@ struct cmuxApp: App {
                         )
                     ) {
                         TitlebarLayoutDebugWindowController.shared.show()
+                    }
+                    Button(
+                        String(
+                            localized: "debug.menu.cefBrowserDebug",
+                            defaultValue: "CEF Browser Debug..."
+                        )
+                    ) {
+                        CMUXCEFBrowserDebugWindowController.shared.show()
                     }
                     Button("Sidebar Debug…") {
                         SidebarDebugWindowController.shared.show()
@@ -1158,6 +1179,7 @@ struct cmuxApp: App {
         FeedTextEditorDebugWindowController.shared.show()
         FeedButtonStyleDebugWindowController.shared.show()
         BonsplitTabBarDebugWindowController.shared.show()
+        CMUXCEFBrowserDebugWindowController.shared.show()
     }
 #endif
 }
@@ -1185,6 +1207,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.licenses",
     "cmux.browser-popup",
     "cmux.browserProfilePopoverDebug",
+    "cmux.cefBrowserDebug",
     "cmux.configEditor",
     "cmux.feedButtonStyleDebug",
     "cmux.feedPreview",
