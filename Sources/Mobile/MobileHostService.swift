@@ -68,7 +68,8 @@ private enum MobileHostPublicStatusCache {
         lock.unlock()
         return .ok([
             "routes": cachedRoutes.map(\.mobileHostJSONObject),
-            "snapshot_fidelity": "plain_text"
+            "snapshot_fidelity": "plain_text",
+            "capabilities": ["events.v1"],
         ])
     }
 }
