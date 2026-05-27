@@ -1,6 +1,6 @@
-# cmux Swift Sidebar File
+# cmux Custom Sidebar
 
-Right-click the sidebar icon in cmux and choose **Load Swift Sidebar...**.
+Right-click the sidebar icon in cmux and choose **Load Custom Sidebar**.
 Select `CompactUnreadSidebar.swift`.
 
 cmux builds only a small SwiftPM wrapper for the selected file. The app itself
@@ -12,6 +12,16 @@ try CmuxExtensionSidebarExecutable.run(provider: MyProvider())
 
 The executable receives `CmuxExtensionSidebarSnapshot` JSON on stdin and returns
 `CmuxExtensionSidebarRenderModel` JSON on stdout through `CmuxExtensionKit`.
+
+You can also load it from the CLI:
+
+```bash
+cmux custom-sidebar load Examples/CmuxUserSwiftSidebar/CompactUnreadSidebar.swift
+```
+
+cmux imports loaded sources into `~/.config/cmux/sidebars/`. A folder can contain
+multiple `.swift` files when it includes either `main.swift` or an `@main` entry
+point.
 
 Optional compile check:
 

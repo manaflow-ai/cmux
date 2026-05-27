@@ -5,10 +5,16 @@ import UniformTypeIdentifiers
 
 struct CmuxUserSwiftSidebarRecord: Codable, Equatable, Sendable {
     var sourcePath: String
+    var sourceKind: CmuxUserSwiftSidebarSourceKind?
     var sourceModificationTime: Date?
     var packageDirectoryPath: String
     var executablePath: String
     var descriptor: CmuxExtensionSidebarProviderDescriptor
+}
+
+enum CmuxUserSwiftSidebarSourceKind: String, Codable, Equatable, Sendable {
+    case swiftFile
+    case directory
 }
 
 struct CmuxUserSwiftSidebarProvider: CmuxExtensionSidebarMutableProvider {
@@ -70,13 +76,13 @@ struct CmuxUserSwiftSidebarProvider: CmuxExtensionSidebarMutableProvider {
         let trimmed = message
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty
-            ?? String(localized: "sidebar.extension.swift.errorUnknown", defaultValue: "Swift sidebar failed.")
+            ?? String(localized: "sidebar.extension.swift.errorUnknown", defaultValue: "Custom sidebar failed.")
         let shortMessage = String(trimmed.prefix(180))
         let section = CmuxExtensionSidebarRenderSection(
             id: "swift-sidebar-error",
             treeSection: CmuxExtensionWorkspaceTreeSection(
                 id: "swift-sidebar-error",
-                title: String(localized: "sidebar.extension.swift.errorSection", defaultValue: "Swift Sidebar Error"),
+                title: String(localized: "sidebar.extension.swift.errorSection", defaultValue: "Custom Sidebar Error"),
                 subtitle: nil,
                 systemImageName: "exclamationmark.triangle",
                 projectRootPath: nil,
@@ -124,22 +130,22 @@ enum CmuxUserSwiftSidebarRegistry {
     @MainActor
     static func presentOpenPanelAndLoad(defaults: UserDefaults = .standard) {
         let panel = NSOpenPanel()
-        panel.title = String(localized: "sidebar.extension.swift.openPanel.title", defaultValue: "Load Swift Sidebar")
+        panel.title = String(localized: "sidebar.extension.swift.openPanel.title", defaultValue: "Load Custom Sidebar")
         panel.message = String(
             localized: "sidebar.extension.swift.openPanel.message",
-            defaultValue: "Choose a Swift file that renders a CmuxExtensionKit sidebar."
+            defaultValue: "Choose a Swift file or folder that renders a CmuxExtensionKit sidebar."
         )
-        panel.canChooseDirectories = false
+        panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
         if let swiftType = UTType(filenameExtension: "swift") {
-            panel.allowedContentTypes = [swiftType]
+            panel.allowedContentTypes = [swiftType, .folder]
         }
 
         panel.begin { response in
             guard response == .OK, let sourceURL = panel.url else { return }
             Task { @MainActor in
-                await loadSource(sourceURL, defaults: defaults)
+                await loadSource(sourceURL, defaults: defaults, replacingProviderId: nil)
             }
         }
     }
@@ -148,7 +154,7 @@ enum CmuxUserSwiftSidebarRegistry {
     static func reload(providerId: String, defaults: UserDefaults = .standard) {
         guard let existing = record(providerId: providerId, defaults: defaults) else { return }
         Task { @MainActor in
-            await loadSource(URL(fileURLWithPath: existing.sourcePath), defaults: defaults)
+            await loadSource(URL(fileURLWithPath: existing.sourcePath), defaults: defaults, replacingProviderId: providerId)
         }
     }
 
@@ -162,21 +168,42 @@ enum CmuxUserSwiftSidebarRegistry {
     }
 
     @MainActor
-    private static func loadSource(_ sourceURL: URL, defaults: UserDefaults) async {
+    static func loadSourceForCLI(_ sourceURL: URL, defaults: UserDefaults = .standard) async throws -> CmuxUserSwiftSidebarRecord {
+        let record = try await Task.detached(priority: .userInitiated) {
+            try CmuxUserSwiftSidebarBuilder.build(sourceURL: sourceURL)
+        }.value
+        upsert(record, replacingProviderId: nil, defaults: defaults)
+        CmuxExtensionSidebarSelection.setProviderId(record.descriptor.id, defaults: defaults)
+        return record
+    }
+
+    @MainActor
+    private static func loadSource(
+        _ sourceURL: URL,
+        defaults: UserDefaults,
+        replacingProviderId: String?
+    ) async {
         do {
             let record = try await Task.detached(priority: .userInitiated) {
                 try CmuxUserSwiftSidebarBuilder.build(sourceURL: sourceURL)
             }.value
-            upsert(record, defaults: defaults)
+            upsert(record, replacingProviderId: replacingProviderId, defaults: defaults)
             CmuxExtensionSidebarSelection.setProviderId(record.descriptor.id, defaults: defaults)
         } catch {
             presentError(error)
         }
     }
 
-    private static func upsert(_ record: CmuxUserSwiftSidebarRecord, defaults: UserDefaults) {
+    private static func upsert(
+        _ record: CmuxUserSwiftSidebarRecord,
+        replacingProviderId: String?,
+        defaults: UserDefaults
+    ) {
         var records = records(defaults: defaults)
-        if let index = records.firstIndex(where: { $0.descriptor.id == record.descriptor.id }) {
+        if let replacingProviderId,
+           let index = records.firstIndex(where: { $0.descriptor.id == replacingProviderId }) {
+            records[index] = record
+        } else if let index = records.firstIndex(where: { $0.descriptor.id == record.descriptor.id }) {
             records[index] = record
         } else {
             records.append(record)
@@ -195,7 +222,7 @@ enum CmuxUserSwiftSidebarRegistry {
         alert.alertStyle = .warning
         alert.messageText = String(
             localized: "sidebar.extension.swift.loadFailed.title",
-            defaultValue: "Could Not Load Swift Sidebar"
+            defaultValue: "Could Not Load Custom Sidebar"
         )
         alert.informativeText = error.localizedDescription
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
@@ -205,13 +232,8 @@ enum CmuxUserSwiftSidebarRegistry {
 
 enum CmuxUserSwiftSidebarBuilder {
     static func build(sourceURL: URL) throws -> CmuxUserSwiftSidebarRecord {
-        let sourceURL = sourceURL.standardizedFileURL
-        guard sourceURL.pathExtension == "swift" else {
-            throw CmuxUserSwiftSidebarError.invalidSourceExtension
-        }
-        guard FileManager.default.isReadableFile(atPath: sourceURL.path) else {
-            throw CmuxUserSwiftSidebarError.sourceUnavailable(sourceURL.path)
-        }
+        let preparedSource = try prepareSource(sourceURL.standardizedFileURL)
+        let sourceURL = preparedSource.url
 
         let sourceHash = stableHash(sourceURL.path)
         let packageDirectory = try buildRoot()
@@ -223,12 +245,15 @@ enum CmuxUserSwiftSidebarBuilder {
         let targetDirectory = packageDirectory
             .appendingPathComponent("Sources", isDirectory: true)
             .appendingPathComponent("CmuxUserSidebarExtension", isDirectory: true)
+        if FileManager.default.fileExists(atPath: packageDirectory.path) {
+            try FileManager.default.removeItem(at: packageDirectory)
+        }
         try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: scratchDirectory, withIntermediateDirectories: true)
 
         let packagePath = try cmuxExtensionKitPackageURL()
         try writePackageManifest(packageDirectory: packageDirectory, cmuxExtensionKitPackageURL: packagePath)
-        try copySource(sourceURL, into: targetDirectory)
+        try copySource(preparedSource, into: targetDirectory)
 
         _ = try CmuxUserSwiftSidebarProcess.run(
             executableURL: URL(fileURLWithPath: "/usr/bin/xcrun"),
@@ -286,21 +311,34 @@ enum CmuxUserSwiftSidebarBuilder {
         if descriptor.subtitle == nil {
             descriptor.subtitle = CmuxExtensionLocalizedText(
                 key: "sidebar.extension.swift.descriptorSubtitle",
-                defaultValue: "Swift file"
+                defaultValue: "Custom sidebar"
             )
         }
 
-        let sourceModificationTime = try? sourceURL
-            .resourceValues(forKeys: [.contentModificationDateKey])
-            .contentModificationDate
+        let sourceModificationTime = try latestModificationDate(for: preparedSource)
 
         return CmuxUserSwiftSidebarRecord(
             sourcePath: sourceURL.path,
+            sourceKind: preparedSource.kind,
             sourceModificationTime: sourceModificationTime,
             packageDirectoryPath: packageDirectory.path,
             executablePath: executableURL.path,
             descriptor: descriptor
         )
+    }
+
+    static func standardSourceRoot() throws -> URL {
+        let root = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("sidebars", isDirectory: true)
+            .standardizedFileURL
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    static func standardSourceRootDisplayPath() -> String {
+        "~/.config/cmux/sidebars"
     }
 
     private static func buildRoot() throws -> URL {
@@ -376,16 +414,200 @@ enum CmuxUserSwiftSidebarBuilder {
         )
     }
 
-    private static func copySource(_ sourceURL: URL, into targetDirectory: URL) throws {
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
-        let fileName = source.contains("@main") ? "UserSidebar.swift" : "main.swift"
-        let destination = targetDirectory.appendingPathComponent(fileName, isDirectory: false)
-        try source.write(to: destination, atomically: true, encoding: .utf8)
-        let staleFileName = fileName == "main.swift" ? "UserSidebar.swift" : "main.swift"
-        let staleURL = targetDirectory.appendingPathComponent(staleFileName, isDirectory: false)
-        if FileManager.default.fileExists(atPath: staleURL.path) {
-            try FileManager.default.removeItem(at: staleURL)
+    private struct PreparedSource {
+        var url: URL
+        var kind: CmuxUserSwiftSidebarSourceKind
+    }
+
+    private static func prepareSource(_ sourceURL: URL) throws -> PreparedSource {
+        let kind = try sourceKind(for: sourceURL)
+        let standardizedRoot = try standardSourceRoot()
+        if isDescendant(sourceURL, of: standardizedRoot) {
+            return PreparedSource(url: sourceURL, kind: kind)
         }
+
+        let importedURL = try importSource(sourceURL, kind: kind, into: standardizedRoot)
+        return PreparedSource(url: importedURL, kind: kind)
+    }
+
+    private static func sourceKind(for sourceURL: URL) throws -> CmuxUserSwiftSidebarSourceKind {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: sourceURL.path, isDirectory: &isDirectory) else {
+            throw CmuxUserSwiftSidebarError.sourceUnavailable(sourceURL.path)
+        }
+        if isDirectory.boolValue {
+            guard FileManager.default.isReadableFile(atPath: sourceURL.path) else {
+                throw CmuxUserSwiftSidebarError.sourceUnavailable(sourceURL.path)
+            }
+            return .directory
+        }
+        guard sourceURL.pathExtension == "swift" else {
+            throw CmuxUserSwiftSidebarError.invalidSource
+        }
+        guard FileManager.default.isReadableFile(atPath: sourceURL.path) else {
+            throw CmuxUserSwiftSidebarError.sourceUnavailable(sourceURL.path)
+        }
+        return .swiftFile
+    }
+
+    private static func importSource(
+        _ sourceURL: URL,
+        kind: CmuxUserSwiftSidebarSourceKind,
+        into root: URL
+    ) throws -> URL {
+        let sourceName = sourceURL.deletingPathExtension().lastPathComponent.nilIfEmpty
+            ?? sourceURL.lastPathComponent.nilIfEmpty
+            ?? "sidebar"
+        let targetDirectory = root
+            .appendingPathComponent("\(safePathComponent(sourceName))-\(stableHash(sourceURL.path))", isDirectory: true)
+        if FileManager.default.fileExists(atPath: targetDirectory.path) {
+            try FileManager.default.removeItem(at: targetDirectory)
+        }
+        try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
+
+        switch kind {
+        case .swiftFile:
+            let source = try String(contentsOf: sourceURL, encoding: .utf8)
+            let fileName = source.contains("@main") ? "UserSidebar.swift" : "main.swift"
+            let destination = targetDirectory.appendingPathComponent(fileName, isDirectory: false)
+            try source.write(to: destination, atomically: true, encoding: .utf8)
+            return destination
+        case .directory:
+            let swiftFiles = try swiftSourceFiles(in: sourceURL)
+            guard !swiftFiles.isEmpty else {
+                throw CmuxUserSwiftSidebarError.noSwiftSources(sourceURL.path)
+            }
+            for sourceFile in swiftFiles {
+                let relative = relativePath(from: sourceURL, to: sourceFile)
+                let destination = targetDirectory.appendingPathComponent(relative, isDirectory: false)
+                try FileManager.default.createDirectory(
+                    at: destination.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try FileManager.default.copyItem(at: sourceFile, to: destination)
+            }
+            return targetDirectory
+        }
+    }
+
+    private static func copySource(_ preparedSource: PreparedSource, into targetDirectory: URL) throws {
+        switch preparedSource.kind {
+        case .swiftFile:
+            let source = try String(contentsOf: preparedSource.url, encoding: .utf8)
+            let fileName = source.contains("@main") ? "UserSidebar.swift" : "main.swift"
+            let destination = targetDirectory.appendingPathComponent(fileName, isDirectory: false)
+            try source.write(to: destination, atomically: true, encoding: .utf8)
+        case .directory:
+            let swiftFiles = try swiftSourceFiles(in: preparedSource.url)
+            guard !swiftFiles.isEmpty else {
+                throw CmuxUserSwiftSidebarError.noSwiftSources(preparedSource.url.path)
+            }
+            try validateDirectoryEntrypoint(sourceURL: preparedSource.url, swiftFiles: swiftFiles)
+            for sourceFile in swiftFiles {
+                let relative = relativePath(from: preparedSource.url, to: sourceFile)
+                let destination = targetDirectory.appendingPathComponent(relative, isDirectory: false)
+                try FileManager.default.createDirectory(
+                    at: destination.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try FileManager.default.copyItem(at: sourceFile, to: destination)
+            }
+        }
+    }
+
+    private static func validateDirectoryEntrypoint(sourceURL: URL, swiftFiles: [URL]) throws {
+        var hasMainSwift = false
+        var hasAtMain = false
+        for file in swiftFiles {
+            if file.lastPathComponent == "main.swift" {
+                hasMainSwift = true
+            }
+            let source = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+            if source.contains("@main") {
+                hasAtMain = true
+            }
+        }
+        guard hasMainSwift || hasAtMain else {
+            throw CmuxUserSwiftSidebarError.missingEntryPoint(sourceURL.path)
+        }
+    }
+
+    private static func latestModificationDate(for preparedSource: PreparedSource) throws -> Date? {
+        switch preparedSource.kind {
+        case .swiftFile:
+            return try? preparedSource.url
+                .resourceValues(forKeys: [.contentModificationDateKey])
+                .contentModificationDate
+        case .directory:
+            return try swiftSourceFiles(in: preparedSource.url)
+                .compactMap {
+                    try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+                }
+                .max()
+        }
+    }
+
+    private static func swiftSourceFiles(in directoryURL: URL) throws -> [URL] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
+            options: [.skipsPackageDescendants],
+            errorHandler: { _, _ in true }
+        ) else {
+            throw CmuxUserSwiftSidebarError.sourceUnavailable(directoryURL.path)
+        }
+
+        var files: [URL] = []
+        for case let fileURL as URL in enumerator {
+            let name = fileURL.lastPathComponent
+            if excludedSourcePathComponents.contains(name) {
+                enumerator.skipDescendants()
+                continue
+            }
+            let values = try fileURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+            if values.isDirectory == true {
+                continue
+            }
+            guard values.isRegularFile == true,
+                  fileURL.pathExtension == "swift",
+                  name != "Package.swift" else {
+                continue
+            }
+            files.append(fileURL.standardizedFileURL)
+        }
+        return files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    }
+
+    private static let excludedSourcePathComponents: Set<String> = [
+        ".build",
+        ".git",
+        ".swiftpm",
+        "DerivedData"
+    ]
+
+    private static func isDescendant(_ url: URL, of root: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        let rootPath = root.standardizedFileURL.path
+        return path == rootPath || path.hasPrefix(rootPath + "/")
+    }
+
+    private static func relativePath(from root: URL, to fileURL: URL) -> String {
+        let rootPath = root.standardizedFileURL.path
+        let filePath = fileURL.standardizedFileURL.path
+        if filePath.hasPrefix(rootPath + "/") {
+            return String(filePath.dropFirst(rootPath.count + 1))
+        }
+        return fileURL.lastPathComponent
+    }
+
+    private static func safePathComponent(_ raw: String) -> String {
+        let sanitized = raw.replacingOccurrences(
+            of: #"[^\p{L}\p{N}._-]+"#,
+            with: "-",
+            options: .regularExpression
+        )
+        let trimmed = sanitized.trimmingCharacters(in: CharacterSet(charactersIn: "-."))
+        return trimmed.nilIfEmpty ?? "sidebar"
     }
 
     private static func swiftStringLiteral(_ value: String) -> String {
@@ -481,8 +703,10 @@ enum CmuxUserSwiftSidebarProcess {
 }
 
 enum CmuxUserSwiftSidebarError: LocalizedError {
-    case invalidSourceExtension
+    case invalidSource
     case sourceUnavailable(String)
+    case noSwiftSources(String)
+    case missingEntryPoint(String)
     case cmuxExtensionKitUnavailable
     case executableMissing(String)
     case unexpectedResponse
@@ -490,15 +714,27 @@ enum CmuxUserSwiftSidebarError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidSourceExtension:
+        case .invalidSource:
             return String(
                 localized: "sidebar.extension.swift.error.invalidSourceExtension",
-                defaultValue: "Choose a .swift file."
+                defaultValue: "Choose a .swift file or a folder of Swift files."
             )
         case .sourceUnavailable(let path):
             let format = String(
                 localized: "sidebar.extension.swift.error.sourceUnavailable",
-                defaultValue: "The Swift file could not be read: %@"
+                defaultValue: "The Swift source could not be read: %@"
+            )
+            return String.localizedStringWithFormat(format, path)
+        case .noSwiftSources(let path):
+            let format = String(
+                localized: "sidebar.extension.swift.error.noSwiftSources",
+                defaultValue: "No Swift source files were found in %@."
+            )
+            return String.localizedStringWithFormat(format, path)
+        case .missingEntryPoint(let path):
+            let format = String(
+                localized: "sidebar.extension.swift.error.missingEntryPoint",
+                defaultValue: "The custom sidebar folder at %@ needs a main.swift file or an @main entry point."
             )
             return String.localizedStringWithFormat(format, path)
         case .cmuxExtensionKitUnavailable:

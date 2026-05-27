@@ -10,7 +10,7 @@ struct CompactUnreadSidebar: CmuxExtensionSidebarProvider {
         ),
         subtitle: CmuxExtensionLocalizedText(
             key: "example.compactUnread.subtitle",
-            defaultValue: "Swift file"
+            defaultValue: "Custom sidebar"
         ),
         systemImageName: "text.badge.checkmark",
         isHostProvided: false

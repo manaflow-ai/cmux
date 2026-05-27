@@ -9579,16 +9579,24 @@ enum CmuxExtensionSidebarSelection {
         menu.addItem(NSMenuItem.separator())
 
         let loadItem = NSMenuItem(
-            title: String(localized: "sidebar.extension.swift.menu.load", defaultValue: "Load Swift Sidebar..."),
+            title: String(localized: "sidebar.extension.swift.menu.load", defaultValue: "Load Custom Sidebar"),
             action: #selector(CmuxExtensionSidebarMenuTarget.loadSwiftSidebar(_:)),
             keyEquivalent: ""
         )
         loadItem.target = CmuxExtensionSidebarMenuTarget.shared
         menu.addItem(loadItem)
 
+        let docsItem = NSMenuItem(
+            title: String(localized: "sidebar.extension.swift.menu.docs", defaultValue: "Custom Sidebar Docs"),
+            action: #selector(CmuxExtensionSidebarMenuTarget.openSwiftSidebarDocs(_:)),
+            keyEquivalent: ""
+        )
+        docsItem.target = CmuxExtensionSidebarMenuTarget.shared
+        menu.addItem(docsItem)
+
         if CmuxUserSwiftSidebarRegistry.record(providerId: selectedProviderId) != nil {
             let reloadItem = NSMenuItem(
-                title: String(localized: "sidebar.extension.swift.menu.reload", defaultValue: "Reload Swift Sidebar"),
+                title: String(localized: "sidebar.extension.swift.menu.reload", defaultValue: "Reload Custom Sidebar"),
                 action: #selector(CmuxExtensionSidebarMenuTarget.reloadSwiftSidebar(_:)),
                 keyEquivalent: ""
             )
@@ -9597,7 +9605,7 @@ enum CmuxExtensionSidebarSelection {
             menu.addItem(reloadItem)
 
             let removeItem = NSMenuItem(
-                title: String(localized: "sidebar.extension.swift.menu.remove", defaultValue: "Remove Swift Sidebar"),
+                title: String(localized: "sidebar.extension.swift.menu.remove", defaultValue: "Remove Custom Sidebar"),
                 action: #selector(CmuxExtensionSidebarMenuTarget.removeSwiftSidebar(_:)),
                 keyEquivalent: ""
             )
@@ -9626,6 +9634,14 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
     @objc func loadSwiftSidebar(_ sender: NSMenuItem) {
         _ = sender
         CmuxUserSwiftSidebarRegistry.presentOpenPanelAndLoad()
+    }
+
+    @objc func openSwiftSidebarDocs(_ sender: NSMenuItem) {
+        _ = sender
+        guard let url = URL(string: "https://github.com/manaflow-ai/cmux/blob/main/docs/extensions.md#custom-sidebars") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     @objc func reloadSwiftSidebar(_ sender: NSMenuItem) {
