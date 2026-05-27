@@ -59,6 +59,8 @@ cmux ssh user@remote -i ~/.ssh/id_ed25519`}</CodeBlock>
       <CodeBlock lang="text">{`cmux://ssh?host=dev.example.com
 cmux://ssh?host=dev.example.com&user=alice&port=2222&title=GPU%20box
 cmux://ssh?host=dev.example.com&host-key-policy=accept-new&no-focus=true`}</CodeBlock>
+      <p>{t("deepLinksWebFallbackDesc")}</p>
+      <CodeBlock lang="text">{`https://cmux.com/deeplink/ssh?host=dev.example.com&user=alice&port=2222&title=GPU%20box`}</CodeBlock>
       <p>{t("deepLinksButtonDesc")}</p>
       <CodeBlock lang="tsx">{`const params = new URLSearchParams({
   host: "dev.example.com",
@@ -67,7 +69,7 @@ cmux://ssh?host=dev.example.com&host-key-policy=accept-new&no-focus=true`}</Code
   title: "GPU box",
 });
 
-const href = "cmux://ssh?" + params.toString();`}</CodeBlock>
+const href = "https://cmux.com/deeplink/ssh?" + params.toString();`}</CodeBlock>
       <table>
         <thead>
           <tr>
