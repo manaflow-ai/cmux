@@ -1851,6 +1851,62 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
     }
 
+    func testPersistentSSHPTYRestoreFallsBackToSnapshotPanelDefaultSessionID() throws {
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("Legacy Persistent SSH")
+        let persistentDaemonSlot = "ssh-legacy-persist"
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64004,
+            relayID: "relay-legacy-persist",
+            relayToken: String(repeating: "f", count: 64),
+            localSocketPath: "/tmp/cmux-legacy-persist.sock",
+            terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: persistentDaemonSlot
+        )
+        remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+        let originalPanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
+        let expectedSessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: remoteWorkspace.id,
+            panelId: originalPanelId
+        )
+
+        var legacySnapshot = manager.sessionSnapshot(includeScrollback: false)
+        let workspaceIndex = try XCTUnwrap(
+            legacySnapshot.workspaces.firstIndex { $0.customTitle == "Legacy Persistent SSH" }
+        )
+        let panelIndex = try XCTUnwrap(
+            legacySnapshot.workspaces[workspaceIndex].panels.firstIndex { $0.id == originalPanelId }
+        )
+        legacySnapshot.workspaces[workspaceIndex].panels[panelIndex].terminal?.remotePTYSessionID = nil
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(legacySnapshot)
+
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Legacy Persistent SSH" })
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+        let restoredInitialCommand = try XCTUnwrap(
+            restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()
+        )
+        XCTAssertTrue(restoredInitialCommand.contains("ssh-pty-attach"), restoredInitialCommand)
+        XCTAssertTrue(restoredInitialCommand.contains("--require-existing"), restoredInitialCommand)
+        XCTAssertTrue(restoredInitialCommand.contains(expectedSessionID), restoredInitialCommand)
+        XCTAssertTrue(restoredWorkspace.remotePTYSessionIDMatches(panelId: restoredPanelId, sessionID: expectedSessionID))
+        XCTAssertEqual(
+            restoredWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == restoredPanelId }?.terminal?.remotePTYSessionID,
+            expectedSessionID
+        )
+    }
+
     func testSessionSnapshotFallsBackFromSkipBootstrapPersistentSSHPTYWithoutDaemonBridge() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)

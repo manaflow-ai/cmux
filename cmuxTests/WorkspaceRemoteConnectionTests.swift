@@ -779,7 +779,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh cmux-macmini",
-            preserveAfterTerminalExit: true
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-persist-end"
         )
         let cleanupRequested = expectation(description: "control master cleanup requested")
         cleanupRequested.isInverted = true
@@ -792,6 +793,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.configureRemoteConnection(config, autoConnect: false)
 
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        let expectedSessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panelID)
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64012)
 
         wait(for: [cleanupRequested], timeout: 0.2)
@@ -799,6 +801,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
         XCTAssertEqual(workspace.remoteConfiguration?.preserveAfterTerminalExit, true)
+        XCTAssertEqual(workspace.remoteConfiguration?.persistentDaemonSlot, "ssh-persist-end")
+        XCTAssertEqual(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == panelID }?.terminal?.remotePTYSessionID,
+            expectedSessionID
+        )
 
         workspace.teardownAllPanels()
         XCTAssertTrue(workspace.panels.isEmpty)
@@ -1815,6 +1823,36 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(
             snapshot.panels.first { $0.id == panel.id }?.terminal?.remotePTYSessionID,
             sessionID
+        )
+    }
+
+    @MainActor
+    func testPersistentRemoteTerminalSeedsDefaultPTYSessionIDForSnapshot() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64015,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-seeded-default"
+        )
+        workspace.configureRemoteConnection(config, autoConnect: false)
+
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        let expectedSessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panelID)
+
+        XCTAssertTrue(workspace.remotePTYSessionIDMatches(panelId: panelID, sessionID: expectedSessionID))
+        XCTAssertEqual(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == panelID }?.terminal?.remotePTYSessionID,
+            expectedSessionID
         )
     }
 
