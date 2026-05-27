@@ -978,6 +978,20 @@ func cmuxResolveQuicklookPathForTesting(
 func cmuxTrimTerminalPathTrailingPunctuationForTesting(_ token: String) -> String {
     cmuxTrimTerminalPathTrailingPunctuation(token)
 }
+
+func cmuxResolveTerminalOpenURLFilePathForTesting(
+    _ rawText: String,
+    cwd: String?,
+    existingPaths: Set<String>
+) -> String? {
+    cmuxResolveTerminalOpenURLFilePath(
+        rawText,
+        cwd: cwd,
+        fileExists: { path in
+            existingPaths.contains((path as NSString).standardizingPath)
+        }
+    )
+}
 #endif
 
 private func cmuxResolveQuicklookPath(
@@ -1271,6 +1285,17 @@ private func cmuxResolveVisibleLinePath(
         }
     }
     return nil
+}
+
+private func cmuxResolveTerminalOpenURLFilePath(
+    _ rawText: String,
+    cwd: String?,
+    fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+) -> String? {
+    let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    guard URL(string: trimmed)?.scheme == nil else { return nil }
+    return cmuxResolveQuicklookPath(trimmed, cwd: cwd, fileExists: fileExists)
 }
 
 enum TerminalOpenURLTarget: Equatable {
@@ -4663,16 +4688,14 @@ class GhosttyApp {
             #endif
 
             // Try file-path resolution before URL classification.
-            // Ghostty's link detection can match relative file paths that
-            // contain slashes or dots (e.g. "docs/spec.md.") as URLs.
+            // Ghostty's link detection can match file paths that contain
+            // slashes or dots (e.g. "docs/spec.md." or "/tmp/spec.md.") as URLs.
             // Attempt to resolve the raw string as a local file first
             // (with trailing-punctuation trimming via cmuxResolveQuicklookPath).
             // If the file exists and cmux can handle it, route through the
             // file viewer instead of the browser.
             let trimmedUrlString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedUrlString.isEmpty,
-               !NSString(string: trimmedUrlString).isAbsolutePath,
-               URL(string: trimmedUrlString)?.scheme == nil {
+            if !trimmedUrlString.isEmpty {
                 let filePathRouted: Bool = performOnMain {
                     guard let termSurface = surfaceView.terminalSurface,
                           let workspace = termSurface.owningWorkspace(),
@@ -4683,7 +4706,7 @@ class GhosttyApp {
                         workspace: workspace,
                         surfaceId: termSurface.id
                     )
-                    guard let resolvedPath = cmuxResolveQuicklookPath(trimmedUrlString, cwd: cwd),
+                    guard let resolvedPath = cmuxResolveTerminalOpenURLFilePath(trimmedUrlString, cwd: cwd),
                           CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) else {
                         return false
                     }
