@@ -181,7 +181,8 @@ struct WindowInputRoutingContext: Equatable {
     }
 
     var allowsWorkspaceDropOverlayHitTesting: Bool {
-        eventKind == .pointerDrag
+        eventKind == .noEvent
+            || eventKind == .pointerDrag
             || eventType == .cursorUpdate
             || eventType == .mouseMoved
     }

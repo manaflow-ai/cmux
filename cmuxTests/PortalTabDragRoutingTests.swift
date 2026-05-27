@@ -356,6 +356,14 @@ final class PortalTabDragRoutingTests: XCTestCase {
         XCTAssertFalse(context.allowsDragPasteboardLookup)
     }
 
+    func testWindowInputRoutingContextPreservesNoEventWorkspaceDropHitTesting() {
+        let context = WindowInputRoutingContext(eventType: nil)
+
+        XCTAssertTrue(context.allowsWorkspaceDropOverlayHitTesting)
+        XCTAssertFalse(context.allowsPaneDropHitTesting)
+        XCTAssertFalse(context.allowsDragPasteboardLookup)
+    }
+
     func testTerminalPaneDropTargetDefersToUnderlyingTabStrip() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
