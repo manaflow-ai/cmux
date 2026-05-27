@@ -9893,6 +9893,44 @@ extension TabManager {
         )
     }
 
+    @MainActor
+    func sessionSnapshotWithScrollbackProgress(
+        includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex = .empty,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        shouldCaptureScrollbackForWorkspace: @MainActor (Int, Int, Workspace) async -> Bool
+    ) async -> SessionTabManagerSnapshot {
+        let restorableTabs = Array(
+            tabs
+                .filter(\.isRestorableInSessionSnapshot)
+                .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        )
+        var workspaceSnapshots: [SessionWorkspaceSnapshot] = []
+        workspaceSnapshots.reserveCapacity(restorableTabs.count)
+
+        for (index, workspace) in restorableTabs.enumerated() {
+            let shouldCaptureScrollback = includeScrollback
+                ? await shouldCaptureScrollbackForWorkspace(index, restorableTabs.count, workspace)
+                : false
+            workspaceSnapshots.append(
+                workspace.sessionSnapshot(
+                    includeScrollback: shouldCaptureScrollback,
+                    restorableAgentIndex: restorableAgentIndex,
+                    surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                )
+            )
+            await Task.yield()
+        }
+
+        let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
+            restorableTabs.firstIndex(where: { $0.id == selectedTabId })
+        }
+        return SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: selectedWorkspaceIndex,
+            workspaces: workspaceSnapshots
+        )
+    }
+
     func sessionSnapshotWorkspaceIds() -> [UUID] {
         Array(
             tabs

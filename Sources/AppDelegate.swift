@@ -547,6 +547,157 @@ final class CmuxMainThreadTurnProfiler {
 #endif
 
 @MainActor
+private final class QuitSessionSnapshotProgressController: NSObject {
+    private let panel: NSPanel
+    private let titleLabel: NSTextField
+    private let detailLabel: NSTextField
+    private let progressIndicator: NSProgressIndicator
+    private let skipButton: NSButton
+    private var didMarkSkipping = false
+
+    private(set) var shouldSkipRemainingScrollback = false
+
+    init(totalWorkspaces: Int) {
+        titleLabel = NSTextField(
+            labelWithString: String(localized: "dialog.quitSessionSnapshot.title", defaultValue: "Saving session")
+        )
+        detailLabel = NSTextField(
+            labelWithString: String(
+                localized: "dialog.quitSessionSnapshot.message",
+                defaultValue: "Saving terminal scrollback before quitting."
+            )
+        )
+        progressIndicator = NSProgressIndicator()
+        skipButton = NSButton(
+            title: String(
+                localized: "dialog.quitSessionSnapshot.skipRemaining",
+                defaultValue: "Skip Remaining Scrollback"
+            ),
+            target: nil,
+            action: nil
+        )
+        panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 158),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+
+        super.init()
+
+        panel.title = titleLabel.stringValue
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        panel.level = .modalPanel
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+        titleLabel.font = .boldSystemFont(ofSize: 15)
+        detailLabel.font = .systemFont(ofSize: 13)
+        detailLabel.textColor = .secondaryLabelColor
+        detailLabel.lineBreakMode = .byWordWrapping
+        detailLabel.maximumNumberOfLines = 2
+
+        progressIndicator.style = .bar
+        progressIndicator.minValue = 0
+        progressIndicator.maxValue = Double(max(totalWorkspaces, 1))
+        progressIndicator.doubleValue = 0
+        progressIndicator.isIndeterminate = totalWorkspaces == 0
+
+        skipButton.target = self
+        skipButton.action = #selector(skipRemainingScrollback(_:))
+
+        let contentView = NSView()
+        panel.contentView = contentView
+        [titleLabel, detailLabel, progressIndicator, skipButton].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview($0)
+        }
+
+        NSLayoutConstraint.activate([
+            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 18),
+            titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+
+            detailLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 6),
+            detailLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            detailLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+
+            progressIndicator.topAnchor.constraint(equalTo: detailLabel.bottomAnchor, constant: 16),
+            progressIndicator.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            progressIndicator.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+
+            skipButton.topAnchor.constraint(equalTo: progressIndicator.bottomAnchor, constant: 14),
+            skipButton.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+            skipButton.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -16),
+        ])
+    }
+
+    func show(relativeTo window: NSWindow?) {
+        if let window {
+            panel.center()
+            let windowFrame = window.frame
+            var panelFrame = panel.frame
+            panelFrame.origin.x = windowFrame.midX - panelFrame.width / 2
+            panelFrame.origin.y = windowFrame.midY - panelFrame.height / 2
+            panel.setFrame(panelFrame, display: false)
+        } else {
+            panel.center()
+        }
+        if progressIndicator.isIndeterminate {
+            progressIndicator.startAnimation(nil)
+        }
+        panel.orderFrontRegardless()
+        panel.displayIfNeeded()
+    }
+
+    func update(currentIndex: Int, total: Int) {
+        guard !shouldSkipRemainingScrollback else {
+            markSkipping()
+            return
+        }
+        let resolvedTotal = max(total, 1)
+        let resolvedCurrent = min(max(currentIndex, 0), resolvedTotal)
+        progressIndicator.isIndeterminate = false
+        progressIndicator.maxValue = Double(resolvedTotal)
+        progressIndicator.doubleValue = Double(resolvedCurrent)
+        let format = String(
+            localized: "dialog.quitSessionSnapshot.progressFormat",
+            defaultValue: "Saving scrollback %d of %d..."
+        )
+        detailLabel.stringValue = String.localizedStringWithFormat(format, resolvedCurrent, resolvedTotal)
+        panel.displayIfNeeded()
+    }
+
+    func markSkipping() {
+        guard !didMarkSkipping else { return }
+        didMarkSkipping = true
+        progressIndicator.isIndeterminate = true
+        progressIndicator.startAnimation(nil)
+        detailLabel.stringValue = String(
+            localized: "dialog.quitSessionSnapshot.skippingRemaining",
+            defaultValue: "Skipping remaining scrollback..."
+        )
+        panel.displayIfNeeded()
+    }
+
+    func close() {
+        progressIndicator.stopAnimation(nil)
+        panel.close()
+    }
+
+    @objc private func skipRemainingScrollback(_ sender: NSButton) {
+        shouldSkipRemainingScrollback = true
+        sender.isEnabled = false
+        markSkipping()
+    }
+}
+
+@MainActor
+private final class QuitSessionSnapshotProgressState {
+    var visitedWorkspaceCount = 0
+}
+
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     nonisolated(unsafe) static var shared: AppDelegate?
 
@@ -923,6 +1074,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
     private var didBootstrapInitialMainWindow = false
     private var isTerminatingApp = false
+    private var quitSessionSnapshotTask: Task<Void, Never>?
+    private var quitSessionSnapshotProgressController: QuitSessionSnapshotProgressController?
+    private var didPersistCommittedQuitSessionSnapshot = false
     private var closedWindowHistorySuppressedWindowIds: Set<UUID> = []
 #if DEBUG
     var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
@@ -1578,6 +1732,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if quitSessionSnapshotTask != nil {
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later", fields: ["reason": "snapshotInFlight"])
+            return .terminateLater
+        }
+
         let buildFlavor = BuildFlavor.current
         let confirmQuitMode = QuitWarningSettings.confirmQuitMode()
         let shouldEvaluateDirtyWorkspaces = Self.shouldEvaluateQuitConfirmationDirtyWorkspaces(
@@ -1617,8 +1776,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 reason = "policy"
             }
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
-            return .terminateNow
+            StartupBreadcrumbLog.append(
+                "appDelegate.shouldTerminate.snapshotBeforeReply",
+                fields: ["reason": reason]
+            )
+            beginCommittedQuitTerminationSnapshot(reason: reason)
+            return .terminateLater
         }
 
         // Show the same confirmation dialog used by the Cmd+Q shortcut path,
@@ -1641,17 +1804,212 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let shouldQuit = response == .alertFirstButtonReturn
             if shouldQuit {
                 self.isQuitWarningConfirmed = true
-                self.closeAllWebInspectorsBeforeAppTeardown()
-                StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
+                StartupBreadcrumbLog.append(
+                    "appDelegate.shouldTerminate.snapshotBeforeReply",
+                    fields: ["reason": "confirmed"]
+                )
+                self.beginCommittedQuitTerminationSnapshot(reason: "confirmed")
             } else {
                 // Reset so that the next quit attempt can show the dialog again.
                 self.isTerminatingApp = false
                 StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
+                NSApp.reply(toApplicationShouldTerminate: false)
             }
-            NSApp.reply(toApplicationShouldTerminate: shouldQuit)
         }
         StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
+    }
+
+    private func beginCommittedQuitTerminationSnapshot(reason: String) {
+        guard quitSessionSnapshotTask == nil else {
+            StartupBreadcrumbLog.append(
+                "appDelegate.quitSnapshot.startSkipped",
+                fields: ["reason": "alreadyInFlight"]
+            )
+            return
+        }
+
+        isTerminatingApp = true
+        didPersistCommittedQuitSessionSnapshot = false
+        closeAllWebInspectorsBeforeAppTeardown()
+        stopSessionAutosaveTimer()
+
+        quitSessionSnapshotTask = Task { @MainActor [weak self] in
+            guard let self else {
+                NSApp.reply(toApplicationShouldTerminate: true)
+                return
+            }
+
+            let didPersistSnapshot = await self.saveCommittedQuitSessionSnapshotBeforeTermination(reason: reason)
+            if Task.isCancelled { return }
+
+            self.didPersistCommittedQuitSessionSnapshot = didPersistSnapshot
+            self.quitSessionSnapshotTask = nil
+            self.quitSessionSnapshotProgressController?.close()
+            self.quitSessionSnapshotProgressController = nil
+            StartupBreadcrumbLog.append(
+                "appDelegate.shouldTerminate.reply",
+                fields: [
+                    "shouldQuit": "1",
+                    "snapshotSaved": didPersistSnapshot ? "1" : "0"
+                ]
+            )
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+    }
+
+    private func saveCommittedQuitSessionSnapshotBeforeTermination(reason: String) async -> Bool {
+#if DEBUG
+        let timingStart = CmuxTypingTiming.start()
+        defer {
+            CmuxTypingTiming.logDuration(
+                path: "session.committedQuitSnapshot",
+                startedAt: timingStart,
+                extra: "reason=\(reason)"
+            )
+        }
+#endif
+        TextBoxInputTextView.flushPendingSessionDraftAttachmentCopies()
+        let totalWorkspaces = committedQuitSessionSnapshotWorkspaceCount()
+        let progressController = QuitSessionSnapshotProgressController(totalWorkspaces: totalWorkspaces)
+        quitSessionSnapshotProgressController = progressController
+        progressController.show(relativeTo: windowForQuitSessionSnapshotProgress())
+        await Task.yield()
+
+        let resumeIndexes = await ProcessDetectedResumeIndexes.load()
+        guard !Task.isCancelled else { return false }
+        guard let snapshot = await buildSessionSnapshotWithScrollbackProgress(
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex,
+            progressController: progressController,
+            totalWorkspaces: totalWorkspaces
+        ) else {
+            persistSessionSnapshot(
+                nil,
+                removeWhenEmpty: false,
+                persistedGeometryData: nil,
+                synchronously: true
+            )
+            return false
+        }
+
+        if totalWorkspaces > 0 {
+            progressController.update(currentIndex: totalWorkspaces, total: totalWorkspaces)
+        }
+        let persistedGeometryData = snapshot.windows.first.flatMap { primaryWindow in
+            Self.encodedPersistedWindowGeometryData(
+                frame: primaryWindow.frame,
+                display: primaryWindow.display
+            )
+        }
+
+        // Ensure any earlier async metadata-only autosave cannot run after and overwrite
+        // the committed quit snapshot that includes scrollback.
+        sessionPersistenceQueue.sync {}
+#if DEBUG
+        debugLogSessionSaveSnapshot(snapshot, includeScrollback: true)
+#endif
+        persistSessionSnapshot(
+            snapshot,
+            removeWhenEmpty: false,
+            persistedGeometryData: persistedGeometryData,
+            synchronously: true
+        )
+        return true
+    }
+
+    private func committedQuitSessionSnapshotWorkspaceCount() -> Int {
+        sortedMainWindowContextsForSessionSnapshot()
+            .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
+            .reduce(0) { count, context in
+                count + context.tabManager.sessionSnapshotWorkspaceIds().count
+            }
+    }
+
+    private func windowForQuitSessionSnapshotProgress() -> NSWindow? {
+        if let keyWindow = NSApp.keyWindow, keyWindow.isVisible {
+            return keyWindow
+        }
+        if let mainWindow = NSApp.mainWindow, mainWindow.isVisible {
+            return mainWindow
+        }
+        return sortedMainWindowContextsForSessionSnapshot()
+            .lazy
+            .compactMap { $0.window ?? self.windowForMainWindowId($0.windowId) }
+            .first { $0.isVisible }
+    }
+
+    private func buildSessionSnapshotWithScrollbackProgress(
+        restorableAgentIndex: RestorableAgentSessionIndex,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
+        progressController: QuitSessionSnapshotProgressController,
+        totalWorkspaces: Int
+    ) async -> AppSessionSnapshot? {
+        let contexts = sortedMainWindowContextsForSessionSnapshot()
+        guard !contexts.isEmpty else { return nil }
+
+        let progressState = QuitSessionSnapshotProgressState()
+        var windows: [SessionWindowSnapshot] = []
+        windows.reserveCapacity(min(contexts.count, SessionPersistencePolicy.maxWindowsPerSnapshot))
+
+        for context in contexts.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
+            windows.append(
+                await sessionWindowSnapshotWithScrollbackProgress(
+                    for: context,
+                    restorableAgentIndex: restorableAgentIndex,
+                    surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+                    progressController: progressController,
+                    progressState: progressState,
+                    totalWorkspaces: totalWorkspaces
+                )
+            )
+        }
+
+        guard !windows.isEmpty else { return nil }
+        return AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: Date().timeIntervalSince1970,
+            windows: windows
+        )
+    }
+
+    private func sessionWindowSnapshotWithScrollbackProgress(
+        for context: MainWindowContext,
+        restorableAgentIndex: RestorableAgentSessionIndex,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
+        progressController: QuitSessionSnapshotProgressController,
+        progressState: QuitSessionSnapshotProgressState,
+        totalWorkspaces: Int
+    ) async -> SessionWindowSnapshot {
+        let tabManagerSnapshot = await context.tabManager.sessionSnapshotWithScrollbackProgress(
+            includeScrollback: true,
+            restorableAgentIndex: restorableAgentIndex,
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+        ) { _, _, _ in
+            progressState.visitedWorkspaceCount += 1
+            guard !progressController.shouldSkipRemainingScrollback else {
+                progressController.markSkipping()
+                return false
+            }
+            progressController.update(
+                currentIndex: progressState.visitedWorkspaceCount,
+                total: totalWorkspaces
+            )
+            await Task.yield()
+            return true
+        }
+
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        return SessionWindowSnapshot(
+            frame: window.map { SessionRectSnapshot($0.frame) },
+            display: displaySnapshot(for: window),
+            tabManager: tabManagerSnapshot,
+            sidebar: SessionSidebarSnapshot(
+                isVisible: context.sidebarState.isVisible,
+                selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
+                width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
+            )
+        )
     }
 
     nonisolated static func shouldEvaluateQuitConfirmationDirtyWorkspaces(
@@ -1701,7 +2059,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         isTerminatingApp = true
         closeAllWebInspectorsBeforeAppTeardown()
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        quitSessionSnapshotTask?.cancel()
+        quitSessionSnapshotTask = nil
+        quitSessionSnapshotProgressController?.close()
+        quitSessionSnapshotProgressController = nil
+        if Self.shouldPersistSessionSnapshotDuringWillTerminate(
+            didPersistCommittedQuitSessionSnapshot: didPersistCommittedQuitSessionSnapshot
+        ) {
+            _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        } else {
+            StartupBreadcrumbLog.append(
+                "appDelegate.willTerminate.skipSnapshot",
+                fields: ["reason": "committedQuitSnapshot"]
+            )
+        }
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
@@ -3749,6 +4120,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // App switching must stay cheap. The autosave timer, window/session lifecycle,
         // power-off, update relaunch, and termination paths still persist session state.
         false
+    }
+
+    nonisolated static func shouldPersistSessionSnapshotDuringWillTerminate(
+        didPersistCommittedQuitSessionSnapshot: Bool
+    ) -> Bool {
+        !didPersistCommittedQuitSessionSnapshot
     }
 
     private func remainingSessionAutosaveTypingQuietPeriod(
@@ -11706,10 +12083,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleQuitShortcutWarning() -> Bool {
+        let buildFlavor = BuildFlavor.current
+        let confirmQuitMode = QuitWarningSettings.confirmQuitMode()
+        let shouldEvaluateDirtyWorkspaces = Self.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+            isQuitWarningConfirmed: false,
+            buildFlavor: buildFlavor,
+            confirmQuitMode: confirmQuitMode
+        )
+        let hasDirtyWorkspaces = shouldEvaluateDirtyWorkspaces
+            ? hasQuitConfirmationDirtyWorkspaces()
+            : false
         if !QuitWarningSettings.shouldShowConfirmation(
             isQuitWarningConfirmed: false,
-            hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
-            buildFlavor: .current
+            hasDirtyWorkspaces: hasDirtyWorkspaces,
+            buildFlavor: buildFlavor
         ) {
             NSApp.terminate(nil)
             return true
@@ -14923,7 +15310,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // During app termination we already persist a full snapshot (with scrollback)
-        // in applicationWillTerminate. Saving again here would
+        // before replying to AppKit, or fall back to applicationWillTerminate. Saving again here would
         // overwrite it as windows tear down one-by-one, dropping closed windows and replay.
         if Self.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: isTerminatingApp) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false, removeWhenEmpty: false)

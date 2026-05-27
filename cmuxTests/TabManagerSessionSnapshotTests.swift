@@ -45,6 +45,47 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
     }
 
+    func testSessionSnapshotProgressCanSkipRemainingScrollback() async throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        firstWorkspace.setCustomTitle("First")
+        let secondWorkspace = manager.addWorkspace(select: true)
+        secondWorkspace.setCustomTitle("Second")
+
+        XCTAssertGreaterThan(
+            firstWorkspace.debugSeedSessionSnapshotScrollback(charactersPerTerminal: 160).characters,
+            0
+        )
+        XCTAssertGreaterThan(
+            secondWorkspace.debugSeedSessionSnapshotScrollback(charactersPerTerminal: 160).characters,
+            0
+        )
+
+        var visitedWorkspaceTitles: [String] = []
+        var reportedTotals: [Int] = []
+        let snapshot = await manager.sessionSnapshotWithScrollbackProgress(
+            includeScrollback: true
+        ) { index, total, workspace in
+            visitedWorkspaceTitles.append(workspace.customTitle ?? workspace.title)
+            reportedTotals.append(total)
+            return index == 0
+        }
+
+        XCTAssertEqual(visitedWorkspaceTitles, ["First", "Second"])
+        XCTAssertEqual(reportedTotals, [2, 2])
+        XCTAssertEqual(snapshot.selectedWorkspaceIndex, 1)
+        XCTAssertTrue(
+            snapshot.workspaces[0].panels
+                .compactMap { $0.terminal?.scrollback }
+                .contains { $0.contains("cmux perf synthetic scrollback") }
+        )
+        XCTAssertTrue(
+            snapshot.workspaces[1].panels.allSatisfy { panel in
+                panel.terminal?.scrollback == nil
+            }
+        )
+    }
+
     func testFocusHistoryNavigatesWithinWorkspacePanels() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)

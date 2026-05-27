@@ -41360,6 +41360,91 @@
         }
       }
     },
+    "dialog.quitSessionSnapshot.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saving terminal scrollback before quitting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了前にターミナルのスクロールバックを保存しています。"
+          }
+        }
+      }
+    },
+    "dialog.quitSessionSnapshot.progressFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saving scrollback %d of %d..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d / %d のスクロールバックを保存しています..."
+          }
+        }
+      }
+    },
+    "dialog.quitSessionSnapshot.skipRemaining": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip Remaining Scrollback"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残りのスクロールバックをスキップ"
+          }
+        }
+      }
+    },
+    "dialog.quitSessionSnapshot.skippingRemaining": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skipping remaining scrollback..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残りのスクロールバックをスキップしています..."
+          }
+        }
+      }
+    },
+    "dialog.quitSessionSnapshot.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saving session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションを保存中"
+          }
+        }
+      }
+    },
     "dialog.quitCmux.message": {
       "extractionState": "manual",
       "localizations": {
