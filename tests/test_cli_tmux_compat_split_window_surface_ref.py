@@ -16,6 +16,7 @@ from pathlib import Path
 from claude_teams_test_utils import resolve_cmux_cli
 
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
+WINDOW_ID = "22222222-2222-4222-8222-222222222222"
 PANE_ID = "33333333-3333-4333-8333-333333333333"
 SURFACE_ID = "44444444-4444-4444-8444-444444444444"
 NEW_PANE_ID = "66666666-6666-4666-8666-666666666666"
@@ -35,6 +36,18 @@ class FakeCmuxState:
                         "ref": "workspace:1",
                         "index": 1,
                         "title": "demo",
+                    }
+                ]
+            }
+        if method == "window.list":
+            return {
+                "windows": [
+                    {
+                        "id": WINDOW_ID,
+                        "ref": "window:1",
+                        "workspace_id": WORKSPACE_ID,
+                        "workspace_ref": "workspace:1",
+                        "index": 1,
                     }
                 ]
             }
@@ -100,7 +113,7 @@ class FakeCmuxState:
             }
         if method == "surface.close":
             target_surface = str(params.get("surface_id") or "")
-            if target_surface != NEW_SURFACE_ID:
+            if target_surface not in {NEW_SURFACE_ID, "surface:2"}:
                 raise RuntimeError(
                     f"expected close target {NEW_SURFACE_ID}, got {target_surface!r}"
                 )
@@ -152,12 +165,13 @@ def run_cli(
     socket_path: Path,
     fake_home: Path,
     args: list[str],
+    tmux_pane: str = "%pane:1",
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["CMUX_SOCKET_PATH"] = str(socket_path)
     env["CMUX_WORKSPACE_ID"] = "workspace:1"
     env["CMUX_SURFACE_ID"] = "surface:1"
-    env["TMUX_PANE"] = "%pane:1"
+    env["TMUX_PANE"] = tmux_pane
     env["HOME"] = str(fake_home)
     return subprocess.run(
         [cli_path, "--socket", str(socket_path), *args],
@@ -174,12 +188,14 @@ def assert_successful_split(
     socket_path: Path,
     fake_home: Path,
     label: str,
+    tmux_pane: str = "%pane:1",
 ) -> None:
     proc = run_cli(
         cli_path,
         socket_path,
         fake_home,
         ["__tmux-compat", "split-window", "-h", "-P", "-F", "#{pane_id}"],
+        tmux_pane=tmux_pane,
     )
     if proc.returncode != 0:
         raise AssertionError(
@@ -193,13 +209,12 @@ def assert_successful_split(
         )
 
 
-def assert_resplit_after_close(
+def close_teammate_surface(
     cli_path: str,
     socket_path: Path,
     fake_home: Path,
+    label: str,
 ) -> None:
-    assert_successful_split(cli_path, socket_path, fake_home, "initial split-window")
-
     closed = run_cli(
         cli_path,
         socket_path,
@@ -208,12 +223,45 @@ def assert_resplit_after_close(
     )
     if closed.returncode != 0:
         raise AssertionError(
-            "close-surface returned non-zero\n"
+            f"{label} returned non-zero\n"
             f"stdout={closed.stdout.strip()}\n"
             f"stderr={closed.stderr.strip()}"
         )
 
+
+def assert_resplit_after_close(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+) -> None:
+    assert_successful_split(cli_path, socket_path, fake_home, "initial split-window")
+
+    close_teammate_surface(cli_path, socket_path, fake_home, "close-surface")
     assert_successful_split(cli_path, socket_path, fake_home, "second split-window")
+    close_teammate_surface(cli_path, socket_path, fake_home, "final close-surface")
+
+
+def assert_split_from_surface_tmux_pane(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+) -> None:
+    assert_successful_split(
+        cli_path,
+        socket_path,
+        fake_home,
+        "surface-ref TMUX_PANE split-window",
+        tmux_pane="%surface:1",
+    )
+
+    close_teammate_surface(cli_path, socket_path, fake_home, "close-surface after surface-ref")
+    assert_successful_split(
+        cli_path,
+        socket_path,
+        fake_home,
+        "surface-id TMUX_PANE split-window",
+        tmux_pane=f"%{SURFACE_ID}",
+    )
 
 
 def main() -> int:
@@ -236,6 +284,7 @@ def main() -> int:
 
             try:
                 assert_resplit_after_close(cli_path, socket_path, fake_home)
+                assert_split_from_surface_tmux_pane(cli_path, socket_path, fake_home)
             finally:
                 server.shutdown()
                 server.server_close()

@@ -328,6 +328,114 @@ exit 0
         return proc.returncode, observed_env, read_lines(args_log), proc.stderr.strip(), set(fingerprint_env)
 
 
+def run_wrapper_agent_teams_env_probe(
+    inherited_env: dict[str, str] | None = None,
+) -> tuple[int, dict[str, str], list[str], str]:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-agent-teams-") as td:
+        tmp = Path(td)
+        wrapper_dir = tmp / "wrapper-bin"
+        real_dir = tmp / "real-bin"
+        bundled_dir = tmp / "bundled cli"
+        home_dir = tmp / "home"
+        wrapper_dir.mkdir(parents=True, exist_ok=True)
+        real_dir.mkdir(parents=True, exist_ok=True)
+        bundled_dir.mkdir(parents=True, exist_ok=True)
+        home_dir.mkdir(parents=True, exist_ok=True)
+
+        wrapper = wrapper_dir / "claude"
+        shutil.copy2(SOURCE_WRAPPER, wrapper)
+        wrapper.chmod(0o755)
+
+        env_log = tmp / "real-env.log"
+        args_log = tmp / "real-args.log"
+        socket_path = str(tmp / "cmux.sock")
+
+        make_executable(
+            real_dir / "claude",
+            """#!/usr/bin/env bash
+set -euo pipefail
+: > "$FAKE_REAL_ENV_LOG"
+: > "$FAKE_REAL_ARGS_LOG"
+keys=(
+  CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
+  CMUX_CLAUDE_TEAMS_CMUX_BIN
+  TMUX
+  TMUX_PANE
+  TERM
+  TERM_PROGRAM
+)
+for key in "${keys[@]}"; do
+  if [[ ${!key+x} ]]; then
+    printf '%s=%s\\n' "$key" "${!key}" >> "$FAKE_REAL_ENV_LOG"
+  else
+    printf '%s=__UNSET__\\n' "$key" >> "$FAKE_REAL_ENV_LOG"
+  fi
+done
+printf 'tmux_path=%s\\n' "$(command -v tmux || true)" >> "$FAKE_REAL_ENV_LOG"
+for arg in "$@"; do
+  printf '%s\\n' "$arg" >> "$FAKE_REAL_ARGS_LOG"
+done
+""",
+        )
+
+        make_executable(
+            wrapper_dir / "cmux",
+            """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--socket" ]]; then
+  shift 2
+fi
+if [[ "${1:-}" == "ping" ]]; then
+  exit 0
+fi
+exit 0
+""",
+        )
+        bundled_cli_path = bundled_dir / "cmux"
+        make_executable(
+            bundled_cli_path,
+            """#!/usr/bin/env bash
+exit 0
+""",
+        )
+
+        test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            test_socket.bind(socket_path)
+
+            env = os.environ.copy()
+            env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
+            env["HOME"] = str(home_dir)
+            env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli_path)
+            env["CMUX_SOCKET_PATH"] = socket_path
+            env["CMUX_SURFACE_ID"] = "surface:test"
+            env["CMUX_WORKSPACE_ID"] = "workspace:test"
+            env["TERM"] = "xterm-256color"
+            env["TERM_PROGRAM"] = "Apple_Terminal"
+            env["FAKE_REAL_ENV_LOG"] = str(env_log)
+            env["FAKE_REAL_ARGS_LOG"] = str(args_log)
+            env.pop("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", None)
+            env.pop("CMUX_CLAUDE_TEAMS_CMUX_BIN", None)
+            env.pop("TMUX", None)
+            env.pop("TMUX_PANE", None)
+            if inherited_env:
+                env.update(inherited_env)
+
+            proc = subprocess.run(
+                [str(wrapper), "fan out to subagents"],
+                cwd=tmp,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            test_socket.close()
+
+        observed_env = dict(line.split("=", 1) for line in read_lines(env_log))
+        return proc.returncode, observed_env, read_lines(args_log), proc.stderr.strip()
+
+
 def expect(condition: bool, message: str, failures: list[str]) -> None:
     if not condition:
         failures.append(message)
@@ -503,7 +611,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         failures,
     )
     hooks = settings.get("hooks", {})
-    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PermissionRequest"}
+    expected_hooks = {"SessionStart", "Stop", "SubagentStart", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PermissionRequest"}
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
     for hook_name, expected_subcommand in {
         "SessionStart": "session-start",
@@ -551,6 +659,16 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         f"PermissionRequest hook should call hooks feed, got {permission_request_hooks}",
         failures,
     )
+    subagent_start_hooks = hooks.get("SubagentStart", [{}])[0].get("hooks", [{}])
+    expect(
+        any(
+            h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude'
+            and h.get("async") is True
+            for h in subagent_start_hooks
+        ),
+        f"SubagentStart hook should call hooks feed asynchronously, got {subagent_start_hooks}",
+        failures,
+    )
     subagent_stop_hooks = hooks.get("SubagentStop", [{}])[0].get("hooks", [{}])
     expect(
         any(
@@ -573,6 +691,63 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         f"SessionEnd hook should have short timeout, got {session_end_hooks}",
         failures,
     )
+
+
+def test_live_socket_configures_native_claude_agent_teams(failures: list[str]) -> None:
+    code, observed_env, real_argv, stderr = run_wrapper_agent_teams_env_probe()
+    expect(code == 0, f"agent teams env: wrapper exited {code}: {stderr}", failures)
+    expect("--settings" in real_argv, f"agent teams env: expected hook settings, got {real_argv}", failures)
+    expect("--session-id" in real_argv, f"agent teams env: expected session id, got {real_argv}", failures)
+    expect("fan out to subagents" in real_argv, f"agent teams env: expected original prompt, got {real_argv}", failures)
+    expect(
+        "--teammate-mode" not in real_argv,
+        f"agent teams env: normal claude wrapper should not rewrite argv as claude-teams, got {real_argv}",
+        failures,
+    )
+    expect(
+        observed_env.get("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS") == "1",
+        f"agent teams env: expected Claude native agent teams enabled, got {observed_env}",
+        failures,
+    )
+    expect(
+        observed_env.get("CMUX_CLAUDE_TEAMS_CMUX_BIN", "").endswith("/bundled cli/cmux"),
+        f"agent teams env: expected tmux shim pinned to bundled cmux, got {observed_env}",
+        failures,
+    )
+    expect(
+        observed_env.get("tmux_path", "").endswith("/.cmuxterm/claude-teams-bin/tmux"),
+        f"agent teams env: expected tmux shim first in PATH, got {observed_env}",
+        failures,
+    )
+    expect(
+        observed_env.get("TMUX") == "/tmp/cmux-claude-teams/workspace:test,workspace:test,surface:test",
+        f"agent teams env: expected fake TMUX value scoped to caller surface, got {observed_env}",
+        failures,
+    )
+    expect(
+        observed_env.get("TMUX_PANE") == "%surface:test",
+        f"agent teams env: expected fake TMUX_PANE to target caller surface, got {observed_env}",
+        failures,
+    )
+    expect(observed_env.get("TERM") == "screen-256color", f"agent teams env: expected tmux TERM, got {observed_env}", failures)
+    expect(observed_env.get("TERM_PROGRAM") == "__UNSET__", f"agent teams env: expected TERM_PROGRAM unset, got {observed_env}", failures)
+
+
+def test_live_socket_allows_native_claude_agent_teams_opt_out(failures: list[str]) -> None:
+    code, observed_env, real_argv, stderr = run_wrapper_agent_teams_env_probe({
+        "CMUX_CLAUDE_AGENT_TEAMS_DISABLED": "1",
+    })
+    expect(code == 0, f"agent teams opt-out: wrapper exited {code}: {stderr}", failures)
+    expect("--settings" in real_argv, f"agent teams opt-out: hook settings should still be injected, got {real_argv}", failures)
+    expect(
+        observed_env.get("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS") == "__UNSET__",
+        f"agent teams opt-out: expected Claude agent teams env unset, got {observed_env}",
+        failures,
+    )
+    expect(observed_env.get("TMUX") == "__UNSET__", f"agent teams opt-out: expected TMUX unset, got {observed_env}", failures)
+    expect(observed_env.get("TMUX_PANE") == "__UNSET__", f"agent teams opt-out: expected TMUX_PANE unset, got {observed_env}", failures)
+    expect(observed_env.get("TERM") == "xterm-256color", f"agent teams opt-out: expected TERM preserved, got {observed_env}", failures)
+    expect(observed_env.get("TERM_PROGRAM") == "Apple_Terminal", f"agent teams opt-out: expected TERM_PROGRAM preserved, got {observed_env}", failures)
 
 
 def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> None:
@@ -1106,6 +1281,8 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
 def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
+    test_live_socket_configures_native_claude_agent_teams(failures)
+    test_live_socket_allows_native_claude_agent_teams_opt_out(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)

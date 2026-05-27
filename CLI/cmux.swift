@@ -15881,10 +15881,6 @@ struct CMUXCLI {
         workspaceId: String,
         client: SocketClient
     ) throws -> String {
-        if isUUID(handle) {
-            return handle
-        }
-
         let payload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
         let panes = payload["panes"] as? [[String: Any]] ?? []
         for pane in panes {
@@ -15895,12 +15891,20 @@ struct CMUXCLI {
             }
         }
 
+        if let paneId = try tmuxPaneIdForSurfaceHandle(handle, workspaceId: workspaceId, client: client) {
+            return paneId
+        }
+
         if let index = Int(handle) {
             for pane in panes where intFromAny(pane["index"]) == index {
                 if let id = pane["id"] as? String {
                     return id
                 }
             }
+        }
+
+        if isUUID(handle) {
+            return handle
         }
 
         throw CLIError(message: "Pane target not found")
@@ -15932,6 +15936,34 @@ struct CMUXCLI {
         throw CLIError(message: "Surface target not found")
     }
 
+    private func tmuxPaneIdForSurfaceHandle(
+        _ handle: String,
+        workspaceId: String,
+        client: SocketClient
+    ) throws -> String? {
+        guard isUUID(handle) || isHandleRef(handle) else {
+            return nil
+        }
+
+        let payload = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
+        let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
+        guard let surface = surfaces.first(where: {
+            ($0["id"] as? String) == handle || ($0["ref"] as? String) == handle
+        }) else {
+            return nil
+        }
+
+        if let paneId = surface["pane_id"] as? String,
+           !paneId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return paneId
+        }
+        if let paneRef = surface["pane_ref"] as? String,
+           !paneRef.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return try tmuxCanonicalPaneId(paneRef, workspaceId: workspaceId, client: client)
+        }
+        return nil
+    }
+
     private func tmuxWorkspaceIdForPaneHandle(_ handle: String, client: SocketClient) throws -> String? {
         guard isUUID(handle) || isHandleRef(handle) else {
             return nil
@@ -15944,6 +15976,12 @@ struct CMUXCLI {
             let panes = payload["panes"] as? [[String: Any]] ?? []
             if panes.contains(where: { ($0["id"] as? String) == handle || ($0["ref"] as? String) == handle }) {
                 return workspaceId
+            }
+            if let surfacesPayload = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]) {
+                let surfaces = surfacesPayload["surfaces"] as? [[String: Any]] ?? []
+                if surfaces.contains(where: { ($0["id"] as? String) == handle || ($0["ref"] as? String) == handle }) {
+                    return workspaceId
+                }
             }
         }
 
@@ -29052,6 +29090,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return ("SessionEnd", false)
             case "Stop":
                 return ("Stop", false)
+            case "SubagentStart":
+                return ("SubagentStart", false)
             case "SubagentStop":
                 return ("SubagentStop", false)
             case "Notification":
@@ -29118,6 +29158,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return ("SessionEnd", false)
         case "Stop":
             return ("Stop", false)
+        case "SubagentStart":
+            return ("SubagentStart", false)
         case "SubagentStop":
             return ("SubagentStop", false)
         case "Notification":

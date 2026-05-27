@@ -307,7 +307,7 @@ public final class WorkstreamStore {
                 .userPrompt,
                 .userPrompt(text: prompt.isEmpty ? (event.context?.lastUserMessage ?? "") : prompt)
             )
-        case .sessionStart:
+        case .sessionStart, .subagentStart:
             return (.sessionStart, .sessionStart)
         case .sessionEnd:
             return (.sessionEnd, .sessionEnd)
