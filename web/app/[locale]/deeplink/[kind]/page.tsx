@@ -66,6 +66,11 @@ function duplicatedParams(params: SearchParams, allowedParams: readonly string[]
   return allowedParams.filter((name) => Array.isArray(params[name]));
 }
 
+function unsupportedParams(params: SearchParams, allowedParams: readonly string[]) {
+  const allowed = new Set(allowedParams);
+  return Object.keys(params).filter((name) => !allowed.has(name));
+}
+
 function missingParams(params: SearchParams, requiredParams: readonly string[]) {
   return requiredParams.filter((name) => {
     const value = firstString(params[name]);
@@ -73,12 +78,82 @@ function missingParams(params: SearchParams, requiredParams: readonly string[]) 
   });
 }
 
+function normalizedParam(params: SearchParams, name: string) {
+  return firstString(params[name])?.trim() ?? null;
+}
+
+function conflictingParams(kind: LinkKind, params: SearchParams) {
+  if (
+    kind === "ssh" &&
+    normalizedParam(params, "title") &&
+    normalizedParam(params, "name")
+  ) {
+    return ["title, name"];
+  }
+  return [];
+}
+
+function isBoundedInteger(value: string, min: number, max: number) {
+  if (!/^[0-9]+$/.test(value)) return false;
+  const integer = Number(value);
+  return Number.isSafeInteger(integer) && integer >= min && integer <= max;
+}
+
+function invalidParams(kind: LinkKind, params: SearchParams) {
+  const invalid: string[] = [];
+  const noFocus = normalizedParam(params, "no-focus");
+  if (
+    noFocus != null &&
+    noFocus !== "" &&
+    !["1", "true", "yes", "on", "0", "false", "no", "off"].includes(
+      noFocus.toLowerCase(),
+    )
+  ) {
+    invalid.push("no-focus");
+  }
+
+  if (kind !== "ssh") return invalid;
+
+  const port = normalizedParam(params, "port");
+  if (port != null && !isBoundedInteger(port, 1, 65535)) {
+    invalid.push("port");
+  }
+  const connectTimeout = normalizedParam(params, "connect-timeout");
+  if (connectTimeout != null && !isBoundedInteger(connectTimeout, 1, 600)) {
+    invalid.push("connect-timeout");
+  }
+  const serverAliveInterval = normalizedParam(params, "server-alive-interval");
+  if (
+    serverAliveInterval != null &&
+    !isBoundedInteger(serverAliveInterval, 1, 3600)
+  ) {
+    invalid.push("server-alive-interval");
+  }
+  const serverAliveCountMax = normalizedParam(params, "server-alive-count-max");
+  if (
+    serverAliveCountMax != null &&
+    !isBoundedInteger(serverAliveCountMax, 1, 100)
+  ) {
+    invalid.push("server-alive-count-max");
+  }
+  const hostKeyPolicy = normalizedParam(params, "host-key-policy");
+  if (
+    hostKeyPolicy != null &&
+    !["accept-new", "ask", "strict", "yes"].includes(
+      hostKeyPolicy.toLowerCase(),
+    )
+  ) {
+    invalid.push("host-key-policy");
+  }
+  return invalid;
+}
+
 function nativeHref(kind: LinkKind, params: SearchParams) {
   const definition = definitions[kind];
   const query = new URLSearchParams();
   for (const name of definition.allowedParams) {
     const value = firstString(params[name]);
-    if (value != null && value.trim() !== "") {
+    if (value != null && (value.trim() !== "" || name === "no-focus")) {
       query.set(name, value);
     }
   }
@@ -126,10 +201,31 @@ export default async function DeeplinkPage({
   const t = await getTranslations("deeplink");
   const resolvedSearchParams = (await searchParams) ?? {};
   const definition = definitions[kind];
+  const unsupported = unsupportedParams(
+    resolvedSearchParams,
+    definition.allowedParams,
+  );
   const duplicates = duplicatedParams(resolvedSearchParams, definition.allowedParams);
+  const conflicts = conflictingParams(kind, resolvedSearchParams);
+  const invalid = invalidParams(kind, resolvedSearchParams);
   const missing = missingParams(resolvedSearchParams, definition.requiredParams);
   const href = nativeHref(kind, resolvedSearchParams);
-  const canOpen = duplicates.length === 0 && missing.length === 0;
+  const canOpen =
+    unsupported.length === 0 &&
+    duplicates.length === 0 &&
+    conflicts.length === 0 &&
+    invalid.length === 0 &&
+    missing.length === 0;
+  const errorMessage =
+    unsupported.length > 0
+      ? t("unsupportedParams", { params: unsupported.join(", ") })
+      : duplicates.length > 0
+        ? t("duplicateParams", { params: duplicates.join(", ") })
+        : conflicts.length > 0
+          ? t("conflictingParams", { params: conflicts.join(", ") })
+          : invalid.length > 0
+            ? t("invalidParams", { params: invalid.join(", ") })
+            : t("missingParams", { params: missing.join(", ") });
 
   return (
     <div className="min-h-screen">
@@ -171,9 +267,7 @@ export default async function DeeplinkPage({
           </div>
         ) : (
           <div className="mb-6 rounded-lg border border-border bg-code-bg px-4 py-3 text-[14px] text-muted">
-            {duplicates.length > 0
-              ? t("duplicateParams", { params: duplicates.join(", ") })
-              : t("missingParams", { params: missing.join(", ") })}
+            {errorMessage}
           </div>
         )}
 
