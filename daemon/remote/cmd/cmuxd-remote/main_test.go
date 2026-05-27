@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net"
@@ -391,7 +392,8 @@ func TestPersistentDaemonSocketDirOverrideUsesPrivateChild(t *testing.T) {
 		t.Fatalf("socket dir parent = %q, want %q", filepath.Dir(socketDir), socketParent)
 	}
 
-	if err := ensurePersistentDaemonDirectory(paths); err != nil {
+	paths, err = ensurePersistentDaemonDirectory(paths)
+	if err != nil {
 		t.Fatalf("ensurePersistentDaemonDirectory returned error: %v", err)
 	}
 	parentInfo, err := os.Stat(socketParent)
@@ -407,6 +409,98 @@ func TestPersistentDaemonSocketDirOverrideUsesPrivateChild(t *testing.T) {
 	}
 	if childInfo.Mode().Perm() != 0o700 {
 		t.Fatalf("socket child mode = %o, want 700", childInfo.Mode().Perm())
+	}
+}
+
+func TestPersistentDaemonSocketDirFallsBackFromUnsafeSymlink(t *testing.T) {
+	rootBase := filepath.Join(t.TempDir(), "daemon-root")
+	socketParent := filepath.Join(t.TempDir(), "caller-socket-dir")
+	if err := os.MkdirAll(socketParent, 0o755); err != nil {
+		t.Fatalf("create socket parent: %v", err)
+	}
+	unsafeTarget := filepath.Join(t.TempDir(), "attacker-dir")
+	if err := os.MkdirAll(unsafeTarget, 0o755); err != nil {
+		t.Fatalf("create unsafe target: %v", err)
+	}
+	unsafeChild := filepath.Join(socketParent, fmt.Sprintf("cmuxd-remote-%d", os.Getuid()))
+	if err := os.Symlink(unsafeTarget, unsafeChild); err != nil {
+		t.Fatalf("create unsafe socket child symlink: %v", err)
+	}
+	t.Setenv("CMUX_REMOTE_DAEMON_ROOT", rootBase)
+	t.Setenv("CMUX_REMOTE_DAEMON_SOCKET_DIR", socketParent)
+
+	paths, err := persistentDaemonPathsForSlot("unsafe-socket-slot")
+	if err != nil {
+		t.Fatalf("persistentDaemonPathsForSlot returned error: %v", err)
+	}
+	unsafeSocketDir := filepath.Dir(paths.socket)
+	if unsafeSocketDir != unsafeChild {
+		t.Fatalf("precondition failed: socket dir = %q, want unsafe child %q", unsafeSocketDir, unsafeChild)
+	}
+
+	paths, err = ensurePersistentDaemonDirectory(paths)
+	if err != nil {
+		t.Fatalf("ensurePersistentDaemonDirectory returned error: %v", err)
+	}
+	socketDir := filepath.Dir(paths.socket)
+	if socketDir == unsafeChild {
+		t.Fatalf("socket dir still points at unsafe child %q", socketDir)
+	}
+	if filepath.Clean(filepath.Dir(socketDir)) != filepath.Clean(os.TempDir()) {
+		t.Fatalf("fallback socket dir parent = %q, want %q", filepath.Dir(socketDir), os.TempDir())
+	}
+	info, err := os.Lstat(socketDir)
+	if err != nil {
+		t.Fatalf("stat fallback socket dir: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		t.Fatalf("fallback socket dir should be a real directory, got mode %v", info.Mode())
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("fallback socket dir mode = %o, want 700", info.Mode().Perm())
+	}
+	storedSocketDir, err := readPersistentDaemonSocketDir(paths.root)
+	if err != nil {
+		t.Fatalf("read stored fallback socket dir: %v", err)
+	}
+	if storedSocketDir != socketDir {
+		t.Fatalf("stored socket dir = %q, want %q", storedSocketDir, socketDir)
+	}
+}
+
+func TestPersistentDaemonSocketDirReusesStoredFallback(t *testing.T) {
+	rootBase := filepath.Join(t.TempDir(), "daemon-root")
+	socketParent := filepath.Join(t.TempDir(), "caller-socket-dir")
+	if err := os.MkdirAll(socketParent, 0o755); err != nil {
+		t.Fatalf("create socket parent: %v", err)
+	}
+	unsafeChild := filepath.Join(socketParent, fmt.Sprintf("cmuxd-remote-%d", os.Getuid()))
+	if err := os.WriteFile(unsafeChild, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("create unsafe socket child file: %v", err)
+	}
+	t.Setenv("CMUX_REMOTE_DAEMON_ROOT", rootBase)
+	t.Setenv("CMUX_REMOTE_DAEMON_SOCKET_DIR", socketParent)
+
+	paths, err := persistentDaemonPathsForSlot("stored-fallback-slot")
+	if err != nil {
+		t.Fatalf("persistentDaemonPathsForSlot returned error: %v", err)
+	}
+	paths, err = ensurePersistentDaemonDirectory(paths)
+	if err != nil {
+		t.Fatalf("ensurePersistentDaemonDirectory returned error: %v", err)
+	}
+	firstSocketDir := filepath.Dir(paths.socket)
+
+	nextPaths, err := persistentDaemonPathsForSlot("stored-fallback-slot")
+	if err != nil {
+		t.Fatalf("persistentDaemonPathsForSlot returned error: %v", err)
+	}
+	nextPaths, err = ensurePersistentDaemonDirectory(nextPaths)
+	if err != nil {
+		t.Fatalf("second ensurePersistentDaemonDirectory returned error: %v", err)
+	}
+	if filepath.Dir(nextPaths.socket) != firstSocketDir {
+		t.Fatalf("second socket dir = %q, want stored fallback %q", filepath.Dir(nextPaths.socket), firstSocketDir)
 	}
 }
 

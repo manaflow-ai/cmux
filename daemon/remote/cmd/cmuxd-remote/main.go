@@ -309,9 +309,10 @@ type persistentDaemonPaths struct {
 }
 
 const (
-	persistentDaemonAuthMethod  = "daemon.auth"
-	persistentDaemonReadyFDEnv  = "CMUX_REMOTE_DAEMON_READY_FD"
-	persistentDaemonAuthTimeout = 5 * time.Second
+	persistentDaemonAuthMethod    = "daemon.auth"
+	persistentDaemonReadyFDEnv    = "CMUX_REMOTE_DAEMON_READY_FD"
+	persistentDaemonAuthTimeout   = 5 * time.Second
+	persistentDaemonSocketDirFile = "socket-dir"
 )
 
 var errPersistentDaemonAuthFailed = errors.New("persistent daemon authentication failed")
@@ -421,18 +422,153 @@ func validatePersistentDaemonSlot(rawSlot string) (string, error) {
 	return slot, nil
 }
 
-func ensurePersistentDaemonDirectory(paths persistentDaemonPaths) error {
+func ensurePersistentDaemonDirectory(paths persistentDaemonPaths) (persistentDaemonPaths, error) {
 	if err := os.MkdirAll(paths.root, 0o700); err != nil {
-		return err
+		return paths, err
 	}
-	if err := os.Chmod(paths.root, 0o700); err != nil {
-		return err
+	if err := verifyPrivateDaemonDirectory(paths.root); err != nil {
+		return paths, err
 	}
 	socketDir := filepath.Dir(paths.socket)
-	if err := os.MkdirAll(socketDir, 0o700); err != nil {
+	secureSocketDir, err := ensurePersistentDaemonSocketDirectory(paths.root, socketDir)
+	if err != nil {
+		return paths, err
+	}
+	paths.socket = filepath.Join(secureSocketDir, filepath.Base(paths.socket))
+	return paths, nil
+}
+
+func ensurePersistentDaemonSocketDirectory(root string, defaultSocketDir string) (string, error) {
+	if storedSocketDir, err := readPersistentDaemonSocketDir(root); err == nil {
+		if verifyErr := ensurePrivateDaemonLeafDirectory(storedSocketDir); verifyErr == nil {
+			return storedSocketDir, nil
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+
+	if err := ensurePrivateDaemonLeafDirectory(defaultSocketDir); err == nil {
+		return defaultSocketDir, nil
+	}
+	return createPersistentDaemonFallbackSocketDir(root)
+}
+
+func ensurePrivateDaemonLeafDirectory(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.Chmod(socketDir, 0o700)
+	if err := os.Mkdir(path, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	return verifyPrivateDaemonDirectory(path)
+}
+
+func verifyPrivateDaemonDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("persistent daemon directory %q is a symlink", path)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("persistent daemon directory %q is not a directory", path)
+	}
+	if !daemonDirectoryOwnedByCurrentUser(info) {
+		return fmt.Errorf("persistent daemon directory %q is not owned by uid %d", path, os.Getuid())
+	}
+	if info.Mode().Perm() != 0o700 {
+		if err := os.Chmod(path, 0o700); err != nil {
+			return err
+		}
+		info, err = os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 ||
+			!info.IsDir() ||
+			!daemonDirectoryOwnedByCurrentUser(info) ||
+			info.Mode().Perm() != 0o700 {
+			return fmt.Errorf("persistent daemon directory %q is not private", path)
+		}
+	}
+	return nil
+}
+
+func daemonDirectoryOwnedByCurrentUser(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return !ok || int(stat.Uid) == os.Getuid()
+}
+
+func readPersistentDaemonSocketDir(root string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(root, persistentDaemonSocketDirFile))
+	if err != nil {
+		return "", err
+	}
+	socketDir := strings.TrimSpace(string(data))
+	if socketDir == "" {
+		return "", errors.New("persistent daemon socket directory file is empty")
+	}
+	return socketDir, nil
+}
+
+func createPersistentDaemonFallbackSocketDir(root string) (string, error) {
+	for attempt := 0; attempt < 8; attempt++ {
+		raw := make([]byte, 8)
+		if _, err := rand.Read(raw); err != nil {
+			return "", err
+		}
+		socketDir := filepath.Join(
+			os.TempDir(),
+			fmt.Sprintf("cmuxd-remote-%d-%s", os.Getuid(), hex.EncodeToString(raw)),
+		)
+		if err := os.Mkdir(socketDir, 0o700); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				continue
+			}
+			return "", err
+		}
+		if err := writePersistentDaemonSocketDir(root, socketDir); err != nil {
+			_ = os.Remove(socketDir)
+			if errors.Is(err, os.ErrExist) {
+				if storedSocketDir, readErr := readPersistentDaemonSocketDir(root); readErr == nil {
+					if verifyErr := ensurePrivateDaemonLeafDirectory(storedSocketDir); verifyErr == nil {
+						return storedSocketDir, nil
+					}
+				}
+				continue
+			}
+			return "", err
+		}
+		return socketDir, nil
+	}
+	return "", errors.New("failed to create private persistent daemon socket directory")
+}
+
+func writePersistentDaemonSocketDir(root string, socketDir string) error {
+	file, err := os.CreateTemp(root, ".socket-dir.*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := file.Name()
+	closeOK := false
+	defer func() {
+		if !closeOK {
+			_ = file.Close()
+		}
+		_ = os.Remove(tmpPath)
+	}()
+	if err := file.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err := file.WriteString(socketDir + "\n"); err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	closeOK = true
+	return os.Link(tmpPath, filepath.Join(root, persistentDaemonSocketDirFile))
 }
 
 func persistentDaemonToken(paths persistentDaemonPaths) (string, error) {
@@ -493,7 +629,8 @@ func runPersistentStdioProxy(stdin io.Reader, stdout, stderr io.Writer, slot str
 	if err != nil {
 		return err
 	}
-	if err := ensurePersistentDaemonDirectory(paths); err != nil {
+	paths, err = ensurePersistentDaemonDirectory(paths)
+	if err != nil {
 		return err
 	}
 	token, err := persistentDaemonToken(paths)
@@ -671,7 +808,8 @@ func runPersistentDaemonServer(slot string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := ensurePersistentDaemonDirectory(paths); err != nil {
+	paths, err = ensurePersistentDaemonDirectory(paths)
+	if err != nil {
 		return err
 	}
 	token, err := persistentDaemonToken(paths)
