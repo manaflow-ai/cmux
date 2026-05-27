@@ -2434,9 +2434,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             result.stderr.contains("tmux attach: --cwd is only supported for local attaches"),
             result.stderr
         )
-        XCTAssertFalse(
-            state.snapshot().contains { $0.contains(#""method":"workspace.create""#) },
-            "tmux attach SSH --cwd should not create a workspace"
+        XCTAssertTrue(
+            state.snapshot().isEmpty,
+            "tmux attach SSH --cwd should fail before sending any RPC, saw \(state.snapshot())"
         )
     }
 
