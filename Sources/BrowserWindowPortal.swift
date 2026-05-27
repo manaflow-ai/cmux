@@ -468,11 +468,19 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        performHitTest(at: point, currentEvent: NSApp.currentEvent)
+    }
+
+    func performHitTest(
+        at point: NSPoint,
+        currentEvent: NSEvent?,
+        dragPasteboardTypes: [NSPasteboard.PasteboardType]? = NSPasteboard(name: .drag).types
+    ) -> NSView? {
         let dividerHit = splitDividerHit(at: point)
         let hostedInspectorHit = dividerHit == nil ? hostedInspectorDividerHit(at: point) : nil
         updateDividerCursor(at: point, dividerHit: dividerHit, hostedInspectorHit: hostedInspectorHit)
 
-        let eventType = NSApp.currentEvent?.type
+        let eventType = currentEvent?.type
         let titlebarPassThrough = shouldPassThroughToTitlebar(at: point)
         let tabStripPassThrough = shouldPassThroughToPaneTabBar(at: point, eventType: eventType)
         let sidebarPassThrough = shouldPassThroughToSidebarResizer(
@@ -539,8 +547,8 @@ final class WindowBrowserHostView: NSView {
         // Browser hover routing also arrives as cursor/enter events and may not
         // report a pressed-button state, so include that path here.
         if Self.shouldPassThroughToDragTargets(
-            pasteboardTypes: NSPasteboard(name: .drag).types,
-            eventType: NSApp.currentEvent?.type
+            pasteboardTypes: dragPasteboardTypes,
+            eventType: eventType
         ) {
             return nil
         }

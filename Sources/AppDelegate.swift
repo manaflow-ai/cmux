@@ -9348,6 +9348,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" else { return }
         guard tabManager != nil else { return }
         let startWithHiddenSidebar = env["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] == "1"
+        let startWithTopBottomSplit = env["CMUX_UI_TEST_BONSPLIT_START_WITH_TOP_BOTTOM_SPLIT"] == "1"
+        let useBrowserPanels = env["CMUX_UI_TEST_BONSPLIT_USE_BROWSER_PANELS"] == "1"
         let showRightSidebar = env["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] == "1"
 
         let deadline = Date().addingTimeInterval(20.0)
@@ -9405,7 +9407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             let tabManager = context.tabManager
             guard let workspace = tabManager.selectedWorkspace ?? tabManager.tabs.first,
-                  let alphaPanelId = workspace.focusedPanelId else {
+                  let initialPanelId = workspace.focusedPanelId else {
                 self.writeBonsplitTabDragUITestData(["setupError": "Missing initial workspace or panel"])
                 return
             }
@@ -9413,16 +9415,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let workspaceTitle = "UITest Workspace"
             let alphaTitle = "UITest Alpha"
             let betaTitle = "UITest Beta"
+            let gammaTitle = "UITest Gamma"
             tabManager.setCustomTitle(tabId: workspace.id, title: workspaceTitle)
-            workspace.setPanelCustomTitle(panelId: alphaPanelId, title: alphaTitle)
-            tabManager.newSurface()
+            let alphaPanelId: UUID
+            let betaPanelId: UUID
+            if useBrowserPanels {
+                guard let initialPaneId = workspace.paneId(forPanelId: initialPanelId),
+                      let alphaBrowser = workspace.newBrowserSurface(
+                        inPane: initialPaneId,
+                        url: URL(string: "about:blank"),
+                        focus: true,
+                        insertAtEnd: true
+                      ) else {
+                    self.writeBonsplitTabDragUITestData(["setupError": "Failed to create browser alpha surface"])
+                    return
+                }
+                alphaPanelId = alphaBrowser.id
+                workspace.setPanelCustomTitle(panelId: alphaPanelId, title: alphaTitle)
+                _ = workspace.closePanel(initialPanelId, force: true)
 
-            guard let betaPanelId = workspace.focusedPanelId, betaPanelId != alphaPanelId else {
-                self.writeBonsplitTabDragUITestData(["setupError": "Failed to create second surface"])
-                return
+                guard let topPaneId = workspace.paneId(forPanelId: alphaPanelId),
+                      let betaBrowser = workspace.newBrowserSurface(
+                        inPane: topPaneId,
+                        url: URL(string: "about:blank"),
+                        focus: true,
+                        insertAtEnd: true
+                      ) else {
+                    self.writeBonsplitTabDragUITestData(["setupError": "Failed to create browser beta surface"])
+                    return
+                }
+                betaPanelId = betaBrowser.id
+            } else {
+                alphaPanelId = initialPanelId
+                workspace.setPanelCustomTitle(panelId: alphaPanelId, title: alphaTitle)
+                tabManager.newSurface()
+
+                guard let createdBetaPanelId = workspace.focusedPanelId,
+                      createdBetaPanelId != alphaPanelId else {
+                    self.writeBonsplitTabDragUITestData(["setupError": "Failed to create second surface"])
+                    return
+                }
+                betaPanelId = createdBetaPanelId
             }
 
             workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
+            let gammaPanelId: UUID?
+            if startWithTopBottomSplit {
+                if useBrowserPanels {
+                    guard let gammaPanel = workspace.newBrowserSplit(
+                        from: alphaPanelId,
+                        orientation: .vertical,
+                        url: URL(string: "about:blank"),
+                        focus: false
+                    ) else {
+                        self.writeBonsplitTabDragUITestData(["setupError": "Failed to create top-bottom split"])
+                        return
+                    }
+                    workspace.setPanelCustomTitle(panelId: gammaPanel.id, title: gammaTitle)
+                    gammaPanelId = gammaPanel.id
+                } else {
+                    guard let gammaPanel = workspace.newTerminalSplit(
+                        from: alphaPanelId,
+                        orientation: .vertical,
+                        focus: false
+                    ) else {
+                        self.writeBonsplitTabDragUITestData(["setupError": "Failed to create top-bottom split"])
+                        return
+                    }
+                    workspace.setPanelCustomTitle(panelId: gammaPanel.id, title: gammaTitle)
+                    gammaPanelId = gammaPanel.id
+                }
+                workspace.focusPanel(alphaPanelId)
+            } else {
+                gammaPanelId = nil
+            }
             if let rawActionButtonCount = env["CMUX_UI_TEST_BONSPLIT_ACTION_BUTTON_COUNT"],
                let requestedActionButtonCount = Int(rawActionButtonCount),
                requestedActionButtonCount > 0 {
@@ -9473,13 +9539,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "workspaceTitle": workspaceTitle,
                 "alphaTitle": alphaTitle,
                 "betaTitle": betaTitle,
+                "gammaTitle": gammaTitle,
                 "alphaPanelId": alphaPanelId.uuidString,
                 "betaPanelId": betaPanelId.uuidString,
+                "gammaPanelId": gammaPanelId?.uuidString ?? "",
+                "splitLayout": startWithTopBottomSplit ? "topBottom" : "none",
             ])
             self.startBonsplitTabDragUITestRecorder(
                 workspaceId: workspace.id,
                 alphaPanelId: alphaPanelId,
-                betaPanelId: betaPanelId
+                betaPanelId: betaPanelId,
+                trackedPanePanelId: alphaPanelId,
+                secondaryPanePanelId: gammaPanelId
             )
         }
 
@@ -9502,7 +9573,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func startBonsplitTabDragUITestRecorder(
         workspaceId: UUID,
         alphaPanelId: UUID,
-        betaPanelId: UUID
+        betaPanelId: UUID,
+        trackedPanePanelId: UUID? = nil,
+        secondaryPanePanelId: UUID? = nil
     ) {
         bonsplitTabDragUITestRecorder?.cancel()
         bonsplitTabDragUITestRecorder = nil
@@ -9513,7 +9586,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self?.recordBonsplitTabDragUITestState(
                 workspaceId: workspaceId,
                 alphaPanelId: alphaPanelId,
-                betaPanelId: betaPanelId
+                betaPanelId: betaPanelId,
+                trackedPanePanelId: trackedPanePanelId,
+                secondaryPanePanelId: secondaryPanePanelId
             )
         }
         bonsplitTabDragUITestRecorder = timer
@@ -9523,14 +9598,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func recordBonsplitTabDragUITestState(
         workspaceId: UUID,
         alphaPanelId: UUID,
-        betaPanelId: UUID
+        betaPanelId: UUID,
+        trackedPanePanelId: UUID? = nil,
+        secondaryPanePanelId: UUID? = nil
     ) {
         guard let tabManager else { return }
         guard let workspace = (tabManager.tabs.first { $0.id == workspaceId } ?? tabManager.selectedWorkspace ?? tabManager.tabs.first) else {
             return
         }
 
-        let trackedPaneId = workspace.paneId(forPanelId: alphaPanelId)
+        let trackedPaneId = trackedPanePanelId.flatMap { workspace.paneId(forPanelId: $0) }
+            ?? workspace.paneId(forPanelId: alphaPanelId)
             ?? workspace.paneId(forPanelId: betaPanelId)
             ?? workspace.bonsplitController.focusedPaneId
             ?? workspace.bonsplitController.allPaneIds.first
@@ -9543,12 +9621,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let selectedTitle = workspace.bonsplitController.selectedTab(inPane: trackedPaneId)
             .flatMap { workspace.panelIdFromSurfaceId($0.id) }
             .flatMap { workspace.panelTitle(panelId: $0) } ?? ""
+        let secondaryPaneId = secondaryPanePanelId.flatMap { workspace.paneId(forPanelId: $0) }
+        let secondaryTitles: [String] = secondaryPaneId.map { paneId in
+            workspace.bonsplitController.tabs(inPane: paneId).compactMap { tab in
+                guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { return nil }
+                return workspace.panelTitle(panelId: panelId)
+            }
+        } ?? []
 
         writeBonsplitTabDragUITestData([
             "trackedPaneId": trackedPaneId.description,
             "trackedPaneTabTitles": titles.joined(separator: "|"),
             "trackedPaneTabCount": String(titles.count),
             "trackedPaneSelectedTitle": selectedTitle,
+            "secondaryPaneId": secondaryPaneId?.description ?? "",
+            "secondaryPaneTabTitles": secondaryTitles.joined(separator: "|"),
+            "secondaryPaneTabCount": String(secondaryTitles.count),
         ])
     }
 
