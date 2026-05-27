@@ -448,6 +448,24 @@ struct WorkspaceTabColorEntry: Equatable, Identifiable {
     var id: String { name }
 }
 
+/// UserDefaults-backed "Don't ask again" flag for the anchor-close confirm
+/// dialog. Defaults to false (dialog is shown).
+enum WorkspaceGroupAnchorCloseSettings {
+    static let suppressionKey = "workspaceGroup.anchorCloseSuppressed"
+
+    static func suppressed(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: suppressionKey)
+    }
+
+    static func setSuppressed(_ value: Bool, defaults: UserDefaults = .standard) {
+        if value {
+            defaults.set(true, forKey: suppressionKey)
+        } else {
+            defaults.removeObject(forKey: suppressionKey)
+        }
+    }
+}
+
 enum WorkspaceTabColorSettings {
     static let paletteKey = "workspaceTabColor.colors"
 
@@ -6597,6 +6615,17 @@ class TabManager: ObservableObject {
         requiresConfirmation: Bool = true,
         source: CloseConfirmationSource = .workspace
     ) {
+        if requiresConfirmation,
+           let groupId = workspace.groupId,
+           let group = workspaceGroups.first(where: { $0.id == groupId }),
+           group.anchorWorkspaceId == workspace.id {
+            let otherMemberCount = tabs.reduce(0) { partial, tab in
+                tab.groupId == groupId && tab.id != workspace.id ? partial + 1 : partial
+            }
+            if !confirmAnchorWorkspaceClose(groupName: group.name, otherMemberCount: otherMemberCount) {
+                return
+            }
+        }
         let willCloseWindow = tabs.count <= 1
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
         if requiresConfirmation,
@@ -6635,6 +6664,72 @@ class TabManager: ObservableObject {
                 source: .tabCloseButton
             )
         }
+    }
+
+    /// Confirm before closing a workspace that is its group's anchor. Closing
+    /// the anchor dissolves the group (other members survive ungrouped).
+    /// "Don't ask again" toggles `WorkspaceGroupAnchorCloseSettings.suppressed`.
+    private func confirmAnchorWorkspaceClose(groupName: String, otherMemberCount: Int) -> Bool {
+        if WorkspaceGroupAnchorCloseSettings.suppressed() {
+            return true
+        }
+        guard beginCloseConfirmationSession() else { return false }
+        defer { endCloseConfirmationSession() }
+
+        let title = String(
+            localized: "dialog.closeAnchor.title",
+            defaultValue: "Close this workspace?"
+        )
+        let message: String
+        if otherMemberCount == 0 {
+            message = String(
+                localized: "dialog.closeAnchor.message.lone",
+                defaultValue: "Closing this workspace will remove the group \u{201C}\(groupName)\u{201D}."
+            )
+        } else if otherMemberCount == 1 {
+            message = String(
+                localized: "dialog.closeAnchor.message.one",
+                defaultValue: "Closing this workspace will ungroup \u{201C}\(groupName)\u{201D} and release 1 other workspace."
+            )
+        } else {
+            message = String(
+                localized: "dialog.closeAnchor.message.many",
+                defaultValue: "Closing this workspace will ungroup \u{201C}\(groupName)\u{201D} and release \(otherMemberCount) other workspaces."
+            )
+        }
+
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
+        alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
+        let suppressionButton = NSButton(
+            checkboxWithTitle: String(
+                localized: "dialog.dontAskAgain",
+                defaultValue: "Don\u{2019}t ask again"
+            ),
+            target: nil,
+            action: nil
+        )
+        suppressionButton.state = .off
+        alert.accessoryView = suppressionButton
+        if let closeButton = alert.buttons.first {
+            closeButton.keyEquivalent = "\r"
+            closeButton.keyEquivalentModifierMask = []
+            alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
+            alert.window.initialFirstResponder = closeButton
+        }
+        if let cancelButton = alert.buttons.dropFirst().first {
+            cancelButton.keyEquivalent = "\u{1b}"
+        }
+
+        let response = runCloseConfirmationAlert(alert)
+        guard response == .alertFirstButtonReturn else { return false }
+        if suppressionButton.state == .on {
+            WorkspaceGroupAnchorCloseSettings.setSuppressed(true)
+        }
+        return true
     }
 
     private func confirmPinnedWorkspaceClose(source: CloseConfirmationSource) -> Bool {
