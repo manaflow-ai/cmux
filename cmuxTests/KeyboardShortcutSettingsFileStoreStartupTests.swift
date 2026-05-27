@@ -1109,7 +1109,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
-    func testSettingsFileStoreIgnoresInvalidCustomBrowserSearchFieldsWithoutAbortingBrowserSection() throws {
+    func testSettingsFileStoreAppliesBlankCustomBrowserSearchNameAndIgnoresInvalidCustomURLWithoutAbortingBrowserSection() throws {
         let defaults = UserDefaults.standard
         try preservingDefaults(keys: [
             BrowserSearchSettings.searchEngineKey,
@@ -1155,7 +1155,10 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             )
 
             XCTAssertEqual(defaults.string(forKey: BrowserSearchSettings.searchEngineKey), BrowserSearchEngine.google.rawValue)
-            XCTAssertNotEqual(defaults.string(forKey: BrowserSearchSettings.customSearchEngineNameKey), "   ")
+            XCTAssertEqual(
+                defaults.string(forKey: BrowserSearchSettings.customSearchEngineNameKey),
+                BrowserSearchSettings.defaultCustomSearchEngineName
+            )
             XCTAssertNotEqual(
                 defaults.string(forKey: BrowserSearchSettings.customSearchEngineURLTemplateKey),
                 "ftp://search.example.test?q={query}"
