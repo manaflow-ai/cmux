@@ -11545,8 +11545,16 @@ struct VerticalTabsSidebar: View {
                 SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
             }
         )
-        .id("workspaceGroupHeader.\(group.id.uuidString)")
+        .id(group.anchorWorkspaceId)
         .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
+        // Publish the anchor workspace's id + frame from the header so the
+        // shared scroll/drop overlay infrastructure (which keys off the
+        // workspace UUID) can target the anchor even though there's no
+        // separate row drawn for it.
+        .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([group.anchorWorkspaceId]))
+        .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { [anchorId = group.anchorWorkspaceId] anchor in
+            [anchorId: anchor]
+        }
         .onDrag { [groupId = group.id] in
             SidebarWorkspaceGroupDragPayload.provider(for: groupId)
         }

@@ -329,7 +329,11 @@ enum KeyboardShortcutSettings {
             case .closeWorkspace:
                 return StoredShortcut(key: "w", command: true, shift: true, option: false, control: false)
             case .groupSelectedWorkspaces:
-                return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+                // Cmd+Shift+G collides with `toggleReactGrab`'s default and
+                // matchConfiguredShortcut checks this case first, which would
+                // make React Grab unreachable on stock settings. Route through
+                // Cmd+Opt+G instead; users can rebind via Settings.
+                return StoredShortcut(key: "g", command: true, shift: false, option: true, control: false)
             case .reopenClosedBrowserPanel:
                 return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
             case .focusLeft:

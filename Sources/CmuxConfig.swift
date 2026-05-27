@@ -2743,6 +2743,18 @@ final class CmuxConfigStore: ObservableObject {
         return best?.0
     }
 
+    /// Replace a leading `~` with the user's home directory while preserving
+    /// the rest of the pattern (including `*`/`?` glob characters). Unlike
+    /// `normalizeAbsolutePath`, this skips `standardizingPath` so trailing
+    /// glob segments aren't collapsed.
+    private static func expandTildePreservingGlob(_ pattern: String) -> String {
+        let trimmed = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("~") else { return trimmed }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let suffix = trimmed.dropFirst()
+        return suffix.isEmpty ? home : home + String(suffix)
+    }
+
     private static func normalizeAbsolutePath(_ path: String) -> String {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return "" }
@@ -2844,7 +2856,14 @@ final class CmuxConfigStore: ObservableObject {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let isGlob = trimmed.contains("*") || trimmed.contains("?")
-        let normalizedKey = isGlob ? trimmed : Self.normalizeAbsolutePath(trimmed)
+        // Expand `~` in both glob and prefix keys so a key like
+        // `~/projects/*` matches workspace cwds that are already normalized to
+        // absolute paths (`/Users/<you>/projects/foo`). Prefix keys also go
+        // through `standardizingPath` so trailing `/.` and similar are
+        // canonicalized.
+        let normalizedKey = isGlob
+            ? Self.expandTildePreservingGlob(trimmed)
+            : Self.normalizeAbsolutePath(trimmed)
         let menuResolution = resolvedConfigContextMenuItems(
             entry.contextMenu,
             actions: actions,

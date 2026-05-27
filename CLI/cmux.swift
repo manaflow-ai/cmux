@@ -6663,8 +6663,14 @@ struct CMUXCLI {
             if let cwdOpt { params["cwd"] = resolvePath(cwdOpt) }
             if let nameOpt { params["title"] = nameOpt }
             let response = try client.sendV2(method: "workspace.create", params: params)
-            let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
-            print("OK \(wsRef)")
+            // Honor --json on the canonical namespace, matching the legacy
+            // `cmux new-workspace --json` contract so scripts can swap nouns.
+            if jsonOutput {
+                print(jsonString(formatIDs(response, mode: idFormat)))
+            } else {
+                let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+                print("OK \(wsRef)")
+            }
         case "close":
             let (workspaceArg, _) = parseOption(rest, name: "--workspace")
             let positional = rest.first(where: { !$0.hasPrefix("--") })

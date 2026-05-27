@@ -3873,6 +3873,19 @@ class TerminalController {
             "workspace.reorder_many",
             "workspace.prompt_submit",
             "workspace.rename",
+            "workspace.group.list",
+            "workspace.group.create",
+            "workspace.group.ungroup",
+            "workspace.group.delete",
+            "workspace.group.rename",
+            "workspace.group.collapse",
+            "workspace.group.expand",
+            "workspace.group.pin",
+            "workspace.group.unpin",
+            "workspace.group.add",
+            "workspace.group.remove",
+            "workspace.group.set_anchor",
+            "workspace.group.new_workspace",
             "workspace.action",
             "extension.sidebar.snapshot",
             "workspace.next",
@@ -6091,12 +6104,27 @@ class TerminalController {
         }
         let name = (params["name"] as? String) ?? ""
         let cwd = params["cwd"] as? String
-        let childIds: [UUID] = {
-            if let raw = params["child_workspace_ids"] as? [String] {
-                return raw.compactMap(UUID.init(uuidString:))
+        // child_workspace_ids accepts raw UUID strings AND v2 handle refs
+        // (workspace:1, ws:1, etc.) so callers can use whatever they got back
+        // from workspace.list / workspace-group list.
+        let rawChildren = (params["child_workspace_ids"] as? [String]) ?? []
+        var unresolved: [String] = []
+        let childIds: [UUID] = rawChildren.compactMap { raw -> UUID? in
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            if let uuid = v2UUIDAny(trimmed) {
+                return uuid
             }
-            return []
-        }()
+            unresolved.append(trimmed)
+            return nil
+        }
+        if !unresolved.isEmpty {
+            return .err(
+                code: "invalid_params",
+                message: "Unresolved child workspace handles: \(unresolved.joined(separator: ", "))",
+                data: ["unresolved": unresolved]
+            )
+        }
         var createdGroupId: UUID?
         v2MainSync {
             createdGroupId = tabManager.createWorkspaceGroup(
