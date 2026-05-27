@@ -89,8 +89,8 @@ final class PostHogAnalytics {
         flushSynchronously(reason: "manual")
     }
 
-    func flushForApplicationTermination(maximumWait: DispatchTimeInterval = .milliseconds(250)) {
-        flushWithDeadline(reason: "applicationWillTerminate", maximumWait: maximumWait)
+    func flushForApplicationTermination() {
+        enqueueFlush(reason: "applicationWillTerminate")
     }
 
     private func startIfNeededOnWorkQueue() {
@@ -205,10 +205,10 @@ final class PostHogAnalytics {
         }
     }
 
-    private func flushWithDeadline(reason: String, maximumWait: DispatchTimeInterval) {
-        postHogAnalyticsLogger.debug("posthog.flush.deadline.request reason=\(reason, privacy: .public)")
+    private func enqueueFlush(reason: String) {
+        postHogAnalyticsLogger.debug("posthog.flush.enqueue reason=\(reason, privacy: .public)")
 #if DEBUG
-        cmuxDebugLog("posthog.flush.deadline.request reason=\(reason)")
+        cmuxDebugLog("posthog.flush.enqueue reason=\(reason)")
 #endif
 
         if DispatchQueue.getSpecific(key: workQueueSpecificKey) != nil {
@@ -216,25 +216,10 @@ final class PostHogAnalytics {
             return
         }
 
-        let group = DispatchGroup()
-        group.enter()
-        workQueue.async { [self] in
-            defer { group.leave() }
+        let workItem = DispatchWorkItem { [self] in
             flushOnWorkQueue(reason: reason)
         }
-
-        switch group.wait(timeout: .now() + maximumWait) {
-        case .success:
-            postHogAnalyticsLogger.debug("posthog.flush.deadline.completed reason=\(reason, privacy: .public)")
-#if DEBUG
-            cmuxDebugLog("posthog.flush.deadline.completed reason=\(reason)")
-#endif
-        case .timedOut:
-            postHogAnalyticsLogger.notice("posthog.flush.deadline.timeout reason=\(reason, privacy: .public)")
-#if DEBUG
-            cmuxDebugLog("posthog.flush.deadline.timeout reason=\(reason)")
-#endif
-        }
+        workQueue.async(execute: workItem)
     }
 
     private func flushOnWorkQueue(reason: String) {

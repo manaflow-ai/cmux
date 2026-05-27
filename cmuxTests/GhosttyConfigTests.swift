@@ -3464,13 +3464,13 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
         )
 
         let start = DispatchTime.now().uptimeNanoseconds
-        analytics.flushForApplicationTermination(maximumWait: .milliseconds(20))
+        analytics.flushForApplicationTermination()
         let elapsedMilliseconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
 
         XCTAssertLessThan(
             elapsedMilliseconds,
             100,
-            "Termination flush must use a bounded wait instead of synchronously waiting on the analytics queue"
+            "Termination flush must return without waiting on the analytics queue"
         )
         XCTAssertEqual(flushed.wait(timeout: .now() + 0.05), .timedOut)
 
@@ -3478,7 +3478,7 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
         XCTAssertEqual(flushed.wait(timeout: .now() + 1), .success)
     }
 
-    func testTerminationFlushRunsBeforeReturningWhenAnalyticsQueueIsAvailable() {
+    func testTerminationFlushEventuallyRunsWhenAnalyticsQueueIsAvailable() {
         let queue = DispatchQueue(label: "com.cmux.posthog.analytics.test.idle")
         let flushed = DispatchSemaphore(value: 0)
         let analytics = PostHogAnalytics(
@@ -3489,9 +3489,9 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
             }
         )
 
-        analytics.flushForApplicationTermination(maximumWait: .seconds(1))
+        analytics.flushForApplicationTermination()
 
-        XCTAssertEqual(flushed.wait(timeout: .now()), .success)
+        XCTAssertEqual(flushed.wait(timeout: .now() + 1), .success)
     }
 }
 
