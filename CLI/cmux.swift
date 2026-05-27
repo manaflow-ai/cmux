@@ -23099,7 +23099,7 @@ struct CMUXCLI {
             return nil
         }
         let source = envArguments == nil ? "process" : "environment"
-        let environment = selectedAgentLaunchEnvironment(from: env)
+        let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
 
         return AgentHookLaunchCommandRecord(
             launcher: launcher,
@@ -23341,7 +23341,7 @@ struct CMUXCLI {
         environment: [String: String]?
     ) -> [String: String]? {
         guard let environment else { return nil }
-        let selected = selectedAgentLaunchEnvironment(from: environment)
+        let selected = selectedAgentLaunchEnvironment(from: environment, kind: kind)
         guard !selected.isEmpty else { return nil }
 
         let claudeAuthKeys: Set<String> = [
@@ -23395,8 +23395,15 @@ struct CMUXCLI {
         return parts.isEmpty ? nil : parts
     }
 
-    private func selectedAgentLaunchEnvironment(from env: [String: String]) -> [String: String] {
-        AgentLaunchEnvironmentPolicy.selectedEnvironment(from: env)
+    private func selectedAgentLaunchEnvironment(from env: [String: String], kind: String? = nil) -> [String: String] {
+        var selected = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: env)
+        if kind == "hermes-agent" {
+            selected = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(
+                to: selected,
+                ambientEnvironment: env
+            )
+        }
+        return selected
     }
 
     private func normalizedHookValue(_ value: String?) -> String? {

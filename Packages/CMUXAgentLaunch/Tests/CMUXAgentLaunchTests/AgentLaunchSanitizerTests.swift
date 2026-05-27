@@ -551,6 +551,8 @@ struct AgentLaunchSanitizerTests {
                 fallbackKind: "hermes-agent"
             ) == [
                 "hermes",
+                "--provider",
+                "openai-codex",
                 "--profile",
                 "work",
                 "--tui",
@@ -566,10 +568,10 @@ struct AgentLaunchSanitizerTests {
     func dropsHermesWorktreeValueBeforePreservingLaterOptions() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
-                ["hermes", "--worktree", "/tmp/repo", "--model", "anthropic/claude-sonnet-4.6"],
+                ["hermes", "--worktree", "/tmp/repo", "--model", "gpt-5.4"],
                 launcher: "hermes-agent",
                 fallbackKind: "hermes-agent"
-            ) == ["hermes", "--model", "anthropic/claude-sonnet-4.6"]
+            ) == ["hermes", "--provider", "openai-codex", "--model", "gpt-5.4"]
         )
     }
 
@@ -577,10 +579,10 @@ struct AgentLaunchSanitizerTests {
     func allowsOnlyHermesChatOrDefaultSessionLaunch() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
-                ["hermes", "chat", "--tui", "--model", "anthropic/claude-sonnet-4.6", "initial prompt"],
+                ["hermes", "chat", "--tui", "--model", "gpt-5.4", "initial prompt"],
                 launcher: "hermes-agent",
                 fallbackKind: "hermes-agent"
-            ) == ["hermes", "--tui", "--model", "anthropic/claude-sonnet-4.6"]
+            ) == ["hermes", "--provider", "openai-codex", "--tui", "--model", "gpt-5.4"]
         )
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
@@ -602,10 +604,28 @@ struct AgentLaunchSanitizerTests {
     func treatsHermesSkillsAsSingleValueOptions() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
-                ["hermes", "--skills", "skill1", "skill2", "--model", "anthropic/claude-sonnet-4.6"],
+                ["hermes", "--skills", "skill1", "skill2", "--model", "gpt-5.4"],
                 launcher: "hermes-agent",
                 fallbackKind: "hermes-agent"
-            ) == ["hermes", "--skills", "skill1"]
+            ) == ["hermes", "--provider", "openai-codex", "--skills", "skill1"]
+        )
+    }
+
+    @Test("Preserves explicit Hermes provider")
+    func preservesExplicitHermesProvider() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "--provider", "anthropic", "--model", "anthropic/claude-sonnet-4.6"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == ["hermes", "--provider", "anthropic", "--model", "anthropic/claude-sonnet-4.6"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "--provider=anthropic", "--model", "anthropic/claude-sonnet-4.6"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == ["hermes", "--provider=anthropic", "--model", "anthropic/claude-sonnet-4.6"]
         )
     }
 

@@ -80,6 +80,10 @@ extension TerminalSurface {
         if let claudeConfigDir = merged["CLAUDE_CONFIG_DIR"], !claudeConfigDir.isEmpty {
             merged["CLAUDE_CONFIG_DIR"] = ClaudeConfigDirectoryPath.preferredPath(claudeConfigDir)
         }
+        merged = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(
+            to: merged,
+            ambientEnvironment: ambientEnvironment
+        )
         return merged
     }
 }

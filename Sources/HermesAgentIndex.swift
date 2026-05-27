@@ -1,4 +1,5 @@
 import CMUXAgentVault
+import CMUXAgentLaunch
 import Foundation
 
 extension SessionIndexStore {
@@ -75,6 +76,7 @@ extension SessionIndexStore {
 extension SessionEntry {
     static func hermesResumeCommand(sessionId: String, source: String?, model: String?, hermesHome: String?) -> String {
         var parts = ["hermes"]
+        parts.append("--provider \(Self.shellQuote(HermesAgentCodexEnvironment.defaultProvider))")
         if source == "tui" {
             parts.append("--tui")
         }

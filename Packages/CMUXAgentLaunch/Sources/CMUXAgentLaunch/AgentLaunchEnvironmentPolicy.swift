@@ -58,6 +58,7 @@ public enum AgentLaunchEnvironmentPolicy {
         "GH_HOST",
         "GROK_HOME",
         "GROK_SANDBOX",
+        "HERMES_CODEX_BASE_URL",
         "HERMES_HOME",
         "NODE_OPTIONS",
         "OPENCODE_CONFIG_DIR",

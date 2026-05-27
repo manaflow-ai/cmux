@@ -241,4 +241,30 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertEqual(merged["ANTHROPIC_API_KEY"], "explicit-api-key")
         XCTAssertEqual(merged["ANTHROPIC_MODEL"], "")
     }
+
+    func testMergedStartupEnvironmentDerivesHermesCodexBaseURLFromCodexConfig() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-codex-startup-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try """
+        chatgpt_base_url = "http://subrouter-team:31415/backend-api"
+        """.write(to: codexHome.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [
+                "CODEX_HOME": codexHome.path
+            ],
+            protectedKeys: [],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: [:]
+        )
+
+        XCTAssertEqual(
+            merged["HERMES_CODEX_BASE_URL"],
+            "http://subrouter-team:31415/backend-api/codex"
+        )
+    }
 }
