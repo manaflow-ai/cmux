@@ -2314,7 +2314,8 @@ struct BrowserPanelView: View {
         let openTabMatches = query.isEmpty ? [] : matchingOpenTabSuggestions(for: query, limit: 12)
         let isSingleCharacterQuery = omnibarSingleCharacterQuery(for: query) != nil
         let remoteSuggestionsEngine = searchConfiguration.remoteSuggestionsEngine
-        if remoteSuggestionsEngine == nil {
+        let allowsRemoteSuggestions = remoteSuggestionsEnabled && remoteSuggestionsEngine != nil
+        if !allowsRemoteSuggestions {
             latestRemoteSuggestionQuery = ""
             latestRemoteSuggestions = []
         }
@@ -2324,7 +2325,7 @@ struct BrowserPanelView: View {
         } else {
             staleRemote = staleRemoteSuggestionsForDisplay(
                 query: query,
-                allowsRemoteSuggestions: remoteSuggestionsEngine != nil
+                allowsRemoteSuggestions: allowsRemoteSuggestions
             )
         }
         let resolvedURL = query.isEmpty ? nil : panel.resolveNavigableURL(from: query)

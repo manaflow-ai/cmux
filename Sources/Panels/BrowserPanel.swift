@@ -108,10 +108,6 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    static var presetCases: [BrowserSearchEngine] {
-        allCases.filter { $0 != .custom }
-    }
-
     var displayName: String {
         switch self {
         case .google:
