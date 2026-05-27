@@ -2816,6 +2816,17 @@ struct CMUXCLI {
             return
         }
 
+        if (command == "sidebar" || command == "custom-sidebar" || command == "load-custom-sidebar"),
+           customSidebarCommandDoesNotNeedSocket(command: command, commandArgs: commandArgs) {
+            try runCustomSidebarCommand(
+                command: command,
+                commandArgs: commandArgs,
+                client: nil,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
         // Keep no-socket config subcommands on the early path. Socket-backed
         // config subcommands fall through to the resolved-socket dispatch below.
         if command == "config",
@@ -4419,6 +4430,14 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
+
+        case "sidebar", "custom-sidebar", "load-custom-sidebar":
+            try runCustomSidebarCommand(
+                command: command,
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput
+            )
 
         case "right-sidebar":
             try forwardRightSidebarCommand(
@@ -13576,6 +13595,24 @@ struct CMUXCLI {
               cmux sidebar-state
               cmux sidebar-state --workspace workspace:2
             """
+        case "sidebar", "custom-sidebar", "load-custom-sidebar":
+            return """
+            Usage:
+              cmux sidebar load <swift-file-or-folder>
+              cmux sidebar path
+              cmux sidebar docs
+
+            Load a custom left sidebar without rebuilding cmux.
+
+            Sources:
+              Single Swift files are imported into ~/.config/cmux/sidebars/<name>/
+              Folders can contain multiple .swift files and need either main.swift or @main.
+              cmux builds a small executable that links against bundled CmuxExtensionKit.
+
+            Examples:
+              cmux sidebar load ./Sidebar.swift
+              cmux sidebar load ~/.config/cmux/sidebars/my-sidebar
+            """
         case "right-sidebar":
             return String(localized: "cli.rightSidebar.usage", defaultValue: """
             Usage: cmux right-sidebar <command> [flags]
@@ -13994,6 +14031,87 @@ struct CMUXCLI {
             .map(shellQuote)
             .joined(separator: " ")
         return try sendV1Command(command, client: client)
+    }
+
+    private func runCustomSidebarCommand(
+        command: String,
+        commandArgs: [String],
+        client: SocketClient?,
+        jsonOutput: Bool
+    ) throws {
+        let args = command == "load-custom-sidebar"
+            ? ["load"] + commandArgs
+            : commandArgs
+        let subcommand = args.first?.lowercased() ?? "help"
+
+        switch subcommand {
+        case "load":
+            guard args.count == 2 else {
+                throw CLIError(message: "Usage: cmux sidebar load <swift-file-or-folder>")
+            }
+            guard let client else {
+                throw CLIError(message: "sidebar load requires a running cmux app.")
+            }
+            let sourcePath = resolvePath(args[1])
+            let payload = try client.sendV2(
+                method: "extension.sidebar.load_custom",
+                params: ["path": sourcePath],
+                responseTimeout: 10 * 60
+            )
+            if jsonOutput {
+                print(jsonString(payload))
+                return
+            }
+            let title = (payload["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let displayTitle = (title?.isEmpty == false) ? title! : "custom sidebar"
+            let source = (payload["source_path"] as? String) ?? sourcePath
+            print("Loaded custom sidebar: \(displayTitle)")
+            print("Source: \(source)")
+
+        case "path":
+            guard args.count == 1 else {
+                throw CLIError(message: "Usage: cmux sidebar path")
+            }
+            if jsonOutput {
+                print(jsonString(["path": "~/.config/cmux/sidebars"]))
+            } else {
+                print("~/.config/cmux/sidebars")
+            }
+
+        case "docs":
+            guard args.count == 1 else {
+                throw CLIError(message: "Usage: cmux sidebar docs")
+            }
+            let url = "https://github.com/manaflow-ai/cmux/blob/main/docs/extensions.md#custom-sidebars"
+            if jsonOutput {
+                print(jsonString(["url": url]))
+            } else {
+                print(url)
+            }
+
+        case "help", "--help", "-h":
+            print(subcommandUsage("sidebar") ?? "")
+
+        default:
+            throw CLIError(message: "Unknown sidebar subcommand '\(subcommand)'. Run 'cmux sidebar --help'.")
+        }
+    }
+
+    private func customSidebarCommandDoesNotNeedSocket(command: String, commandArgs: [String]) -> Bool {
+        let args = command == "load-custom-sidebar"
+            ? ["load"] + commandArgs
+            : commandArgs
+        guard let subcommand = args.first?.lowercased() else {
+            return true
+        }
+        switch subcommand {
+        case "load":
+            return args.count != 2
+        case "path", "docs", "help", "--help", "-h":
+            return true
+        default:
+            return false
+        }
     }
 
     private struct RightSidebarCLIArguments {
@@ -30134,7 +30252,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         Commands:
           welcome
-          docs [settings|shortcuts|api|browser|agents|dock]
+          docs [settings|shortcuts|api|browser|agents|dock|extensions]
           settings [open [target]|path|docs|<target>]
           config <doctor|check|validate|path|paths|docs|documentation|reload>
           shortcuts
@@ -30220,6 +30338,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           open-notification --id <uuid>
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
+          sidebar load <swift-file-or-folder> | path | docs
           right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]

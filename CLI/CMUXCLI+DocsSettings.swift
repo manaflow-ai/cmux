@@ -115,6 +115,21 @@ extension CMUXCLI {
                 "python3 -m json.tool .cmux/dock.json",
             ]
         ),
+        DocsReference(
+            topic: "extensions",
+            aliases: ["extension", "sidebar", "sidebars", "custom-sidebar", "swift-sidebar", "swift-sidebars"],
+            summary: "Custom left sidebar sources, CmuxExtensionKit, and CLI loading.",
+            webURL: "https://github.com/manaflow-ai/cmux/blob/main/docs/extensions.md#custom-sidebars",
+            rawResources: [
+                DocsResource(label: "extension docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/extensions.md"),
+                DocsResource(label: "CmuxExtensionKit package manifest", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/Packages/CmuxExtensionKit/Package.swift"),
+            ],
+            commands: [
+                "cmux sidebar path",
+                "cmux sidebar load ~/.config/cmux/sidebars/my-sidebar",
+                "cmux sidebar docs",
+            ]
+        ),
     ]
 
     func runDocsCommand(commandArgs: [String], jsonOutput: Bool) throws {
@@ -137,7 +152,7 @@ extension CMUXCLI {
         }
 
         guard args.count == 1 else {
-            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]")
+            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|extensions]")
         }
 
         if topic == "list" || topic == "all" {
@@ -162,7 +177,7 @@ extension CMUXCLI {
 
     func docsUsage() -> String {
         return """
-        Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]
+        Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|extensions]
 
         Print the canonical docs URL, raw GitHub resources, and useful commands for a cmux topic.
         This command does not require a running cmux app or socket.
@@ -170,6 +185,7 @@ extension CMUXCLI {
         Agents:
           Use `cmux docs settings` before editing ~/.config/cmux/cmux.json.
           Use `cmux docs dock` before creating or editing .cmux/dock.json.
+          Use `cmux docs extensions` before adding a custom left sidebar.
           Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert.
           Fetch raw resources with the printed curl commands when you need the latest schema.
         """
