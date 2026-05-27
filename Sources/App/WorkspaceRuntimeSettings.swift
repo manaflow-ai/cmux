@@ -486,7 +486,7 @@ enum AgentHibernationHookPrerequisites {
         if builtInClaudeWrapperEnabled {
             return String(
                 localized: "settings.terminal.agentHibernation.warning.missingHooksWithClaudeWrapper",
-                defaultValue: "cmux could not find installed agent hooks for this app session. The built-in Claude Code wrapper can still report Claude sessions, but other agents need captured session hooks or trusted resume bindings. Run `cmux hooks setup`, or restart cmux from a shell that exports any agent-specific config directory overrides."
+                defaultValue: "cmux could not find installed agent hooks for this app session. The built-in wrapper can still report supported sessions, but other agents need captured session hooks or trusted resume bindings. Run `cmux hooks setup`, or restart cmux from a shell that exports any agent-specific config directory overrides."
             )
         }
         return String(

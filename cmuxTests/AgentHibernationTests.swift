@@ -165,7 +165,7 @@ final class AgentHibernationTests: XCTestCase {
         )
     }
 
-    func testHookPrerequisitesWarnWithClaudeWrapperContext() throws {
+    func testHookPrerequisitesWarnWithBuiltInWrapperContext() throws {
         let root = try temporaryDirectory(named: "cmux-agent-hibernation-claude-wrapper")
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -176,7 +176,8 @@ final class AgentHibernationTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(warning.contains("Claude"))
+        XCTAssertTrue(warning.contains("built-in wrapper"))
+        XCTAssertFalse(warning.contains("Claude Code"))
         XCTAssertTrue(warning.contains("cmux hooks setup"))
     }
 
