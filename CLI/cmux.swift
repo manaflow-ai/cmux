@@ -20674,7 +20674,7 @@ struct CMUXCLI {
 
         for key in [
             "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
-            "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble",
+            "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
             "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
             "additional_details", "additionalDetails", "description",
@@ -20748,6 +20748,22 @@ struct CMUXCLI {
             }
         }
 
+        if let extra = object["extra"] as? [String: Any] {
+            var compactExtra: [String: Any] = [:]
+            for extraKey in [
+                "assistant_response", "assistantResponse", "last_assistant_message", "lastAssistantMessage",
+                "user_message", "userMessage", "command", "description", "pattern_key", "patternKey",
+                "surface", "choice", "message", "body", "text", "prompt", "summary", "error",
+            ] {
+                if let value = compactClaudeHookValue(extra[extraKey], key: extraKey) {
+                    compactExtra[extraKey] = value
+                }
+            }
+            if !compactExtra.isEmpty {
+                compact["extra"] = compactExtra
+            }
+        }
+
         return compact
     }
 
@@ -20757,7 +20773,7 @@ struct CMUXCLI {
             return 80
         case "transcript_path", "transcriptPath":
             return 240
-        case "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description", "terminationReason":
+        case "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse", "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description", "terminationReason", "user_message", "userMessage", "command":
             return 240
         default:
             return 160
@@ -20968,15 +20984,17 @@ struct CMUXCLI {
 
     private func claudeAssistantMessageFromHookPayload(_ object: [String: Any]?) -> String? {
         guard let object else { return nil }
-        let message = firstString(
-            in: object,
-            keys: [
-                "last_assistant_message",
-                "lastAssistantMessage",
-                "assistantPreamble",
-                "assistant_preamble",
-            ]
-        )
+        let keys = [
+            "last_assistant_message",
+            "lastAssistantMessage",
+            "assistantPreamble",
+            "assistant_preamble",
+            "assistant_response",
+            "assistantResponse",
+        ]
+        let extra = (object["extra"] as? [String: Any]) ?? [:]
+        let message = firstString(in: object, keys: keys)
+            ?? firstString(in: extra, keys: keys)
         guard let message else { return nil }
         let normalized = normalizedSingleLine(message)
         return normalized.isEmpty ? nil : normalized
@@ -22265,6 +22283,7 @@ struct CMUXCLI {
         }
 
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
+        let extra = (object["extra"] as? [String: Any]) ?? [:]
         let signalParts = [
             firstString(in: object, keys: ["event", "event_name", "hook_event_name", "hookEventName", "type", "kind"]),
             firstString(in: object, keys: ["notification_type", "matcher", "reason"]),
@@ -22273,6 +22292,7 @@ struct CMUXCLI {
         let messageCandidates = [
             firstString(in: object, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
             firstString(in: nested, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
+            firstString(in: extra, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
         ]
         let fallbackBody = String.localizedStringWithFormat(
             String(localized: "agent.generic.notification.body.sentNotification", defaultValue: "%@ sent a notification"),
@@ -22281,6 +22301,14 @@ struct CMUXCLI {
         let message = messageCandidates.compactMap { $0 }.first ?? fallbackBody
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         let normalizedMessage = normalizedSingleLine(message)
+        if let hermesApprovalMessage = hermesAgentApprovalNotificationMessage(def: def, object: object) {
+            return classifyAgentHookNotification(
+                def: def,
+                signal: signal,
+                message: normalizedSingleLine(hermesApprovalMessage),
+                isFallback: false
+            )
+        }
         if let grokSummary = summarizeGrokAssistantCompletionNotification(
             def: def,
             message: normalizedMessage,
@@ -22332,14 +22360,36 @@ struct CMUXCLI {
         )
     }
 
+    private func hermesAgentApprovalNotificationMessage(def: AgentHookDef, object: [String: Any]) -> String? {
+        guard def.name == "hermes-agent" else { return nil }
+        let event = firstString(in: object, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
+        guard event == "pre_approval_request" else { return nil }
+        let extra = (object["extra"] as? [String: Any]) ?? [:]
+        let command = firstString(in: extra, keys: ["command"])
+        let description = firstString(in: extra, keys: ["description", "pattern_key", "patternKey"])
+
+        switch (description, command) {
+        case let (description?, command?):
+            return "\(description): \(command)"
+        case let (description?, nil):
+            return description
+        case let (nil, command?):
+            return command
+        default:
+            return nil
+        }
+    }
+
     private func normalizedAgentHookNotificationMessage(parsedInput: ClaudeHookParsedInput) -> String? {
         guard let object = parsedInput.object else {
             return parsedInput.rawFallback.map(normalizedSingleLine)
         }
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
+        let extra = (object["extra"] as? [String: Any]) ?? [:]
         let messageCandidates = [
             firstString(in: object, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
             firstString(in: nested, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
+            firstString(in: extra, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
         ]
         return messageCandidates.compactMap { $0 }.first.map(normalizedSingleLine)
     }
@@ -26118,8 +26168,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     env: env
                 )
             }()
-            let lastMsg = input.object?["last_assistant_message"] as? String
-                ?? input.object?["lastAssistantMessage"] as? String
+            let lastMsg = claudeAssistantMessageFromHookPayload(input.object)
             let projectName: String? = {
                 guard let cwd, !cwd.isEmpty else { return nil }
                 return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent

@@ -237,6 +237,7 @@ extension CMUXCLI {
                 .init(agentEvent: "on_session_start", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "pre_llm_call", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "post_llm_call", cmuxSubcommand: "agent-response"),
+                .init(agentEvent: "pre_approval_request", cmuxSubcommand: "notification"),
                 .init(agentEvent: "on_session_end", cmuxSubcommand: "session-end"),
                 .init(agentEvent: "on_session_finalize", cmuxSubcommand: "session-end"),
                 .init(agentEvent: "on_session_reset", cmuxSubcommand: "session-start"),
