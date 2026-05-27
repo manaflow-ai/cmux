@@ -8045,11 +8045,7 @@ final class WorkspaceRemoteSessionController {
     ) -> [Int] {
         let trimmedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDestination.isEmpty else { return [] }
-        let trimmedPersistentDaemonSlot: String? = {
-            guard let persistentDaemonSlot else { return nil }
-            let trimmed = persistentDaemonSlot.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }()
+        let trimmedPersistentDaemonSlot = persistentDaemonSlot
 
         return psOutput
             .split(separator: "\n", omittingEmptySubsequences: false)
@@ -8213,7 +8209,11 @@ final class WorkspaceRemoteSessionController {
                 return nextNonShellEscapeToken(after: index, in: tokens) == slot
             }
             if token.hasPrefix("--slot=") {
-                return String(token.dropFirst("--slot=".count)) == slot
+                let slotValue = String(token.dropFirst("--slot=".count))
+                if !slotValue.isEmpty {
+                    return slotValue == slot
+                }
+                return nextNonShellEscapeToken(after: index, in: tokens) == slot
             }
         }
         return false

@@ -154,6 +154,8 @@ struct cmuxApp: App {
         fileManager: FileManager = .default
     ) -> String? {
         let bundledGhosttyURL = bundleResourceURL?.appendingPathComponent("ghostty")
+        // Tagged cmux builds may inherit GHOSTTY_RESOURCES_DIR from another running
+        // cmux instance. Prefer this app's bundled resources when they are present.
         if let bundledGhosttyURL,
            fileManager.fileExists(atPath: bundledGhosttyURL.path),
            fileManager.fileExists(atPath: bundledGhosttyURL.appendingPathComponent("themes").path) {

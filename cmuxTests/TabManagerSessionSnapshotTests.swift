@@ -2334,6 +2334,36 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(configuration.terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
     }
 
+    func testSessionRemoteWorkspaceSnapshotStripsTransientControlOptionsWhenPreservedRestoreFallsBack() throws {
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-501-64003-%C",
+            ],
+            preserveAfterTerminalExit: true,
+            skipDaemonBootstrap: nil,
+            relayPort: 64003,
+            persistentDaemonSlot: "ssh-restore-slot"
+        )
+
+        let configuration = try XCTUnwrap(
+            snapshot.workspaceConfiguration(localSocketPath: nil, preserveSSHOptions: true)
+        )
+
+        XCTAssertEqual(configuration.preserveAfterTerminalExit, false)
+        XCTAssertEqual(configuration.sshOptions, ["StrictHostKeyChecking=accept-new"])
+        XCTAssertEqual(
+            configuration.terminalStartupCommand,
+            "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com"
+        )
+    }
+
     func testSessionRemoteWorkspaceSnapshotRequiresValidPersistentDaemonSlotForPTYRestore() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,

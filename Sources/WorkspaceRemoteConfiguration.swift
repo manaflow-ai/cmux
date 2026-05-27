@@ -420,13 +420,16 @@ extension SessionRemoteWorkspaceSnapshot {
         let normalizedRelayPort = relayPort.flatMap { port in
             (1...65535).contains(port) ? port : nil
         }
-        let normalizedOptions = preserveSSHOptions
+        let preservedOptions = preserveSSHOptions
             ? WorkspaceRemoteSSHOptionFilter.trimmedOptions(sshOptions)
             : Self.normalizedSSHOptions(sshOptions)
         let optionsWithRestoreControlDefaults = SSHPTYAttachStartupCommandBuilder.sshOptionsWithRestoreControlDefaults(
-            normalizedOptions,
+            preservedOptions,
             relayPort: normalizedRelayPort
         )
+        let fallbackSSHOptions = preserveSSHOptions
+            ? Self.normalizedSSHOptions(preservedOptions)
+            : preservedOptions
         let preservePTYSession =
             allowPersistentPTYRestore &&
             preserveAfterTerminalExit == true &&
@@ -435,7 +438,7 @@ extension SessionRemoteWorkspaceSnapshot {
             normalizedLocalSocketPath != nil &&
             normalizedRelayPort != nil &&
             SSHPTYAttachStartupCommandBuilder.sshOptionsSupportReusableForegroundAuth(optionsWithRestoreControlDefaults)
-        let restoredSSHOptions = preservePTYSession ? optionsWithRestoreControlDefaults : normalizedOptions
+        let restoredSSHOptions = preservePTYSession ? optionsWithRestoreControlDefaults : fallbackSSHOptions
         let foregroundAuthToken = preservePTYSession ? UUID().uuidString.lowercased() : nil
         let foregroundAuth = foregroundAuthToken.map {
             SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
