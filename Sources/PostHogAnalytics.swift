@@ -92,8 +92,15 @@ final class PostHogAnalytics {
         flushSynchronously(reason: "manual")
     }
 
-    func flushForApplicationTermination(reason: String = "applicationWillTerminate") {
-        enqueueTerminationFlush(reason: reason)
+    func flushForApplicationTermination(
+        reason: String = "applicationWillTerminate",
+        preservePendingCaptures: Bool = false
+    ) {
+        if preservePendingCaptures {
+            enqueueFlush(reason: reason)
+        } else {
+            enqueueTerminationFlush(reason: reason)
+        }
     }
 
     private func startIfNeededOnWorkQueue() {

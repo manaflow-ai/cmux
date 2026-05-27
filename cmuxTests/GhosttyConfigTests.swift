@@ -3464,7 +3464,7 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
         )
 
         let start = DispatchTime.now().uptimeNanoseconds
-        analytics.flushForApplicationTermination()
+        analytics.flushForApplicationTermination(preservePendingCaptures: false)
         let elapsedMilliseconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
 
         XCTAssertLessThan(
@@ -3481,6 +3481,33 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
         releaseBlocker.signal()
     }
 
+    func testTerminationFlushCanPreservePendingAnalyticsQueueCaptures() {
+        let queue = DispatchQueue(label: "com.cmux.posthog.analytics.test.ordered")
+        let blockerStarted = DispatchSemaphore(value: 0)
+        let releaseBlocker = DispatchSemaphore(value: 0)
+        let flushed = DispatchSemaphore(value: 0)
+
+        queue.async {
+            blockerStarted.signal()
+            releaseBlocker.wait()
+        }
+        XCTAssertEqual(blockerStarted.wait(timeout: .now() + 1), .success)
+
+        let analytics = PostHogAnalytics(
+            workQueue: queue,
+            didStart: true,
+            sdkFlush: {
+                flushed.signal()
+            }
+        )
+
+        analytics.flushForApplicationTermination(preservePendingCaptures: true)
+
+        XCTAssertEqual(flushed.wait(timeout: .now() + 0.05), .timedOut)
+        releaseBlocker.signal()
+        XCTAssertEqual(flushed.wait(timeout: .now() + 1), .success)
+    }
+
     func testTerminationFlushEventuallyRunsWhenAnalyticsQueueIsAvailable() {
         let queue = DispatchQueue(label: "com.cmux.posthog.analytics.test.idle")
         let flushed = DispatchSemaphore(value: 0)
@@ -3492,7 +3519,7 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
             }
         )
 
-        analytics.flushForApplicationTermination()
+        analytics.flushForApplicationTermination(preservePendingCaptures: false)
 
         XCTAssertEqual(flushed.wait(timeout: .now() + 1), .success)
     }

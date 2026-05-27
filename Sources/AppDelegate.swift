@@ -1596,7 +1596,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         isTerminatingApp = true
-        enqueuePostHogTerminationFlushIfNeeded(reason: "applicationShouldTerminate")
+        enqueuePostHogTerminationFlushIfNeeded(
+            reason: "applicationShouldTerminate",
+            preservePendingCaptures: true
+        )
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog,
@@ -1697,7 +1700,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         GhosttyPasteboardHelper.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
-        enqueuePostHogTerminationFlushIfNeeded(reason: "applicationWillTerminate")
+        enqueuePostHogTerminationFlushIfNeeded(
+            reason: "applicationWillTerminate",
+            preservePendingCaptures: false
+        )
         ghosttyCrashBreadcrumbTask?.cancel()
         ghosttyCrashBreadcrumbTask = nil
         notificationStore?.clearAll()
@@ -1706,9 +1712,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         enableSuddenTerminationIfNeeded()
     }
 
-    private func enqueuePostHogTerminationFlushIfNeeded(reason: String) {
+    private func enqueuePostHogTerminationFlushIfNeeded(reason: String, preservePendingCaptures: Bool) {
         guard TelemetrySettings.enabledForCurrentLaunch else { return }
-        PostHogAnalytics.shared.flushForApplicationTermination(reason: reason)
+        PostHogAnalytics.shared.flushForApplicationTermination(
+            reason: reason,
+            preservePendingCaptures: preservePendingCaptures
+        )
     }
 
     func applicationWillResignActive(_ notification: Notification) {
