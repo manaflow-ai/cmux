@@ -57,6 +57,7 @@ function SessionSurface({
   const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
   const modelLabel = provider ? codexModelLabel(provider.displayName) : "GPT-5.5";
+  const modelBadge = provider ? providerBadgeLabel(provider.displayName) : "C";
   return React.createElement(
     "section",
     { className: "agent-shell" },
@@ -86,82 +87,97 @@ function SessionSurface({
         },
         React.createElement(
           "div",
-          { className: "codex-left-rail" },
-          codexIconButton("plus", "+"),
-          codexIconButton("globe", "◉"),
-          codexIconButton("spark", "✣"),
-          codexIconButton("hammer", "⌁"),
+          { className: "composer-frame" },
           React.createElement(
-            "label",
-            { className: "model-picker" },
-            React.createElement("span", { className: "model-icon", "aria-hidden": true }, "⌁"),
-            React.createElement("span", { className: "model-label" }, modelLabel),
-            React.createElement("span", { className: "model-chevron", "aria-hidden": true }, "⌄"),
+            "div",
+            { className: "composer-surface" },
             React.createElement(
-              "select",
-              {
-                className: "provider-select",
-                value: state.selectedProviderId,
-                disabled: state.status === "running" || state.status === "starting" || state.status === "stopping",
-                "aria-label": state.context?.copy.provider ?? "",
-                onChange: (event: React.ChangeEvent<HTMLSelectElement>) =>
-                  dispatch({ type: "selectProvider", providerId: event.target.value as ProviderId }),
-              },
-              state.providers.map((item) =>
-                React.createElement("option", { key: item.id, value: item.id }, item.displayName),
+              "div",
+              { className: "composer-body" },
+              React.createElement("textarea", {
+                className: "prompt-input",
+                value: state.input,
+                placeholder: state.context?.copy.promptPlaceholder ?? "",
+                onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) =>
+                  dispatch({ type: "setInput", input: event.target.value }),
+              }),
+            ),
+            React.createElement(
+              "div",
+              { className: "composer-footer" },
+              React.createElement(
+                "div",
+                { className: "codex-left-rail" },
+                React.createElement(
+                  "label",
+                  { className: "model-picker" },
+                  React.createElement("span", { className: "model-icon", "aria-hidden": true }, modelBadge),
+                  React.createElement("span", { className: "model-label" }, modelLabel),
+                  React.createElement("span", { className: "model-chevron", "aria-hidden": true }, "⌄"),
+                  React.createElement(
+                    "select",
+                    {
+                      className: "provider-select",
+                      value: state.selectedProviderId,
+                      disabled: state.status === "running" || state.status === "starting" || state.status === "stopping",
+                      "aria-label": state.context?.copy.provider ?? "",
+                      onChange: (event: React.ChangeEvent<HTMLSelectElement>) =>
+                        dispatch({ type: "selectProvider", providerId: event.target.value as ProviderId }),
+                    },
+                    state.providers.map((item) =>
+                      React.createElement("option", { key: item.id, value: item.id }, item.displayName),
+                    ),
+                  ),
+                ),
+                React.createElement("span", { className: "composer-separator", "aria-hidden": true }),
+                codexIconButton("plus", "+"),
+                codexIconButton("mention", "@"),
+                codexIconButton("skill", "$"),
+              ),
+              React.createElement(
+                "div",
+                { className: "codex-right-rail" },
+                showStart
+                  ? React.createElement(
+                      "button",
+                      {
+                        className: "codex-action codex-start",
+                        type: "button",
+                        disabled: !canStart,
+                        onClick: () => void startProvider(state, dispatch),
+                      },
+                      state.context?.copy.start ?? "Start",
+                    )
+                  : null,
+                React.createElement(
+                  "button",
+                  {
+                    className: "codex-action codex-circle-action",
+                    type: "button",
+                    disabled: !canStop,
+                    "aria-label": state.context?.copy.stop ?? "Stop",
+                    onClick: () => void stopProvider(state, dispatch),
+                  },
+                  "",
+                ),
+                React.createElement(
+                  "button",
+                  { className: "codex-action codex-mic", type: "button", disabled: true, "aria-label": state.context?.copy.voiceInput ?? "" },
+                  "♩",
+                ),
+                React.createElement(
+                  "button",
+                  { className: "codex-action send-button", type: "submit", disabled: !canSend, "aria-label": state.context?.copy.send ?? "Send" },
+                  "↑",
+                ),
               ),
             ),
-          ),
-        ),
-        React.createElement("textarea", {
-          className: "prompt-input",
-          value: state.input,
-          placeholder: state.context?.copy.promptPlaceholder ?? "",
-          onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) =>
-            dispatch({ type: "setInput", input: event.target.value }),
-        }),
-        React.createElement(
-          "div",
-          { className: "codex-right-rail" },
-          showStart
-            ? React.createElement(
-                "button",
-                {
-                  className: "codex-action codex-start",
-                  type: "button",
-                  disabled: !canStart,
-                  onClick: () => void startProvider(state, dispatch),
-                },
-                state.context?.copy.start ?? "Start",
-              )
-            : null,
-          React.createElement(
-            "button",
-            {
-              className: "codex-action codex-circle-action",
-              type: "button",
-              disabled: !canStop,
-              "aria-label": state.context?.copy.stop ?? "Stop",
-              onClick: () => void stopProvider(state, dispatch),
-            },
-            "",
-          ),
-          React.createElement(
-            "button",
-            { className: "codex-action codex-mic", type: "button", disabled: true, "aria-label": state.context?.copy.voiceInput ?? "" },
-            "♩",
-          ),
-          React.createElement(
-            "button",
-            { className: "codex-action send-button", type: "submit", disabled: !canSend, "aria-label": state.context?.copy.send ?? "Send" },
-            "↑",
           ),
         ),
       ),
       React.createElement(
         "div",
         { className: "rate-line" },
-        React.createElement("span", { className: "rate-muted" }, state.context?.copy.rateLimits ?? ""),
         React.createElement("span", { className: `status-dot ${state.status}`, "aria-hidden": true }),
         React.createElement("span", null, `${provider?.displayName ?? renderer} ${statusLabel(state)}`),
         React.createElement("span", { className: "rate-dot", "aria-hidden": true }, "•"),
@@ -176,6 +192,20 @@ function codexModelLabel(displayName: string): string {
     return "GPT-5.5";
   }
   return displayName;
+}
+
+function providerBadgeLabel(displayName: string): string {
+  const lower = displayName.toLowerCase();
+  if (lower.includes("claude")) {
+    return "Cl";
+  }
+  if (lower.includes("open")) {
+    return "O";
+  }
+  if (lower === "pi" || lower.includes(" pi")) {
+    return "Pi";
+  }
+  return displayName.trim().slice(0, 1).toUpperCase() || "C";
 }
 
 function codexIconButton(kind: string, text: string) {

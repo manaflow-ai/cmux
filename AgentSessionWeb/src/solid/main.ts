@@ -82,23 +82,42 @@ function SessionSurface({
   });
   composerStack.append(form);
 
+  const composerFrame = document.createElement("div");
+  composerFrame.className = "composer-frame";
+  form.append(composerFrame);
+
+  const composerSurface = document.createElement("div");
+  composerSurface.className = "composer-surface";
+  composerFrame.append(composerSurface);
+
+  const composerBody = document.createElement("div");
+  composerBody.className = "composer-body";
+  composerSurface.append(composerBody);
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "prompt-input";
+  textarea.addEventListener("input", () => dispatch({ type: "setInput", input: textarea.value }));
+  composerBody.append(textarea);
+  createEffect(() => {
+    textarea.placeholder = state().context?.copy.promptPlaceholder ?? "";
+    if (textarea.value !== state().input) {
+      textarea.value = state().input;
+    }
+  });
+
+  const composerFooter = document.createElement("div");
+  composerFooter.className = "composer-footer";
+  composerSurface.append(composerFooter);
+
   const leftRail = document.createElement("div");
   leftRail.className = "codex-left-rail";
-  form.append(leftRail);
-
-  leftRail.append(
-    codexIconButton("plus", "+"),
-    codexIconButton("globe", "◉"),
-    codexIconButton("spark", "✣"),
-    codexIconButton("hammer", "⌁"),
-  );
+  composerFooter.append(leftRail);
 
   const modelPicker = document.createElement("label");
   modelPicker.className = "model-picker";
   const modelIcon = document.createElement("span");
   modelIcon.className = "model-icon";
   modelIcon.setAttribute("aria-hidden", "true");
-  modelIcon.textContent = "⌁";
   const modelLabel = document.createElement("span");
   modelLabel.className = "model-label";
   const modelChevron = document.createElement("span");
@@ -115,16 +134,15 @@ function SessionSurface({
   });
   modelPicker.append(select);
 
-  const textarea = document.createElement("textarea");
-  textarea.className = "prompt-input";
-  textarea.addEventListener("input", () => dispatch({ type: "setInput", input: textarea.value }));
-  form.append(textarea);
-  createEffect(() => {
-    textarea.placeholder = state().context?.copy.promptPlaceholder ?? "";
-    if (textarea.value !== state().input) {
-      textarea.value = state().input;
-    }
-  });
+  const composerSeparator = document.createElement("span");
+  composerSeparator.className = "composer-separator";
+  composerSeparator.setAttribute("aria-hidden", "true");
+  leftRail.append(
+    composerSeparator,
+    codexIconButton("plus", "+"),
+    codexIconButton("mention", "@"),
+    codexIconButton("skill", "$"),
+  );
 
   createEffect(() => {
     select.replaceChildren();
@@ -137,12 +155,13 @@ function SessionSurface({
     select.value = state().selectedProviderId;
     select.disabled = state().status === "running" || state().status === "starting" || state().status === "stopping";
     select.setAttribute("aria-label", state().context?.copy.provider ?? "");
+    modelIcon.textContent = provider() ? providerBadgeLabel(provider()!.displayName) : "C";
     modelLabel.textContent = provider() ? codexModelLabel(provider()!.displayName) : "GPT-5.5";
   });
 
   const controlsRight = document.createElement("div");
   controlsRight.className = "codex-right-rail";
-  form.append(controlsRight);
+  composerFooter.append(controlsRight);
 
   const start = document.createElement("button");
   start.className = "codex-action codex-start";
@@ -194,19 +213,16 @@ function SessionSurface({
   const rateLine = document.createElement("div");
   rateLine.className = "rate-line";
   composerStack.append(rateLine);
-  const rateMuted = document.createElement("span");
-  rateMuted.className = "rate-muted";
   const statusDot = document.createElement("span");
   statusDot.setAttribute("aria-hidden", "true");
   const statusText = document.createElement("span");
-  const separator = document.createElement("span");
-  separator.className = "rate-dot";
-  separator.setAttribute("aria-hidden", "true");
-  separator.textContent = "•";
+  const rateSeparator = document.createElement("span");
+  rateSeparator.className = "rate-dot";
+  rateSeparator.setAttribute("aria-hidden", "true");
+  rateSeparator.textContent = "•";
   const transport = document.createElement("span");
-  rateLine.append(rateMuted, statusDot, statusText, separator, transport);
+  rateLine.append(statusDot, statusText, rateSeparator, transport);
   createEffect(() => {
-    rateMuted.textContent = state().context?.copy.rateLimits ?? "";
     statusDot.className = `status-dot ${state().status}`;
     statusText.textContent = `${provider()?.displayName ?? renderer} ${statusLabel(state())}`;
     transport.textContent = provider()?.transportKind ?? "stdio-jsonrpc";
@@ -220,6 +236,20 @@ function codexModelLabel(displayName: string): string {
     return "GPT-5.5";
   }
   return displayName;
+}
+
+function providerBadgeLabel(displayName: string): string {
+  const lower = displayName.toLowerCase();
+  if (lower.includes("claude")) {
+    return "Cl";
+  }
+  if (lower.includes("open")) {
+    return "O";
+  }
+  if (lower === "pi" || lower.includes(" pi")) {
+    return "Pi";
+  }
+  return displayName.trim().slice(0, 1).toUpperCase() || "C";
 }
 
 function codexIconButton(kind: string, text: string): HTMLButtonElement {
