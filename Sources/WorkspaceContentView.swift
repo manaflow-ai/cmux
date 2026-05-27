@@ -110,16 +110,48 @@ private enum WorkspaceCanvasSurfaceMountManager {
         )
     }
 
-    static func park(panel: (any Panel)?) {
+    static func park(panel: (any Panel)?, suppressRepublication: Bool = false) {
         if let terminalPanel = panel as? TerminalPanel {
+            if suppressRepublication {
+                TerminalWindowPortalRegistry.suppressCanvasSurfacePresentation(hostedView: terminalPanel.hostedView)
+            }
             TerminalWindowPortalRegistry.updateEntryVisibility(for: terminalPanel.hostedView, visibleInUI: false)
             TerminalWindowPortalRegistry.setCanvasSurfacePresentation(hostedView: terminalPanel.hostedView, presentation: nil)
             return
         }
 
         if let browserPanel = panel as? BrowserPanel {
+            if suppressRepublication {
+                BrowserWindowPortalRegistry.suppressCanvasSurfacePresentation(webView: browserPanel.webView)
+            }
             BrowserWindowPortalRegistry.updateEntryVisibility(for: browserPanel.webView, visibleInUI: false, zPriority: 0)
             BrowserWindowPortalRegistry.setCanvasSurfacePresentation(webView: browserPanel.webView, presentation: nil)
+        }
+    }
+
+    static func parkAllNativeSurfaces(in workspace: Workspace, suppressRepublication: Bool = false) {
+        for panel in workspace.panels.values {
+            park(panel: panel, suppressRepublication: suppressRepublication)
+        }
+    }
+
+    static func parkNativeSurfaces(
+        in workspace: Workspace,
+        excludingPanelIDs mountedPanelIDs: Set<UUID>,
+        suppressRepublication: Bool = false
+    ) {
+        for panel in workspace.panels.values where !mountedPanelIDs.contains(panel.id) {
+            park(panel: panel, suppressRepublication: suppressRepublication)
+        }
+    }
+
+    static func resumeCanvasSurfacePublication(in workspace: Workspace) {
+        for panel in workspace.panels.values {
+            if let terminalPanel = panel as? TerminalPanel {
+                TerminalWindowPortalRegistry.resumeCanvasSurfacePresentation(hostedView: terminalPanel.hostedView)
+            } else if let browserPanel = panel as? BrowserPanel {
+                BrowserWindowPortalRegistry.resumeCanvasSurfacePresentation(webView: browserPanel.webView)
+            }
         }
     }
 
@@ -1251,16 +1283,17 @@ private struct CanvasSurfacePortalRequest {
 
 private struct CanvasSurfacePortalLayer: NSViewRepresentable {
     var requests: [CanvasSurfacePortalRequest]
+    var onPreparePublish: ([CanvasSurfacePortalRequest]) -> Void
     var onApply: (CanvasSurfacePortalRequest, CGRect?) -> Void
 
     func makeNSView(context: Context) -> CanvasSurfacePortalView {
         let view = CanvasSurfacePortalView()
-        view.update(requests: requests, onApply: onApply)
+        view.update(requests: requests, onPreparePublish: onPreparePublish, onApply: onApply)
         return view
     }
 
     func updateNSView(_ nsView: CanvasSurfacePortalView, context: Context) {
-        nsView.update(requests: requests, onApply: onApply)
+        nsView.update(requests: requests, onPreparePublish: onPreparePublish, onApply: onApply)
     }
 
     static func dismantleNSView(_ nsView: CanvasSurfacePortalView, coordinator: ()) {
@@ -1270,6 +1303,7 @@ private struct CanvasSurfacePortalLayer: NSViewRepresentable {
 
 private final class CanvasSurfacePortalView: NSView {
     private var requestsByID: [LayoutItemID: CanvasSurfacePortalRequest] = [:]
+    private var onPreparePublish: (([CanvasSurfacePortalRequest]) -> Void)?
     private var onApply: ((CanvasSurfacePortalRequest, CGRect?) -> Void)?
 
     override var isOpaque: Bool { false }
@@ -1305,13 +1339,16 @@ private final class CanvasSurfacePortalView: NSView {
 
     func update(
         requests: [CanvasSurfacePortalRequest],
+        onPreparePublish: @escaping ([CanvasSurfacePortalRequest]) -> Void,
         onApply: @escaping (CanvasSurfacePortalRequest, CGRect?) -> Void
     ) {
+        onPreparePublish(requests)
         let nextByID = Dictionary(uniqueKeysWithValues: requests.map { ($0.item.id, $0) })
         for (id, oldRequest) in requestsByID where !nextByID.keys.contains(id) {
             onApply(oldRequest, nil)
         }
         self.requestsByID = nextByID
+        self.onPreparePublish = onPreparePublish
         self.onApply = onApply
         publish()
     }
@@ -1322,6 +1359,7 @@ private final class CanvasSurfacePortalView: NSView {
             onApply(request, nil)
         }
         requestsByID.removeAll()
+        self.onPreparePublish = nil
         self.onApply = nil
     }
 
@@ -2451,8 +2489,10 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         activeItemID: LayoutItemID?
     ) {
         guard event.requiresUnifiedCanvasPresentation else { return }
-        parkCanvasNativeSurfaces(in: presentation)
-        parkCanvasNativeSurface(activeItemID: activeItemID)
+        parkCanvasNativeSurfacesForCameraMutation(
+            presentation: presentation,
+            activeItemID: activeItemID
+        )
     }
 
     private func canvasViewport(_ items: [CanvasItem], activeItemID: LayoutItemID?) -> some View {
@@ -2524,6 +2564,20 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
                 CanvasSurfacePortalLayer(
                     requests: nativePresentationRequests,
+                    onPreparePublish: { requests in
+                        let mountedPanelIDs = Set(
+                            requests.compactMap { request -> UUID? in
+                                selectedTab(for: request.item).flatMap { workspace.panelIdFromSurfaceId($0.id) }
+                            }
+                        )
+                        if !requests.isEmpty {
+                            WorkspaceCanvasSurfaceMountManager.resumeCanvasSurfacePublication(in: workspace)
+                        }
+                        WorkspaceCanvasSurfaceMountManager.parkNativeSurfaces(
+                            in: workspace,
+                            excludingPanelIDs: mountedPanelIDs
+                        )
+                    },
                     onApply: { request, frameInWindow in
                         applyCanvasPortalPresentation(
                             for: request.item,
@@ -2558,7 +2612,10 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                         applyCanvasCameraInteraction(event)
                     },
                     onPan: { delta in
-                        parkCanvasNativeSurfaces(in: presentation)
+                        parkCanvasNativeSurfacesForCameraMutation(
+                            presentation: presentation,
+                            activeItemID: activeItemID
+                        )
                         let baseViewport = displayedCanvasViewport()
                         cancelCanvasViewportAnimation(stableViewport: baseViewport)
                         controller.setCanvasViewport(baseViewport)
@@ -2568,10 +2625,12 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                             viewportSize: proxy.size
                         )
                         canvasViewportPresentation.cancel(stableViewport: controller.canvasViewport)
-                        parkCanvasNativeSurface(activeItemID: activeItemID)
                     },
                     onZoom: { delta, anchor in
-                        parkCanvasNativeSurfaces(in: presentation)
+                        parkCanvasNativeSurfacesForCameraMutation(
+                            presentation: presentation,
+                            activeItemID: activeItemID
+                        )
                         let baseViewport = displayedCanvasViewport()
                         cancelCanvasViewportAnimation(stableViewport: baseViewport)
                         controller.setCanvasViewport(baseViewport)
@@ -2581,10 +2640,12 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                             anchorScreenPoint: anchor
                         )
                         canvasViewportPresentation.cancel(stableViewport: controller.canvasViewport)
-                        parkCanvasNativeSurface(activeItemID: activeItemID)
                     },
                     onMagnify: { magnification, anchor in
-                        parkCanvasNativeSurfaces(in: presentation)
+                        parkCanvasNativeSurfacesForCameraMutation(
+                            presentation: presentation,
+                            activeItemID: activeItemID
+                        )
                         let baseViewport = displayedCanvasViewport()
                         cancelCanvasViewportAnimation(stableViewport: baseViewport)
                         controller.setCanvasViewport(baseViewport)
@@ -2594,10 +2655,12 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                             anchorScreenPoint: anchor
                         )
                         canvasViewportPresentation.cancel(stableViewport: controller.canvasViewport)
-                        parkCanvasNativeSurface(activeItemID: activeItemID)
                     },
                     onSmartZoom: { anchor in
-                        parkCanvasNativeSurfaces(in: presentation)
+                        parkCanvasNativeSurfacesForCameraMutation(
+                            presentation: presentation,
+                            activeItemID: activeItemID
+                        )
                         let baseViewport = displayedCanvasViewport()
                         cancelCanvasViewportAnimation(stableViewport: baseViewport)
                         controller.setCanvasViewport(baseViewport)
@@ -2607,7 +2670,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                             anchorScreenPoint: anchor
                         )
                         canvasViewportPresentation.cancel(stableViewport: controller.canvasViewport)
-                        parkCanvasNativeSurface(activeItemID: activeItemID)
                     }
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
@@ -3421,26 +3483,32 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         WorkspaceCanvasSurfaceMountManager.park(panel: workspace.panel(for: selected.id))
     }
 
-    private func parkCanvasNativeSurface(activeItemID: LayoutItemID?) {
+    private func parkCanvasNativeSurfacesForCameraMutation(
+        presentation: CanvasPresentationState,
+        activeItemID: LayoutItemID?
+    ) {
+        captureCanvasPreviewSnapshots(in: presentation)
+        captureCanvasPreviewSnapshot(activeItemID: activeItemID)
+        WorkspaceCanvasSurfaceMountManager.parkAllNativeSurfaces(in: workspace, suppressRepublication: true)
+    }
+
+    private func captureCanvasPreviewSnapshot(activeItemID: LayoutItemID?) {
         guard let activeItemID,
               let item = currentCanvasInteractionItems().first(where: { $0.id == activeItemID }),
               let selected = selectedTab(for: item) else {
             return
         }
         captureCanvasPreviewSnapshot(for: selected)
-        parkCanvasSurface(selected)
     }
 
-    private func parkCanvasNativeSurfaces(in presentation: CanvasPresentationState) {
-        guard !presentation.nativeOverlays.isEmpty else { return }
+    private func captureCanvasPreviewSnapshots(in presentation: CanvasPresentationState) {
         let itemsByID = Dictionary(uniqueKeysWithValues: currentCanvasInteractionItems().map { ($0.id, $0) })
-        for overlay in presentation.nativeOverlays {
-            guard let item = itemsByID[overlay.id],
+        for surface in presentation.presentationSurfaces {
+            guard let item = itemsByID[surface.id],
                   let selected = selectedTab(for: item) else {
                 continue
             }
             captureCanvasPreviewSnapshot(for: selected)
-            parkCanvasSurface(selected)
         }
     }
 

@@ -499,6 +499,11 @@
         },
         "terminal": {
           "copyOnSelect": "Kopiuje zaznaczony tekst terminala do schowka systemowego po zatwierdzeniu zaznaczenia, w tym zaznaczenia słów i wierszy wykonane dwuklikiem lub potrójnym kliknięciem."
+        },
+        "browser": {
+          "defaultSearchEngine": "Domyślna wyszukiwarka dla wpisów w pasku adresu przeglądarki, które nie są URL-ami. Użyj custom z customSearchEngineURLTemplate dla innych dostawców.",
+          "customSearchEngineName": "Nazwa wyświetlana, gdy defaultSearchEngine ma wartość custom.",
+          "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL."
         }
       }
     },
@@ -992,6 +997,62 @@
       "underHoodMore": "Zwykła <configLink>dokumentacja konfiguracji</configLink> opisuje cmux.json. Przywracanie sesji trzyma layout aplikacji oddzielnie od ustawień renderowania terminala Ghostty.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
+    },
+    "ssh": {
+      "title": "SSH",
+      "metaTitle": "SSH",
+      "metaDescription": "Połącz się ze zdalnymi maszynami za pomocą cmux ssh. Panele przeglądarki przechodzą przez zdalną sieć, obrazy można przeciągać i upuszczać za pomocą scp, a powiadomienia agentów wracają do domu.",
+      "intro": "cmux ssh tworzy obszar roboczy dla zdalnej maszyny. Panele przeglądarki przechodzą przez zdalną sieć, pliki są przeciągane i upuszczane przez scp, agenci kodujący wysyłają powiadomienia na lokalny pasek boczny, a sesje ponownie łączą się po przerwaniu.",
+      "usage": "Użycie",
+      "usageDesc": "cmux ssh odczytuje plik ~/.ssh/config pod kątem aliasów hostów, plików tożsamości i ustawień proxy. Wszystkie flagi odzwierciedlają ich odpowiedniki ssh.",
+      "flagsTitle": "Flagi",
+      "flagName": "Flaga",
+      "flagDesc": "Opis",
+      "flagNameVal": "Ustaw tytuł obszaru roboczego",
+      "flagPort": "Port SSH (domyślnie 22)",
+      "flagIdentity": "Ścieżka do pliku tożsamości",
+      "flagSshOption": "Przekaż dowolne opcje SSH (np. -o StrictHostKeyChecking=no)",
+      "flagNoFocus": "Utwórz obszar roboczy bez przełączania się na niego",
+      "deepLinksTitle": "Głębokie linki SSH",
+      "deepLinksDesc": "Użyj głębokich linków cmux SSH, gdy witryna lub narzędzie chce zaoferować przycisk Otwórz w cmux. Link otwiera cmux, wyświetla monit o potwierdzenie, a następnie uruchamia równoważne polecenie cmux ssh po potwierdzeniu przez użytkownika.",
+      "deepLinksWebFallbackDesc": "Użyj zastępczego adresu URL cmux.com dla przycisków witryny. Otwiera natywny link i pokazuje pobieranie, jeśli cmux nie jest zainstalowany.",
+      "deepLinksPromptRulesDesc": "Przyciski podpowiedzi i reguł mają ten sam kształt zastępczy. Przecinki, dwukropki i dosłowne znaki plus są zachowywane, gdy są zakodowane w adresie URL:",
+      "deepLinksIconDesc": "Użyj ikony SVG dla przycisków panelu kontrolnego lub logo PNG, jeśli wymagany jest obraz rastrowy:",
+      "deepLinksButtonDesc": "Utwórz zastępczy adres URL za pomocą adresu URLSearchParams, aby tytuły, aliasy hostów i nazwy użytkowników były kodowane bezpiecznie:",
+      "deepLinkParam": "Parametr",
+      "deepLinkMeaning": "Znaczenie",
+      "deepLinkHost": "Wymagany alias hosta SSH lub ~/.ssh/config.",
+      "deepLinkUser": "Opcjonalny użytkownik SSH. cmux łączy go z hostem jako użytkownik@host.",
+      "deepLinkPort": "Opcjonalny port SSH, od 1 do 65535.",
+      "deepLinkTitle": "Opcjonalny tytuł obszaru roboczego. Użyj tylko jednego tytułu lub nazwy.",
+      "deepLinkConnectTimeout": "Opcjonalna wartość ConnectTimeout w sekundach, od 1 do 600.",
+      "deepLinkServerAliveInterval": "Opcjonalna wartość ServerAliveInterval w sekundach, od 1 do 3600.",
+      "deepLinkServerAliveCountMax": "Opcjonalna wartość ServerAliveCountMax od 1 do 100.",
+      "deepLinkHostKeyPolicy": "Opcjonalne zasady StrictHostKeyChecking: akceptuj nowe, pytaj, ścisłe lub tak.",
+      "deepLinkNoFocus": "Opcjonalna wartość logiczna. true tworzy obszar roboczy bez przełączania się do niego.",
+      "deepLinksSchemeDesc": "Użyj cmux:// dla stabilnej aplikacji, cmux-nightly:// dla Nightly i cmux-dev:// dla debugowania lub oznaczonych kompilacji deweloperskich.",
+      "deepLinksSecurityDesc": "Linki zewnętrzne nie mogą przekazywać plików tożsamości, surowych opcji SSH, poleceń, ProxyCommand ani reguł przekazywania. Zamiast tego umieść klucze, ProxyJump, nazwę hosta i opcje zaawansowane w ~/.ssh/config. cmux wyświetla podgląd poleceń i wymaga, aby użytkownik zaufał celowi SSH przed połączeniem.",
+      "browserTitle": "Panele przeglądarki",
+      "browserDesc": "Panele przeglądarki w zdalnym obszarze roboczym kierują cały ruch HTTP i WebSocket przez sieć zdalnego komputera. Wpisz localhost:3000 i zobaczysz serwer deweloperski działający na zdalnym urządzeniu. Brak flag -L, brak ręcznego przekierowania portów. Każdy zdalny obszar roboczy otrzymuje izolowany magazyn plików cookie, więc zakres sesji zależy od połączenia.",
+      "dragDropTitle": "Przeciągnij i upuść",
+      "dragDropDesc": "Przeciągnij obraz lub plik do zdalnego terminala, a cmux prześle go przez scp poprzez istniejące połączenie SSH. cmux wykrywa proces SSH na pierwszym planie przez TTY i kieruje przesyłanie przez multipleksowanie ControlMaster.",
+      "notificationsTitle": "Powiadomienia",
+      "notificationsDesc": "Procesy na komputerze zdalnym mogą uruchamiać polecenia cmux, które są wykonywane na instancji lokalnej. Kiedy agent kodujący wywoła cmux notify na zdalnej skrzynce, powiadomienie pojawi się na lokalnym pasku bocznym. Na karcie obszaru roboczego zaświeci się niebieski pierścień. Cmd+Shift+U przeskakuje do niego. Spam z powiadomieniami z niestabilnych połączeń jest tłumiony przez czas odnowienia dla każdego hosta.",
+      "agentsTitle": "Agenci kodujący przez SSH",
+      "agentsDesc": "Zarówno cmux claude-teams, jak i cmux omo działają w sesjach SSH. Demon przekaźnika Go na zdalnym hoście obsługuje to samo tłumaczenie zgodne z tmux, co lokalny interfejs CLI Swift. Agenci członków zespołu pojawiają się w miarę podziału natywnego cmux na komputerze lokalnym, podczas gdy obliczenia są wykonywane na urządzeniu zdalnym.",
+      "reconnectTitle": "Połącz ponownie",
+      "reconnectDesc": "Kiedy połączenie zostanie zerwane, cmux łączy się ponownie z wykładniczym wycofywaniem (3 s, 6 s, 12 s, do 60 s). Sesja zdalna trwa, a cmux podłącza się ponownie po ponownym połączeniu, zmieniając rozmiar zgodnie z semantyką wygrywającą na najmniejszym ekranie. Domyślne opcje utrzymywania aktywności (ServerAliveInterval=20, ServerAliveCountMax=2) są wstrzykiwane, chyba że konfiguracja już je ustawiła.",
+      "daemonTitle": "Demon przekaźnika",
+      "daemonDesc": "Przy pierwszym połączeniu cmux sprawdza zdalny host (uname -s, uname -m) i przesyła wersjonowany plik binarny cmuxd-remote. Plik binarny porozumiewa się w formacie JSON-RPC przez stdio i obsługuje trzy rzeczy:",
+      "daemonFeature": "Funkcja",
+      "daemonHow": "Jak",
+      "daemonProxy": "Proxowanie ruchu przeglądarki",
+      "daemonProxyHow": "SOCKS5 i HTTP CONNECT przez kanał stdio demona",
+      "daemonRelay": "Przekaźnik CLI",
+      "daemonRelayHow": "Odwróć tunel TCP z uwierzytelnianiem HMAC-SHA256, aby zdalne procesy mogły lokalnie wywoływać polecenia cmux",
+      "daemonSession": "Zarządzanie sesją",
+      "daemonSessionHow": "Utrzymuje sesje po ponownym połączeniu, koordynuje zmianę rozmiaru PTY w wielu załącznikach",
+      "daemonPath": "Plik binarny demona jest przechowywany pod adresem ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote na zdalnym hoście i weryfikowany w oparciu o manifest SHA-256 osadzony w aplikacji."
     }
   },
   "legal": {
@@ -1034,5 +1095,40 @@
   },
   "languageSwitcher": {
     "label": "Język"
+  },
+  "deeplink": {
+    "section": "Głębokie łącze",
+    "open": "Otwórz w cmuxie",
+    "download": "Pobierz cmux",
+    "nativeURL": "Natywny adres URL",
+    "missingParams": "W tym linku brakuje wymaganych parametrów: {params}",
+    "duplicateParams": "Ten link powtarza parametry, które cmux odrzuci: {params}",
+    "unsupportedParams": "Ten link zawiera nieobsługiwane parametry, które cmux odrzuci: {params}",
+    "conflictingParams": "Ten link zawiera parametry, których nie można używać razem: {params}",
+    "invalidParams": "Ten link zawiera nieprawidłowe wartości parametrów: {params}",
+    "fixParams": "Popraw parametry adresu URL, a następnie załaduj ponownie tę stronę.",
+    "examplePrefix": "Zobacz",
+    "exampleLink": "przykładowy link",
+    "ssh": {
+      "metaTitle": "Otwórz SSH w cmux",
+      "metaDescription": "Otwórz głębokie łącze cmux SSH z Internetu z możliwością instalacji awaryjnej, gdy cmux nie jest dostępny.",
+      "title": "Otwórz SSH w cmux",
+      "intro": "Ta strona otwiera sprawdzone łącze cmux SSH.",
+      "fallback": "Jeśli cmux się nie otworzy, zainstaluj cmux i ponownie kliknij Otwórz w cmux."
+    },
+    "prompt": {
+      "metaTitle": "Otwórz monit w cmux",
+      "metaDescription": "Otwórz głębokie łącze cmux z Internetu z możliwością instalacji awaryjnej, gdy cmux nie jest dostępny.",
+      "title": "Otwórz monit w cmux",
+      "intro": "Ta strona otwiera monit w bieżącym obszarze roboczym cmux.",
+      "fallback": "cmux najpierw wyświetla monit i pyta przed wklejeniem go do bieżącego obszaru roboczego. Jeśli cmux się nie otworzy, zainstaluj cmux i ponownie kliknij Otwórz w cmux."
+    },
+    "rules": {
+      "metaTitle": "Otwórz reguły w cmux",
+      "metaDescription": "Otwórz głębokie łącze reguł cmux z Internetu z możliwością instalacji awaryjnej, gdy cmux nie jest dostępny.",
+      "title": "Otwórz reguły w cmux",
+      "intro": "Ta strona otwiera reguły w bieżącym obszarze roboczym cmux.",
+      "fallback": "cmux najpierw pokazuje reguły i pyta przed wklejeniem ich do bieżącego obszaru roboczego. Jeśli cmux się nie otworzy, zainstaluj cmux i ponownie kliknij Otwórz w cmux."
+    }
   }
 }

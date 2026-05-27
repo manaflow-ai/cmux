@@ -558,6 +558,11 @@
           "default": false,
           "description": "Hide all per-workspace detail rows."
         },
+        "wrapWorkspaceTitles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line."
+        },
         "showWorkspaceDescription": {
           "type": "boolean",
           "default": true,
@@ -830,9 +835,22 @@
       "properties": {
         "defaultSearchEngine": {
           "type": "string",
-          "enum": ["google", "duckduckgo", "bing", "kagi", "startpage"],
+          "enum": ["google", "duckduckgo", "bing", "kagi", "startpage", "brave", "perplexity", "exa", "yahoo", "ecosia", "qwant", "mojeek", "wikipedia", "github", "baidu", "yandex", "custom"],
           "default": "google",
-          "description": "Default search engine for non-URL queries."
+          "descriptionKey": "schemaDescriptions.browser.defaultSearchEngine",
+          "description": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers."
+        },
+        "customSearchEngineName": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.browser.customSearchEngineName",
+          "description": "Display name used when defaultSearchEngine is custom."
+        },
+        "customSearchEngineURLTemplate": {
+          "type": "string",
+          "default": "https://www.google.com/search?q={query}",
+          "descriptionKey": "schemaDescriptions.browser.customSearchEngineURLTemplate",
+          "description": "Search URL used when defaultSearchEngine is custom. Include {query} or %s for the encoded query. If omitted, cmux appends q= to the URL."
         },
         "showSearchSuggestions": {
           "type": "boolean",
@@ -949,7 +967,6 @@
               "switchRightSidebarToSessions",
               "switchRightSidebarToFeed",
               "switchRightSidebarToDock",
-              "switchRightSidebarToHistory",
               "triggerFlash",
               "nextSurface",
               "prevSurface",

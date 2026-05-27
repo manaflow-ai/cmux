@@ -499,6 +499,11 @@
         },
         "terminal": {
           "copyOnSelect": "คัดลอกข้อความเทอร์มินัลที่เลือกไปยังคลิปบอร์ดของระบบเมื่อยืนยันการเลือก รวมถึงการเลือกคำและบรรทัดจากการดับเบิลคลิกและทริปเปิลคลิก"
+        },
+        "browser": {
+          "defaultSearchEngine": "เครื่องมือค้นหาเริ่มต้นสำหรับคำค้นในแถบที่อยู่ของเบราว์เซอร์ที่ไม่ใช่ URL ใช้ custom กับ customSearchEngineURLTemplate สำหรับผู้ให้บริการอื่น",
+          "customSearchEngineName": "ชื่อที่แสดงเมื่อ defaultSearchEngine เป็น custom",
+          "customSearchEngineURLTemplate": "URL ค้นหาที่ใช้เมื่อ defaultSearchEngine เป็น custom ใส่ตัวแทนคำค้นหรือ %s สำหรับคำค้นที่เข้ารหัส หากไม่มีตัวแทน cmux จะเพิ่ม q= ให้กับ URL"
         }
       }
     },
@@ -992,6 +997,62 @@
       "underHoodMore": "<configLink>เอกสาร configuration</configLink> ปกติครอบคลุม cmux.json Session restore แยก app layout ออกจาก Ghostty terminal rendering settings",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
+    },
+    "ssh": {
+      "title": "SSH",
+      "metaTitle": "SSH",
+      "metaDescription": "เชื่อมต่อกับเครื่องระยะไกลด้วย cmux ssh บานหน้าต่างเบราว์เซอร์กำหนดเส้นทางผ่านเครือข่ายระยะไกล รูปภาพลากและวางผ่าน scp และการแจ้งเตือนของตัวแทนกลับมาที่บ้าน",
+      "intro": "cmux ssh สร้างพื้นที่ทำงานสำหรับเครื่องระยะไกล บานหน้าต่างเบราว์เซอร์กำหนดเส้นทางผ่านเครือข่ายระยะไกล ไฟล์ลากและวางผ่าน scp เอเจนต์การเข้ารหัสส่งการแจ้งเตือนไปยังแถบด้านข้างในเครื่องของคุณ และเซสชันเชื่อมต่อใหม่เมื่อดรอป",
+      "usage": "การใช้งาน",
+      "usageDesc": "cmux ssh อ่าน ~/.ssh/config ของคุณสำหรับชื่อแทนโฮสต์ ไฟล์ข้อมูลระบุตัวตน และการตั้งค่าพร็อกซี ธงทั้งหมดสะท้อนเทียบเท่า ssh",
+      "flagsTitle": "ธง",
+      "flagName": "ธง",
+      "flagDesc": "คำอธิบาย",
+      "flagNameVal": "ตั้งชื่อพื้นที่ทำงาน",
+      "flagPort": "พอร์ต SSH (ค่าเริ่มต้น 22)",
+      "flagIdentity": "เส้นทางไปยังไฟล์ข้อมูลประจำตัว",
+      "flagSshOption": "ส่งผ่านตัวเลือก SSH ที่กำหนดเอง (เช่น -o StrictHostKeyChecking=no)",
+      "flagNoFocus": "สร้างพื้นที่ทำงานโดยไม่ต้องสลับไปใช้",
+      "deepLinksTitle": "ลิงก์ในรายละเอียด SSH",
+      "deepLinksDesc": "ใช้ลิงก์ในรายละเอียด cmux SSH เมื่อเว็บไซต์หรือเครื่องมือต้องการเสนอปุ่มเปิดใน cmux ลิงก์จะเปิด cmux แสดงพร้อมท์การยืนยัน จากนั้นรันคำสั่ง cmux ssh ที่เทียบเท่ากันหลังจากที่ผู้ใช้ยืนยัน",
+      "deepLinksWebFallbackDesc": "ใช้ URL ทางเลือก cmux.com สำหรับปุ่มเว็บไซต์ จะเปิดลิงก์ดั้งเดิมและแสดงการดาวน์โหลดหากไม่ได้ติดตั้ง cmux",
+      "deepLinksPromptRulesDesc": "ปุ่มพร้อมท์และกฎใช้รูปแบบทางเลือกเดียวกัน เครื่องหมายจุลภาค ทวิภาค และเครื่องหมายบวกตามตัวอักษรจะยังคงอยู่เมื่อมีการเข้ารหัส URL:",
+      "deepLinksIconDesc": "ใช้ไอคอน SVG สำหรับปุ่มแดชบอร์ด หรือโลโก้ PNG เมื่อจำเป็นต้องใช้ภาพแรสเตอร์:",
+      "deepLinksButtonDesc": "สร้าง URL สำรองด้วย URLSearchParams เพื่อให้ชื่อ นามแฝงของโฮสต์ และชื่อผู้ใช้ได้รับการเข้ารหัสอย่างปลอดภัย:",
+      "deepLinkParam": "พารามิเตอร์",
+      "deepLinkMeaning": "ความหมาย",
+      "deepLinkHost": "โฮสต์ SSH ที่จำเป็นหรือนามแฝง ~/.ssh/config",
+      "deepLinkUser": "ผู้ใช้ SSH เสริม cmux รวมเข้ากับโฮสต์เป็น user@host",
+      "deepLinkPort": "พอร์ต SSH เสริม 1 ถึง 65535",
+      "deepLinkTitle": "ชื่อพื้นที่ทำงานที่ไม่บังคับ ใช้ชื่อหรือชื่อเพียงชื่อเดียวเท่านั้น",
+      "deepLinkConnectTimeout": "ค่า ConnectTimeout ที่เป็นตัวเลือกในหน่วยวินาที 1 ถึง 600",
+      "deepLinkServerAliveInterval": "ค่า ServerAliveInterval ที่เป็นตัวเลือกในหน่วยวินาที 1 ถึง 3600",
+      "deepLinkServerAliveCountMax": "ค่า ServerAliveCountMax ที่เป็นตัวเลือก 1 ถึง 100",
+      "deepLinkHostKeyPolicy": "นโยบาย StrictHostKeyChecking เพิ่มเติม: ยอมรับใหม่ ถาม เข้มงวด หรือใช่",
+      "deepLinkNoFocus": "บูลีนทางเลือก true สร้างพื้นที่ทำงานโดยไม่ต้องสลับไปใช้",
+      "deepLinksSchemeDesc": "ใช้ cmux:// สำหรับแอปที่เสถียร, cmux-nightly:// สำหรับ Nightly และ cmux-dev:// สำหรับ Debug หรือแท็ก dev builds",
+      "deepLinksSecurityDesc": "ลิงก์ภายนอกไม่สามารถส่งผ่านไฟล์ข้อมูลประจำตัว ตัวเลือก Raw ssh คำสั่ง ProxyCommand หรือกฎการส่งต่อ ใส่คีย์, ProxyJump, HostName และตัวเลือกขั้นสูงใน ~/.ssh/config แทน cmux แสดงตัวอย่างคำสั่งและกำหนดให้ผู้ใช้เชื่อถือเป้าหมาย SSH ก่อนทำการเชื่อมต่อ",
+      "browserTitle": "บานหน้าต่างเบราว์เซอร์",
+      "browserDesc": "บานหน้าต่างเบราว์เซอร์ในพื้นที่ทำงานระยะไกลจะกำหนดเส้นทางการรับส่งข้อมูล HTTP และ WebSocket ทั้งหมดผ่านเครือข่ายของเครื่องระยะไกล พิมพ์ localhost:3000 และคุณกำลังดูเซิร์ฟเวอร์ dev ที่ทำงานบนกล่องระยะไกล ไม่มีแฟล็ก -L ไม่มีการส่งต่อพอร์ตด้วยตนเอง พื้นที่ทำงานระยะไกลแต่ละแห่งจะได้รับที่เก็บคุกกี้แบบแยก ดังนั้นเซสชันจึงมีการกำหนดขอบเขตตามการเชื่อมต่อ",
+      "dragDropTitle": "ลากและวาง",
+      "dragDropDesc": "ลากรูปภาพหรือไฟล์ลงในเทอร์มินัลระยะไกลแล้ว cmux อัปโหลดผ่าน scp ผ่านการเชื่อมต่อ SSH ที่มีอยู่ cmux ตรวจจับกระบวนการ SSH เบื้องหน้าโดย TTY และกำหนดเส้นทางการอัปโหลดผ่านมัลติเพล็กซ์ของ ControlMaster",
+      "notificationsTitle": "การแจ้งเตือน",
+      "notificationsDesc": "กระบวนการบนเครื่องระยะไกลสามารถเรียกใช้คำสั่ง cmux ที่ดำเนินการบนอินสแตนซ์ในเครื่องของคุณได้ เมื่อตัวแทนการเขียนโค้ดเรียกการแจ้งเตือน cmux บนกล่องระยะไกล การแจ้งเตือนจะปรากฏในแถบด้านข้างภายในเครื่องของคุณ วงแหวนสีน้ำเงินจะสว่างขึ้นบนแท็บพื้นที่ทำงาน Cmd+Shift+U ข้ามไปที่มัน สแปมการแจ้งเตือนจากการเชื่อมต่อที่ไม่สม่ำเสมอจะถูกระงับด้วยคูลดาวน์ต่อโฮสต์",
+      "agentsTitle": "เอเจนต์การเข้ารหัสบน SSH",
+      "agentsDesc": "cmux claude-teams และ cmux omo ทั้งคู่ทำงานในเซสชัน SSH Go Relay Daemon บนรีโมตโฮสต์จะจัดการการแปล tmux-compat แบบเดียวกับที่ Swift CLI ในเครื่องทำ เอเจนต์เพื่อนร่วมทีมจะเกิดเมื่อ cmux ดั้งเดิมแยกบนเครื่องของคุณในขณะที่การคำนวณทำงานบนกล่องระยะไกล",
+      "reconnectTitle": "เชื่อมต่อใหม่",
+      "reconnectDesc": "เมื่อการเชื่อมต่อหลุด cmux จะเชื่อมต่อใหม่ด้วย exponential backoff (3s, 6s, 12s, up to 60s) เซสชันระยะไกลยังคงอยู่และ cmux จะเชื่อมต่อใหม่เมื่อเชื่อมต่อใหม่ โดยปรับขนาดด้วยซีแมนทิกส์การชนะหน้าจอที่เล็กที่สุด ตัวเลือก Keepalive เริ่มต้น (ServerAliveInterval=20, ServerAliveCountMax=2) จะถูกแทรก เว้นแต่การกำหนดค่าของคุณจะตั้งค่าไว้แล้ว",
+      "daemonTitle": "รีเลย์เดมอน",
+      "daemonDesc": "ในการเชื่อมต่อครั้งแรก cmux จะตรวจสอบโฮสต์ระยะไกล (uname -s, uname -m) และอัปโหลดไบนารี cmuxd-remote เวอร์ชัน ไบนารี่พูด JSON-RPC ผ่าน stdio และจัดการสามสิ่ง:",
+      "daemonFeature": "คุณสมบัติ",
+      "daemonHow": "อย่างไร",
+      "daemonProxy": "การพร็อกซีการรับส่งข้อมูลเบราว์เซอร์",
+      "daemonProxyHow": "SOCKS5 และ HTTP CONNECT ผ่านช่องทาง stdio ของ daemon",
+      "daemonRelay": "รีเลย์ CLI",
+      "daemonRelayHow": "ย้อนกลับช่องสัญญาณ TCP ด้วยการตรวจสอบสิทธิ์ HMAC-SHA256 เพื่อให้กระบวนการระยะไกลสามารถเรียกคำสั่ง cmux ในเครื่องได้",
+      "daemonSession": "การจัดการเซสชัน",
+      "daemonSessionHow": "คงเซสชันไว้ในการเชื่อมต่อใหม่ ประสานการปรับขนาด PTY ในไฟล์แนบหลายไฟล์",
+      "daemonPath": "ไบนารี daemon ถูกเก็บไว้ที่ ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote บนโฮสต์ระยะไกลและตรวจสอบกับไฟล์ Manifest SHA-256 ที่ฝังอยู่ในแอป"
     }
   },
   "legal": {
@@ -1034,5 +1095,40 @@
   "wallOfLove": {
     "title": "กำแพงแห่งความรัก",
     "description": "สิ่งที่ผู้คนพูดเกี่ยวกับ cmux"
+  },
+  "deeplink": {
+    "section": "ดีพลิงก์",
+    "open": "เปิดใน cmux",
+    "download": "ดาวน์โหลด cmux",
+    "nativeURL": "URL ดั้งเดิม",
+    "missingParams": "ลิงก์นี้ไม่มีพารามิเตอร์ที่จำเป็น: {params}",
+    "duplicateParams": "ลิงก์นี้ทำซ้ำพารามิเตอร์ที่ cmux จะปฏิเสธ: {params}",
+    "unsupportedParams": "ลิงก์นี้มีพารามิเตอร์ที่ไม่รองรับ cmux จะปฏิเสธ: {params}",
+    "conflictingParams": "ลิงก์นี้มีพารามิเตอร์ที่ไม่สามารถใช้ร่วมกันได้: {params}",
+    "invalidParams": "ลิงก์นี้มีค่าพารามิเตอร์ที่ไม่ถูกต้อง: {params}",
+    "fixParams": "แก้ไขพารามิเตอร์ URL จากนั้นโหลดหน้านี้ซ้ำ",
+    "examplePrefix": "ดูอัน",
+    "exampleLink": "ลิงค์ตัวอย่าง",
+    "ssh": {
+      "metaTitle": "เปิด SSH ใน cmux",
+      "metaDescription": "เปิด Deep Link ของ cmux SSH จากเว็บ โดยมีการติดตั้งสำรองเมื่อ cmux ไม่พร้อมใช้งาน",
+      "title": "เปิด SSH ใน cmux",
+      "intro": "หน้านี้จะเปิดลิงก์ cmux SSH ที่ได้รับการตรวจสอบแล้ว",
+      "fallback": "หาก cmux ไม่เปิดขึ้น ให้ติดตั้ง cmux แล้วคลิก Open in cmux อีกครั้ง"
+    },
+    "prompt": {
+      "metaTitle": "เปิดพรอมต์ใน cmux",
+      "metaDescription": "เปิด Deep Link ของพรอมต์ cmux จากเว็บ โดยมีการติดตั้งสำรองเมื่อ cmux ไม่พร้อมใช้งาน",
+      "title": "เปิดพรอมต์ใน cmux",
+      "intro": "หน้านี้จะเปิดพร้อมท์ในพื้นที่ทำงาน cmux ปัจจุบัน",
+      "fallback": "cmux จะแสดงพรอมต์ก่อนและถามก่อนที่จะวางลงในพื้นที่ทำงานปัจจุบัน หาก cmux ไม่เปิดขึ้น ให้ติดตั้ง cmux แล้วคลิก Open in cmux อีกครั้ง"
+    },
+    "rules": {
+      "metaTitle": "เปิดกฎใน cmux",
+      "metaDescription": "เปิด Deep Link ของกฎ cmux จากเว็บ พร้อมด้วยการติดตั้งสำรองเมื่อ cmux ไม่พร้อมใช้งาน",
+      "title": "เปิดกฎใน cmux",
+      "intro": "หน้านี้จะเปิดกฎในพื้นที่ทำงาน cmux ปัจจุบัน",
+      "fallback": "cmux จะแสดงกฎก่อนและถามก่อนที่จะวางลงในพื้นที่ทำงานปัจจุบัน หาก cmux ไม่เปิดขึ้น ให้ติดตั้ง cmux แล้วคลิก Open in cmux อีกครั้ง"
+    }
   }
 }

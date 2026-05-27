@@ -499,6 +499,11 @@
         },
         "terminal": {
           "copyOnSelect": "선택이 확정되면 더블 클릭 및 트리플 클릭으로 선택한 단어와 줄을 포함해 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다."
+        },
+        "browser": {
+          "defaultSearchEngine": "브라우저 주소 표시줄에서 URL이 아닌 입력에 사용할 기본 검색 엔진입니다. 다른 제공자는 custom과 customSearchEngineURLTemplate을 사용하세요.",
+          "customSearchEngineName": "defaultSearchEngine이 custom일 때 사용할 표시 이름입니다.",
+          "customSearchEngineURLTemplate": "defaultSearchEngine이 custom일 때 사용할 검색 URL입니다. 인코딩된 검색어에는 쿼리 자리표시자 또는 %s를 포함하세요. 자리표시자가 없으면 cmux가 URL에 q=를 추가합니다."
         }
       }
     },
@@ -992,6 +997,62 @@
       "underHoodMore": "일반 <configLink>configuration docs</configLink>는 cmux.json을 다룹니다. 세션 복원은 app layout을 Ghostty 터미널 렌더링 설정과 분리해 저장합니다.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
+    },
+    "ssh": {
+      "title": "SSH",
+      "metaTitle": "SSH",
+      "metaDescription": "cmux ssh를 사용하여 원격 시스템에 연결합니다. 브라우저 창은 원격 네트워크를 통해 라우팅되고, scp를 통해 이미지를 끌어서 놓으면 에이전트 알림이 집으로 전달됩니다.",
+      "intro": "cmux ssh는 원격 시스템을 위한 작업 공간을 만듭니다. 브라우저 창은 원격 네트워크를 통해 라우팅되고, scp를 통해 파일을 끌어서 놓으며, 코딩 에이전트는 로컬 사이드바에 알림을 보내고, 세션은 삭제 시 다시 연결됩니다.",
+      "usage": "사용법",
+      "usageDesc": "cmux ssh는 ~/.ssh/config에서 호스트 별칭, ID 파일 및 프록시 설정을 읽습니다. 모든 플래그는 SSH에 해당하는 플래그를 반영합니다.",
+      "flagsTitle": "플래그",
+      "flagName": "깃발",
+      "flagDesc": "설명",
+      "flagNameVal": "작업공간 제목 설정",
+      "flagPort": "SSH 포트(기본값 22)",
+      "flagIdentity": "ID 파일 경로",
+      "flagSshOption": "임의 SSH 옵션 전달(예: -o StrictHostKeyChecking=no)",
+      "flagNoFocus": "작업공간으로 전환하지 않고 작업공간 만들기",
+      "deepLinksTitle": "SSH 딥링크",
+      "deepLinksDesc": "웹사이트나 도구가 cmux에서 열기 버튼을 제공하려는 경우 cmux SSH 딥 링크를 사용하세요. 링크는 cmux를 열고 확인 프롬프트를 표시한 다음 사용자가 확인한 후 해당 cmux ssh 명령을 실행합니다.",
+      "deepLinksWebFallbackDesc": "웹사이트 버튼에는 cmux.com 대체 URL을 사용하세요. 기본 링크가 열리고 cmux가 설치되지 않은 경우 다운로드가 표시됩니다.",
+      "deepLinksPromptRulesDesc": "프롬프트 및 규칙 버튼은 동일한 대체 모양을 사용합니다. 쉼표, 콜론 및 리터럴 더하기 기호는 URL 인코딩 시 보존됩니다.",
+      "deepLinksIconDesc": "대시보드 버튼에는 SVG 아이콘을 사용하고, 래스터 이미지가 필요한 경우에는 PNG 로고를 사용하세요.",
+      "deepLinksButtonDesc": "제목, 호스트 별칭 및 사용자 이름이 안전하게 인코딩되도록 URLSearchParams를 사용하여 대체 URL을 구축합니다.",
+      "deepLinkParam": "매개변수",
+      "deepLinkMeaning": "의미",
+      "deepLinkHost": "필수 SSH 호스트 또는 ~/.ssh/config 별칭.",
+      "deepLinkUser": "선택적 SSH 사용자. cmux는 이를 user@host로 호스트와 결합합니다.",
+      "deepLinkPort": "선택적 SSH 포트(1~65535).",
+      "deepLinkTitle": "선택적 작업공간 제목입니다. 직함이나 이름 중 하나만 사용하세요.",
+      "deepLinkConnectTimeout": "선택적 ConnectTimeout 값(초)(1~600).",
+      "deepLinkServerAliveInterval": "선택적 ServerAliveInterval 값(1~3600초)입니다.",
+      "deepLinkServerAliveCountMax": "선택적 ServerAliveCountMax 값(1~100)입니다.",
+      "deepLinkHostKeyPolicy": "선택적 StrictHostKeyChecking 정책: accept-new, Ask, strict 또는 yes.",
+      "deepLinkNoFocus": "선택적 부울입니다. true는 작업 공간으로 전환하지 않고 작업 공간을 만듭니다.",
+      "deepLinksSchemeDesc": "안정적인 앱의 경우 cmux://를 사용하고 Nightly의 경우 cmux-nightly://를 사용하며 디버그 또는 태그가 지정된 개발 빌드의 경우 cmux-dev://를 사용합니다.",
+      "deepLinksSecurityDesc": "외부 링크는 ID 파일, 원시 SSH 옵션, 명령, ProxyCommand 또는 전달 규칙을 전달할 수 없습니다. 대신 ~/.ssh/config에 키, ProxyJump, HostName 및 고급 옵션을 넣으세요. cmux는 명령 미리보기를 표시하며 사용자가 연결하기 전에 SSH 대상을 신뢰하도록 요구합니다.",
+      "browserTitle": "브라우저 창",
+      "browserDesc": "원격 작업 공간의 브라우저 창은 원격 시스템의 네트워크를 통해 모든 HTTP 및 WebSocket 트래픽을 라우팅합니다. localhost:3000을 입력하면 원격 상자에서 실행 중인 개발 서버가 표시됩니다. -L 플래그가 없고 수동 포트 전달이 없습니다. 각 원격 작업 공간은 격리된 쿠키 저장소를 가져오므로 세션 범위는 연결별로 지정됩니다.",
+      "dragDropTitle": "드래그 앤 드롭",
+      "dragDropDesc": "이미지나 파일을 원격 터미널로 드래그하면 cmux가 기존 SSH 연결을 통해 scp를 통해 업로드합니다. cmux는 TTY로 포그라운드 SSH 프로세스를 감지하고 ControlMaster 멀티플렉싱을 통해 업로드를 라우팅합니다.",
+      "notificationsTitle": "알림",
+      "notificationsDesc": "원격 시스템의 프로세스는 로컬 인스턴스에서 실행되는 cmux 명령을 실행할 수 있습니다. 코딩 에이전트가 원격 상자에서 cmux 알림을 호출하면 알림이 로컬 사이드바에 나타납니다. 작업 공간 탭에 파란색 링이 켜집니다. Cmd+Shift+U를 누르면 해당 위치로 이동합니다. 불안정한 연결로 인한 알림 스팸은 호스트별 쿨다운을 통해 억제됩니다.",
+      "agentsTitle": "SSH를 통한 코딩 에이전트",
+      "agentsDesc": "cmux claude-teams 및 cmux omo는 모두 SSH 세션 내에서 작동합니다. 원격 호스트의 Go 릴레이 데몬은 로컬 Swift CLI가 수행하는 것과 동일한 tmux-compat 변환을 처리합니다. Teammate 에이전트는 원격 상자에서 계산이 실행되는 동안 로컬 컴퓨터에서 기본 cmux 분할로 생성됩니다.",
+      "reconnectTitle": "다시 연결",
+      "reconnectDesc": "연결이 끊어지면 cmux는 지수 백오프(3초, 6초, 12초, 최대 60초)를 사용하여 다시 연결합니다. 원격 세션이 지속되고 cmux는 재연결 시 다시 연결되어 가장 작은 화면 우선 의미에 따라 크기가 조정됩니다. 구성에서 이미 설정하지 않은 경우 기본 keepalive 옵션(ServerAliveInterval=20, ServerAliveCountMax=2)이 삽입됩니다.",
+      "daemonTitle": "릴레이 데몬",
+      "daemonDesc": "처음 연결 시 cmux는 원격 호스트를 검색하고(uname -s, uname -m) 버전이 지정된 cmuxd-remote 바이너리를 업로드합니다. 바이너리는 stdio를 통해 JSON-RPC를 말하고 다음 세 가지를 처리합니다.",
+      "daemonFeature": "특징",
+      "daemonHow": "어떻게",
+      "daemonProxy": "브라우저 트래픽 프록시",
+      "daemonProxyHow": "데몬의 stdio 채널을 통한 SOCKS5 및 HTTP CONNECT",
+      "daemonRelay": "CLI 릴레이",
+      "daemonRelayHow": "원격 프로세스가 로컬에서 cmux 명령을 호출할 수 있도록 HMAC-SHA256 인증을 사용하는 역방향 TCP 터널",
+      "daemonSession": "세션 관리",
+      "daemonSessionHow": "재연결 시 세션을 유지하고 여러 첨부 파일에 걸쳐 PTY 크기 조정을 조정합니다.",
+      "daemonPath": "데몬 바이너리는 원격 호스트의 ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote에 저장되며 앱에 포함된 SHA-256 매니페스트에 대해 확인됩니다."
     }
   },
   "legal": {
@@ -1034,5 +1095,40 @@
   },
   "languageSwitcher": {
     "label": "언어"
+  },
+  "deeplink": {
+    "section": "딥링크",
+    "open": "cmux에서 열기",
+    "download": "cmux 다운로드",
+    "nativeURL": "기본 URL",
+    "missingParams": "이 링크에는 필수 매개변수가 누락되었습니다: {params}",
+    "duplicateParams": "이 링크는 cmux가 거부할 매개변수를 반복합니다: {params}",
+    "unsupportedParams": "이 링크에는 cmux에서 거부할 지원되지 않는 매개변수가 포함되어 있습니다: {params}",
+    "conflictingParams": "이 링크에는 함께 사용할 수 없는 매개변수가 포함되어 있습니다: {params}",
+    "invalidParams": "이 링크에는 잘못된 매개변수 값이 포함되어 있습니다: {params}",
+    "fixParams": "URL 매개변수를 수정한 후 이 페이지를 새로고침하세요.",
+    "examplePrefix": "참조",
+    "exampleLink": "예시 링크",
+    "ssh": {
+      "metaTitle": "cmux에서 SSH 열기",
+      "metaDescription": "cmux를 사용할 수 없는 경우 대체 설치를 사용하여 웹에서 cmux SSH 딥링크를 엽니다.",
+      "title": "cmux에서 SSH 열기",
+      "intro": "이 페이지에서는 검토된 cmux SSH 링크가 열립니다.",
+      "fallback": "cmux가 열리지 않으면 cmux를 설치하고 cmux에서 열기를 다시 클릭합니다."
+    },
+    "prompt": {
+      "metaTitle": "cmux에서 프롬프트 열기",
+      "metaDescription": "cmux를 사용할 수 없는 경우 설치 대체 기능을 사용하여 웹에서 cmux 프롬프트 딥링크를 엽니다.",
+      "title": "cmux에서 프롬프트 열기",
+      "intro": "이 페이지는 현재 cmux 작업 공간에서 프롬프트를 엽니다.",
+      "fallback": "cmux는 프롬프트를 먼저 표시하고 이를 현재 작업 공간에 붙여넣기 전에 묻습니다. cmux가 열리지 않으면 cmux를 설치하고 cmux에서 열기를 다시 클릭합니다."
+    },
+    "rules": {
+      "metaTitle": "cmux에서 규칙 열기",
+      "metaDescription": "cmux를 사용할 수 없는 경우 대체 설치를 통해 웹에서 cmux 규칙 딥링크를 엽니다.",
+      "title": "cmux에서 규칙 열기",
+      "intro": "이 페이지는 현재 cmux 작업 공간의 규칙을 엽니다.",
+      "fallback": "cmux는 규칙을 먼저 표시하고 이를 현재 작업 공간에 붙여넣기 전에 묻습니다. cmux가 열리지 않으면 cmux를 설치하고 cmux에서 열기를 다시 클릭합니다."
+    }
   }
 }

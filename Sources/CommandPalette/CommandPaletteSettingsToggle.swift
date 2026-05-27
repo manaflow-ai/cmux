@@ -459,6 +459,20 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: SidebarWorkspaceDetailSettings.hideAllDetailsKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "wrapWorkspaceTitlesInSidebar",
+                settingsKey: "sidebar.wrapWorkspaceTitles",
+                title: {
+                    String(
+                        localized: "settings.app.wrapWorkspaceTitles",
+                        defaultValue: "Wrap Workspace Titles in Sidebar"
+                    )
+                },
+                sectionTitle: sidebar,
+                keywords: ["sidebar.wrapWorkspaceTitles", "sidebar", "workspace", "title", "wrap", "pr", "pull", "request"],
+                defaultValue: SidebarWorkspaceTitleWrapSettings.defaultWrap,
+                defaultsKey: SidebarWorkspaceTitleWrapSettings.key
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "showWorkspaceDescriptionInSidebar",
                 settingsKey: "sidebar.showWorkspaceDescription",
                 title: {

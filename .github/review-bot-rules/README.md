@@ -8,6 +8,7 @@ Greptile is configured to publish a GitHub status check and inline findings. Cod
 
 Current rules:
 
+- `algorithmic-complexity.md`
 - `full-internationalization.md`
 - `runtime-no-hacky-sleeps.md`
 - `swift-actor-isolation.md`

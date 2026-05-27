@@ -2240,6 +2240,7 @@ final class WindowBrowserPortal: NSObject {
     private var webViewByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
     private var interactiveFrameOverridesInWindowByWebViewId: [ObjectIdentifier: NSRect] = [:]
     private var canvasSurfacePresentationsByWebViewId: [ObjectIdentifier: CanvasSurfacePresentation] = [:]
+    private var canvasSurfacePresentationSuppressedWebViewIds: Set<ObjectIdentifier> = []
 
     init(window: NSWindow) {
         self.window = window
@@ -3075,6 +3076,7 @@ final class WindowBrowserPortal: NSObject {
         cancelPendingHostedWebViewRefreshes(for: webViewId)
         interactiveFrameOverridesInWindowByWebViewId.removeValue(forKey: webViewId)
         canvasSurfacePresentationsByWebViewId.removeValue(forKey: webViewId)
+        canvasSurfacePresentationSuppressedWebViewIds.remove(webViewId)
         guard let entry = entriesByWebViewId.removeValue(forKey: webViewId) else { return }
         if let anchor = entry.anchorView {
             webViewByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
@@ -3110,6 +3112,7 @@ final class WindowBrowserPortal: NSObject {
         cancelPendingHostedWebViewRefreshes(for: webViewId)
         interactiveFrameOverridesInWindowByWebViewId.removeValue(forKey: webViewId)
         canvasSurfacePresentationsByWebViewId.removeValue(forKey: webViewId)
+        canvasSurfacePresentationSuppressedWebViewIds.remove(webViewId)
         guard let entry = entriesByWebViewId.removeValue(forKey: webViewId) else { return }
         if let anchor = entry.anchorView {
             webViewByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
@@ -3147,13 +3150,15 @@ final class WindowBrowserPortal: NSObject {
     /// do not keep an old anchor visible.
     func updateEntryVisibility(forWebViewId webViewId: ObjectIdentifier, visibleInUI: Bool, zPriority: Int) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
-        if !visibleInUI {
+        let effectiveVisibleInUI = visibleInUI && !canvasSurfacePresentationSuppressedWebViewIds.contains(webViewId)
+        let effectiveZPriority = effectiveVisibleInUI ? zPriority : 0
+        if !effectiveVisibleInUI {
             interactiveFrameOverridesInWindowByWebViewId.removeValue(forKey: webViewId)
             canvasSurfacePresentationsByWebViewId.removeValue(forKey: webViewId)
         }
-        guard entry.visibleInUI != visibleInUI || entry.zPriority != zPriority else { return }
-        entry.visibleInUI = visibleInUI
-        entry.zPriority = zPriority
+        guard entry.visibleInUI != effectiveVisibleInUI || entry.zPriority != effectiveZPriority else { return }
+        entry.visibleInUI = effectiveVisibleInUI
+        entry.zPriority = effectiveZPriority
         entriesByWebViewId[webViewId] = entry
         synchronizeWebView(withId: webViewId, source: "visibility")
     }
@@ -3168,12 +3173,38 @@ final class WindowBrowserPortal: NSObject {
     }
 
     func setCanvasSurfacePresentation(forWebViewId webViewId: ObjectIdentifier, presentation: CanvasSurfacePresentation?) {
+        if presentation != nil, canvasSurfacePresentationSuppressedWebViewIds.contains(webViewId) {
+            return
+        }
         if let presentation {
             canvasSurfacePresentationsByWebViewId[webViewId] = presentation
         } else {
             canvasSurfacePresentationsByWebViewId.removeValue(forKey: webViewId)
         }
         synchronizeWebView(withId: webViewId, source: "canvasPresentation")
+    }
+
+    func suppressCanvasSurfacePresentation(forWebViewId webViewId: ObjectIdentifier) {
+        canvasSurfacePresentationSuppressedWebViewIds.insert(webViewId)
+        interactiveFrameOverridesInWindowByWebViewId.removeValue(forKey: webViewId)
+        canvasSurfacePresentationsByWebViewId.removeValue(forKey: webViewId)
+        guard var entry = entriesByWebViewId[webViewId] else { return }
+        entry.visibleInUI = false
+        entry.zPriority = 0
+        entry.transientRecoveryReason = nil
+        entry.transientRecoveryRetriesRemaining = 0
+        entriesByWebViewId[webViewId] = entry
+        entry.containerView?.setPaneTopChromeHeight(0)
+        entry.containerView?.setSearchOverlay(nil)
+        entry.containerView?.setOmnibarSuggestions(nil)
+        entry.containerView?.setPaneDropContext(nil)
+        entry.containerView?.setPortalDragDropZone(nil)
+        entry.containerView?.setDropZoneOverlay(zone: nil)
+        entry.containerView?.isHidden = true
+    }
+
+    func resumeCanvasSurfacePresentation(forWebViewId webViewId: ObjectIdentifier) {
+        canvasSurfacePresentationSuppressedWebViewIds.remove(webViewId)
     }
 
     func clearInteractiveFrameOverrides() {
@@ -3341,8 +3372,8 @@ final class WindowBrowserPortal: NSObject {
             webView: webView,
             containerView: containerView,
             anchorView: anchorView,
-            visibleInUI: visibleInUI,
-            zPriority: zPriority,
+            visibleInUI: visibleInUI && !canvasSurfacePresentationSuppressedWebViewIds.contains(webViewId),
+            zPriority: canvasSurfacePresentationSuppressedWebViewIds.contains(webViewId) ? 0 : zPriority,
             dropZone: previousEntry?.dropZone,
             paneDropContext: previousEntry?.paneDropContext,
             searchOverlay: previousEntry?.searchOverlay,
@@ -4339,6 +4370,22 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.setCanvasSurfacePresentation(forWebViewId: webViewId, presentation: presentation)
+    }
+
+    static func suppressCanvasSurfacePresentation(webView: WKWebView) {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.suppressCanvasSurfacePresentation(forWebViewId: webViewId)
+        postRegistryDidChange(for: webView)
+    }
+
+    static func resumeCanvasSurfacePresentation(webView: WKWebView) {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.resumeCanvasSurfacePresentation(forWebViewId: webViewId)
+        postRegistryDidChange(for: webView)
     }
 
     static func clearInteractiveFrameOverridesForAllWindows() {

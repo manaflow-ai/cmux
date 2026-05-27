@@ -499,6 +499,11 @@
         },
         "terminal": {
           "copyOnSelect": "Kopiert ausgewählten Terminaltext in die Systemzwischenablage, sobald die Auswahl bestätigt wird, einschließlich Wort- und Zeilenauswahl per Doppel- und Dreifachklick."
+        },
+        "browser": {
+          "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",
+          "customSearchEngineName": "Anzeigename, der verwendet wird, wenn defaultSearchEngine custom ist.",
+          "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu."
         }
       }
     },
@@ -992,6 +997,62 @@
       "underHoodMore": "Die reguläre <configLink>Konfigurationsdokumentation</configLink> behandelt cmux.json. Sitzungswiederherstellung hält App-Layout getrennt von Ghostty-Terminal-Rendering-Einstellungen.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
+    },
+    "ssh": {
+      "title": "SSH",
+      "metaTitle": "SSH",
+      "metaDescription": "Stellen Sie mit cmux ssh eine Verbindung zu Remote-Computern her. Browserfenster werden durch das Remote-Netzwerk geleitet, Bilder werden per Drag-and-Drop per SCP verschoben und Agentenbenachrichtigungen kommen sofort nach Hause.",
+      "intro": "cmux ssh erstellt einen Arbeitsbereich für einen Remote-Computer. Browserfenster werden durch das Remote-Netzwerk weitergeleitet, Dateien werden per Drag-and-Drop per SCP verschoben, Codierungsagenten senden Benachrichtigungen an Ihre lokale Seitenleiste und Sitzungen werden beim Ablegen wieder verbunden.",
+      "usage": "Nutzung",
+      "usageDesc": "cmux ssh liest Ihre ~/.ssh/config für Host-Aliase, Identitätsdateien und Proxy-Einstellungen. Alle Flags spiegeln ihre SSH-Entsprechungen wider.",
+      "flagsTitle": "Flaggen",
+      "flagName": "Flagge",
+      "flagDesc": "Beschreibung",
+      "flagNameVal": "Legen Sie den Titel des Arbeitsbereichs fest",
+      "flagPort": "SSH-Port (Standard 22)",
+      "flagIdentity": "Pfad zur Identitätsdatei",
+      "flagSshOption": "Übergeben Sie beliebige SSH-Optionen (z. B. -o StrictHostKeyChecking=no)",
+      "flagNoFocus": "Erstellen Sie den Arbeitsbereich, ohne dorthin zu wechseln",
+      "deepLinksTitle": "SSH-Deep-Links",
+      "deepLinksDesc": "Verwenden Sie cmux-SSH-Deep-Links, wenn eine Website oder ein Tool eine Schaltfläche „In cmux öffnen“ anbieten möchte. Der Link öffnet cmux, zeigt eine Bestätigungsaufforderung an und führt dann den entsprechenden cmux-ssh-Befehl aus, nachdem der Benutzer dies bestätigt hat.",
+      "deepLinksWebFallbackDesc": "Verwenden Sie die Fallback-URL cmux.com für Website-Schaltflächen. Es öffnet den nativen Link und zeigt den Download an, wenn cmux nicht installiert ist.",
+      "deepLinksPromptRulesDesc": "Eingabeaufforderungs- und Regelschaltflächen verwenden dieselbe Fallback-Form. Kommas, Doppelpunkte und wörtliche Pluszeichen bleiben erhalten, wenn sie URL-codiert werden:",
+      "deepLinksIconDesc": "Verwenden Sie das SVG-Symbol für Dashboard-Schaltflächen oder das PNG-Logo, wenn ein Rasterbild erforderlich ist:",
+      "deepLinksButtonDesc": "Erstellen Sie die Fallback-URL mit URLSearchParams, damit Titel, Host-Aliase und Benutzernamen sicher codiert werden:",
+      "deepLinkParam": "Parameter",
+      "deepLinkMeaning": "Bedeutung",
+      "deepLinkHost": "Erforderlicher SSH-Host oder ~/.ssh/config-Alias.",
+      "deepLinkUser": "Optionaler SSH-Benutzer. cmux kombiniert es mit Host als user@host.",
+      "deepLinkPort": "Optionaler SSH-Port, 1 bis 65535.",
+      "deepLinkTitle": "Optionaler Arbeitsbereichstitel. Verwenden Sie nur einen Titel oder einen Namen.",
+      "deepLinkConnectTimeout": "Optionaler ConnectTimeout-Wert in Sekunden, 1 bis 600.",
+      "deepLinkServerAliveInterval": "Optionaler ServerAliveInterval-Wert in Sekunden, 1 bis 3600.",
+      "deepLinkServerAliveCountMax": "Optionaler ServerAliveCountMax-Wert, 1 bis 100.",
+      "deepLinkHostKeyPolicy": "Optionale StrictHostKeyChecking-Richtlinie: Accept-New, Ask, Strict oder Yes.",
+      "deepLinkNoFocus": "Optionaler boolescher Wert. true erstellt den Arbeitsbereich, ohne dorthin zu wechseln.",
+      "deepLinksSchemeDesc": "Verwenden Sie cmux:// für die stabile App, cmux-nightly:// für Nightly und cmux-dev:// für Debug oder getaggte Dev-Builds.",
+      "deepLinksSecurityDesc": "Externe Links können keine Identitätsdateien, unformatierten SSH-Optionen, Befehle, ProxyCommand oder Weiterleitungsregeln weitergeben. Fügen Sie Schlüssel, ProxyJump, HostName und erweiterte Optionen stattdessen in ~/.ssh/config ein. cmux zeigt die Befehlsvorschau an und fordert den Benutzer auf, dem SSH-Ziel zu vertrauen, bevor er eine Verbindung herstellt.",
+      "browserTitle": "Browserbereiche",
+      "browserDesc": "Browserbereiche in einem Remote-Arbeitsbereich leiten den gesamten HTTP- und WebSocket-Verkehr über das Netzwerk des Remote-Computers. Geben Sie „localhost:3000“ ein und Sie sehen den Entwicklungsserver, der auf der Remote-Box läuft. Keine -L-Flags, keine manuelle Portweiterleitung. Jeder Remote-Arbeitsbereich erhält einen isolierten Cookie-Speicher, sodass die Sitzungen pro Verbindung begrenzt sind.",
+      "dragDropTitle": "Ziehen und ablegen",
+      "dragDropDesc": "Ziehen Sie ein Bild oder eine Datei in ein Remote-Terminal und cmux lädt es über scp über die bestehende SSH-Verbindung hoch. cmux erkennt den Vordergrund-SSH-Prozess per TTY und leitet den Upload über ControlMaster-Multiplexing weiter.",
+      "notificationsTitle": "Benachrichtigungen",
+      "notificationsDesc": "Prozesse auf dem Remote-Computer können cmux-Befehle ausführen, die auf Ihrer lokalen Instanz ausgeführt werden. Wenn ein Coding-Agent cmux notify auf der Remote-Box aufruft, wird die Benachrichtigung in Ihrer lokalen Seitenleiste angezeigt. Auf der Registerkarte „Arbeitsbereich“ leuchtet der blaue Ring auf. Befehl+Umschalt+U springt dorthin. Benachrichtigungs-Spam von instabilen Verbindungen wird mit einer Abklingzeit pro Host unterdrückt.",
+      "agentsTitle": "Codierungsagenten über SSH",
+      "agentsDesc": "cmux claude-teams und cmux omo funktionieren beide in SSH-Sitzungen. Der Go-Relay-Daemon auf dem Remote-Host übernimmt die gleiche tmux-compat-Übersetzung wie die lokale Swift-CLI. Teamkollegen-Agenten erscheinen als native cmux-Splits auf Ihrem lokalen Computer, während die Berechnung auf der Remote-Box ausgeführt wird.",
+      "reconnectTitle": "Wieder verbinden",
+      "reconnectDesc": "Wenn die Verbindung unterbrochen wird, stellt cmux die Verbindung mit einem exponentiellen Backoff (3 Sekunden, 6 Sekunden, 12 Sekunden, bis zu 60 Sekunden) wieder her. Die Remote-Sitzung bleibt bestehen und cmux wird bei erneuter Verbindung erneut verbunden, wobei die Größe mit der Semantik der kleinsten Bildschirmgewinne geändert wird. Standardmäßige Keepalive-Optionen (ServerAliveInterval=20, ServerAliveCountMax=2) werden eingefügt, es sei denn, Ihre Konfiguration legt sie bereits fest.",
+      "daemonTitle": "Relay-Daemon",
+      "daemonDesc": "Bei der ersten Verbindung prüft cmux den Remote-Host (uname -s, uname -m) und lädt eine versionierte cmuxd-remote-Binärdatei hoch. Die Binärdatei spricht JSON-RPC über stdio und verarbeitet drei Dinge:",
+      "daemonFeature": "Funktion",
+      "daemonHow": "Wie",
+      "daemonProxy": "Proxying des Browser-Verkehrs",
+      "daemonProxyHow": "SOCKS5 und HTTP CONNECT über den stdio-Kanal des Daemons",
+      "daemonRelay": "CLI-Relais",
+      "daemonRelayHow": "Reverse-TCP-Tunnel mit HMAC-SHA256-Authentifizierung, damit Remote-Prozesse cmux-Befehle lokal aufrufen können",
+      "daemonSession": "Sitzungsverwaltung",
+      "daemonSessionHow": "Hält Sitzungen über erneute Verbindungen hinweg aufrecht und koordiniert die PTY-Größenänderung über mehrere Anhänge hinweg",
+      "daemonPath": "Die Daemon-Binärdatei wird unter ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote auf dem Remote-Host gespeichert und anhand eines in die App eingebetteten SHA-256-Manifests überprüft."
     }
   },
   "legal": {
@@ -1034,5 +1095,40 @@
   },
   "languageSwitcher": {
     "label": "Sprache"
+  },
+  "deeplink": {
+    "section": "Deeplink",
+    "open": "In cmux öffnen",
+    "download": "Laden Sie cmux herunter",
+    "nativeURL": "Native URL",
+    "missingParams": "Diesem Link fehlen erforderliche Parameter: {params}",
+    "duplicateParams": "Dieser Link wiederholt Parameter, die cmux ablehnt: {params}",
+    "unsupportedParams": "Dieser Link enthält nicht unterstützte Parameter, die cmux ablehnt: {params}",
+    "conflictingParams": "Dieser Link enthält Parameter, die nicht zusammen verwendet werden können: {params}",
+    "invalidParams": "Dieser Link enthält ungültige Parameterwerte: {params}",
+    "fixParams": "Korrigieren Sie die URL-Parameter und laden Sie dann diese Seite neu.",
+    "examplePrefix": "Siehe eine",
+    "exampleLink": "Beispiellink",
+    "ssh": {
+      "metaTitle": "Öffnen Sie SSH in cmux",
+      "metaDescription": "Öffnen Sie einen cmux-SSH-Deeplink aus dem Internet mit Installations-Fallback, wenn cmux nicht verfügbar ist.",
+      "title": "Öffnen Sie SSH in cmux",
+      "intro": "Diese Seite öffnet einen überprüften cmux-SSH-Link.",
+      "fallback": "Wenn cmux nicht geöffnet wird, installieren Sie cmux und klicken Sie erneut auf „In cmux öffnen“."
+    },
+    "prompt": {
+      "metaTitle": "Öffnen Sie die Eingabeaufforderung in cmux",
+      "metaDescription": "Öffnen Sie einen cmux-Eingabeaufforderungs-Deeplink aus dem Web mit Installations-Fallback, wenn cmux nicht verfügbar ist.",
+      "title": "Öffnen Sie die Eingabeaufforderung in cmux",
+      "intro": "Diese Seite öffnet eine Eingabeaufforderung im aktuellen cmux-Arbeitsbereich.",
+      "fallback": "cmux zeigt zuerst die Eingabeaufforderung an und fragt nach, bevor sie in den aktuellen Arbeitsbereich eingefügt wird. Wenn cmux nicht geöffnet wird, installieren Sie cmux und klicken Sie erneut auf „In cmux öffnen“."
+    },
+    "rules": {
+      "metaTitle": "Öffnen Sie Regeln in cmux",
+      "metaDescription": "Öffnen Sie einen Deeplink für cmux-Regeln aus dem Web mit Installations-Fallback, wenn cmux nicht verfügbar ist.",
+      "title": "Öffnen Sie Regeln in cmux",
+      "intro": "Auf dieser Seite werden Regeln im aktuellen cmux-Arbeitsbereich geöffnet.",
+      "fallback": "cmux zeigt die Regeln zuerst an und fragt nach, bevor sie in den aktuellen Arbeitsbereich eingefügt werden. Wenn cmux nicht geöffnet wird, installieren Sie cmux und klicken Sie erneut auf „In cmux öffnen“."
+    }
   }
 }
