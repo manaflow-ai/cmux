@@ -216,11 +216,14 @@ final class cmuxUITests: XCTestCase {
             "Pair button should sit at or above its keyboard-down position (got \(keyboardOpenFrame.midY) vs \(initialPairFrame.midY))"
         )
 
-        // Swipe down on the form to dismiss the keyboard via
-        // .scrollDismissesKeyboard(.interactively).
-        let form = app.otherElements["MobileAddDeviceForm"]
-        let scrollTarget: XCUIElement = form.exists ? form : app
-        scrollTarget.swipeDown(velocity: .fast)
+        // Swipe down inside the form's scroll area to dismiss the keyboard via
+        // .scrollDismissesKeyboard(.interactively). The MobileAddDeviceForm
+        // overlay identifier matches multiple elements (the form renders as a
+        // collection of sections), so use a coordinate swipe between the host
+        // field and the Pair button — both end up inside the scroll surface.
+        let start = hostField.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.0)
 
         let dismissed = waitForKeyboardDismissal(in: app)
         XCTAssertTrue(dismissed, "Keyboard should dismiss after a downward swipe")
