@@ -6392,10 +6392,10 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             )
         )
 
-        let tabIdsInOrder = workspace.bonsplitController.tabs(inPane: sourcePaneId).map { $0.id }
-        let sourceTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanelId)).id
-        let forkTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(forkPanel.id)).id
-        let trailingTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(trailingPanel.id)).id
+        let tabIdsInOrder = workspace.bonsplitController.tabs(inPane: sourcePaneId).map(\.id)
+        let sourceTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanelId))
+        let forkTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(forkPanel.id))
+        let trailingTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(trailingPanel.id))
         XCTAssertEqual(
             tabIdsInOrder,
             [sourceTabId, forkTabId, trailingTabId],
@@ -6433,7 +6433,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         workspace.setRestoredAgentSnapshotForTesting(makeForkableClaudeSnapshot(), panelId: sourcePanelId)
 
         let tabs = workspace.bonsplitController.tabs(inPane: sourcePaneId)
-        let anchorTab = try XCTUnwrap(tabs.first { $0.id == anchorTabId.id })
+        let anchorTab = try XCTUnwrap(tabs.first { $0.id == anchorTabId })
 
         workspace.splitTabBar(
             workspace.bonsplitController,
