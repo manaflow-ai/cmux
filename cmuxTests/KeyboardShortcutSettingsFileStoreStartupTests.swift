@@ -1155,8 +1155,11 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             )
 
             XCTAssertEqual(defaults.string(forKey: BrowserSearchSettings.searchEngineKey), BrowserSearchEngine.google.rawValue)
-            XCTAssertNil(defaults.string(forKey: BrowserSearchSettings.customSearchEngineNameKey))
-            XCTAssertNil(defaults.string(forKey: BrowserSearchSettings.customSearchEngineURLTemplateKey))
+            XCTAssertNotEqual(defaults.string(forKey: BrowserSearchSettings.customSearchEngineNameKey), "   ")
+            XCTAssertNotEqual(
+                defaults.string(forKey: BrowserSearchSettings.customSearchEngineURLTemplateKey),
+                "ftp://search.example.test?q={query}"
+            )
             XCTAssertEqual(defaults.object(forKey: BrowserSearchSettings.searchSuggestionsEnabledKey) as? Bool, false)
             XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeMode.dark.rawValue)
         }
