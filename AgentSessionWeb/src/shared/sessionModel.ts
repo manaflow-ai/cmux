@@ -32,10 +32,11 @@ export type Action =
   | { type: "startAccepted"; sessionId: string }
   | { type: "stopping"; sessionId: string }
   | { type: "failed"; message: string }
+  | { type: "sendFailed"; sessionId: string; message: string }
   | { type: "stopFailed"; sessionId: string; message: string }
   | { type: "stopped" }
   | { type: "event"; event: AgentEvent }
-  | { type: "sent"; text: string; submittedInput: string };
+  | { type: "sent"; sessionId: string; text: string; submittedInput: string };
 
 export function initialState(_renderer: AppContext["renderer"]): SessionState {
   return {
@@ -61,6 +62,9 @@ export function reduceSession(state: SessionState, action: Action): SessionState
     case "providers":
       return { ...state, providers: action.providers };
     case "selectProvider":
+      if (!canSelectProvider(state)) {
+        return state;
+      }
       return {
         ...state,
         selectedProviderId: action.providerId,
@@ -96,6 +100,11 @@ export function reduceSession(state: SessionState, action: Action): SessionState
       };
     case "failed":
       return { ...state, status: "failed", log: appendLog(state, "error", action.message) };
+    case "sendFailed":
+      if (state.runningSessionId !== action.sessionId || state.requestedStopSessionId === action.sessionId) {
+        return state;
+      }
+      return { ...state, status: "failed", log: appendLog(state, "error", action.message) };
     case "stopFailed":
       if (state.runningSessionId !== action.sessionId && state.requestedStopSessionId !== action.sessionId) {
         return state;
@@ -109,6 +118,9 @@ export function reduceSession(state: SessionState, action: Action): SessionState
     case "stopped":
       return { ...state, status: "idle", runningSessionId: undefined, log: appendLog(state, "info", copyText(state, "stopped", "Stopped")) };
     case "sent":
+      if (state.runningSessionId !== action.sessionId || state.requestedStopSessionId === action.sessionId) {
+        return state;
+      }
       return {
         ...state,
         input: state.input === action.submittedInput ? "" : state.input,
@@ -193,24 +205,28 @@ export async function autoStartProvider(state: SessionState, dispatch: (action: 
   await startProviderSnapshot(snapshot, dispatch);
 }
 
-export function selectProvider(providerId: ProviderId, dispatch: (action: Action) => void): void {
+export function selectProvider(providerId: ProviderId, state: SessionState, dispatch: (action: Action) => void): void {
+  if (!canSelectProvider(state)) {
+    return;
+  }
   dispatch({ type: "selectProvider", providerId });
   void callNative("provider.select", { providerId }).catch(() => {});
 }
 
 export async function sendInput(state: SessionState, dispatch: (action: Action) => void): Promise<void> {
   const submittedInput = state.input;
-  if (submittedInput.length === 0 || !state.runningSessionId) {
+  if (submittedInput.length === 0 || !state.runningSessionId || state.status !== "running") {
     return;
   }
+  const sessionId = state.runningSessionId;
   try {
     await callNative("provider.writeLine", {
-      sessionId: state.runningSessionId,
+      sessionId,
       text: submittedInput,
     });
-    dispatch({ type: "sent", text: submittedInput, submittedInput });
+    dispatch({ type: "sent", sessionId, text: submittedInput, submittedInput });
   } catch (error) {
-    dispatch({ type: "failed", message: messageForError(error, state) });
+    dispatch({ type: "sendFailed", sessionId, message: messageForError(error, state) });
   }
 }
 
@@ -248,6 +264,10 @@ export function statusLabel(state: SessionState): string {
 
 export function canStartProvider(state: SessionState): boolean {
   return (state.status === "idle" || state.status === "failed") && !state.runningSessionId && Boolean(state.context);
+}
+
+export function canSelectProvider(state: SessionState): boolean {
+  return !state.runningSessionId && state.status !== "starting" && state.status !== "stopping";
 }
 
 export function canStopProvider(state: SessionState): boolean {
@@ -367,7 +387,7 @@ function appendLog(state: SessionState, level: LogEntry["level"], text: string):
 }
 
 function copyText<K extends keyof AppContext["copy"]>(state: SessionState, key: K, fallback: string): string {
-  return state.context?.copy[key] || fallback;
+  return state.context?.copy[key] ?? fallback;
 }
 
 function formatCopy<K extends keyof AppContext["copy"]>(

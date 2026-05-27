@@ -381,6 +381,68 @@ select {
   padding: 0 0.5rem;
 }
 
+.composer-layout {
+  container: composer-footer / inline-size;
+  display: grid;
+  min-width: 0;
+  position: relative;
+  z-index: 10;
+}
+
+.composer-layout-single {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 44px;
+  gap: 8px;
+  padding: 4px 8px;
+}
+
+.composer-layout-multiline {
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+  grid-template-areas:
+    "input input input"
+    "left spacer right";
+  align-items: center;
+  gap: 5px;
+  padding: 12px 8px 8px;
+}
+
+.composer-left-slot {
+  grid-area: left;
+  display: flex;
+  min-width: 0;
+}
+
+.composer-input-slot {
+  grid-area: input;
+  min-width: 0;
+}
+
+.composer-right-slot {
+  grid-area: right;
+  display: flex;
+  min-width: 0;
+  justify-content: flex-end;
+}
+
+.composer-layout-single .composer-left-slot {
+  grid-area: auto;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.composer-layout-single .composer-input-slot {
+  grid-area: auto;
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.composer-layout-single .composer-right-slot {
+  grid-area: auto;
+  grid-column: 3;
+  grid-row: 1;
+}
+
 .codex-left-rail {
   min-width: 0;
   flex: 0 1 auto;

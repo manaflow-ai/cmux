@@ -7,6 +7,7 @@ import { codexModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
 import {
   initialState,
   autoStartProvider,
+  canSelectProvider,
   canStartProvider,
   canStopProvider,
   loadInitialData,
@@ -32,7 +33,7 @@ function App() {
   createEffect(() => {
     document.documentElement.dataset.status = state().status;
   });
-  const autoStartState = createMemo(() => pickAutoStartState(state()), undefined, {
+  const autoStartState = createMemo(() => pickAutoStartState(state()), pickAutoStartState(state()), {
     equals: autoStartStateEquals,
   });
   createEffect(() => {
@@ -216,7 +217,7 @@ function SessionSurface({
   const select = document.createElement("select");
   select.className = "provider-select";
   select.addEventListener("change", () => {
-    selectProvider(select.value as ProviderId, dispatch);
+    selectProvider(select.value as ProviderId, state(), dispatch);
   });
   modelPicker.append(select);
 
@@ -239,7 +240,7 @@ function SessionSurface({
       select.append(option);
     }
     select.value = state().selectedProviderId;
-    select.disabled = state().status === "running" || state().status === "starting" || state().status === "stopping";
+    select.disabled = !canSelectProvider(state());
     select.setAttribute("aria-label", state().context?.copy.provider ?? "");
     modelIcon.textContent = provider() ? providerBadgeLabel(provider()!) : "C";
     modelLabel.textContent = codexModelLabel(provider());

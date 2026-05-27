@@ -23,7 +23,6 @@ const placeholderKey = new PluginKey<string>("agentPromptPlaceholder");
 
 export type PromptEditorHandle = {
   focus: () => void;
-  insertToken: (token: "@" | "$") => void;
   insertText: (text: string) => void;
 };
 
@@ -56,13 +55,6 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
     useImperativeHandle(ref, () => ({
       focus() {
         viewRef.current?.focus();
-      },
-      insertToken(token) {
-        const view = viewRef.current;
-        if (!view) {
-          return;
-        }
-        insertPromptTextAtSelection(view, token);
       },
       insertText(text) {
         const view = viewRef.current;

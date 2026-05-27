@@ -58,6 +58,10 @@ final class AgentSessionPanel: Panel, ObservableObject {
         rendererSession.close()
     }
 
+    func updateWorkspaceId(_ newWorkspaceId: UUID) {
+        workspaceId = newWorkspaceId
+    }
+
     private func setHasActiveProvider(_ hasActiveProvider: Bool) {
         guard isDirty != hasActiveProvider else { return }
         isDirty = hasActiveProvider

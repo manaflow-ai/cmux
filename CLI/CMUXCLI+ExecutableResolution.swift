@@ -24,6 +24,44 @@ extension CMUXCLI {
         return prefix.contains("cmux claude wrapper - injects hooks and session tracking")
     }
 
+    func isCmuxClaudeCommandShim(at path: String) -> Bool {
+        let candidate = URL(fileURLWithPath: path, isDirectory: false)
+            .standardizedFileURL
+            .path
+        let environment = ProcessInfo.processInfo.environment
+        let shimPaths = [
+            environment["CMUX_CLAUDE_WRAPPER_SHIM"],
+        ]
+        for shimPath in shimPaths {
+            guard let shimPath else { continue }
+            let standardizedShim = URL(fileURLWithPath: shimPath, isDirectory: false)
+                .standardizedFileURL
+                .path
+            if candidate == standardizedShim {
+                return true
+            }
+        }
+
+        let shimRoots: [String?] = [
+            environment["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"],
+            URL(fileURLWithPath: environment["TMPDIR"] ?? NSTemporaryDirectory(), isDirectory: true)
+                .appendingPathComponent("cmux-cli-shims", isDirectory: true)
+                .standardizedFileURL
+                .path,
+            "/tmp/cmux-cli-shims",
+        ]
+        for shimRoot in shimRoots {
+            guard let shimRoot else { continue }
+            let standardizedRoot = URL(fileURLWithPath: shimRoot, isDirectory: true)
+                .standardizedFileURL
+                .path
+            if candidate.hasPrefix(standardizedRoot + "/") {
+                return true
+            }
+        }
+        return false
+    }
+
     func resolveExecutableInSearchPath(
         _ name: String,
         searchPath: String?,
@@ -51,6 +89,7 @@ extension CMUXCLI {
                   !isDirectory.boolValue,
                   FileManager.default.isExecutableFile(atPath: trimmed),
                   !isBundledProviderExecutable(at: trimmed),
+                  !isCmuxClaudeCommandShim(at: trimmed),
                   !isCmuxClaudeWrapper(at: trimmed) else { continue }
             return URL(fileURLWithPath: trimmed, isDirectory: false).standardizedFileURL.path
         }
@@ -62,12 +101,25 @@ extension CMUXCLI {
         resolveExecutableInSearchPath(
             "claude",
             searchPath: searchPath,
-            skip: { self.isCmuxClaudeWrapper(at: $0) }
+            skip: { self.isCmuxClaudeCommandShim(at: $0) || self.isCmuxClaudeWrapper(at: $0) }
         )
     }
 
     func resolveCodexExecutable(searchPath: String?) -> String? {
         resolveExecutableInSearchPath("codex", searchPath: searchPath)
+    }
+
+    func providerExecutableSearchPath(searchPath: String?, includingExecutableAt executablePath: String? = nil) -> String {
+        var directories = providerExecutableSearchDirectories(searchPath: searchPath)
+        if let executablePath {
+            let executableDirectory = URL(fileURLWithPath: executablePath, isDirectory: false)
+                .standardizedFileURL
+                .deletingLastPathComponent()
+                .path
+            directories.removeAll { $0 == executableDirectory }
+            directories.insert(executableDirectory, at: 0)
+        }
+        return directories.joined(separator: ":")
     }
 
     func claudeTeamsHasExplicitTeammateMode(commandArgs: [String]) -> Bool {

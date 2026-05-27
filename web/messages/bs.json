@@ -499,6 +499,11 @@
         },
         "terminal": {
           "copyOnSelect": "Kopira odabrani tekst iz terminala u sistemski međuspremnik kada se odabir potvrdi, uključujući riječi i redove odabrane dvoklikom ili troklikom."
+        },
+        "browser": {
+          "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
+          "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
+          "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL."
         }
       }
     },
@@ -992,6 +997,62 @@
       "underHoodMore": "Redovna <configLink>dokumentacija konfiguracije</configLink> pokriva cmux.json. Obnova sesije drži layout aplikacije odvojen od Ghostty terminal rendering postavki.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
+    },
+    "ssh": {
+      "title": "SSH",
+      "metaTitle": "SSH",
+      "metaDescription": "Povežite se na udaljene mašine pomoću cmux ssh. Okna pretraživača prolaze kroz udaljenu mrežu, slike se prevlače i ispuštaju putem scp-a, a obavještenja agenta dolaze kući.",
+      "intro": "cmux ssh kreira radni prostor za udaljenu mašinu. Okna pretraživača usmjeravaju se kroz udaljenu mrežu, datoteke se prevlače i ispuštaju putem scp-a, agenti za kodiranje šalju obavijesti na vašu lokalnu bočnu traku, a sesije se ponovo povezuju nakon pada.",
+      "usage": "Upotreba",
+      "usageDesc": "cmux ssh čita vašu ~/.ssh/config za pseudonime hosta, datoteke identiteta i postavke proxyja. Sve zastavice odražavaju njihove ssh ekvivalente.",
+      "flagsTitle": "Zastave",
+      "flagName": "Zastava",
+      "flagDesc": "Opis",
+      "flagNameVal": "Postavite naslov radnog prostora",
+      "flagPort": "SSH port (zadano 22)",
+      "flagIdentity": "Put do datoteke identiteta",
+      "flagSshOption": "Proslijedi proizvoljne SSH opcije (npr. -o StrictHostKeyChecking=no)",
+      "flagNoFocus": "Kreirajte radni prostor bez prelaska na njega",
+      "deepLinksTitle": "SSH duboke veze",
+      "deepLinksDesc": "Koristite cmux SSH dubinske veze kada web lokacija ili alat želi ponuditi dugme Otvori u cmux. Veza otvara cmux, prikazuje prompt za potvrdu, a zatim pokreće ekvivalentnu cmux ssh naredbu nakon što korisnik potvrdi.",
+      "deepLinksWebFallbackDesc": "Koristite zamjenski URL cmux.com za dugmad web stranice. Otvara izvornu vezu i prikazuje preuzimanje ako cmux nije instaliran.",
+      "deepLinksPromptRulesDesc": "Dugmad upita i pravila koriste isti rezervni oblik. Zarezi, dvotočke i literalni znaci plus su sačuvani kada su URL kodirani:",
+      "deepLinksIconDesc": "Koristite SVG ikonu za dugmad na kontrolnoj tabli ili PNG logotip kada je potrebna rasterska slika:",
+      "deepLinksButtonDesc": "Napravite rezervni URL sa URLSearchParams tako da su naslovi, aliasi hosta i korisnička imena sigurno kodirani:",
+      "deepLinkParam": "Parametar",
+      "deepLinkMeaning": "Značenje",
+      "deepLinkHost": "Potreban SSH host ili ~/.ssh/config alias.",
+      "deepLinkUser": "Opcioni SSH korisnik. cmux ga kombinuje sa hostom kao korisnik@host.",
+      "deepLinkPort": "Opcioni SSH port, 1 do 65535.",
+      "deepLinkTitle": "Opcioni naziv radnog prostora. Koristite samo jedan naslov ili ime.",
+      "deepLinkConnectTimeout": "Opcionalna vrijednost ConnectTimeouta u sekundama, od 1 do 600.",
+      "deepLinkServerAliveInterval": "Opcionalna vrijednost ServerAliveInterval u sekundama, od 1 do 3600.",
+      "deepLinkServerAliveCountMax": "Opcionalna vrijednost ServerAliveCountMax, od 1 do 100.",
+      "deepLinkHostKeyPolicy": "Opciono pravilo StrictHostKeyChecking: prihvati-novo, pitaj, strogo ili da.",
+      "deepLinkNoFocus": "Opcijski boolean. true kreira radni prostor bez prelaska na njega.",
+      "deepLinksSchemeDesc": "Koristite cmux:// za stabilnu aplikaciju, cmux-nightly:// za Nightly i cmux-dev:// za Debug ili označene dev buildove.",
+      "deepLinksSecurityDesc": "Eksterne veze ne mogu proslijediti datoteke identiteta, sirove ssh opcije, komande, ProxyCommand ili pravila prosljeđivanja. Umjesto toga stavite ključeve, ProxyJump, HostName i napredne opcije u ~/.ssh/config. cmux prikazuje pregled naredbe i zahtijeva od korisnika da vjeruje SSH cilju prije povezivanja.",
+      "browserTitle": "Okna pretraživača",
+      "browserDesc": "Okna pretraživača u udaljenom radnom prostoru usmjeravaju sav HTTP i WebSocket promet kroz mrežu udaljene mašine. Upišite localhost:3000 i gledate dev server koji radi na udaljenom kutiju. Nema -L zastavica, nema ručnog prosljeđivanja portova. Svaki udaljeni radni prostor dobiva izolirano spremište kolačića tako da su sesije raspoređene po konekciji.",
+      "dragDropTitle": "Prevucite i ispustite",
+      "dragDropDesc": "Prevucite sliku ili datoteku na udaljeni terminal i cmux je otprema putem scp-a preko postojeće SSH veze. cmux otkriva SSH proces u prvom planu putem TTY-a i usmjerava upload kroz ControlMaster multipleksiranje.",
+      "notificationsTitle": "Obavještenja",
+      "notificationsDesc": "Procesi na udaljenom stroju mogu pokrenuti cmux komande koje se izvršavaju na vašoj lokalnoj instanci. Kada agent za kodiranje pozove cmux notify na udaljenom kutiju, obavijest se pojavljuje na vašoj lokalnoj bočnoj traci. Plavi prsten svijetli na kartici radnog prostora. Cmd+Shift+U skače na njega. Neželjena pošta obavještenja od neispravnih veza suzbija se hlađenjem po hostu.",
+      "agentsTitle": "Agenti za kodiranje preko SSH-a",
+      "agentsDesc": "cmux claude-teams i cmux omo oba rade unutar SSH sesija. Go relejni demon na udaljenom hostu rukuje istim tmux-compat prijevodom kao lokalni Swift CLI. Timski agenti se pokreću dok se izvorni cmux dijeli na vašoj lokalnoj mašini dok se računanje izvodi na udaljenoj kutiji.",
+      "reconnectTitle": "Ponovo se povežite",
+      "reconnectDesc": "Kada veza padne, cmux se ponovo povezuje sa eksponencijalnim povlačenjem (3s, 6s, 12s, do 60s). Udaljena sesija se nastavlja i cmux se ponovo povezuje pri ponovnom povezivanju, mijenjajući veličinu sa semantikom pobjeda najmanjeg ekrana. Zadane opcije održavanja (ServerAliveInterval=20, ServerAliveCountMax=2) se ubacuju osim ako ih vaša konfiguracija već postavlja.",
+      "daemonTitle": "Relay daemon",
+      "daemonDesc": "Prilikom prvog povezivanja, cmux ispituje udaljeni host (uname -s, uname -m) i učitava verzionisanu cmuxd-remote binarnu datoteku. Binarni program govori JSON-RPC preko stdio i obrađuje tri stvari:",
+      "daemonFeature": "Feature",
+      "daemonHow": "Kako",
+      "daemonProxy": "Proksiranje saobraćaja pretraživača",
+      "daemonProxyHow": "SOCKS5 i HTTP POVEZUJU se preko demonskog stdio kanala",
+      "daemonRelay": "CLI relej",
+      "daemonRelayHow": "Obrnuti TCP tunel sa HMAC-SHA256 auth tako da udaljeni procesi mogu lokalno pozvati cmux komande",
+      "daemonSession": "Upravljanje sesijama",
+      "daemonSessionHow": "Zadržava sesije preko ponovnog povezivanja, koordinira promjenu veličine PTY-a u više priloga",
+      "daemonPath": "Daemon binarni fajl je pohranjen na ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote na udaljenom hostu i provjeren prema SHA-256 manifestu ugrađenom u aplikaciju."
     }
   },
   "legal": {
@@ -1034,5 +1095,40 @@
   },
   "languageSwitcher": {
     "label": "Jezik"
+  },
+  "deeplink": {
+    "section": "Duboka veza",
+    "open": "Otvori u cmux",
+    "download": "Preuzmite cmux",
+    "nativeURL": "Izvorni URL",
+    "missingParams": "Ovom linku nedostaju potrebni parametri: {params}",
+    "duplicateParams": "Ovaj link ponavlja parametre cmux će odbiti: {params}",
+    "unsupportedParams": "Ovaj link uključuje nepodržane parametre cmux će odbiti: {params}",
+    "conflictingParams": "Ova veza uključuje parametre koji se ne mogu koristiti zajedno: {params}",
+    "invalidParams": "Ova veza uključuje nevažeće vrijednosti parametara: {params}",
+    "fixParams": "Popravite URL parametre, a zatim ponovo učitajte ovu stranicu.",
+    "examplePrefix": "Vidi an",
+    "exampleLink": "primjer linka",
+    "ssh": {
+      "metaTitle": "Otvorite SSH u cmux",
+      "metaDescription": "Otvorite cmux SSH dubinsku vezu sa weba, sa rezervnom instalacijom kada cmux nije dostupan.",
+      "title": "Otvorite SSH u cmux",
+      "intro": "Ova stranica otvara recenzirani cmux SSH link.",
+      "fallback": "Ako se cmux ne otvori, instalirajte cmux i ponovo kliknite Otvori u cmux."
+    },
+    "prompt": {
+      "metaTitle": "Otvorite Prompt u cmux",
+      "metaDescription": "Otvorite dubinsku vezu cmux prompta s weba, uz zamjensku instalaciju kada cmux nije dostupan.",
+      "title": "Otvorite Prompt u cmux",
+      "intro": "Ova stranica otvara prompt u trenutnom cmux radnom prostoru.",
+      "fallback": "cmux prvo prikazuje prompt i pita prije nego što ga zalijepi u trenutni radni prostor. Ako se cmux ne otvori, instalirajte cmux i ponovo kliknite Otvori u cmux."
+    },
+    "rules": {
+      "metaTitle": "Otvorite pravila u cmux",
+      "metaDescription": "Otvorite dubinsku vezu cmux pravila s weba, uz zamjensku instalaciju kada cmux nije dostupan.",
+      "title": "Otvorite pravila u cmux",
+      "intro": "Ova stranica otvara pravila u trenutnom cmux radnom prostoru.",
+      "fallback": "cmux prvo prikazuje pravila i pita prije nego što ih zalijepi u trenutni radni prostor. Ako se cmux ne otvori, instalirajte cmux i ponovo kliknite Otvori u cmux."
+    }
   }
 }

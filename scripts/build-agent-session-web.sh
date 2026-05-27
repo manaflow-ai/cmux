@@ -16,12 +16,14 @@ mkdir -p "$OUT_REACT/assets" "$OUT_SOLID/assets"
 bun build "$ROOT/AgentSessionWeb/src/react/main.ts" \
   --target browser \
   --format esm \
+  --production \
   --minify \
   --outfile "$OUT_REACT/assets/app.js"
 
 bun build "$ROOT/AgentSessionWeb/src/solid/main.ts" \
   --target browser \
   --format esm \
+  --production \
   --minify \
   --outfile "$OUT_SOLID/assets/app.js"
 

@@ -8,6 +8,23 @@ import XCTest
 
 @MainActor
 final class CodexAppServerSessionTests: XCTestCase {
+    func testOpenCodeAuthHeaderMatchesServerEnvironment() {
+        XCTAssertNil(OpenCodeServerAuth(environment: [:]))
+        XCTAssertNil(OpenCodeServerAuth(environment: ["OPENCODE_SERVER_PASSWORD": ""]))
+
+        XCTAssertEqual(
+            OpenCodeServerAuth(environment: ["OPENCODE_SERVER_PASSWORD": "secret"])?.authorizationHeader,
+            "Basic b3BlbmNvZGU6c2VjcmV0"
+        )
+        XCTAssertEqual(
+            OpenCodeServerAuth(environment: [
+                "OPENCODE_SERVER_USERNAME": "cmux",
+                "OPENCODE_SERVER_PASSWORD": "secret",
+            ])?.authorizationHeader,
+            "Basic Y211eDpzZWNyZXQ="
+        )
+    }
+
     func testEncodesPromptAsJSONRPCInsteadOfRawStdin() throws {
         var sentLines: [String] = []
         let session = CodexAppServerSession(
@@ -59,6 +76,56 @@ final class CodexAppServerSessionTests: XCTestCase {
         XCTAssertEqual(output.count, 1)
         XCTAssertEqual(output.first?.0, "stdout")
         XCTAssertEqual(output.first?.1, "partial answer")
+    }
+
+    func testInitializeErrorFailsStartupAndRejectsLaterPrompts() throws {
+        var sentLines: [String] = []
+        var output: [(String, String)] = []
+        var failures: [String?] = []
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { data in
+                sentLines.append(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines))
+            },
+            outputSink: { stream, text in output.append((stream, text)) },
+            failureSink: { details in failures.append(details) }
+        )
+
+        try session.start()
+        try session.submit("queued prompt")
+        session.consumeStdout(#"{"id":1,"error":{"message":"unsupported initialize"}}"# + "\n")
+
+        XCTAssertEqual(sentLines.count, 1)
+        XCTAssertEqual(failures.count, 1)
+        XCTAssertEqual(failures.first!, "unsupported initialize")
+        XCTAssertEqual(output.last?.0, "stderr")
+        XCTAssertEqual(output.last?.1, "Codex app-server request failed.")
+        XCTAssertThrowsError(try session.submit("later prompt"))
+    }
+
+    func testThreadStartErrorClearsStartupStateAndRejectsLaterPrompts() throws {
+        var sentLines: [String] = []
+        var failures: [String?] = []
+        let session = CodexAppServerSession(
+            workingDirectory: "/tmp/cmux-missing-cwd",
+            writeData: { data in
+                sentLines.append(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines))
+            },
+            outputSink: { _, _ in },
+            failureSink: { details in failures.append(details) }
+        )
+
+        try session.start()
+        session.consumeStdout(#"{"id":1,"result":{}}"# + "\n")
+        XCTAssertEqual(jsonLine(sentLines[2])["method"] as? String, "thread/start")
+
+        try session.submit("queued prompt")
+        session.consumeStdout(#"{"id":2,"error":{"message":"bad cwd"}}"# + "\n")
+
+        XCTAssertEqual(failures.count, 1)
+        XCTAssertEqual(failures.first!, "bad cwd")
+        XCTAssertEqual(sentLines.count, 3)
+        XCTAssertThrowsError(try session.submit("later prompt"))
     }
 
     private func jsonLine(_ rawLine: String, file: StaticString = #filePath, line: UInt = #line) -> [String: Any] {

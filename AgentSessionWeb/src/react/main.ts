@@ -5,6 +5,7 @@ import { codexModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
 import {
   initialState,
   autoStartProvider,
+  canSelectProvider,
   canStartProvider,
   canStopProvider,
   loadInitialData,
@@ -66,6 +67,7 @@ function SessionSurface({
   renderer: string;
 }) {
   const provider = state.providers.find((item) => item.id === state.selectedProviderId);
+  const canSelect = canSelectProvider(state);
   const canStart = canStartProvider(state);
   const canStop = canStopProvider(state);
   const canSend = state.status === "running" && state.input.length > 0;
@@ -115,13 +117,10 @@ function SessionSurface({
       {
         className: "provider-select",
         value: state.selectedProviderId,
-        disabled:
-          state.status === "running" ||
-          state.status === "starting" ||
-          state.status === "stopping",
+        disabled: !canSelect,
         "aria-label": state.context?.copy.provider ?? "",
         onChange: (event: React.ChangeEvent<HTMLSelectElement>) =>
-          selectProvider(event.target.value as ProviderId, dispatch),
+          selectProvider(event.target.value as ProviderId, state, dispatch),
       },
       state.providers.map((item) =>
         h("option", { key: item.id, value: item.id }, item.displayName),
@@ -226,37 +225,16 @@ function SessionSurface({
               h(
                 "div",
                 { className: "relative z-10 flex min-h-0 flex-1 flex-col" },
-                isSingleLineLayout
-                  ? h(
-                      "div",
-                      {
-                        className:
-                          "composer-footer composer-footer-codex composer-footer-single-line grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1",
-                      },
-                      leftControls,
-                      composerInput,
-                      rightActions,
-                    )
-                  : h(
-                      React.Fragment,
-                      null,
-                      composerInput,
-                      h(
-                        "div",
-                        {
-                          className:
-                            "composer-footer composer-footer-codex mb-2 grid grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)] items-center gap-[5px] px-2",
-                        },
-                        leftControls,
-                        h("div", { className: "flex items-center", "aria-hidden": true }),
-                        h(
-                          "div",
-                          { className: "flex w-full min-w-0 items-center justify-end gap-2" },
-                          h("div", { className: "flex min-w-0 flex-1 justify-end" }),
-                          rightActions,
-                        ),
-                      ),
-                    ),
+                h(
+                  "div",
+                  {
+                    className:
+                      `composer-layout ${isSingleLineLayout ? "composer-layout-single" : "composer-layout-multiline"}`,
+                  },
+                  h("div", { className: "composer-left-slot" }, leftControls),
+                  h("div", { className: "composer-input-slot" }, composerInput),
+                  h("div", { className: "composer-right-slot" }, rightActions),
+                ),
               ),
             ),
           ),
@@ -478,8 +456,11 @@ function codexIconButton(kind: string, ariaLabel: string, child: React.ReactNode
     className: `codex-tool codex-tool-${kind} size-token-button-composer-sm rounded-full`,
     type: "button",
     "aria-label": ariaLabel,
-    onClick: onClick ?? (() => undefined),
+    disabled: onClick === undefined,
   };
+  if (onClick) {
+    props.onClick = onClick;
+  }
   return h("button", props, child);
 }
 

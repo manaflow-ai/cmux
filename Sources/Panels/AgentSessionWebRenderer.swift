@@ -24,6 +24,9 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
 
     func makeNSView(context: Context) -> AgentSessionWebView {
         let webView = context.coordinator.ensureWebView(onPointerDown: onRequestPanelFocus)
+        if webView.superview != nil {
+            webView.removeFromSuperview()
+        }
         webView.onPointerDown = onRequestPanelFocus
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
@@ -250,6 +253,7 @@ extension AgentSessionWebRenderer {
         private var hasCompletedVisiblePaintFlush = false
         private var isPanelFocused = false
         private var isClosed = false
+        private var isProviderStartPending = false
         private var processStore = AgentSessionProcessStore()
         var onHasActiveProviderChanged: ((Bool) -> Void)? {
             didSet {
@@ -579,6 +583,10 @@ extension AgentSessionWebRenderer {
                     ] as [String: Any]
                 }
             case "provider.select":
+                guard !processStore.hasActiveProviderSession,
+                      !isProviderStartPending else {
+                    throw AgentSessionBridgeError.sessionAlreadyRunning
+                }
                 let provider = try request.providerID()
                 initialProviderID = provider
                 onProviderIDChanged?(provider)
@@ -586,6 +594,14 @@ extension AgentSessionWebRenderer {
             case "provider.start":
                 guard !isClosed else {
                     throw AgentSessionBridgeError.invalidRequest
+                }
+                guard !processStore.hasActiveProviderSession,
+                      !isProviderStartPending else {
+                    throw AgentSessionBridgeError.sessionAlreadyRunning
+                }
+                isProviderStartPending = true
+                defer {
+                    isProviderStartPending = false
                 }
                 let provider = try request.providerID()
                 initialProviderID = provider
@@ -761,14 +777,32 @@ private enum AgentSessionBridgeError: LocalizedError {
     }
 }
 
+struct OpenCodeServerAuth: Equatable {
+    let authorizationHeader: String
+
+    init?(environment: [String: String]) {
+        guard let password = environment["OPENCODE_SERVER_PASSWORD"],
+              !password.isEmpty else {
+            return nil
+        }
+        let username = environment["OPENCODE_SERVER_USERNAME"].flatMap { value -> String? in
+            value.isEmpty ? nil : value
+        } ?? "opencode"
+        let token = "\(username):\(password)"
+        authorizationHeader = "Basic \(Data(token.utf8).base64EncodedString())"
+    }
+}
+
 @MainActor
 final class CodexAppServerSession {
     typealias DataWriter = (Data) throws -> Void
     typealias OutputSink = (_ stream: String, _ text: String) -> Void
+    typealias FailureSink = (_ details: String?) -> Void
 
     private let workingDirectory: String?
     private let writeData: DataWriter
     private let outputSink: OutputSink
+    private let failureSink: FailureSink
     private var nextRequestID = 1
     private var initializeRequestID: Int?
     private var didInitialize = false
@@ -776,15 +810,18 @@ final class CodexAppServerSession {
     private var threadID: String?
     private var queuedInputs: [String] = []
     private var stdoutBuffer = ""
+    private var didFailStartup = false
 
     init(
         workingDirectory: String?,
         writeData: @escaping DataWriter,
-        outputSink: @escaping OutputSink
+        outputSink: @escaping OutputSink,
+        failureSink: @escaping FailureSink = { _ in }
     ) {
         self.workingDirectory = workingDirectory
         self.writeData = writeData
         self.outputSink = outputSink
+        self.failureSink = failureSink
     }
 
     func start() throws {
@@ -806,6 +843,9 @@ final class CodexAppServerSession {
 
     func submit(_ text: String) throws {
         guard !text.isEmpty else { return }
+        guard !didFailStartup else {
+            throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
+        }
         guard let threadID else {
             queuedInputs.append(text)
             if didInitialize {
@@ -849,7 +889,7 @@ final class CodexAppServerSession {
 
         guard let id = requestID(from: object["id"]) else { return }
         if let error = object["error"] as? [String: Any] {
-            emitCodexRPCFailure(details: error["message"] as? String)
+            handleRPCError(id: id, error: error)
             return
         }
         handleResponse(id: id, result: object["result"] as? [String: Any])
@@ -857,24 +897,37 @@ final class CodexAppServerSession {
 
     private func handleResponse(id: Int, result: [String: Any]?) {
         if id == initializeRequestID {
+            initializeRequestID = nil
             didInitialize = true
             do {
                 try sendNotification(method: "initialized")
                 try startThreadIfNeeded()
             } catch {
-                emitCodexRPCFailure(error)
+                failStartup(details: error.localizedDescription)
             }
             return
         }
 
-        if id == threadStartRequestID,
-           let thread = result?["thread"] as? [String: Any],
-           let id = thread["id"] as? String {
+        if id == threadStartRequestID {
+            guard let thread = result?["thread"] as? [String: Any],
+                  let id = thread["id"] as? String else {
+                failStartup(details: nil)
+                return
+            }
             threadID = id
             threadStartRequestID = nil
             drainQueuedInputs()
             return
         }
+    }
+
+    private func handleRPCError(id: Int, error: [String: Any]) {
+        let details = error["message"] as? String
+        if id == initializeRequestID || id == threadStartRequestID {
+            failStartup(details: details)
+            return
+        }
+        emitCodexRPCFailure(details: details)
     }
 
     private func handleNotification(method: String, params: [String: Any]?) {
@@ -884,6 +937,7 @@ final class CodexAppServerSession {
                let thread = params?["thread"] as? [String: Any],
                let id = thread["id"] as? String {
                 threadID = id
+                threadStartRequestID = nil
                 drainQueuedInputs()
             }
         case "item/agentMessage/delta":
@@ -892,7 +946,12 @@ final class CodexAppServerSession {
             }
         case "error":
             let error = params?["error"] as? [String: Any]
-            emitCodexRPCFailure(details: error?["message"] as? String)
+            let details = error?["message"] as? String
+            if threadID == nil || initializeRequestID != nil || threadStartRequestID != nil {
+                failStartup(details: details)
+            } else {
+                emitCodexRPCFailure(details: details)
+            }
         case "warning", "guardianWarning", "configWarning", "deprecationNotice":
             outputSink("stderr", codexMessage(from: params) ?? Self.unknownWarningMessage())
         default:
@@ -950,6 +1009,9 @@ final class CodexAppServerSession {
     }
 
     private func startThreadIfNeeded() throws {
+        guard !didFailStartup else {
+            throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
+        }
         guard threadID == nil, threadStartRequestID == nil else { return }
         var params: [String: Any] = [
             "serviceName": "cmux",
@@ -959,6 +1021,18 @@ final class CodexAppServerSession {
             params["cwd"] = workingDirectory
         }
         threadStartRequestID = try sendRequest(method: "thread/start", params: params)
+    }
+
+    private func failStartup(details: String?) {
+        guard !didFailStartup else { return }
+        didFailStartup = true
+        initializeRequestID = nil
+        didInitialize = false
+        threadStartRequestID = nil
+        threadID = nil
+        queuedInputs.removeAll()
+        emitCodexRPCFailure(details: details)
+        failureSink(details)
     }
 
     private func sendTurnStart(threadID: String, text: String) throws {
@@ -1057,6 +1131,11 @@ final class CodexAppServerSession {
     }
 }
 
+private func agentSessionIsLoopbackURL(_ url: URL) -> Bool {
+    guard let host = url.host?.lowercased() else { return false }
+    return host == "localhost" || host == "127.0.0.1" || host == "::1"
+}
+
 @MainActor
 private final class AgentSessionProcessStore {
     struct StartedSession {
@@ -1092,6 +1171,7 @@ private final class AgentSessionProcessStore {
         let stdin = Pipe()
         let stdout = Pipe()
         let stderr = Pipe()
+        let openCodeAuth = OpenCodeServerAuth(environment: plan.environment)
         process.standardInput = stdin
         process.standardOutput = stdout
         process.standardError = stderr
@@ -1102,7 +1182,8 @@ private final class AgentSessionProcessStore {
             arguments: launchArguments,
             workingDirectory: workingDirectory,
             process: process,
-            stdin: stdin
+            stdin: stdin,
+            openCodeAuthorizationHeader: openCodeAuth?.authorizationHeader
         )
         if plan.provider == .codex {
             running.codexAppServerSession = CodexAppServerSession(
@@ -1117,6 +1198,9 @@ private final class AgentSessionProcessStore {
                         stream: stream,
                         text: text
                     )
+                },
+                failureSink: { [weak self] _ in
+                    self?.failSession(sessionId: sessionId, status: 1)
                 }
             )
         }
@@ -1127,15 +1211,11 @@ private final class AgentSessionProcessStore {
         process.terminationHandler = { [weak self] process in
             Task { @MainActor in
                 guard let self,
-                      let session = self.sessions.removeValue(forKey: sessionId) else {
+                      let session = self.sessions[sessionId] else {
                     return
                 }
-                self.emitActiveProviderStateIfNeeded()
-                self.emitExit(
-                    sessionId: sessionId,
-                    providerID: session.providerID,
-                    status: process.terminationStatus
-                )
+                session.pendingExitStatus = process.terminationStatus
+                self.finishSessionIfExitedAndDrained(session)
             }
         }
 
@@ -1249,6 +1329,8 @@ private final class AgentSessionProcessStore {
                     for text in session.flushBufferedOutput(stream: stream) {
                         self.handleOutputLine(text, session: session, stream: stream)
                     }
+                    session.drainedStreams.insert(stream)
+                    self.finishSessionIfExitedAndDrained(session)
                     return
                 }
                 for text in session.appendOutputData(data, stream: stream) {
@@ -1256,6 +1338,36 @@ private final class AgentSessionProcessStore {
                 }
             }
         }
+    }
+
+    private func finishSessionIfExitedAndDrained(_ session: RunningSession) {
+        guard let status = session.pendingExitStatus,
+              session.drainedStreams.isSuperset(of: ["stdout", "stderr"]),
+              sessions[session.sessionId] === session else {
+            return
+        }
+        sessions.removeValue(forKey: session.sessionId)
+        emitActiveProviderStateIfNeeded()
+        emitExit(
+            sessionId: session.sessionId,
+            providerID: session.providerID,
+            status: status
+        )
+    }
+
+    private func failSession(sessionId: String, status: Int32) {
+        guard let session = sessions.removeValue(forKey: sessionId) else {
+            return
+        }
+        emitActiveProviderStateIfNeeded()
+        if session.process.isRunning {
+            session.process.terminate()
+        }
+        emitExit(
+            sessionId: session.sessionId,
+            providerID: session.providerID,
+            status: status
+        )
     }
 
     private func handleOutputLine(_ text: String, session: RunningSession, stream: String) {
@@ -1288,7 +1400,11 @@ private final class AgentSessionProcessStore {
             .split(separator: " ")
             .first
             .map(String.init)
-        return rawURL.flatMap(URL.init(string:))
+        guard let url = rawURL.flatMap(URL.init(string:)),
+              agentSessionIsLoopbackURL(url) else {
+            return nil
+        }
+        return url
     }
 
     private func createOpenCodeSession(_ session: RunningSession) {
@@ -1302,7 +1418,8 @@ private final class AgentSessionProcessStore {
             do {
                 let response = try await self.postJSON(
                     to: self.openCodeURL(baseURL: baseURL, path: "session", workingDirectory: session.workingDirectory),
-                    body: [:]
+                    body: [:],
+                    authorizationHeader: session.openCodeAuthorizationHeader
                 )
                 guard let id = response["id"] as? String, !id.isEmpty else {
                     throw AgentSessionBridgeError.providerNotReady(session.providerID.displayName)
@@ -1360,7 +1477,8 @@ private final class AgentSessionProcessStore {
                         "text": text
                     ]
                 ]
-            ]
+            ],
+            authorizationHeader: session.openCodeAuthorizationHeader
         )
     }
 
@@ -1375,11 +1493,18 @@ private final class AgentSessionProcessStore {
         return components?.url ?? url
     }
 
-    private func postJSON(to url: URL, body: [String: Any]) async throws -> [String: Any] {
+    private func postJSON(
+        to url: URL,
+        body: [String: Any],
+        authorizationHeader: String? = nil
+    ) async throws -> [String: Any] {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let authorizationHeader {
+            request.setValue(authorizationHeader, forHTTPHeaderField: "Authorization")
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
         let (data, response) = try await URLSession.shared.data(for: request)
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -1462,10 +1587,13 @@ private final class AgentSessionProcessStore {
         let workingDirectory: String?
         let process: Process
         let stdin: Pipe
+        let openCodeAuthorizationHeader: String?
         var codexAppServerSession: CodexAppServerSession?
         var openCodeBaseURL: URL?
         var openCodeSessionID: String?
         var isOpenCodeSessionCreateInFlight = false
+        var pendingExitStatus: Int32?
+        var drainedStreams: Set<String> = []
         private var stdoutBuffer = Data()
         private var stderrBuffer = Data()
 
@@ -1476,7 +1604,8 @@ private final class AgentSessionProcessStore {
             arguments: [String],
             workingDirectory: String?,
             process: Process,
-            stdin: Pipe
+            stdin: Pipe,
+            openCodeAuthorizationHeader: String?
         ) {
             self.sessionId = sessionId
             self.providerID = providerID
@@ -1485,6 +1614,7 @@ private final class AgentSessionProcessStore {
             self.workingDirectory = workingDirectory
             self.process = process
             self.stdin = stdin
+            self.openCodeAuthorizationHeader = openCodeAuthorizationHeader
         }
 
         func appendOutputData(_ data: Data, stream: String) -> [String] {
@@ -1527,6 +1657,9 @@ private enum AgentSessionHTTPBridge {
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https" else {
             throw AgentSessionBridgeError.missingParameter("url")
+        }
+        guard agentSessionIsLoopbackURL(url) else {
+            throw AgentSessionBridgeError.invalidRequest
         }
         var urlRequest = URLRequest(url: url)
         urlRequest.timeoutInterval = 30

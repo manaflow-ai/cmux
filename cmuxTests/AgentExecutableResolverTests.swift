@@ -74,6 +74,34 @@ final class AgentExecutableResolverTests: XCTestCase {
         XCTAssertEqual(plan.executableURL.path, configuredClaude.standardizedFileURL.path)
     }
 
+    func testConfiguredProviderDirectoryIsPrependedToRuntimePath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let configuredBin = root.appendingPathComponent("configured", isDirectory: true)
+        let pathBin = root.appendingPathComponent("path", isDirectory: true)
+        try FileManager.default.createDirectory(at: configuredBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: pathBin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configuredClaude = configuredBin.appendingPathComponent("claude")
+        let pathClaude = pathBin.appendingPathComponent("claude")
+        try "#!/usr/bin/env node\n".write(to: configuredClaude, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\nexit 0\n".write(to: pathClaude, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: configuredClaude.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pathClaude.path)
+
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": pathBin.path, "HOME": root.path],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            configuredExecutablePaths: [.claude: configuredClaude.path]
+        )
+
+        let plan = try resolver.resolve(.claude)
+        let runtimePath = plan.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
+        XCTAssertEqual(plan.executableURL.path, configuredClaude.standardizedFileURL.path)
+        XCTAssertEqual(runtimePath.first, configuredBin.standardizedFileURL.path)
+    }
+
     func testIgnoresBundleResourceBinEvenWhenExecutableExists() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
@@ -99,6 +127,36 @@ final class AgentExecutableResolverTests: XCTestCase {
             XCTAssertEqual(displayName, AgentSessionProviderID.claude.displayName)
             XCTAssertEqual(executableName, "claude")
         }
+    }
+
+    func testSkipsCmuxClaudeCommandShim() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let shimBin = root.appendingPathComponent("shim-bin", isDirectory: true)
+        let realBin = root.appendingPathComponent("real-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: shimBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: realBin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let shimClaude = shimBin.appendingPathComponent("claude")
+        let realClaude = realBin.appendingPathComponent("claude")
+        try "#!/bin/sh\nexit 42\n".write(to: shimClaude, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\nexit 0\n".write(to: realClaude, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shimClaude.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realClaude.path)
+
+        let resolver = AgentExecutableResolver(
+            environment: [
+                "PATH": "\(shimBin.path):\(realBin.path)",
+                "HOME": root.path,
+                "CMUX_CLAUDE_WRAPPER_SHIM": shimClaude.path,
+                "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": shimBin.path,
+            ],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true)
+        )
+
+        let plan = try resolver.resolve(.claude)
+        XCTAssertEqual(plan.executableURL.path, realClaude.standardizedFileURL.path)
     }
 
     func testProviderLaunchPlansNeverUseEnvFallback() throws {
