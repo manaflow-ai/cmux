@@ -1156,6 +1156,7 @@ extension Workspace {
                     return nil
                 }
                 return normalizedRemotePTYSessionID(snapshot.terminal?.remotePTYSessionID)
+                    ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: snapshot.id)
             }()
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
                 remotePTYAttachStartupCommand(sessionID: $0)
@@ -12078,6 +12079,10 @@ final class Workspace: Identifiable, ObservableObject {
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
+        if remoteConfiguration?.preserveAfterTerminalExit == true,
+           normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[panelId]) == nil {
+            remotePTYSessionIDsByPanelId[panelId] = Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
+        }
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
@@ -12100,12 +12105,16 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func remotePTYSessionIDForSnapshot(panelId: UUID) -> String? {
-        guard remoteConfiguration?.preserveAfterTerminalExit == true,
-              activeRemoteTerminalSurfaceIds.contains(panelId) else {
+        guard remoteConfiguration?.preserveAfterTerminalExit == true else {
             return nil
         }
-        return normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[panelId])
-            ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
+        if let storedSessionID = normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[panelId]) {
+            return storedSessionID
+        }
+        guard activeRemoteTerminalSurfaceIds.contains(panelId) else {
+            return nil
+        }
+        return Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
     }
 
     nonisolated static func defaultSSHPTYSessionID(workspaceId: UUID, panelId: UUID) -> String {
