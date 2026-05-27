@@ -28,4 +28,4 @@ if [[ "$actual" != "$EXPECTED_OBJECT_VERSION" ]]; then
     exit 1
 fi
 
-python3 "$SCRIPT_DIR/normalize-pbxproj.py" --check
+python3 "$SCRIPT_DIR/normalize-pbxproj.py" --check "$PBXPROJ"
