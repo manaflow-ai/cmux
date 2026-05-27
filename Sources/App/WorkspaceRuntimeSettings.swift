@@ -476,6 +476,10 @@ enum AgentHibernationHookPrerequisites {
             readFile: readFile
         ) else { return nil }
 
+        return missingHooksWarningMessage()
+    }
+
+    static func missingHooksWarningMessage() -> String {
         return String(
             localized: "settings.terminal.agentHibernation.warning.missingHooks",
             defaultValue: "No installed cmux agent hooks were found. Agent Hibernation only affects agents with captured session hooks or trusted resume bindings. Run `cmux hooks setup`, then restart your agent sessions."

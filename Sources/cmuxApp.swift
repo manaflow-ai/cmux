@@ -5217,6 +5217,7 @@ struct SettingsView: View {
     @State private var searchHighlightStartedAt: Date?
     @State private var settingsNavigationGeneration = 0
     @State private var agentHibernationMissingHooksWarning: String?
+    @State private var agentHibernationPrerequisiteWarningGeneration = 0
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -5569,7 +5570,6 @@ struct SettingsView: View {
             set: { newValue in
                 AgentHibernationSettings.setValues(enabled: newValue)
                 agentHibernationEnabled = newValue
-                refreshAgentHibernationPrerequisiteWarning()
             }
         )
     }
@@ -5597,9 +5597,24 @@ struct SettingsView: View {
     }
 
     private func refreshAgentHibernationPrerequisiteWarning() {
-        agentHibernationMissingHooksWarning = agentHibernationEnabled
-            ? AgentHibernationHookPrerequisites.missingHooksWarning()
-            : nil
+        agentHibernationPrerequisiteWarningGeneration += 1
+        let generation = agentHibernationPrerequisiteWarningGeneration
+
+        guard agentHibernationEnabled else {
+            agentHibernationMissingHooksWarning = nil
+            return
+        }
+
+        Task.detached(priority: .userInitiated) {
+            let hasInstalledHook = AgentHibernationHookPrerequisites.hasAnyInstalledAgentHook()
+            await MainActor.run {
+                guard generation == agentHibernationPrerequisiteWarningGeneration else { return }
+                guard agentHibernationEnabled else { return }
+                agentHibernationMissingHooksWarning = hasInstalledHook
+                    ? nil
+                    : AgentHibernationHookPrerequisites.missingHooksWarningMessage()
+            }
+        }
     }
 
     private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
