@@ -930,6 +930,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // Set to true when the user has already confirmed quit via the warning dialog,
     // so applicationShouldTerminate does not show a second alert.
     private var isQuitWarningConfirmed = false
+    private var didEnqueuePostHogTerminationFlush = false
     private var didInstallLifecycleSnapshotObservers = false
     private var didDisableSuddenTermination = false
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
@@ -1596,6 +1597,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         isTerminatingApp = true
+        enqueuePostHogTerminationFlushIfNeeded(reason: "applicationShouldTerminate")
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog,
@@ -1643,6 +1645,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 // Reset so that the next quit attempt can show the dialog again.
                 self.isTerminatingApp = false
+                self.didEnqueuePostHogTerminationFlush = false
                 StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
             }
             NSApp.reply(toApplicationShouldTerminate: shouldQuit)
@@ -1696,15 +1699,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         GhosttyPasteboardHelper.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
-        if TelemetrySettings.enabledForCurrentLaunch {
-            PostHogAnalytics.shared.flushForApplicationTermination()
-        }
+        enqueuePostHogTerminationFlushIfNeeded(reason: "applicationWillTerminate")
         ghosttyCrashBreadcrumbTask?.cancel()
         ghosttyCrashBreadcrumbTask = nil
         notificationStore?.clearAll()
         GhosttyCrashBreadcrumb.markCleanExit()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")
         enableSuddenTerminationIfNeeded()
+    }
+
+    private func enqueuePostHogTerminationFlushIfNeeded(reason: String) {
+        guard TelemetrySettings.enabledForCurrentLaunch else { return }
+        guard !didEnqueuePostHogTerminationFlush else { return }
+        didEnqueuePostHogTerminationFlush = true
+        PostHogAnalytics.shared.flushForApplicationTermination(reason: reason)
     }
 
     func applicationWillResignActive(_ notification: Notification) {
