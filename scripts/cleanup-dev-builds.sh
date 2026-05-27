@@ -13,9 +13,10 @@
 # Safety rules (always on):
 #   - Skip any tag whose `cmux DEV <tag>` app is currently running.
 #   - Skip the tag pointed at by /tmp/cmux-last-cli-path (most recent reload).
-#   - Skip any tag still tied to a git worktree under
-#     cmuxterm-hq/worktrees/<tag>/ (assumes default HQ layout; we look at
-#     `git worktree list` from this checkout's parent repo).
+# A worktree merely existing on the same name is not treated as a
+# protection. Use --keep TAG when you want to preserve a build whose
+# worktree you still have around, or --older-than DAYS to skip anything
+# you have touched recently.
 #
 # Defaults to dry-run. Pass --apply to actually delete.
 #
@@ -125,26 +126,6 @@ if [[ -r "$LAST_CLI_PATH_FILE" ]]; then
     fi
 fi
 
-# Tags that have a live git worktree. Look from any cmux checkout we can find.
-worktree_tags=()
-worktree_repo=""
-if worktree_repo="$(git -C "$(dirname "$0")/.." rev-parse --show-toplevel 2>/dev/null)"; then
-    while IFS= read -r line; do
-        # `git worktree list --porcelain` lines look like: `worktree /path/to/dir`
-        case "$line" in
-            "worktree "*)
-                p="${line#worktree }"
-                base="$(basename "$p")"
-                # Convention: HQ worktrees live at <root>/worktrees/<branch-slug>.
-                # The branch slug is the same as the reload --tag for slices that
-                # follow the HQ convention. Tags that don't follow are still safe
-                # because we only treat them as protections, not deletions.
-                worktree_tags+=("$base")
-                ;;
-        esac
-    done < <(git -C "$worktree_repo" worktree list --porcelain 2>/dev/null || true)
-fi
-
 # Running cmux DEV processes by tag (the app name embeds the tag).
 running_tags=()
 while IFS= read -r line; do
@@ -177,9 +158,6 @@ while IFS= read -r tag; do
     fi
     if contains "$tag" ${running_tags[@]+"${running_tags[@]}"}; then
         reasons+=("app running")
-    fi
-    if contains "$tag" ${worktree_tags[@]+"${worktree_tags[@]}"}; then
-        reasons+=("worktree exists")
     fi
     if contains "$tag" ${keep_tags[@]+"${keep_tags[@]}"}; then
         reasons+=("--keep")
