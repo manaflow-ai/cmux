@@ -198,6 +198,38 @@ import UIKit
     #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("devbox.local"))
 }
 
+@Test func pairedMacStorePersistsActiveMacsScopedByStackUser() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = try MobilePairedMacStore(databaseURL: directory.appendingPathComponent("paired-macs.sqlite3"))
+    let userARoute = try hostPortRoute(kind: .tailscale, host: "work-a.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    let userBRoute = try hostPortRoute(kind: .tailscale, host: "work-b.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    let now = Date(timeIntervalSince1970: 1_000)
+
+    try store.upsert(
+        macDeviceID: "mac-a",
+        displayName: "Work A",
+        routes: [userARoute],
+        markActive: true,
+        stackUserID: "user-a",
+        now: now
+    )
+    try store.upsert(
+        macDeviceID: "mac-b",
+        displayName: "Work B",
+        routes: [userBRoute],
+        markActive: true,
+        stackUserID: "user-b",
+        now: now.addingTimeInterval(10)
+    )
+
+    #expect(try store.activeMac(stackUserID: "user-a")?.macDeviceID == "mac-a")
+    #expect(try store.activeMac(stackUserID: "user-b")?.macDeviceID == "mac-b")
+    #expect(try store.activeMac(stackUserID: "missing") == nil)
+    #expect(try store.loadAll(stackUserID: "user-a").map(\.routes).first == [userARoute])
+}
+
 @Test func compactHeightUsesStackWorkspaceNavigation() {
     #expect(
         MobileWorkspaceShellLayoutPolicy.usesCompactStack(
