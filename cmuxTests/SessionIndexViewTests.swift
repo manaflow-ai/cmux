@@ -202,6 +202,7 @@ final class SessionIndexViewTests: XCTestCase {
         preservingSessionIndexDefaults {
             let store = SessionIndexStore()
             let sameModified = Date(timeIntervalSince1970: 10)
+            store.agentOrder = []
 
             store.replaceEntriesForTesting([
                 makeEntry(agent: .grok, title: "grok", modified: sameModified),
