@@ -334,6 +334,8 @@ extension CMUXCLI {
         var rootPath: String
     }
 
+    private static let diffViewerHTTPServerHealthResponse = Data("ok wait-v1\n".utf8)
+
     private struct DiffViewerLabels {
         var values: [String: String]
 
@@ -3194,20 +3196,43 @@ extension CMUXCLI {
         let pendingAttribute = pollForReplacement ? " data-cmux-diff-pending=\"true\"" : ""
         let pollScript = pollForReplacement ? """
           <script>
+            async function applyReplacementFrom(response) {
+              if (!response.ok) {
+                return false;
+              }
+              const text = await response.text();
+              if (text.includes("data-cmux-diff-pending=\\"true\\"")) {
+                return false;
+              }
+              document.open();
+              document.write(text);
+              document.close();
+              return true;
+            }
+
+            function pollForReplacementFallback() {
+              const startedAt = Date.now();
+              async function poll() {
+                try {
+                  if (await applyReplacementFrom(await fetch(location.href, { cache: "reload" }))) {
+                    return;
+                  }
+                } catch {}
+                if (Date.now() - startedAt < 30000) {
+                  setTimeout(poll, 500);
+                }
+              }
+              setTimeout(poll, 500);
+            }
+
             (async function waitForReplacement() {
               try {
                 const response = await fetch("/__cmux_diff_viewer_wait" + location.pathname, { cache: "no-store" });
-                if (!response.ok) {
-                  return;
-                }
-                const text = await response.text();
-                if (!text.includes("data-cmux-diff-pending=\\"true\\"")) {
-                  document.open();
-                  document.write(text);
-                  document.close();
+                if (await applyReplacementFrom(response)) {
                   return;
                 }
               } catch {}
+              pollForReplacementFallback();
             })();
           </script>
         """ : ""
@@ -3458,7 +3483,7 @@ extension CMUXCLI {
         var reachable = false
         let task = session.dataTask(with: url) { data, response, _ in
             let statusCode = (response as? HTTPURLResponse)?.statusCode
-            reachable = statusCode == 200 && data == Data("ok\n".utf8)
+            reachable = statusCode == 200 && data == Self.diffViewerHTTPServerHealthResponse
             finished.signal()
         }
         task.resume()
@@ -3628,7 +3653,7 @@ extension CMUXCLI {
                     status: 200,
                     reason: "OK",
                     headers: ["Content-Type": "text/plain; charset=utf-8"],
-                    body: Data("ok\n".utf8),
+                    body: Self.diffViewerHTTPServerHealthResponse,
                     omitBody: request.method == "HEAD"
                 )
                 return
@@ -3773,7 +3798,20 @@ extension CMUXCLI {
             return
         }
 
-        waitForDiffViewerHTTPReplacement(file)
+        guard waitForDiffViewerHTTPReplacement(file) else {
+            try sendDiffViewerHTTPResponse(
+                fileDescriptor: fd,
+                status: 504,
+                reason: "Gateway Timeout",
+                headers: [
+                    "Content-Type": "text/plain; charset=utf-8",
+                    "Retry-After": "1"
+                ],
+                body: Data("504 Gateway Timeout\n".utf8),
+                omitBody: omitBody
+            )
+            return
+        }
         try sendDiffViewerHTTPFile(
             file,
             fileDescriptor: fd,
@@ -3823,12 +3861,12 @@ extension CMUXCLI {
         return files
     }
 
-    private func waitForDiffViewerHTTPReplacement(_ file: DiffViewerAllowedFile) {
+    private func waitForDiffViewerHTTPReplacement(_ file: DiffViewerAllowedFile) -> Bool {
         let fileURL = URL(fileURLWithPath: file.filePath, isDirectory: false)
-        guard diffViewerHTTPFileIsPending(fileURL) else { return }
+        guard diffViewerHTTPFileIsPending(fileURL) else { return true }
 
         let fd = open(fileURL.path, O_EVTONLY)
-        guard fd >= 0 else { return }
+        guard fd >= 0 else { return true }
 
         let event = DispatchSemaphore(value: 0)
         let cleanup = DispatchSemaphore(value: 0)
@@ -3848,11 +3886,13 @@ extension CMUXCLI {
         if !diffViewerHTTPFileIsPending(fileURL) {
             source.cancel()
             _ = cleanup.wait(timeout: .now() + 1)
-            return
+            return true
         }
-        event.wait()
+        let didSignal = event.wait(timeout: .now() + 30) == .success
         source.cancel()
         _ = cleanup.wait(timeout: .now() + 1)
+        guard didSignal else { return false }
+        return !diffViewerHTTPFileIsPending(fileURL)
     }
 
     private func diffViewerHTTPFileIsPending(_ fileURL: URL) -> Bool {
