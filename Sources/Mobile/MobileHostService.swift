@@ -83,13 +83,13 @@ enum MobileHostRequestActivity {
     static var hasActiveRequest: Bool {
         lock.lock()
         defer { lock.unlock() }
-        return activeRequestCount > 0 || activeConnectionCount > 0
+        return activeRequestCount > 0
     }
 
     static func hasRecentActivity(within interval: TimeInterval) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        guard activeRequestCount == 0, activeConnectionCount == 0 else { return true }
+        guard activeRequestCount == 0 else { return true }
         guard lastActivityUptime > 0 else { return false }
         return ProcessInfo.processInfo.systemUptime - lastActivityUptime < interval
     }
@@ -97,7 +97,7 @@ enum MobileHostRequestActivity {
     static func quietDelay(for interval: TimeInterval) -> TimeInterval {
         lock.lock()
         defer { lock.unlock() }
-        guard activeRequestCount == 0, activeConnectionCount == 0 else { return interval }
+        guard activeRequestCount == 0 else { return interval }
         guard lastActivityUptime > 0 else { return 0 }
         let elapsed = ProcessInfo.processInfo.systemUptime - lastActivityUptime
         return max(0, interval - elapsed)
@@ -105,7 +105,6 @@ enum MobileHostRequestActivity {
 
     static func beginConnection() {
         lock.lock()
-        lastActivityUptime = ProcessInfo.processInfo.systemUptime
         activeConnectionCount += 1
         lock.unlock()
     }
@@ -113,7 +112,6 @@ enum MobileHostRequestActivity {
     static func endConnection() {
         lock.lock()
         activeConnectionCount = max(0, activeConnectionCount - 1)
-        lastActivityUptime = ProcessInfo.processInfo.systemUptime
         lock.unlock()
     }
 
@@ -556,6 +554,8 @@ final class MobileHostService {
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
+        case "mobile.events.subscribe", "mobile.events.unsubscribe":
+            return nil
         case "mobile.host.status":
             return nil
         default:
@@ -933,6 +933,7 @@ actor MobileHostConnection {
     private var receiveBuffer = Data()
     private var firstFrameTimeoutTask: Task<Void, Never>?
     private var idleTimeoutTask: Task<Void, Never>?
+    private var responseTasks: [UUID: Task<Void, Never>] = [:]
     private var didDecodeFirstFrame = false
     private var isClosed = false
     /// stream_id → set of topics this connection is subscribed to.
@@ -979,6 +980,11 @@ actor MobileHostConnection {
         firstFrameTimeoutTask = nil
         idleTimeoutTask?.cancel()
         idleTimeoutTask = nil
+        let tasks = responseTasks.values
+        responseTasks.removeAll()
+        for task in tasks {
+            task.cancel()
+        }
         subscriptions.removeAll()
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
         connection.stateUpdateHandler = nil
@@ -1042,9 +1048,7 @@ actor MobileHostConnection {
                     guard !isClosed else {
                         return
                     }
-                    Task { [weak self] in
-                        await self?.respond(to: frame)
-                    }
+                    startResponseTask(for: frame)
                 }
                 guard !isClosed else {
                     return
@@ -1070,6 +1074,25 @@ actor MobileHostConnection {
         }
     }
 
+    private func startResponseTask(for frame: Data) {
+        guard !isClosed else {
+            return
+        }
+        let taskID = UUID()
+        let task = Task { [weak self] in
+            await self?.respond(to: frame)
+            await self?.finishResponseTask(taskID)
+        }
+        responseTasks[taskID] = task
+    }
+
+    private func finishResponseTask(_ taskID: UUID) {
+        responseTasks[taskID] = nil
+        if responseTasks.isEmpty {
+            startIdleTimeout()
+        }
+    }
+
     private func startFirstFrameTimeout() {
         guard firstFrameTimeoutNanoseconds > 0 else {
             return
@@ -1092,7 +1115,11 @@ actor MobileHostConnection {
     }
 
     private func startIdleTimeout() {
-        guard idleTimeoutNanoseconds > 0, didDecodeFirstFrame, !isClosed else {
+        guard idleTimeoutNanoseconds > 0,
+              didDecodeFirstFrame,
+              !isClosed,
+              subscriptions.isEmpty,
+              responseTasks.isEmpty else {
             return
         }
         idleTimeoutTask?.cancel()
@@ -1106,13 +1133,16 @@ actor MobileHostConnection {
     }
 
     private func closeIfIdleAfterFrame() {
-        guard didDecodeFirstFrame else {
+        guard didDecodeFirstFrame, subscriptions.isEmpty, responseTasks.isEmpty else {
             return
         }
         close(reason: "idle after frame timed out")
     }
 
     private func respond(to frame: Data) async {
+        guard !isClosed, !Task.isCancelled else {
+            return
+        }
         switch MobileHostRPCEnvelope.decodeRequest(frame) {
         case let .success(request):
             let tracksInteractiveActivity = Self.isInteractiveMobileRequest(request.method)
@@ -1124,23 +1154,33 @@ actor MobileHostConnection {
                     MobileHostRequestActivity.endRequest()
                 }
             }
-            // Subscription RPCs are handled at the connection level; they
-            // don't touch terminal state, so we skip the global authorization
-            // path and short-circuit to the connection's own subscription
-            // table. This keeps the connection's subscription set
-            // self-contained.
+            if let error = await authorizeRequest(request) {
+                guard !isClosed, !Task.isCancelled else {
+                    return
+                }
+                _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error))
+                return
+            }
+            guard !isClosed, !Task.isCancelled else {
+                return
+            }
             if let intercepted = handleSubscriptionRPC(request) {
                 _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted))
                 return
             }
-            if let error = await authorizeRequest(request) {
-                _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error))
+            await onAuthorizedRequest(request)
+            guard !isClosed, !Task.isCancelled else {
                 return
             }
-            await onAuthorizedRequest(request)
             let result = await handleRequest(request)
+            guard !isClosed, !Task.isCancelled else {
+                return
+            }
             _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: result))
         case let .failure(error):
+            guard !isClosed, !Task.isCancelled else {
+                return
+            }
             _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: nil, result: .failure(error)))
             close(reason: "invalid rpc envelope")
         }
@@ -1187,12 +1227,18 @@ actor MobileHostConnection {
     /// Add a subscription for this connection. Idempotent per stream_id.
     func subscribe(streamID: String, topics: Set<String>) {
         subscriptions[streamID] = topics
+        idleTimeoutTask?.cancel()
+        idleTimeoutTask = nil
     }
 
     /// Remove a subscription by id. Returns true if it existed.
     @discardableResult
     func unsubscribe(streamID: String) -> Bool {
-        return subscriptions.removeValue(forKey: streamID) != nil
+        let removed = subscriptions.removeValue(forKey: streamID) != nil
+        if subscriptions.isEmpty {
+            startIdleTimeout()
+        }
+        return removed
     }
 
     /// Check whether this connection has any subscriber registered for `topic`.

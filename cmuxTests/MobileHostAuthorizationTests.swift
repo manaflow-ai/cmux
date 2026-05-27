@@ -635,6 +635,19 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(service.debugTrackedClientIDsForTesting(connectionID: connectionID))
     }
 
+    func testIdleMobileConnectionDoesNotKeepRequestActivityBusy() {
+        MobileHostRequestActivity.resetForTesting()
+        MobileHostRequestActivity.beginConnection()
+        defer {
+            MobileHostRequestActivity.endConnection()
+            MobileHostRequestActivity.resetForTesting()
+        }
+
+        XCTAssertFalse(MobileHostRequestActivity.hasActiveRequest)
+        XCTAssertFalse(MobileHostRequestActivity.hasRecentActivity(within: 60))
+        XCTAssertEqual(MobileHostRequestActivity.quietDelay(for: 60), 0)
+    }
+
     func testMobileHostConnectionCloseLeavesViewportReportsForPollingClient() {
         let service = MobileHostService.shared
         let terminalController = TerminalController.shared
@@ -785,6 +798,81 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertEqual(finalRecordedIDs, [connectionID])
     }
 
+    func testMobileHostConnectionKeepsSubscribedEventStreamPastIdleTimeout() async throws {
+        let connectionID = UUID()
+        let recorder = MobileHostConnectionCloseRecorder()
+        let connection = NWConnection(
+            host: NWEndpoint.Host("127.0.0.1"),
+            port: NWEndpoint.Port(rawValue: 9)!,
+            using: .tcp
+        )
+        let session = MobileHostConnection(
+            id: connectionID,
+            connection: connection,
+            idleTimeoutNanoseconds: 1_000_000,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { id in
+                await recorder.record(id)
+            }
+        )
+
+        await session.subscribe(streamID: "events", topics: ["terminal.updated"])
+        await session.debugStartIdleTimeoutAfterFrameForTesting()
+        try await Task.sleep(nanoseconds: 25_000_000)
+        XCTAssertTrue(await recorder.recordedIDs().isEmpty)
+
+        _ = await session.unsubscribe(streamID: "events")
+        for _ in 0..<100 {
+            let recordedIDs = await recorder.recordedIDs()
+            if !recordedIDs.isEmpty {
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+
+        let finalRecordedIDs = await recorder.recordedIDs()
+        XCTAssertEqual(finalRecordedIDs, [connectionID])
+    }
+
+    func testMobileHostConnectionDoesNotPersistUnauthorizedEventSubscription() async throws {
+        let connectionID = UUID()
+        let recorder = MobileHostConnectionCloseRecorder()
+        let socket = try MobileHostStartedTestSocket()
+        defer { socket.close() }
+        let session = MobileHostConnection(
+            id: connectionID,
+            connection: socket.connection,
+            idleTimeoutNanoseconds: 1_000_000,
+            authorizeRequest: { _ in
+                .failure(MobileHostRPCError(code: "unauthorized", message: "no"))
+            },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { id in
+                await recorder.record(id)
+            }
+        )
+        let frame = try MobileSyncFrameCodec.encodeFrame(
+            Data(#"{"id":"subscribe","method":"mobile.events.subscribe","params":{"stream_id":"events","topics":["terminal.updated"]}}"#.utf8)
+        )
+
+        await session.debugHandleReceiveDataForTesting(frame)
+        try await Task.sleep(nanoseconds: 25_000_000)
+        await session.debugStartIdleTimeoutAfterFrameForTesting()
+        for _ in 0..<100 {
+            let recordedIDs = await recorder.recordedIDs()
+            if !recordedIDs.isEmpty {
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+
+        let finalRecordedIDs = await recorder.recordedIDs()
+        XCTAssertEqual(finalRecordedIDs, [connectionID])
+    }
+
     func testMobileHostConnectionStopsBatchedFrameProcessingAfterClose() async throws {
         let connectionID = UUID()
         let requestRecorder = MobileHostConnectionRequestRecorder()
@@ -797,7 +885,14 @@ final class MobileHostAuthorizationTests: XCTestCase {
         let session = MobileHostConnection(
             id: connectionID,
             connection: connection,
-            authorizeRequest: { _ in nil },
+            authorizeRequest: { request in
+                if request.id == "second" {
+                    do {
+                        try await Task.sleep(nanoseconds: 100_000_000)
+                    } catch {}
+                }
+                return nil
+            },
             onAuthorizedRequest: { request in
                 await requestRecorder.record(request)
                 await sessionBox.close(reason: "test close after first batched frame")
@@ -819,6 +914,14 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         await session.debugHandleReceiveDataForTesting(batch)
 
+        for _ in 0..<100 {
+            let recordedMethods = await requestRecorder.recordedMethods()
+            if !recordedMethods.isEmpty {
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        try await Task.sleep(nanoseconds: 150_000_000)
         let recordedMethods = await requestRecorder.recordedMethods()
         XCTAssertEqual(recordedMethods, ["workspace.list"])
     }
@@ -838,6 +941,68 @@ final class MobileHostAuthorizationTests: XCTestCase {
             expiresAt: Date().addingTimeInterval(3600),
             authToken: "ticket-secret"
         )
+    }
+}
+
+private enum MobileHostStartedTestSocketError: Error {
+    case listenerPortUnavailable
+    case listenerNotReady
+    case connectionNotReady
+}
+
+private final class MobileHostStartedTestSocket: @unchecked Sendable {
+    let connection: NWConnection
+    private let listener: NWListener
+    private let queue: DispatchQueue
+
+    init() throws {
+        let queue = DispatchQueue(label: "dev.cmux.mobile-host-started-test-socket")
+        let listener = try NWListener(using: .tcp, on: .any)
+        let listenerReady = DispatchSemaphore(value: 0)
+        listener.stateUpdateHandler = { state in
+            if case .ready = state {
+                listenerReady.signal()
+            }
+        }
+        listener.newConnectionHandler = { serverConnection in
+            serverConnection.start(queue: queue)
+        }
+        listener.start(queue: queue)
+        guard listenerReady.wait(timeout: .now() + 2) == .success else {
+            listener.cancel()
+            throw MobileHostStartedTestSocketError.listenerNotReady
+        }
+        guard let port = listener.port else {
+            listener.cancel()
+            throw MobileHostStartedTestSocketError.listenerPortUnavailable
+        }
+
+        let connection = NWConnection(
+            host: NWEndpoint.Host("127.0.0.1"),
+            port: port,
+            using: .tcp
+        )
+        let connectionReady = DispatchSemaphore(value: 0)
+        connection.stateUpdateHandler = { state in
+            if case .ready = state {
+                connectionReady.signal()
+            }
+        }
+        connection.start(queue: queue)
+        guard connectionReady.wait(timeout: .now() + 2) == .success else {
+            connection.cancel()
+            listener.cancel()
+            throw MobileHostStartedTestSocketError.connectionNotReady
+        }
+
+        self.listener = listener
+        self.connection = connection
+        self.queue = queue
+    }
+
+    func close() {
+        connection.cancel()
+        listener.cancel()
     }
 }
 

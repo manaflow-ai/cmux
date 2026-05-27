@@ -499,6 +499,7 @@ public final class CMUXMobileShellStore {
     }
     private var terminalRefreshPollTask: Task<Void, Never>?
     private var terminalEventListenerTask: Task<Void, Never>?
+    private var terminalEventListenerID: UUID?
     private var selectedTerminalSnapshotRefreshTask: Task<Void, Never>?
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
@@ -570,6 +571,7 @@ public final class CMUXMobileShellStore {
         self.selectedTerminalID = workspaces.first?.terminals.first?.id
         self.remoteClient = nil
         self.terminalRefreshPollTask = nil
+        self.terminalEventListenerID = nil
         self.selectedTerminalSnapshotRefreshTask = nil
         self.createWorkspaceTask = nil
         self.createTerminalTask = nil
@@ -730,13 +732,24 @@ public final class CMUXMobileShellStore {
             return false
         }
         guard let mac = saved else { return false }
-        guard let (host, port) = Self.firstHostPortRoute(mac.routes) else { return false }
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        guard let (host, port) = Self.firstReconnectHostPortRoute(
+            mac.routes,
+            supportedKinds: supportedKinds
+        ) else { return false }
         await connectManualHost(name: mac.displayName ?? host, host: host, port: port)
         return connectionState == .connected
     }
 
-    private static func firstHostPortRoute(_ routes: [CmxAttachRoute]) -> (String, Int)? {
-        for route in routes {
+    static func firstReconnectHostPortRoute(
+        _ routes: [CmxAttachRoute],
+        supportedKinds: [CmxAttachTransportKind]
+    ) -> (String, Int)? {
+        let supportedKinds = Set(supportedKinds)
+        for route in routes.sorted(by: routeSortsBefore) {
+            if !supportedKinds.isEmpty, !supportedKinds.contains(route.kind) {
+                continue
+            }
             if case let .hostPort(host, port) = route.endpoint {
                 return (host, port)
             }
@@ -1159,7 +1172,6 @@ public final class CMUXMobileShellStore {
         activeRoute = firstRoute
         connectedHostName = ticket.macDisplayName ?? ticket.macDeviceID
         replaceRemoteClient(with: nil)
-        persistPairedMacFromTicket(ticket)
 
         guard let runtime else {
             guard generation == connectionGeneration else { return }
@@ -1193,6 +1205,7 @@ public final class CMUXMobileShellStore {
                     replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()
                     connectionError = nil
+                    persistPairedMacFromTicket(ticket)
                     applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
                     syncSelectedTerminalForWorkspace()
                     connectionState = .connected
@@ -1850,28 +1863,27 @@ public final class CMUXMobileShellStore {
 
     private func startTerminalRefreshPolling() {
         guard let client = remoteClient else { return }
-        // Prefer the Mac's `terminal.updated` push events over polling. We
-        // start a single coordinator that tries to subscribe; only if the
-        // Mac is too old to advertise the `events.v1` capability do we
-        // fall back to the 750ms refresh loop. Runtimes that opt out of
-        // push events (e.g. scripted-transport tests that expect exactly
-        // one response per request) skip subscribe entirely.
-        guard terminalEventListenerTask == nil, terminalRefreshPollTask == nil else { return }
-        guard runtime?.supportsServerPushEvents ?? true else {
-            return
-        }
+        guard runtime?.supportsServerPushEvents ?? true else { return }
+        startLegacyTerminalRefreshPolling()
+        // Push events make user-driven changes show up immediately. The poller
+        // stays active until the host emits terminal output/readiness events for
+        // every non-mobile mutation path.
+        guard terminalEventListenerTask == nil else { return }
+        let listenerID = UUID()
+        terminalEventListenerID = listenerID
         terminalEventListenerTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let supportsEvents = await self.tryActivateTerminalUpdates(via: client)
-            if Task.isCancelled { return }
-            if !supportsEvents {
-                self.startLegacyTerminalRefreshPolling()
+            defer {
+                if self.terminalEventListenerID == listenerID {
+                    self.terminalEventListenerTask = nil
+                    self.terminalEventListenerID = nil
+                }
             }
-            self.terminalEventListenerTask = nil
+            await self.runTerminalUpdateListener(via: client)
         }
     }
 
-    private func tryActivateTerminalUpdates(via client: MobileCoreRPCClient) async -> Bool {
+    private func runTerminalUpdateListener(via client: MobileCoreRPCClient) async {
         let stream = await client.subscribe(to: ["terminal.updated", "workspace.updated"])
         let requestData: Data
         do {
@@ -1881,16 +1893,16 @@ public final class CMUXMobileShellStore {
             )
         } catch {
             mobileShellLog.error("subscribe payload encode failed: \(String(describing: error), privacy: .private)")
-            return false
+            return
         }
         let responseData: Data
         do {
             responseData = try await client.sendRequest(requestData)
         } catch let MobileShellConnectionError.rpcError(code, _) where code == "method_not_found" {
-            return false
+            return
         } catch {
-            mobileShellLog.error("subscribe failed, falling back to poll: \(String(describing: error), privacy: .private)")
-            return false
+            mobileShellLog.error("subscribe failed, polling remains active: \(String(describing: error), privacy: .private)")
+            return
         }
         // Require a well-formed subscribe ack ({"stream_id": "..."}) so we
         // don't latch onto a stray response from a Mac that doesn't know
@@ -1898,22 +1910,19 @@ public final class CMUXMobileShellStore {
         // handler and shouldn't activate the event path.
         let responseObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
         guard let object = responseObject, (object["stream_id"] as? String)?.isEmpty == false else {
-            return false
+            return
         }
         // Listen for events; refresh on each one. The stream finishes when
         // the transport tears down, so the loop exits cleanly.
-        Task { @MainActor [weak self, weak client] in
-            for await event in stream {
-                guard let self, let client else { return }
-                guard self.remoteClient === client, self.connectionState == .connected else { return }
-                if event.topic == "terminal.updated" {
-                    await self.refreshSelectedTerminalSnapshot()
-                } else if event.topic == "workspace.updated" {
-                    self.scheduleWorkspaceListRefreshFromEvent()
-                }
+        for await event in stream {
+            guard !Task.isCancelled else { return }
+            guard remoteClient === client, connectionState == .connected else { return }
+            if event.topic == "terminal.updated" {
+                await refreshSelectedTerminalSnapshot()
+            } else if event.topic == "workspace.updated" {
+                scheduleWorkspaceListRefreshFromEvent()
             }
         }
-        return true
     }
 
     private func scheduleWorkspaceListRefreshFromEvent() {
@@ -1961,6 +1970,7 @@ public final class CMUXMobileShellStore {
         terminalRefreshPollTask = nil
         terminalEventListenerTask?.cancel()
         terminalEventListenerTask = nil
+        terminalEventListenerID = nil
     }
 
     private func cancelSelectedTerminalSnapshotRefresh() {
@@ -2691,6 +2701,8 @@ final class MobileCoreRPCClient: @unchecked Sendable {
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
+        case "mobile.events.subscribe", "mobile.events.unsubscribe":
+            return false
         default:
             return true
         }

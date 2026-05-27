@@ -230,6 +230,20 @@ import UIKit
     #expect(try store.loadAll(stackUserID: "user-a").map(\.routes).first == [userARoute])
 }
 
+@MainActor
+@Test func activeMacReconnectRouteSkipsUnsupportedLoopbackRoute() throws {
+    let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let tailscale = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+
+    let route = CMUXMobileShellStore.firstReconnectHostPortRoute(
+        [loopback, tailscale],
+        supportedKinds: [.tailscale]
+    )
+
+    #expect(route?.0 == "100.71.210.41")
+    #expect(route?.1 == CmxMobileDefaults.defaultHostPort)
+}
+
 @Test func compactHeightUsesStackWorkspaceNavigation() {
     #expect(
         MobileWorkspaceShellLayoutPolicy.usesCompactStack(
@@ -1403,6 +1417,50 @@ import UIKit
 }
 
 @MainActor
+@Test func failedAttachTicketDoesNotPersistActivePairedMac() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let pairedMacStore = try MobilePairedMacStore(databaseURL: directory.appendingPathComponent("paired-macs.sqlite3"))
+    let route = try hostPortRoute(
+        kind: .tailscale,
+        host: "100.71.210.41",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: UUID().uuidString,
+        terminalID: nil,
+        macDeviceID: "offline-mac",
+        macDisplayName: "Offline Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([])
+    let attempts = RouteAttemptRecorder()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: FailingRouteTransportFactory(
+            failingRouteID: route.id,
+            responses: responses,
+            attempts: attempts
+        )
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        pairedMacStore: pairedMacStore
+    )
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    #expect(store.connectionState == .disconnected)
+    #expect(try pairedMacStore.activeMac() == nil)
+    #expect(try pairedMacStore.loadAll().isEmpty)
+}
+
+@MainActor
 @Test func expiredNetworkAttachTicketFromPairLinkDoesNotFallbackToStackAuth() async throws {
     let ticketExpiresAt = Date().addingTimeInterval(60)
     let route = try hostPortRoute(kind: .tailscale, host: "attacker.example", port: CmxMobileDefaults.defaultHostPort)
@@ -2277,6 +2335,52 @@ import UIKit
 }
 
 @MainActor
+@Test func serverPushSubscriptionKeepsTerminalPollingFallbackAndSingleListener() async throws {
+    let workspaceID = UUID().uuidString
+    let terminalID = UUID().uuidString
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: workspaceID,
+        terminalID: terminalID,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let router = ServerPushPollingFallbackRouter(
+        workspaceID: workspaceID,
+        terminalID: terminalID
+    )
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        stackAccessToken: nil,
+        supportsServerPushEvents: true
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    _ = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
+    store.resumeForegroundRefresh()
+
+    _ = try await waitForRequestCount("terminal.snapshot", count: 2, router: router)
+    try await Task.sleep(nanoseconds: 50_000_000)
+
+    let requests = await router.sentRequests()
+    let subscribeRequests = requests.filter { $0.method == "mobile.events.subscribe" }
+    #expect(subscribeRequests.count == 1)
+    #expect(subscribeRequests.allSatisfy { $0.attachToken == "ticket-secret" })
+    #expect(subscribeRequests.allSatisfy { $0.stackAccessToken == nil })
+    #expect(requests.filter { $0.method == "terminal.snapshot" }.count >= 2)
+}
+
+@MainActor
 @Test func rawTerminalInputDoesNotReplaceStyledSnapshotWithImmediatePlainTextDowngrade() async throws {
     let workspaceID = UUID().uuidString
     let terminalID = UUID().uuidString
@@ -3120,6 +3224,22 @@ private func waitForWorkspaceListRequestCount(
     return workspaceLists
 }
 
+private func waitForRequestCount(
+    _ method: String,
+    count: Int,
+    router: any RequestAwareTransportRouter
+) async throws -> [RecordedRPCRequest] {
+    var matches: [RecordedRPCRequest] = []
+    for _ in 0..<300 {
+        matches = await router.sentRequests().filter { $0.method == method }
+        if matches.count >= count {
+            return matches
+        }
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    return matches
+}
+
 @MainActor
 private func waitForWorkspaceIDs(
     in store: CMUXMobileShellStore,
@@ -3823,6 +3943,51 @@ private actor PlainFallbackDuringInputRouter: RequestAwareTransportRouter {
         guard !styledRefreshReleased else { return }
         await withCheckedContinuation { continuation in
             styledRefreshReleaseContinuation = continuation
+        }
+    }
+}
+
+private actor ServerPushPollingFallbackRouter: RequestAwareTransportRouter {
+    private let workspaceID: String
+    private let terminalID: String
+    private var snapshotRequestCount = 0
+    private var requests: [RecordedRPCRequest] = []
+
+    init(workspaceID: String, terminalID: String) {
+        self.workspaceID = workspaceID
+        self.terminalID = terminalID
+    }
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try rpcWorkspaceListFrame(
+                workspaceID: workspaceID,
+                title: "Live Workspace",
+                terminalID: terminalID
+            )
+        case "mobile.events.subscribe":
+            return try rpcResultFrame(result: [
+                "stream_id": "test-stream",
+                "topics": ["terminal.updated", "workspace.updated"],
+            ])
+        case "terminal.snapshot":
+            snapshotRequestCount += 1
+            return try rpcSnapshotResultFrame(
+                workspaceID: workspaceID,
+                terminalID: terminalID,
+                visibleLines: ["snapshot \(snapshotRequestCount)"]
+            )
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
     }
 }
