@@ -75,6 +75,9 @@
 		D36A00010000000000000001 /* AgentHibernationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00010000000000000002 /* AgentHibernationController.swift */; };
 		D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
+		D37B10010000000000000001 /* AgentHookSetupEvidenceDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37B10010000000000000002 /* AgentHookSetupEvidenceDefinition.swift */; };
+		D37B10020000000000000001 /* AgentHibernationHookSetupEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37B10020000000000000002 /* AgentHibernationHookSetupEvidence.swift */; };
+		D37B10030000000000000001 /* AgentHibernationEnableWarning.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37B10030000000000000002 /* AgentHibernationEnableWarning.swift */; };
 		C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */; };
 		D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */; };
 		D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */; };
@@ -669,6 +672,9 @@
 		D36A00020000000000000002 /* AgentHibernationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTests.swift; sourceTree = "<group>"; };
 		D36A00010000000000000002 /* AgentHibernationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationController.swift; sourceTree = "<group>"; };
 		D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentHibernationLifecycleState.swift; sourceTree = "<group>"; };
+		D37B10010000000000000002 /* AgentHookSetupEvidenceDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHookSetupEvidenceDefinition.swift; sourceTree = "<group>"; };
+		D37B10020000000000000002 /* AgentHibernationHookSetupEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationHookSetupEvidence.swift; sourceTree = "<group>"; };
+		D37B10030000000000000002 /* AgentHibernationEnableWarning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationEnableWarning.swift; sourceTree = "<group>"; };
 		7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
 		970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConfigTests.swift; sourceTree = "<group>"; };
@@ -1308,6 +1314,9 @@
 				C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */,
 				9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */,
 				D36A00010000000000000002 /* AgentHibernationController.swift */,
+				D37B10010000000000000002 /* AgentHookSetupEvidenceDefinition.swift */,
+				D37B10020000000000000002 /* AgentHibernationHookSetupEvidence.swift */,
+				D37B10030000000000000002 /* AgentHibernationEnableWarning.swift */,
 				243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */,
 				D50D9BCE46701FBA91C2EFB6 /* SidebarWorkspaceSnapshotRefreshPolicy.swift */,
 				D35450020000000000000002 /* SidebarWorkspaceRowHoverTracker.swift */,
@@ -2077,6 +2086,9 @@
 				C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */,
 				619D509BC9B1EA946CBD6A8A /* WorkspaceRuntimeSettings.swift in Sources */,
 				D36A00010000000000000001 /* AgentHibernationController.swift in Sources */,
+				D37B10010000000000000001 /* AgentHookSetupEvidenceDefinition.swift in Sources */,
+				D37B10020000000000000001 /* AgentHibernationHookSetupEvidence.swift in Sources */,
+				D37B10030000000000000001 /* AgentHibernationEnableWarning.swift in Sources */,
 				211A75777F433ED8BA5AE208 /* SidebarAppearanceSupport.swift in Sources */,
 				988C6A036BA56EA5759A95A0 /* SidebarWorkspaceSnapshotRefreshPolicy.swift in Sources */,
 				D35450010000000000000001 /* SidebarWorkspaceRowHoverTracker.swift in Sources */,

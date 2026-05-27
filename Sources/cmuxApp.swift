@@ -5205,253 +5205,6 @@ func openCmuxSettingsFileInEditor() {
     PreferredEditorSettings.open(url)
 }
 
-struct AgentHookSetupEvidenceDefinition: Sendable {
-    let name: String
-    let configDir: String
-    let configFile: String
-    let envOverride: String?
-    let envOverrideSubpath: String?
-    let disableEnvVar: String
-    let markers: [String]
-    let isEnabled: @Sendable (UserDefaults) -> Bool
-
-    init(
-        name: String,
-        configDir: String,
-        configFile: String,
-        envOverride: String? = nil,
-        envOverrideSubpath: String? = nil,
-        disableEnvVar: String,
-        markers: [String],
-        isEnabled: @escaping @Sendable (UserDefaults) -> Bool = { _ in true }
-    ) {
-        self.name = name
-        self.configDir = configDir
-        self.configFile = configFile
-        self.envOverride = envOverride
-        self.envOverrideSubpath = envOverrideSubpath
-        self.disableEnvVar = disableEnvVar
-        let routedHookMarker = "hooks \(name)"
-        self.markers = markers.contains(routedHookMarker) ? markers : markers + [routedHookMarker]
-        self.isEnabled = isEnabled
-    }
-
-    func isActive(defaults: UserDefaults, environment: [String: String]) -> Bool {
-        guard environment[disableEnvVar]?.trimmingCharacters(in: .whitespacesAndNewlines) != "1" else {
-            return false
-        }
-        return isEnabled(defaults)
-    }
-
-    func configURL(environment: [String: String], homeDirectory: URL) -> URL {
-        let baseURL: URL
-        if let envOverride,
-           let rawValue = environment[envOverride]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !rawValue.isEmpty {
-            var url = URL(fileURLWithPath: NSString(string: rawValue).expandingTildeInPath, isDirectory: true)
-            if let envOverrideSubpath, !envOverrideSubpath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                url.appendPathComponent(envOverrideSubpath, isDirectory: true)
-            }
-            baseURL = url
-        } else {
-            baseURL = homeDirectory.appendingPathComponent(configDir, isDirectory: true)
-        }
-        return Self.appendingRelativePath(configFile, to: baseURL)
-    }
-
-    private static func appendingRelativePath(_ relativePath: String, to baseURL: URL) -> URL {
-        relativePath.split(separator: "/").reduce(baseURL) { url, component in
-            url.appendingPathComponent(String(component), isDirectory: false)
-        }
-    }
-}
-
-enum AgentHibernationHookSetupEvidence {
-#if DEBUG
-    static var hasHookSetupEvidenceHandlerForTests: ((UserDefaults) -> Bool)?
-#endif
-
-    static func hasHookSetupEvidence(
-        defaults: UserDefaults = .standard,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
-    ) -> Bool {
-#if DEBUG
-        if let hasHookSetupEvidenceHandlerForTests {
-            return hasHookSetupEvidenceHandlerForTests(defaults)
-        }
-#endif
-        if ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults),
-           environment["CMUX_CLAUDE_HOOKS_DISABLED"]?.trimmingCharacters(in: .whitespacesAndNewlines) != "1" {
-            return true
-        }
-        return hookSetupEvidenceDefinitions.contains { definition in
-            guard definition.isActive(defaults: defaults, environment: environment) else {
-                return false
-            }
-            let fileURL = definition.configURL(environment: environment, homeDirectory: homeDirectory)
-            guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else {
-                return false
-            }
-            return definition.markers.contains { contents.contains($0) }
-        }
-    }
-
-    private static let hookSetupEvidenceDefinitions: [AgentHookSetupEvidenceDefinition] = [
-        AgentHookSetupEvidenceDefinition(
-            name: "codex",
-            configDir: ".codex",
-            configFile: "hooks.json",
-            envOverride: "CODEX_HOME",
-            disableEnvVar: "CMUX_CODEX_HOOKS_DISABLED",
-            markers: ["cmux hooks codex", "cmux codex-hook"]
-        ),
-        AgentHookSetupEvidenceDefinition(
-            name: "grok",
-            configDir: ".grok/hooks",
-            configFile: "cmux-session.json",
-            envOverride: "GROK_HOME",
-            envOverrideSubpath: "hooks",
-            disableEnvVar: "CMUX_GROK_HOOKS_DISABLED",
-            markers: ["cmux-grok-hook-v2", "cmux hooks grok"]
-        ),
-        AgentHookSetupEvidenceDefinition(
-            name: "opencode",
-            configDir: ".config/opencode",
-            configFile: "plugins/cmux-session.js",
-            envOverride: "OPENCODE_CONFIG_DIR",
-            disableEnvVar: "CMUX_OPENCODE_HOOKS_DISABLED",
-            markers: ["cmux hooks opencode"]
-        ),
-        AgentHookSetupEvidenceDefinition(
-            name: "pi",
-            configDir: ".pi/agent",
-            configFile: "extensions/cmux-session.ts",
-            envOverride: "PI_CODING_AGENT_DIR",
-            disableEnvVar: "CMUX_PI_HOOKS_DISABLED",
-            markers: ["cmux hooks pi"]
-        ),
-        AgentHookSetupEvidenceDefinition(
-            name: "amp",
-            configDir: ".config/amp",
-            configFile: "plugins/cmux-session.ts",
-            disableEnvVar: "CMUX_AMP_HOOKS_DISABLED",
-            markers: ["cmux hooks amp"]
-        ),
-        AgentHookSetupEvidenceDefinition(
-            name: "cursor",
-            configDir: ".cursor",
-            configFile: "hooks.json",
-            disableEnvVar: "CMUX_CURSOR_HOOKS_DISABLED",
-            markers: ["cmux hooks cursor"],
-            isEnabled: { CursorIntegrationSettings.hooksEnabled(defaults: $0) }
-        ),
-        AgentHookSetupEvidenceDefinition(
-            name: "gemini",
-            configDir: ".gemini",
-            configFile: "settings.json",
-            disableEnvVar: "CMUX_GEMINI_HOOKS_DISABLED",
-            markers: ["cmux hooks gemini"],
-            isEnabled: { GeminiIntegrationSettings.hooksEnabled(defaults: $0) }
-        ),
-        AgentHookSetupEvidenceDefinition(
-            name: "antigravity",
-            configDir: ".gemini/config",
-            configFile: "hooks.json",
-            disableEnvVar: "CMUX_ANTIGRAVITY_HOOKS_DISABLED",
-            markers: ["cmux-antigravity-hook-v2", "cmux hooks antigravity"]
-        ),
-        AgentHookSetupEvidenceDefinition(
-            name: "rovodev",
-            configDir: ".rovodev",
-            configFile: "config.yml",
-            disableEnvVar: "CMUX_ROVODEV_HOOKS_DISABLED",
-            markers: ["cmux hooks rovodev"]
-        ),
-        AgentHookSetupEvidenceDefinition(
-            name: "hermes-agent",
-            configDir: ".hermes",
-            configFile: "config.yaml",
-            envOverride: "HERMES_HOME",
-            disableEnvVar: "CMUX_HERMES_AGENT_HOOKS_DISABLED",
-            markers: ["cmux hooks hermes-agent"]
-        ),
-        AgentHookSetupEvidenceDefinition(
-            name: "copilot",
-            configDir: ".copilot",
-            configFile: "config.json",
-            envOverride: "COPILOT_HOME",
-            disableEnvVar: "CMUX_COPILOT_HOOKS_DISABLED",
-            markers: ["cmux hooks copilot"]
-        ),
-        AgentHookSetupEvidenceDefinition(
-            name: "codebuddy",
-            configDir: ".codebuddy",
-            configFile: "settings.json",
-            envOverride: "CODEBUDDY_CONFIG_DIR",
-            disableEnvVar: "CMUX_CODEBUDDY_HOOKS_DISABLED",
-            markers: ["cmux hooks codebuddy"]
-        ),
-        AgentHookSetupEvidenceDefinition(
-            name: "factory",
-            configDir: ".factory",
-            configFile: "settings.json",
-            disableEnvVar: "CMUX_FACTORY_HOOKS_DISABLED",
-            markers: ["cmux hooks factory"]
-        ),
-        AgentHookSetupEvidenceDefinition(
-            name: "qoder",
-            configDir: ".qoder",
-            configFile: "settings.json",
-            envOverride: "QODER_CONFIG_DIR",
-            disableEnvVar: "CMUX_QODER_HOOKS_DISABLED",
-            markers: ["cmux hooks qoder"]
-        )
-    ]
-}
-
-enum AgentHibernationEnableWarning {
-#if DEBUG
-    static var confirmationHandlerForTests: (() -> Bool)?
-#endif
-
-    static var title: String {
-        String(
-            localized: "settings.terminal.agentHibernation.hooksWarning.title",
-            defaultValue: "Enable Agent Hibernation without hooks?"
-        )
-    }
-
-    static var message: String {
-        String(
-            localized: "settings.terminal.agentHibernation.hooksWarning.message",
-            defaultValue: "Agent Hibernation relies on agent lifecycle hooks to know when sessions are idle. Enable or set up an agent integration first, or run `cmux hooks setup`, before relying on hibernation."
-        )
-    }
-
-    static var enableAnywayTitle: String {
-        String(
-            localized: "settings.terminal.agentHibernation.hooksWarning.enableAnyway",
-            defaultValue: "Enable Anyway"
-        )
-    }
-
-    static func confirmEnableWithoutHooks() -> Bool {
-#if DEBUG
-        if let confirmationHandlerForTests {
-            return confirmationHandlerForTests()
-        }
-#endif
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = title
-        alert.informativeText = message
-        alert.addButton(withTitle: enableAnywayTitle)
-        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        return alert.runModal() == .alertFirstButtonReturn
-    }
-}
-
 struct SettingsView: View {
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
@@ -5598,6 +5351,8 @@ struct SettingsView: View {
     @State private var showClearBrowserHistoryConfirmation = false
     @State private var showOpenAccessConfirmation = false
     @State private var showAgentHibernationHooksWarning = false
+    @State private var agentHibernationHasHookSetupEvidence = false
+    @State private var agentHibernationHookSetupEvidenceRefreshID = 0
     @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var browserHistoryEntryCount: Int = 0
     @State private var didLoadBrowserHistoryForSettings = false
@@ -5810,10 +5565,6 @@ struct SettingsView: View {
                 AgentSessionAutoResumeSettings.notifyDidChange()
             }
         )
-    }
-
-    private var agentHibernationHasHookSetupEvidence: Bool {
-        AgentHibernationHookSetupEvidence.hasHookSetupEvidence(defaults: .standard)
     }
 
     private var agentHibernationHookWarningMessage: String {
@@ -6367,6 +6118,18 @@ struct SettingsView: View {
         refreshDetectedImportBrowsers()
     }
 
+    private func refreshAgentHibernationHookSetupEvidence() {
+        agentHibernationHookSetupEvidenceRefreshID += 1
+        let refreshID = agentHibernationHookSetupEvidenceRefreshID
+        Task { @MainActor in
+            let hasHookSetupEvidence = await Task.detached(priority: .utility) {
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(defaults: .standard)
+            }.value
+            guard refreshID == agentHibernationHookSetupEvidenceRefreshID else { return }
+            agentHibernationHasHookSetupEvidence = hasHookSetupEvidence
+        }
+    }
+
     private func chooseNotificationSoundFile() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
@@ -6514,6 +6277,22 @@ struct SettingsView: View {
                                 AppIconSettings.applyIcon(mode)
                             }
                         )
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("app.menuBarOnly"),
+                            String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only"),
+                            subtitle: String(localized: "settings.app.menuBarOnly.subtitle", defaultValue: "Hide the Dock icon and Cmd+Tab entry. Use the menu bar item to show cmux.")
+                        ) {
+                            Toggle("", isOn: menuBarOnlyBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsMenuBarOnlyToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only")
+                                )
+                        }
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.workspacesAndTabs", defaultValue: "Workspaces & Tabs"))
@@ -6722,22 +6501,6 @@ struct SettingsView: View {
                             Toggle("", isOn: $notificationDockBadgeEnabled)
                                 .labelsHidden()
                                 .controlSize(.small)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            configurationReview: .json("app.menuBarOnly"),
-                            String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only"),
-                            subtitle: String(localized: "settings.app.menuBarOnly.subtitle", defaultValue: "Hide the Dock icon and Cmd+Tab entry. Use the menu bar item to show cmux.")
-                        ) {
-                            Toggle("", isOn: menuBarOnlyBinding)
-                                .labelsHidden()
-                                .controlSize(.small)
-                                .accessibilityIdentifier("SettingsMenuBarOnlyToggle")
-                                .accessibilityLabel(
-                                    String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only")
-                                )
                         }
 
                         SettingsCardDivider()
@@ -8232,6 +7995,7 @@ struct SettingsView: View {
             draftState.syncBrowserInsecureHTTPAllowlistFromSavedValue(browserInsecureHTTPAllowlist)
             reloadWorkspaceTabColorSettings()
             refreshNotificationCustomSoundStatus()
+            refreshAgentHibernationHookSetupEvidence()
             let target = SettingsWindowPresenter.consumePendingContentNavigationTarget()
                 ?? SettingsNavigationTarget(rawValue: selectedSettingsSectionRaw)
                 ?? .account
@@ -8250,6 +8014,15 @@ struct SettingsView: View {
         .onChange(of: notificationSoundCustomFilePath) { _, _ in
             refreshNotificationCustomSoundStatus()
         }
+        .onChange(of: claudeCodeHooksEnabled) { _, _ in
+            refreshAgentHibernationHookSetupEvidence()
+        }
+        .onChange(of: cursorHooksEnabled) { _, _ in
+            refreshAgentHibernationHookSetupEvidence()
+        }
+        .onChange(of: geminiHooksEnabled) { _, _ in
+            refreshAgentHibernationHookSetupEvidence()
+        }
         .onChange(of: browserInsecureHTTPAllowlist) { _, newValue in
             // Keep draft in sync with external changes unless the user has local unsaved edits.
             draftState.syncBrowserInsecureHTTPAllowlistFromSavedValue(newValue)
@@ -8261,6 +8034,7 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             reloadWorkspaceTabColorSettings()
+            refreshAgentHibernationHookSetupEvidence()
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }

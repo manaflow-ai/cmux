@@ -8,7 +8,7 @@ import XCTest
 
 final class SettingsSearchIndexTests: XCTestCase {
     func testAlternativeSearchTermsFindSettingsRows() {
-        assertSearch("dockless", contains: SettingsSearchIndex.settingID(for: .notifications, idSuffix: "menu-bar-only"))
+        assertSearch("dockless", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "menu-bar-only"))
         assertSearch("menubar", contains: SettingsSearchIndex.settingID(for: .notifications, idSuffix: "show-menu-bar"))
         assertSearch("vscode", contains: SettingsSearchIndex.settingID(for: .filesAndLinks, idSuffix: "preferred-editor"))
         assertSearch("cmd q", contains: SettingsSearchIndex.settingID(for: .safetyPrivacy, idSuffix: "warn-before-quit"))

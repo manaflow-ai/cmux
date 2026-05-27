@@ -119,7 +119,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .account:
             return "\(title) sign in team sync"
         case .app:
-            return "\(title) app general preferences prefs appearance theme light dark language locale icon dock chrome colors"
+            return "\(title) app general preferences prefs appearance theme light dark language locale icon dock chrome colors presence menu bar menubar dockless cmd tab app switcher"
         case .workspacesAndTabs:
             return "\(title) app workspace workspaces tab tabs surface pane cwd directory placement close focus minimal last"
         case .filesAndLinks:
@@ -341,20 +341,20 @@ enum SettingsSearchIndex {
         setting(.app, "language", String(localized: "settings.app.language", defaultValue: "Language"), "locale translation japanese english restart"),
         setting(.app, "appearance", String(localized: "settings.app.appearance", defaultValue: "Appearance"), "theme light dark system"),
         setting(.app, "app-icon", String(localized: "settings.app.appIcon", defaultValue: "App Icon"), "dock icon alternate"),
+        setting(.app, "menu-bar-only", String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only"), "presence dock icon cmd tab dockless"),
         setting(.workspacesAndTabs, "new-workspace-placement", String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"), "workspace order position"),
         setting(.workspacesAndTabs, "workspace-inherit-working-directory", String(localized: "settings.app.workspaceInheritWorkingDirectory", defaultValue: "Inherit Workspace Working Directory"), "workspace cwd directory current ghostty working-directory"),
         setting(.workspacesAndTabs, "minimal-mode", String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode"), "presentation compact chrome"),
         setting(.workspacesAndTabs, "keep-workspace-open", String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Keep Workspace Open When Closing Last Surface"), "close last surface shortcut"),
         setting(.workspacesAndTabs, "focus-pane-first-click", String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click"), "mouse click focus"),
-        setting(.notifications, "imessage-mode", String(localized: "settings.app.iMessageMode", defaultValue: "iMessage Mode"), "message messages imessage chat prompt prompts submitted message send agent workspace reorder move top"),
         setting(.filesAndLinks, "file-drops", String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"), "drag drop files finder path text terminal editor split preview shift"),
         setting(.filesAndLinks, "preferred-editor", String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"), "editor code zed subl cmd click file"),
         setting(.filesAndLinks, "supported-file-previews", String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux"), "cmd click file preview pdf image audio video quick look editor"),
         setting(.filesAndLinks, "terminal-config", String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"), "ghostty config merged preview"),
         setting(.filesAndLinks, "markdown-viewer", String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"), "md markdown viewer"),
+        setting(.notifications, "imessage-mode", String(localized: "settings.app.iMessageMode", defaultValue: "iMessage Mode"), "message messages imessage chat prompt prompts submitted message send agent workspace reorder move top"),
         setting(.notifications, "reorder-notification", String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification"), "workspace notification order"),
         setting(.notifications, "dock-badge", String(localized: "settings.app.dockBadge", defaultValue: "Dock Badge"), "unread count app icon"),
-        setting(.notifications, "menu-bar-only", String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only"), "dock icon cmd tab"),
         setting(.notifications, "show-menu-bar", String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar"), "menu extra status item"),
         setting(.notifications, "unread-pane-ring", String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring"), "notification blue ring pane"),
         setting(.notifications, "pane-flash", String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"), "notification flash highlight"),
@@ -467,7 +467,7 @@ enum SettingsSearchIndex {
         "app.iMessageMode": settingID(for: .notifications, idSuffix: "imessage-mode"),
         "app.reorderOnNotification": settingID(for: .notifications, idSuffix: "reorder-notification"),
         "notifications.dockBadge": settingID(for: .notifications, idSuffix: "dock-badge"),
-        "app.menuBarOnly": settingID(for: .notifications, idSuffix: "menu-bar-only"),
+        "app.menuBarOnly": settingID(for: .app, idSuffix: "menu-bar-only"),
         "notifications.showInMenuBar": settingID(for: .notifications, idSuffix: "show-menu-bar"),
         "notifications.unreadPaneRing": settingID(for: .notifications, idSuffix: "unread-pane-ring"),
         "notifications.paneFlash": settingID(for: .notifications, idSuffix: "pane-flash"),

@@ -272,6 +272,26 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testAgentHibernationHookEvidenceDoesNotMatchRoutedHookSubstrings() throws {
+        try withTemporaryDefaults { defaults in
+            let homeDirectory = try makeTemporaryHomeDirectory()
+            defer { try? FileManager.default.removeItem(at: homeDirectory) }
+            try writeHookConfig(
+                "webhooks pi and cmux hooks pico should not count as a cmux pi hook",
+                at: homeDirectory.appendingPathComponent(".pi/agent/extensions/cmux-session.ts")
+            )
+
+            defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+            XCTAssertFalse(
+                AgentHibernationHookSetupEvidence.hasHookSetupEvidence(
+                    defaults: defaults,
+                    environment: [:],
+                    homeDirectory: homeDirectory
+                )
+            )
+        }
+    }
+
     func testAgentHibernationHookEvidenceDetectsPinnedHookMarkers() throws {
         try withTemporaryDefaults { defaults in
             let homeDirectory = try makeTemporaryHomeDirectory()

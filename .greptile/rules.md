@@ -37,9 +37,9 @@ Pass for tests, operational docs not shown to end users, developer-only comments
 
 ## Settings Organization And Search
 
-For settings UI, navigation, search, command-palette setting toggles, and persisted settings-key changes, require category fit and search continuity.
+For settings UI, navigation, search, command-palette setting toggles, and persisted settings-key changes, require category fit and search continuity. Re-evaluate the whole affected settings area, not only the row changed by the diff.
 
-Flag new or moved settings that stay in broad stale buckets when a clearer user-intent category exists. Flag setting moves that do not preserve old names, JSON keys, abbreviations, and adjacent product vocabulary in search aliases or keywords. Flag section or setting anchors that still point to the old category.
+Flag new or moved settings that stay in broad stale buckets when a clearer user-intent category exists. Flag setting moves that do not preserve old names, old section names, JSON keys, command-palette wording, CLI/docs names, abbreviations, likely misspellings, and adjacent product vocabulary in search aliases or keywords. Flag section or setting anchors that still point to the old category.
 
 Pass for implementation-only changes that do not alter the visible settings surface.
 

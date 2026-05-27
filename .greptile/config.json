@@ -56,7 +56,7 @@
     },
     {
       "id": "cmux-settings-organization-search",
-      "rule": "Flag settings UI, navigation, search, command-palette setting toggle, or persisted settings-key changes that leave settings in stale or overloaded categories, move settings without preserving old-name and JSON-key aliases, break section or setting anchors, or omit common synonyms and adjacent product vocabulary from search.",
+      "rule": "Flag settings UI, navigation, search, command-palette setting toggle, or persisted settings-key changes that leave settings in stale or overloaded categories after re-evaluating the affected settings area, move settings without preserving old-name, old-section, and JSON-key aliases, break section or setting anchors, or omit common synonyms, command-palette wording, CLI/docs names, likely misspellings, and adjacent product vocabulary from search.",
       "scope": ["Sources/**/*.swift", "Resources/*.xcstrings", "web/messages/**/*.json", "web/**/*.tsx"],
       "severity": "high"
     },

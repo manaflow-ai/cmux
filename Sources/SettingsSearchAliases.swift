@@ -4,7 +4,7 @@ enum SettingsSearchAliasIndex {
         case .account:
             return localized("settings.search.alias.section.account", defaultValue: "auth authentication login logout sign in sign out email user profile team")
         case .app:
-            return localized("settings.search.alias.section.app", defaultValue: "appearance theme light dark system language locale icon dock app icon preferences prefs")
+            return localized("settings.search.alias.section.app", defaultValue: "appearance theme light dark system language locale icon dock app icon preferences prefs presence menubar menu bar dockless app switcher cmd-tab command-tab")
         case .workspacesAndTabs:
             return localized("settings.search.alias.section.workspacesAndTabs", defaultValue: "app general workspace workspaces tab tabs pane panes surface cwd directory placement close focus minimal last")
         case .filesAndLinks:
@@ -84,7 +84,6 @@ enum SettingsSearchAliasIndex {
             case "imessage-mode",
                  "reorder-notification",
                  "dock-badge",
-                 "menu-bar-only",
                  "show-menu-bar",
                  "unread-pane-ring",
                  "pane-flash",

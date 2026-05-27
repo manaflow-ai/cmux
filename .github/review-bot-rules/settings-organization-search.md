@@ -1,13 +1,13 @@
 # Settings Organization And Search
 
-Apply this rule to changes that add, move, rename, or remove settings UI, settings search entries, command-palette setting toggles, settings navigation targets, or persisted settings keys.
+Apply this rule to every change that adds, moves, renames, or removes settings UI, settings search entries, command-palette setting toggles, settings navigation targets, or persisted settings keys. Re-evaluate the whole affected settings area, not only the row changed by the diff.
 
 ## Fail
 
-- A new setting is placed in a broad or stale section when a narrower user-intent section already exists or should be created.
-- A setting is moved or renamed without preserving old search muscle memory through aliases, keywords, or stable persisted key search terms.
+- A new or changed setting is left in a broad, stale, or overloaded section when a narrower user-intent section already exists or should be created.
+- A setting is moved or renamed without preserving old search muscle memory through aliases, keywords, old section names, old labels, or stable persisted key search terms.
 - A settings search entry, command-palette setting toggle, JSON path anchor, or settings navigation target points to the wrong section after a settings organization change.
-- A PR adds a visible setting but does not include enough synonyms for common names, old names, JSON keys, abbreviations, and adjacent product vocabulary.
+- A PR adds or changes a visible setting but does not include enough synonyms for common names, old names, old categories, JSON keys, command-palette wording, CLI/docs names, abbreviations, likely misspellings, and adjacent product vocabulary.
 - A settings category grows into unrelated behavior without a short rationale or a scoped split.
 
 ## Pass
