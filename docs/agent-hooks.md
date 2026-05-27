@@ -2,7 +2,7 @@
 
 cmux uses agent hooks to show running state, Feed approvals, notifications, and to restore agent sessions after a normal app relaunch.
 
-Claude Code is handled by the cmux Claude wrapper when Claude Code integration is enabled in Settings. Other agents are installed with:
+Claude Code is handled by the cmux Claude wrapper when Claude Code integration is enabled in Settings. OpenCode is handled by the bundled `opencode` wrapper inside cmux terminals; it installs the session/status integration and Feed plugin automatically, including notifications for OpenCode prompts and errors when a live cmux socket is present. Other agents are installed with:
 
 ```bash
 cmux hooks setup
