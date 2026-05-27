@@ -144,6 +144,27 @@ final class AgentHibernationTests: XCTestCase {
         )
     }
 
+    func testHookPrerequisitesAcceptTrustedResumeBinding() throws {
+        let root = try temporaryDirectory(named: "cmux-agent-hibernation-trusted-binding")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let environment = ["HOME": root.path]
+
+        XCTAssertNil(
+            AgentHibernationHookPrerequisites.missingHooksWarning(
+                environment: environment,
+                trustedResumeBindingExists: true
+            )
+        )
+        XCTAssertEqual(
+            AgentHibernationHookPrerequisites.enablementResponse(
+                environment: environment,
+                trustedResumeBindingExists: true
+            ),
+            "OK"
+        )
+    }
+
     func testHookPrerequisitesDetectInstalledCodexHooks() throws {
         let root = try temporaryDirectory(named: "cmux-agent-hibernation-codex-hooks")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -177,6 +198,38 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertEqual(
             AgentHibernationHookPrerequisites.enablementResponse(environment: environment),
             "OK"
+        )
+    }
+
+    func testHookPrerequisitesDetectInstalledCodexHooksFromEnvironmentOverride() throws {
+        let root = try temporaryDirectory(named: "cmux-agent-hibernation-codex-home")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let codexHome = root.appendingPathComponent("custom-codex-home", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try """
+        {
+          "hooks": {
+            "SessionStart": [
+              {
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "cmux hooks codex session-start"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """.write(to: codexHome.appendingPathComponent("hooks.json", isDirectory: false), atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(
+            AgentHibernationHookPrerequisites.hasAnyInstalledAgentHook(
+                environment: [
+                    "HOME": root.appendingPathComponent("empty-home", isDirectory: true).path,
+                    "CODEX_HOME": codexHome.path,
+                ]
+            )
         )
     }
 

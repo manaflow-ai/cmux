@@ -19604,13 +19604,46 @@ class TerminalController {
         switch subcommand {
         case "on", "enable", "enabled", "true":
             AgentHibernationSettings.setValues(enabled: true)
-            return AgentHibernationHookPrerequisites.enablementResponse()
+            return AgentHibernationHookPrerequisites.enablementResponse(
+                environment: agentHibernationHookEnvironment(options: parsed.options),
+                trustedResumeBindingExists: ClaudeCodeIntegrationSettings.hooksEnabled()
+            )
         case "off", "disable", "disabled", "false":
             AgentHibernationSettings.setValues(enabled: false)
             return "OK"
         default:
             return "ERROR: Usage: \(usage)"
         }
+    }
+
+    private func agentHibernationHookEnvironment(options: [String: String]) -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        guard let encodedEnvironment = options["hook-env-b64"],
+              let data = Data(base64Encoded: encodedEnvironment),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return environment
+        }
+
+        let allowedKeys: Set<String> = [
+            "HOME",
+            "CODEX_HOME",
+            "GROK_HOME",
+            "OPENCODE_CONFIG_DIR",
+            "PI_CODING_AGENT_DIR",
+            "HERMES_HOME",
+            "COPILOT_HOME",
+            "CODEBUDDY_CONFIG_DIR",
+            "QODER_CONFIG_DIR",
+        ]
+        for (key, value) in object where allowedKeys.contains(key) {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                environment.removeValue(forKey: key)
+            } else {
+                environment[key] = trimmed
+            }
+        }
+        return environment
     }
 
     /// Unregister an agent PID. Usage: clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status]

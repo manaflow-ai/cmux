@@ -5604,6 +5604,10 @@ struct SettingsView: View {
             agentHibernationMissingHooksWarning = nil
             return
         }
+        guard !ClaudeCodeIntegrationSettings.hooksEnabled() else {
+            agentHibernationMissingHooksWarning = nil
+            return
+        }
 
         Task.detached(priority: .userInitiated) {
             let hasInstalledHook = AgentHibernationHookPrerequisites.hasAnyInstalledAgentHook()
@@ -7984,6 +7988,9 @@ struct SettingsView: View {
             draftState.syncBrowserInsecureHTTPAllowlistFromSavedValue(newValue)
         }
         .onChange(of: agentHibernationEnabled) { _, _ in
+            refreshAgentHibernationPrerequisiteWarning()
+        }
+        .onChange(of: claudeCodeHooksEnabled) { _, _ in
             refreshAgentHibernationPrerequisiteWarning()
         }
         .onReceive(BrowserHistoryStore.shared.$entries) { entries in

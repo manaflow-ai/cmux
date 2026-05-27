@@ -467,9 +467,11 @@ enum AgentHibernationHookPrerequisites {
 
     static func missingHooksWarning(
         environment: [String: String] = ProcessInfo.processInfo.environment,
+        trustedResumeBindingExists: Bool = false,
         fileExists: FileExists = { FileManager.default.fileExists(atPath: $0) },
         readFile: ReadFile = { try? String(contentsOfFile: $0, encoding: .utf8) }
     ) -> String? {
+        guard !trustedResumeBindingExists else { return nil }
         guard !hasAnyInstalledAgentHook(
             environment: environment,
             fileExists: fileExists,
@@ -482,17 +484,19 @@ enum AgentHibernationHookPrerequisites {
     static func missingHooksWarningMessage() -> String {
         return String(
             localized: "settings.terminal.agentHibernation.warning.missingHooks",
-            defaultValue: "No installed cmux agent hooks were found. Agent Hibernation only affects agents with captured session hooks or trusted resume bindings. Run `cmux hooks setup`, then restart your agent sessions."
+            defaultValue: "cmux could not find installed agent hooks for this app session. Agent Hibernation only affects agents with captured session hooks or trusted resume bindings. Run `cmux hooks setup`, or restart cmux from a shell that exports any agent-specific config directory overrides."
         )
     }
 
     static func enablementResponse(
         environment: [String: String] = ProcessInfo.processInfo.environment,
+        trustedResumeBindingExists: Bool = false,
         fileExists: FileExists = { FileManager.default.fileExists(atPath: $0) },
         readFile: ReadFile = { try? String(contentsOfFile: $0, encoding: .utf8) }
     ) -> String {
         guard let warning = missingHooksWarning(
             environment: environment,
+            trustedResumeBindingExists: trustedResumeBindingExists,
             fileExists: fileExists,
             readFile: readFile
         ) else { return "OK" }
