@@ -778,12 +778,11 @@ struct RestorableAgentSessionIndex: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) async -> RestorableAgentSessionIndex {
-        await Task.detached(priority: .utility) {
-            loadIncludingProcessDetectedSnapshotsSynchronously(
-                homeDirectory: homeDirectory,
-                fileManager: fileManager
-            )
-        }.value
+        let resumeIndexes = await ProcessDetectedResumeIndexes.load(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        )
+        return resumeIndexes.restorableAgentIndex
     }
 
     static func loadIncludingProcessDetectedSnapshotsSynchronously(
@@ -1227,6 +1226,43 @@ nonisolated struct SurfaceResumeBindingIndex: Sendable {
     }
 }
 
+private actor ProcessDetectedResumeIndexesLoadCoordinator {
+    static let shared = ProcessDetectedResumeIndexesLoadCoordinator()
+
+    private struct Key: Hashable {
+        let homeDirectory: String
+        let fileManagerID: ObjectIdentifier
+
+        init(homeDirectory: String, fileManager: FileManager) {
+            self.homeDirectory = (homeDirectory as NSString).standardizingPath
+            self.fileManagerID = ObjectIdentifier(fileManager)
+        }
+    }
+
+    private var inFlightTasks: [Key: Task<ProcessDetectedResumeIndexes, Never>] = [:]
+
+    func load(
+        homeDirectory: String,
+        fileManager: FileManager
+    ) async -> ProcessDetectedResumeIndexes {
+        let key = Key(homeDirectory: homeDirectory, fileManager: fileManager)
+        if let existingTask = inFlightTasks[key] {
+            return await existingTask.value
+        }
+
+        let task = Task.detached(priority: .utility) {
+            ProcessDetectedResumeIndexes.loadSynchronously(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager
+            )
+        }
+        inFlightTasks[key] = task
+        let indexes = await task.value
+        inFlightTasks[key] = nil
+        return indexes
+    }
+}
+
 struct ProcessDetectedResumeIndexes: Sendable {
     let restorableAgentIndex: RestorableAgentSessionIndex
     let surfaceResumeBindingIndex: SurfaceResumeBindingIndex
@@ -1235,9 +1271,10 @@ struct ProcessDetectedResumeIndexes: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) async -> ProcessDetectedResumeIndexes {
-        await Task.detached(priority: .utility) {
-            loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
-        }.value
+        await ProcessDetectedResumeIndexesLoadCoordinator.shared.load(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        )
     }
 
     static func loadSynchronously(

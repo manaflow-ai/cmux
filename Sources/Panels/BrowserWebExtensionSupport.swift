@@ -9,6 +9,8 @@ nonisolated private let browserWebExtensionLogger = Logger(
     category: "BrowserExtensions"
 )
 
+nonisolated private let browserWebExtensionCurrentPermissionPolicyVersion = 1
+
 struct BrowserWebExtensionInstalledSummary: Identifiable, Equatable, Sendable {
     let id: UUID
     let displayName: String
@@ -301,13 +303,20 @@ func browserWebExtensionSanitizedMatchPatternStrings(
 }
 
 func browserWebExtensionHasHighRiskHostAccess(_ rawPatterns: [String]) -> Bool {
-    rawPatterns.contains { pattern in
-        let trimmed = pattern.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return trimmed == "<all_urls>" ||
-            trimmed == "*://*/*" ||
-            trimmed == "http://*/*" ||
-            trimmed == "https://*/*"
-    }
+    rawPatterns.contains(where: browserWebExtensionIsHighRiskHostAccessPattern)
+}
+
+func browserWebExtensionDefaultInstallMatchPatternStrings(_ rawPatterns: [String]) -> [String] {
+    browserWebExtensionSanitizedMatchPatternStrings(rawPatterns)
+        .filter { !browserWebExtensionIsHighRiskHostAccessPattern($0) }
+}
+
+private func browserWebExtensionIsHighRiskHostAccessPattern(_ rawPattern: String) -> Bool {
+    let trimmed = rawPattern.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return trimmed == "<all_urls>" ||
+        trimmed == "*://*/*" ||
+        trimmed == "http://*/*" ||
+        trimmed == "https://*/*"
 }
 
 func browserWebExtensionContainsSensitivePermission(_ permissions: [String]) -> Bool {
@@ -360,7 +369,6 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
         "idle",
         "management",
         "menus",
-        "nativeMessaging",
         "notifications",
         "offscreen",
         "privacy",
@@ -543,6 +551,7 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Senda
     var deniedPermissionMatchPatterns: [String]
     var profileStates: [String: BrowserWebExtensionProfileState]
     var appliesToAllProfiles: Bool
+    var permissionPolicyVersion: Int
 
     init(
         id: UUID,
@@ -558,7 +567,8 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Senda
         deniedPermissionURLs: [String] = [],
         deniedPermissionMatchPatterns: [String] = [],
         profileStates: [String: BrowserWebExtensionProfileState] = [:],
-        appliesToAllProfiles: Bool = false
+        appliesToAllProfiles: Bool = false,
+        permissionPolicyVersion: Int = browserWebExtensionCurrentPermissionPolicyVersion
     ) {
         self.id = id
         self.displayName = displayName
@@ -574,6 +584,7 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Senda
         self.deniedPermissionMatchPatterns = deniedPermissionMatchPatterns
         self.profileStates = profileStates
         self.appliesToAllProfiles = appliesToAllProfiles
+        self.permissionPolicyVersion = permissionPolicyVersion
     }
 
     var defaultProfileState: BrowserWebExtensionProfileState {
@@ -619,6 +630,7 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Senda
         case deniedPermissionMatchPatterns
         case profileStates
         case appliesToAllProfiles
+        case permissionPolicyVersion
     }
 
     init(from decoder: Decoder) throws {
@@ -643,6 +655,7 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Senda
             forKey: .profileStates
         ) ?? [:]
         appliesToAllProfiles = try container.decodeIfPresent(Bool.self, forKey: .appliesToAllProfiles) ?? false
+        permissionPolicyVersion = try container.decodeIfPresent(Int.self, forKey: .permissionPolicyVersion) ?? 0
     }
 }
 
@@ -661,6 +674,7 @@ private struct BrowserWebExtensionPersistedInstallRecord: Decodable {
     let deniedPermissionMatchPatterns: [String]
     let profileStates: [String: BrowserWebExtensionProfileState]
     let appliesToAllProfiles: Bool
+    let permissionPolicyVersion: Int
 
     func installRecord() -> BrowserWebExtensionInstallRecord? {
         guard let sourceKind = BrowserWebExtensionInstallRecord.SourceKind(rawValue: sourceKind) else {
@@ -680,7 +694,8 @@ private struct BrowserWebExtensionPersistedInstallRecord: Decodable {
             deniedPermissionURLs: deniedPermissionURLs,
             deniedPermissionMatchPatterns: deniedPermissionMatchPatterns,
             profileStates: profileStates,
-            appliesToAllProfiles: appliesToAllProfiles
+            appliesToAllProfiles: appliesToAllProfiles,
+            permissionPolicyVersion: permissionPolicyVersion
         )
     }
 
@@ -699,6 +714,7 @@ private struct BrowserWebExtensionPersistedInstallRecord: Decodable {
         case deniedPermissionMatchPatterns
         case profileStates
         case appliesToAllProfiles
+        case permissionPolicyVersion
     }
 
     init(from decoder: Decoder) throws {
@@ -723,6 +739,7 @@ private struct BrowserWebExtensionPersistedInstallRecord: Decodable {
             forKey: .profileStates
         ) ?? [:]
         appliesToAllProfiles = try container.decodeIfPresent(Bool.self, forKey: .appliesToAllProfiles) ?? false
+        permissionPolicyVersion = try container.decodeIfPresent(Int.self, forKey: .permissionPolicyVersion) ?? 0
     }
 }
 
@@ -1015,7 +1032,7 @@ final class BrowserWebExtensionInstallStore {
             from: grantedPermissions,
             sourceKind: source.kind
         ).sorted()
-        let sanitizedMatchPatterns = browserWebExtensionSanitizedMatchPatternStrings(grantedPermissionMatchPatterns)
+        let sanitizedMatchPatterns = browserWebExtensionDefaultInstallMatchPatternStrings(grantedPermissionMatchPatterns)
         let deniedPermissions = existingRecord?.deniedPermissions ?? []
         let grantedPermissionURLs = existingRecord?.grantedPermissionURLs ?? []
         let deniedPermissionURLs = existingRecord?.deniedPermissionURLs ?? []
@@ -1053,7 +1070,8 @@ final class BrowserWebExtensionInstallStore {
             deniedPermissionURLs: deniedPermissionURLs,
             deniedPermissionMatchPatterns: deniedPermissionMatchPatterns,
             profileStates: nextProfileStates,
-            appliesToAllProfiles: installForAllProfiles || (existingRecord?.appliesToAllProfiles ?? false)
+            appliesToAllProfiles: installForAllProfiles || (existingRecord?.appliesToAllProfiles ?? false),
+            permissionPolicyVersion: browserWebExtensionCurrentPermissionPolicyVersion
         )
 
         var nextRecords = previousRecords
@@ -1107,6 +1125,7 @@ final class BrowserWebExtensionInstallStore {
         )
         let sanitizedPermissionURLs = browserWebExtensionSanitizedPermissionURLStrings(permissionURLs)
         let sanitizedPermissionMatchPatterns = browserWebExtensionSanitizedMatchPatternStrings(permissionMatchPatterns)
+        nextRecords[index].permissionPolicyVersion = browserWebExtensionCurrentPermissionPolicyVersion
 
         if granted {
             state.grantedPermissions = Self.union(state.grantedPermissions, grantablePermissions)
@@ -1491,6 +1510,26 @@ final class BrowserWebExtensionInstallStore {
                 (key, state.sanitized(sourceKind: record.sourceKind))
             }
         )
+        if record.permissionPolicyVersion < browserWebExtensionCurrentPermissionPolicyVersion {
+            record.grantedPermissionMatchPatterns = browserWebExtensionDefaultInstallMatchPatternStrings(
+                record.grantedPermissionMatchPatterns
+            )
+            record.profileStates = Dictionary(
+                uniqueKeysWithValues: record.profileStates.map { key, state in
+                    var state = state
+                    state.grantedPermissionMatchPatterns = browserWebExtensionDefaultInstallMatchPatternStrings(
+                        state.grantedPermissionMatchPatterns
+                    )
+                    state.deniedPermissionMatchPatterns = browserWebExtensionSanitizedMatchPatternStrings(
+                        state.deniedPermissionMatchPatterns
+                    )
+                    .filter { !state.grantedPermissionMatchPatterns.contains($0) }
+                    .sorted()
+                    return (key, state)
+                }
+            )
+        }
+        record.permissionPolicyVersion = browserWebExtensionCurrentPermissionPolicyVersion
         return record
     }
 
@@ -1619,23 +1658,27 @@ enum BrowserWebExtensionSupport {
 
     static func needsPreparationBeforeNavigation(
         profileID: UUID,
-        websiteDataStore: WKWebsiteDataStore
+        websiteDataStore: WKWebsiteDataStore,
+        targetURL: URL?
     ) -> Bool {
         guard #available(macOS 15.4, *) else { return false }
         return BrowserWebExtensionRuntime.shared.needsPreparationBeforeNavigation(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            targetURL: targetURL
         )
     }
 
     static func prepareBeforeNavigation(
         profileID: UUID,
-        websiteDataStore: WKWebsiteDataStore
+        websiteDataStore: WKWebsiteDataStore,
+        targetURL: URL?
     ) async {
         guard #available(macOS 15.4, *) else { return }
         await BrowserWebExtensionRuntime.shared.prepareBeforeNavigation(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            targetURL: targetURL
         )
     }
 
@@ -1802,9 +1845,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     private var runtimePermissionPromptTasks: [UUID: Task<Void, Never>] = [:]
     private var runtimePermissionPromptDenyHandlers: [UUID: () -> Void] = [:]
     private var runtimePermissionPromptWindows: [UUID: NSWindow] = [:]
-    private var backgroundLoadTasksByRuntimeKey: [BrowserWebExtensionRuntimeKey: [UUID: Task<Void, Never>]] = [:]
     private var installedRecordLoadTasksByRuntimeKey: [BrowserWebExtensionRuntimeKey: Task<Void, Never>] = [:]
-    private var loadedRuntimeKeys: Set<BrowserWebExtensionRuntimeKey> = []
 
     override init() {
         super.init()
@@ -1825,18 +1866,25 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
     func needsPreparationBeforeNavigation(
         profileID: UUID,
-        websiteDataStore: WKWebsiteDataStore
+        websiteDataStore: WKWebsiteDataStore,
+        targetURL: URL?
     ) -> Bool {
-        !loadedRuntimeKeys.contains(runtimeKey(profileID: profileID, websiteDataStore: websiteDataStore))
+        let key = runtimeKey(profileID: profileID, websiteDataStore: websiteDataStore)
+        return !recordsNeedingAutomaticLoad(runtimeKey: key, targetURL: targetURL).isEmpty
     }
 
     func prepareBeforeNavigation(
         profileID: UUID,
-        websiteDataStore: WKWebsiteDataStore
+        websiteDataStore: WKWebsiteDataStore,
+        targetURL: URL?
     ) async {
         let key = runtimeKey(profileID: profileID, websiteDataStore: websiteDataStore)
         _ = ensureController(runtimeKey: key, defaultWebsiteDataStore: websiteDataStore)
-        await loadInstalledRecordsIfNeeded(runtimeKey: key, websiteDataStore: websiteDataStore)
+        await loadInstalledRecordsIfNeeded(
+            runtimeKey: key,
+            websiteDataStore: websiteDataStore,
+            targetURL: targetURL
+        )
     }
 
     func webExtensionPageConfiguration(
@@ -1845,8 +1893,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         websiteDataStore: WKWebsiteDataStore
     ) -> WKWebViewConfiguration? {
         let key = runtimeKey(profileID: profileID, websiteDataStore: websiteDataStore)
-        guard loadedRuntimeKeys.contains(key),
-              let context = controllersByRuntimeKey[key]?.extensionContext(for: url) else {
+        guard let context = controllersByRuntimeKey[key]?.extensionContext(for: url) else {
             return nil
         }
         return context.webViewConfiguration
@@ -1885,8 +1932,12 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             noteActiveTab(adapter, runtimeKey: key, focusedWindow: windowAdapter)
         }
         controller.didChangeTabProperties(WKWebExtension.TabChangedProperties([.title, .URL, .loading]), for: adapter)
-        Task { @MainActor [weak self, websiteDataStore = panel.websiteDataStore] in
-            await self?.loadInstalledRecordsIfNeeded(runtimeKey: key, websiteDataStore: websiteDataStore)
+        Task { @MainActor [weak self, weak panel, websiteDataStore = panel.websiteDataStore] in
+            await self?.loadInstalledRecordsIfNeeded(
+                runtimeKey: key,
+                websiteDataStore: websiteDataStore,
+                targetURL: panel?.webView.url ?? panel?.currentURL
+            )
         }
         postDidChange()
     }
@@ -1918,13 +1969,15 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     func actionSnapshots(for panel: BrowserPanel) -> [BrowserWebExtensionActionSnapshot] {
-        guard let tab = tabAdaptersByPanelID[panel.id] else { return [] }
-        return contextsByRuntimeKey[tab.runtimeKey, default: [:]].compactMap { recordID, context in
+        guard let tab = tabAdaptersByPanelID[panel.id] else {
+            return placeholderActionSnapshots(profileID: panel.profileID, excluding: [])
+        }
+        var snapshots = contextsByRuntimeKey[tab.runtimeKey, default: [:]].compactMap { recordID, context in
             actionSnapshot(recordID: recordID, context: context, tab: tab)
         }
-        .sorted {
-            $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending
-        }
+        let loadedRecordIDs = Set(snapshots.map(\.id))
+        snapshots.append(contentsOf: placeholderActionSnapshots(profileID: tab.runtimeKey.profileID, excluding: loadedRecordIDs))
+        return sortedActionSnapshots(snapshots)
     }
 
     func activeActionPopupSnapshot(for panel: BrowserPanel) -> BrowserWebExtensionActionSnapshot? {
@@ -1938,12 +1991,33 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     func performAction(_ actionID: UUID, for panel: BrowserPanel) {
-        guard let runtimeKey = tabAdaptersByPanelID[panel.id]?.runtimeKey,
-              let context = contextsByRuntimeKey[runtimeKey]?[actionID] else {
+        guard let runtimeKey = tabAdaptersByPanelID[panel.id]?.runtimeKey else {
             return
         }
-        let tab = tabAdaptersByPanelID[panel.id]
-        context.performAction(for: tab)
+        if let context = contextsByRuntimeKey[runtimeKey]?[actionID] {
+            context.performAction(for: tabAdaptersByPanelID[panel.id])
+            return
+        }
+        guard let record = store.records.first(where: { $0.id == actionID }),
+              record.profileState(for: runtimeKey.profileID).isEnabled else {
+            return
+        }
+        Task { @MainActor [weak self, weak panel] in
+            guard let self,
+                  let panel,
+                  let tab = self.tabAdaptersByPanelID[panel.id],
+                  tab.runtimeKey == runtimeKey else {
+                return
+            }
+            do {
+                try await self.load(record: record, runtimeKey: runtimeKey, websiteDataStore: panel.websiteDataStore)
+                self.contextsByRuntimeKey[runtimeKey]?[actionID]?.performAction(for: tab)
+                self.postDidChange()
+            } catch {
+                try? await self.store.setLastError(error.localizedDescription, for: actionID, profileID: runtimeKey.profileID)
+                self.postDidChange()
+            }
+        }
     }
 
     func setActionPopupAnchorView(_ view: NSView?, forPanelID panelID: UUID) {
@@ -2015,7 +2089,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             grantedPermissionMatchPatterns: requiredMatchPatternStrings(for: webExtension),
             profileID: profileID
         )
-        try await load(record: record, profileID: profileID)
+        await loadRecordAutomaticallyIfNeeded(record, profileID: profileID)
         postDidChange()
         let loadedRecordIDs = contextsByRuntimeKey.reduce(into: Set<UUID>()) { result, element in
             guard element.key.profileID == profileID else { return }
@@ -2047,7 +2121,6 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         cancelRuntimePermissionPrompts()
         closeAllActionPopups()
         closeAllAuxiliaryWindows()
-        cancelAllBackgroundLoadTasks()
         for (runtimeKey, contextsByRecordID) in contextsByRuntimeKey {
             guard let controller = controllersByRuntimeKey[runtimeKey] else { continue }
             for context in contextsByRecordID.values {
@@ -2055,10 +2128,13 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             }
         }
         contextsByRuntimeKey.removeAll()
-        loadedRuntimeKeys.removeAll()
         await store.reload()
         for (runtimeKey, dataStore) in websiteDataStoresByRuntimeKey {
-            await loadInstalledRecordsIfNeeded(runtimeKey: runtimeKey, websiteDataStore: dataStore)
+            await loadInstalledRecordsIfNeeded(
+                runtimeKey: runtimeKey,
+                websiteDataStore: dataStore,
+                targetURL: automaticLoadTargetURL(for: runtimeKey)
+            )
         }
         postDidChange()
     }
@@ -2083,7 +2159,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     ) async throws -> BrowserWebExtensionInstalledSummary {
         try await store.setEnabled(isEnabled, for: id, profileID: profileID)
         if isEnabled, let record = store.records.first(where: { $0.id == id }) {
-            try await load(record: record, profileID: profileID)
+            await loadRecordAutomaticallyIfNeeded(record, profileID: profileID)
         } else {
             closeActionPopups(recordID: id, profileID: profileID)
             closeAuxiliaryWindows(recordID: id, profileID: profileID)
@@ -2155,11 +2231,6 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         let controller = WKWebExtensionController(configuration: configuration)
         controller.delegate = self
         controllersByRuntimeKey[runtimeKey] = controller
-
-        startLoadingInstalledRecordsIfNeeded(
-            runtimeKey: runtimeKey,
-            websiteDataStore: defaultWebsiteDataStore
-        )
 
         return controller
     }
@@ -2305,41 +2376,140 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
     private func loadInstalledRecordsIfNeeded(
         runtimeKey: BrowserWebExtensionRuntimeKey,
-        websiteDataStore: WKWebsiteDataStore
+        websiteDataStore: WKWebsiteDataStore,
+        targetURL: URL?
     ) async {
-        guard !loadedRuntimeKeys.contains(runtimeKey) else { return }
-        startLoadingInstalledRecordsIfNeeded(runtimeKey: runtimeKey, websiteDataStore: websiteDataStore)
+        guard !recordsNeedingAutomaticLoad(runtimeKey: runtimeKey, targetURL: targetURL).isEmpty else {
+            return
+        }
+        startLoadingInstalledRecordsIfNeeded(
+            runtimeKey: runtimeKey,
+            websiteDataStore: websiteDataStore,
+            targetURL: targetURL
+        )
         guard let task = installedRecordLoadTasksByRuntimeKey[runtimeKey] else { return }
         await task.value
     }
 
     private func startLoadingInstalledRecordsIfNeeded(
         runtimeKey: BrowserWebExtensionRuntimeKey,
-        websiteDataStore: WKWebsiteDataStore
+        websiteDataStore: WKWebsiteDataStore,
+        targetURL: URL?
     ) {
-        guard !loadedRuntimeKeys.contains(runtimeKey) else { return }
+        guard !recordsNeedingAutomaticLoad(runtimeKey: runtimeKey, targetURL: targetURL).isEmpty else { return }
         guard installedRecordLoadTasksByRuntimeKey[runtimeKey] == nil else { return }
         installedRecordLoadTasksByRuntimeKey[runtimeKey] = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.loadInstalledRecords(runtimeKey: runtimeKey, websiteDataStore: websiteDataStore)
+            await self.loadInstalledRecords(
+                runtimeKey: runtimeKey,
+                websiteDataStore: websiteDataStore,
+                targetURL: targetURL
+            )
             self.installedRecordLoadTasksByRuntimeKey[runtimeKey] = nil
         }
     }
 
     private func loadInstalledRecords(
         runtimeKey: BrowserWebExtensionRuntimeKey,
-        websiteDataStore: WKWebsiteDataStore
+        websiteDataStore: WKWebsiteDataStore,
+        targetURL: URL?
     ) async {
-        guard !loadedRuntimeKeys.contains(runtimeKey) else { return }
-        for record in store.records where record.profileState(for: runtimeKey.profileID).isEnabled {
+        for record in recordsNeedingAutomaticLoad(runtimeKey: runtimeKey, targetURL: targetURL) {
             do {
                 try await load(record: record, runtimeKey: runtimeKey, websiteDataStore: websiteDataStore)
             } catch {
                 try? await store.setLastError(error.localizedDescription, for: record.id, profileID: runtimeKey.profileID)
             }
         }
-        loadedRuntimeKeys.insert(runtimeKey)
         postDidChange()
+    }
+
+    private func loadRecordAutomaticallyIfNeeded(
+        _ record: BrowserWebExtensionInstallRecord,
+        profileID: UUID
+    ) async {
+        var keys = activeRuntimeKeys(profileID: profileID)
+        if keys.isEmpty {
+            keys = [defaultRuntimeKey(profileID: profileID)]
+        }
+        for runtimeKey in keys {
+            let targetURL = automaticLoadTargetURL(for: runtimeKey)
+            guard shouldAutomaticallyLoad(record: record, runtimeKey: runtimeKey, targetURL: targetURL) else {
+                continue
+            }
+            let dataStore = websiteDataStoresByRuntimeKey[runtimeKey]
+                ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
+            try? await load(record: record, runtimeKey: runtimeKey, websiteDataStore: dataStore)
+        }
+    }
+
+    private func placeholderActionSnapshots(
+        profileID: UUID,
+        excluding loadedRecordIDs: Set<UUID>
+    ) -> [BrowserWebExtensionActionSnapshot] {
+        sortedActionSnapshots(
+            store.records.compactMap { record in
+                guard !loadedRecordIDs.contains(record.id),
+                      record.profileState(for: profileID).isEnabled else {
+                    return nil
+                }
+                return BrowserWebExtensionActionSnapshot(
+                    id: record.id,
+                    label: record.displayName,
+                    badgeText: "",
+                    isEnabled: true,
+                    iconPNGData: nil
+                )
+            }
+        )
+    }
+
+    private func sortedActionSnapshots(
+        _ snapshots: [BrowserWebExtensionActionSnapshot]
+    ) -> [BrowserWebExtensionActionSnapshot] {
+        snapshots.sorted {
+            $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending
+        }
+    }
+
+    private func recordsNeedingAutomaticLoad(
+        runtimeKey: BrowserWebExtensionRuntimeKey,
+        targetURL: URL?
+    ) -> [BrowserWebExtensionInstallRecord] {
+        store.records.filter { record in
+            contextsByRuntimeKey[runtimeKey]?[record.id] == nil &&
+                shouldAutomaticallyLoad(record: record, runtimeKey: runtimeKey, targetURL: targetURL)
+        }
+    }
+
+    private func shouldAutomaticallyLoad(
+        record: BrowserWebExtensionInstallRecord,
+        runtimeKey: BrowserWebExtensionRuntimeKey,
+        targetURL: URL?
+    ) -> Bool {
+        let state = record.profileState(for: runtimeKey.profileID)
+        guard state.isEnabled,
+              let targetURL,
+              browserWebExtensionCanGrantAccess(to: targetURL, allowsFileURLAccess: BrowserExtensionFileURLAccessSettings.isEnabled()) else {
+            return false
+        }
+        if browserWebExtensionSanitizedPermissionURLStrings(state.grantedPermissionURLs).contains(targetURL.absoluteString) {
+            return true
+        }
+        return browserWebExtensionSanitizedMatchPatternStrings(state.grantedPermissionMatchPatterns).contains { rawPattern in
+            guard let pattern = try? WKWebExtension.MatchPattern(string: rawPattern) else { return false }
+            return pattern.matches(targetURL)
+        }
+    }
+
+    private func automaticLoadTargetURL(for runtimeKey: BrowserWebExtensionRuntimeKey) -> URL? {
+        activeTabAdapter(runtimeKey: runtimeKey)?.panel.flatMap { panel in
+            panel.webView.url ?? panel.currentURL
+        } ?? tabAdapters(runtimeKey: runtimeKey).compactMap { adapter in
+            adapter.panel.flatMap { panel in
+                panel.webView.url ?? panel.currentURL
+            }
+        }.first
     }
 
     private func load(record: BrowserWebExtensionInstallRecord, profileID: UUID) async throws {
@@ -2376,7 +2546,6 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             defaultWebsiteDataStore: websiteDataStore
         )
         if let existing = contextsByRuntimeKey[runtimeKey]?[record.id] {
-            cancelBackgroundLoadTask(recordID: record.id, runtimeKey: runtimeKey)
             try? controller.unload(existing)
             contextsByRuntimeKey[runtimeKey]?[record.id] = nil
         }
@@ -2451,31 +2620,6 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             throw loadError
         }
         try? await store.setLastError(nil, for: record.id, profileID: profileID)
-        if webExtension.hasBackgroundContent {
-            let task = Task { @MainActor [weak self] in
-                guard let self else { return }
-                do {
-                    try await context.loadBackgroundContent()
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    guard let currentContext = self.contextsByRuntimeKey[runtimeKey]?[record.id],
-                          currentContext === context else { return }
-#if DEBUG
-                    cmuxDebugLog(
-                        "browser.extensions.background.loadFailed label=\(record.displayName) error=\(error.localizedDescription)"
-                    )
-#endif
-                    try? await self.store.setLastError(
-                        BrowserWebExtensionInstallError.loadFailed(error.localizedDescription).localizedDescription,
-                        for: record.id,
-                        profileID: profileID
-                    )
-                    self.postDidChange()
-                }
-                self.backgroundLoadTasksByRuntimeKey[runtimeKey]?[record.id] = nil
-            }
-            backgroundLoadTasksByRuntimeKey[runtimeKey, default: [:]][record.id] = task
-        }
     }
 
     private func unload(recordID: UUID, profileID: UUID) {
@@ -2486,7 +2630,6 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
     private func unload(recordID: UUID, runtimeKey: BrowserWebExtensionRuntimeKey) {
         guard let context = contextsByRuntimeKey[runtimeKey]?[recordID] else { return }
-        cancelBackgroundLoadTask(recordID: recordID, runtimeKey: runtimeKey)
         try? controllersByRuntimeKey[runtimeKey]?.unload(context)
         contextsByRuntimeKey[runtimeKey]?[recordID] = nil
         if contextsByRuntimeKey[runtimeKey]?.isEmpty == true {
@@ -2637,23 +2780,6 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             !window.isMiniaturized &&
             window.alphaValue > 0.001 &&
             !window.ignoresMouseEvents
-    }
-
-    private func cancelBackgroundLoadTask(recordID: UUID, runtimeKey: BrowserWebExtensionRuntimeKey) {
-        backgroundLoadTasksByRuntimeKey[runtimeKey]?[recordID]?.cancel()
-        backgroundLoadTasksByRuntimeKey[runtimeKey]?[recordID] = nil
-        if backgroundLoadTasksByRuntimeKey[runtimeKey]?.isEmpty == true {
-            backgroundLoadTasksByRuntimeKey[runtimeKey] = nil
-        }
-    }
-
-    private func cancelAllBackgroundLoadTasks() {
-        for tasksByRecordID in backgroundLoadTasksByRuntimeKey.values {
-            for task in tasksByRecordID.values {
-                task.cancel()
-            }
-        }
-        backgroundLoadTasksByRuntimeKey.removeAll()
     }
 
     private func requiredMatchPatternStrings(for webExtension: WKWebExtension) -> [String] {
@@ -2867,18 +2993,12 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         guard !hasBrowserTab else { return }
         guard !auxiliaryWindowAdaptersByID.values.contains(where: { $0.runtimeKey == runtimeKey }) else { return }
 
-        if let tasksByRecordID = backgroundLoadTasksByRuntimeKey[runtimeKey] {
-            for task in tasksByRecordID.values {
-                task.cancel()
-            }
-        }
         if let controller = controllersByRuntimeKey[runtimeKey],
            let contextsByRecordID = contextsByRuntimeKey[runtimeKey] {
             for context in contextsByRecordID.values {
                 try? controller.unload(context)
             }
         }
-        backgroundLoadTasksByRuntimeKey[runtimeKey] = nil
         contextsByRuntimeKey[runtimeKey] = nil
         controllersByRuntimeKey[runtimeKey]?.delegate = nil
         controllersByRuntimeKey[runtimeKey] = nil
@@ -2886,7 +3006,6 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         windowAdaptersByRuntimeKey[runtimeKey] = nil
         activeTabsByRuntimeKey[runtimeKey] = nil
         focusedWindowsByRuntimeKey[runtimeKey] = nil
-        loadedRuntimeKeys.remove(runtimeKey)
     }
 
     private func closeAllAuxiliaryWindows() {
@@ -2918,6 +3037,13 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
     fileprivate func actionPopupDidClose(_ presentation: BrowserWebExtensionActionPopupPresentation) {
         actionPopupPresentationsByID.removeValue(forKey: presentation.id)
+        defer {
+            if let actionID = presentation.actionID,
+               let panelID = presentation.panelID,
+               let runtimeKey = tabAdaptersByPanelID[panelID]?.runtimeKey {
+                unloadDormantActionContextIfNeeded(recordID: actionID, runtimeKey: runtimeKey)
+            }
+        }
         if let panelID = presentation.panelID,
            activeActionPopupByPanelID[panelID]?.presentationID == presentation.id {
             activeActionPopupByPanelID.removeValue(forKey: panelID)
@@ -2956,6 +3082,28 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         for presentation in presentations {
             presentation.close()
         }
+    }
+
+    private func unloadDormantActionContextIfNeeded(
+        recordID: UUID,
+        runtimeKey: BrowserWebExtensionRuntimeKey
+    ) {
+        guard actionPopupPresentationsByID.values.allSatisfy({ $0.actionID != recordID }) else { return }
+        guard !auxiliaryWindowAdaptersByID.values.contains(where: {
+            $0.recordID == recordID && $0.runtimeKey == runtimeKey
+        }) else {
+            return
+        }
+        guard let record = store.records.first(where: { $0.id == recordID }) else { return }
+        guard !shouldAutomaticallyLoad(
+            record: record,
+            runtimeKey: runtimeKey,
+            targetURL: automaticLoadTargetURL(for: runtimeKey)
+        ) else {
+            return
+        }
+        unload(recordID: recordID, runtimeKey: runtimeKey)
+        postDidChange()
     }
 
     private func showActionPopup(
@@ -3175,6 +3323,44 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         completionHandler: @escaping (Error?) -> Void
     ) {
         showActionPopup(action, completionHandler: completionHandler)
+    }
+
+    func webExtensionController(
+        _ controller: WKWebExtensionController,
+        sendMessage message: Any,
+        toApplicationWithIdentifier applicationIdentifier: String?,
+        for context: WKWebExtensionContext,
+        replyHandler: @escaping (Any?, Error?) -> Void
+    ) {
+        replyHandler(nil, Self.nativeMessagingUnsupportedError(applicationIdentifier: applicationIdentifier))
+    }
+
+    func webExtensionController(
+        _ controller: WKWebExtensionController,
+        connectUsing port: WKWebExtension.MessagePort,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping (Error?) -> Void
+    ) {
+        let error = Self.nativeMessagingUnsupportedError(applicationIdentifier: port.applicationIdentifier)
+        port.disconnect(throwing: error)
+        completionHandler(error)
+    }
+
+    private static func nativeMessagingUnsupportedError(applicationIdentifier: String?) -> NSError {
+        var userInfo: [String: Any] = [
+            NSLocalizedDescriptionKey: String(
+                localized: "browser.extensions.nativeMessaging.unsupported",
+                defaultValue: "Native messaging is not supported by cmux."
+            )
+        ]
+        if let applicationIdentifier {
+            userInfo["CMUXNativeMessagingApplicationIdentifier"] = applicationIdentifier
+        }
+        return NSError(
+            domain: "com.cmuxterm.browserWebExtension.nativeMessaging",
+            code: 1,
+            userInfo: userInfo
+        )
     }
 
     private func actionPopupAnchorScreenRect(forPanelID panelID: UUID, fallbackView: NSView) -> NSRect {
@@ -3588,8 +3774,8 @@ private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSWind
         didClosePopup = true
         removeOutsideClickMonitor()
         restorePopupUIDelegate()
-        runtime?.actionPopupDidClose(self)
         action.closePopup()
+        runtime?.actionPopupDidClose(self)
     }
 
     private func restorePopupUIDelegate() {

@@ -307,7 +307,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         let store = BrowserWebExtensionInstallStore(registryURL: registryURL)
 
         XCTAssertEqual(store.records.map(\.sourceKind), [.appExtensionBundle])
-        XCTAssertEqual(store.records.first?.grantedPermissions, ["menus", "nativeMessaging", "storage", "webNavigation", "webRequestAuthProvider"])
+        XCTAssertEqual(store.records.first?.grantedPermissions, ["menus", "storage", "webNavigation", "webRequestAuthProvider"])
 
         let persisted = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(contentsOf: registryURL)) as? [[String: Any]]
@@ -318,7 +318,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         )
         XCTAssertEqual(
             persisted.first?["grantedPermissions"] as? [String],
-            ["menus", "nativeMessaging", "storage", "webNavigation", "webRequestAuthProvider"]
+            ["menus", "storage", "webNavigation", "webRequestAuthProvider"]
         )
     }
 
@@ -346,7 +346,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         )
     }
 
-    func testAppExtensionInstallGrantsNativeMessaging() async throws {
+    func testAppExtensionInstallDropsUnsupportedNativeMessaging() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -368,7 +368,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
 
         XCTAssertEqual(record.sourceKind, .appExtensionBundle)
         XCTAssertEqual(record.grantedPermissions, [])
-        XCTAssertEqual(record.profileState(for: profileID).grantedPermissions, ["nativeMessaging", "storage"])
+        XCTAssertEqual(record.profileState(for: profileID).grantedPermissions, ["storage"])
     }
 
     func testProfileScopedStateDoesNotLeakBetweenProfiles() async throws {
@@ -400,7 +400,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         XCTAssertFalse(profileASummary.isEnabled)
         XCTAssertTrue(profileASummary.isLoaded)
         XCTAssertEqual(profileASummary.lastError, "crashed during load")
-        XCTAssertEqual(profileASummary.grantedPermissions, ["nativeMessaging", "storage"])
+        XCTAssertEqual(profileASummary.grantedPermissions, ["storage"])
         XCTAssertEqual(profileASummary.grantedPermissionMatchPatterns, ["https://example.com/*"])
 
         let profileBSummary = try XCTUnwrap(reloaded.summaries(profileID: profileB).first)
@@ -535,7 +535,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         let profileASummary = try XCTUnwrap(store.summaries(profileID: profileA).first)
         XCTAssertTrue(profileASummary.isEnabled)
         XCTAssertNil(profileASummary.lastError)
-        XCTAssertEqual(profileASummary.grantedPermissions, ["nativeMessaging", "storage"])
+        XCTAssertEqual(profileASummary.grantedPermissions, ["storage"])
         XCTAssertEqual(profileASummary.grantedPermissionMatchPatterns, ["https://two.example/*"])
 
         let profileBState = reinstalled.profileState(for: profileB)
@@ -571,6 +571,111 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
                 "https://example.com/*",
             ]
         )
+
+        XCTAssertEqual(
+            browserWebExtensionDefaultInstallMatchPatternStrings([
+                "<all_urls>",
+                "*://example.com/*",
+                "https://vault.example/*",
+            ]),
+            [
+                "http://example.com/*",
+                "https://example.com/*",
+                "https://vault.example/*",
+            ]
+        )
+    }
+
+    func testInstallRecordDoesNotAutoGrantAllSitesHostAccess() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let registryURL = root.appendingPathComponent("registry.json")
+        let store = BrowserWebExtensionInstallStore(registryURL: registryURL)
+        let appexURL = root.appendingPathComponent("Bitwarden.appex", isDirectory: true)
+        try createAppExtension(at: appexURL, bundleIdentifier: "com.example.Bitwarden.Extension")
+        let profileID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+        let record = try await store.installRecord(
+            from: try store.discoverSource(from: appexURL, developerModeEnabled: true),
+            displayName: "Bitwarden",
+            displayVersion: "1.0",
+            grantedPermissions: ["storage"],
+            grantedPermissionMatchPatterns: ["<all_urls>", "https://vault.example/*"],
+            profileID: profileID
+        )
+
+        XCTAssertEqual(
+            record.profileState(for: profileID).grantedPermissionMatchPatterns,
+            ["https://vault.example/*"]
+        )
+
+        try await store.recordRuntimePermissionDecision(
+            granted: true,
+            permissionMatchPatterns: ["<all_urls>"],
+            for: record.id,
+            profileID: profileID
+        )
+
+        let reloaded = BrowserWebExtensionInstallStore(registryURL: registryURL)
+        XCTAssertEqual(
+            reloaded.records.first?.profileState(for: profileID).grantedPermissionMatchPatterns,
+            ["http://*/*", "https://*/*", "https://vault.example/*"]
+        )
+    }
+
+    func testReloadMigratesLegacyAllSitesGrantsToRuntimePromptOnly() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let registryURL = root.appendingPathComponent("registry.json")
+        let appexURL = root.appendingPathComponent("Bitwarden.appex", isDirectory: true)
+        try createAppExtension(at: appexURL, bundleIdentifier: "com.example.Bitwarden.Extension")
+        let profileID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+        let recordID = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
+        try """
+        [
+          {
+            "id": "\(recordID.uuidString)",
+            "displayName": "Bitwarden",
+            "displayVersion": "1.0",
+            "sourceKind": "appExtensionBundle",
+            "sourcePath": "\(appexURL.path)",
+            "isEnabled": true,
+            "grantedPermissions": ["storage"],
+            "deniedPermissions": [],
+            "grantedPermissionURLs": [],
+            "deniedPermissionURLs": [],
+            "grantedPermissionMatchPatterns": ["http://*/*", "https://*/*", "https://vault.example/*"],
+            "deniedPermissionMatchPatterns": [],
+            "profileStates": {
+              "\(profileID.uuidString.lowercased())": {
+                "isEnabled": true,
+                "grantedPermissions": ["storage"],
+                "deniedPermissions": [],
+                "grantedPermissionURLs": [],
+                "deniedPermissionURLs": [],
+                "grantedPermissionMatchPatterns": ["http://*/*", "https://*/*", "https://vault.example/*"],
+                "deniedPermissionMatchPatterns": []
+              }
+            },
+            "appliesToAllProfiles": false
+          }
+        ]
+        """.write(to: registryURL, atomically: true, encoding: .utf8)
+
+        let store = BrowserWebExtensionInstallStore(registryURL: registryURL)
+        let record = try XCTUnwrap(store.records.first)
+
+        XCTAssertEqual(record.grantedPermissionMatchPatterns, ["https://vault.example/*"])
+        XCTAssertEqual(
+            record.profileState(for: profileID).grantedPermissionMatchPatterns,
+            ["https://vault.example/*"]
+        )
+
+        let persisted = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: registryURL)) as? [[String: Any]]
+        )
+        XCTAssertEqual(persisted.first?["permissionPolicyVersion"] as? Int, 1)
     }
 
     func testContextIdentifierUsesAppExtensionBundleIdentifier() throws {
@@ -880,25 +985,21 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
 
         XCTAssertEqual(
             policy.grantablePermissionNames(from: requestedPermissions),
-            ["clipboardRead", "menus", "nativeMessaging", "storage", "webNavigation", "webRequest"]
+            ["clipboardRead", "menus", "storage", "webNavigation", "webRequest"]
         )
 
         let unsupportedAPIs = policy.unsupportedAPIs(forPermissionNames: requestedPermissions)
         XCTAssertTrue(unsupportedAPIs.isEmpty)
         XCTAssertFalse(unsupportedAPIs.contains("browser.commands"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.menus"))
-        XCTAssertFalse(unsupportedAPIs.contains("browser.runtime.connectNative"))
-        XCTAssertFalse(unsupportedAPIs.contains("browser.runtime.sendNativeMessage"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.runtime.openOptionsPage"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.storage"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.webNavigation"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.webRequest"))
-        XCTAssertFalse(unsupportedAPIs.contains("chrome.runtime.connectNative"))
-        XCTAssertFalse(unsupportedAPIs.contains("chrome.runtime.sendNativeMessage"))
         XCTAssertFalse(unsupportedAPIs.contains("chrome.webNavigation"))
     }
 
-    func testHostCapabilityPolicyGrantsSafariAppExtensionPermissions() {
+    func testHostCapabilityPolicyDropsUnsupportedNativeMessaging() {
         let policy = BrowserWebExtensionHostCapabilityPolicy.current
         let requestedPermissions = ["storage", "nativeMessaging"]
 
@@ -907,7 +1008,7 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
                 from: requestedPermissions,
                 sourceKind: .appExtensionBundle
             )),
-            Set(["storage", "nativeMessaging"])
+            Set(["storage"])
         )
 
         let appExtensionUnsupportedAPIs = policy.unsupportedAPIs(
@@ -915,13 +1016,9 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
             sourceKind: .appExtensionBundle
         )
         XCTAssertTrue(appExtensionUnsupportedAPIs.isEmpty)
-        XCTAssertFalse(appExtensionUnsupportedAPIs.contains("browser.runtime.connectNative"))
-        XCTAssertFalse(appExtensionUnsupportedAPIs.contains("browser.runtime.sendNativeMessage"))
-        XCTAssertFalse(appExtensionUnsupportedAPIs.contains("chrome.runtime.connectNative"))
-        XCTAssertFalse(appExtensionUnsupportedAPIs.contains("chrome.runtime.sendNativeMessage"))
     }
 
-    func testPasswordManagerSafariAppExtensionsDelegatePrivilegedNativeMessagingToWebKit() {
+    func testPasswordManagerSafariAppExtensionsDoNotGrantNativeMessagingWithoutBroker() {
         let policy = BrowserWebExtensionHostCapabilityPolicy.current
         let bitwardenPermissions = [
             "activeTab",
@@ -973,7 +1070,6 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
                 "clipboardWrite",
                 "contextMenus",
                 "idle",
-                "nativeMessaging",
                 "notifications",
                 "offscreen",
                 "privacy",
@@ -998,7 +1094,6 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
                 "favicon",
                 "idle",
                 "management",
-                "nativeMessaging",
                 "notifications",
                 "offscreen",
                 "privacy",
@@ -1020,8 +1115,6 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
         XCTAssertFalse(unsupportedAPIs.contains("browser.storage"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.tabs"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.notifications"))
-        XCTAssertFalse(unsupportedAPIs.contains("browser.runtime.connectNative"))
-        XCTAssertFalse(unsupportedAPIs.contains("browser.runtime.sendNativeMessage"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.webNavigation"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.webRequest"))
     }

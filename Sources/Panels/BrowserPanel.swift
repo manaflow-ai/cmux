@@ -5046,7 +5046,8 @@ final class BrowserPanel: Panel, ObservableObject {
         clearWebViewDiscardState(reason: "navigation")
         if BrowserWebExtensionSupport.needsPreparationBeforeNavigation(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            targetURL: url
         ) {
             prepareWebExtensionsThenNavigate(
                 request: request,
@@ -5087,7 +5088,8 @@ final class BrowserPanel: Panel, ObservableObject {
         ] in
             await BrowserWebExtensionSupport.prepareBeforeNavigation(
                 profileID: navigationProfileID,
-                websiteDataStore: navigationWebsiteDataStore
+                websiteDataStore: navigationWebsiteDataStore,
+                targetURL: originalURL
             )
             guard let self,
                   self.pendingWebExtensionPreparationNavigationToken == token else {

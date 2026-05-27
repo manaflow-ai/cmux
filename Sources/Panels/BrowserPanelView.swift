@@ -1427,7 +1427,6 @@ struct BrowserPanelView: View {
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
                 .font(.system(size: fallbackSystemSize, weight: .medium))
-                .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
         }
     }
