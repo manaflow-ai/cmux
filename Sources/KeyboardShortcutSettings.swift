@@ -106,6 +106,7 @@ enum KeyboardShortcutSettings {
         case closeTab
         case closeOtherTabsInPane
         case closeWorkspace
+        case groupSelectedWorkspaces
         case reopenClosedBrowserPanel
         case newSurface
         case toggleTerminalCopyMode
@@ -194,6 +195,7 @@ enum KeyboardShortcutSettings {
             case .closeTab: return String(localized: "menu.file.closeTab", defaultValue: "Close Tab")
             case .closeOtherTabsInPane: return String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane")
             case .closeWorkspace: return String(localized: "shortcut.closeWorkspace.label", defaultValue: "Close Workspace")
+            case .groupSelectedWorkspaces: return String(localized: "shortcut.groupSelectedWorkspaces.label", defaultValue: "Group Selected Workspaces")
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
@@ -331,6 +333,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "t", command: true, shift: false, option: true, control: false)
             case .closeWorkspace:
                 return StoredShortcut(key: "w", command: true, shift: true, option: false, control: false)
+            case .groupSelectedWorkspaces:
+                return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             case .reopenClosedBrowserPanel:
                 return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
             case .focusLeft:

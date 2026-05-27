@@ -12365,6 +12365,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
 
+        if matchConfiguredShortcut(event: event, action: .groupSelectedWorkspaces) {
+            return handleGroupSelectedWorkspacesShortcut(
+                preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            )
+        }
+
         if matchConfiguredShortcut(event: event, action: .editWorkspaceDescription) {
 #if DEBUG
             cmuxDebugLog(
@@ -13593,6 +13599,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         requestCommandPaletteRenameWorkspace(
             preferredWindow: targetWindow,
             source: "shortcut.renameWorkspace"
+        )
+        return true
+    }
+
+    @discardableResult
+    func handleGroupSelectedWorkspacesShortcut(preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let tabManager else { return false }
+        let selectedIds = Array(tabManager.sidebarSelectedWorkspaceIds)
+        let eligibleIds: [UUID] = selectedIds.isEmpty
+            ? tabManager.selectedTabId.map { [$0] } ?? []
+            : selectedIds
+        guard !eligibleIds.isEmpty else { return false }
+        _ = targetWindow
+
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "alert.groupSelected.title",
+            defaultValue: "New Group"
+        )
+        alert.informativeText = String(
+            localized: "alert.groupSelected.message",
+            defaultValue: "Name this workspace group."
+        )
+        let input = NSTextField(string: "")
+        input.placeholderString = String(
+            localized: "alert.groupSelected.placeholder",
+            defaultValue: "Group name"
+        )
+        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
+        alert.accessoryView = input
+        alert.addButton(withTitle: String(
+            localized: "alert.groupSelected.create",
+            defaultValue: "Create"
+        ))
+        alert.addButton(withTitle: String(
+            localized: "alert.groupSelected.cancel",
+            defaultValue: "Cancel"
+        ))
+        if let alertWindow = alert.window as NSWindow? {
+            alertWindow.initialFirstResponder = input
+            DispatchQueue.main.async {
+                alertWindow.makeFirstResponder(input)
+                input.selectText(nil)
+            }
+        }
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return true }
+        tabManager.createWorkspaceGroup(
+            name: input.stringValue,
+            childWorkspaceIds: eligibleIds
         )
         return true
     }

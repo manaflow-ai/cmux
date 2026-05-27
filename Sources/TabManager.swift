@@ -1377,7 +1377,7 @@ class TabManager: ObservableObject {
     private var workspaceCycleGeneration: UInt64 = 0
     private var workspaceCycleCooldownTask: Task<Void, Never>?
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
-    private var sidebarSelectedWorkspaceIds: Set<UUID> = []
+    private(set) var sidebarSelectedWorkspaceIds: Set<UUID> = []
     private var currentWindowTabBarLeadingInset: CGFloat?
     private var closeConfirmationInFlight = false
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
