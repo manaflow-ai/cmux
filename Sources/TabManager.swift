@@ -6483,12 +6483,14 @@ class TabManager: ObservableObject {
             return focusedPanelId
         }
 
-        if let target = workspace.focusedBonsplitPaneForCommands(),
-           let selectedTabId = target.controller.selectedTab(inPane: target.paneId)?.id
-                ?? target.controller.tabs(inPane: target.paneId).first?.id,
-           let panelId = workspace.panelIdFromSurfaceId(selectedTabId),
-           workspace.panels[panelId] != nil {
-            return panelId
+        if let target = workspace.focusedBonsplitPaneForCommands() {
+            if let selectedTabId = target.controller.selectedTab(inPane: target.paneId)?.id
+                    ?? target.controller.tabs(inPane: target.paneId).first?.id,
+               let panelId = workspace.panelIdFromSurfaceId(selectedTabId),
+               workspace.panels[panelId] != nil {
+                return panelId
+            }
+            return nil
         }
 
         if workspace.panels.count == 1 {
@@ -6497,6 +6499,12 @@ class TabManager: ObservableObject {
 
         return nil
     }
+
+#if DEBUG
+    func debugShortcutCloseTargetPanelId(in workspace: Workspace) -> UUID? {
+        shortcutCloseTargetPanelId(in: workspace)
+    }
+#endif
 
     func closePanelWithConfirmation(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }

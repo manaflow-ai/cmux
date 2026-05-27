@@ -2272,6 +2272,9 @@ final class TabManagerCloseOtherTabsInPaneTests: XCTestCase {
 
         workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
         XCTAssertNil(workspace.focusedPanelId)
+#if DEBUG
+        XCTAssertNil(manager.debugShortcutCloseTargetPanelId(in: workspace))
+#endif
 
         var promptCount = 0
         manager.confirmCloseHandler = { _, _, _ in
