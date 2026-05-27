@@ -5604,10 +5604,7 @@ struct SettingsView: View {
             agentHibernationMissingHooksWarning = nil
             return
         }
-        guard !ClaudeCodeIntegrationSettings.hooksEnabled() else {
-            agentHibernationMissingHooksWarning = nil
-            return
-        }
+        let builtInClaudeWrapperEnabled = ClaudeCodeIntegrationSettings.hooksEnabled()
 
         Task.detached(priority: .userInitiated) {
             let hasInstalledHook = AgentHibernationHookPrerequisites.hasAnyInstalledAgentHook()
@@ -5616,7 +5613,9 @@ struct SettingsView: View {
                 guard agentHibernationEnabled else { return }
                 agentHibernationMissingHooksWarning = hasInstalledHook
                     ? nil
-                    : AgentHibernationHookPrerequisites.missingHooksWarningMessage()
+                    : AgentHibernationHookPrerequisites.missingHooksWarningMessage(
+                        builtInClaudeWrapperEnabled: builtInClaudeWrapperEnabled
+                    )
             }
         }
     }

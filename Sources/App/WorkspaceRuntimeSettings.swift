@@ -468,6 +468,7 @@ enum AgentHibernationHookPrerequisites {
     static func missingHooksWarning(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         trustedResumeBindingExists: Bool = false,
+        builtInClaudeWrapperEnabled: Bool = false,
         fileExists: FileExists = { FileManager.default.fileExists(atPath: $0) },
         readFile: ReadFile = { try? String(contentsOfFile: $0, encoding: .utf8) }
     ) -> String? {
@@ -478,10 +479,16 @@ enum AgentHibernationHookPrerequisites {
             readFile: readFile
         ) else { return nil }
 
-        return missingHooksWarningMessage()
+        return missingHooksWarningMessage(builtInClaudeWrapperEnabled: builtInClaudeWrapperEnabled)
     }
 
-    static func missingHooksWarningMessage() -> String {
+    static func missingHooksWarningMessage(builtInClaudeWrapperEnabled: Bool = false) -> String {
+        if builtInClaudeWrapperEnabled {
+            return String(
+                localized: "settings.terminal.agentHibernation.warning.missingHooksWithClaudeWrapper",
+                defaultValue: "cmux could not find installed agent hooks for this app session. The built-in Claude Code wrapper can still report Claude sessions, but other agents need captured session hooks or trusted resume bindings. Run `cmux hooks setup`, or restart cmux from a shell that exports any agent-specific config directory overrides."
+            )
+        }
         return String(
             localized: "settings.terminal.agentHibernation.warning.missingHooks",
             defaultValue: "cmux could not find installed agent hooks for this app session. Agent Hibernation only affects agents with captured session hooks or trusted resume bindings. Run `cmux hooks setup`, or restart cmux from a shell that exports any agent-specific config directory overrides."
@@ -491,12 +498,14 @@ enum AgentHibernationHookPrerequisites {
     static func enablementResponse(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         trustedResumeBindingExists: Bool = false,
+        builtInClaudeWrapperEnabled: Bool = false,
         fileExists: FileExists = { FileManager.default.fileExists(atPath: $0) },
         readFile: ReadFile = { try? String(contentsOfFile: $0, encoding: .utf8) }
     ) -> String {
         guard let warning = missingHooksWarning(
             environment: environment,
             trustedResumeBindingExists: trustedResumeBindingExists,
+            builtInClaudeWrapperEnabled: builtInClaudeWrapperEnabled,
             fileExists: fileExists,
             readFile: readFile
         ) else { return "OK" }

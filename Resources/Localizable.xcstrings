@@ -111330,6 +111330,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "このアプリセッションでインストール済みのエージェント hook が見つかりません。エージェント休止は、セッション hook で取得済みのエージェント、または信頼済みの再開バインディングがあるエージェントにのみ作用します。`cmux hooks setup` を実行するか、エージェント固有の設定ディレクトリ上書きを export しているシェルから cmux を再起動してください。" } }
       }
     },
+    "settings.terminal.agentHibernation.warning.missingHooksWithClaudeWrapper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux could not find installed agent hooks for this app session. The built-in Claude Code wrapper can still report Claude sessions, but other agents need captured session hooks or trusted resume bindings. Run `cmux hooks setup`, or restart cmux from a shell that exports any agent-specific config directory overrides." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このアプリセッションでインストール済みのエージェント hook が見つかりません。組み込みの Claude Code ラッパーは Claude セッションを引き続き報告できますが、他のエージェントにはセッション hook または信頼済みの再開バインディングが必要です。`cmux hooks setup` を実行するか、エージェント固有の設定ディレクトリ上書きを export しているシェルから cmux を再起動してください。" } }
+      }
+    },
     "settings.terminal.agentHibernation.idleSeconds": {
       "extractionState": "manual",
       "localizations": {

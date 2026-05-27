@@ -165,6 +165,21 @@ final class AgentHibernationTests: XCTestCase {
         )
     }
 
+    func testHookPrerequisitesWarnWithClaudeWrapperContext() throws {
+        let root = try temporaryDirectory(named: "cmux-agent-hibernation-claude-wrapper")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let warning = try XCTUnwrap(
+            AgentHibernationHookPrerequisites.missingHooksWarning(
+                environment: ["HOME": root.path],
+                builtInClaudeWrapperEnabled: true
+            )
+        )
+
+        XCTAssertTrue(warning.contains("Claude"))
+        XCTAssertTrue(warning.contains("cmux hooks setup"))
+    }
+
     func testHookPrerequisitesDetectInstalledCodexHooks() throws {
         let root = try temporaryDirectory(named: "cmux-agent-hibernation-codex-hooks")
         defer { try? FileManager.default.removeItem(at: root) }

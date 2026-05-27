@@ -19606,7 +19606,7 @@ class TerminalController {
             AgentHibernationSettings.setValues(enabled: true)
             return AgentHibernationHookPrerequisites.enablementResponse(
                 environment: agentHibernationHookEnvironment(options: parsed.options),
-                trustedResumeBindingExists: ClaudeCodeIntegrationSettings.hooksEnabled()
+                builtInClaudeWrapperEnabled: ClaudeCodeIntegrationSettings.hooksEnabled()
             )
         case "off", "disable", "disabled", "false":
             AgentHibernationSettings.setValues(enabled: false)
