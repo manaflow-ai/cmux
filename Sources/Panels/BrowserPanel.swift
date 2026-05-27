@@ -114,21 +114,36 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .google: return "Google"
-        case .duckduckgo: return "DuckDuckGo"
-        case .bing: return "Bing"
-        case .kagi: return "Kagi"
-        case .startpage: return "Startpage"
-        case .brave: return "Brave Search"
-        case .perplexity: return "Perplexity"
-        case .yahoo: return "Yahoo"
-        case .ecosia: return "Ecosia"
-        case .qwant: return "Qwant"
-        case .mojeek: return "Mojeek"
-        case .wikipedia: return "Wikipedia"
-        case .github: return "GitHub"
-        case .baidu: return "Baidu"
-        case .yandex: return "Yandex"
+        case .google:
+            return String(localized: "settings.browser.searchEngine.google", defaultValue: "Google")
+        case .duckduckgo:
+            return String(localized: "settings.browser.searchEngine.duckduckgo", defaultValue: "DuckDuckGo")
+        case .bing:
+            return String(localized: "settings.browser.searchEngine.bing", defaultValue: "Bing")
+        case .kagi:
+            return String(localized: "settings.browser.searchEngine.kagi", defaultValue: "Kagi")
+        case .startpage:
+            return String(localized: "settings.browser.searchEngine.startpage", defaultValue: "Startpage")
+        case .brave:
+            return String(localized: "settings.browser.searchEngine.brave", defaultValue: "Brave Search")
+        case .perplexity:
+            return String(localized: "settings.browser.searchEngine.perplexity", defaultValue: "Perplexity")
+        case .yahoo:
+            return String(localized: "settings.browser.searchEngine.yahoo", defaultValue: "Yahoo")
+        case .ecosia:
+            return String(localized: "settings.browser.searchEngine.ecosia", defaultValue: "Ecosia")
+        case .qwant:
+            return String(localized: "settings.browser.searchEngine.qwant", defaultValue: "Qwant")
+        case .mojeek:
+            return String(localized: "settings.browser.searchEngine.mojeek", defaultValue: "Mojeek")
+        case .wikipedia:
+            return String(localized: "settings.browser.searchEngine.wikipedia", defaultValue: "Wikipedia")
+        case .github:
+            return String(localized: "settings.browser.searchEngine.github", defaultValue: "GitHub")
+        case .baidu:
+            return String(localized: "settings.browser.searchEngine.baidu", defaultValue: "Baidu")
+        case .yandex:
+            return String(localized: "settings.browser.searchEngine.yandex", defaultValue: "Yandex")
         case .custom:
             return String(localized: "settings.browser.searchEngine.custom", defaultValue: "Custom")
         }
@@ -216,7 +231,7 @@ enum BrowserSearchSettings {
     static let customSearchEngineURLTemplateKey = "browserCustomSearchEngineURLTemplate"
     static let searchSuggestionsEnabledKey = "browserSearchSuggestionsEnabled"
     static let defaultSearchEngine: BrowserSearchEngine = .google
-    static let defaultCustomSearchEngineName = "Custom"
+    static let defaultCustomSearchEngineName = ""
     static let defaultCustomSearchEngineURLTemplate = "https://www.google.com/search?q={query}"
     static let defaultSearchSuggestionsEnabled: Bool = true
 

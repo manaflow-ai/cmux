@@ -837,7 +837,7 @@
         },
         "customSearchEngineName": {
           "type": "string",
-          "default": "Custom",
+          "default": "",
           "descriptionKey": "schemaDescriptions.browser.customSearchEngineName",
           "description": "Display name used when defaultSearchEngine is custom."
         },
