@@ -14034,8 +14034,9 @@ private struct TabItemView: View, Equatable {
                 Text(workspaceSnapshot.title)
                     .font(.system(size: 12.5, weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
             }
