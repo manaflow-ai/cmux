@@ -163,7 +163,17 @@ extension ContentView {
             case .unsupported:
                 return nil
             case .requiresProbe:
-                return verifiedCachedSnapshot(expectedFingerprint: fallbackFingerprint)
+                guard commandPaletteForkableAgentProbeResultMatches(
+                    panelKey: panelKey,
+                    supportedPanelKeys: supportedPanelKeys,
+                    supportedRemoteContextsByPanelKey: supportedRemoteContextsByPanelKey,
+                    snapshotFingerprintsByPanelKey: snapshotFingerprintsByPanelKey,
+                    expectedSnapshotFingerprint: fallbackFingerprint,
+                    isRemoteTerminal: isRemoteTerminal
+                ) else {
+                    return nil
+                }
+                return verifiedCachedSnapshot(expectedFingerprint: fallbackFingerprint) ?? fallbackSnapshot
             }
         }
 
