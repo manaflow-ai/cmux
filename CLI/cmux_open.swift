@@ -3194,10 +3194,12 @@ extension CMUXCLI {
         let pendingAttribute = pollForReplacement ? " data-cmux-diff-pending=\"true\"" : ""
         let pollScript = pollForReplacement ? """
           <script>
-            const startedAt = Date.now();
-            async function poll() {
+            (async function waitForReplacement() {
               try {
-                const response = await fetch(location.href, { cache: "reload" });
+                const response = await fetch("/__cmux_diff_viewer_wait" + location.pathname, { cache: "no-store" });
+                if (!response.ok) {
+                  return;
+                }
                 const text = await response.text();
                 if (!text.includes("data-cmux-diff-pending=\\"true\\"")) {
                   document.open();
@@ -3206,11 +3208,7 @@ extension CMUXCLI {
                   return;
                 }
               } catch {}
-              if (Date.now() - startedAt < 30000) {
-                setTimeout(poll, 500);
-              }
-            }
-            setTimeout(poll, 500);
+            })();
           </script>
         """ : ""
         let html = """
@@ -3636,6 +3634,17 @@ extension CMUXCLI {
                 return
             }
 
+            if request.path.hasPrefix("/__cmux_diff_viewer_wait/") {
+                try sendDiffViewerHTTPWaitForReplacement(
+                    requestPath: request.path,
+                    fileDescriptor: fd,
+                    port: port,
+                    manifestCache: manifestCache,
+                    omitBody: request.method == "HEAD"
+                )
+                return
+            }
+
             guard let file = try diffViewerHTTPAllowedFile(
                 requestPath: request.path,
                 manifestCache: manifestCache
@@ -3742,6 +3751,37 @@ extension CMUXCLI {
         return try manifestCache.file(token: token, requestPath: requestPath)
     }
 
+    private func sendDiffViewerHTTPWaitForReplacement(
+        requestPath rawPath: String,
+        fileDescriptor fd: Int32,
+        port: Int,
+        manifestCache: DiffViewerHTTPManifestCache,
+        omitBody: Bool
+    ) throws {
+        let prefix = "/__cmux_diff_viewer_wait/"
+        guard rawPath.hasPrefix(prefix) else {
+            try sendDiffViewerHTTPNotFound(fileDescriptor: fd, omitBody: omitBody)
+            return
+        }
+
+        let targetPath = "/" + String(rawPath.dropFirst(prefix.count))
+        guard let file = try diffViewerHTTPAllowedFile(
+            requestPath: targetPath,
+            manifestCache: manifestCache
+        ), file.mimeType == "text/html" else {
+            try sendDiffViewerHTTPNotFound(fileDescriptor: fd, omitBody: omitBody)
+            return
+        }
+
+        waitForDiffViewerHTTPReplacement(file)
+        try sendDiffViewerHTTPFile(
+            file,
+            fileDescriptor: fd,
+            port: port,
+            omitBody: omitBody
+        )
+    }
+
     private func loadDiffViewerHTTPManifestFiles(
         token: String,
         rootDirectory: URL
@@ -3781,6 +3821,51 @@ extension CMUXCLI {
             files[file.requestPath] = normalizedFile
         }
         return files
+    }
+
+    private func waitForDiffViewerHTTPReplacement(_ file: DiffViewerAllowedFile) {
+        let fileURL = URL(fileURLWithPath: file.filePath, isDirectory: false)
+        guard diffViewerHTTPFileIsPending(fileURL) else { return }
+
+        let fd = open(fileURL.path, O_EVTONLY)
+        guard fd >= 0 else { return }
+
+        let event = DispatchSemaphore(value: 0)
+        let cleanup = DispatchSemaphore(value: 0)
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .delete, .rename],
+            queue: DispatchQueue.global(qos: .userInitiated)
+        )
+        source.setEventHandler {
+            event.signal()
+        }
+        source.setCancelHandler {
+            close(fd)
+            cleanup.signal()
+        }
+        source.resume()
+        if !diffViewerHTTPFileIsPending(fileURL) {
+            source.cancel()
+            _ = cleanup.wait(timeout: .now() + 1)
+            return
+        }
+        event.wait()
+        source.cancel()
+        _ = cleanup.wait(timeout: .now() + 1)
+    }
+
+    private func diffViewerHTTPFileIsPending(_ fileURL: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else {
+            return false
+        }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: 8192),
+              !data.isEmpty,
+              let text = String(data: data, encoding: .utf8) else {
+            return false
+        }
+        return text.contains("data-cmux-diff-pending=\"true\"")
     }
 
     private func sendDiffViewerHTTPFile(
