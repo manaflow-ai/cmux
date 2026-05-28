@@ -376,12 +376,12 @@ class UpdateController {
     }
 
     private func handleUpdateResultArrived() {
-        guard awaitingCancelledSessionBeforeCheck else { return }
+        guard awaitingCancelledSessionBeforeCheck || readyCheckDeadline != nil else { return }
         awaitingCancelledSessionBeforeCheck = false
         readyCheckGeneration += 1
         readyCheckDeadline?.cancel()
         readyCheckDeadline = nil
-        UpdateLogStore.shared.append("update result arrived while waiting for previous session; not starting another check")
+        UpdateLogStore.shared.append("update result arrived while waiting; not starting another check")
     }
 
     private func shouldWaitForCancelledSession(afterCancelling state: UpdateState) -> Bool {
