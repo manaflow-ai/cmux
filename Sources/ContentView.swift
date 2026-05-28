@@ -11717,37 +11717,41 @@ private struct SidebarWorkspaceGroupHeaderView: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Button(action: onToggleCollapsed) {
-                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 14, height: 14)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(
-                Text(
-                    isCollapsed
-                        ? String(localized: "workspaceGroup.expand.a11y", defaultValue: "Expand group")
-                        : String(localized: "workspaceGroup.collapse.a11y", defaultValue: "Collapse group")
-                )
-            )
-
-            Button(action: onFocusAnchor) {
-                HStack(spacing: 6) {
-                    Image(systemName: iconSymbol)
-                        .font(.system(size: 11))
-                        .foregroundStyle(iconColor)
-                    Text(name)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Chevron + folder/name are plain Views (not Buttons) so the
+            // header's outer .onDrag can begin from anywhere on the row.
+            // SwiftUI Buttons swallow mouse-down, which used to make the
+            // entire header undraggable (no free area existed between the
+            // chevron, name, and + buttons). Tap gestures preserve click
+            // behavior; drag-then-release still routes to the tap.
+            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 14, height: 14)
                 .contentShape(Rectangle())
+                .onTapGesture { onToggleCollapsed() }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel(
+                    Text(
+                        isCollapsed
+                            ? String(localized: "workspaceGroup.expand.a11y", defaultValue: "Expand group")
+                            : String(localized: "workspaceGroup.collapse.a11y", defaultValue: "Collapse group")
+                    )
+                )
+
+            HStack(spacing: 6) {
+                Image(systemName: iconSymbol)
+                    .font(.system(size: 11))
+                    .foregroundStyle(iconColor)
+                Text(name)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
-            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture { onFocusAnchor() }
+            .accessibilityAddTraits(.isButton)
             .accessibilityLabel(Text(name))
             .accessibilityHint(Text(String(
                 localized: "workspaceGroup.focusAnchor.a11y",
