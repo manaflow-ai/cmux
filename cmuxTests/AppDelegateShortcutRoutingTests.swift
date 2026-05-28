@@ -3675,40 +3675,23 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
         withTemporaryShortcut(
             action: .showNotifications,
             shortcut: StoredShortcut(key: "8", command: true, shift: false, option: false, control: false)
         ) {
             // Some non-US layouts can produce "*" without Shift.
             // This must not be coerced into "8" for a Cmd+8 shortcut match.
-            guard let event = NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
+            let event = makeKeyEvent(
                 modifierFlags: [.command],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
-                context: nil,
                 characters: "*",
                 charactersIgnoringModifiers: "*",
-                isARepeat: false,
                 keyCode: 30 // kVK_ANSI_RightBracket
-            ) else {
-                XCTFail("Failed to construct Cmd+* event")
-                return
-            }
+            )
 
 #if DEBUG
-            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertFalse(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .showNotifications))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
         }
     }
@@ -3719,40 +3702,23 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
         withTemporaryShortcut(
             action: .showNotifications,
             shortcut: StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
         ) {
             // Symbol-first layouts (for example AZERTY) can report "&" for the ANSI 1 key.
             // Cmd+1 shortcuts should still match via keyCode fallback in this case.
-            guard let event = NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
+            let event = makeKeyEvent(
                 modifierFlags: [.command],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
-                context: nil,
                 characters: "&",
                 charactersIgnoringModifiers: "&",
-                isARepeat: false,
                 keyCode: 18 // kVK_ANSI_1
-            ) else {
-                XCTFail("Failed to construct Cmd+& event on ANSI 1 key")
-                return
-            }
+            )
 
 #if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .showNotifications))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
         }
     }
@@ -3763,47 +3729,24 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
         withTemporaryShortcut(
             action: .showNotifications,
             shortcut: StoredShortcut(key: "8", command: true, shift: true, option: false, control: false)
         ) {
-            // Avoid unrelated default Cmd+Shift+] handling for this assertion.
-            withTemporaryShortcut(
-                action: .nextSurface,
-                shortcut: StoredShortcut(key: "x", command: true, shift: true, option: false, control: false)
-            ) {
-                // On some non-US layouts, Shift+RightBracket can produce "*".
-                // This must not be interpreted as Shift+8.
-                guard let event = NSEvent.keyEvent(
-                    with: .keyDown,
-                    location: .zero,
-                    modifierFlags: [.command, .shift],
-                    timestamp: ProcessInfo.processInfo.systemUptime,
-                    windowNumber: window.windowNumber,
-                    context: nil,
-                    characters: "*",
-                    charactersIgnoringModifiers: "*",
-                    isARepeat: false,
-                    keyCode: 30 // kVK_ANSI_RightBracket
-                ) else {
-                    XCTFail("Failed to construct Cmd+Shift+* event from non-digit key")
-                    return
-                }
+            // On some non-US layouts, Shift+RightBracket can produce "*".
+            // This must not be interpreted as Shift+8.
+            let event = makeKeyEvent(
+                modifierFlags: [.command, .shift],
+                characters: "*",
+                charactersIgnoringModifiers: "*",
+                keyCode: 30 // kVK_ANSI_RightBracket
+            )
 
 #if DEBUG
-                XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertFalse(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .showNotifications))
 #else
-                XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
-            }
         }
     }
 
@@ -3813,38 +3756,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
         withTemporaryShortcut(
             action: .showNotifications,
             shortcut: StoredShortcut(key: "8", command: true, shift: true, option: false, control: false)
         ) {
-            guard let event = NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
+            let event = makeKeyEvent(
                 modifierFlags: [.command, .shift],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
-                context: nil,
                 characters: "*",
                 charactersIgnoringModifiers: "*",
-                isARepeat: false,
                 keyCode: 28 // kVK_ANSI_8
-            ) else {
-                XCTFail("Failed to construct Cmd+Shift+8 event")
-                return
-            }
+            )
 
 #if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .showNotifications))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
         }
     }

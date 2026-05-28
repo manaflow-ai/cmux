@@ -7,7 +7,7 @@ import XCTest
 @testable import cmux
 #endif
 
-private final class BareShortcutNotificationCounter {
+private final class BareShortcutNotificationCounter: @unchecked Sendable {
     var count = 0
 }
 
