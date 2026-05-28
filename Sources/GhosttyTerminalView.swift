@@ -2183,6 +2183,35 @@ class GhosttyApp {
                 }
             }
         }
+        runtimeConfig.tmux_control_cb = { userdata, tmuxEvent, paneId, dataPtr, dataLen in
+            guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
+                  let terminalSurface = callbackContext.terminalSurface else { return }
+
+            let event: TmuxControlEvent?
+            switch tmuxEvent {
+            case GHOSTTY_TMUX_ENTER:
+                event = .enter
+            case GHOSTTY_TMUX_EXIT:
+                event = .exit
+            case GHOSTTY_TMUX_WINDOWS_CHANGED:
+                let data = TmuxControlPayload.data(
+                    from: dataPtr.map { UnsafeRawPointer($0) },
+                    byteCount: Int(dataLen)
+                )
+                event = .windowsChanged(data)
+            case GHOSTTY_TMUX_PANE_OUTPUT:
+                let data = TmuxControlPayload.data(
+                    from: dataPtr.map { UnsafeRawPointer($0) },
+                    byteCount: Int(dataLen),
+                    suffixLimit: TmuxControlState.paneTextByteLimit
+                )
+                event = .paneOutput(paneId: paneId, data: data)
+            default:
+                event = nil
+            }
+            guard let event else { return }
+            terminalSurface.enqueueTmuxControlEvent(event)
+        }
 
         // Create app
         Self.setInitializingRuntimeApp(self)
@@ -4374,38 +4403,6 @@ class GhosttyApp {
                 }
             }
             // Always report handled so Ghostty doesn't print the fallback prompt.
-            return true
-        }
-
-        if action.tag == GHOSTTY_ACTION_TMUX_CONTROL {
-            guard let callbackContext,
-                  let terminalSurface = callbackContext.terminalSurface,
-                  TerminalSurfaceRegistry.shared.runtimeSurfaceOwnerId(target.target.surface) == terminalSurface.id else { return true }
-            let tmuxAction = action.action.tmux_control
-            let event: TmuxControlEvent?
-            switch tmuxAction.event {
-            case GHOSTTY_TMUX_ENTER:
-                event = .enter
-            case GHOSTTY_TMUX_EXIT:
-                event = .exit
-            case GHOSTTY_TMUX_WINDOWS_CHANGED:
-                let data = TmuxControlPayload.data(
-                    from: tmuxAction.data.map { UnsafeRawPointer($0) },
-                    byteCount: Int(tmuxAction.data_len)
-                )
-                event = .windowsChanged(data)
-            case GHOSTTY_TMUX_PANE_OUTPUT:
-                let data = TmuxControlPayload.data(
-                    from: tmuxAction.data.map { UnsafeRawPointer($0) },
-                    byteCount: Int(tmuxAction.data_len),
-                    suffixLimit: TmuxControlState.paneTextByteLimit
-                )
-                event = .paneOutput(paneId: tmuxAction.id, data: data)
-            default:
-                event = nil
-            }
-            guard let event else { return true }
-            terminalSurface.enqueueTmuxControlEvent(event)
             return true
         }
 
