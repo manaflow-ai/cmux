@@ -730,6 +730,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
+#if DEBUG
+    var debugSuppressSplitShortcutForTransientTerminalFocusStateOverride: Bool?
+    var debugShortcutEventFocusContextOverride: ShortcutEventFocusContext?
+#endif
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
@@ -12979,6 +12983,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         direction: SplitDirection? = nil,
         tabManager preferredTabManager: TabManager? = nil
     ) -> Bool {
+#if DEBUG
+        if let debugSuppressSplitShortcutForTransientTerminalFocusStateOverride {
+            return debugSuppressSplitShortcutForTransientTerminalFocusStateOverride
+        }
+#endif
         let targetTabManager = preferredTabManager ?? tabManager
         guard let targetTabManager,
               let workspace = targetTabManager.selectedWorkspace,

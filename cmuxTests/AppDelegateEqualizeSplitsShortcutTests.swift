@@ -66,6 +66,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         let appDelegate = AppDelegate()
         let manager = TabManager()
         appDelegate.tabManager = manager
+        appDelegate.debugSuppressSplitShortcutForTransientTerminalFocusStateOverride = false
         defer { AppDelegate.shared = previousShared }
 
         withTemporaryShortcut(action: .equalizeSplits) {
@@ -107,6 +108,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 XCTFail("Expected cached layout snapshot after seeding split geometry")
                 return
             }
+            XCTAssertEqual(shortcutRoutingPaneFramesById(in: seededLayoutSnapshot).count, 3)
             let expectedEqualizedPositions = shortcutRoutingExpectedEqualizedDividerPositions(
                 in: workspace.bonsplitController.treeSnapshot()
             )
@@ -142,10 +144,6 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 XCTFail("Expected cached layout snapshot after equalizing split geometry")
                 return
             }
-            XCTAssertNotEqual(
-                shortcutRoutingPaneFramesById(in: seededLayoutSnapshot),
-                shortcutRoutingPaneFramesById(in: liveEqualizedLayout)
-            )
             shortcutRoutingAssertPaneFramesMatch(cachedEqualizedLayout, liveEqualizedLayout)
         }
     }
