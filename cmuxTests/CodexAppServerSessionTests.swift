@@ -331,6 +331,27 @@ final class CodexAppServerSessionTests: XCTestCase {
         XCTAssertEqual(output.first?.1, "partial answer")
     }
 
+    func testDeclinedToolItemsDoNotRenderAsCompletedActivity() {
+        var activities: [[String: Any]] = []
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { _ in },
+            outputSink: { _, _ in },
+            activitySink: { activity in activities.append(activity) }
+        )
+
+        session.consumeStdout(#"{"method":"item/completed","params":{"item":{"id":"cmd-1","type":"commandExecution","status":"declined","command":"dangerous command"}}}"# + "\n")
+        session.consumeStdout(#"{"method":"item/completed","params":{"item":{"id":"file-1","type":"fileChange","status":"declined","changes":[{"path":"README.md","type":"update","diff":""}]}}}"# + "\n")
+
+        XCTAssertEqual(activities.count, 2)
+        XCTAssertEqual(activities[0]["kind"] as? String, "command")
+        XCTAssertEqual(activities[0]["status"] as? String, "stopped")
+        XCTAssertEqual(activities[0]["action"] as? String, "Stopped")
+        XCTAssertEqual(activities[1]["kind"] as? String, "fileChange")
+        XCTAssertEqual(activities[1]["status"] as? String, "stopped")
+        XCTAssertEqual(activities[1]["action"] as? String, "Stopped")
+    }
+
     func testInitializeErrorFailsStartupAndRejectsLaterPrompts() throws {
         var sentLines: [String] = []
         var output: [(String, String)] = []

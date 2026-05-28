@@ -258,7 +258,7 @@ final class CodexAppServerSession {
         }
         let rawStatus = (item["executionStatus"] as? String) ?? (item["status"] as? String)
         switch rawStatus?.lowercased() {
-        case "interrupted", "canceled", "cancelled", "stopped":
+        case "interrupted", "canceled", "cancelled", "stopped", "declined", "denied", "rejected":
             return "stopped"
         case "failed", "failure", "error":
             return "failed"
@@ -314,6 +314,8 @@ final class CodexAppServerSession {
             return String(localized: "agentSession.codex.activity.file.deleted", defaultValue: "Deleted")
         case (_, "inProgress"):
             return String(localized: "agentSession.codex.activity.file.editing", defaultValue: "Editing")
+        case (_, "stopped"):
+            return String(localized: "agentSession.codex.activity.command.stopped", defaultValue: "Stopped")
         default:
             return String(localized: "agentSession.codex.activity.file.edited", defaultValue: "Edited")
         }
