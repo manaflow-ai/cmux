@@ -2775,6 +2775,13 @@ final class CmuxConfigStore: ObservableObject {
             return fnmatchStyle(pattern: key, candidate: cwd)
         }
         if cwd == key { return true }
+        // Root prefix `/` is a documented catch-all; without this branch
+        // any non-root cwd would be tested against "//" and fail. Other
+        // keys append `/` so `/Users/lawrence` doesn't also match
+        // `/Users/lawrence-fork`.
+        if key == "/" {
+            return cwd.hasPrefix("/")
+        }
         return cwd.hasPrefix(key + "/")
     }
 

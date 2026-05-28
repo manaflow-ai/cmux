@@ -4887,7 +4887,9 @@ struct CMUXCLI {
         "vm-ssh-attach",
         "wait-for",
         "welcome",
+        "workspace",
         "workspace-action",
+        "workspace-group",
     ]
 
     /// Open a path in cmux by asking LaunchServices to deliver a directory URL to the app.

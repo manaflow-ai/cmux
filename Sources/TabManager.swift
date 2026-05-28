@@ -5498,6 +5498,9 @@ class TabManager: ObservableObject {
         let pinnedCount = tabs.filter { $0.isPinned }.count
         let insertIndex = tab.isPinned ? 0 : pinnedCount
         tabs.insert(tab, at: insertIndex)
+        if !workspaceGroups.isEmpty {
+            normalizeWorkspaceGroupContiguity()
+        }
         postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
     }
 
@@ -5512,6 +5515,9 @@ class TabManager: ObservableObject {
         let remainingPinned = remainingTabs.filter { $0.isPinned }
         let remainingUnpinned = remainingTabs.filter { !$0.isPinned }
         tabs = selectedPinned + remainingPinned + selectedUnpinned + remainingUnpinned
+        if !workspaceGroups.isEmpty {
+            normalizeWorkspaceGroupContiguity()
+        }
         if tabs.map(\.id) != previousOrder {
             postWorkspaceOrderDidChange(movedWorkspaceIds: selectedTabs.map(\.id))
         }
@@ -5534,8 +5540,12 @@ class TabManager: ObservableObject {
     @discardableResult
     func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int) -> Bool {
         guard let plan = workspaceReorderPlan(tabId: tabId, toIndex: targetIndex) else { return false }
+        // No-op reorders (single workspace, clamped to current index, etc.)
+        // must not run group inference. Otherwise socket calls like
+        // `workspace.action move_down` on the last ungrouped row would
+        // silently absorb it into the group above just because the request
+        // resolved to "stay put."
         if tabs.count <= 1 || plan.fromIndex == plan.toIndex {
-            applyDragInferredGroupMembership(workspaceId: tabId)
             return true
         }
 
