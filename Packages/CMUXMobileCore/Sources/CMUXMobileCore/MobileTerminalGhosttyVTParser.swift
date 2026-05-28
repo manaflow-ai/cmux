@@ -23,7 +23,7 @@ enum MobileTerminalGhosttyVTParser {
         }
         return MobileTerminalGhosttyRow(cells: cells)
     }
-    
+
     private static func terminalLines(from text: String) -> [String] {
         guard !text.isEmpty else { return [] }
         var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
@@ -32,18 +32,18 @@ enum MobileTerminalGhosttyVTParser {
         }
         return lines
     }
-    
+
     struct StyledTerminalGrid {
         var rows: [MobileTerminalGhosttyRow]
         var cursorColumn: Int
         var cursorRow: Int
         var usesAbsoluteCursorAddressing: Bool
     }
-    
+
     static func styledRows(from text: String, columns: Int) -> [MobileTerminalGhosttyRow] {
         styledGrid(from: text, columns: columns).rows
     }
-    
+
     static func styledGrid(from text: String, columns: Int) -> StyledTerminalGrid {
         let resolvedColumns = max(1, columns)
         let text = text
@@ -52,7 +52,7 @@ enum MobileTerminalGhosttyVTParser {
             return StyledTerminalGrid(rows: [], cursorColumn: 0, cursorRow: 0, usesAbsoluteCursorAddressing: false)
         }
         let wrapsOverflow = text.contains("\u{001B}")
-    
+
         var rows: [[MobileTerminalGhosttyCell]] = [[]]
         var wrappedRowIndices = Set<Int>()
         var row = 0
@@ -61,14 +61,14 @@ enum MobileTerminalGhosttyVTParser {
         var usesAbsoluteCursorAddressing = false
         var style = MobileTerminalGhosttyCellStyle()
         var index = text.startIndex
-    
+
         func ensureRow(_ rowIndex: Int) {
             guard rowIndex >= 0 else { return }
             while rows.count <= rowIndex {
                 rows.append([])
             }
         }
-    
+
         func ensureCellStorage(row rowIndex: Int, through columnIndex: Int) {
             ensureRow(rowIndex)
             guard columnIndex >= 0 else { return }
@@ -76,13 +76,13 @@ enum MobileTerminalGhosttyVTParser {
                 rows[rowIndex].append(.blank)
             }
         }
-    
+
         func setCell(_ cell: MobileTerminalGhosttyCell, atRow rowIndex: Int, column columnIndex: Int) {
             guard columnIndex >= 0, columnIndex < resolvedColumns else { return }
             ensureCellStorage(row: rowIndex, through: columnIndex)
             rows[rowIndex][columnIndex] = cell
         }
-    
+
         func eraseLine(mode: Int) {
             ensureRow(row)
             switch mode {
@@ -110,7 +110,7 @@ enum MobileTerminalGhosttyVTParser {
             }
             wrapPending = false
         }
-    
+
         func eraseDisplay(mode: Int) {
             switch mode {
             case 1:
@@ -140,14 +140,14 @@ enum MobileTerminalGhosttyVTParser {
                 }
             }
         }
-    
+
         func moveCursor(row newRow: Int, column newColumn: Int) {
             row = max(0, newRow)
             column = max(0, newColumn)
             wrapPending = false
             ensureRow(row)
         }
-    
+
         func applyEscapeAction(_ action: TerminalEscapeAction) {
             switch action {
             case .none:
@@ -168,7 +168,7 @@ enum MobileTerminalGhosttyVTParser {
                 eraseLine(mode: mode)
             }
         }
-    
+
         func normalizedRows() -> [MobileTerminalGhosttyRow] {
             rows.enumerated().map { rowIndex, rowCells in
                 var cells = Array(rowCells.prefix(resolvedColumns))
@@ -181,14 +181,14 @@ enum MobileTerminalGhosttyVTParser {
                 )
             }
         }
-    
+
         func appendLine() {
             row += 1
             column = 0
             wrapPending = false
             ensureRow(row)
         }
-    
+
         func writeCell(_ cell: MobileTerminalGhosttyCell) {
             if wrapsOverflow, wrapPending {
                 wrappedRowIndices.insert(row)
@@ -205,7 +205,7 @@ enum MobileTerminalGhosttyVTParser {
                 column += 1
             }
         }
-    
+
         func writeCharacter(_ character: Character) {
             let width = terminalDisplayWidth(of: character)
             switch width {
@@ -232,17 +232,17 @@ enum MobileTerminalGhosttyVTParser {
                 writeCell(MobileTerminalGhosttyCell(text: String(character), style: style))
             }
         }
-    
+
         while index < text.endIndex {
             if text[index] == "\u{001B}",
                let action = consumeEscapeSequence(in: text, index: &index, style: &style) {
                 applyEscapeAction(action)
                 continue
             }
-    
+
             let character = text[index]
             index = text.index(after: index)
-    
+
             switch character {
             case "\n":
                 appendLine()
@@ -263,13 +263,13 @@ enum MobileTerminalGhosttyVTParser {
                 writeCharacter(character)
             }
         }
-    
+
         if text.hasSuffix("\n"), rows.last?.isEmpty == true {
             rows.removeLast()
             row = max(row, 0)
             column = 0
         }
-    
+
         return StyledTerminalGrid(
             rows: normalizedRows(),
             cursorColumn: min(max(column, 0), resolvedColumns - 1),
@@ -277,7 +277,7 @@ enum MobileTerminalGhosttyVTParser {
             usesAbsoluteCursorAddressing: usesAbsoluteCursorAddressing
         )
     }
-    
+
     private enum TerminalEscapeAction {
         case none
         case cursorPosition(row: Int, column: Int)
@@ -287,7 +287,7 @@ enum MobileTerminalGhosttyVTParser {
         case eraseDisplay(Int)
         case eraseLine(Int)
     }
-    
+
     private static func consumeEscapeSequence(
         in text: String,
         index: inout String.Index,
@@ -297,17 +297,17 @@ enum MobileTerminalGhosttyVTParser {
         guard cursor < text.endIndex else {
             return nil
         }
-    
+
         if text[cursor] == "]" {
             return consumeOSCSequence(in: text, index: &index, cursor: text.index(after: cursor))
                 ? TerminalEscapeAction.none
                 : nil
         }
-    
+
         guard text[cursor] == "[" else {
             return consumeNonCSISequence(in: text, index: &index, cursor: cursor)
         }
-    
+
         cursor = text.index(after: cursor)
         let parametersStart = cursor
         while cursor < text.endIndex {
@@ -323,10 +323,10 @@ enum MobileTerminalGhosttyVTParser {
             }
             cursor = text.index(after: cursor)
         }
-    
+
         return nil
     }
-    
+
     private static func consumeNonCSISequence(
         in text: String,
         index: inout String.Index,
@@ -343,30 +343,30 @@ enum MobileTerminalGhosttyVTParser {
         }
         return nil
     }
-    
+
     private static func terminalEscapeAction(final: Character, parameters: String) -> TerminalEscapeAction {
         guard !parameters.hasPrefix("?") else {
             return .none
         }
-    
+
         let values = parameters
             .split(separator: ";", omittingEmptySubsequences: false)
             .map { Int($0) ?? 0 }
-    
+
         func value(at index: Int, default defaultValue: Int) -> Int {
             guard values.indices.contains(index), values[index] > 0 else {
                 return defaultValue
             }
             return values[index]
         }
-    
+
         func mode(default defaultValue: Int = 0) -> Int {
             guard values.indices.contains(0) else {
                 return defaultValue
             }
             return values[0]
         }
-    
+
         switch final {
         case "H", "f":
             return .cursorPosition(
@@ -393,7 +393,7 @@ enum MobileTerminalGhosttyVTParser {
             return .none
         }
     }
-    
+
     private static func consumeOSCSequence(
         in text: String,
         index: inout String.Index,
@@ -416,13 +416,13 @@ enum MobileTerminalGhosttyVTParser {
         }
         return false
     }
-    
+
     private static func applySGRParameters(
         _ rawParameters: String,
         to style: inout MobileTerminalGhosttyCellStyle
     ) {
         let parameters = sgrParameters(rawParameters)
-    
+
         var index = 0
         while index < parameters.count {
             let parameter = parameters[index].value
@@ -478,17 +478,17 @@ enum MobileTerminalGhosttyVTParser {
             index += 1
         }
     }
-    
+
     private struct SGRParameter {
         var value: Int
         var subparameters: [Int]
     }
-    
+
     private static func sgrParameters(_ rawParameters: String) -> [SGRParameter] {
         if rawParameters.isEmpty {
             return [SGRParameter(value: 0, subparameters: [0])]
         }
-    
+
         return rawParameters.split(separator: ";", omittingEmptySubsequences: false).map { group in
             let subparameters = group.split(separator: ":", omittingEmptySubsequences: false)
                 .map { Int($0) ?? 0 }
@@ -498,7 +498,7 @@ enum MobileTerminalGhosttyVTParser {
             )
         }
     }
-    
+
     private static func underlineStyle(
         from rawSubparameters: ArraySlice<Int>
     ) -> MobileTerminalGhosttyUnderline? {
@@ -522,7 +522,7 @@ enum MobileTerminalGhosttyVTParser {
             return nil
         }
     }
-    
+
     private static func parseExtendedColor(
         parameters: [SGRParameter],
         start: Int
@@ -530,7 +530,7 @@ enum MobileTerminalGhosttyVTParser {
         guard parameters.indices.contains(start - 1) else {
             return (nil, start)
         }
-    
+
         let introducingParameter = parameters[start - 1]
         if introducingParameter.subparameters.count > 1 {
             return parseExtendedColorSubparameters(
@@ -538,11 +538,11 @@ enum MobileTerminalGhosttyVTParser {
                 nextIndex: start
             )
         }
-    
+
         guard parameters.indices.contains(start) else {
             return (nil, start)
         }
-    
+
         switch parameters[start].value {
         case 2:
             guard parameters.indices.contains(start + 3) else {
@@ -565,7 +565,7 @@ enum MobileTerminalGhosttyVTParser {
             return (nil, start + 1)
         }
     }
-    
+
     private static func parseExtendedColorSubparameters(
         _ subparameters: [Int],
         nextIndex: Int
@@ -599,7 +599,7 @@ enum MobileTerminalGhosttyVTParser {
             return (nil, nextIndex)
         }
     }
-    
+
     private static func xtermColor(index: Int) -> MobileTerminalGhosttyColor {
         let base: [MobileTerminalGhosttyColor] = [
             MobileTerminalGhosttyColor(red: 0, green: 0, blue: 0),
@@ -619,11 +619,11 @@ enum MobileTerminalGhosttyVTParser {
             MobileTerminalGhosttyColor(red: 41, green: 184, blue: 219),
             MobileTerminalGhosttyColor(red: 229, green: 229, blue: 229),
         ]
-    
+
         if base.indices.contains(index) {
             return base[index]
         }
-    
+
         let clamped = max(0, min(index, 255))
         if clamped < base.count {
             return base[clamped]
@@ -639,15 +639,15 @@ enum MobileTerminalGhosttyVTParser {
                 blue: xtermColorCubeComponent(blue)
             )
         }
-    
+
         let gray = UInt8(clamping: 8 + ((clamped - 232) * 10))
         return MobileTerminalGhosttyColor(red: gray, green: gray, blue: gray)
     }
-    
+
     private static func xtermColorCubeComponent(_ component: Int) -> UInt8 {
         component == 0 ? 0 : UInt8(clamping: 55 + (component * 40))
     }
-    
+
     private static func terminalDisplayWidth(of character: Character) -> Int {
         let scalars = Array(character.unicodeScalars)
         guard !scalars.isEmpty else { return 0 }
@@ -659,7 +659,7 @@ enum MobileTerminalGhosttyVTParser {
         }
         return scalars.contains { terminalScalarDisplayWidth($0) == 2 } ? 2 : 1
     }
-    
+
     private static func terminalScalarDisplayWidth(_ scalar: UnicodeScalar) -> Int {
         let value = scalar.value
         if value == 0 || value == 0x200D || (0xFE00...0xFE0F).contains(value) {
@@ -676,7 +676,7 @@ enum MobileTerminalGhosttyVTParser {
         }
         return 1
     }
-    
+
     private static func isTerminalWideScalar(_ value: UInt32) -> Bool {
         switch value {
         case 0x1100...0x115F,
@@ -733,11 +733,11 @@ enum MobileTerminalGhosttyVTParser {
             return false
         }
     }
-    
+
     private static func isEmojiWidthSelector(_ scalar: UnicodeScalar) -> Bool {
         scalar.value == 0xFE0F
     }
-    
+
     private static func isRegionalIndicatorScalar(_ scalar: UnicodeScalar) -> Bool {
         (0x1F1E6...0x1F1FF).contains(scalar.value)
     }
