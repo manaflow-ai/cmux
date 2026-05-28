@@ -12865,6 +12865,9 @@ final class Workspace: Identifiable, ObservableObject {
         if startupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
             template.waitAfterCommand = true
+            if usesRemoteTerminalStartupCommand {
+                template.workingDirectory = nil
+            }
             inheritedConfig = template
         }
 #if DEBUG
@@ -13044,6 +13047,9 @@ final class Workspace: Identifiable, ObservableObject {
         if startupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
             template.waitAfterCommand = true
+            if usesRemoteTerminalStartupCommand {
+                template.workingDirectory = nil
+            }
             inheritedConfig = template
         }
 
