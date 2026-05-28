@@ -188,6 +188,11 @@ private struct WorkspaceCanvasCardSnapshot: Identifiable {
 
 @MainActor
 private enum WorkspaceCanvasSurfaceMountManager {
+    private enum ParkMode {
+        case unmount
+        case freezeInPlace
+    }
+
     static func apply(
         panel: (any Panel)?,
         frameInWindow: CGRect?,
@@ -270,40 +275,50 @@ private enum WorkspaceCanvasSurfaceMountManager {
         )
     }
 
-    static func park(panel: (any Panel)?, suppressRepublication: Bool = false) {
+    static func park(panel: (any Panel)?, preserveGeometry: Bool = false) {
+        let mode: ParkMode = preserveGeometry ? .freezeInPlace : .unmount
         if let terminalPanel = panel as? TerminalPanel {
-            if suppressRepublication {
-                TerminalWindowPortalRegistry.suppressCanvasSurfacePresentation(hostedView: terminalPanel.hostedView)
+            switch mode {
+            case .freezeInPlace:
+                TerminalWindowPortalRegistry.freezeCanvasSurfacePresentation(hostedView: terminalPanel.hostedView)
                 return
+            case .unmount:
+                break
             }
             TerminalWindowPortalRegistry.updateEntryVisibility(for: terminalPanel.hostedView, visibleInUI: false)
-            TerminalWindowPortalRegistry.setCanvasSurfacePresentation(hostedView: terminalPanel.hostedView, presentation: nil)
+            TerminalWindowPortalRegistry.setCanvasSurfacePresentation(
+                hostedView: terminalPanel.hostedView,
+                presentation: nil
+            )
             return
         }
 
         if let browserPanel = panel as? BrowserPanel {
-            if suppressRepublication {
-                BrowserWindowPortalRegistry.suppressCanvasSurfacePresentation(webView: browserPanel.webView)
+            switch mode {
+            case .freezeInPlace:
+                BrowserWindowPortalRegistry.freezeCanvasSurfacePresentation(webView: browserPanel.webView)
                 return
+            case .unmount:
+                break
             }
             BrowserWindowPortalRegistry.updateEntryVisibility(for: browserPanel.webView, visibleInUI: false, zPriority: 0)
             BrowserWindowPortalRegistry.setCanvasSurfacePresentation(webView: browserPanel.webView, presentation: nil)
         }
     }
 
-    static func parkAllNativeSurfaces(in workspace: Workspace, suppressRepublication: Bool = false) {
+    static func parkAllNativeSurfaces(in workspace: Workspace, preserveGeometry: Bool = false) {
         for panel in workspace.panels.values {
-            park(panel: panel, suppressRepublication: suppressRepublication)
+            park(panel: panel, preserveGeometry: preserveGeometry)
         }
     }
 
     static func parkNativeSurfaces(
         in workspace: Workspace,
         excludingPanelIDs mountedPanelIDs: Set<UUID>,
-        suppressRepublication: Bool = false
+        preserveGeometry: Bool = false
     ) {
         for panel in workspace.panels.values where !mountedPanelIDs.contains(panel.id) {
-            park(panel: panel, suppressRepublication: suppressRepublication)
+            park(panel: panel, preserveGeometry: preserveGeometry)
         }
     }
 
@@ -3824,7 +3839,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             captureCanvasPreviewSnapshots(in: presentation)
         }
         captureCanvasPreviewSnapshot(activeItemID: activeItemID)
-        WorkspaceCanvasSurfaceMountManager.parkAllNativeSurfaces(in: workspace, suppressRepublication: true)
+        WorkspaceCanvasSurfaceMountManager.parkAllNativeSurfaces(in: workspace, preserveGeometry: true)
         CATransaction.flush()
     }
 
