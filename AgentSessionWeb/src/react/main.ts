@@ -136,9 +136,29 @@ function SessionSurface({
   };
   const modelPicker = h(
     "label",
-    { className: "model-picker h-token-button-composer max-w-40 rounded-full px-2 py-0 text-sm leading-[18px]" },
-    h("span", { className: "model-label composer-footer__label--sm" }, modelLabel),
-    h("span", { className: "model-chevron composer-footer__secondary-chevron", "aria-hidden": true }, chevronIcon()),
+    {
+      className:
+        "model-picker h-token-button-composer max-w-40 min-w-0 rounded-full px-2 py-0 text-sm leading-[18px]",
+      "data-codex-intelligence-trigger": true,
+      "data-selected-reasoning-effort": "high",
+    },
+    h(
+      "span",
+      { className: "model-picker-content flex max-w-40 min-w-0 items-center gap-1.5" },
+      h(
+        "span",
+        { className: "model-picker-primary flex min-w-0 items-center gap-1 tabular-nums" },
+        h("span", { className: "model-label truncate whitespace-nowrap text-token-foreground" }, modelLabel),
+      ),
+    ),
+    h(
+      "span",
+      {
+        className: "model-chevron composer-footer__secondary-chevron icon-2xs text-token-input-placeholder-foreground",
+        "aria-hidden": true,
+      },
+      chevronIcon(),
+    ),
     h(
       "select",
       {

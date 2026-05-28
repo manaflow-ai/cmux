@@ -542,7 +542,7 @@ select {
   min-width: 0;
   max-width: 10rem;
   gap: 6px;
-  color: color-mix(in srgb, var(--agent-muted) 70%, transparent);
+  color: var(--color-token-foreground);
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 0;
@@ -568,13 +568,14 @@ select {
 .model-label {
   min-width: 0;
   overflow: hidden;
+  color: var(--color-token-foreground);
+  font-weight: 600;
   text-overflow: ellipsis;
 }
 
 .model-chevron {
   flex: 0 0 auto;
-  color: var(--agent-muted);
-  font-size: 14px;
+  color: var(--color-token-input-placeholder-foreground);
   line-height: 1;
 }
 
