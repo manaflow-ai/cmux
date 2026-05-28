@@ -3769,12 +3769,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertEqual(params["remote_pty_session_id"] as? String, sessionId)
             XCTAssertEqual(params["focus"] as? Bool, true)
             let initialCommand = params["initial_command"] as? String ?? ""
-            XCTAssertTrue(initialCommand.contains("ssh-pty-attach"), initialCommand)
-            XCTAssertTrue(initialCommand.contains("--require-existing"), initialCommand)
-            XCTAssertTrue(initialCommand.contains(sessionId), initialCommand)
-            XCTAssertTrue(initialCommand.contains("CMUX_WORKSPACE_ID"), initialCommand)
-            XCTAssertTrue(initialCommand.contains("CMUX_SURFACE_ID"), initialCommand)
-            XCTAssertTrue(initialCommand.contains("254|255"), initialCommand)
+            XCTAssertTrue(initialCommand.hasPrefix("/bin/sh -c "), initialCommand)
+            let initialScript = decodedReusableStartupScript(from: initialCommand) ?? initialCommand
+            XCTAssertTrue(initialScript.contains("ssh-pty-attach"), initialScript)
+            XCTAssertTrue(initialScript.contains("--require-existing"), initialScript)
+            XCTAssertTrue(initialScript.contains(sessionId), initialScript)
+            XCTAssertTrue(initialScript.contains("CMUX_WORKSPACE_ID"), initialScript)
+            XCTAssertTrue(initialScript.contains("CMUX_SURFACE_ID"), initialScript)
+            XCTAssertTrue(initialScript.contains("254|255"), initialScript)
             return self.v2Response(
                 id: id,
                 ok: true,
