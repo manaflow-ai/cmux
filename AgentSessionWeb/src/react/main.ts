@@ -5,7 +5,6 @@ import { shouldUseSingleLineComposer } from "../shared/composerLayout";
 import { renderMarkdownHTML, renderPlainTextHTML } from "../shared/markdown";
 import { codexModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
 import {
-  activeRateLimitRow,
   formatRateLimitPercent,
   formatRateLimitReset,
   formatRateLimitWindow,
@@ -490,13 +489,13 @@ function RateLimitFooter({
   providerDisplayName: string;
 }) {
   const rows = state.context?.rateLimitRows ?? [];
-  const summary = activeRateLimitRow(rows);
+  const normalizedRows = rows.map(normalizeRateLimitRow);
   const copy = state.context?.copy;
   const [isOpen, setIsOpen] = useState(false);
-  if (!summary) {
+  if (normalizedRows.length === 0) {
     return null;
   }
-  const usageLabel = copy?.rateLimitUsageRemaining ?? "Usage remaining";
+  const rateLimitsLabel = copy?.rateLimits ?? "Rate limits";
   return h(
     "div",
     {
@@ -512,15 +511,16 @@ function RateLimitFooter({
     h(
       "button",
       {
-        className: "rate-limit-trigger flex min-w-0 items-center gap-1",
+        className: "rate-limit-trigger rate-limit-trigger-inline flex min-w-0 items-center gap-1",
         type: "button",
         "aria-expanded": isOpen,
         onClick: () => setIsOpen((open) => !open),
       },
-      h("span", { className: "rate-limit-speedometer icon-xs", "aria-hidden": true }, speedometerIcon()),
-      h("span", { className: "rate-line-heading" }, usageLabel),
-      h("span", { className: "rate-limit-percent" }, formatRateLimitPercent(summary.remainingPercent)),
-      h("span", { className: "rate-limit-chevron icon-2xs", "aria-hidden": true }, chevronIcon()),
+      h("span", { className: "rate-line-heading" }, rateLimitsLabel),
+      normalizedRows.flatMap((row) => [
+        h("span", { key: `${row.role}-separator`, className: "rate-limit-inline-separator", "aria-hidden": true }, "•"),
+        h(RateLimitInlineSegment, { key: row.role, row, state }),
+      ]),
     ),
     isOpen
       ? h(
@@ -529,8 +529,34 @@ function RateLimitFooter({
             className:
               "rate-limit-popover absolute bottom-[calc(100%+6px)] left-0 z-50 flex min-w-56 flex-col gap-1 rounded-xl border border-token-border bg-token-dropdown-background/95 px-3 py-2 text-sm shadow-xl-spread backdrop-blur-sm",
           },
-          h("div", { className: "rate-limit-popover-title" }, usageLabel),
+          h("div", { className: "rate-limit-popover-title" }, rateLimitsLabel),
           rows.map((row) => h(RateLimitRow, { key: row.role, row, state })),
+        )
+      : null,
+  );
+}
+
+function RateLimitInlineSegment({ row, state }: { row: AgentSessionRateLimitRow; state: SessionState }) {
+  const normalized = normalizeRateLimitRow(row);
+  const copy = state.context?.copy;
+  const fallbackLabel = normalized.role === "primary"
+    ? copy?.rateLimitPrimary ?? "Primary"
+    : copy?.rateLimitSecondary ?? "Secondary";
+  const label = formatRateLimitWindow(normalized.windowDurationMins, fallbackLabel, {
+    weekly: copy?.rateLimitWeekly ?? "Weekly",
+    monthly: copy?.rateLimitMonthly ?? "Monthly",
+  });
+  const resetText = formatRateLimitReset(normalized.resetsAt);
+  return h(
+    "span",
+    { className: "rate-limit-inline-segment" },
+    h("span", { className: "rate-limit-window" }, label),
+    h("span", { className: "rate-limit-percent" }, formatRateLimitPercent(normalized.remainingPercent)),
+    resetText
+      ? h(
+          "span",
+          { className: "rate-limit-reset" },
+          `${copy?.rateLimitResets ?? "resets"} ${resetText}`,
         )
       : null,
   );
