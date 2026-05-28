@@ -62,6 +62,7 @@ export type AgentSessionCopy = {
   voiceInput: string;
   promptPlaceholder: string;
   attachFile: string;
+  addFilesAndMore: string;
   addPhotosAndFiles: string;
   removeAttachment: string;
   browseWeb: string;
@@ -71,6 +72,7 @@ export type AgentSessionCopy = {
   mentionMenuTitle: string;
   mentionCurrentWorkspace: string;
   skillMenuTitle: string;
+  planMode: string;
   skillPlan: string;
   skillCodeReview: string;
   skillResearch: string;

@@ -412,6 +412,10 @@ extension AgentSessionWebRenderer {
                             localized: "agentSession.web.attachFile",
                             defaultValue: "Attach file"
                         ),
+                        "addFilesAndMore": String(
+                            localized: "agentSession.web.addFilesAndMore",
+                            defaultValue: "Add files and more"
+                        ),
                         "addPhotosAndFiles": String(
                             localized: "agentSession.web.addPhotosAndFiles",
                             defaultValue: "Add photos & files"
@@ -439,6 +443,7 @@ extension AgentSessionWebRenderer {
                             localized: "agentSession.web.skillMenuTitle",
                             defaultValue: "Skills"
                         ),
+                        "planMode": String(localized: "agentSession.web.planMode", defaultValue: "Plan mode"),
                         "skillPlan": String(localized: "agentSession.web.skillPlan", defaultValue: "Plan"),
                         "skillCodeReview": String(
                             localized: "agentSession.web.skillCodeReview",

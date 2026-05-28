@@ -1065,10 +1065,12 @@ function AddContextDropdown({
   state: SessionState;
 }) {
   const copy = state.context?.copy;
+  const addFilesAndMoreLabel = copy?.addFilesAndMore ?? "Add files and more";
   const addPhotosAndFilesLabel = copy?.addPhotosAndFiles ?? "Add photos & files";
   const mentionItems = composerMenuItems("mention", state, "");
   const workspaceItem = mentionItems.find((item) => item.id === "workspace") ?? null;
   const skillItems = composerMenuItems("skill", state, "");
+  const planItem = skillItems.find((item) => item.id === "plan") ?? null;
   const chooseItem = (item: ComposerMenuItem) => {
     onChoose(item);
     onOpenChange(false);
@@ -1089,7 +1091,7 @@ function AddContextDropdown({
         className:
           `codex-tool codex-tool-plus ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
         type: "button",
-        "aria-label": addPhotosAndFilesLabel,
+        "aria-label": addFilesAndMoreLabel,
         "aria-haspopup": "menu",
         "aria-expanded": isOpen,
         "data-state": isOpen ? "open" : "closed",
@@ -1114,7 +1116,7 @@ function AddContextDropdown({
             className:
               "add-context-dropdown _content_1hiti_1 no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 m-px flex select-none flex-col rounded-xl ring-[0.5px] px-1 py-1 shadow-xl-spread backdrop-blur-sm",
             role: "menu",
-            "aria-label": addPhotosAndFilesLabel,
+            "aria-label": addFilesAndMoreLabel,
           },
           h(AddContextMenuItem, {
             disabled: isPickingFiles,
@@ -1130,16 +1132,15 @@ function AddContextDropdown({
                 onSelect: () => chooseItem(workspaceItem),
               })
             : null,
-          h("div", { className: "add-context-separator", role: "separator" }),
-          skillItems.map((item) =>
-            h(AddContextMenuItem, {
-              key: item.id,
-              icon: skillIcon(),
-              label: item.label,
-              detail: item.detail,
-              onSelect: () => chooseItem(item),
-            })
-          ),
+          workspaceItem || planItem ? h("div", { className: "add-context-separator", role: "separator" }) : null,
+          planItem
+            ? h(AddContextMenuItem, {
+                icon: sparkleIcon(),
+                label: copy?.planMode ?? "Plan mode",
+                detail: planItem.detail,
+                onSelect: () => chooseItem(planItem),
+              })
+            : null,
         )
       : null,
   );
@@ -1458,10 +1459,6 @@ function toolsIcon() {
 
 function atIcon() {
   return h("span", { className: "add-context-glyph", "aria-hidden": true }, "@");
-}
-
-function skillIcon() {
-  return h("span", { className: "add-context-glyph", "aria-hidden": true }, "$");
 }
 
 function activityGlyph(entry: TranscriptEntry): string {
