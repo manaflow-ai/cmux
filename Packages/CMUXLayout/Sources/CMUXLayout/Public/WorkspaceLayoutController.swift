@@ -1519,7 +1519,6 @@ public final class WorkspaceLayoutController {
 }
 
 private extension PixelRect {
-    var cgRect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
     var minX: Double { x }
     var maxX: Double { x + width }
     var minY: Double { y }

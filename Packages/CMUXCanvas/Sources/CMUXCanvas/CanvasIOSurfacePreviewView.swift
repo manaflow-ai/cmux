@@ -274,45 +274,8 @@ private final class CanvasIOSurfacePreviewRenderer: NSObject, MTKViewDelegate {
     }
 
     private static func makePipelineState(device: MTLDevice?) -> MTLRenderPipelineState? {
-        guard let device else { return nil }
-        let source = """
-        #include <metal_stdlib>
-        using namespace metal;
-
-        struct VertexOut {
-            float4 position [[position]];
-            float2 texCoord;
-        };
-
-        vertex VertexOut canvas_iosurface_vertex(uint vertexID [[vertex_id]]) {
-            constexpr float2 positions[4] = {
-                float2(-1.0, -1.0),
-                float2( 1.0, -1.0),
-                float2(-1.0,  1.0),
-                float2( 1.0,  1.0)
-            };
-            constexpr float2 coords[4] = {
-                float2(0.0, 1.0),
-                float2(1.0, 1.0),
-                float2(0.0, 0.0),
-                float2(1.0, 0.0)
-            };
-            VertexOut out;
-            out.position = float4(positions[vertexID], 0.0, 1.0);
-            out.texCoord = coords[vertexID];
-            return out;
-        }
-
-        fragment float4 canvas_iosurface_fragment(
-            VertexOut in [[stage_in]],
-            texture2d<float> surfaceTexture [[texture(0)]]
-        ) {
-            constexpr sampler surfaceSampler(coord::normalized, address::clamp_to_edge, filter::linear);
-            return surfaceTexture.sample(surfaceSampler, in.texCoord);
-        }
-        """
-
-        guard let library = try? device.makeLibrary(source: source, options: nil),
+        guard let device,
+              let library = CanvasMetalShaderLibrary.makeLibrary(device: device),
               let vertexFunction = library.makeFunction(name: "canvas_iosurface_vertex"),
               let fragmentFunction = library.makeFunction(name: "canvas_iosurface_fragment") else {
             return nil

@@ -902,10 +902,6 @@ public enum CanvasGeometryEngine {
 }
 
 private extension PixelRect {
-    var cgRect: CGRect {
-        CGRect(x: x, y: y, width: width, height: height)
-    }
-
     var minX: Double { x }
     var maxX: Double { x + width }
     var midX: Double { x + (width / 2) }

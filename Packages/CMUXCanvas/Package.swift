@@ -23,7 +23,11 @@ let package = Package(
             dependencies: [
                 .product(name: "CMUXLayout", package: "CMUXLayout"),
             ],
-            path: "Sources/CMUXCanvas"
+            path: "Sources/CMUXCanvas",
+            resources: [
+                .copy("Resources/CanvasShaders.metal"),
+                .copy("Resources/default.metallib"),
+            ]
         ),
         .testTarget(
             name: "CMUXCanvasTests",

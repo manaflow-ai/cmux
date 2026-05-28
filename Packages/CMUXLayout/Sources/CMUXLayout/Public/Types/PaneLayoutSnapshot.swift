@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 // MARK: - Pixel Coordinates
@@ -21,6 +22,10 @@ public struct PixelRect: Codable, Sendable, Equatable {
         self.y = Double(cgRect.origin.y)
         self.width = Double(cgRect.size.width)
         self.height = Double(cgRect.size.height)
+    }
+
+    public var cgRect: CGRect {
+        CGRect(x: x, y: y, width: width, height: height)
     }
 }
 

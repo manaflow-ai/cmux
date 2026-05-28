@@ -20,7 +20,8 @@ final class SplitAnimator {
 
     // MARK: - Properties
 
-    private var displayLink: CVDisplayLink?
+    nonisolated(unsafe) private var displayLink: CVDisplayLink?
+    nonisolated(unsafe) private let tickGate = SplitAnimatorTickGate()
     private var animations: [UUID: Animation] = [:]
 
     /// Shared animator instance
@@ -35,7 +36,7 @@ final class SplitAnimator {
     }
 
     deinit {
-        if let displayLink, CVDisplayLinkIsRunning(displayLink) {
+        if let displayLink {
             CVDisplayLinkStop(displayLink)
         }
     }
@@ -50,7 +51,11 @@ final class SplitAnimator {
 
         let callback: CVDisplayLinkOutputCallback = { _, _, _, _, _, context in
             let animator = Unmanaged<SplitAnimator>.fromOpaque(context!).takeUnretainedValue()
+            guard animator.tickGate.beginFrame() else {
+                return kCVReturnSuccess
+            }
             Task { @MainActor in
+                defer { animator.tickGate.endFrame() }
                 animator.tick()
             }
             return kCVReturnSuccess
@@ -158,5 +163,30 @@ final class SplitAnimator {
         if animations.isEmpty, let displayLink, CVDisplayLinkIsRunning(displayLink) {
             CVDisplayLinkStop(displayLink)
         }
+    }
+}
+
+final class SplitAnimatorTickGate {
+    private let lock = NSLock()
+    private var framePending = false
+
+    func beginFrame() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !framePending else { return false }
+        framePending = true
+        return true
+    }
+
+    func endFrame() {
+        lock.lock()
+        framePending = false
+        lock.unlock()
+    }
+
+    var isFramePendingForTesting: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return framePending
     }
 }

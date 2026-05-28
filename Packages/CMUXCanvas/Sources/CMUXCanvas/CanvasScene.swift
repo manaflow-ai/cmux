@@ -96,9 +96,3 @@ public struct CanvasScene: Sendable, Equatable {
         return lhs.id.description < rhs.id.description
     }
 }
-
-private extension PixelRect {
-    var cgRect: CGRect {
-        CGRect(x: x, y: y, width: width, height: height)
-    }
-}

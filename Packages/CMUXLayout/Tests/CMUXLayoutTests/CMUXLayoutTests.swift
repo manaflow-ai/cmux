@@ -1431,6 +1431,20 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertNil(releasedSplitView)
     }
 
+    func testSplitAnimatorTickGateCoalescesPendingDisplayLinkFrames() {
+        let gate = SplitAnimatorTickGate()
+
+        XCTAssertTrue(gate.beginFrame())
+        XCTAssertFalse(gate.beginFrame())
+        XCTAssertTrue(gate.isFramePendingForTesting)
+
+        gate.endFrame()
+
+        XCTAssertFalse(gate.isFramePendingForTesting)
+        XCTAssertTrue(gate.beginFrame())
+        gate.endFrame()
+    }
+
     private func makeAnimatableSplitView() -> NSSplitView {
         let splitView = NSSplitView(frame: NSRect(x: 0, y: 0, width: 240, height: 120))
         splitView.isVertical = true

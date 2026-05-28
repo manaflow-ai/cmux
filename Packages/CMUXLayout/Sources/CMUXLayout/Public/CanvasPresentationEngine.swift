@@ -967,9 +967,3 @@ public enum CanvasWindowCoordinateMapper {
         )
     }
 }
-
-private extension PixelRect {
-    var cgRect: CGRect {
-        CGRect(x: x, y: y, width: width, height: height)
-    }
-}

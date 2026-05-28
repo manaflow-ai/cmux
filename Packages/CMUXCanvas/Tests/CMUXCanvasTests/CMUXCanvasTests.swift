@@ -22,6 +22,20 @@ final class CMUXCanvasTests: XCTestCase {
         XCTAssertEqual(colorAttachment?.destinationAlphaBlendFactor, .oneMinusSourceAlpha)
         XCTAssertEqual(colorAttachment?.alphaBlendOperation, .add)
     }
+
+    func testCanvasMetalShaderLibraryProvidesPrecompiledFunctions() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            throw XCTSkip("Metal device unavailable")
+        }
+        let library = try XCTUnwrap(CanvasMetalShaderLibrary.makeLibrary(device: device))
+
+        XCTAssertNotNil(library.makeFunction(name: "cmux_canvas_vertex"))
+        XCTAssertNotNil(library.makeFunction(name: "cmux_canvas_fragment"))
+        XCTAssertNotNil(library.makeFunction(name: "cmux_canvas_texture_vertex"))
+        XCTAssertNotNil(library.makeFunction(name: "cmux_canvas_texture_fragment"))
+        XCTAssertNotNil(library.makeFunction(name: "canvas_iosurface_vertex"))
+        XCTAssertNotNil(library.makeFunction(name: "canvas_iosurface_fragment"))
+    }
 #endif
 
     func testSceneSortsAndFiltersVisibleSurfaces() {
