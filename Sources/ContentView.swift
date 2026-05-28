@@ -11483,6 +11483,7 @@ struct VerticalTabsSidebar: View {
         memberCount: Int,
         renderContext: WorkspaceListRenderContext
     ) -> some View {
+        let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
         let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
@@ -11509,6 +11510,8 @@ struct VerticalTabsSidebar: View {
             shortcutDigit: shortcutDigit,
             shortcutModifierSymbol: modifierSymbol,
             showsShortcutHint: showsHintForAnchor,
+            shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
+            shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
             cwdContextMenuItems: cwdContextMenuItems,
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
@@ -11685,6 +11688,8 @@ private struct SidebarWorkspaceGroupHeaderView: View {
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
+    let shortcutHintXOffset: Double
+    let shortcutHintYOffset: Double
     let cwdContextMenuItems: [CmuxResolvedConfigContextMenuItem]
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: () -> Void
@@ -11703,6 +11708,17 @@ private struct SidebarWorkspaceGroupHeaderView: View {
             return Color(nsColor: nsColor)
         }
         return .secondary
+    }
+
+    /// Pill text when the cmd-hold hint is visible (e.g. "⌃⌘1"), nil
+    /// otherwise. Same shape `TabItemView.workspaceShortcutLabel` produces
+    /// for regular rows so both render through the shared
+    /// `sidebarShortcutHintOverlay` modifier.
+    private var shortcutHintPillText: String? {
+        guard showsShortcutHint,
+              let shortcutDigit,
+              let shortcutModifierSymbol else { return nil }
+        return "\(shortcutModifierSymbol)\(shortcutDigit)"
     }
 
     var body: some View {
@@ -11733,19 +11749,6 @@ private struct SidebarWorkspaceGroupHeaderView: View {
                         .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    if showsShortcutHint,
-                       let shortcutDigit,
-                       let shortcutModifierSymbol {
-                        Text("\(shortcutModifierSymbol)\(shortcutDigit)")
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(
-                                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                    .fill(Color.primary.opacity(0.08))
-                            )
-                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -11758,19 +11761,22 @@ private struct SidebarWorkspaceGroupHeaderView: View {
             )))
 
             // Reserve the `+` slot whether hovered or not so the header
-            // never reflows / changes height on mouse-enter.
+            // never reflows / changes height on mouse-enter. Hide it when
+            // the cmd-hold hint pill is shown so the trailing accessory
+            // matches the workspace-row "pill replaces close button" rule.
+            let plusVisible = isHovered && !showsShortcutHint
             Button(action: onTapPlus) {
                 Image(systemName: "plus")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
-                    .opacity(isHovered ? 1 : 0)
+                    .opacity(plusVisible ? 1 : 0)
             }
             .buttonStyle(.plain)
             .frame(width: 18, height: 18)
-            .allowsHitTesting(isHovered)
-            .accessibilityHidden(!isHovered)
+            .allowsHitTesting(plusVisible)
+            .accessibilityHidden(!plusVisible)
             .accessibilityLabel(Text(String(
                 localized: "workspaceGroup.newWorkspaceInGroup.a11y",
                 defaultValue: "New workspace in group"
@@ -11823,6 +11829,13 @@ private struct SidebarWorkspaceGroupHeaderView: View {
                 : Color.clear
         )
         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .sidebarShortcutHintOverlay(
+            text: shortcutHintPillText,
+            emphasis: isAnchorActive ? 1.0 : 0.9,
+            offsetX: shortcutHintXOffset,
+            offsetY: shortcutHintYOffset
+        )
+        .shortcutHintVisibilityAnimation(value: showsShortcutHint)
         .onHover { hovering in
             isHovered = hovering
         }
@@ -14986,16 +14999,15 @@ private struct TabItemView: View, Equatable {
                     }
                 }
         )
+        .sidebarShortcutHintOverlay(
+            text: showsWorkspaceShortcutHint ? workspaceShortcutLabel : nil,
+            emphasis: shortcutHintEmphasis,
+            offsetX: sidebarShortcutHintXOffset,
+            offsetY: sidebarShortcutHintYOffset
+        )
         .overlay(alignment: .topTrailing) {
-            if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
-                ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
-                    .offset(
-                        x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
-                        y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
-                    )
-                    .padding(.top, 6)
-                    .padding(.trailing, 10)
-                    .shortcutHintTransition()
+            if showsWorkspaceShortcutHint {
+                EmptyView()
             } else if showCloseButton {
                 Button(action: {
                     #if DEBUG
