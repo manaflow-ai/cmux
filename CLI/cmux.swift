@@ -13076,8 +13076,8 @@ struct CMUXCLI {
             <group> accepts a UUID or a workspace_group:N ref printed by `list`.
 
             All commands honor --json. Default keyboard shortcut for creating
-            a group from the sidebar selection is Ctrl+Cmd+G; rebind via
-            Settings → Keyboard.
+            a group from the sidebar multi-selection is Cmd+Shift+G; rebind
+            via Settings → Keyboard.
             """
         case "ssh":
             return """

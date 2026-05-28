@@ -6218,13 +6218,33 @@ class TabManager: ObservableObject {
     func toggleWorkspaceGroupCollapsed(groupId: UUID) {
         guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
         let nextCollapsed = !workspaceGroups[index].isCollapsed
-        if nextCollapsed,
-           let selectedTabId,
-           selectedTabId != workspaceGroups[index].anchorWorkspaceId,
-           let selectedTab = tabs.first(where: { $0.id == selectedTabId }),
-           selectedTab.groupId == groupId,
-           let anchor = tabs.first(where: { $0.id == workspaceGroups[index].anchorWorkspaceId }) {
-            selectWorkspace(anchor)
+        if nextCollapsed {
+            let anchorId = workspaceGroups[index].anchorWorkspaceId
+            if let selectedTabId,
+               selectedTabId != anchorId,
+               let selectedTab = tabs.first(where: { $0.id == selectedTabId }),
+               selectedTab.groupId == groupId,
+               let anchor = tabs.first(where: { $0.id == anchorId }) {
+                selectWorkspace(anchor)
+            }
+            // Strip any sidebar multi-selection entries that point at
+            // now-hidden non-anchor children of this group. Without this, a
+            // close/group shortcut fired after the collapse would still act
+            // on workspaces the user can no longer see.
+            let hiddenMemberIds: Set<UUID> = Set(
+                tabs
+                    .filter { $0.groupId == groupId && $0.id != anchorId }
+                    .map(\.id)
+            )
+            if !hiddenMemberIds.isEmpty,
+               !sidebarSelectedWorkspaceIds.isDisjoint(with: hiddenMemberIds) {
+                sidebarSelectedWorkspaceIds.subtract(hiddenMemberIds)
+                NotificationCenter.default.post(
+                    name: .sidebarMultiSelectionShouldCollapse,
+                    object: self,
+                    userInfo: [SidebarMultiSelectionCollapseKey.focusedWorkspaceId: anchorId]
+                )
+            }
         }
         setWorkspaceGroupCollapsed(groupId: groupId, isCollapsed: nextCollapsed)
     }
