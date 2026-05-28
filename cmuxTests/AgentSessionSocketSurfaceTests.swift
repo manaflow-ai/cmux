@@ -1,18 +1,23 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
 
+@Suite(.serialized)
 @MainActor
-final class AgentSessionSocketSurfaceTests: XCTestCase {
+struct AgentSessionSocketSurfaceTests {
+    @Test
     func testPanelTypeParserAcceptsAgentSessionSpellings() {
         let controller = TerminalController.shared
 
-        for rawValue in ["agentSession", "agent-session", "agent_session", "agent session", "agentsession"] {
-            XCTAssertEqual(
+        for rawValue in [
+            "agentSession", "agent-session", "agent_session", "agent session", "agentsession",
+        ] {
+            expectEqual(
                 controller.v2PanelType(["type": rawValue], "type"),
                 .agentSession,
                 "Expected \(rawValue) to parse as an agent session surface"
@@ -20,12 +25,13 @@ final class AgentSessionSocketSurfaceTests: XCTestCase {
         }
     }
 
+    @Test
     func testWorkspaceCreatesAgentSessionSurfaceWithProviderAndRenderer() throws {
         let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
 
-        let panel = try XCTUnwrap(
+        let panel = try #require(
             workspace.newAgentSessionSurface(
                 inPane: paneId,
                 providerID: .opencode,
@@ -35,20 +41,21 @@ final class AgentSessionSocketSurfaceTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(panel.panelType, .agentSession)
-        XCTAssertEqual(panel.initialProviderID, .opencode)
-        XCTAssertEqual(panel.rendererKind, .solid)
-        XCTAssertEqual(panel.workingDirectory, "/tmp")
-        XCTAssertEqual(workspace.panelDirectories[panel.id], "/tmp")
-        XCTAssertEqual(workspace.focusedPanelId, panel.id)
+        expectEqual(panel.panelType, .agentSession)
+        expectEqual(panel.initialProviderID, .opencode)
+        expectEqual(panel.rendererKind, .solid)
+        expectEqual(panel.workingDirectory, "/tmp")
+        expectEqual(workspace.panelDirectories[panel.id], "/tmp")
+        expectEqual(workspace.focusedPanelId, panel.id)
     }
 
+    @Test
     func testWorkspaceSessionSnapshotPersistsAgentSessionWorkingDirectory() throws {
         let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
 
-        let panel = try XCTUnwrap(
+        let panel = try #require(
             workspace.newAgentSessionSurface(
                 inPane: paneId,
                 providerID: .codex,
@@ -59,8 +66,8 @@ final class AgentSessionSocketSurfaceTests: XCTestCase {
         )
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
-        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panel.id })
-        XCTAssertEqual(panelSnapshot.directory, "/tmp/cmux-agent-session-cwd")
-        XCTAssertEqual(panelSnapshot.agentSession?.workingDirectory, "/tmp/cmux-agent-session-cwd")
+        let panelSnapshot = try #require(snapshot.panels.first { $0.id == panel.id })
+        expectEqual(panelSnapshot.directory, "/tmp/cmux-agent-session-cwd")
+        expectEqual(panelSnapshot.agentSession?.workingDirectory, "/tmp/cmux-agent-session-cwd")
     }
 }

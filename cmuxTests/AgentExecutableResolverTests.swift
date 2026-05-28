@@ -1,15 +1,65 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
 
-final class AgentExecutableResolverTests: XCTestCase {
+func expectEqual<T: Equatable>(_ actual: T, _ expected: T) {
+    #expect(actual == expected)
+}
+
+func expectEqual<T: Equatable>(_ actual: T, _ expected: T, _ message: @autoclosure () -> String) {
+    _ = message()
+    #expect(actual == expected)
+}
+
+func expectNotEqual<T: Equatable>(_ actual: T, _ expected: T) {
+    #expect(actual != expected)
+}
+
+func expectTrue(_ condition: Bool) {
+    #expect(condition)
+}
+
+func expectTrue(_ condition: Bool, _ message: @autoclosure () -> String) {
+    _ = message()
+    #expect(condition)
+}
+
+func expectFalse(_ condition: Bool) {
+    #expect(!condition)
+}
+
+func expectFalse(_ condition: Bool, _ message: @autoclosure () -> String) {
+    _ = message()
+    #expect(!condition)
+}
+
+func expectNil<T>(_ value: T?) {
+    #expect(value == nil)
+}
+
+func expectThrowsError<T>(
+    _ expression: @autoclosure () throws -> T, _ handler: ((any Error) -> Void)? = nil
+) {
+    do {
+        _ = try expression()
+        Issue.record("Expected expression to throw")
+    } catch {
+        handler?(error)
+    }
+}
+
+@Suite(.serialized)
+struct AgentExecutableResolverTests {
+    @Test
     func testResolvesExecutableFromInjectedPath() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         let executable = bin.appendingPathComponent("codex")
@@ -23,14 +73,16 @@ final class AgentExecutableResolverTests: XCTestCase {
         )
 
         let plan = try resolver.resolve(.codex)
-        XCTAssertEqual(plan.executableURL.path, executable.standardizedFileURL.path)
-        XCTAssertEqual(plan.arguments, AgentSessionProviderID.codex.launchArguments)
-        XCTAssertFalse(plan.executableURL.path.contains("/Contents/Resources/bin/"))
+        expectEqual(plan.executableURL.path, executable.standardizedFileURL.path)
+        expectEqual(plan.arguments, AgentSessionProviderID.codex.launchArguments)
+        expectFalse(plan.executableURL.path.contains("/Contents/Resources/bin/"))
     }
 
+    @Test
     func testReturnsMissingForAbsentExecutable() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -40,18 +92,22 @@ final class AgentExecutableResolverTests: XCTestCase {
             includeStandardSearchDirectories: false
         )
 
-        XCTAssertThrowsError(try resolver.resolve(.opencode)) { error in
-            guard case AgentExecutableResolverError.missing(let displayName, let executableName, _) = error else {
-                return XCTFail("Expected missing executable error, got \(error)")
+        expectThrowsError(try resolver.resolve(.opencode)) { error in
+            guard
+                case AgentExecutableResolverError.missing(let displayName, let executableName, _) = error
+            else {
+                return Issue.record("Expected missing executable error, got \(error)")
             }
-            XCTAssertEqual(displayName, AgentSessionProviderID.opencode.displayName)
-            XCTAssertEqual(executableName, "opencode")
+            expectEqual(displayName, AgentSessionProviderID.opencode.displayName)
+            expectEqual(executableName, "opencode")
         }
     }
 
+    @Test
     func testResolvesConfiguredClaudePathBeforePath() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
         let configuredBin = root.appendingPathComponent("configured", isDirectory: true)
         let pathBin = root.appendingPathComponent("path", isDirectory: true)
         try FileManager.default.createDirectory(at: configuredBin, withIntermediateDirectories: true)
@@ -62,7 +118,8 @@ final class AgentExecutableResolverTests: XCTestCase {
         let pathClaude = pathBin.appendingPathComponent("claude")
         try "#!/bin/sh\nexit 0\n".write(to: configuredClaude, atomically: true, encoding: .utf8)
         try "#!/bin/sh\nexit 0\n".write(to: pathClaude, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: configuredClaude.path)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: configuredClaude.path)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pathClaude.path)
 
         let resolver = AgentExecutableResolver(
@@ -72,12 +129,14 @@ final class AgentExecutableResolverTests: XCTestCase {
         )
 
         let plan = try resolver.resolve(.claude)
-        XCTAssertEqual(plan.executableURL.path, configuredClaude.standardizedFileURL.path)
+        expectEqual(plan.executableURL.path, configuredClaude.standardizedFileURL.path)
     }
 
+    @Test
     func testConfiguredProviderDirectoryIsPrependedToRuntimePath() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
         let configuredBin = root.appendingPathComponent("configured", isDirectory: true)
         let pathBin = root.appendingPathComponent("path", isDirectory: true)
         try FileManager.default.createDirectory(at: configuredBin, withIntermediateDirectories: true)
@@ -88,7 +147,8 @@ final class AgentExecutableResolverTests: XCTestCase {
         let pathClaude = pathBin.appendingPathComponent("claude")
         try "#!/usr/bin/env node\n".write(to: configuredClaude, atomically: true, encoding: .utf8)
         try "#!/bin/sh\nexit 0\n".write(to: pathClaude, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: configuredClaude.path)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: configuredClaude.path)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pathClaude.path)
 
         let resolver = AgentExecutableResolver(
@@ -99,21 +159,25 @@ final class AgentExecutableResolverTests: XCTestCase {
 
         let plan = try resolver.resolve(.claude)
         let runtimePath = plan.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
-        XCTAssertEqual(plan.executableURL.path, configuredClaude.standardizedFileURL.path)
-        XCTAssertEqual(runtimePath.first, configuredBin.standardizedFileURL.path)
+        expectEqual(plan.executableURL.path, configuredClaude.standardizedFileURL.path)
+        expectEqual(runtimePath.first, configuredBin.standardizedFileURL.path)
     }
 
+    @Test
     func testIgnoresBundleResourceBinEvenWhenExecutableExists() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
-        let resourceBin = root
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let resourceBin =
+            root
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Resources", isDirectory: true)
             .appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: resourceBin, withIntermediateDirectories: true)
         let bundledExecutable = resourceBin.appendingPathComponent("claude")
         try "#!/bin/sh\nexit 0\n".write(to: bundledExecutable, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bundledExecutable.path)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: bundledExecutable.path)
         defer { try? FileManager.default.removeItem(at: root) }
 
         let resolver = AgentExecutableResolver(
@@ -122,18 +186,22 @@ final class AgentExecutableResolverTests: XCTestCase {
             includeStandardSearchDirectories: false
         )
 
-        XCTAssertThrowsError(try resolver.resolve(.claude)) { error in
-            guard case AgentExecutableResolverError.missing(let displayName, let executableName, _) = error else {
-                return XCTFail("Expected missing executable error, got \(error)")
+        expectThrowsError(try resolver.resolve(.claude)) { error in
+            guard
+                case AgentExecutableResolverError.missing(let displayName, let executableName, _) = error
+            else {
+                return Issue.record("Expected missing executable error, got \(error)")
             }
-            XCTAssertEqual(displayName, AgentSessionProviderID.claude.displayName)
-            XCTAssertEqual(executableName, "claude")
+            expectEqual(displayName, AgentSessionProviderID.claude.displayName)
+            expectEqual(executableName, "claude")
         }
     }
 
+    @Test
     func testSkipsCmuxClaudeCommandShim() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
         let shimBin = root.appendingPathComponent("shim-bin", isDirectory: true)
         let realBin = root.appendingPathComponent("real-bin", isDirectory: true)
         try FileManager.default.createDirectory(at: shimBin, withIntermediateDirectories: true)
@@ -158,12 +226,14 @@ final class AgentExecutableResolverTests: XCTestCase {
         )
 
         let plan = try resolver.resolve(.claude)
-        XCTAssertEqual(plan.executableURL.path, realClaude.standardizedFileURL.path)
+        expectEqual(plan.executableURL.path, realClaude.standardizedFileURL.path)
     }
 
+    @Test
     func testProviderLaunchPlansNeverUseEnvFallback() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -171,7 +241,8 @@ final class AgentExecutableResolverTests: XCTestCase {
         for provider in AgentSessionProviderID.allCases {
             let executable = bin.appendingPathComponent(provider.executableName)
             try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: executable.path)
         }
 
         let resolver = AgentExecutableResolver(
@@ -181,15 +252,17 @@ final class AgentExecutableResolverTests: XCTestCase {
 
         for provider in AgentSessionProviderID.allCases {
             let plan = try resolver.resolve(provider)
-            XCTAssertTrue(plan.executableURL.path.hasPrefix(bin.path))
-            XCTAssertNotEqual(plan.executableURL.path, "/usr/bin/env")
-            XCTAssertEqual(plan.arguments, provider.launchArguments)
+            expectTrue(plan.executableURL.path.hasPrefix(bin.path))
+            expectNotEqual(plan.executableURL.path, "/usr/bin/env")
+            expectEqual(plan.arguments, provider.launchArguments)
         }
     }
 
+    @Test
     func testClaudeLaunchPlanDoesNotRequestUnhandledPermissionPromptTool() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -204,19 +277,23 @@ final class AgentExecutableResolverTests: XCTestCase {
         )
 
         let plan = try resolver.resolve(.claude)
-        XCTAssertFalse(plan.arguments.contains("--permission-prompt-tool"))
-        XCTAssertEqual(plan.arguments, [
-            "-p",
-            "--output-format", "stream-json",
-            "--input-format", "stream-json",
-            "--include-partial-messages",
-            "--verbose"
-        ])
+        expectFalse(plan.arguments.contains("--permission-prompt-tool"))
+        expectEqual(
+            plan.arguments,
+            [
+                "-p",
+                "--output-format", "stream-json",
+                "--input-format", "stream-json",
+                "--include-partial-messages",
+                "--verbose",
+            ])
     }
 
+    @Test
     func testOpenCodeLaunchPlanAssignsConcreteRuntimePort() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -231,12 +308,13 @@ final class AgentExecutableResolverTests: XCTestCase {
         )
 
         let plan = try resolver.resolve(.opencode)
-        XCTAssertEqual(
+        expectEqual(
             plan.arguments(assigningOpenCodePort: 54321),
             ["serve", "--hostname", "localhost", "--port", "54321", "--print-logs"]
         )
     }
 
+    @Test
     func testLaunchEnvironmentKeepsPWDInSyncWithWorkingDirectory() {
         let plan = AgentSessionLaunchPlan(
             provider: .codex,
@@ -244,25 +322,29 @@ final class AgentExecutableResolverTests: XCTestCase {
             arguments: AgentSessionProviderID.codex.launchArguments,
             environment: [
                 "PATH": "/bin",
-                "PWD": "/wrong"
+                "PWD": "/wrong",
             ]
         )
 
-        let environment = plan.environment(overridingWorkingDirectory: "/tmp/cmux-agent-session/../cmux-agent-session")
+        let environment = plan.environment(
+            overridingWorkingDirectory: "/tmp/cmux-agent-session/../cmux-agent-session")
 
-        XCTAssertEqual(environment["PATH"], "/bin")
-        XCTAssertEqual(environment["PWD"], "/tmp/cmux-agent-session")
+        expectEqual(environment["PATH"], "/bin")
+        expectEqual(environment["PWD"], "/tmp/cmux-agent-session")
     }
 
+    @Test
     func testAutoStartPolicyMatchesAppServerProviders() {
-        XCTAssertTrue(AgentSessionProviderID.codex.shouldAutoStartSession)
-        XCTAssertTrue(AgentSessionProviderID.opencode.shouldAutoStartSession)
-        XCTAssertFalse(AgentSessionProviderID.claude.shouldAutoStartSession)
+        expectTrue(AgentSessionProviderID.codex.shouldAutoStartSession)
+        expectTrue(AgentSessionProviderID.opencode.shouldAutoStartSession)
+        expectFalse(AgentSessionProviderID.claude.shouldAutoStartSession)
     }
 
+    @Test
     func testSearchesBunBinUnderHome() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
         let bunBin = root.appendingPathComponent(".bun/bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bunBin, withIntermediateDirectories: true)
         let executable = bunBin.appendingPathComponent("codex")
@@ -276,12 +358,14 @@ final class AgentExecutableResolverTests: XCTestCase {
         )
 
         let plan = try resolver.resolve(.codex)
-        XCTAssertEqual(plan.executableURL.path, executable.standardizedFileURL.path)
+        expectEqual(plan.executableURL.path, executable.standardizedFileURL.path)
     }
 
+    @Test
     func testAddsNvmNodeBinToRuntimePathForBunInstalledProviders() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
         let bunBin = root.appendingPathComponent(".bun/bin", isDirectory: true)
         let nodeBin = root.appendingPathComponent(".nvm/versions/node/v25.8.1/bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bunBin, withIntermediateDirectories: true)
@@ -298,7 +382,7 @@ final class AgentExecutableResolverTests: XCTestCase {
 
         let plan = try resolver.resolve(.codex)
         let runtimePath = plan.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
-        XCTAssertEqual(plan.executableURL.path, executable.standardizedFileURL.path)
-        XCTAssertTrue(runtimePath.contains(nodeBin.standardizedFileURL.path))
+        expectEqual(plan.executableURL.path, executable.standardizedFileURL.path)
+        expectTrue(runtimePath.contains(nodeBin.standardizedFileURL.path))
     }
 }
