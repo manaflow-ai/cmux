@@ -143,6 +143,28 @@ if [[ -n "$TAG" ]]; then
   fi
 fi
 
+# Minimal entitlements for a locally dev-signed staging build: just the
+# team-prefixed keychain access group, which an auto-provisioned development
+# profile will accept. Auto-created if missing so a fresh checkout needs no
+# manual setup. Override the location via CMUX_STAGING_ENTITLEMENTS.
+STAGING_ENTITLEMENTS="${CMUX_STAGING_ENTITLEMENTS:-$HOME/Library/Application Support/cmux/staging.entitlements}"
+if [[ ! -f "$STAGING_ENTITLEMENTS" ]]; then
+  mkdir -p "$(dirname "$STAGING_ENTITLEMENTS")"
+  cat > "$STAGING_ENTITLEMENTS" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)$(CFBundleIdentifier)</string>
+    </array>
+</dict>
+</plist>
+PLIST
+  echo "==> Created staging entitlements at $STAGING_ENTITLEMENTS"
+fi
+
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
   -scheme cmux
@@ -151,7 +173,7 @@ XCODEBUILD_ARGS=(
   -allowProvisioningUpdates
   DEVELOPMENT_TEAM="${CMUX_DEV_TEAM:-HH3SJBAS42}"
   CODE_SIGN_STYLE=Automatic
-  CODE_SIGN_ENTITLEMENTS="${CMUX_STAGING_ENTITLEMENTS:-$HOME/Library/Application Support/cmux/staging.entitlements}"
+  CODE_SIGN_ENTITLEMENTS="$STAGING_ENTITLEMENTS"
   ONLY_ACTIVE_ARCH=YES
 )
 if [[ -n "$DERIVED_DATA" ]]; then
