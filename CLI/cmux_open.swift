@@ -3819,6 +3819,7 @@ extension CMUXCLI {
                     fileDescriptor: fd,
                     port: port,
                     manifestCache: manifestCache,
+                    acceptsGzipEncoding: request.acceptsGzipEncoding,
                     omitBody: request.method == "HEAD"
                 )
                 return
@@ -3836,6 +3837,7 @@ extension CMUXCLI {
                 file,
                 fileDescriptor: fd,
                 port: port,
+                acceptsGzipEncoding: request.acceptsGzipEncoding,
                 omitBody: request.method == "HEAD"
             )
         } catch {
@@ -3853,6 +3855,7 @@ extension CMUXCLI {
     private struct DiffViewerHTTPRequest {
         var method: String
         var path: String
+        var acceptsGzipEncoding: Bool
     }
 
     private func readDiffViewerHTTPRequest(fileDescriptor fd: Int32) throws -> DiffViewerHTTPRequest? {
@@ -3884,8 +3887,11 @@ extension CMUXCLI {
             }
         }
 
-        guard let header = String(data: data, encoding: .utf8),
-              let firstLine = header.components(separatedBy: "\r\n").first else {
+        guard let header = String(data: data, encoding: .utf8) else {
+            throw CLIError(message: "Invalid diff viewer request")
+        }
+        let headerLines = header.components(separatedBy: "\r\n")
+        guard let firstLine = headerLines.first else {
             throw CLIError(message: "Invalid diff viewer request")
         }
         let parts = firstLine.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
@@ -3907,7 +3913,52 @@ extension CMUXCLI {
         guard target.hasPrefix("/") else {
             throw CLIError(message: "Invalid diff viewer request path")
         }
-        return DiffViewerHTTPRequest(method: method, path: target)
+        let acceptEncoding = headerLines
+            .dropFirst()
+            .first { line in
+                line
+                    .split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+                    .first?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .caseInsensitiveCompare("Accept-Encoding") == .orderedSame
+            }?
+            .split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            .dropFirst()
+            .first
+            .map { String($0) }
+        return DiffViewerHTTPRequest(
+            method: method,
+            path: target,
+            acceptsGzipEncoding: diffViewerHTTPAcceptsGzipEncoding(acceptEncoding)
+        )
+    }
+
+    private func diffViewerHTTPAcceptsGzipEncoding(_ header: String?) -> Bool {
+        guard let header else { return false }
+        var explicitGzipQValue: Double?
+        var wildcardQValue: Double?
+        for encoding in header.split(separator: ",") {
+            let parts = encoding
+                .split(separator: ";", omittingEmptySubsequences: true)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            guard let name = parts.first else {
+                continue
+            }
+            let qValue = parts
+                .dropFirst()
+                .first { $0.hasPrefix("q=") }
+                .flatMap { Double($0.dropFirst(2)) }
+                ?? 1
+            if name == "gzip" {
+                explicitGzipQValue = qValue
+            } else if name == "*" {
+                wildcardQValue = qValue
+            }
+        }
+        if let explicitGzipQValue {
+            return explicitGzipQValue > 0
+        }
+        return (wildcardQValue ?? 0) > 0
     }
 
     private func diffViewerHTTPAllowedFile(
@@ -3935,6 +3986,7 @@ extension CMUXCLI {
         fileDescriptor fd: Int32,
         port: Int,
         manifestCache: DiffViewerHTTPManifestCache,
+        acceptsGzipEncoding: Bool,
         omitBody: Bool
     ) throws {
         let prefix = "/__cmux_diff_viewer_wait/"
@@ -3960,6 +4012,7 @@ extension CMUXCLI {
             file,
             fileDescriptor: fd,
             port: port,
+            acceptsGzipEncoding: acceptsGzipEncoding,
             omitBody: omitBody
         )
     }
@@ -4163,6 +4216,7 @@ extension CMUXCLI {
         _ file: DiffViewerAllowedFile,
         fileDescriptor fd: Int32,
         port: Int,
+        acceptsGzipEncoding: Bool,
         omitBody: Bool
     ) throws {
         if let remoteURLString = file.remoteURL,
@@ -4172,6 +4226,7 @@ extension CMUXCLI {
                 remoteURL,
                 fileDescriptor: fd,
                 port: port,
+                acceptsGzipEncoding: acceptsGzipEncoding,
                 omitBody: omitBody
             )
             return
@@ -4211,6 +4266,7 @@ extension CMUXCLI {
         _ remoteURL: URL,
         fileDescriptor fd: Int32,
         port: Int,
+        acceptsGzipEncoding: Bool,
         omitBody: Bool
     ) throws {
         var headers = diffViewerHTTPBaseHeaders(port: port)
@@ -4229,7 +4285,7 @@ extension CMUXCLI {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [
+        var arguments = [
             "curl",
             "-fL",
             "--silent",
@@ -4237,6 +4293,10 @@ extension CMUXCLI {
             "--max-time", "120",
             remoteURL.absoluteString
         ]
+        if acceptsGzipEncoding {
+            arguments.insert(contentsOf: ["--header", "Accept-Encoding: gzip"], at: arguments.count - 1)
+        }
+        process.arguments = arguments
         let stdoutPipe = Pipe()
         process.standardOutput = stdoutPipe
         process.standardInput = FileHandle.nullDevice
@@ -4286,6 +4346,10 @@ extension CMUXCLI {
             return
         }
 
+        if acceptsGzipEncoding && diffViewerHTTPDataIsGzipEncoded(firstChunk) {
+            headers["Content-Encoding"] = "gzip"
+            headers["Vary"] = "Accept-Encoding"
+        }
         try sendDiffViewerHTTPHeader(
             fileDescriptor: fd,
             status: 200,
@@ -4302,6 +4366,10 @@ extension CMUXCLI {
             try sendAllDiffViewerHTTPData(data, fileDescriptor: fd)
         }
         process.waitUntilExit()
+    }
+
+    private func diffViewerHTTPDataIsGzipEncoded(_ data: Data) -> Bool {
+        data.count >= 2 && data[data.startIndex] == 0x1f && data[data.index(after: data.startIndex)] == 0x8b
     }
 
     private func sendDiffViewerHTTPNotFound(fileDescriptor fd: Int32, omitBody: Bool) throws {
