@@ -83,6 +83,65 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceSessionSnapshotRestoresEmptyDockSplitPane() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        source.setPanelCustomTitle(panelId: sourcePanelId, title: "Dock terminal")
+
+        let sourceSnapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(sourceSnapshot.panels.first { $0.id == sourcePanelId })
+        let emptyPane = SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
+        let terminalPane = SessionPaneLayoutSnapshot(panelIds: [sourcePanelId], selectedPanelId: sourcePanelId)
+        let dockLayout = SessionWorkspaceLayoutSnapshot.split(
+            SessionSplitLayoutSnapshot(
+                orientation: .horizontal,
+                dividerPosition: 0.42,
+                first: .pane(emptyPane),
+                second: .pane(terminalPane)
+            )
+        )
+        let snapshot = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: nil,
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp",
+            focusedPanelId: sourcePanelId,
+            layout: .pane(emptyPane),
+            docks: [
+                SessionWorkspaceDockSnapshot(
+                    edge: .right,
+                    isOpen: true,
+                    preferredSize: 280,
+                    layout: dockLayout
+                ),
+            ],
+            panels: [panelSnapshot],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredDock = try XCTUnwrap(restored.dockLayout.docksSnapshot(for: .right).first)
+        XCTAssertEqual(restoredDock.controller.allPaneIds.count, 2)
+        let emptyPaneCount = restoredDock.controller.allPaneIds.filter {
+            restoredDock.controller.tabs(inPane: $0).isEmpty
+        }.count
+        XCTAssertEqual(emptyPaneCount, 1)
+
+        let restoredDockPanelIds = restoredDock.controller.allTabIds.compactMap {
+            restored.panelIdFromSurfaceId($0)
+        }
+        XCTAssertEqual(restoredDockPanelIds.count, 1)
+        XCTAssertEqual(restored.panels.count, 1)
+        XCTAssertEqual(restored.panelTitle(panelId: restoredDockPanelIds[0]), "Dock terminal")
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotRestoresClosedDockWithoutReopeningFocusedContent() throws {
         let workspace = Workspace()
         workspace.dockLayout.setDockCount(edge: .right, count: 1)

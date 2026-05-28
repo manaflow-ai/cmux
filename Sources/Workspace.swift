@@ -1168,23 +1168,12 @@ extension Workspace {
         case .pane(let pane):
             leaves.append(SessionPaneRestoreEntry(paneId: paneId, controller: controller, snapshot: pane))
         case .split(let split):
-            var anchorPanelId = controller
-                .tabs(inPane: paneId)
-                .compactMap { panelIdFromSurfaceId($0.id) }
-                .first
-
-            if anchorPanelId == nil {
-                anchorPanelId = newTerminalSurface(inPane: paneId, controller: controller, focus: false)?.id
-            }
-
-            guard let anchorPanelId,
-                  let newSplitPanel = newTerminalSplit(
-                    from: anchorPanelId,
-                    orientation: split.orientation.splitOrientation,
-                    insertFirst: false,
-                    focus: false
-                  ),
-                  let secondPaneId = self.paneId(forPanelId: newSplitPanel.id) else {
+            guard let secondPaneId = controller.splitPane(
+                paneId,
+                orientation: split.orientation.splitOrientation,
+                withTab: nil,
+                initialDividerPosition: CGFloat(split.dividerPosition)
+            ) else {
                 leaves.append(
                     SessionPaneRestoreEntry(
                         paneId: paneId,
@@ -1220,8 +1209,9 @@ extension Workspace {
             oldToNewPanelIds[oldPanelId] = createdPanelId
         }
 
+        let preserveEmptyPane = createdPanelIds.isEmpty
         for oldPanelId in existingPanelIds where !createdPanelIds.contains(oldPanelId) {
-            _ = closePanel(oldPanelId, force: true)
+            _ = closePanel(oldPanelId, force: true, preservingEmptyPane: preserveEmptyPane)
         }
 
         guard !createdPanelIds.isEmpty else { return }
@@ -14561,10 +14551,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Close a panel.
     /// Returns true when a bonsplit tab close request was issued.
-    func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
+    func closePanel(_ panelId: UUID, force: Bool = false, preservingEmptyPane: Bool = false) -> Bool {
         if let tabId = surfaceIdFromPanelId(panelId) {
             // Close the tab in bonsplit (this triggers delegate callback)
-            return requestCloseTab(tabId, force: force)
+            return requestCloseTab(tabId, force: force, preservingEmptyPane: preservingEmptyPane)
         }
 
         // Mapping can transiently drift during split-tree mutations. If the target panel is
@@ -14589,7 +14579,7 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
 
-        let closed = requestCloseTab(selected.id, force: force)
+        let closed = requestCloseTab(selected.id, force: force, preservingEmptyPane: preservingEmptyPane)
 #if DEBUG
         cmuxDebugLog(
             "surface.close.fallback panel=\(panelId.uuidString.prefix(5)) " +
@@ -14600,10 +14590,13 @@ final class Workspace: Identifiable, ObservableObject {
         return closed
     }
 
-    func requestCloseTab(_ tabId: TabID, force: Bool) -> Bool {
+    func requestCloseTab(_ tabId: TabID, force: Bool, preservingEmptyPane: Bool = false) -> Bool {
         let controller = bonsplitController(containingTab: tabId) ?? bonsplitController
         if force { forceCloseTabIds.insert(tabId) }
-        let closed = controller.closeTab(tabId); if force && !closed { forceCloseTabIds.remove(tabId) }
+        let closed = preservingEmptyPane
+            ? controller.closeTabPreservingEmptyPane(tabId)
+            : controller.closeTab(tabId)
+        if force && !closed { forceCloseTabIds.remove(tabId) }
         return closed
     }
 
