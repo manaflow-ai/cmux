@@ -13798,11 +13798,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return !tab.isPinned && !existingAnchorIds.contains(id)
         }
         guard !eligibleIds.isEmpty else {
-            NSSound.beep()
-            // Consume the event so the matched shortcut doesn't leak through
-            // to the focused terminal/AppKit; cmux already handled it (the
-            // beep is the user-visible response).
-            return true
+            // Don't consume the event — let it propagate to the next handler
+            // (e.g. toggleReactGrab on the default Cmd+Shift+G binding) so
+            // the user gets the next-best action instead of a dead key. cmux
+            // hasn't actually "handled" the shortcut since no group could be
+            // created.
+            return false
         }
         // No name prompt: TabManager auto-names ("Group N"). Rename via the
         // header context menu.

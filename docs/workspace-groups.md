@@ -28,9 +28,9 @@ The sidebar layout, top to bottom:
 
 ## Creating a group
 
-### From the keyboard (`⌃⌘G`)
+### From the keyboard (`⌘⇧G`)
 
-Select one or more workspaces in the sidebar, press `⌃⌘G`. A fresh anchor workspace is inserted above the selection; all selected workspaces become children. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu). `⌘G` / `⌘⇧G` / `⌘⌥G` are intentionally NOT the default (Find Next, React Grab, Find Previous respectively all collide).
+Select one or more workspaces in the sidebar, press `⌘⇧G`. A fresh anchor workspace is inserted above the selection; all selected workspaces become children. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu). `⌘⇧G` collides with React Grab's default; the group handler returns the event un-handled when there's nothing to group, so React Grab still fires in browser/terminal contexts where grouping wouldn't apply. Rebind in Settings → Keyboard if you'd rather the two not share a key.
 
 If nothing is selected, the active workspace is grouped on its own.
 

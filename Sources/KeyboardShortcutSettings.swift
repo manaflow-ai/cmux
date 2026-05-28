@@ -329,13 +329,13 @@ enum KeyboardShortcutSettings {
             case .closeWorkspace:
                 return StoredShortcut(key: "w", command: true, shift: true, option: false, control: false)
             case .groupSelectedWorkspaces:
-                // Avoid the chain of G-key collisions already pinned down by
-                // other defaults: Cmd+G is Find Next, Cmd+Shift+G is React
-                // Grab, Cmd+Opt+G is Find Previous, Ctrl+G is the terminal
-                // bell. Use Ctrl+Cmd+G (a chord that's unbound on stock
-                // macOS / cmux) so the shortcut works out of the box without
-                // hijacking anything else. Users can rebind via Settings.
-                return StoredShortcut(key: "g", command: true, shift: false, option: false, control: true)
+                // Cmd+Shift+G is the user-natural mnemonic. It collides with
+                // toggleReactGrab's default, but handleGroupSelectedWorkspacesShortcut
+                // returns false (lets the event propagate) whenever there are
+                // no eligible workspaces to group — so React Grab still
+                // fires in browser/terminal contexts where this shortcut
+                // wouldn't have done anything anyway.
+                return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             case .reopenClosedBrowserPanel:
                 return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
             case .focusLeft:
