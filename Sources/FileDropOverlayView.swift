@@ -130,6 +130,9 @@ final class FileDropOverlayView: NSView {
         if shouldDeferFileDropOverlayToBonsplitTabBar(at: point) {
             return nil
         }
+        if shouldDeferPlainExternalFileDropToWebContent(pasteboardTypes: pb.types, at: convert(point, to: nil)) {
+            return nil
+        }
 
         return super.hitTest(point)
     }
@@ -237,7 +240,7 @@ final class FileDropOverlayView: NSView {
         exitActiveDragTargets(sender)
     }
 
-    private func exitActiveDragTargets(_ sender: (any NSDraggingInfo)?) {
+    func exitActiveDragTargets(_ sender: (any NSDraggingInfo)?) {
         if let prev = activeDragWebView {
             prev.draggingExited(sender)
             activeDragWebView = nil
@@ -255,6 +258,12 @@ final class FileDropOverlayView: NSView {
             pasteboardTypes: types,
             hasLocalDraggingSource: hasLocalDraggingSource
         )
+        if shouldDeferPlainExternalFileDropToWebContent(sender) {
+            preparedDragWebView = nil
+            preparedPaneDropTarget = nil
+            exitActiveDragTargets(sender)
+            return false
+        }
         if shouldRouteFileDropToTextDestination(sender) {
             let paneDropTarget = activePaneDropTarget ?? paneDropTargetForTextDrop(at: sender.draggingLocation)
             exitActiveDragTargets(sender)
@@ -315,6 +324,13 @@ final class FileDropOverlayView: NSView {
             pasteboardTypes: types,
             hasLocalDraggingSource: hasLocalDraggingSource
         )
+        if shouldDeferPlainExternalFileDropToWebContent(sender) {
+            hintBadgeView.hide()
+            preparedDragWebView = nil
+            preparedPaneDropTarget = nil
+            exitActiveDragTargets(sender)
+            return false
+        }
         if shouldRouteFileDropToTextDestination(sender) {
             hintBadgeView.hide()
             didPerformDragAsText = false

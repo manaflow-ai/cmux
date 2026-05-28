@@ -196,7 +196,7 @@ final class FileDropOverlayViewTests: XCTestCase {
         )
     }
 
-    func testOverlayDelegatesBrowserFileDragLifecycleToPortalHostedWebView() {
+    func testOverlayDoesNotInterceptPlainBrowserFileUploadDrop() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
             styleMask: [.titled, .closable],
@@ -244,15 +244,15 @@ final class FileDropOverlayViewTests: XCTestCase {
             pasteboard: pasteboard
         )
 
-        XCTAssertEqual(overlay.draggingEntered(dragInfo), .copy)
-        XCTAssertTrue(overlay.prepareForDragOperation(dragInfo))
-        XCTAssertTrue(overlay.performDragOperation(dragInfo))
+        XCTAssertEqual(overlay.draggingEntered(dragInfo), [])
+        XCTAssertFalse(overlay.prepareForDragOperation(dragInfo))
+        XCTAssertFalse(overlay.performDragOperation(dragInfo))
         overlay.concludeDragOperation(dragInfo)
 
         XCTAssertEqual(
             webView.dragCalls,
-            ["entered", "prepare", "perform", "conclude"],
-            "Finder file drops over browser panes should still reach the portal-hosted WKWebView"
+            [],
+            "Plain file drops over browser panes should be left to WebKit's native file-upload drag destination"
         )
     }
 
@@ -316,8 +316,8 @@ final class FileDropOverlayViewTests: XCTestCase {
             pasteboard: pasteboard
         )
 
-        XCTAssertEqual(overlay.draggingEntered(dragInfo), .copy)
-        XCTAssertTrue(overlay.prepareForDragOperation(dragInfo))
+        XCTAssertEqual(overlay.draggingEntered(dragInfo), [])
+        XCTAssertFalse(overlay.prepareForDragOperation(dragInfo))
         XCTAssertFalse(overlay.performDragOperation(dragInfo))
         XCTAssertFalse(overlay.didPerformDragAsText)
         XCTAssertNil(overlay.performedTextDragWebView)
@@ -325,8 +325,8 @@ final class FileDropOverlayViewTests: XCTestCase {
         overlay.concludeDragOperation(dragInfo)
         XCTAssertEqual(
             webView.dragCalls,
-            ["entered", "prepare", "perform"],
-            "Rejected text drops should not be recorded as performed or receive a text-route conclude"
+            [],
+            "Plain browser file uploads should not be recorded as performed text drops"
         )
     }
 }

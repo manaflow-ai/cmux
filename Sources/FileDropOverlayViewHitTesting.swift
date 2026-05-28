@@ -12,6 +12,11 @@ extension FileDropOverlayView {
             pasteboardTypes: types,
             hasLocalDraggingSource: hasLocalDraggingSource
         )
+        if shouldDeferPlainExternalFileDropToWebContent(sender) {
+            hintBadgeView.hide()
+            exitActiveDragTargets(sender)
+            return []
+        }
         updateHintBadge(sender: sender, pasteboardTypes: types)
 
         if shouldRouteFileDropToTextDestination(sender) {
@@ -115,6 +120,21 @@ extension FileDropOverlayView {
             modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
             canDropAsText: canDropAsText
         )
+    }
+
+    func shouldDeferPlainExternalFileDropToWebContent(_ sender: any NSDraggingInfo) -> Bool {
+        shouldDeferPlainExternalFileDropToWebContent(
+            pasteboardTypes: sender.draggingPasteboard.types,
+            at: sender.draggingLocation
+        )
+    }
+
+    func shouldDeferPlainExternalFileDropToWebContent(
+        pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        at windowPoint: NSPoint
+    ) -> Bool {
+        guard DragOverlayRoutingPolicy.isPlainExternalFileDrop(pasteboardTypes) else { return false }
+        return webViewUnderPoint(windowPoint) != nil
     }
 
     private func updateHintBadge(

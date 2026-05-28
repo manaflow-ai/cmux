@@ -255,7 +255,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         XCTAssertTrue(syntheticTransfer.isFilePreview)
     }
 
-    func testBrowserPaneFileDropDefaultUsesHostedWebViewLifecycle() throws {
+    func testBrowserPanePlainExternalFileDropDoesNotInterceptWebContentUpload() throws {
         let defaults = UserDefaults.standard
         let savedDefaultBehavior = defaults.object(forKey: FileDropBehaviorSettings.defaultBehaviorKey)
         defaults.set(FileDropDefaultBehavior.text.rawValue, forKey: FileDropBehaviorSettings.defaultBehaviorKey)
@@ -295,19 +295,23 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         slot.layoutSubtreeIfNeeded()
 
         let target = try XCTUnwrap(slot.paneDropTargetForDrop(at: NSPoint(x: slot.bounds.midX, y: slot.bounds.midY)))
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.browser-pane.file-drop.\(UUID().uuidString)"))
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.browser-pane.web-upload.\(UUID().uuidString)"))
         pasteboard.clearContents()
         XCTAssertTrue(pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/upload.png") as NSURL]))
 
         let dropPoint = slot.convert(NSPoint(x: slot.bounds.midX, y: slot.bounds.midY), to: nil)
         let dragInfo = MockDraggingInfo(window: window, location: dropPoint, pasteboard: pasteboard)
 
-        XCTAssertEqual(target.draggingEntered(dragInfo), .copy)
-        XCTAssertTrue(target.prepareForDragOperation(dragInfo))
-        XCTAssertTrue(target.performDragOperation(dragInfo))
+        XCTAssertEqual(target.draggingEntered(dragInfo), [])
+        XCTAssertFalse(target.prepareForDragOperation(dragInfo))
+        XCTAssertFalse(target.performDragOperation(dragInfo))
         target.concludeDragOperation(dragInfo)
 
-        XCTAssertEqual(webView.dragCalls, ["entered", "prepare", "perform", "conclude"])
+        XCTAssertEqual(
+            webView.dragCalls,
+            [],
+            "Plain external files over browser web content must be left for WebKit's native file-upload drag destination"
+        )
     }
 
     func testBrowserPaneFilePreviewOnlyDragUsesPaneDropPathInsteadOfHostedWebView() throws {
