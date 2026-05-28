@@ -9653,7 +9653,32 @@ struct CMUXCLI {
                 params["surface_id"] = surfaceID
                 params["allow_moved_surface"] = true
             }
-            _ = try? client.sendV2(method: "workspace.remote.pty_resize", params: params)
+            // The cmux control socket serves a single request per connection (the
+            // server closes the connection once it has replied), so by the time the
+            // next SIGWINCH arrives the long-lived `client` connection is usually
+            // gone. Reusing it made every resize after the first fail silently ("Not
+            // connected"/broken pipe), freezing the remote PTY at its initial width.
+            // A closed connection is the expected steady state here rather than an
+            // error, so re-establish it before sending whenever it is no longer
+            // open. If the send still throws — poll can briefly miss a peer close,
+            // and this socket closes after every reply — reconnect and retry once
+            // so a single SIGWINCH isn't dropped; pty_resize is idempotent, so the
+            // redundant resend is safe.
+            do {
+                if !client.connectionAppearsOpen() {
+                    client.close()
+                    try client.connect()
+                }
+                do {
+                    _ = try client.sendV2(method: "workspace.remote.pty_resize", params: params)
+                } catch {
+                    client.close()
+                    try client.connect()
+                    _ = try client.sendV2(method: "workspace.remote.pty_resize", params: params)
+                }
+            } catch {
+                self.cliDebugLog("ssh-pty-attach: failed to propagate terminal resize (\(size.cols)x\(size.rows)): \(error)")
+            }
         }
         source.resume()
         return source
