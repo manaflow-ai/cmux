@@ -2136,7 +2136,7 @@ final class UpdateDriverTimeoutTests: XCTestCase {
         XCTAssertEqual(recorder.snapshot(), [])
     }
 
-    func testPreparingForNewCheckInvalidatesDelayedResult() {
+    func testPreparingForNewCheckAcknowledgesDelayedNotFoundResult() {
         let viewModel = UpdateViewModel()
         let scheduler = ManualUpdateOperationScheduler()
         let driver = makeDriver(viewModel: viewModel, scheduler: scheduler, minimumCheckDuration: timeoutDuration)
@@ -2163,8 +2163,35 @@ final class UpdateDriverTimeoutTests: XCTestCase {
             XCTFail("Expected cancelled delayed result to leave retry checking visible, got \(viewModel.state)")
             return
         }
-        XCTAssertEqual(acknowledgementCount, 0)
+        XCTAssertEqual(acknowledgementCount, 1)
         XCTAssertEqual(resultArrivalCount, 1)
+    }
+
+    func testPreparingForNewCheckDismissesDelayedUpdateFoundResult() throws {
+        let viewModel = UpdateViewModel()
+        let scheduler = ManualUpdateOperationScheduler()
+        let driver = makeDriver(viewModel: viewModel, scheduler: scheduler, minimumCheckDuration: timeoutDuration)
+        let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
+        let recorder = UpdateChoiceRecorder()
+
+        driver.showUserInitiatedUpdateCheck {}
+        driver.showUpdateFoundForTesting(with: item, userInitiated: true) {
+            recorder.record($0)
+        }
+        guard case .checking = viewModel.state else {
+            XCTFail("Expected minimum check duration to keep checking visible, got \(viewModel.state)")
+            return
+        }
+
+        driver.prepareForNewCheck()
+        viewModel.cancelActiveStateForNewCheck()
+        scheduler.advance(by: timeoutDuration)
+
+        guard case .checking = viewModel.state else {
+            XCTFail("Expected cancelled delayed update to leave retry checking visible, got \(viewModel.state)")
+            return
+        }
+        XCTAssertEqual(recorder.snapshot(), [.dismiss])
     }
 
     func testDownloadingProgressExtendsTimeoutForSlowNetwork() {

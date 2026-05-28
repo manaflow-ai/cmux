@@ -12,7 +12,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     private let preparingTimeoutDuration: TimeInterval
     private let scheduler: UpdateOperationScheduling
     private var lastCheckStart: Date?
-    private var pendingCheckTransition: UpdateScheduledAction?
+    private var pendingCheckTransition: PendingCheckTransition?
     private var stateTimeoutAction: UpdateScheduledAction?
     private var currentOperationGeneration: Int = 0
     private var timedOutOperationGeneration: Int?
@@ -38,6 +38,12 @@ class UpdateDriver: NSObject, SPUUserDriver {
             case .preparing: return "preparing"
             }
         }
+    }
+
+    private struct PendingCheckTransition {
+        let id: UUID
+        let state: UpdateState
+        let action: UpdateScheduledAction
     }
 
     init(viewModel: UpdateViewModel,
@@ -128,8 +134,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     func prepareForNewCheck() {
         runSynchronouslyOnMain { [weak self] in
             guard let self else { return }
-            pendingCheckTransition?.cancel()
-            pendingCheckTransition = nil
+            cancelPendingCheckTransition(acknowledge: true)
             cancelStateTimeout()
             currentOperationGeneration += 1
             timedOutOperationGeneration = nil
@@ -326,8 +331,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
         runOnMain { [weak self] in
             guard let self else { return }
             viewModel.overrideState = nil
-            pendingCheckTransition?.cancel()
-            pendingCheckTransition = nil
+            cancelPendingCheckTransition(acknowledge: true)
             cancelStateTimeout()
             currentOperationGeneration += 1
             timedOutOperationGeneration = nil
@@ -341,8 +345,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     private func setStateAfterMinimumCheckDelay(_ newState: UpdateState, generation: Int) {
         runOnMain { [weak self] in
             guard let self else { return }
-            pendingCheckTransition?.cancel()
-            pendingCheckTransition = nil
+            cancelPendingCheckTransition(acknowledge: true)
             cancelStateTimeout()
             guard callbackCanMutateState(generation: generation, resultDescription: "delayed state \(describe(newState))") else {
                 return
@@ -362,15 +365,15 @@ class UpdateDriver: NSObject, SPUUserDriver {
             }
 
             let delay = minimumCheckDuration - elapsed
-            pendingCheckTransition = scheduler.schedule(after: delay) { [weak self] in
-                guard let self else { return }
-                guard case .checking = self.viewModel.state else { return }
-                guard self.callbackCanMutateState(generation: generation, resultDescription: "delayed check result \(self.describe(newState))") else {
-                    return
-                }
-                self.lastCheckStart = nil
-                self.applyState(newState)
+            let transitionID = UUID()
+            let action = scheduler.schedule(after: delay) { [weak self] in
+                self?.applyPendingCheckTransition(id: transitionID, generation: generation)
             }
+            pendingCheckTransition = PendingCheckTransition(
+                id: transitionID,
+                state: newState,
+                action: action
+            )
         }
     }
 
@@ -380,8 +383,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
                           timeoutCancellation: (() -> Void)? = nil) {
         runOnMain { [weak self] in
             guard let self else { return }
-            pendingCheckTransition?.cancel()
-            pendingCheckTransition = nil
+            cancelPendingCheckTransition(acknowledge: true)
             cancelStateTimeout()
             guard callbackCanMutateState(generation: generation, resultDescription: "state \(describe(newState))") else {
                 return
@@ -432,8 +434,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     private func acceptResultAfterTimedOutOperation() -> Int {
         timedOutOperationGeneration = nil
         currentOperationGeneration += 1
-        pendingCheckTransition?.cancel()
-        pendingCheckTransition = nil
+        cancelPendingCheckTransition(acknowledge: true)
         cancelStateTimeout()
         lastCheckStart = nil
         return currentOperationGeneration
@@ -442,6 +443,33 @@ class UpdateDriver: NSObject, SPUUserDriver {
     private func cancelStateTimeout() {
         stateTimeoutAction?.cancel()
         stateTimeoutAction = nil
+    }
+
+    private func cancelPendingCheckTransition(acknowledge: Bool) {
+        guard let pendingCheckTransition else { return }
+        self.pendingCheckTransition = nil
+        pendingCheckTransition.action.cancel()
+        if acknowledge {
+            UpdateLogStore.shared.append("acknowledging delayed \(describe(pendingCheckTransition.state)) before cancellation")
+            pendingCheckTransition.state.cancel()
+        }
+    }
+
+    private func applyPendingCheckTransition(id: UUID, generation: Int) {
+        guard let pendingCheckTransition else { return }
+        guard pendingCheckTransition.id == id else { return }
+        self.pendingCheckTransition = nil
+        guard case .checking = viewModel.state else {
+            UpdateLogStore.shared.append("acknowledging delayed \(describe(pendingCheckTransition.state)) because checking ended")
+            pendingCheckTransition.state.cancel()
+            return
+        }
+        guard callbackCanMutateState(generation: generation, resultDescription: "delayed check result \(describe(pendingCheckTransition.state))") else {
+            pendingCheckTransition.state.cancel()
+            return
+        }
+        lastCheckStart = nil
+        applyState(pendingCheckTransition.state)
     }
 
     private func scheduleStateTimeout(stage: TimeoutStage,
@@ -481,8 +509,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
         let timeoutDuration = timeoutDuration(for: stage)
         UpdateLogStore.shared.append("\(stage.logName) timed out after \(Int(timeoutDuration.rounded()))s")
         timedOutOperationGeneration = generation
-        pendingCheckTransition?.cancel()
-        pendingCheckTransition = nil
+        cancelPendingCheckTransition(acknowledge: true)
         stateTimeoutAction?.cancel()
         stateTimeoutAction = nil
         lastCheckStart = nil
