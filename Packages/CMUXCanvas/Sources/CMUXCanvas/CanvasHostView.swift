@@ -1,6 +1,7 @@
 #if canImport(AppKit) && canImport(IOSurface) && canImport(MetalKit) && canImport(SwiftUI)
 import AppKit
 import CMUXLayout
+import Dispatch
 import IOSurface
 import MetalKit
 import simd
@@ -322,8 +323,13 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
             Float(max(1, view.bounds.width)),
             Float(max(1, view.bounds.height))
         )
+        var didUseShellVertexBuffer = false
+        var didUseOverlayVertexBuffer = false
+        var didUseTextureVertexBuffer = false
+
         if let pipelineState = pipelineState(for: view),
            let vertexBuffer = vertexBuffer(for: plan) {
+            didUseShellVertexBuffer = true
             var viewport = viewport
             encoder.setRenderPipelineState(pipelineState)
             encoder.setVertexBuffer(vertexBuffer.buffer, offset: 0, index: 0)
@@ -336,11 +342,13 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
             surfaceTextures: state.surfaceTextures,
             viewport: viewport,
             encoder: encoder,
-            view: view
+            view: view,
+            didUseTextureVertexBuffer: &didUseTextureVertexBuffer
         )
 
         if let pipelineState = pipelineState(for: view),
            let vertexBuffer = overlayVertexBuffer(for: plan, style: state.style) {
+            didUseOverlayVertexBuffer = true
             var viewport = viewport
             encoder.setRenderPipelineState(pipelineState)
             encoder.setVertexBuffer(vertexBuffer.buffer, offset: 0, index: 0)
@@ -349,6 +357,21 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
         }
 
         encoder.endEncoding()
+        if didUseShellVertexBuffer {
+            commandBuffer.addCompletedHandler { [weak self] _ in
+                self?.shellVertexBufferRing.signalCompleted()
+            }
+        }
+        if didUseOverlayVertexBuffer {
+            commandBuffer.addCompletedHandler { [weak self] _ in
+                self?.overlayVertexBufferRing.signalCompleted()
+            }
+        }
+        if didUseTextureVertexBuffer {
+            commandBuffer.addCompletedHandler { [weak self] _ in
+                self?.textureVertexBufferRing.signalCompleted()
+            }
+        }
         commandBuffer.present(drawable)
         commandBuffer.commit()
     }
@@ -433,7 +456,8 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
         surfaceTextures: [CanvasSurfaceTextureSource],
         viewport: SIMD2<Float>,
         encoder: MTLRenderCommandEncoder,
-        view: MTKView
+        view: MTKView,
+        didUseTextureVertexBuffer: inout Bool
     ) {
         guard let device,
               let pipelineState = texturePipelineState(for: view) else { return }
@@ -459,8 +483,9 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
             draws.append(CanvasMetalTextureDraw(texture: texture, vertexStart: vertexStart, vertexCount: vertexCount))
         }
 
-        guard let vertexBuffer = textureVertexBufferRing.nextBuffer(device: device, vertices: textureVertices),
-              !draws.isEmpty else { return }
+        guard !draws.isEmpty,
+              let vertexBuffer = textureVertexBufferRing.nextBuffer(device: device, vertices: textureVertices) else { return }
+        didUseTextureVertexBuffer = true
 
         var viewport = viewport
         encoder.setRenderPipelineState(pipelineState)
@@ -641,12 +666,37 @@ private struct CanvasMetalVertexBuffer {
     var vertexCount: Int
 }
 
+private final class CanvasMetalInFlightLimiter {
+    private let semaphore: DispatchSemaphore
+
+    init(count: Int) {
+        self.semaphore = DispatchSemaphore(value: max(1, count))
+    }
+
+    func wait() {
+        semaphore.wait()
+    }
+
+    func signal() {
+        semaphore.signal()
+    }
+}
+
 private struct CanvasMetalBufferRing<Vertex> {
     private var buffers: [MTLBuffer?] = Array(repeating: nil, count: 3)
     private var index = 0
+    private let inFlightLimiter = CanvasMetalInFlightLimiter(count: 3)
 
     mutating func nextBuffer(device: MTLDevice, vertices: [Vertex]) -> CanvasMetalVertexBuffer? {
         guard !vertices.isEmpty else { return nil }
+        inFlightLimiter.wait()
+        var shouldSignalOnFailure = true
+        defer {
+            if shouldSignalOnFailure {
+                inFlightLimiter.signal()
+            }
+        }
+
         index = (index + 1) % buffers.count
         let byteCount = vertices.count * MemoryLayout<Vertex>.stride
         if buffers[index] == nil || buffers[index]!.length < byteCount {
@@ -654,11 +704,20 @@ private struct CanvasMetalBufferRing<Vertex> {
             buffers[index] = device.makeBuffer(length: capacity, options: .storageModeShared)
         }
         guard let buffer = buffers[index] else { return nil }
-        vertices.withUnsafeBytes { bytes in
-            guard let baseAddress = bytes.baseAddress else { return }
+        let didCopyBytes = vertices.withUnsafeBytes { bytes in
+            guard let baseAddress = bytes.baseAddress else { return false }
             buffer.contents().copyMemory(from: baseAddress, byteCount: bytes.count)
+            return true
         }
+        guard didCopyBytes else {
+            return nil
+        }
+        shouldSignalOnFailure = false
         return CanvasMetalVertexBuffer(buffer: buffer, vertexCount: vertices.count)
+    }
+
+    func signalCompleted() {
+        inFlightLimiter.signal()
     }
 
     private static func alignedCapacity(for byteCount: Int) -> Int {

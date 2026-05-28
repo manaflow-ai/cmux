@@ -140,10 +140,15 @@ final class CMUXLayoutTests: XCTestCase {
     private final class PaneLifecycleDelegateSpy: WorkspaceLayoutDelegate {
         var shouldClosePaneResult = true
         var shouldClosePaneIds: [PaneID] = []
+        var didClosePaneIds: [PaneID] = []
 
         func splitTabBar(_ controller: WorkspaceLayoutController, shouldClosePane pane: PaneID) -> Bool {
             shouldClosePaneIds.append(pane)
             return shouldClosePaneResult
+        }
+
+        func splitTabBar(_ controller: WorkspaceLayoutController, didClosePane paneId: PaneID) {
+            didClosePaneIds.append(paneId)
         }
     }
 
@@ -1811,6 +1816,59 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertEqual(controller.selectedTab(inPane: targetPaneId)?.id, targetTab.id)
         XCTAssertEqual(controller.focusedPaneId, targetPaneId)
         XCTAssertEqual(controller.allPaneIds.count, 2)
+    }
+
+    @MainActor
+    func testCloseLastTabAsksDelegateBeforeAutoClosingPane() throws {
+        let controller = WorkspaceLayoutController()
+        let closingTab = try XCTUnwrap(controller.createTab(title: "Close"))
+        let sourcePaneId = try XCTUnwrap(controller.focusedPaneId)
+        for tab in controller.tabs(inPane: sourcePaneId) where tab.id != closingTab {
+            XCTAssertTrue(controller.closeTab(tab.id))
+        }
+        let targetPaneId = try XCTUnwrap(
+            controller.splitPane(
+                sourcePaneId,
+                orientation: .horizontal,
+                withTab: SurfaceTab(title: "Target"),
+                insertFirst: false
+            )
+        )
+        let delegate = PaneLifecycleDelegateSpy()
+        delegate.shouldClosePaneResult = false
+        controller.delegate = delegate
+
+        XCTAssertFalse(controller.closeTab(closingTab))
+        XCTAssertEqual(delegate.shouldClosePaneIds, [sourcePaneId])
+        XCTAssertEqual(delegate.didClosePaneIds, [])
+        XCTAssertEqual(controller.tabs(inPane: sourcePaneId).map(\.id), [closingTab])
+        XCTAssertNotNil(controller.selectedTab(inPane: targetPaneId))
+        XCTAssertEqual(controller.allPaneIds.count, 2)
+    }
+
+    @MainActor
+    func testCloseLastTabNotifiesDelegateWhenPaneAutoCloses() throws {
+        let controller = WorkspaceLayoutController()
+        let closingTab = try XCTUnwrap(controller.createTab(title: "Close"))
+        let sourcePaneId = try XCTUnwrap(controller.focusedPaneId)
+        for tab in controller.tabs(inPane: sourcePaneId) where tab.id != closingTab {
+            XCTAssertTrue(controller.closeTab(tab.id))
+        }
+        _ = try XCTUnwrap(
+            controller.splitPane(
+                sourcePaneId,
+                orientation: .horizontal,
+                withTab: SurfaceTab(title: "Target"),
+                insertFirst: false
+            )
+        )
+        let delegate = PaneLifecycleDelegateSpy()
+        controller.delegate = delegate
+
+        XCTAssertTrue(controller.closeTab(closingTab))
+        XCTAssertEqual(delegate.shouldClosePaneIds, [sourcePaneId])
+        XCTAssertEqual(delegate.didClosePaneIds, [sourcePaneId])
+        XCTAssertFalse(controller.allPaneIds.contains(sourcePaneId))
     }
 
     @MainActor

@@ -348,11 +348,20 @@ public final class WorkspaceLayoutController {
             return false
         }
 
+        let shouldAutoClosePane = pane.tabs.count == 1 && internalController.rootNode.allPaneIds.count > 1
+        if shouldAutoClosePane,
+           delegate?.workspaceLayout(self, shouldClosePane: paneId) == false {
+            return false
+        }
+
         internalController.closeTab(tabId.id, inPane: pane.id)
         syncCanvasDocumentWithCurrentLayout()
 
         // Notify delegate
         delegate?.workspaceLayout(self, didCloseSurface: tabId, fromPane: paneId)
+        if shouldAutoClosePane {
+            delegate?.workspaceLayout(self, didClosePane: paneId)
+        }
         notifyGeometryChange()
 
         return true
