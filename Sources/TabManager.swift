@@ -6136,7 +6136,15 @@ class TabManager: ObservableObject {
     }
 
     /// Dissolve a group while preserving every member workspace (including its
-    /// anchor) as a regular ungrouped workspace. Nothing is closed.
+    /// anchor) as a regular ungrouped workspace. Nothing is closed. The
+    /// former members KEEP their `tabs[]` positions so the anchor — which
+    /// was previously rendered exclusively as the group header — appears as
+    /// a workspace row at the same vertical spot the header occupied, with
+    /// the rest of the members staying right below it in their existing
+    /// relative order. We deliberately do not re-normalize here: that would
+    /// push the now-ungrouped members down into the "ungrouped tier at the
+    /// bottom" slot, which makes Ungroup feel like a destructive move
+    /// instead of a flatten-in-place.
     func ungroupWorkspaceGroup(groupId: UUID) {
         let memberIds = tabs.filter { $0.groupId == groupId }.map(\.id)
         guard !memberIds.isEmpty || workspaceGroups.contains(where: { $0.id == groupId }) else { return }
@@ -6144,7 +6152,6 @@ class TabManager: ObservableObject {
             assignGroup(workspaceId: id, groupId: nil)
         }
         workspaceGroups.removeAll { $0.id == groupId }
-        normalizeWorkspaceGroupContiguity()
         postWorkspaceOrderDidChange(movedWorkspaceIds: memberIds)
     }
 
