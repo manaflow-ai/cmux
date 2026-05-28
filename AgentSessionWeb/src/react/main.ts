@@ -2,6 +2,12 @@ import React, { useCallback, useEffect, useLayoutEffect, useReducer, useRef, use
 import { createRoot } from "react-dom/client";
 import { subscribeToAgentEvents } from "../shared/bridge";
 import { shouldUseSingleLineComposer } from "../shared/composerLayout";
+import {
+  computeFooterCollapse,
+  footerCollapseStatesEqual,
+  initialFooterCollapseState,
+  type FooterCollapseState,
+} from "../shared/footerCollapse";
 import { renderMarkdownHTML, renderPlainTextHTML } from "../shared/markdown";
 import { codexModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
 import {
@@ -47,6 +53,12 @@ const CODEX_SUBMIT_BUTTON =
 
 type ComposerMenuKind = "mention" | "skill" | null;
 
+type FooterControlSpec = {
+  canHideLabel: boolean;
+  enabled: boolean;
+  id: string;
+};
+
 function useMeasuredComposerLayout(input: string) {
   const [inputWidth, setInputWidth] = useState<number | null>(null);
   const [textWidth, setTextWidth] = useState(0);
@@ -91,6 +103,103 @@ function useMeasuredComposerLayout(input: string) {
     }),
     textMeasureRef,
   };
+}
+
+function useMeasuredFooterControlCollapse(specs: FooterControlSpec[]) {
+  const [collapseState, setCollapseState] = useState<FooterCollapseState>(() => initialFooterCollapseState(specs));
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const itemRefs = useRef(new Map<string, HTMLElement>());
+  const expandedWidths = useRef(new Map<string, number>());
+  const compactWidths = useRef(new Map<string, number>());
+  const specsRef = useRef(specs);
+  const collapseStateRef = useRef(collapseState);
+  specsRef.current = specs;
+  collapseStateRef.current = collapseState;
+
+  const measure = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+    const items = specsRef.current.map((spec) => {
+      const element = itemRefs.current.get(spec.id) ?? null;
+      const width = element?.offsetWidth ?? 0;
+      if (width > 0) {
+        if (collapseStateRef.current[spec.id]?.hideLabel === true) {
+          compactWidths.current.set(spec.id, width);
+        } else {
+          expandedWidths.current.set(spec.id, width);
+        }
+      }
+      const expandedWidth = expandedWidths.current.get(spec.id) ?? compactWidths.current.get(spec.id) ?? width;
+      const measuredCompactWidth = compactWidths.current.get(spec.id);
+      const compactWidth = spec.canHideLabel
+        ? Math.min(expandedWidth, measuredCompactWidth ?? expandedWidth)
+        : expandedWidth;
+      return {
+        ...spec,
+        compactWidth,
+        expandedWidth,
+        hasMeasuredCompactWidth: measuredCompactWidth != null,
+      };
+    });
+    const nextState = computeFooterCollapse({
+      availableWidth: container.getBoundingClientRect().width,
+      gap: cssPixelValue(window.getComputedStyle(container).columnGap) ??
+        cssPixelValue(window.getComputedStyle(container).gap) ??
+        0,
+      items,
+      previousState: collapseStateRef.current,
+    });
+    if (!footerCollapseStatesEqual(nextState, collapseStateRef.current)) {
+      setCollapseState(nextState);
+    }
+  }, []);
+
+  const setContainerRef = useCallback((node: HTMLDivElement | null) => {
+    containerRef.current = node;
+    if (node) {
+      measure();
+    }
+  }, [measure]);
+
+  const setItemRef = useCallback((id: string, node: HTMLElement | null) => {
+    if (node) {
+      itemRefs.current.set(id, node);
+      measure();
+    } else {
+      itemRefs.current.delete(id);
+    }
+  }, [measure]);
+
+  useLayoutEffect(() => {
+    measure();
+  }, [measure, specs, collapseState]);
+
+  useLayoutEffect(() => {
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(measure);
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+    for (const element of itemRefs.current.values()) {
+      observer.observe(element);
+    }
+    return () => observer.disconnect();
+  }, [measure, specs, collapseState]);
+
+  return {
+    state: collapseState,
+    setContainerRef,
+    setItemRef,
+  };
+}
+
+function cssPixelValue(value: string): number | null {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function useInitialData(dispatch: React.Dispatch<Action>) {
@@ -143,6 +252,12 @@ function SessionSurface({
   const modelLabel = codexModelLabel(provider);
   const reasoningEffortLabel =
     provider?.id === "codex" ? (state.context?.copy.reasoningEffortHigh ?? "High") : null;
+  const footerCollapse = useMeasuredFooterControlCollapse([{
+    canHideLabel: reasoningEffortLabel != null,
+    enabled: provider != null,
+    id: "intelligence",
+  }]);
+  const intelligenceCollapse = footerCollapse.state.intelligence ?? { hideControl: false, hideLabel: false };
   const editorRef = useRef<PromptEditorHandle | null>(null);
   const [menuKind, setMenuKind] = useState<ComposerMenuKind>(null);
   const [menuQuery, setMenuQuery] = useState("");
@@ -212,10 +327,11 @@ function SessionSurface({
     selectProvider(providerId, state, dispatch);
     setProviderMenuOpen(false);
   };
-  const modelPicker = h(
+  const modelPicker = intelligenceCollapse.hideControl ? null : h(
     "div",
     {
       className: "model-picker-root relative min-w-0",
+      ref: (node: HTMLDivElement | null) => footerCollapse.setItemRef("intelligence", node),
       onBlur: (event: React.FocusEvent<HTMLDivElement>) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
           setProviderMenuOpen(false);
@@ -246,7 +362,7 @@ function SessionSurface({
         "span",
         { className: "model-picker-content flex max-w-40 min-w-0 items-center gap-1.5" },
         h("span", { className: "model-label truncate whitespace-nowrap text-token-foreground" }, modelLabel),
-        reasoningEffortLabel
+        reasoningEffortLabel && !intelligenceCollapse.hideLabel
           ? h(
               "span",
               { className: "composer-footer__label--sm shrink-0 text-token-description-foreground" },
@@ -331,7 +447,7 @@ function SessionSurface({
   );
   const secondaryControls = h(
     "div",
-    { className: "codex-secondary-controls flex min-w-0 items-center gap-1" },
+    { className: "codex-secondary-controls flex min-w-0 items-center gap-1", ref: footerCollapse.setContainerRef },
     modelPicker,
   );
   const actionCluster = h(
