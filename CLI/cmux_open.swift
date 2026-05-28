@@ -5318,12 +5318,21 @@ extension CMUXCLI {
               }
               observeWorkerPool(pool);
               if (pool?.initialize) {
-                pool.initialize()
-                  .then(() => recordWorkerPoolStats(pool.getStats?.()))
-                  .catch((error) => {
-                    console.warn("cmux diff worker pool initialization failed", error);
-                    recordWorkerPoolStats(pool.getStats?.());
-                  });
+                try {
+                  await pool.initialize();
+                  recordWorkerPoolStats(pool.getStats?.());
+                } catch (error) {
+                  console.warn("cmux diff worker pool initialization failed", error);
+                  recordWorkerPoolStats(pool.getStats?.());
+                }
+              }
+              if (pageHiddenForCleanup) {
+                terminateWorkerPoolInstance(pool);
+                workerPool = null;
+                if (window.__cmuxDiffViewer) {
+                  window.__cmuxDiffViewer.workerPool = null;
+                }
+                return null;
               }
               return pool;
             }
@@ -5463,6 +5472,7 @@ extension CMUXCLI {
               let lastFlushAt = performance.now();
               let firstRender = true;
               let codeViewUsesWorkerPool = false;
+              let renderDependenciesReady = false;
               let statusVisible = true;
               const batchConfig = {
                 initialBatchSize: getInitialFileTreeRowCount(),
@@ -5473,12 +5483,12 @@ extension CMUXCLI {
 
               workerPoolPromise?.then?.(
                 () => {
-                  if (!setupCodeViewIfReady() && codeView && !codeViewUsesWorkerPool) {
-                    terminateCodeViewWorkerPool();
-                  }
+                  renderDependenciesReady = true;
+                  setupCodeViewIfReady();
                 },
                 (error) => {
                   console.warn("cmux diff worker pool startup failed; continuing without worker pool", error);
+                  renderDependenciesReady = true;
                   setupCodeViewIfReady();
                 }
               );
@@ -5705,7 +5715,7 @@ extension CMUXCLI {
               }
 
               function setupCodeViewIfReady() {
-                if (codeView || codeViewItems.length === 0) {
+                if (!renderDependenciesReady || codeView || codeViewItems.length === 0) {
                   return false;
                 }
                 const poolForCodeView = workerPool ?? undefined;
