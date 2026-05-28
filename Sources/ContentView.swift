@@ -1470,6 +1470,7 @@ struct ContentView: View {
         static let hasFocusedPanel = "panel.hasFocus"
         static let panelName = "panel.name"
         static let panelIsBrowser = "panel.isBrowser"
+        static let panelBrowserOmnibarVisible = "panel.browser.omnibarVisible"
         static let panelIsTerminal = "panel.isTerminal"
         static let panelHasPane = "panel.hasPane"
         static let panelHasForkableAgent = "panel.hasForkableAgent"
@@ -6440,6 +6441,10 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
             snapshot.setString(CommandPaletteContextKeys.panelName, panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle))
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelBrowserOmnibarVisible,
+                (panelContext.panel as? BrowserPanel)?.isOmnibarVisible ?? true
+            )
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
             snapshot.setBool(CommandPaletteContextKeys.panelHasPane, workspace.paneId(forPanelId: panelId) != nil)
             let fallbackForkableSnapshot = workspace.restoredAgentSnapshotsByPanelId[panelId]
@@ -7099,6 +7104,18 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.openDiffViewer",
+                title: constant(String(localized: "command.openDiffViewer.title", defaultValue: "Open Diff Viewer")),
+                subtitle: workspaceSubtitle,
+                keywords: ["diff", "changes", "git", "review", "branch", "unstaged", "codeview"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
+                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.browserBack",
                 title: constant(String(localized: "command.browserBack.title", defaultValue: "Back")),
                 subtitle: browserPanelSubtitle,
@@ -7143,6 +7160,20 @@ struct ContentView: View {
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘L",
                 keywords: ["browser", "address", "omnibar", "url"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.browserToggleOmnibar",
+                title: { context in
+                    if context.bool(CommandPaletteContextKeys.panelBrowserOmnibarVisible) {
+                        return String(localized: "command.browserHideOmnibar.title", defaultValue: "Hide Browser Omnibar")
+                    }
+                    return String(localized: "command.browserShowOmnibar.title", defaultValue: "Show Browser Omnibar")
+                },
+                subtitle: browserPanelSubtitle,
+                keywords: ["browser", "address", "omnibar", "url", "toolbar", "chrome", "show", "hide"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
             )
         )
@@ -7936,6 +7967,11 @@ struct ContentView: View {
                 }
             }
         }
+        registry.register(commandId: "palette.openDiffViewer") {
+            if !openDiffViewerFromCommandPalette() {
+                NSSound.beep()
+            }
+        }
 
         registry.register(commandId: "palette.browserBack") {
             tabManager.focusedBrowserPanel?.goBack()
@@ -7953,6 +7989,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.browserFocusAddressBar") {
             if !focusFocusedBrowserAddressBar() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.browserToggleOmnibar") {
+            if !tabManager.toggleOmnibarFocusedBrowser() {
                 NSSound.beep()
             }
         }
@@ -8136,6 +8177,112 @@ struct ContentView: View {
             baseCwd: baseCwd,
             globalConfigPath: cmuxConfigStore.globalConfigPath
         )
+    }
+
+    @discardableResult
+    private func openDiffViewerFromCommandPalette() -> Bool {
+        guard let workspace = tabManager.selectedWorkspace,
+              let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+              FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            return false
+        }
+
+        let preferredSocketPath = SocketControlSettings.socketPath()
+        let activeSocketPath = TerminalController.shared.activeSocketPath(preferredPath: preferredSocketPath)
+        return CommandPaletteDiffViewerLauncher.shared.start(
+            cliURL: cliURL,
+            socketPath: activeSocketPath,
+            cwd: configuredActionBaseCwd(),
+            workspaceId: workspace.id,
+            surfaceId: workspace.focusedPanelId
+        )
+    }
+
+    @MainActor
+    private final class CommandPaletteDiffViewerLauncher {
+        static let shared = CommandPaletteDiffViewerLauncher()
+
+        private var processes: [Int32: Process] = [:]
+
+        private init() {}
+
+        @discardableResult
+        func start(
+            cliURL: URL,
+            socketPath: String,
+            cwd: String,
+            workspaceId: UUID,
+            surfaceId: UUID?
+        ) -> Bool {
+            let process = Process()
+            process.executableURL = cliURL
+            var arguments = [
+                "--socket", socketPath,
+                "diff",
+                "--unstaged",
+                "--cwd", cwd,
+                "--workspace", workspaceId.uuidString,
+                "--focus", "true",
+            ]
+            if let surfaceId {
+                arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
+            }
+            process.arguments = arguments
+            process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
+            var environment = ProcessInfo.processInfo.environment
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
+            environment["CMUX_WORKSPACE_ID"] = workspaceId.uuidString
+            if let surfaceId {
+                environment["CMUX_SURFACE_ID"] = surfaceId.uuidString
+            }
+            environment.removeValue(forKey: "CMUX_SOCKET")
+            process.environment = environment
+            process.standardInput = FileHandle.nullDevice
+
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
+            let outputCollector = ProcessOutputCollector(stdout: stdoutPipe, stderr: stderrPipe)
+            outputCollector.start()
+            process.terminationHandler = { terminatedProcess in
+                let output = outputCollector.finish()
+                let processIdentifier = terminatedProcess.processIdentifier
+                let terminationStatus = terminatedProcess.terminationStatus
+                Task { @MainActor in
+                    Self.shared.processes.removeValue(forKey: processIdentifier)
+                    guard terminationStatus != 0 else { return }
+                    let detail = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let limitedDetail = detail.isEmpty
+                        ? "status=\(terminationStatus)"
+                        : String(detail.prefix(240))
+#if DEBUG
+                    cmuxDebugLog("commandPalette.openDiffViewer exited status=\(terminationStatus) detail=\(limitedDetail)")
+#endif
+                    NSSound.beep()
+                }
+            }
+
+            do {
+                try process.run()
+                let processIdentifier = process.processIdentifier
+                processes[processIdentifier] = process
+                if !process.isRunning {
+                    processes.removeValue(forKey: processIdentifier)
+                }
+#if DEBUG
+                cmuxDebugLog("commandPalette.openDiffViewer pid=\(process.processIdentifier) cwd=\(cwd)")
+#endif
+                return true
+            } catch {
+                outputCollector.cancel()
+#if DEBUG
+                cmuxDebugLog("commandPalette.openDiffViewer failed cwd=\(cwd) error=\(error.localizedDescription)")
+#endif
+                return false
+            }
+        }
     }
 
     private func configuredActionBaseCwd() -> String {
