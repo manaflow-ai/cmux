@@ -15,14 +15,12 @@ import {
   autoStartProvider,
   canSelectProvider,
   canStartProvider,
-  canStopProvider,
   loadInitialData,
   reduceSession,
   sendInput,
   selectProvider,
   startProvider,
   statusLabel,
-  stopProvider,
   type Action,
   type SessionState,
   type TranscriptEntry,
@@ -139,7 +137,6 @@ function SessionSurface({
   const provider = state.providers.find((item) => item.id === state.selectedProviderId);
   const canSelect = canSelectProvider(state);
   const canStart = canStartProvider(state);
-  const canStop = canStopProvider(state);
   const canSend = state.status === "running" && state.input.length > 0;
   const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
@@ -323,9 +320,6 @@ function SessionSurface({
     "div",
     { className: "codex-left-rail flex min-w-0 items-center gap-[5px]" },
     codexIconButton("plus", state.context?.copy.attachFile ?? "Attach file", plusIcon()),
-    codexIconButton("browse", state.context?.copy.browseWeb ?? "Browse web", globeIcon()),
-    codexIconButton("context", state.context?.copy.autoContext ?? "Context", ideContextIcon()),
-    codexIconButton("tools", state.context?.copy.tools ?? "Tools", skillsIcon()),
   );
   const secondaryControls = h(
     "div",
@@ -351,18 +345,6 @@ function SessionSurface({
       "button",
       {
         className:
-          `codex-action codex-circle-action ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
-        type: "button",
-        disabled: !canStop,
-        "aria-label": state.context?.copy.stop ?? "Stop",
-        onClick: () => void stopProvider(state, dispatch),
-      },
-      "",
-    ),
-    h(
-      "button",
-      {
-        className:
           `codex-action codex-mic ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
         type: "button",
         disabled: true,
@@ -375,9 +357,10 @@ function SessionSurface({
       {
         className:
           `codex-action send-button ${CODEX_SUBMIT_BUTTON}${canSend ? "" : " cursor-default opacity-50"}`,
-        type: "submit",
+        type: "button",
         disabled: !canSend,
         "aria-label": state.context?.copy.send ?? "Send",
+        onClick: submit,
       },
       sendIcon("icon-sm text-token-dropdown-background"),
     ),
@@ -906,38 +889,6 @@ function plusIcon() {
     { className: "icon-sm", width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
     h("path", {
       d: "M9.33496 16.5V10.665H3.5C3.13273 10.665 2.83496 10.3673 2.83496 10C2.83496 9.63273 3.13273 9.33496 3.5 9.33496H9.33496V3.5C9.33496 3.13273 9.63273 2.83496 10 2.83496C10.3673 2.83496 10.665 3.13273 10.665 3.5V9.33496H16.5L16.6338 9.34863C16.9369 9.41057 17.165 9.67857 17.165 10C17.165 10.3214 16.9369 10.5894 16.6338 10.6514L16.5 10.665H10.665V16.5C10.665 16.8673 10.3673 17.165 10 17.165C9.63273 17.165 9.33496 16.8673 9.33496 16.5Z",
-      fill: "currentColor",
-    }),
-  );
-}
-
-function globeIcon() {
-  return h(
-    "svg",
-    { className: "icon-sm", width: "20", height: "20", viewBox: "0 0 20 20", fill: "currentColor", "aria-hidden": true },
-    h("path", {
-      d: "M10 2.125C14.3492 2.125 17.875 5.65076 17.875 10C17.875 14.3492 14.3492 17.875 10 17.875C5.65076 17.875 2.125 14.3492 2.125 10C2.125 5.65076 5.65076 2.125 10 2.125ZM7.88672 10.625C7.94334 12.3161 8.22547 13.8134 8.63965 14.9053C8.87263 15.5194 9.1351 15.9733 9.39453 16.2627C9.65437 16.5524 9.86039 16.625 10 16.625C10.1396 16.625 10.3456 16.5524 10.6055 16.2627C10.8649 15.9733 11.1274 15.5194 11.3604 14.9053C11.7745 13.8134 12.0567 12.3161 12.1133 10.625H7.88672ZM3.40527 10.625C3.65313 13.2734 5.45957 15.4667 7.89844 16.2822C7.7409 15.997 7.5977 15.6834 7.4707 15.3486C6.99415 14.0923 6.69362 12.439 6.63672 10.625H3.40527ZM13.3633 10.625C13.3064 12.439 13.0059 14.0923 12.5293 15.3486C12.4022 15.6836 12.2582 15.9969 12.1006 16.2822C14.5399 15.467 16.3468 13.2737 16.5947 10.625H13.3633ZM12.1006 3.7168C12.2584 4.00235 12.4021 4.31613 12.5293 4.65137C13.0059 5.90775 13.3064 7.56102 13.3633 9.375H16.5947C16.3468 6.72615 14.54 4.53199 12.1006 3.7168ZM10 3.375C9.86039 3.375 9.65437 3.44756 9.39453 3.7373C9.1351 4.02672 8.87263 4.48057 8.63965 5.09473C8.22547 6.18664 7.94334 7.68388 7.88672 9.375H12.1133C12.0567 7.68388 11.7745 6.18664 11.3604 5.09473C11.1274 4.48057 10.8649 4.02672 10.6055 3.7373C10.3456 3.44756 10.1396 3.375 10 3.375ZM7.89844 3.7168C5.45942 4.53222 3.65314 6.72647 3.40527 9.375H6.63672C6.69362 7.56102 6.99415 5.90775 7.4707 4.65137C7.59781 4.31629 7.74073 4.00224 7.89844 3.7168Z",
-    }),
-  );
-}
-
-function ideContextIcon() {
-  return h(
-    "svg",
-    { className: "icon-sm", width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
-    h("path", {
-      d: "M10.6878 9.46029L10.8421 9.49545L17.2913 11.43L17.4642 11.4974C18.2215 11.8649 18.2705 12.9544 17.5492 13.388L17.3822 13.4701L14.5872 14.5872L13.4701 17.3822C13.1135 18.2734 11.8913 18.2756 11.4974 17.4642L11.43 17.2913L9.49544 10.8421C9.26342 10.0687 9.92452 9.34418 10.6878 9.46029ZM12.4984 16.2288L13.3929 13.9954L13.4388 13.8949C13.5579 13.6675 13.7549 13.4891 13.9954 13.3929L16.2288 12.4984L10.9007 10.9007L12.4984 16.2288ZM5.90365 12.9749C6.16329 12.7153 6.58436 12.7154 6.84408 12.9749C7.10378 13.2346 7.10378 13.6557 6.84408 13.9154L5.0765 15.6829C4.8168 15.9426 4.39577 15.9426 4.13607 15.6829C3.87654 15.4232 3.87643 15.0022 4.13607 14.7425L5.90365 12.9749ZM2.83724 7.3265L5.25228 7.97299L5.37826 8.02084C5.65484 8.1591 5.80597 8.47712 5.72298 8.78744C5.63984 9.09774 5.34997 9.298 5.04134 9.27963L4.90853 9.25814L2.49349 8.61068L2.36752 8.56283C2.09082 8.42452 1.93961 8.10666 2.02279 7.79623C2.10599 7.4859 2.39574 7.28652 2.70443 7.30502L2.83724 7.3265ZM14.847 4.05111C15.1051 3.88059 15.4556 3.90894 15.6829 4.13607C15.9426 4.39577 15.9426 4.8168 15.6829 5.0765L13.9154 6.84408C13.6557 7.10378 13.2346 7.10378 12.9749 6.84408C12.7154 6.58437 12.7153 6.16329 12.9749 5.90365L14.7425 4.13607L14.847 4.05111ZM7.79623 2.02279C8.15098 1.92773 8.51562 2.13874 8.61068 2.49349L9.25814 4.90853L9.27962 5.04135C9.298 5.34998 9.09774 5.63984 8.78744 5.72299C8.47713 5.80592 8.15908 5.65484 8.02084 5.37826L7.97298 5.25228L7.3265 2.83724L7.30502 2.70443C7.28652 2.39577 7.48595 2.10603 7.79623 2.02279Z",
-      fill: "currentColor",
-    }),
-  );
-}
-
-function skillsIcon() {
-  return h(
-    "svg",
-    { className: "icon-sm", width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
-    h("path", {
-      d: "M9.79 18.5102C9.48333 18.6969 9.15333 18.7869 8.8 18.7802C8.45333 18.7736 8.13 18.6669 7.83 18.4602L4.35 16.0802C4.07666 15.8936 3.86333 15.6569 3.71 15.3702C3.55666 15.0836 3.48 14.7802 3.48 14.4602V6.53024C3.48 6.20358 3.55333 5.90691 3.7 5.64024C3.85333 5.37358 4.07333 5.15358 4.36 4.98024L10.08 1.46024C10.4067 1.26024 10.76 1.16358 11.14 1.17024C11.52 1.17024 11.87 1.27691 12.19 1.49024L15.71 3.89024C15.97 4.07691 16.17 4.30024 16.31 4.56024C16.45 4.81358 16.52 5.09358 16.52 5.40024V13.2902C16.52 13.6236 16.4367 13.9402 16.27 14.2402C16.1033 14.5402 15.8733 14.7769 15.58 14.9502L9.79 18.5102ZM14.38 4.66024L11.42 2.64024C11.3267 2.57358 11.2233 2.54024 11.11 2.54024C11.0033 2.53358 10.9033 2.56024 10.81 2.62024L5.5 5.89024L8.77 8.11024L14.38 4.66024ZM8.14 9.33025L4.86 7.11024V10.2102L8.14 12.4502V9.33025ZM8.14 14.0402L4.86 11.8002V14.4602C4.86 14.5602 4.88 14.6536 4.92 14.7402C4.96 14.8202 5.02333 14.8902 5.11 14.9502L8.14 17.0202V14.0402ZM15.14 8.89024V5.81024L9.52 9.26025V12.3502L15.14 8.89024ZM14.86 13.7902C14.9533 13.7302 15.0233 13.6602 15.07 13.5802C15.1167 13.4936 15.14 13.3969 15.14 13.2902V10.4802L9.52 13.9402V17.0702L14.86 13.7902Z",
       fill: "currentColor",
     }),
   );

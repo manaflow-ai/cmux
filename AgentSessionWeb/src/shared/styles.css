@@ -17,7 +17,18 @@
   --color-token-focus-border: var(--agent-accent);
   --color-token-button-foreground: var(--agent-text);
   --color-token-button-background: var(--agent-accent);
+  --color-token-button-secondary-foreground: var(--agent-text);
+  --color-token-button-secondary-background: var(--agent-control);
+  --color-token-button-secondary-hover-background: var(--agent-control-hover);
+  --color-token-button-tertiary-foreground: var(--agent-soft);
   --color-token-input-placeholder-foreground: var(--agent-muted);
+  --color-token-muted-foreground: var(--agent-muted);
+  --color-token-charts-red: var(--agent-danger);
+  --color-token-charts-blue: var(--agent-accent);
+  --color-token-charts-yellow: #ffd240;
+  --color-token-charts-orange: #fb6a22;
+  --color-token-charts-green: #00a240;
+  --color-token-charts-purple: #ad7bf9;
   --color-token-text-primary: var(--agent-text);
   --color-token-text-secondary: var(--agent-soft);
   --color-token-text-tertiary: var(--agent-muted);
@@ -98,8 +109,8 @@
   --padding-row-x: calc(var(--spacing) * 2);
   --padding-row-y: calc(var(--spacing) * 1.25);
   --height-token-nav-row: 32px;
-  --codex-chat-font-size: 13px;
-  --codex-chat-code-font-size: 12px;
+  --codex-chat-font-size: var(--vscode-chat-font-size, var(--vscode-font-size, 13px));
+  --codex-chat-code-font-size: var(--vscode-chat-editor-font-size, var(--vscode-editor-font-size, 12px));
 }
 
 :root[data-codex-window-type="electron"] {
@@ -117,6 +128,11 @@
   --spacing-token-button-composer-sm: calc(var(--spacing) * 7);
   --text-heading-md: 18px;
   --cursor-interaction: default;
+  --vscode-editor-font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --vscode-font-size: var(--text-base);
+  --vscode-editor-font-size: var(--text-sm);
+  --vscode-chat-font-size: var(--vscode-font-size);
+  --vscode-chat-editor-font-size: var(--vscode-editor-font-size);
   overscroll-behavior: none;
   overflow: hidden;
 }
