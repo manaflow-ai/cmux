@@ -6187,6 +6187,47 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertFalse(workspace.bonsplitController.allTabIds.contains(resumedTabId))
     }
 
+    func testSessionIndexResumeIgnoresUnownedPreferredController() throws {
+        let cwd = FileManager.default.temporaryDirectory.path
+        let manager = TabManager(initialWorkingDirectory: cwd)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.currentDirectory = cwd
+        let workspacePaneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let staleController = BonsplitController()
+        let stalePaneId = try XCTUnwrap(staleController.focusedPaneId)
+        XCTAssertFalse(workspace.allBonsplitControllers.contains { $0 === staleController })
+        let terminalIdsBefore = Set(workspace.panels.values.compactMap { ($0 as? TerminalPanel)?.id })
+        let entry = SessionEntry(
+            id: "stale-controller-resume-entry",
+            agent: .codex,
+            sessionId: "session-stale-controller",
+            title: "Stale Controller Resume",
+            cwd: cwd,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 0),
+            fileURL: nil,
+            specifics: .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
+        )
+
+        SessionEntryResumeCoordinator.resume(
+            entry,
+            tabManager: manager,
+            preferredWorkspace: workspace,
+            preferredPane: stalePaneId,
+            preferredController: staleController
+        )
+
+        let resumedTerminalIds = Set(workspace.panels.values.compactMap { ($0 as? TerminalPanel)?.id })
+            .subtracting(terminalIdsBefore)
+        let resumedPanelId = try XCTUnwrap(resumedTerminalIds.first)
+        let resumedTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(resumedPanelId))
+        XCTAssertEqual(manager.tabs.map(\.id), [workspace.id])
+        XCTAssertEqual(workspace.paneId(forPanelId: resumedPanelId), workspacePaneId)
+        XCTAssertTrue(workspace.bonsplitController.allTabIds.contains(resumedTabId))
+        XCTAssertFalse(staleController.allTabIds.contains(resumedTabId))
+    }
+
     func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {
         let workspace = Workspace()
         guard let firstPanelId = workspace.focusedPanelId else {

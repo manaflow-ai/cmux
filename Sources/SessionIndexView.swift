@@ -65,8 +65,13 @@ enum SessionEntryResumeCoordinator {
         preferredPane: PaneID?,
         preferredController: BonsplitController?
     ) -> (paneId: PaneID, controller: BonsplitController)? {
+        let preferredControllerIsOwned = preferredController.map { candidate in
+            workspace.allBonsplitControllers.contains { $0 === candidate }
+        } ?? false
+
         if let preferredPane,
            let preferredController,
+           preferredControllerIsOwned,
            preferredController.allPaneIds.contains(preferredPane) {
             return (preferredPane, preferredController)
         }
@@ -74,9 +79,10 @@ enum SessionEntryResumeCoordinator {
            let controller = workspace.bonsplitController(containingPane: preferredPane) {
             return (preferredPane, controller)
         }
-        if let preferredController {
-            let paneId = preferredController.focusedPaneId ?? preferredController.allPaneIds.first
-            return paneId.map { ($0, preferredController) }
+        if let preferredController,
+           preferredControllerIsOwned,
+           let paneId = preferredController.focusedPaneId ?? preferredController.allPaneIds.first {
+            return (paneId, preferredController)
         }
         if let focusedPane = workspace.focusedBonsplitPaneForCommands() {
             return (focusedPane.paneId, focusedPane.controller)
