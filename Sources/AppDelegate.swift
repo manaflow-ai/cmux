@@ -13799,7 +13799,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard !eligibleIds.isEmpty else {
             NSSound.beep()
-            return false
+            // Consume the event so the matched shortcut doesn't leak through
+            // to the focused terminal/AppKit; cmux already handled it (the
+            // beep is the user-visible response).
+            return true
         }
         // No name prompt: TabManager auto-names ("Group N"). Rename via the
         // header context menu.

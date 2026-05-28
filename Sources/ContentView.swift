@@ -11513,7 +11513,7 @@ struct VerticalTabsSidebar: View {
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
-            onFocusAnchor: { [weak tabManager, anchorId = group.anchorWorkspaceId, selectedTabIds = $selectedTabIds] in
+            onFocusAnchor: { [weak tabManager, anchorId = group.anchorWorkspaceId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] in
                 guard let tabManager else { return }
                 guard let anchorTab = tabManager.tabs.first(where: { $0.id == anchorId }) else { return }
                 // Route through the shared selection path so the click clears
@@ -11528,6 +11528,13 @@ struct VerticalTabsSidebar: View {
                 // focused workspace instead of stale sidebar selections.
                 if selectedTabIds.wrappedValue != [anchorId] {
                     selectedTabIds.wrappedValue = [anchorId]
+                }
+                // Refresh the range-selection anchor for subsequent
+                // Shift-click — otherwise selecting a row, clicking a group
+                // header, then Shift-clicking another row would extend from
+                // the stale prior row instead of the anchor.
+                if let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == anchorId }) {
+                    lastSidebarSelectionIndex.wrappedValue = anchorIndex
                 }
             },
             onTapPlus: { [weak tabManager, groupId = group.id, anchorId = group.anchorWorkspaceId] in
@@ -11592,7 +11599,7 @@ struct VerticalTabsSidebar: View {
             of: SidebarWorkspaceGroupDragPayload.dropContentTypes
                 + SidebarTabDragPayload.dropContentTypes,
             isTargeted: nil
-        ) { providers in
+        ) { [dragState, dragAutoScrollController] providers in
             SidebarWorkspaceGroupDragPayload.loadGroupId(from: providers) { [weak tabManager, targetGroupId = group.id] draggedId in
                 guard let draggedId, draggedId != targetGroupId, let tabManager else { return }
                 guard let targetIndex = tabManager.workspaceGroups.firstIndex(where: { $0.id == targetGroupId }) else { return }
@@ -11602,6 +11609,15 @@ struct VerticalTabsSidebar: View {
                 guard let draggedTabId, let tabManager else { return }
                 tabManager.addWorkspaceToGroup(workspaceId: draggedTabId, groupId: targetGroupId)
             }
+            // Custom onDrop path bypasses SidebarTabDropDelegate.performDrop,
+            // so the drag-state cleanup it normally runs (draggedTabId,
+            // dropIndicator, autoscroll) must happen here. Without this, the
+            // dragged-row highlight or drop indicator can persist after a
+            // successful header drop — especially for collapsed groups
+            // where no member rows exist to take the drop.
+            dragState.draggedTabId = nil
+            dragState.dropIndicator = nil
+            dragAutoScrollController.stop()
             return true
         }
     }
