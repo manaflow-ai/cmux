@@ -4,6 +4,7 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::mem::MaybeUninit;
 use std::process;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -26,6 +27,7 @@ const VTIME: usize = 17;
 
 static mut ORIGINAL_TERMIOS: Option<Termios> = None;
 static mut NEEDS_RESTORE: bool = false;
+static SIGNAL_EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -79,8 +81,7 @@ impl Size {
 }
 
 extern "C" fn handle_signal(_: c_int) {
-    restore_terminal();
-    process::exit(130);
+    SIGNAL_EXIT_REQUESTED.store(true, Ordering::SeqCst);
 }
 
 fn main() {
@@ -218,6 +219,10 @@ fn run_loop(config: &Config) -> io::Result<()> {
     let started = Instant::now();
 
     loop {
+        if SIGNAL_EXIT_REQUESTED.load(Ordering::SeqCst) {
+            break;
+        }
+
         let size = terminal_size();
         if size != last_reported_size
             || last_reported_at
@@ -243,9 +248,13 @@ fn run_loop(config: &Config) -> io::Result<()> {
 }
 
 fn should_exit(timeout: Duration, allow_keyboard_exit: bool) -> io::Result<bool> {
+    if SIGNAL_EXIT_REQUESTED.load(Ordering::SeqCst) {
+        return Ok(true);
+    }
+
     if !allow_keyboard_exit {
         thread::sleep(timeout);
-        return Ok(false);
+        return Ok(SIGNAL_EXIT_REQUESTED.load(Ordering::SeqCst));
     }
 
     let deadline = Instant::now() + timeout;
@@ -270,6 +279,9 @@ fn should_exit(timeout: Duration, allow_keyboard_exit: bool) -> io::Result<bool>
         let now = Instant::now();
         if now >= deadline {
             return Ok(false);
+        }
+        if SIGNAL_EXIT_REQUESTED.load(Ordering::SeqCst) {
+            return Ok(true);
         }
         thread::sleep((deadline - now).min(Duration::from_millis(4)));
     }
