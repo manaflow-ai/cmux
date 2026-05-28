@@ -2699,8 +2699,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
         let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
         let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
-        let initialScript = try XCTUnwrap(decodedReusableStartupScript(from: initialCommand))
-        let terminalStartupScript = try XCTUnwrap(decodedReusableStartupScript(from: terminalStartupCommand))
+        let initialScript = try XCTUnwrap(self.decodedReusableStartupScript(from: initialCommand))
+        let terminalStartupScript = try XCTUnwrap(self.decodedReusableStartupScript(from: terminalStartupCommand))
         let tmuxCommand = "PATH=/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}; exec tmux -CC new -A -s cmuxcc"
         let encodedTmuxCommand = Data(tmuxCommand.utf8).base64EncodedString()
 
@@ -2728,8 +2728,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
         let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
         let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
-        let initialScript = try XCTUnwrap(decodedReusableStartupScript(from: initialCommand))
-        let terminalStartupScript = try XCTUnwrap(decodedReusableStartupScript(from: terminalStartupCommand))
+        let initialScript = try XCTUnwrap(self.decodedReusableStartupScript(from: initialCommand))
+        let terminalStartupScript = try XCTUnwrap(self.decodedReusableStartupScript(from: terminalStartupCommand))
         let tmuxCommand = "/opt/bin/tmux -CC -L 'sock name' attach -t 'work session'"
         let encodedTmuxCommand = Data(tmuxCommand.utf8).base64EncodedString()
 
@@ -2756,8 +2756,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
         let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
         let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
-        let initialScript = try XCTUnwrap(decodedReusableStartupScript(from: initialCommand))
-        let terminalStartupScript = try XCTUnwrap(decodedReusableStartupScript(from: terminalStartupCommand))
+        let initialScript = try XCTUnwrap(self.decodedReusableStartupScript(from: initialCommand))
+        let terminalStartupScript = try XCTUnwrap(self.decodedReusableStartupScript(from: terminalStartupCommand))
         let tmuxCommand = "PATH=/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}; exec tmux -CC -S /tmp/__CMUX_SURFACE_ID__.sock attach -t __CMUX_WORKSPACE_ID__"
         let encodedTmuxCommand = Data(tmuxCommand.utf8).base64EncodedString()
 
@@ -2875,8 +2875,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
         let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
         let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
-        let initialScript = try XCTUnwrap(decodedReusableStartupScript(from: initialCommand))
-        let terminalStartupScript = try XCTUnwrap(decodedReusableStartupScript(from: terminalStartupCommand))
+        let initialScript = try XCTUnwrap(self.decodedReusableStartupScript(from: initialCommand))
+        let terminalStartupScript = try XCTUnwrap(self.decodedReusableStartupScript(from: terminalStartupCommand))
 
         XCTAssertTrue(initialScript.contains("ssh-pty-attach"), initialScript)
         XCTAssertTrue(initialScript.contains("--wait"), initialScript)
@@ -2961,8 +2961,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 configureParams["terminal_startup_command"] as? String,
                 testCase.name
             )
-            let initialScript = decodedReusableStartupScript(from: initialCommand) ?? initialCommand
-            let terminalStartupScript = decodedReusableStartupScript(from: terminalStartupCommand) ?? terminalStartupCommand
+            let initialScript = self.decodedReusableStartupScript(from: initialCommand) ?? initialCommand
+            let terminalStartupScript = self.decodedReusableStartupScript(from: terminalStartupCommand) ?? terminalStartupCommand
 
             XCTAssertFalse(initialScript.contains("ssh-pty-attach"), testCase.name)
             XCTAssertFalse(terminalStartupScript.contains("ssh-pty-attach"), testCase.name)
@@ -3930,7 +3930,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertEqual(params["focus"] as? Bool, true)
             let initialCommand = params["initial_command"] as? String ?? ""
             XCTAssertTrue(initialCommand.hasPrefix("/bin/sh -c "), initialCommand)
-            let initialScript = decodedReusableStartupScript(from: initialCommand) ?? initialCommand
+            let initialScript = self.decodedReusableStartupScript(from: initialCommand) ?? initialCommand
             XCTAssertTrue(initialScript.contains("ssh-pty-attach"), initialScript)
             XCTAssertTrue(initialScript.contains("--require-existing"), initialScript)
             XCTAssertTrue(initialScript.contains(sessionId), initialScript)
