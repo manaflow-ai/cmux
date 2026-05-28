@@ -1143,5 +1143,8 @@
       "intro": "Auf dieser Seite werden Regeln im aktuellen cmux-Arbeitsbereich geöffnet.",
       "fallback": "cmux zeigt die Regeln zuerst an und fragt nach, bevor sie in den aktuellen Arbeitsbereich eingefügt werden. Wenn cmux nicht geöffnet wird, installieren Sie cmux und klicken Sie erneut auf „In cmux öffnen“."
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "OpenClaw-Entwickler. Gründer von PSPDFKit."
   }
 }
