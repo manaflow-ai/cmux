@@ -6432,7 +6432,7 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("app.openMarkdownInCmuxViewer"),
                             String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"),
-                            subtitle: String(localized: "settings.app.openMarkdownInCmuxViewer.subtitle", defaultValue: "When supported file routing is on, Cmd-clicking Markdown files opens the rendered cmux markdown viewer instead of the generic file preview.")
+                            subtitle: String(localized: "settings.app.openMarkdownInCmuxViewer.subtitle", defaultValue: "Cmd-clicking Markdown files opens the rendered cmux markdown viewer instead of the generic file preview.")
                         ) {
                             Toggle("", isOn: markdownRoutingBinding)
                                 .labelsHidden()
