@@ -397,7 +397,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
         XCTAssertNil(workspace.remoteProxyEndpoint)
     }
 
@@ -421,15 +421,98 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         workspace.configureRemoteConnection(config, autoConnect: true)
-        let deadline = Date().addingTimeInterval(0.5)
-        while workspace.remoteConnectionState == .connecting && Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
-        }
 
-        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
         XCTAssertNil(workspace.remoteProxyEndpoint)
         let daemon = workspace.remoteStatusPayload()["daemon"] as? [String: Any]
         XCTAssertFalse((daemon?["detail"] as? String)?.contains("pty.session") == true)
+    }
+
+    @MainActor
+    func testRemoteWorkspaceDoesNotReportConnectedUntilTerminalAttachIsReady() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:test-pty-readiness",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "cmux vm-pty-attach --id test-pty-readiness",
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "connecting")
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
+        XCTAssertEqual(workspace.remoteStatusPayload()["ready_terminal_sessions"] as? Int, 0)
+
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        NotificationCenter.default.post(
+            name: .terminalSurfaceDidBecomeReady,
+            object: terminalPanel.surface,
+            userInfo: [
+                "surfaceId": terminalPanel.id,
+                "workspaceId": workspace.id,
+            ]
+        )
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
+
+        workspace.markRemoteTerminalSurfaceReady(terminalPanel.id, reason: "test")
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "connected")
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
+        XCTAssertEqual(workspace.remoteStatusPayload()["ready_terminal_sessions"] as? Int, 1)
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
+        XCTAssertEqual(workspace.remoteStatusPayload()["ready_terminal_sessions"] as? Int, 0)
+    }
+
+    @MainActor
+    func testRemoteTerminalReadyBeforeTrackingIsAppliedWhenSurfaceTracks() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:test-pending-pty-readiness",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil,
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["ready_terminal_sessions"] as? Int, 0)
+
+        workspace.markRemoteTerminalSurfaceReady(terminalPanel.id, reason: "test.pending")
+        workspace.trackRemoteTerminalSurface(terminalPanel.id)
+
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
+        XCTAssertEqual(workspace.remoteStatusPayload()["ready_terminal_sessions"] as? Int, 1)
     }
 
     func testRemoteDaemonCapabilityErrorsUseUserFacingMessage() {
@@ -2429,6 +2512,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: false)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        guard let terminalPanel = workspace.focusedTerminalPanel else {
+            XCTFail("Expected configured remote workspace to retain a focused terminal panel")
+            return
+        }
+        workspace.markRemoteTerminalSurfaceReady(terminalPanel.id, reason: "test")
 
         let proxyError = "Remote proxy to cmux-macmini unavailable: Failed to start local daemon proxy: daemon RPC timeout waiting for hello response (retry in 3s)"
         workspace.applyRemoteConnectionStateUpdate(.error, detail: proxyError, target: "cmux-macmini")
