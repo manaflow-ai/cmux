@@ -68,6 +68,9 @@
   --agent-control-hover: color-mix(in srgb, var(--agent-soft) 8%, transparent);
   --agent-primary: color-mix(in srgb, var(--agent-accent) 90%, var(--agent-text));
   --agent-primary-text: #ffffff;
+  --thread-content-max-width: 48rem;
+  --markdown-wide-block-max-width: 56rem;
+  --padding-toolbar: calc(var(--spacing) * 4);
   --vscode-foreground: var(--agent-text);
   --vscode-descriptionForeground: var(--agent-muted);
   --vscode-input-background: var(--agent-input-bg);
@@ -122,11 +125,11 @@ select {
 }
 
 .agent-shell {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   height: 100%;
   min-height: 100%;
-  padding: 14px 16px;
+  padding: var(--padding-toolbar);
   color: var(--agent-text);
   background: var(--agent-page-bg);
 }
@@ -134,8 +137,9 @@ select {
 .agent-log,
 .log {
   overflow: auto;
+  flex: 1 1 auto;
   min-height: 0;
-  width: min(100%, 48rem);
+  width: min(100%, var(--thread-content-max-width));
   margin: 0 auto;
   padding: 6px 2px 18px;
   background: transparent;
@@ -192,14 +196,14 @@ select {
 .agent-composer-stack {
   display: grid;
   gap: 6px;
-  width: 100%;
-  margin: 0;
+  width: min(100%, var(--thread-content-max-width));
+  margin: 0 auto;
 }
 
 .composer-stack {
   display: grid;
   gap: 6px;
-  width: min(100%, 48rem);
+  width: min(100%, var(--thread-content-max-width));
   margin: 0 auto;
 }
 
@@ -210,7 +214,7 @@ select {
 }
 
 .codex-composer-surface {
-  min-height: 122px;
+  min-height: 92px;
   color: var(--color-token-foreground);
   background: color-mix(in srgb, var(--color-token-input-background) 90%, transparent);
   box-shadow:
@@ -232,7 +236,11 @@ select {
 }
 
 .composer-input-multiline .ProseMirror {
-  max-height: 200px;
+  min-height: 2rem;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 0 8px;
+  line-height: 20px;
 }
 
 .h-token-button-composer {
@@ -324,8 +332,11 @@ select {
   color: var(--agent-text);
   background: transparent;
   caret-color: var(--agent-text);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0;
   outline: none;
   white-space: pre-wrap;
+  white-space: break-spaces;
   word-break: break-word;
 }
 
@@ -398,12 +409,14 @@ select {
 }
 
 .composer-layout-multiline {
-  grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
-    "input input input"
-    "left spacer right";
-  align-items: center;
-  gap: 5px;
+    "input input"
+    "left right";
+  grid-template-rows: minmax(2rem, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  min-height: 92px;
   padding: 12px 8px 8px;
 }
 
@@ -460,7 +473,7 @@ select {
 .codex-right-rail {
   flex: 0 0 auto;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 4px;
 }
 
 .model-picker,
@@ -532,6 +545,10 @@ select {
   inset: 0;
   width: 100%;
   height: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  color: transparent;
+  background: transparent;
   opacity: 0;
   outline: none;
 }
@@ -804,7 +821,7 @@ select {
   }
 
   .codex-left-rail {
-    min-width: 12rem;
+    min-width: 0;
   }
 
   .codex-right-rail {

@@ -77,7 +77,6 @@ function SessionSurface({
   const visibleLogEntries = state.log.filter((entry) => entry.level !== "info");
   const editorRef = useRef<PromptEditorHandle | null>(null);
   const [menuKind, setMenuKind] = useState<ComposerMenuKind>(null);
-  const isSingleLineLayout = !state.input.includes("\n");
   const submit = () => {
     setMenuKind(null);
     void sendInput(state, dispatch);
@@ -86,27 +85,6 @@ function SessionSurface({
     editorRef.current?.insertText(value);
     setMenuKind(null);
   };
-  const composerInput = h(PromptEditor, {
-    ref: editorRef,
-    className: isSingleLineLayout
-      ? "composer-input composer-input-single-line min-w-0 text-base"
-      : "composer-input composer-input-multiline mb-1 flex-grow overflow-y-auto px-3 pt-4 text-base [&_.ProseMirror]:leading-5",
-    minHeight: isSingleLineLayout ? "1.25rem" : "2.75rem",
-    value: state.input,
-    ariaLabel: state.context?.copy.promptPlaceholder ?? "",
-    placeholder: state.context?.copy.promptPlaceholder ?? "",
-    onTextChange: (input: string) => dispatch({ type: "setInput", input }),
-    onSubmit: submit,
-    onTriggerToken: (token: "@" | "$") => setMenuKind(token === "@" ? "mention" : "skill"),
-  });
-  const leftControls = h(
-    "div",
-    { className: "codex-left-rail flex min-w-0 items-center gap-1" },
-    codexIconButton("plus", state.context?.copy.attachFile ?? "Attach file", plusIcon()),
-    codexIconButton("browse", state.context?.copy.browseWeb ?? "Browse web", globeIcon()),
-    codexIconButton("context", state.context?.copy.autoContext ?? "Context", sparkleIcon()),
-    codexIconButton("tools", state.context?.copy.tools ?? "Tools", hammerIcon()),
-  );
   const modelPicker = h(
     "label",
     { className: "model-picker h-token-button-composer max-w-40 rounded-full px-2 py-0 text-sm leading-[18px]" },
@@ -127,10 +105,29 @@ function SessionSurface({
       ),
     ),
   );
+  const composerInput = h(PromptEditor, {
+    ref: editorRef,
+    className: "composer-input composer-input-multiline min-w-0 text-base",
+    minHeight: "2rem",
+    value: state.input,
+    ariaLabel: state.context?.copy.promptPlaceholder ?? "",
+    placeholder: state.context?.copy.promptPlaceholder ?? "",
+    onTextChange: (input: string) => dispatch({ type: "setInput", input }),
+    onSubmit: submit,
+    onTriggerToken: (token: "@" | "$") => setMenuKind(token === "@" ? "mention" : "skill"),
+  });
+  const leftControls = h(
+    "div",
+    { className: "codex-left-rail flex min-w-0 items-center gap-1" },
+    codexIconButton("plus", state.context?.copy.attachFile ?? "Attach file", plusIcon()),
+    codexIconButton("browse", state.context?.copy.browseWeb ?? "Browse web", globeIcon()),
+    codexIconButton("context", state.context?.copy.autoContext ?? "Context", sparkleIcon()),
+    codexIconButton("tools", state.context?.copy.tools ?? "Tools", hammerIcon()),
+    modelPicker,
+  );
   const rightActions = h(
     "div",
-    { className: "flex min-w-0 shrink-0 items-center justify-end gap-2" },
-    modelPicker,
+    { className: "codex-right-rail" },
     showStart
       ? h(
           "button",
@@ -220,7 +217,7 @@ function SessionSurface({
               "div",
               {
                 className:
-                  `codex-composer-surface relative flex flex-col bg-token-input-background/90 text-token-foreground ring ring-black/10 backdrop-blur-lg shadow-[0_4px_16px_0_rgba(0,0,0,0.05)] ${isSingleLineLayout ? "codex-composer-single-line overflow-visible rounded-full" : "overflow-y-auto rounded-3xl"}`,
+                  "codex-composer-surface relative flex flex-col overflow-visible rounded-3xl bg-token-input-background/90 text-token-foreground ring ring-black/10 backdrop-blur-lg shadow-[0_4px_16px_0_rgba(0,0,0,0.05)]",
               },
               h(
                 "div",
@@ -228,8 +225,7 @@ function SessionSurface({
                 h(
                   "div",
                   {
-                    className:
-                      `composer-layout ${isSingleLineLayout ? "composer-layout-single" : "composer-layout-multiline"}`,
+                    className: "composer-layout composer-layout-multiline",
                   },
                   h("div", { className: "composer-left-slot" }, leftControls),
                   h("div", { className: "composer-input-slot" }, composerInput),
@@ -248,6 +244,8 @@ function SessionSurface({
           "aria-label": `${provider?.displayName ?? renderer} ${statusLabel(state)} ${provider?.transportKind ?? ""}`.trim(),
         },
         h("span", null, state.context?.copy.rateLimits ?? "Rate limits"),
+        h("span", { className: "rate-dot", "aria-hidden": true }, "•"),
+        h("span", null, `${provider?.displayName ?? renderer} ${statusLabel(state)}`),
       ),
     ),
   );

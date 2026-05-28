@@ -51,7 +51,15 @@ strip_trailing_line_whitespace \
 write_index() {
   out_dir="$1"
   {
-    sed -n '1,10p' "$ROOT/AgentSessionWeb/src/index.html"
+    printf '<!doctype html>\n'
+    printf '<html lang="en">\n'
+    printf '  <head>\n'
+    printf '    <meta charset="UTF-8" />\n'
+    printf '    <meta\n'
+    printf '      name="viewport"\n'
+    printf '      content="width=device-width, initial-scale=1.0"\n'
+    printf '    />\n'
+    printf '    <title>cmux Agent Session</title>\n'
     printf '    <style>\n'
     cat "$out_dir/assets/styles.css"
     printf '\n    </style>\n'

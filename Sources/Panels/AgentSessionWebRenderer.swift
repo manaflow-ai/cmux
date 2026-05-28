@@ -22,24 +22,15 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         )
     }
 
-    func makeNSView(context: Context) -> AgentSessionWebView {
-        let webView = context.coordinator.ensureWebView(onPointerDown: onRequestPanelFocus)
-        if webView.superview != nil {
-            webView.removeFromSuperview()
-        }
-        webView.onPointerDown = onRequestPanelFocus
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
-        applyBackground(to: webView)
-        applyAppearance(to: webView)
-        context.coordinator.loadShellIfNeeded()
-        if isFocused {
-            context.coordinator.focus()
-        }
-        return webView
+    func makeNSView(context: Context) -> NSView {
+        let host = AgentSessionWebHostView()
+        host.wantsLayer = true
+        applyBackground(to: host)
+        return host
     }
 
-    func updateNSView(_ nsView: AgentSessionWebView, context: Context) {
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let host = nsView as? AgentSessionWebHostView else { return }
         context.coordinator.bind(
             panelId: panel.id,
             workspaceId: panel.workspaceId,
@@ -49,11 +40,21 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
             theme: theme,
             isFocused: isFocused
         )
-        nsView.onPointerDown = onRequestPanelFocus
-        nsView.navigationDelegate = context.coordinator
-        nsView.uiDelegate = context.coordinator
-        applyBackground(to: nsView)
-        applyAppearance(to: nsView)
+        let webView = context.coordinator.ensureWebView(onPointerDown: onRequestPanelFocus)
+        webView.onPointerDown = onRequestPanelFocus
+        webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+        applyBackground(to: host)
+        applyBackground(to: webView)
+        applyAppearance(to: webView)
+        host.attachWebView(webView)
+        host.onDidMoveToWindow = { [weak coordinator = context.coordinator] in
+            coordinator?.loadShellIfNeeded()
+            coordinator?.flushVisiblePaintIfReady()
+        }
+        host.onGeometryChanged = { [weak coordinator = context.coordinator] in
+            coordinator?.flushVisiblePaintIfReady()
+        }
         context.coordinator.loadShellIfNeeded()
         context.coordinator.flushVisiblePaintIfReady()
         if isFocused {
@@ -61,17 +62,25 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         }
     }
 
-    static func dismantleNSView(_ nsView: AgentSessionWebView, coordinator: Coordinator) {
-        if let retainedWebView = coordinator.webView, nsView === retainedWebView {
-            return
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        if let host = nsView as? AgentSessionWebHostView {
+            host.detachHostedWebViewIfOwned(coordinator.webView)
+            host.onDidMoveToWindow = nil
+            host.onGeometryChanged = nil
         }
-        nsView.navigationDelegate = nil
-        nsView.uiDelegate = nil
-        nsView.onPointerDown = nil
+    }
+
+    private func applyBackground(to host: NSView) {
+        host.wantsLayer = true
+        host.layer?.backgroundColor = backgroundColor.cgColor
+        host.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
     }
 
     private func applyBackground(to webView: WKWebView) {
         webView.underPageBackgroundColor = backgroundColor
+        webView.wantsLayer = true
+        webView.layer?.backgroundColor = backgroundColor.cgColor
+        webView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
     }
 
     private func applyAppearance(to webView: WKWebView) {
@@ -81,6 +90,106 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         }
     }
 
+}
+
+@MainActor
+final class AgentSessionWebHostView: NSView {
+    var onDidMoveToWindow: (() -> Void)?
+    var onGeometryChanged: (() -> Void)?
+    private(set) var geometryRevision: UInt64 = 0
+    private var lastReportedGeometryState: GeometryState?
+    private var hasPendingGeometryNotification = false
+    private weak var hostedWebView: WKWebView?
+
+    private struct GeometryState: Equatable {
+        let frame: CGRect
+        let bounds: CGRect
+        let windowNumber: Int?
+        let superviewID: ObjectIdentifier?
+    }
+
+    override var isOpaque: Bool { false }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onDidMoveToWindow?()
+        notifyGeometryChangedIfNeeded()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        notifyGeometryChangedIfNeeded()
+    }
+
+    override func layout() {
+        super.layout()
+        if let hostedWebView, hostedWebView.superview === self {
+            hostedWebView.frame = bounds
+        }
+        notifyGeometryChangedIfNeeded()
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        markGeometryDirtyIfNeeded()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        markGeometryDirtyIfNeeded()
+    }
+
+    private func currentGeometryState() -> GeometryState {
+        GeometryState(
+            frame: frame,
+            bounds: bounds,
+            windowNumber: window?.windowNumber,
+            superviewID: superview.map(ObjectIdentifier.init)
+        )
+    }
+
+    private func markGeometryDirtyIfNeeded() {
+        let state = currentGeometryState()
+        guard state != lastReportedGeometryState else { return }
+        guard !hasPendingGeometryNotification else { return }
+        hasPendingGeometryNotification = true
+        DispatchQueue.main.async { [weak self] in
+            self?.notifyGeometryChangedIfNeeded()
+        }
+    }
+
+    private func notifyGeometryChangedIfNeeded() {
+        hasPendingGeometryNotification = false
+        let state = currentGeometryState()
+        guard state != lastReportedGeometryState else { return }
+        lastReportedGeometryState = state
+        geometryRevision &+= 1
+        onGeometryChanged?()
+    }
+
+    func attachWebView(_ webView: WKWebView) {
+        if webView.superview !== self {
+            webView.removeFromSuperview()
+            addSubview(webView, positioned: .above, relativeTo: nil)
+        }
+        hostedWebView = webView
+        webView.translatesAutoresizingMaskIntoConstraints = true
+        webView.autoresizingMask = [.width, .height]
+        webView.frame = bounds
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+    }
+
+    func detachHostedWebViewIfOwned(_ webView: WKWebView?) {
+        guard let webView,
+              webView.superview === self else {
+            return
+        }
+        webView.removeFromSuperview()
+        if hostedWebView === webView {
+            hostedWebView = nil
+        }
+    }
 }
 
 struct AgentSessionWebTheme: Equatable {
@@ -331,6 +440,9 @@ extension AgentSessionWebRenderer {
             guard loadedRendererKind != rendererKind else {
                 return
             }
+            guard let webView, webView.window != nil else {
+                return
+            }
             guard let resourceDirectoryURL = Bundle.main.resourceURL?
                 .appendingPathComponent(rendererKind.resourceDirectoryName, isDirectory: true) else {
                 return
@@ -342,7 +454,7 @@ extension AgentSessionWebRenderer {
                 "index=\(indexURL.path)"
             )
 #endif
-            webView?.loadFileURL(indexURL, allowingReadAccessTo: resourceDirectoryURL)
+            webView.loadFileURL(indexURL, allowingReadAccessTo: resourceDirectoryURL)
             loadedRendererKind = rendererKind
             hasFinishedNavigation = false
             hasCompletedVisiblePaintFlush = false
@@ -366,6 +478,7 @@ extension AgentSessionWebRenderer {
             isClosed = true
             processStore.closeAll()
             if let webView {
+                webView.removeFromSuperview()
                 webView.stopLoading()
                 webView.configuration.userContentController.removeScriptMessageHandler(
                     forName: AgentSessionBridgeContract.handlerName,
@@ -454,16 +567,14 @@ extension AgentSessionWebRenderer {
             // commit the first page layer once the view is back in the pane.
             let script = """
             (() => {
-              const root = document.getElementById('root');
-              const shell = document.querySelector('.agent-shell');
-              const rootRect = root ? root.getBoundingClientRect() : null;
               void (document.body && document.body.innerText);
-              void (rootRect && rootRect.width);
-              void (shell && getComputedStyle(shell).backgroundColor);
+              void (document.documentElement && document.documentElement.scrollHeight);
               return true;
             })()
             """
-            webView.evaluateJavaScript(script) { _, _ in
+            webView.evaluateJavaScript(script) { result, error in
+                _ = result
+                _ = error
                 webView.setNeedsDisplay(webView.bounds)
                 completion?()
             }
