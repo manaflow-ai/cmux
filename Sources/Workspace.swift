@@ -12409,11 +12409,17 @@ final class Workspace: Identifiable, ObservableObject {
     ]
 
     private nonisolated static let remoteRelaySurfaceIDKeys: Set<String> = [
+        "panel_id",
         "surface_id",
+        "preferred_panel_id",
         "preferred_surface_id",
+        "target_panel_id",
         "target_surface_id",
+        "created_panel_id",
         "created_surface_id",
+        "before_panel_id",
         "before_surface_id",
+        "after_panel_id",
         "after_surface_id",
     ]
 
@@ -12426,6 +12432,7 @@ final class Workspace: Identifiable, ObservableObject {
     ]
 
     private nonisolated static let remoteRelaySurfaceIDArrayKeys: Set<String> = [
+        "panel_ids",
         "surface_ids",
     ]
 
