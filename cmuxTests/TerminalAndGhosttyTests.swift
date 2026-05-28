@@ -4918,6 +4918,32 @@ final class TerminalCmdClickPathPunctuationTrimmingTests: XCTestCase {
         )
     }
 
+    func testResolveTerminalOpenURLFilePathResolvesAbsoluteMarkdownPathWithTrailingDot() {
+        let existingFile = "/Users/dev/project/skills/marketing/data/lawrencecchen-tweets.md"
+
+        XCTAssertEqual(
+            cmuxResolveTerminalOpenURLFilePathForTesting(
+                "\(existingFile).",
+                cwd: "/Users/dev/project",
+                existingPaths: [existingFile]
+            ),
+            existingFile
+        )
+    }
+
+    func testResolveTerminalOpenURLFilePathResolvesQuotedAbsoluteMarkdownPathWithTrailingDot() {
+        let existingFile = "/Users/dev/project/skills/marketing/data/lawrencecchen-tweets.md"
+
+        XCTAssertEqual(
+            cmuxResolveTerminalOpenURLFilePathForTesting(
+                "\"\(existingFile).\"",
+                cwd: "/Users/dev/project",
+                existingPaths: [existingFile]
+            ),
+            existingFile
+        )
+    }
+
     func testResolveQuicklookResolvesRelativePathWithTrailingComma() {
         let cwd = "/Users/dev/project"
         let existingFile = "/Users/dev/project/src/main.swift"
