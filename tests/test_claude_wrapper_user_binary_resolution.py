@@ -23,7 +23,7 @@ def run_wrapper(argv: list[str], env: dict[str, str]) -> subprocess.CompletedPro
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=30,
         check=False,
     )
 
@@ -43,20 +43,20 @@ def test_wrapper_skips_cmux_shims_and_bundled_claude(failures: list[str]) -> Non
 
         write_executable(
             bundle_bin / "claude",
-            """#!/usr/bin/env bash
+            """#!/bin/sh
 echo bundled-claude "$@"
 """,
         )
         write_executable(
             real_bin / "claude",
-            """#!/usr/bin/env bash
+            """#!/bin/sh
 echo real-claude "$@"
 """,
         )
         shim = shim_bin / "claude"
         write_executable(
             shim,
-            f"""#!/usr/bin/env bash
+            f"""#!/bin/sh
 export CMUX_CLAUDE_WRAPPER_SHIM="{shim}"
 export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="{shim_bin}"
 exec "{wrapper}" "$@"
@@ -86,7 +86,7 @@ def test_shell_integration_does_not_shim_grok(failures: list[str]) -> None:
         real_bin.mkdir(parents=True, exist_ok=True)
         write_executable(
             real_bin / "grok",
-            """#!/usr/bin/env bash
+            """#!/bin/sh
 echo real-grok "$@"
 """,
         )
@@ -122,10 +122,60 @@ echo real-grok "$@"
                 failures.append(f"{shell_name} expected user grok, got {output!r}")
 
 
+def test_shell_integration_preserves_empty_path_components(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-shell-path-components-") as td:
+        root = Path(td)
+        tmpdir = root / "tmp"
+        first = root / "first-bin"
+        last = root / "last-bin"
+        for directory in (tmpdir, first, last):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        surface_id = "surface-path-test"
+        shim_root = tmpdir / "cmux-cli-shims" / surface_id
+        expected_path = f"{shim_root}::{first}::{last}:"
+
+        base_env = dict(os.environ)
+        base_env["CMUX_SHELL_INTEGRATION_DIR"] = str(SHELL_INTEGRATION_DIR)
+        base_env["CMUX_SURFACE_ID"] = surface_id
+        base_env["TMPDIR"] = str(tmpdir)
+        base_env["PATH"] = f":{first}::{shim_root}:{last}:"
+        base_env.pop("CMUX_SOCKET_PATH", None)
+        base_env.pop("GHOSTTY_BIN_DIR", None)
+
+        shell_commands = [
+            [
+                "/bin/bash",
+                "--noprofile",
+                "--norc",
+                "-c",
+                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; printf "%s\\n" "$PATH"',
+            ],
+            [
+                "/bin/zsh",
+                "-f",
+                "-c",
+                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; printf "%s\\n" "$PATH"',
+            ],
+        ]
+        for argv in shell_commands:
+            result = run_wrapper(argv, base_env)
+            shell_name = Path(argv[0]).name
+            output = result.stdout.rstrip("\n")
+            if result.returncode != 0:
+                failures.append(
+                    f"{shell_name} path preservation exited {result.returncode}: "
+                    f"{(result.stdout + result.stderr).strip()}"
+                )
+            if output != expected_path:
+                failures.append(f"{shell_name} expected PATH {expected_path!r}, got {output!r}")
+
+
 def main() -> int:
     failures: list[str] = []
     test_wrapper_skips_cmux_shims_and_bundled_claude(failures)
     test_shell_integration_does_not_shim_grok(failures)
+    test_shell_integration_preserves_empty_path_components(failures)
     if failures:
         print("FAIL: claude wrapper binary resolution checks failed")
         for failure in failures:

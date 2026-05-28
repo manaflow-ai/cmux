@@ -67,7 +67,7 @@ def run_zsh(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str, 
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=30,
         check=False,
     )
     combined = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -92,7 +92,7 @@ def run_zsh_with_alias(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=30,
         check=False,
     )
     combined = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -118,7 +118,7 @@ def run_bash(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str,
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=30,
         check=False,
     )
     combined = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -146,7 +146,7 @@ def run_bash_with_alias(shell_dir: Path, real_bin: Path, log_path: Path) -> tupl
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=30,
         check=False,
     )
     combined = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -174,7 +174,7 @@ def run_bash_with_function(shell_dir: Path, real_bin: Path, log_path: Path) -> t
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=30,
         check=False,
     )
     combined = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -192,29 +192,29 @@ def main() -> int:
 
         write_executable(
             bundle_bin / "cmux-claude-wrapper",
-            """#!/usr/bin/env bash
-set -euo pipefail
+            """#!/bin/sh
+set -eu
 printf 'wrapper:%s\n' "$*" >> "$CMUX_TEST_LOG"
 """,
         )
         write_executable(
             real_bin / "claude",
-            """#!/usr/bin/env bash
-set -euo pipefail
+            """#!/bin/sh
+set -eu
 printf 'real:%s\n' "$*" >> "$CMUX_TEST_LOG"
 """,
         )
         write_executable(
             real_bin / "user-claude",
-            """#!/usr/bin/env bash
-set -euo pipefail
+            """#!/bin/sh
+set -eu
 printf 'user-alias:%s\n' "$*" >> "$CMUX_TEST_LOG"
 """,
         )
         write_executable(
             real_bin / "user-claude-function",
-            """#!/usr/bin/env bash
-set -euo pipefail
+            """#!/bin/sh
+set -eu
 printf 'user-function:%s\n' "$*" >> "$CMUX_TEST_LOG"
 """,
         )

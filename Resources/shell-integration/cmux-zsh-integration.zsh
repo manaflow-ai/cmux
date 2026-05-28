@@ -158,6 +158,43 @@ _cmux_now() {
 
 typeset -g _CMUX_CLAUDE_WRAPPER=""
 typeset -g _CMUX_GROK_WRAPPER=""
+_cmux_path_prepend_unique_directory() {
+    local directory="$1"
+    local current_path="${2-}"
+    local skipped_directory="${3-}"
+    local result="$directory"
+    local rest="$current_path"
+    local entry=""
+    local has_more=false
+
+    [[ -n "$directory" ]] || {
+        printf '%s' "$current_path"
+        return 0
+    }
+    [[ -n "$current_path" ]] || {
+        printf '%s' "$directory"
+        return 0
+    }
+
+    while true; do
+        if [[ "$rest" == *:* ]]; then
+            entry="${rest%%:*}"
+            rest="${rest#*:}"
+            has_more=true
+        else
+            entry="$rest"
+            rest=""
+            has_more=false
+        fi
+
+        if [[ "$entry" != "$directory" && ( -z "$skipped_directory" || "$entry" != "$skipped_directory" ) ]]; then
+            result="$result:$entry"
+        fi
+        [[ "$has_more" == true ]] || break
+    done
+
+    printf '%s' "$result"
+}
 _cmux_install_cli_command_shim() {
     local command_name="$1"
     local wrapper_path="$2"
@@ -186,11 +223,7 @@ _cmux_install_cli_command_shim() {
         export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="$shim_root"
     fi
 
-    local new_path=":${PATH}:"
-    new_path="${new_path//:${shim_root}:/:}"
-    new_path="${new_path#:}"
-    new_path="${new_path%:}"
-    PATH="${shim_root}:${new_path}"
+    PATH="$(_cmux_path_prepend_unique_directory "$shim_root" "${PATH-}")"
     hash -r >/dev/null 2>&1 || rehash >/dev/null 2>&1 || true
 }
 _cmux_install_cli_wrapper() {
@@ -1608,11 +1641,7 @@ _cmux_fix_path() {
         local gui_dir="${GHOSTTY_BIN_DIR%/}"
         local bin_dir="${gui_dir%/MacOS}/Resources/bin"
         if [[ -d "$bin_dir" ]]; then
-            # Remove existing entries and re-prepend the CLI bin dir.
-            local -a parts=("${(@s/:/)PATH}")
-            parts=("${(@)parts:#$bin_dir}")
-            parts=("${(@)parts:#$gui_dir}")
-            PATH="${bin_dir}:${(j/:/)parts}"
+            PATH="$(_cmux_path_prepend_unique_directory "$bin_dir" "${PATH-}" "$gui_dir")"
         fi
     fi
     add-zsh-hook -d precmd _cmux_fix_path
