@@ -45,6 +45,8 @@ const context: AppContext = {
     rateLimitUsageRemaining: "Usage remaining",
     rateLimitPrimary: "Primary",
     rateLimitSecondary: "Secondary",
+    rateLimitWeekly: "Weekly",
+    rateLimitMonthly: "Monthly",
     rateLimitResets: "resets",
     voiceInput: "Voice input",
     promptPlaceholder: "Ask anything",

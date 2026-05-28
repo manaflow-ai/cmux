@@ -33,8 +33,8 @@ test("active rate limit row breaks ties by longer reset window", () => {
 test("rate limit formatting matches Codex compact labels", () => {
   expect(formatRateLimitPercent(93.4)).toBe("93%");
   expect(formatRateLimitWindow(300, "Primary")).toBe("5h");
-  expect(formatRateLimitWindow(10_080, "Secondary")).toBe("Weekly");
-  expect(formatRateLimitWindow(43_200, "Secondary")).toBe("Monthly");
+  expect(formatRateLimitWindow(10_080, "Secondary", { weekly: "Weekly", monthly: "Monthly" })).toBe("Weekly");
+  expect(formatRateLimitWindow(43_200, "Secondary", { weekly: "Weekly", monthly: "Monthly" })).toBe("Monthly");
 });
 
 test("rate limit resets use time for same-day resets", () => {

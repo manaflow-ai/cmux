@@ -653,6 +653,8 @@ extension AgentSessionWebRenderer {
                         ),
                         "rateLimitPrimary": String(localized: "agentSession.web.rateLimit.primary", defaultValue: "Primary"),
                         "rateLimitSecondary": String(localized: "agentSession.web.rateLimit.secondary", defaultValue: "Secondary"),
+                        "rateLimitWeekly": String(localized: "agentSession.web.rateLimit.weekly", defaultValue: "Weekly"),
+                        "rateLimitMonthly": String(localized: "agentSession.web.rateLimit.monthly", defaultValue: "Monthly"),
                         "rateLimitResets": String(localized: "agentSession.web.rateLimit.resets", defaultValue: "resets"),
                         "voiceInput": String(localized: "agentSession.web.voiceInput", defaultValue: "Voice input"),
                         "promptPlaceholder": String(

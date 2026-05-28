@@ -542,7 +542,10 @@ function RateLimitRow({ row, state }: { row: AgentSessionRateLimitRow; state: Se
   const fallbackLabel = normalized.role === "primary"
     ? copy?.rateLimitPrimary ?? "Primary"
     : copy?.rateLimitSecondary ?? "Secondary";
-  const label = formatRateLimitWindow(normalized.windowDurationMins, fallbackLabel);
+  const label = formatRateLimitWindow(normalized.windowDurationMins, fallbackLabel, {
+    weekly: copy?.rateLimitWeekly ?? "Weekly",
+    monthly: copy?.rateLimitMonthly ?? "Monthly",
+  });
   const resetText = formatRateLimitReset(normalized.resetsAt);
   return h(
     "div",
@@ -793,6 +796,8 @@ function codexIconButton(kind: string, ariaLabel: string, child: React.ReactNode
   };
   if (onClick) {
     props.onClick = onClick;
+  } else {
+    props.disabled = true;
   }
   return h("button", props, child);
 }

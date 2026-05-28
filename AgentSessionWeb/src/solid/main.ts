@@ -478,7 +478,10 @@ function rateLimitRowElement(row: AgentSessionRateLimitRow, state: SessionState)
   const fallbackLabel = normalized.role === "primary"
     ? state.context?.copy.rateLimitPrimary ?? "Primary"
     : state.context?.copy.rateLimitSecondary ?? "Secondary";
-  label.textContent = formatRateLimitWindow(normalized.windowDurationMins, fallbackLabel);
+  label.textContent = formatRateLimitWindow(normalized.windowDurationMins, fallbackLabel, {
+    weekly: state.context?.copy.rateLimitWeekly ?? "Weekly",
+    monthly: state.context?.copy.rateLimitMonthly ?? "Monthly",
+  });
 
   const value = document.createElement("span");
   value.className = "rate-limit-row-value";

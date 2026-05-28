@@ -6,6 +6,11 @@ export type NormalizedRateLimitRow = AgentSessionRateLimitRow & {
   windowDurationMins?: number;
 };
 
+export type RateLimitWindowLabels = {
+  weekly: string;
+  monthly: string;
+};
+
 export function normalizeRateLimitRow(row: AgentSessionRateLimitRow): NormalizedRateLimitRow {
   const usedPercent = Number.isFinite(row.usedPercent)
     ? clampPercent(row.usedPercent)
@@ -64,16 +69,20 @@ export function formatRateLimitReset(resetsAt: number | undefined, now = new Dat
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
 }
 
-export function formatRateLimitWindow(minutes: number | undefined, fallback: string): string {
+export function formatRateLimitWindow(
+  minutes: number | undefined,
+  fallback: string,
+  labels?: RateLimitWindowLabels,
+): string {
   if (minutes == null || !Number.isFinite(minutes) || minutes <= 0) {
     return fallback;
   }
   const rounded = Math.round(minutes);
   if (withinRatio(minutes, 30 * 24 * 60)) {
-    return "Monthly";
+    return labels?.monthly ?? fallback;
   }
   if (withinRatio(minutes, 7 * 24 * 60)) {
-    return "Weekly";
+    return labels?.weekly ?? fallback;
   }
   if (rounded >= 24 * 60) {
     return `${Math.ceil(rounded / (24 * 60))}d`;
