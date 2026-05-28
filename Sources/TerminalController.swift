@@ -3411,8 +3411,10 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceGroupList(params: params))
         case "workspace.group.create":
             return v2Result(id: id, self.v2WorkspaceGroupCreate(params: params))
-        case "workspace.group.ungroup", "workspace.group.delete":
+        case "workspace.group.ungroup":
             return v2Result(id: id, self.v2WorkspaceGroupUngroup(params: params))
+        case "workspace.group.delete":
+            return v2Result(id: id, self.v2WorkspaceGroupDelete(params: params))
         case "workspace.group.rename":
             return v2Result(id: id, self.v2WorkspaceGroupRename(params: params))
         case "workspace.group.collapse":
@@ -6261,6 +6263,32 @@ class TerminalController {
             ])
         }
         return .ok(["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupDelete(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        var found = false
+        var closedCount = 0
+        v2MainSync {
+            found = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            if found {
+                closedCount = tabManager.deleteWorkspaceGroup(groupId: gid)
+            }
+        }
+        guard found else {
+            return .err(code: "not_found", message: "Group not found", data: [
+                "group_id": gid.uuidString
+            ])
+        }
+        return .ok([
+            "group_id": gid.uuidString,
+            "closed_workspace_count": closedCount,
+        ])
     }
 
     private func v2WorkspaceGroupRename(params: [String: Any]) -> V2CallResult {

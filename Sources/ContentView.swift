@@ -11584,6 +11584,12 @@ struct VerticalTabsSidebar: View {
             onUngroup: { [weak tabManager, groupId = group.id] in
                 tabManager?.ungroupWorkspaceGroup(groupId: groupId)
             },
+            onDelete: { [weak tabManager, groupId = group.id, groupName = group.name] in
+                guard let tabManager else { return }
+                let otherMemberCount = max(tabManager.tabs.filter { $0.groupId == groupId }.count - 1, 0)
+                guard confirmDeleteWorkspaceGroup(groupName: groupName, otherMemberCount: otherMemberCount) else { return }
+                tabManager.deleteWorkspaceGroup(groupId: groupId)
+            },
             onEditConfig: {
                 SidebarWorkspaceGroupConfigOpener.openCmuxConfigInEditor()
             },
@@ -11709,6 +11715,7 @@ private struct SidebarWorkspaceGroupHeaderView: View {
     let onRename: () -> Void
     let onTogglePinned: () -> Void
     let onUngroup: () -> Void
+    let onDelete: () -> Void
     let onEditConfig: () -> Void
     let onOpenDocs: () -> Void
 
@@ -11899,8 +11906,73 @@ private struct SidebarWorkspaceGroupHeaderView: View {
                 ),
                 action: onUngroup
             )
+            Button(
+                role: .destructive,
+                action: onDelete
+            ) {
+                Text(
+                    String(
+                        localized: "workspaceGroup.contextMenu.delete",
+                        defaultValue: "Delete Group (Close Workspaces)"
+                    )
+                )
+            }
         }
     }
+}
+
+/// Confirmation dialog for destructive group delete. Returns true if the user
+/// chose to proceed. Always prompts (no Don't-ask-again suppression) because
+/// deleting workspaces is irreversible.
+@MainActor
+private func confirmDeleteWorkspaceGroup(groupName: String, otherMemberCount: Int) -> Bool {
+    let title = String(
+        localized: "dialog.deleteGroup.title",
+        defaultValue: "Delete this group?"
+    )
+    let message: String
+    if otherMemberCount == 0 {
+        let format = String(
+            localized: "dialog.deleteGroup.message.lone",
+            defaultValue: "Delete the group \u{201C}%@\u{201D} and close its workspace?"
+        )
+        message = String.localizedStringWithFormat(format, groupName)
+    } else if otherMemberCount == 1 {
+        let format = String(
+            localized: "dialog.deleteGroup.message.one",
+            defaultValue: "Delete the group \u{201C}%@\u{201D} and close its 2 workspaces?"
+        )
+        message = String.localizedStringWithFormat(format, groupName)
+    } else {
+        let format = String(
+            localized: "dialog.deleteGroup.message.many",
+            defaultValue: "Delete the group \u{201C}%1$@\u{201D} and close its %2$lld workspaces?"
+        )
+        message = String.localizedStringWithFormat(format, groupName, otherMemberCount + 1)
+    }
+    let alert = NSAlert()
+    alert.messageText = title
+    alert.informativeText = message
+    alert.alertStyle = .warning
+    alert.addButton(
+        withTitle: String(
+            localized: "dialog.deleteGroup.confirm",
+            defaultValue: "Delete"
+        )
+    )
+    alert.addButton(
+        withTitle: String(localized: "common.cancel", defaultValue: "Cancel")
+    )
+    if let confirmButton = alert.buttons.first {
+        confirmButton.keyEquivalent = "\r"
+        confirmButton.keyEquivalentModifierMask = []
+        alert.window.defaultButtonCell = confirmButton.cell as? NSButtonCell
+        alert.window.initialFirstResponder = confirmButton
+    }
+    if let cancelButton = alert.buttons.dropFirst().first {
+        cancelButton.keyEquivalent = "\u{1b}"
+    }
+    return alert.runModal() == .alertFirstButtonReturn
 }
 
 /// Dispatcher for cwd-driven context-menu items invoked from the sidebar

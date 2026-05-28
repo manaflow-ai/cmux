@@ -40,7 +40,7 @@ Right-click any workspace in the sidebar, choose **New Group from Workspace** (o
 
 ### From the group header context menu
 
-Right-click an existing group's header for: **Rename Group…**, **Pin / Unpin Group**, **Edit Group Config…** (opens `~/.config/cmux/cmux.json`), **Open Workspace Groups Docs**, **Ungroup (Keep Workspaces)**.
+Right-click an existing group's header for: **Rename Group…**, **Pin / Unpin Group**, **Edit Group Config…** (opens `~/.config/cmux/cmux.json`), **Open Workspace Groups Docs**, **Ungroup (Keep Workspaces)**, **Delete Group (Close Workspaces)**. Delete is destructive and prompts for confirmation; ungroup keeps the workspaces and just removes the container.
 
 ### From the `+` button on a group header
 
@@ -56,6 +56,7 @@ All group operations are scriptable via `cmux workspace-group <subcommand>`. The
 cmux workspace-group list [--json]
 cmux workspace-group create --name "manaflow" [--cwd ~/projects/manaflow] [--from <id>,<id>]
 cmux workspace-group ungroup <group-id>
+cmux workspace-group delete  <group-id>   # destructive: closes every member workspace
 cmux workspace-group rename <group-id> --name "new name"
 cmux workspace-group collapse <group-id>
 cmux workspace-group expand <group-id>

@@ -102,6 +102,22 @@ final class WorkspaceGroupTests: XCTestCase {
         XCTAssertTrue(manager.tabs.allSatisfy { $0.groupId == nil })
     }
 
+    func testDeleteClosesAllMembersAndRemovesGroup() {
+        let manager = makeTabManager()
+        let children = manager.tabs.map(\.id)
+        let groupId = manager.createWorkspaceGroup(name: "G", childWorkspaceIds: children)!
+        let memberIdsBefore = Set(manager.tabs.filter { $0.groupId == groupId }.map(\.id))
+        XCTAssertFalse(memberIdsBefore.isEmpty)
+
+        let closed = manager.deleteWorkspaceGroup(groupId: groupId)
+
+        XCTAssertEqual(closed, memberIdsBefore.count)
+        XCTAssertNil(manager.workspaceGroups.first(where: { $0.id == groupId }))
+        XCTAssertTrue(memberIdsBefore.allSatisfy { id in
+            !manager.tabs.contains(where: { $0.id == id })
+        }, "All former member workspaces should be closed")
+    }
+
     func testPinnedWorkspaceCannotJoinGroupViaCreate() {
         let manager = makeTabManager()
         let pinnedWs = manager.tabs[0]

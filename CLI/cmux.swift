@@ -6792,7 +6792,7 @@ struct CMUXCLI {
         windowOverride: String?
     ) throws {
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "workspace-group requires a subcommand. Try: list, create, ungroup, rename, collapse, expand, pin, unpin, add, remove, set-anchor, new-workspace, set-color, set-icon, move, focus")
+            throw CLIError(message: "workspace-group requires a subcommand. Try: list, create, ungroup, delete, rename, collapse, expand, pin, unpin, add, remove, set-anchor, new-workspace, set-color, set-icon, move, focus")
         }
         let rest = Array(commandArgs.dropFirst())
         var params: [String: Any] = [:]
@@ -6854,9 +6854,16 @@ struct CMUXCLI {
                 print("OK")
             }
 
-        case "ungroup", "delete":
+        case "ungroup":
             params["group_id"] = try resolveGroupId(in: rest)
             let resp = try client.sendV2(method: "workspace.group.ungroup", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "delete":
+            // Destructive: closes every workspace inside the group. Use
+            // `ungroup` instead if you want to keep the workspaces.
+            params["group_id"] = try resolveGroupId(in: rest)
+            let resp = try client.sendV2(method: "workspace.group.delete", params: params)
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "rename":
@@ -13041,6 +13048,9 @@ struct CMUXCLI {
                                         Defaults --from to the active sidebar
                                         selection / caller workspace when omitted.
               ungroup <group>           Dissolve a group, preserving all members
+              delete <group>            Delete a group AND close every workspace
+                                        inside it. Destructive. Use `ungroup` to
+                                        keep the workspaces.
               rename <group> --name <new>
               collapse <group>
               expand <group>

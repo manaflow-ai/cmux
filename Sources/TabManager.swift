@@ -6155,6 +6155,23 @@ class TabManager: ObservableObject {
         postWorkspaceOrderDidChange(movedWorkspaceIds: memberIds)
     }
 
+    /// Delete a group and close every workspace inside it (anchor + all
+    /// members). This is the destructive sibling of
+    /// `ungroupWorkspaceGroup`: ungroup keeps the workspaces, delete throws
+    /// them away. Callers that need confirmation must prompt before calling
+    /// this; the method itself is unconditional so socket/CLI paths can opt
+    /// out of the prompt cleanly.
+    @discardableResult
+    func deleteWorkspaceGroup(groupId: UUID, recordHistory: Bool = true) -> Int {
+        guard workspaceGroups.contains(where: { $0.id == groupId }) else { return 0 }
+        let members = tabs.filter { $0.groupId == groupId }
+        for tab in members {
+            closeWorkspace(tab, recordHistory: recordHistory)
+        }
+        workspaceGroups.removeAll { $0.id == groupId }
+        return members.count
+    }
+
     /// Rename a group. Whitespace-only names are ignored.
     func renameWorkspaceGroup(groupId: UUID, name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
