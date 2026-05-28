@@ -83,6 +83,20 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
+    func testUTF8BOMTypeScriptFileResolvesAsText() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var data = Data([0xEF, 0xBB, 0xBF])
+        data.append(Data("export const answer: number = 42;\n".utf8))
+        try data.write(to: url, options: .atomic)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+    }
+
     func testTypeScriptTextWinsOverTransportStreamSyncBytePattern() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

@@ -874,7 +874,7 @@ enum FilePreviewKindResolver {
         return sample.unicodeScalars.allSatisfy { scalar in
             let value = scalar.value
             return !CharacterSet.controlCharacters.contains(scalar)
-                || value == 0x09 || value == 0x0A || value == 0x0D
+                || value == 0x09 || value == 0x0A || value == 0x0D || value == 0xFEFF
         }
     }
 
