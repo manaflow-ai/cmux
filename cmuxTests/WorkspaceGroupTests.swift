@@ -102,10 +102,14 @@ final class WorkspaceGroupTests: XCTestCase {
         XCTAssertTrue(manager.tabs.allSatisfy { $0.groupId == nil })
     }
 
-    func testDeleteClosesAllMembersAndRemovesGroup() {
+    func testDeleteClosesMembersAndRemovesGroup() {
         let manager = makeTabManager()
-        let children = manager.tabs.map(\.id)
-        let groupId = manager.createWorkspaceGroup(name: "G", childWorkspaceIds: children)!
+        // Add a workspace that is NOT in the group so that closing every
+        // member still leaves at least one survivor and the
+        // `tabs.count <= 1` guard inside `closeWorkspace` is never hit.
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let groupChildren = Array(manager.tabs.prefix(2)).map(\.id)
+        let groupId = manager.createWorkspaceGroup(name: "G", childWorkspaceIds: groupChildren)!
         let memberIdsBefore = Set(manager.tabs.filter { $0.groupId == groupId }.map(\.id))
         XCTAssertFalse(memberIdsBefore.isEmpty)
 
@@ -116,6 +120,24 @@ final class WorkspaceGroupTests: XCTestCase {
         XCTAssertTrue(memberIdsBefore.allSatisfy { id in
             !manager.tabs.contains(where: { $0.id == id })
         }, "All former member workspaces should be closed")
+    }
+
+    func testDeleteKeepsLastWorkspaceUngrouped() {
+        // When the group contains every workspace in the window,
+        // `closeWorkspace` refuses to drop the last tab. The lingering tab
+        // must be detached from the group so the user isn't left with a
+        // stale `groupId` pointing at a removed group.
+        let manager = makeTabManager()
+        let children = manager.tabs.map(\.id)
+        let groupId = manager.createWorkspaceGroup(name: "G", childWorkspaceIds: children)!
+        let groupSize = manager.tabs.filter { $0.groupId == groupId }.count
+
+        let closed = manager.deleteWorkspaceGroup(groupId: groupId)
+
+        XCTAssertEqual(manager.tabs.count, 1, "Last workspace must survive the close-all guard")
+        XCTAssertEqual(closed, groupSize - 1, "Only the workspaces that actually closed should be counted")
+        XCTAssertNil(manager.workspaceGroups.first(where: { $0.id == groupId }))
+        XCTAssertTrue(manager.tabs.allSatisfy { $0.groupId == nil })
     }
 
     func testPinnedWorkspaceCannotJoinGroupViaCreate() {

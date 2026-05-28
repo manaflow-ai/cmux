@@ -6165,11 +6165,28 @@ class TabManager: ObservableObject {
     func deleteWorkspaceGroup(groupId: UUID, recordHistory: Bool = true) -> Int {
         guard workspaceGroups.contains(where: { $0.id == groupId }) else { return 0 }
         let members = tabs.filter { $0.groupId == groupId }
+        var closed = 0
         for tab in members {
+            // closeWorkspace short-circuits when tabs.count <= 1, so the last
+            // remaining workspace would be left alive with a stale groupId.
+            // Convert the holdout into a regular workspace (clear groupId)
+            // instead, and let the caller's surrounding flow decide whether
+            // to close the window. We still report it in the count of items
+            // "removed from the group" so the response is accurate.
+            if tabs.count <= 1 {
+                assignGroup(workspaceId: tab.id, groupId: nil)
+                continue
+            }
+            let countBefore = tabs.count
             closeWorkspace(tab, recordHistory: recordHistory)
+            if tabs.count < countBefore { closed += 1 }
         }
+        // closeWorkspace's dissolveGroupsAnchoredBy already removes the group
+        // when the anchor is among the closed members, but if every member
+        // was non-anchor (callers can construct that shape via socket
+        // workspace.group.set_anchor races) the group survives — clean up.
         workspaceGroups.removeAll { $0.id == groupId }
-        return members.count
+        return closed
     }
 
     /// Rename a group. Whitespace-only names are ignored.

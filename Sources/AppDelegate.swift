@@ -13825,9 +13825,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let orderedSelectedIds: [UUID] = selectedSet.isEmpty
             ? []
             : tabManager.tabs.compactMap { selectedSet.contains($0.id) ? $0.id : nil }
-        let candidateIds: [UUID] = orderedSelectedIds.isEmpty
-            ? tabManager.selectedTabId.map { [$0] } ?? []
-            : orderedSelectedIds
+        // Only consume the shortcut when there's an explicit sidebar
+        // multi-selection. Otherwise ⌘⇧G shadows the React Grab default for
+        // every normal browser/terminal context (the selected workspace
+        // always exists, so `selectedTabId` is almost never nil). Returning
+        // false here lets the next handler (toggleReactGrab) take it.
+        let candidateIds: [UUID] = orderedSelectedIds
         // Match the workspace context-menu eligibility filter so the shortcut
         // doesn't silently create an anchor-only group when every selected
         // target is pinned or is already an existing group's anchor.

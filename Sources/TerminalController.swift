@@ -6445,7 +6445,17 @@ class TerminalController {
         // group's per-cwd `newWorkspacePlacement` from cmux.json, then the
         // global default. The CLI exposes this as
         // `cmux workspace-group new-workspace <group> --placement <top|end>`.
-        let explicitPlacement = WorkspaceGroupNewPlacement(rawString: v2String(params, "placement"))
+        let placementRaw = v2String(params, "placement")
+        let explicitPlacement = WorkspaceGroupNewPlacement(rawString: placementRaw)
+        if let raw = placementRaw,
+           !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           explicitPlacement == nil {
+            return .err(
+                code: "invalid_params",
+                message: "placement must be one of: top, end",
+                data: ["placement": raw]
+            )
+        }
         var createdId: UUID?
         v2MainSync {
             guard let group = tabManager.workspaceGroups.first(where: { $0.id == gid }) else { return }
