@@ -779,6 +779,10 @@ struct RecentlyClosedBrowserStack {
     mutating func pop() -> ClosedBrowserPanelRestoreSnapshot? {
         entries.popLast()
     }
+
+    mutating func removeSnapshots(forWorkspaceId workspaceId: UUID) {
+        entries.removeAll { $0.workspaceId == workspaceId }
+    }
 }
 
 #if DEBUG
@@ -5949,6 +5953,7 @@ class TabManager: ObservableObject {
         }
         workspace.teardownRemoteConnection()
         unwireClosedBrowserTracking(for: workspace)
+        recentlyClosedBrowsers.removeSnapshots(forWorkspaceId: workspace.id)
         workspace.owningTabManager = nil
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
@@ -5976,6 +5981,7 @@ class TabManager: ObservableObject {
 
         let removed = tabs.remove(at: index)
         unwireClosedBrowserTracking(for: removed)
+        recentlyClosedBrowsers.removeSnapshots(forWorkspaceId: removed.id)
         removed.owningTabManager = nil
         lastFocusedPanelByTab.removeValue(forKey: removed.id)
 
@@ -8167,11 +8173,12 @@ class TabManager: ObservableObject {
         guard BrowserAvailabilitySettings.isEnabled() else { return false }
 
         while let snapshot = recentlyClosedBrowsers.pop() {
-            guard let targetWorkspace =
-                tabs.first(where: { $0.id == snapshot.workspaceId })
-                ?? selectedWorkspace
-                ?? tabs.first else {
-                return false
+            // The legacy stack must restore into the workspace that originally owned the
+            // browser. If that workspace is gone, the snapshot is stale and we drop it
+            // instead of barging into whatever workspace happens to be selected now
+            // (which surfaced yesterday's browser inside today's unrelated workspaces).
+            guard let targetWorkspace = tabs.first(where: { $0.id == snapshot.workspaceId }) else {
+                continue
             }
             let preReopenFocusedPanelId = focusedPanelId(for: targetWorkspace.id)
 
