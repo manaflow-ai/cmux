@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { subscribeToAgentEvents } from "../shared/bridge";
+import { callNative, subscribeToAgentEvents } from "../shared/bridge";
 import { shouldUseSingleLineComposer } from "../shared/composerLayout";
 import {
   computeFooterCollapse,
@@ -22,6 +22,7 @@ import {
   canSelectProvider,
   canStartProvider,
   loadInitialData,
+  messageForError,
   reduceSession,
   sendInput,
   selectProvider,
@@ -57,6 +58,12 @@ type FooterControlSpec = {
   canHideLabel: boolean;
   enabled: boolean;
   id: string;
+};
+
+type PickedLocalFile = {
+  fsPath?: string;
+  label?: string;
+  path: string;
 };
 
 function useMeasuredComposerLayout(input: string) {
@@ -264,6 +271,7 @@ function SessionSurface({
   const [menuIndex, setMenuIndex] = useState(0);
   const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const [addContextMenuOpen, setAddContextMenuOpen] = useState(false);
+  const [isPickingFiles, setIsPickingFiles] = useState(false);
   const composerLayout = useMeasuredComposerLayout(state.input);
   const isSingleLineComposer = composerLayout.isSingleLine;
   const menuItems = menuKind ? composerMenuItems(menuKind, state, menuQuery) : [];
@@ -281,6 +289,36 @@ function SessionSurface({
     setMenuQuery("");
     setMenuIndex(0);
     setAddContextMenuOpen(false);
+  };
+  const pickLocalFiles = async () => {
+    if (isPickingFiles) {
+      return;
+    }
+    setIsPickingFiles(true);
+    setMenuKind(null);
+    setMenuQuery("");
+    setMenuIndex(0);
+    setAddContextMenuOpen(false);
+    try {
+      const result = await callNative<{ files?: PickedLocalFile[] }>("app.pickFiles");
+      const mentions = (result.files ?? [])
+        .filter((file) => file.path.trim().length > 0)
+        .map((file): PromptMention => {
+          const label = file.label && file.label.trim().length > 0 ? file.label : basename(file.path);
+          return {
+            kind: "at",
+            label,
+            name: label,
+            path: file.path,
+            fsPath: file.fsPath ?? file.path,
+          };
+        });
+      editorRef.current?.insertMentions(mentions);
+    } catch (error) {
+      dispatch({ type: "failed", message: messageForError(error, state) });
+    } finally {
+      setIsPickingFiles(false);
+    }
   };
   const updateComposerAutocomplete = (autocomplete: PromptAutocompleteState | null) => {
     if (!autocomplete) {
@@ -440,8 +478,10 @@ function SessionSurface({
     { className: "codex-left-rail flex min-w-0 items-center gap-[5px]" },
     h(AddContextDropdown, {
       isOpen: addContextMenuOpen,
+      isPickingFiles,
       onOpenChange: setAddContextMenuOpen,
       onChoose: insertComposerMenuItem,
+      onPickFiles: () => void pickLocalFiles(),
       state,
     }),
   );
@@ -845,13 +885,17 @@ function ComposerTopTray({
 
 function AddContextDropdown({
   isOpen,
+  isPickingFiles,
   onChoose,
   onOpenChange,
+  onPickFiles,
   state,
 }: {
   isOpen: boolean;
+  isPickingFiles: boolean;
   onChoose: (item: ComposerMenuItem) => void;
   onOpenChange: (isOpen: boolean) => void;
+  onPickFiles: () => void;
   state: SessionState;
 }) {
   const copy = state.context?.copy;
@@ -906,10 +950,10 @@ function AddContextDropdown({
             "aria-label": copy?.attachFile ?? "Attach file",
           },
           h(AddContextMenuItem, {
-            disabled: true,
+            disabled: isPickingFiles,
             icon: paperclipIcon("icon-xs"),
             label: copy?.attachFile ?? "Attach file",
-            onSelect: () => {},
+            onSelect: onPickFiles,
           }),
           workspaceItem
             ? h(AddContextMenuItem, {

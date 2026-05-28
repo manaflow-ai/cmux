@@ -146,6 +146,7 @@ const placeholderKey = new PluginKey<string>("agentPromptPlaceholder");
 export type PromptEditorHandle = {
   focus: () => void;
   insertMention: (mention: PromptMention) => void;
+  insertMentions: (mentions: PromptMention[]) => void;
   insertText: (text: string) => void;
 };
 
@@ -204,6 +205,13 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
           return;
         }
         insertPromptMentionAtSelection(view, mention);
+      },
+      insertMentions(mentions) {
+        const view = viewRef.current;
+        if (!view || mentions.length === 0) {
+          return;
+        }
+        insertPromptMentionsAtSelection(view, mentions);
       },
       insertText(text) {
         const view = viewRef.current;
@@ -501,6 +509,31 @@ function insertPromptMentionAtSelection(view: EditorView, mention: PromptMention
   }
   const transaction = state.tr.replaceWith(insertFrom, to, nodes);
   const cursor = insertFrom + nodes.reduce((total, node) => total + node.nodeSize, 0);
+  transaction.setSelection(TextSelection.create(transaction.doc, cursor));
+  view.dispatch(transaction);
+  view.focus();
+}
+
+function insertPromptMentionsAtSelection(view: EditorView, mentions: PromptMention[]): void {
+  const { state } = view;
+  const { from, to } = state.selection;
+  const before = state.doc.textBetween(Math.max(0, from - 2), from, "\n", "\n");
+  const after = state.doc.textBetween(to, Math.min(state.doc.content.size, to + 2), "\n", "\n");
+  const nodes: ProseMirrorNode[] = [];
+  if (before.length > 0 && !/\s$/.test(before)) {
+    nodes.push(state.schema.text(" "));
+  }
+  mentions.forEach((mention, index) => {
+    if (index > 0) {
+      nodes.push(state.schema.text(" "));
+    }
+    nodes.push(nodeForMention(state.schema, mention));
+  });
+  if (after.length > 0 && !/^\s/.test(after)) {
+    nodes.push(state.schema.text(" "));
+  }
+  const transaction = state.tr.replaceWith(from, to, nodes);
+  const cursor = from + nodes.reduce((total, node) => total + node.nodeSize, 0);
   transaction.setSelection(TextSelection.create(transaction.doc, cursor));
   view.dispatch(transaction);
   view.focus();

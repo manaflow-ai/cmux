@@ -472,6 +472,8 @@ extension AgentSessionWebRenderer {
                     context["workingDirectory"] = workingDirectory
                 }
                 return context
+            case "app.pickFiles":
+                return pickLocalFiles()
             case "provider.list":
                 return AgentSessionProviderID.allCases.map { provider in
                     [
@@ -539,6 +541,30 @@ extension AgentSessionWebRenderer {
             default:
                 throw AgentSessionBridgeError.unsupportedMethod(request.method)
             }
+        }
+
+        private func pickLocalFiles() -> [String: Any] {
+            let panel = NSOpenPanel()
+            panel.title = String(localized: "agentSession.web.attachFile", defaultValue: "Attach file")
+            panel.prompt = String(localized: "agentSession.web.attachFile", defaultValue: "Attach file")
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = true
+            panel.canCreateDirectories = false
+
+            guard panel.runModal() == .OK else {
+                return ["files": []]
+            }
+
+            return [
+                "files": panel.urls.map { url in
+                    [
+                        "label": url.lastPathComponent,
+                        "path": url.path,
+                        "fsPath": url.path
+                    ]
+                }
+            ]
         }
 
         private func sendEvent(_ event: [String: Any]) {
