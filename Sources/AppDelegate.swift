@@ -185,6 +185,7 @@ private enum CmuxThemeNotifications {
 final class ConfiguredGroupActionAsyncWorkspaceObserver {
     static var pending: [ObjectIdentifier: ConfiguredGroupActionAsyncWorkspaceObserver] = [:]
     private weak var tabManager: TabManager?
+    private let storedKey: ObjectIdentifier
     private let groupId: UUID
     private var knownIds: Set<UUID>
     private var subscription: AnyCancellable?
@@ -217,6 +218,7 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
 
     private init(tabManager: TabManager, groupId: UUID, knownIds: Set<UUID>) {
         self.tabManager = tabManager
+        self.storedKey = ObjectIdentifier(tabManager)
         self.groupId = groupId
         self.knownIds = knownIds
     }
@@ -239,9 +241,11 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
         subscription = nil
         timeoutTask?.cancel()
         timeoutTask = nil
-        if let tabManager {
-            Self.pending.removeValue(forKey: ObjectIdentifier(tabManager))
-        }
+        // Remove by the key recorded at install time. The weak `tabManager`
+        // may already be nil here (window closed mid-watch), and walking it
+        // would silently leak the entry in the static `pending` dictionary
+        // for the rest of the app session.
+        Self.pending.removeValue(forKey: storedKey)
     }
 }
 

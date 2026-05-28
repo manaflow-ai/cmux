@@ -5569,6 +5569,21 @@ class TabManager: ObservableObject {
         let remainingUnpinned = remainingTabs.filter { !$0.isPinned }
         tabs = selectedPinned + remainingPinned + selectedUnpinned + remainingUnpinned
         if !workspaceGroups.isEmpty {
+            // Promote the owning groups of moved members to the front of
+            // their tier so the visible section actually moves. Without
+            // this, normalize walks workspaceGroups in its previous order
+            // and snaps grouped sections back to their original positions.
+            let movedGroupIds: [UUID] = selectedTabs.compactMap(\.groupId)
+            if !movedGroupIds.isEmpty {
+                var seen = Set<UUID>()
+                let orderedUnique = movedGroupIds.filter { seen.insert($0).inserted }
+                for groupId in orderedUnique.reversed() {
+                    let isPinnedTier = workspaceGroups.first(where: { $0.id == groupId })?.isPinned == true
+                    if let tierFirst = workspaceGroups.firstIndex(where: { $0.isPinned == isPinnedTier }) {
+                        moveWorkspaceGroup(groupId: groupId, toIndex: tierFirst)
+                    }
+                }
+            }
             normalizeWorkspaceGroupContiguity()
         }
         if tabs.map(\.id) != previousOrder {
