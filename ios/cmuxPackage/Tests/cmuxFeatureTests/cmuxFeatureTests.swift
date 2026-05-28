@@ -278,6 +278,9 @@ import UIKit
     #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
     #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(localDNS))
     #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(pretendLoopback))
+    #expect(MobileShellRouteAuthPolicy.routeAllowsUserApprovedManualStackAuth(lanIP))
+    #expect(MobileShellRouteAuthPolicy.routeAllowsUserApprovedManualStackAuth(localDNS))
+    #expect(!MobileShellRouteAuthPolicy.routeAllowsUserApprovedManualStackAuth(pretendLoopback))
     #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("127.0.0.1"))
     #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("100.71.210.41"))
     #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
@@ -818,8 +821,16 @@ import UIKit
 }
 
 @MainActor
-@Test func manualHostPairingDoesNotSendStackAuthToPrivateLANIP() async throws {
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingAllowsExplicitPrivateLANIPWithStackAuthWarningPath() async throws {
+    let attachRoute = try hostPortRoute(
+        kind: .tailscale,
+        host: "192.168.1.77",
+        port: 15432
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "lan-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "lan-workspace", title: "LAN Workspace"),
+    ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
@@ -831,16 +842,32 @@ import UIKit
     await store.connectManualHost(name: "Studio LAN", host: " 192.168.1.77 ", port: 15432)
 
     let requests = try await responses.sentRequests()
-    #expect(requests.isEmpty)
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "For LAN or .local hosts, pair with a QR/link from that computer. Direct sign-in pairing only runs over Tailscale.")
-    #expect(store.activeRoute == nil)
+    let attachTicketRequest = try #require(requests.first { $0.method == "mobile.attach_ticket.create" })
+    #expect(attachTicketRequest.stackAccessToken == "stack-token-for-lan")
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+    #expect(store.connectedHostName == "Studio LAN")
+    let route = try #require(store.activeRoute)
+    if case let .hostPort(host, port) = route.endpoint {
+        #expect(host == "192.168.1.77")
+        #expect(port == 15432)
+    } else {
+        Issue.record("manual LAN route should use host/port")
+    }
 }
 
 @MainActor
-@Test func manualHostPairingDoesNotSendStackAuthToLocalDNSName() async throws {
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingAllowsExplicitLocalDNSNameWithStackAuthWarningPath() async throws {
+    let attachRoute = try hostPortRoute(
+        kind: .tailscale,
+        host: "devbox.local",
+        port: 61234
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-dns-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "local-dns-workspace", title: "Local DNS Workspace"),
+    ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
@@ -852,16 +879,20 @@ import UIKit
     await store.connectManualHost(name: "", host: "devbox.local", port: 61234)
 
     let requests = try await responses.sentRequests()
-    #expect(requests.isEmpty)
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "For LAN or .local hosts, pair with a QR/link from that computer. Direct sign-in pairing only runs over Tailscale.")
-    #expect(store.activeRoute == nil)
+    let attachTicketRequest = try #require(requests.first { $0.method == "mobile.attach_ticket.create" })
+    #expect(attachTicketRequest.stackAccessToken == "stack-token-for-local-dns")
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+    #expect(store.connectedHostName == "devbox.local")
 }
 
 @MainActor
-@Test func manualHostPairingRejectsLANBeforeStackAuthFallback() async throws {
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingFallsBackToStackAuthForExplicitLANWhenTicketRPCUnavailable() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcErrorFrame(message: "ticket unavailable"),
+        try rpcWorkspaceListFrame(workspaceID: "lan-fallback-workspace", title: "LAN Fallback Workspace"),
+    ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
@@ -873,11 +904,14 @@ import UIKit
     await store.connectManualHost(name: "Studio LAN", host: "192.168.1.77", port: 15432)
 
     let requests = try await responses.sentRequests()
-    #expect(requests.isEmpty)
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "For LAN or .local hosts, pair with a QR/link from that computer. Direct sign-in pairing only runs over Tailscale.")
-    #expect(store.activeRoute == nil)
+    let attachTicketRequest = try #require(requests.first { $0.method == "mobile.attach_ticket.create" })
+    let workspaceListRequest = try #require(requests.first { $0.method == "workspace.list" })
+    #expect(attachTicketRequest.stackAccessToken == "stack-token-for-fallback")
+    #expect(workspaceListRequest.stackAccessToken == "stack-token-for-fallback")
+    #expect(workspaceListRequest.workspaceID == nil)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
 }
 
 @MainActor
@@ -985,7 +1019,7 @@ import UIKit
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "For LAN or .local hosts, pair with a QR/link from that computer. Direct sign-in pairing only runs over Tailscale.")
+    #expect(store.connectionError == "This pairing route is not trusted. Pair again with a fresh QR/link from that computer.")
     #expect(try await responses.sentRequests().isEmpty)
 }
 
@@ -1741,8 +1775,16 @@ import UIKit
 }
 
 @MainActor
-@Test func manualHostPairingDoesNotSendStackAuthToDefaultPortLANHost() async throws {
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingAllowsDefaultPortLANHostWithStackAuthWarningPath() async throws {
+    let attachRoute = try hostPortRoute(
+        kind: .tailscale,
+        host: "192.168.1.77",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "default-lan-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "default-lan-workspace", title: "Default LAN Workspace"),
+    ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
@@ -1754,11 +1796,11 @@ import UIKit
     await store.connectManualHost(name: "Work Mac", host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
 
     let requests = try await responses.sentRequests()
-    #expect(requests.isEmpty)
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "For LAN or .local hosts, pair with a QR/link from that computer. Direct sign-in pairing only runs over Tailscale.")
-    #expect(store.activeRoute == nil)
+    let attachTicketRequest = try #require(requests.first { $0.method == "mobile.attach_ticket.create" })
+    #expect(attachTicketRequest.stackAccessToken == "stack-token-for-default-lan")
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
 }
 
 @MainActor

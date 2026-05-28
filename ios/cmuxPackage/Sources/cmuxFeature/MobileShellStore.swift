@@ -367,6 +367,19 @@ enum MobileShellRouteAuthPolicy {
         }
     }
 
+    static func routeAllowsUserApprovedManualStackAuth(_ route: CmxAttachRoute) -> Bool {
+        if routeAllowsStackAuth(route) {
+            return true
+        }
+        switch (route.kind, route.endpoint) {
+        case (.tailscale, let .hostPort(host, _)),
+             (.websocket, let .hostPort(host, _)):
+            return normalizedManualHost(host) != nil
+        default:
+            return false
+        }
+    }
+
     static func routeAllowsImplicitPairLinkStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
@@ -706,7 +719,11 @@ public final class CMUXMobileShellStore {
                 port: port
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
-            try await connect(ticket: ticket, allowsStackAuthFallback: true)
+            try await connect(
+                ticket: ticket,
+                allowsStackAuthFallback: true,
+                allowsUserApprovedManualStackAuthFallback: true
+            )
         } catch is CancellationError {
             guard isCurrentPairingAttempt(attemptID) else { return }
             connectionState = .disconnected
@@ -871,7 +888,7 @@ public final class CMUXMobileShellStore {
     private func manualHostTicket(name: String, host: String, port: Int) async throws -> CmxAttachTicket {
         let directRoute = try Self.manualHostRoute(host: host, port: port)
         let displayName = name.isEmpty ? host : name
-        guard MobileShellRouteAuthPolicy.routeAllowsStackAuth(directRoute) else {
+        guard MobileShellRouteAuthPolicy.routeAllowsUserApprovedManualStackAuth(directRoute) else {
             throw MobileShellConnectionError.insecureManualRoute
         }
 
@@ -941,7 +958,8 @@ public final class CMUXMobileShellStore {
             runtime: runtime,
             route: route,
             ticket: probeTicket,
-            allowsStackAuthFallback: true
+            allowsStackAuthFallback: true,
+            allowsUserApprovedManualStackAuthFallback: true
         )
         let resultData = try await client.sendRequest(
             MobileCoreRPCClient.requestData(
@@ -1159,7 +1177,8 @@ public final class CMUXMobileShellStore {
 
     private func connect(
         ticket: CmxAttachTicket,
-        allowsStackAuthFallback: Bool? = nil
+        allowsStackAuthFallback: Bool? = nil,
+        allowsUserApprovedManualStackAuthFallback: Bool = false
     ) async throws {
         let generation = UUID()
         connectionGeneration = generation
@@ -1204,7 +1223,8 @@ public final class CMUXMobileShellStore {
                 runtime: runtime,
                 route: route,
                 ticket: ticket,
-                allowsStackAuthFallback: routeAllowsStackAuthFallback
+                allowsStackAuthFallback: routeAllowsStackAuthFallback,
+                allowsUserApprovedManualStackAuthFallback: allowsUserApprovedManualStackAuthFallback
             )
             for workspaceListRequest in workspaceListRequests {
                 do {
@@ -1226,7 +1246,8 @@ public final class CMUXMobileShellStore {
                         scheduleFullWorkspaceListRefreshIfAvailable(
                             client: client,
                             route: route,
-                            generation: generation
+                            generation: generation,
+                            allowsUserApprovedManualStackAuthFallback: allowsUserApprovedManualStackAuthFallback
                         )
                     }
                     return
@@ -1320,7 +1341,8 @@ public final class CMUXMobileShellStore {
     private func scheduleFullWorkspaceListRefreshIfAvailable(
         client: MobileCoreRPCClient,
         route: CmxAttachRoute,
-        generation: UUID
+        generation: UUID,
+        allowsUserApprovedManualStackAuthFallback: Bool
     ) {
         guard workspaceListRefreshTask == nil else { return }
         workspaceListRefreshTask = Task { @MainActor [weak self] in
@@ -1330,6 +1352,7 @@ public final class CMUXMobileShellStore {
                 client: client,
                 route: route,
                 generation: generation,
+                allowsUserApprovedManualStackAuthFallback: allowsUserApprovedManualStackAuthFallback,
                 timeoutNanoseconds: self.runtime?.rpcRequestTimeoutNanoseconds
             )
         }
@@ -1339,9 +1362,12 @@ public final class CMUXMobileShellStore {
         client: MobileCoreRPCClient,
         route: CmxAttachRoute,
         generation: UUID,
+        allowsUserApprovedManualStackAuthFallback: Bool,
         timeoutNanoseconds: UInt64? = nil
     ) async -> Bool {
-        guard MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+        let routeAllowsFullList = MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
+            || (allowsUserApprovedManualStackAuthFallback && MobileShellRouteAuthPolicy.routeAllowsUserApprovedManualStackAuth(route))
+        guard routeAllowsFullList,
               let attachToken = activeTicket?.authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !attachToken.isEmpty else {
             return false
@@ -2426,7 +2452,7 @@ public final class CMUXMobileShellStore {
                 hostPort: hostPort
             )
         case .insecureManualRoute:
-            return L10n.string("mobile.pairing.secureRouteRequired", defaultValue: "For LAN or .local hosts, pair with a QR/link from that computer. Direct sign-in pairing only runs over Tailscale.")
+            return L10n.string("mobile.pairing.secureRouteRequired", defaultValue: "This pairing route is not trusted. Pair again with a fresh QR/link from that computer.")
         case .attachTicketExpired:
             return L10n.string("mobile.pairing.attachTicketExpired", defaultValue: "This pairing link expired. Pair again with a fresh QR/link from that computer.")
         case .authorizationFailed:
@@ -2675,18 +2701,21 @@ final class MobileCoreRPCClient: @unchecked Sendable {
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
     private let allowsStackAuthFallback: Bool
+    private let allowsUserApprovedManualStackAuthFallback: Bool
     private let session: MobileCoreRPCSession
 
     init(
         runtime: CMUXMobileRuntime,
         route: CmxAttachRoute,
         ticket: CmxAttachTicket,
-        allowsStackAuthFallback: Bool = false
+        allowsStackAuthFallback: Bool = false,
+        allowsUserApprovedManualStackAuthFallback: Bool = false
     ) {
         self.runtime = runtime
         self.route = route
         self.ticket = ticket
         self.allowsStackAuthFallback = allowsStackAuthFallback
+        self.allowsUserApprovedManualStackAuthFallback = allowsUserApprovedManualStackAuthFallback
         self.session = MobileCoreRPCSession(
             makeTransport: { [route, runtime] in
                 try runtime.transportFactory.makeTransport(for: route)
@@ -2771,14 +2800,13 @@ final class MobileCoreRPCClient: @unchecked Sendable {
            requestIsCoveredByAttachTicket {
             if ticket.expiresAt > runtime.now() {
                 auth["attach_token"] = attachToken
-            } else if !allowsStackAuthFallback || !MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
+            } else if !allowsConfiguredStackAuthFallback() {
                 throw MobileShellConnectionError.attachTicketExpired
             }
         }
         let shouldSendStackAuth = requestNeedsAuth && auth["attach_token"] == nil
         if shouldSendStackAuth {
-            guard allowsStackAuthFallback,
-                  MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
+            guard allowsConfiguredStackAuthFallback() else {
                 throw MobileShellConnectionError.insecureManualRoute
             }
             do {
@@ -2796,6 +2824,14 @@ final class MobileCoreRPCClient: @unchecked Sendable {
             request["auth"] = auth
         }
         return try JSONSerialization.data(withJSONObject: request)
+    }
+
+    private func allowsConfiguredStackAuthFallback() -> Bool {
+        guard allowsStackAuthFallback else {
+            return false
+        }
+        return MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
+            || (allowsUserApprovedManualStackAuthFallback && MobileShellRouteAuthPolicy.routeAllowsUserApprovedManualStackAuth(route))
     }
 
     private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
