@@ -4589,6 +4589,51 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertFalse(dock.controller.isSplitZoomed)
     }
 
+    func testHasSplitsForCommandsUsesFocusedDockController() throws {
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+
+        XCTAssertFalse(
+            workspace.hasSplitsForCommands(),
+            "A single focused dock pane should not expose split-only commands"
+        )
+
+        _ = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: dockPaneId,
+                controller: dock.controller,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil,
+                focus: false
+            )
+        )
+        workspace.focusPanel(mainPanelId)
+
+        XCTAssertFalse(
+            workspace.hasSplitsForCommands(),
+            "Main-focused commands should not be enabled by an unrelated dock split"
+        )
+
+        workspace.focusPanel(dockPanel.id)
+
+        XCTAssertTrue(workspace.focusedBonsplitControllerForCommands() === dock.controller)
+        XCTAssertTrue(
+            workspace.hasSplitsForCommands(),
+            "Command palette split actions should be available when the focused dock is split"
+        )
+    }
+
     func testFocusedBonsplitPaneForCommandsKeepsFocusedEmptyPaneWithSiblingSelection() throws {
         let workspace = Workspace()
         let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)

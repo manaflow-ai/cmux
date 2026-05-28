@@ -11050,6 +11050,10 @@ final class Workspace: Identifiable, ObservableObject {
         [bonsplitController] + dockLayout.openControllers
     }
 
+    func hasSplitsForCommands() -> Bool {
+        focusedBonsplitControllerForCommands().allPaneIds.count > 1
+    }
+
     func applyTabBarLeadingInset(_ inset: CGFloat) {
         let normalizedInset = max(0, inset)
         if bonsplitController.configuration.appearance.tabBarLeadingInset != normalizedInset {
