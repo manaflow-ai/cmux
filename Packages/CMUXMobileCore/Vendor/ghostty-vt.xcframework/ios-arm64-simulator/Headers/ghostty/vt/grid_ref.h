@@ -31,9 +31,9 @@ extern "C" {
  * the grid is changed, so any information related to the grid reference
  * should be read and cached immediately after obtaining the grid reference.
  *
- * This API is not meant to be used as the core of render loop. It isn't 
- * built to sustain the framerates needed for rendering large screens. 
- * Use the render state API for that. 
+ * This API is not meant to be used as the core of render loop. It isn't
+ * built to sustain the framerates needed for rendering large screens.
+ * Use the render state API for that.
  *
  * ## Example
  *
