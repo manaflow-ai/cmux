@@ -13873,6 +13873,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func debugResetShortcutRoutingStateForTesting() {
         clearConfiguredShortcutChordState()
         shortcutEventFocusContextCache = nil
+        commandPaletteVisibilityByWindowId.removeAll()
+        commandPalettePendingOpenByWindowId.removeAll()
+        commandPaletteRecentRequestAtByWindowId.removeAll()
+        commandPaletteEscapeSuppressionByWindowId.removeAll()
+        commandPaletteEscapeSuppressionStartedAtByWindowId.removeAll()
+        commandPaletteSelectionByWindowId.removeAll()
+        commandPaletteSnapshotByWindowId.removeAll()
+        debugSuppressSplitShortcutForTransientTerminalFocusStateOverride = nil
+        debugShortcutEventFocusContextOverride = nil
         debugSuppressShortcutRoutingContextForTesting = false
     }
 

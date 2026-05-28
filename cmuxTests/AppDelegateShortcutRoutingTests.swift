@@ -9763,6 +9763,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let focusedManager = TabManager(autoWelcomeIfNeeded: false)
         let originalWindow = makeRegisteredShortcutRoutingWindow(id: originalWindowId)
         let focusedWindow = makeRegisteredShortcutRoutingWindow(id: focusedWindowId)
+        originalManager.confirmCloseHandler = { _, _, _ in true }
+        focusedManager.confirmCloseHandler = { _, _, _ in true }
 
         appDelegate.registerMainWindow(
             originalWindow,
