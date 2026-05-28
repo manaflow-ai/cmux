@@ -709,6 +709,10 @@ enum FilePreviewKindResolver {
 
     private static func initialResolution(for url: URL) -> Resolution {
         let ext = url.pathExtension.lowercased()
+        if knownTextFileNeedsSniffBeforeMedia(url: url) {
+            return .needsSniff
+        }
+
         if let type = UTType(filenameExtension: ext),
            let mediaMode = mediaMode(for: type) {
             return .resolved(mediaMode)
@@ -729,6 +733,11 @@ enum FilePreviewKindResolver {
         let ext = url.pathExtension.lowercased()
         if ext == "plist", looksLikeBinaryPropertyList(url: url) {
             return .resolved(.quickLook)
+        }
+
+        if knownTextFileNeedsSniffBeforeMedia(url: url),
+           sniffLooksLikeText(url: url) {
+            return .resolved(.text)
         }
 
         for type in contentTypes(for: url) {
@@ -791,6 +800,19 @@ enum FilePreviewKindResolver {
             return true
         }
         return false
+    }
+
+    private static func knownTextFileNeedsSniffBeforeMedia(url: URL) -> Bool {
+        let filename = url.lastPathComponent.lowercased()
+        let ext = url.pathExtension.lowercased()
+        guard textFilenames.contains(filename) || textExtensions.contains(ext),
+              let type = UTType(filenameExtension: ext) else {
+            return false
+        }
+
+        return mediaMode(for: type) != nil
+            && !type.conforms(to: .text)
+            && !type.conforms(to: .sourceCode)
     }
 
     private static func looksLikeBinaryPropertyList(url: URL) -> Bool {
