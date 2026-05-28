@@ -2191,9 +2191,9 @@ extension CMUXCLI {
         afterWrite: ((CMUXAgentTurnDiffBaselineStore) -> Void)? = nil
     ) throws {
         let url = URL(fileURLWithPath: path)
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
+        try createPrivateDirectory(at: url.deletingLastPathComponent())
         let lockPath = path + ".lock"
-        let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
+        let fd = open(lockPath, O_CREAT | O_RDWR | O_NOFOLLOW, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
             throw CLIError(message: "Failed to open diff baseline lock: \(lockPath)")
         }
@@ -2203,6 +2203,9 @@ extension CMUXCLI {
             throw CLIError(message: "Failed to lock diff baseline store: \(path)")
         }
         defer { _ = flock(fd, LOCK_UN) }
+        if Darwin.fchmod(fd, mode_t(S_IRUSR | S_IWUSR)) != 0 {
+            throw posixError(errno)
+        }
 
         var store = (try? readAgentTurnDiffBaselineStore(path: path)) ?? CMUXAgentTurnDiffBaselineStore()
         try update(&store)
@@ -2210,6 +2213,7 @@ extension CMUXCLI {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(store).write(to: url, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         afterWrite?(store)
     }
 

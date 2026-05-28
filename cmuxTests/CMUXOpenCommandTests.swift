@@ -1027,6 +1027,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(untrackedRefs.trimmingCharacters(in: .whitespacesAndNewlines), "")
 
         let storeURL = stateURL.appendingPathComponent("agent-turn-diff-baselines.json")
+        let lockURL = stateURL.appendingPathComponent("agent-turn-diff-baselines.json.lock")
         let storeData = try Data(contentsOf: storeURL)
         let store = try JSONSerialization.jsonObject(with: storeData, options: []) as? [String: Any]
         let records = try XCTUnwrap(store?["records"] as? [[String: Any]])
@@ -1043,6 +1044,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         let snapshotFile = filesDirectory
             .appendingPathComponent("secret.txt", isDirectory: false)
         XCTAssertTrue(FileManager.default.fileExists(atPath: snapshotFile.path))
+        XCTAssertEqual(try posixPermissions(at: stateURL), 0o700)
+        XCTAssertEqual(try posixPermissions(at: storeURL), 0o600)
+        XCTAssertEqual(try posixPermissions(at: lockURL), 0o600)
         XCTAssertEqual(try posixPermissions(at: snapshotRoot), 0o700)
         XCTAssertEqual(try posixPermissions(at: snapshotDirectory), 0o700)
         XCTAssertEqual(try posixPermissions(at: filesDirectory), 0o700)

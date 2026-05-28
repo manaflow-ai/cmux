@@ -8187,9 +8187,11 @@ struct ContentView: View {
             return false
         }
 
+        let preferredSocketPath = SocketControlSettings.socketPath()
+        let activeSocketPath = TerminalController.shared.activeSocketPath(preferredPath: preferredSocketPath)
         return CommandPaletteDiffViewerLauncher.shared.start(
             cliURL: cliURL,
-            socketPath: SocketControlSettings.socketPath(),
+            socketPath: activeSocketPath,
             cwd: configuredActionBaseCwd(),
             workspaceId: workspace.id,
             surfaceId: workspace.focusedPanelId
