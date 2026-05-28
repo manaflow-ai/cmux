@@ -50,6 +50,9 @@ struct SettingsWindowContentVisibility: Equatable {
     ///   - isSettingsWindow: Whether that window is the Settings window, used to
     ///     re-adopt it after a prior close cleared the reference.
     mutating func windowDidBecomeVisible(_ window: ObjectIdentifier, isSettingsWindow: Bool) {
+        if observedWindow == nil, isSettingsWindow {
+            observedWindow = window
+        }
         guard window == observedWindow else { return }
         shouldRenderContent = true
     }
