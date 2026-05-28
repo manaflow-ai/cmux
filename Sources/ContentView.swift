@@ -11806,7 +11806,11 @@ private struct SidebarWorkspaceGroupHeaderView: View {
                         .background(
                             Capsule().fill(Color.accentColor)
                         )
-                        .accessibilityLabel(Text("\(anchorUnreadCount) unread"))
+                        .accessibilityLabel(Text(String.localizedStringWithFormat(
+                            String(localized: "workspaceGroup.unread.a11y",
+                                   defaultValue: "%lld unread"),
+                            anchorUnreadCount
+                        )))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

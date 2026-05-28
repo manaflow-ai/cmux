@@ -5962,7 +5962,8 @@ class TabManager: ObservableObject {
         name: String,
         childWorkspaceIds: [UUID] = [],
         anchorWorkingDirectory: String? = nil,
-        selectAnchor: Bool = true
+        selectAnchor: Bool = true,
+        collapseSidebarSelection: Bool = true
     ) -> UUID? {
         // Eligible children: not pinned and not currently an anchor of a
         // different group. Pulling an anchor into a new group would orphan the
@@ -6033,7 +6034,13 @@ class TabManager: ObservableObject {
         // around them. The new anchor is the only sensible "current"
         // selection at this point. Posts the hide notification so the
         // SwiftUI sidebar binding follows.
-        if !sidebarSelectedWorkspaceIds.isDisjoint(with: Set(eligibleChildren)) || sidebarSelectedWorkspaceIds.count > 1 {
+        //
+        // Skipped for the non-focus socket/CLI path (caller passes
+        // collapseSidebarSelection: false): per the socket focus policy in
+        // CLAUDE.md, those entrypoints must not mutate the user's active
+        // sidebar selection.
+        if collapseSidebarSelection,
+           !sidebarSelectedWorkspaceIds.isDisjoint(with: Set(eligibleChildren)) || sidebarSelectedWorkspaceIds.count > 1 {
             let hiddenIds = sidebarSelectedWorkspaceIds
             sidebarSelectedWorkspaceIds = [anchor.id]
             NotificationCenter.default.post(

@@ -6259,7 +6259,8 @@ class TerminalController {
                 name: name,
                 childWorkspaceIds: childIds,
                 anchorWorkingDirectory: cwd,
-                selectAnchor: false
+                selectAnchor: false,
+                collapseSidebarSelection: false
             )
         }
         guard let gid = createdGroupId,
