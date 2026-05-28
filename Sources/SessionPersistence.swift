@@ -1610,7 +1610,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var markdown: SessionMarkdownPanelSnapshot?
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
-    var agentSession: SessionAgentSessionPanelSnapshot?
+    var agentSession: SessionAgentSessionPanelSnapshot? = nil
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {
