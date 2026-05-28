@@ -9,6 +9,23 @@ if zmodload zsh/net/unix 2>/dev/null; then
     _CMUX_HAS_ZSOCKET=1
 fi
 
+typeset -g _CMUX_HAS_ZSH_JOBSTATES=0
+if zmodload zsh/parameter 2>/dev/null && (( ${+jobstates} )); then
+    _CMUX_HAS_ZSH_JOBSTATES=1
+fi
+
+_cmux_zsh_job_table_saturated() {
+    (( _CMUX_HAS_ZSH_JOBSTATES )) || return 1
+
+    local limit="${CMUX_ZSH_JOB_TABLE_SOFT_LIMIT:-900}"
+    case "$limit" in
+        ''|*[!0-9]*) limit=900 ;;
+    esac
+    (( limit > 0 )) || limit=900
+
+    (( ${#jobstates} >= limit ))
+}
+
 _cmux_send() {
     local payload="$1"
     if (( _CMUX_HAS_ZSOCKET )); then
@@ -38,6 +55,7 @@ _cmux_send_bg() {
     if (( _CMUX_HAS_ZSOCKET )); then
         _cmux_send "$1"
     else
+        _cmux_zsh_job_table_saturated && return 0
         { _cmux_send "$1" } >/dev/null 2>&1 &!
     fi
 }
@@ -80,6 +98,7 @@ _cmux_relay_rpc_bg() {
     local method="$1"
     local params="$2"
     local relay_cli=""
+    _cmux_zsh_job_table_saturated && return 1
     _cmux_socket_uses_remote_relay || return 1
     relay_cli="$(_cmux_relay_cli_path)" || return 1
     { "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1 || true } >/dev/null 2>&1 &!
@@ -407,6 +426,48 @@ _cmux_patch_ghostty_semantic_redraw() {
     _cmux_ensure_ghostty_preexec_strips_both_marks _ghostty_preexec
 }
 _cmux_patch_ghostty_semantic_redraw
+
+_cmux_prepend_job_table_guard_to_function() {
+    local fn_name="$1"
+    (( $+functions[$fn_name] )) || return 0
+    [[ "${functions[$fn_name]}" == *"_cmux_zsh_job_table_saturated"* ]] && return 0
+
+    functions[$fn_name]=$'_cmux_zsh_job_table_saturated && builtin return 0\n'"${functions[$fn_name]}"
+}
+
+_cmux_insert_job_table_guard_after() {
+    local fn_name="$1"
+    local needle="$2"
+    local guard="$3"
+    (( $+functions[$fn_name] )) || return 0
+
+    local body="${functions[$fn_name]}"
+    [[ "$body" == *"$guard"* ]] && return 0
+    [[ "$body" == *"$needle"* ]] || return 0
+
+    functions[$fn_name]="${body/$needle/$needle
+$guard}"
+}
+
+_cmux_patch_ghostty_job_table_guard() {
+    local guard4=$'        _cmux_zsh_job_table_saturated && builtin return 0'
+    local guard6=$'          _cmux_zsh_job_table_saturated && builtin return 0'
+
+    # Patch deferred definitions before Ghostty's first precmd installs and
+    # invokes its live hook functions.
+    if (( $+functions[_ghostty_deferred_init] )); then
+        _cmux_insert_job_table_guard_after _ghostty_deferred_init $'    _ghostty_precmd() {' "$guard4"
+        _cmux_insert_job_table_guard_after _ghostty_deferred_init $'    _ghostty_preexec() {' "$guard4"
+        _cmux_insert_job_table_guard_after _ghostty_deferred_init $'      _ghostty_zle_line_init _ghostty_zle_line_finish _ghostty_zle_keymap_select() {' "$guard6"
+    fi
+
+    _cmux_prepend_job_table_guard_to_function _ghostty_precmd
+    _cmux_prepend_job_table_guard_to_function _ghostty_preexec
+    _cmux_prepend_job_table_guard_to_function _ghostty_zle_line_init
+    _cmux_prepend_job_table_guard_to_function _ghostty_zle_line_finish
+    _cmux_prepend_job_table_guard_to_function _ghostty_zle_keymap_select
+}
+_cmux_patch_ghostty_job_table_guard
 
 _cmux_prompt_wrap_guard() {
     local cmd_start="$1"
@@ -1157,6 +1218,8 @@ _cmux_run_pr_probe_with_timeout() {
     local started_at="${EPOCHSECONDS:-$SECONDS}"
     local now=$started_at
 
+    _cmux_zsh_job_table_saturated && return 1
+
     (
         _cmux_report_pr_for_path "$repo_path" "$force_probe"
     ) &
@@ -1206,6 +1269,7 @@ _cmux_start_pr_poll_loop() {
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    _cmux_zsh_job_table_saturated && return 0
 
     local watch_pwd="${1:-$PWD}"
     local force_restart="${2:-0}"
@@ -1262,6 +1326,7 @@ _cmux_start_git_head_watch() {
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    _cmux_zsh_job_table_saturated && return 0
 
     local watch_pwd="$PWD"
     local watch_head_path
@@ -1345,6 +1410,8 @@ _cmux_command_starts_nested_shell() {
 }
 
 _cmux_preexec() {
+    _cmux_zsh_job_table_saturated && return 0
+
     _cmux_normalize_claude_config_dir
     if (( ! _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
         _cmux_restore_terminal_identity_after_startup
@@ -1383,6 +1450,8 @@ _cmux_preexec() {
 
 _cmux_precmd() {
     local last_status=$?
+    _cmux_zsh_job_table_saturated && return 0
+
     _cmux_normalize_claude_config_dir
     if (( _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
         _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=0
@@ -1400,6 +1469,7 @@ _cmux_precmd() {
     fi
 
     # Handle cases where Ghostty integration initializes after this file.
+    _cmux_patch_ghostty_job_table_guard
     (( _CMUX_GHOSTTY_SEMANTIC_PATCHED )) || _cmux_patch_ghostty_semantic_redraw
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
