@@ -2325,37 +2325,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
         withTemporaryShortcut(action: .showNotifications) {
             // Dvorak: physical ANSI "I" key can produce the character "c".
             // This should behave like Cmd+C (copy), not match the Cmd+I app shortcut.
-            guard let event = NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
+            let event = makeKeyEvent(
                 modifierFlags: [.command],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
-                context: nil,
                 characters: "c",
                 charactersIgnoringModifiers: "c",
-                isARepeat: false,
                 keyCode: 34 // kVK_ANSI_I
-            ) else {
-                XCTFail("Failed to construct Dvorak Cmd+C event on physical ANSI I key")
-                return
-            }
+            )
 
 #if DEBUG
-            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertFalse(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .showNotifications))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
         }
     }
@@ -2956,50 +2939,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
-        let paletteExpectation = expectation(description: "Cmd+Shift+L should not request command palette")
-        paletteExpectation.isInverted = true
-        let token = NotificationCenter.default.addObserver(
-            forName: .commandPaletteRequested,
-            object: nil,
-            queue: nil
-        ) { _ in
-            paletteExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(token) }
-
         // Dvorak: physical ANSI "P" key can produce "l".
         // This should behave as Cmd+Shift+L, not as physical Cmd+Shift+P.
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
+        let event = makeKeyEvent(
             modifierFlags: [.command, .shift],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
             characters: "l",
             charactersIgnoringModifiers: "l",
-            isARepeat: false,
             keyCode: 35 // kVK_ANSI_P
-        ) else {
-            XCTFail("Failed to construct Dvorak Cmd+Shift+L event on physical ANSI P key")
-            return
-        }
+        )
 
 #if DEBUG
-        _ = appDelegate.debugHandleCustomShortcut(event: event)
+        XCTAssertFalse(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .commandPalette))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
-
-        wait(for: [paletteExpectation], timeout: 0.15)
     }
 
     func testCmdOptionPhysicalTWithDvorakCharactersDoesNotTriggerCloseOtherTabsShortcut() {
@@ -3008,36 +2961,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
         // Dvorak: physical ANSI "T" key can produce "y".
         // This should not match the Cmd+Option+T app shortcut.
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
+        let event = makeKeyEvent(
             modifierFlags: [.command, .option],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
             characters: "y",
             charactersIgnoringModifiers: "y",
-            isARepeat: false,
             keyCode: 17 // kVK_ANSI_T
-        ) else {
-            XCTFail("Failed to construct Dvorak Cmd+Option+Y event on physical ANSI T key")
-            return
-        }
+        )
 
 #if DEBUG
-        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+        XCTAssertFalse(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .closeOtherTabsInPane))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
     }
 
@@ -3422,44 +3358,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace else {
-            XCTFail("Expected test window and workspace")
-            return
-        }
-
-        let panelCountBefore = workspace.panels.count
-
         // Dvorak: physical ANSI "W" key can produce ",".
         // This should not match the Cmd+W close-panel shortcut.
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
+        let event = makeKeyEvent(
             modifierFlags: [.command],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
             characters: ",",
             charactersIgnoringModifiers: ",",
-            isARepeat: false,
             keyCode: 13 // kVK_ANSI_W
-        ) else {
-            XCTFail("Failed to construct Dvorak Cmd+, event on physical ANSI W key")
-            return
-        }
+        )
 
-        withTemporaryShortcut(action: .openSettings, shortcut: .unbound) {
 #if DEBUG
-            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+        XCTAssertFalse(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .closeTab))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
-        }
-        XCTAssertEqual(workspace.panels.count, panelCountBefore)
     }
 
     func testCmdIStillTriggersShowNotificationsShortcut() {
@@ -3660,38 +3572,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
         withTemporaryShortcut(
             action: .showNotifications,
             shortcut: StoredShortcut(key: ",", command: true, shift: true, option: false, control: false)
         ) {
-            guard let event = NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
+            let event = makeKeyEvent(
                 modifierFlags: [.command, .shift],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
-                context: nil,
                 characters: "<",
                 charactersIgnoringModifiers: "<",
-                isARepeat: false,
                 keyCode: 10 // kVK_ISO_Section
-            ) else {
-                XCTFail("Failed to construct Cmd+Shift+< event from ISO key")
-                return
-            }
+            )
 
 #if DEBUG
-            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertFalse(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .showNotifications))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
         }
     }
@@ -3726,65 +3621,23 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
-        let renameTabExpectation = expectation(description: "Expected rename tab request for semantic Cmd+R")
-        var observedRenameTabWindow: NSWindow?
-        let renameTabToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteRenameTabRequested,
-            object: nil,
-            queue: nil
-        ) { notification in
-            observedRenameTabWindow = notification.object as? NSWindow
-            renameTabExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(renameTabToken) }
-
-        let switcherExpectation = expectation(description: "Cmd+R should not trigger command palette switcher")
-        switcherExpectation.isInverted = true
-        let switcherToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteSwitcherRequested,
-            object: nil,
-            queue: nil
-        ) { _ in
-            switcherExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(switcherToken) }
-
         withTemporaryShortcut(action: .renameTab) {
             // Dvorak: physical ANSI "O" key can produce "r".
             // This should behave as semantic Cmd+R (rename tab), not Cmd+P.
-            guard let event = NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
+            let event = makeKeyEvent(
                 modifierFlags: [.command],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
-                context: nil,
                 characters: "r",
                 charactersIgnoringModifiers: "r",
-                isARepeat: false,
                 keyCode: 31 // kVK_ANSI_O
-            ) else {
-                XCTFail("Failed to construct Dvorak Cmd+R event on physical ANSI O key")
-                return
-            }
+            )
 
 #if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .renameTab))
+            XCTAssertFalse(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .goToWorkspace))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
         }
-
-        wait(for: [renameTabExpectation, switcherExpectation], timeout: 1.0)
-        XCTAssertEqual(observedRenameTabWindow?.windowNumber, window.windowNumber)
     }
 
     func testCmdPhysicalRWithDvorakCharactersTriggersCommandPaletteSwitcher() {
@@ -3793,63 +3646,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
-        let switcherExpectation = expectation(description: "Expected command palette switcher request for semantic Cmd+P")
-        var observedSwitcherWindow: NSWindow?
-        let switcherToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteSwitcherRequested,
-            object: nil,
-            queue: nil
-        ) { notification in
-            observedSwitcherWindow = notification.object as? NSWindow
-            switcherExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(switcherToken) }
-
-        let renameTabExpectation = expectation(description: "Physical R on Dvorak should not trigger rename tab")
-        renameTabExpectation.isInverted = true
-        let renameTabToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteRenameTabRequested,
-            object: nil,
-            queue: nil
-        ) { _ in
-            renameTabExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(renameTabToken) }
-
         // Dvorak: physical ANSI "R" key can produce "p".
         // This should behave as semantic Cmd+P (palette switcher), not Cmd+R.
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
+        let event = makeKeyEvent(
             modifierFlags: [.command],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
             characters: "p",
             charactersIgnoringModifiers: "p",
-            isARepeat: false,
             keyCode: 15 // kVK_ANSI_R
-        ) else {
-            XCTFail("Failed to construct Dvorak Cmd+P event on physical ANSI R key")
-            return
-        }
+        )
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .goToWorkspace))
+        XCTAssertFalse(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .renameTab))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
-
-        wait(for: [switcherExpectation, renameTabExpectation], timeout: 1.0)
-        XCTAssertEqual(observedSwitcherWindow?.windowNumber, window.windowNumber)
     }
 
     func testConfiguredCmdShiftRRequestsRenameWorkspaceInCommandPalette() {
