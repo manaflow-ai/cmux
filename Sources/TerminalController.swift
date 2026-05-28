@@ -5296,11 +5296,20 @@ class TerminalController {
     // MARK: - V2 Context Resolution
 
     func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
-        // Prefer explicit window_id routing. Fall back to global lookup by workspace_id/surface_id/tab_id,
-        // and finally to the active window's TabManager.
+        // Prefer explicit window_id routing. Otherwise prefer group_id (group
+        // methods are the only routing key for cross-window group ops, and
+        // CLI helpers always inject caller workspace_id/surface_id, which
+        // would otherwise win even when the group belongs to a different
+        // window). Fall back to workspace/surface/pane lookup, then the
+        // active window's TabManager.
         if v2HasNonNullParam(params, "window_id") {
             guard let windowId = v2UUID(params, "window_id") else { return nil }
             return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
+        }
+        if let groupId = v2UUID(params, "group_id") {
+            if let tm = v2MainSync({ v2LocateTabManager(forGroupId: groupId) }) {
+                return tm
+            }
         }
         if let wsId = v2UUID(params, "workspace_id") {
             if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(tabId: wsId) }) {
@@ -5314,14 +5323,6 @@ class TerminalController {
         }
         if let paneId = v2UUID(params, "pane_id") {
             if let tm = v2MainSync({ v2LocatePane(paneId)?.tabManager }) {
-                return tm
-            }
-        }
-        // Group methods route by group_id; locate the TabManager that owns
-        // the group so multi-window socket clients can pass a
-        // workspace_group:N ref/UUID without also passing window_id.
-        if let groupId = v2UUID(params, "group_id") {
-            if let tm = v2MainSync({ v2LocateTabManager(forGroupId: groupId) }) {
                 return tm
             }
         }
@@ -6207,17 +6208,18 @@ class TerminalController {
             )
         }
         let childIds = parsedChildIds
-        // Default `select` to false so socket-driven group creation doesn't
-        // steal the user's focus (CLAUDE.md socket focus policy). Callers
-        // that explicitly want to focus the new anchor pass `"select": true`.
-        let select = v2Bool(params, "select") ?? false
+        // workspace.group.create is NOT a focus-intent method. The select
+        // option used to be honored here, but the socket focus policy says
+        // non-focus commands must not change the user's active workspace.
+        // Callers that want to focus the new anchor should call
+        // workspace.group.focus afterward (which IS focus-intent).
         var createdGroupId: UUID?
         v2MainSync {
             createdGroupId = tabManager.createWorkspaceGroup(
                 name: name,
                 childWorkspaceIds: childIds,
                 anchorWorkingDirectory: cwd,
-                selectAnchor: select
+                selectAnchor: false
             )
         }
         guard let gid = createdGroupId,
@@ -6395,9 +6397,11 @@ class TerminalController {
         guard let gid = v2UUID(params, "group_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
         }
-        // Default to no focus steal; socket callers that want to focus pass
-        // `"select": true`. Matches the socket focus policy in CLAUDE.md.
-        let select = v2Bool(params, "select") ?? false
+        // workspace.group.new_workspace is NOT a focus-intent method. The
+        // socket focus policy says non-focus commands must not change the
+        // user's active workspace; callers that want to focus the new
+        // workspace should call workspace.select / workspace.group.focus
+        // afterward.
         var createdId: UUID?
         v2MainSync {
             guard let group = tabManager.workspaceGroups.first(where: { $0.id == gid }) else { return }
@@ -6405,7 +6409,7 @@ class TerminalController {
             let newWs = tabManager.addWorkspace(
                 workingDirectory: cwd,
                 inheritWorkingDirectory: cwd == nil,
-                select: select,
+                select: false,
                 autoWelcomeIfNeeded: false
             )
             tabManager.addWorkspaceToGroup(workspaceId: newWs.id, groupId: gid)

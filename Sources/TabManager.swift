@@ -6203,6 +6203,11 @@ class TabManager: ObservableObject {
               workspaceGroups[index].isCollapsed else {
             return
         }
+        // The anchor is the group header's visible representation, so
+        // focusing it doesn't hide it. Skip auto-expand when the focused
+        // workspace IS the group's anchor — that lets users work in the
+        // anchor while keeping the rest of the group folded away.
+        guard workspaceGroups[index].anchorWorkspaceId != selectedTabId else { return }
         workspaceGroups[index].isCollapsed = false
     }
 
@@ -6917,8 +6922,14 @@ class TabManager: ObservableObject {
         requiresConfirmation: Bool = true,
         source: CloseConfirmationSource = .workspace
     ) {
-        if requiresConfirmation,
-           let groupId = workspace.groupId,
+        // Anchor-close ALWAYS prompts (subject to its own
+        // WorkspaceGroupAnchorCloseSettings.suppressed flag), regardless of
+        // requiresConfirmation. Batch-close paths set requiresConfirmation=false
+        // after their own generic prompt, but that generic prompt doesn't
+        // mention group dissolution — silently ungrouping members during a
+        // multi-close would be surprising. The "Don't ask again" toggle on
+        // the anchor dialog is the user's opt-out.
+        if let groupId = workspace.groupId,
            let group = workspaceGroups.first(where: { $0.id == groupId }),
            group.anchorWorkspaceId == workspace.id {
             let otherMemberCount = tabs.reduce(0) { partial, tab in
