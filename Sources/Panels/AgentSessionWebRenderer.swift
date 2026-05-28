@@ -987,7 +987,8 @@ struct OpenCodeServerAuth: Equatable {
 
 struct ClaudeStreamJSONAccumulator {
     private var emittedTextByMessageID: [String: String] = [:]
-    private var emittedAssistantText = ""
+    private var currentMessageID: String?
+    private var pendingDeltaText = ""
     private var emittedAnyAssistantText = false
 
     mutating func consumeLine(_ line: String) -> [String] {
@@ -998,9 +999,19 @@ struct ClaudeStreamJSONAccumulator {
             return []
         }
 
+        if let messageID = assistantMessageID(fromMessageStart: object) {
+            currentMessageID = messageID
+            pendingDeltaText = ""
+            return []
+        }
+
         if let delta = assistantTextDelta(from: object), !delta.isEmpty {
             emittedAnyAssistantText = true
-            emittedAssistantText += delta
+            if let currentMessageID {
+                emittedTextByMessageID[currentMessageID, default: ""] += delta
+            } else {
+                pendingDeltaText += delta
+            }
             return [delta]
         }
 
@@ -1013,6 +1024,17 @@ struct ClaudeStreamJSONAccumulator {
         }
 
         return []
+    }
+
+    private func assistantMessageID(fromMessageStart object: [String: Any]) -> String? {
+        guard object["type"] as? String == "message_start",
+              let message = object["message"] as? [String: Any],
+              message["role"] as? String == "assistant",
+              let messageID = message["id"] as? String,
+              !messageID.isEmpty else {
+            return nil
+        }
+        return messageID
     }
 
     private mutating func assistantTextDelta(from object: [String: Any]) -> String? {
@@ -1031,8 +1053,12 @@ struct ClaudeStreamJSONAccumulator {
 
         let messageID = (message["id"] as? String) ?? "assistant"
         let previousText = emittedTextByMessageID[messageID] ??
-            (fullText.hasPrefix(emittedAssistantText) ? emittedAssistantText : "")
+            (fullText.hasPrefix(pendingDeltaText) ? pendingDeltaText : "")
         emittedTextByMessageID[messageID] = fullText
+        if currentMessageID == messageID {
+            currentMessageID = nil
+        }
+        pendingDeltaText = ""
         if fullText.hasPrefix(previousText) {
             return String(fullText.dropFirst(previousText.count))
         }

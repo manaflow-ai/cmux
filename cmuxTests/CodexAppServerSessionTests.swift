@@ -257,6 +257,27 @@ final class CodexAppServerSessionTests: XCTestCase {
         )
     }
 
+    func testClaudeStreamJSONAccumulatorTracksDeltaTextPerAssistantMessage() {
+        var accumulator = ClaudeStreamJSONAccumulator()
+
+        XCTAssertEqual(
+            accumulator.consumeLine(#"{"type":"content_block_delta","delta":{"type":"text_delta","text":"first"}}"#),
+            ["first"]
+        )
+        XCTAssertEqual(
+            accumulator.consumeLine(#"{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"first done"}]}}"#),
+            [" done"]
+        )
+        XCTAssertEqual(
+            accumulator.consumeLine(#"{"type":"content_block_delta","delta":{"type":"text_delta","text":"second"}}"#),
+            ["second"]
+        )
+        XCTAssertEqual(
+            accumulator.consumeLine(#"{"type":"assistant","message":{"id":"msg_2","role":"assistant","content":[{"type":"text","text":"second done"}]}}"#),
+            [" done"]
+        )
+    }
+
     func testEncodesPromptAsJSONRPCInsteadOfRawStdin() throws {
         var sentLines: [String] = []
         let session = CodexAppServerSession(
