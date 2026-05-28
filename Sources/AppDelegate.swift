@@ -13783,13 +13783,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // sidebarSelectedWorkspaceIds is a Set; sort by tabs[] order so the
         // anchor is placed before the first sidebar-visible selected workspace
         // (createWorkspaceGroup uses the first child to position the anchor).
-        let selectedIds: [UUID] = selectedSet.isEmpty
+        let orderedSelectedIds: [UUID] = selectedSet.isEmpty
             ? []
             : tabManager.tabs.compactMap { selectedSet.contains($0.id) ? $0.id : nil }
-        let eligibleIds: [UUID] = selectedIds.isEmpty
+        let candidateIds: [UUID] = orderedSelectedIds.isEmpty
             ? tabManager.selectedTabId.map { [$0] } ?? []
-            : selectedIds
-        guard !eligibleIds.isEmpty else { return false }
+            : orderedSelectedIds
+        // Match the workspace context-menu eligibility filter so the shortcut
+        // doesn't silently create an anchor-only group when every selected
+        // target is pinned or is already an existing group's anchor.
+        let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+        let eligibleIds: [UUID] = candidateIds.filter { id in
+            guard let tab = tabManager.tabs.first(where: { $0.id == id }) else { return false }
+            return !tab.isPinned && !existingAnchorIds.contains(id)
+        }
+        guard !eligibleIds.isEmpty else {
+            NSSound.beep()
+            return false
+        }
         // No name prompt: TabManager auto-names ("Group N"). Rename via the
         // header context menu.
         tabManager.createWorkspaceGroup(name: "", childWorkspaceIds: eligibleIds)

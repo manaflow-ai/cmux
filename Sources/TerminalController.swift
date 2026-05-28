@@ -6236,18 +6236,34 @@ class TerminalController {
               let wsId = v2UUID(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing group_id or workspace_id", data: nil)
         }
+        var failureCode = "not_found"
+        var failureMessage = "Group or workspace not found"
         var ok = false
         v2MainSync {
             let hasGroup = tabManager.workspaceGroups.contains(where: { $0.id == gid })
-            let hasWs = tabManager.tabs.contains(where: { $0.id == wsId })
-            if hasGroup && hasWs {
-                tabManager.addWorkspaceToGroup(workspaceId: wsId, groupId: gid)
+            guard let tab = tabManager.tabs.first(where: { $0.id == wsId }), hasGroup else {
+                return
+            }
+            // addWorkspaceToGroup silently no-ops for pinned workspaces and
+            // for anchors of other groups. Confirm membership actually
+            // changed before reporting success so scripts don't get OK on a
+            // no-op.
+            tabManager.addWorkspaceToGroup(workspaceId: wsId, groupId: gid)
+            if tab.groupId == gid {
                 ok = true
+            } else {
+                if tab.isPinned {
+                    failureCode = "invalid_state"
+                    failureMessage = "Workspace is pinned and cannot join a group"
+                } else if tabManager.workspaceGroups.contains(where: { $0.id != gid && $0.anchorWorkspaceId == wsId }) {
+                    failureCode = "invalid_state"
+                    failureMessage = "Workspace is the anchor of another group; ungroup it first"
+                }
             }
         }
         return ok
             ? .ok(["group_id": gid.uuidString, "workspace_id": wsId.uuidString])
-            : .err(code: "not_found", message: "Group or workspace not found", data: [
+            : .err(code: failureCode, message: failureMessage, data: [
                 "group_id": gid.uuidString,
                 "workspace_id": wsId.uuidString
             ])

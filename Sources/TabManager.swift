@@ -2701,6 +2701,12 @@ class TabManager: ObservableObject {
                 updatedTabs.append(newWorkspace)
             }
             tabs = updatedTabs
+            // The global insertion-index rules don't know about group sections.
+            // Re-run the group-aware normalize so a freshly-added workspace
+            // can't land inside another group's contiguous section.
+            if !workspaceGroups.isEmpty {
+                normalizeWorkspaceGroupContiguity()
+            }
             if let terminalPanel = newWorkspace.focusedTerminalPanel {
                 scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
                     workspaceId: newWorkspace.id,
@@ -5519,6 +5525,9 @@ class TabManager: ObservableObject {
         guard !tab.isPinned else { return }
         tabs.remove(at: index)
         tabs.insert(tab, at: pinnedCount)
+        if !workspaceGroups.isEmpty {
+            normalizeWorkspaceGroupContiguity()
+        }
         postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
     }
 
@@ -5793,6 +5802,21 @@ class TabManager: ObservableObject {
             guard targetIds.contains(workspace.id), workspace.isPinned != pinned else { continue }
             workspace.isPinned = pinned
             changedIdSet.insert(workspace.id)
+        }
+
+        // Apply the same group-membership cleanup the single-workspace
+        // setPinned path runs: pinned workspaces never belong to a group.
+        // Anchor pins dissolve the group; non-anchor pins just clear groupId.
+        if pinned {
+            for id in changedIdSet {
+                guard let tab = workspacesById[id], let groupId = tab.groupId else { continue }
+                if let group = workspaceGroups.first(where: { $0.id == groupId }),
+                   group.anchorWorkspaceId == id {
+                    ungroupWorkspaceGroup(groupId: groupId)
+                } else {
+                    tab.groupId = nil
+                }
+            }
         }
 
         guard !changedIdSet.isEmpty else { return [] }
