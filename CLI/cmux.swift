@@ -6754,6 +6754,21 @@ struct CMUXCLI {
         }
     }
 
+    /// Emit a `cmux workspace-group` mutation response: JSON when --json,
+    /// otherwise a compact `OK`. Centralized so every mutating subcommand
+    /// honors --json the same way the list/create paths do.
+    private func printWorkspaceGroupResponse(
+        _ response: [String: Any],
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) {
+        if jsonOutput {
+            print(jsonString(formatIDs(response, mode: idFormat)))
+        } else {
+            print("OK")
+        }
+    }
+
     /// Print a one-time deprecation hint to stderr for a legacy CLI verb that
     /// has a `cmux workspace <subcommand>` replacement. Honors CMUX_QUIET so
     /// scripts can opt out.
@@ -6838,8 +6853,8 @@ struct CMUXCLI {
 
         case "ungroup", "delete":
             params["group_id"] = try resolveGroupId(in: rest)
-            _ = try client.sendV2(method: "workspace.group.ungroup", params: params)
-            print("OK")
+            let resp = try client.sendV2(method: "workspace.group.ungroup", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "rename":
             let (nameOpt, rem0) = parseOption(rest, name: "--name")
@@ -6850,18 +6865,18 @@ struct CMUXCLI {
                 throw CLIError(message: "rename requires --name <name>")
             }
             params["name"] = newName
-            _ = try client.sendV2(method: "workspace.group.rename", params: params)
-            print("OK")
+            let resp = try client.sendV2(method: "workspace.group.rename", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "collapse", "expand":
             params["group_id"] = try resolveGroupId(in: rest)
-            _ = try client.sendV2(method: "workspace.group.\(sub)", params: params)
-            print("OK")
+            let resp = try client.sendV2(method: "workspace.group.\(sub)", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "pin", "unpin":
             params["group_id"] = try resolveGroupId(in: rest)
-            _ = try client.sendV2(method: "workspace.group.\(sub)", params: params)
-            print("OK")
+            let resp = try client.sendV2(method: "workspace.group.\(sub)", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "add":
             let (groupOpt, rem0) = parseOption(rest, name: "--group")
@@ -6871,8 +6886,8 @@ struct CMUXCLI {
             }
             params["group_id"] = gid
             params["workspace_id"] = wsId
-            _ = try client.sendV2(method: "workspace.group.add", params: params)
-            print("OK")
+            let resp = try client.sendV2(method: "workspace.group.add", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "remove":
             let (wsOpt, _) = parseOption(rest, name: "--workspace")
@@ -6880,8 +6895,8 @@ struct CMUXCLI {
                 throw CLIError(message: "remove requires --workspace <id>")
             }
             params["workspace_id"] = wsId
-            _ = try client.sendV2(method: "workspace.group.remove", params: params)
-            print("OK")
+            let resp = try client.sendV2(method: "workspace.group.remove", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "set-anchor":
             let (groupOpt, rem0) = parseOption(rest, name: "--group")
@@ -6891,8 +6906,8 @@ struct CMUXCLI {
             }
             params["group_id"] = gid
             params["workspace_id"] = wsId
-            _ = try client.sendV2(method: "workspace.group.set_anchor", params: params)
-            print("OK")
+            let resp = try client.sendV2(method: "workspace.group.set_anchor", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "new-workspace":
             params["group_id"] = try resolveGroupId(in: rest)

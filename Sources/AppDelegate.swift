@@ -13779,7 +13779,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         let resolvedTabManager: TabManager? = contextForMainWindow(targetWindow)?.tabManager ?? self.tabManager
         guard let tabManager = resolvedTabManager else { return false }
-        let selectedIds = Array(tabManager.sidebarSelectedWorkspaceIds)
+        let selectedSet = tabManager.sidebarSelectedWorkspaceIds
+        // sidebarSelectedWorkspaceIds is a Set; sort by tabs[] order so the
+        // anchor is placed before the first sidebar-visible selected workspace
+        // (createWorkspaceGroup uses the first child to position the anchor).
+        let selectedIds: [UUID] = selectedSet.isEmpty
+            ? []
+            : tabManager.tabs.compactMap { selectedSet.contains($0.id) ? $0.id : nil }
         let eligibleIds: [UUID] = selectedIds.isEmpty
             ? tabManager.selectedTabId.map { [$0] } ?? []
             : selectedIds

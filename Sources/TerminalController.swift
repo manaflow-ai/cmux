@@ -5269,6 +5269,13 @@ class TerminalController {
                         _ = v2EnsureHandleRef(kind: .surface, uuid: panelId)
                     }
                 }
+                // Mint workspace_group refs for groups that exist before any
+                // workspace.group.* call so callers can pass `workspace_group:N`
+                // immediately after restore (otherwise the first ref hand-off
+                // happens only on `list`/`create`).
+                for group in tm.workspaceGroups {
+                    _ = v2EnsureHandleRef(kind: .workspaceGroup, uuid: group.id)
+                }
             }
         }
     }

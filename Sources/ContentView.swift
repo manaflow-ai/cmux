@@ -11513,11 +11513,18 @@ struct VerticalTabsSidebar: View {
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
-            onFocusAnchor: { [weak tabManager, anchorId = group.anchorWorkspaceId] in
+            onFocusAnchor: { [weak tabManager, anchorId = group.anchorWorkspaceId, selectedTabIds = $selectedTabIds] in
                 guard let tabManager else { return }
-                if tabManager.selectedTabId != anchorId,
-                   tabManager.tabs.contains(where: { $0.id == anchorId }) {
-                    tabManager.selectedTabId = anchorId
+                if tabManager.tabs.contains(where: { $0.id == anchorId }) {
+                    if tabManager.selectedTabId != anchorId {
+                        tabManager.selectedTabId = anchorId
+                    }
+                    // Reset the multi-selection set to just the anchor so
+                    // subsequent context-menu/shortcut actions target the
+                    // focused workspace instead of stale sidebar selections.
+                    if selectedTabIds.wrappedValue != [anchorId] {
+                        selectedTabIds.wrappedValue = [anchorId]
+                    }
                 }
             },
             onTapPlus: { [weak tabManager, groupId = group.id, anchorId = group.anchorWorkspaceId] in

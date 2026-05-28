@@ -6872,9 +6872,13 @@ class TabManager: ObservableObject {
         if WorkspaceGroupAnchorCloseSettings.suppressed() {
             return true
         }
-        guard beginCloseConfirmationSession() else { return false }
-        defer { endCloseConfirmationSession() }
-
+        // Do NOT acquire beginCloseConfirmationSession here. The standard
+        // close confirmation path that runs immediately after (confirmClose())
+        // gates itself with the same flag, and endCloseConfirmationSession
+        // releases the flag asynchronously on the next main-queue turn — so
+        // wrapping this dialog with begin/end would leave the flag set when
+        // the inner confirmClose runs, causing it to return false and silently
+        // refuse the close even after the user accepted both prompts.
         let title = String(
             localized: "dialog.closeAnchor.title",
             defaultValue: "Close this workspace?"
@@ -8807,6 +8811,14 @@ class TabManager: ObservableObject {
         guard !workspace.panels.isEmpty else {
             closeWorkspace(workspace, recordHistory: false)
             return false
+        }
+        // The snapshot may carry a groupId for a group that no longer exists
+        // in this TabManager (e.g. the group was dissolved between close and
+        // reopen). Drop those stale references so the restored workspace
+        // doesn't render as an orphaned indented row under no header.
+        if let groupId = workspace.groupId,
+           !workspaceGroups.contains(where: { $0.id == groupId }) {
+            workspace.groupId = nil
         }
         ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
             from: entry.workspaceId,
