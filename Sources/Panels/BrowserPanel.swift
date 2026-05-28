@@ -772,6 +772,44 @@ final class BrowserProfileStore: ObservableObject {
     }
 }
 
+/// Thread-safe cache for `BrowserLinkOpenSettings.shortcutPassthroughHosts`.
+/// The raw newline-delimited string is read from UserDefaults on every call
+/// (UserDefaults itself is fast — backed by an in-memory dictionary), but the
+/// expensive `components(separatedBy:)` + `map(trimmingCharacters)` + `filter`
+/// chain is cached and reused while the raw value is unchanged. This matters
+/// because the function fires three times per Cmd-modifier keystroke on the
+/// passthrough dispatch path (handleCustomShortcut → cmux_performKeyEquivalent
+/// → CmuxWebView.performKeyEquivalent). Cache is keyed on the raw string so
+/// it self-invalidates the first call after any UserDefaults change, without
+/// needing an explicit observer.
+private final class ShortcutPassthroughHostsCache: @unchecked Sendable {
+    static let shared = ShortcutPassthroughHostsCache()
+    private let lock = NSLock()
+    private var cachedHosts: [String]?
+    private var cachedRaw: String?
+
+    func hosts(rawValue: String) -> [String] {
+        lock.lock()
+        if let cachedHosts, cachedRaw == rawValue {
+            let result = cachedHosts
+            lock.unlock()
+            return result
+        }
+        lock.unlock()
+
+        let parsed = rawValue
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+
+        lock.lock()
+        cachedHosts = parsed
+        cachedRaw = rawValue
+        lock.unlock()
+        return parsed
+    }
+}
+
 enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
@@ -894,10 +932,7 @@ enum BrowserLinkOpenSettings {
 
     static func shortcutPassthroughHosts(defaults: UserDefaults = .standard) -> [String] {
         let raw = defaults.string(forKey: shortcutPassthroughHostsKey) ?? defaultShortcutPassthroughHosts
-        return raw
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        return ShortcutPassthroughHostsCache.shared.hosts(rawValue: raw)
     }
 
     /// Check whether a hostname is on the user's Cmd-shortcut passthrough allowlist.
