@@ -709,7 +709,7 @@ enum FilePreviewKindResolver {
 
     private static func initialResolution(for url: URL) -> Resolution {
         let ext = url.pathExtension.lowercased()
-        if knownTextFileNeedsSniffBeforeMedia(url: url) {
+        if needsSniffBeforeTextOrMedia(url: url) {
             return .needsSniff
         }
 
@@ -735,14 +735,17 @@ enum FilePreviewKindResolver {
             return .resolved(.quickLook)
         }
 
-        if knownTextFileNeedsSniffBeforeMedia(url: url) {
-            if looksLikeMPEGTransportStream(url: url),
-               let mediaMode = contentTypes(for: url).lazy.compactMap({ mediaMode(for: $0) }).first {
-                return .resolved(mediaMode)
+        if needsSniffBeforeTextOrMedia(url: url) {
+            if looksLikeMPEGTransportStream(url: url) {
+                return .resolved(.media)
             }
             if sniffLooksLikeText(url: url) {
                 return .resolved(.text)
             }
+            if let mediaMode = contentTypes(for: url).lazy.compactMap({ mediaMode(for: $0) }).first {
+                return .resolved(mediaMode)
+            }
+            return .needsSniff
         }
 
         for type in contentTypes(for: url) {
@@ -807,9 +810,12 @@ enum FilePreviewKindResolver {
         return false
     }
 
-    private static func knownTextFileNeedsSniffBeforeMedia(url: URL) -> Bool {
+    private static func needsSniffBeforeTextOrMedia(url: URL) -> Bool {
         let filename = url.lastPathComponent.lowercased()
         let ext = url.pathExtension.lowercased()
+        if ext == "ts" {
+            return true
+        }
         guard textFilenames.contains(filename) || textExtensions.contains(ext),
               let type = UTType(filenameExtension: ext) else {
             return false
