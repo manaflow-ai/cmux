@@ -1995,13 +1995,7 @@ private struct WorkspaceAvatar: View {
 
 private extension MobileWorkspacePreview {
     var previewLine: String {
-        terminals
-            .lazy
-            .flatMap(\.lines)
-            .reversed()
-            .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            ?? terminals.first?.name
-            ?? name
+        terminals.first?.name ?? name
     }
 
     var statusColor: Color {

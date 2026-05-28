@@ -47,7 +47,6 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
 
     public var id: ID
     public var name: String
-    public var snapshot: MobileTerminalGhosttySnapshot
     public var isReady: Bool
     public var isFocused: Bool
     public var viewportFit: MobileTerminalViewportFit?
@@ -55,40 +54,15 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
     public init(
         id: ID,
         name: String,
-        snapshot: MobileTerminalGhosttySnapshot,
         isReady: Bool = true,
         isFocused: Bool = false,
         viewportFit: MobileTerminalViewportFit? = nil
     ) {
         self.id = id
         self.name = name
-        self.snapshot = snapshot
         self.isReady = isReady
         self.isFocused = isFocused
         self.viewportFit = viewportFit
-    }
-
-    public init(
-        id: ID,
-        name: String,
-        lines: [String],
-        isReady: Bool = true,
-        isFocused: Bool = false,
-        viewportFit: MobileTerminalViewportFit? = nil
-    ) {
-        self.id = id
-        self.name = name
-        self.snapshot = PreviewMobileHost.snapshot(
-            terminalID: id.rawValue,
-            lines: lines
-        )
-        self.isReady = isReady
-        self.isFocused = isFocused
-        self.viewportFit = viewportFit
-    }
-
-    public var lines: [String] {
-        snapshot.scrollbackRows.map(\.trimmedPlainText) + snapshot.renderedVisibleLines
     }
 }
 
@@ -939,12 +913,7 @@ public final class CMUXMobileShellStore {
             terminals: [
                 MobileTerminalPreview(
                     id: .init(rawValue: "workspace-\(nextIndex)-terminal-1"),
-                    name: L10n.terminalName(index: 1),
-                    lines: [
-                        "$ cmux mobile preview",
-                        "workspace: Workspace \(nextIndex)",
-                        "terminal: Terminal 1",
-                    ]
+                    name: L10n.terminalName(index: 1)
                 ),
             ]
         )
@@ -971,12 +940,7 @@ public final class CMUXMobileShellStore {
         let terminalIndex = workspaces[workspaceIndex].terminals.count + 1
         let terminal = MobileTerminalPreview(
             id: .init(rawValue: "\(workspaces[workspaceIndex].id.rawValue)-terminal-\(terminalIndex)"),
-            name: L10n.terminalName(index: terminalIndex),
-            lines: [
-                "$ cmux mobile preview",
-                "workspace: \(workspaces[workspaceIndex].name)",
-                "terminal: Terminal \(terminalIndex)",
-            ]
+            name: L10n.terminalName(index: terminalIndex)
         )
         workspaces[workspaceIndex].terminals.append(terminal)
         selectedTerminalID = terminal.id
@@ -1835,13 +1799,7 @@ public final class CMUXMobileShellStore {
                 terminals: [
                     MobileTerminalPreview(
                         id: .init(rawValue: terminalID),
-                        name: L10n.string("mobile.preview.attachedTerminalName", defaultValue: "Attached Terminal"),
-                        lines: [
-                            "$ cmux attach",
-                            "mac: \(ticket.macDisplayName ?? ticket.macDeviceID)",
-                            "route: \(route.kind.rawValue)",
-                            "runtime: waiting for transport",
-                        ]
+                        name: L10n.string("mobile.preview.attachedTerminalName", defaultValue: "Attached Terminal")
                     ),
                 ]
             ),
@@ -2307,11 +2265,6 @@ private extension MobileTerminalPreview {
         self.init(
             id: ID(rawValue: remote.id),
             name: remote.title,
-            lines: [
-                "$ cmux ios",
-                "terminal: \(remote.title)",
-                remote.currentDirectory.map { "directory: \($0)" } ?? "directory: unavailable",
-            ],
             isReady: remote.isReady ?? true,
             isFocused: remote.isFocused
         )
@@ -2326,89 +2279,19 @@ enum PreviewMobileHost {
             id: "workspace-main",
             name: "cmux",
             terminals: [
-                MobileTerminalPreview(
-                    id: "terminal-build",
-                    name: "Build",
-                    lines: [
-                        "$ cmux ios status",
-                        "Mobile Core: enabled",
-                        "Runtime: not connected",
-                        "Transport: injectable",
-                    ]
-                ),
-                MobileTerminalPreview(
-                    id: "terminal-agent",
-                    name: "Agent",
-                    lines: [
-                        "$ git status --short",
-                        "## feat-ios-swift-mobile-core",
-                        "$ swift test",
-                        "Test Suite passed",
-                    ]
-                ),
-                MobileTerminalPreview(
-                    id: "terminal-tui",
-                    name: "TUI",
-                    snapshot: snapshot(
-                        terminalID: "terminal-tui",
-                        lines: [
-                            "LAZYGIT",
-                            "files branches log",
-                            "main feat-ios clean",
-                            "q quit",
-                        ],
-                        activeScreen: .alternate,
-                        modes: MobileTerminalGhosttyModes(
-                            bracketedPaste: true,
-                            applicationCursorKeys: true,
-                            applicationKeypad: true,
-                            mouseTracking: true,
-                            cursorVisible: false
-                        ),
-                        streamOffset: 128
-                    )
-                ),
+                MobileTerminalPreview(id: "terminal-build", name: "Build"),
+                MobileTerminalPreview(id: "terminal-agent", name: "Agent"),
+                MobileTerminalPreview(id: "terminal-tui", name: "TUI"),
             ]
         ),
         MobileWorkspacePreview(
             id: "workspace-docs",
             name: "Docs",
             terminals: [
-                MobileTerminalPreview(
-                    id: "terminal-notes",
-                    name: "Notes",
-                    lines: [
-                        "$ rg \"CMUXMobileCore\" docs",
-                        "docs/ios-swift-mobile-plan.md:iOS shell depends on CMUXMobileCore.",
-                    ]
-                ),
+                MobileTerminalPreview(id: "terminal-notes", name: "Notes"),
             ]
         ),
     ]
-
-    static func snapshot(
-        terminalID: String,
-        lines: [String],
-        scrollbackLines: [String] = [],
-        activeScreen: MobileTerminalGhosttyScreen = .primary,
-        modes: MobileTerminalGhosttyModes = MobileTerminalGhosttyModes(),
-        streamOffset: UInt64 = 0
-    ) -> MobileTerminalGhosttySnapshot {
-        do {
-            return try MobileTerminalGhosttySnapshot.fixture(
-                terminalID: terminalID,
-                columns: 48,
-                rows: 6,
-                scrollbackLines: scrollbackLines,
-                visibleLines: lines,
-                activeScreen: activeScreen,
-                modes: modes,
-                streamOffset: streamOffset
-            )
-        } catch {
-            preconditionFailure("Invalid mobile terminal preview snapshot: \(error)")
-        }
-    }
 }
 
 // MARK: - MobileCoreRPCSession
