@@ -2455,6 +2455,85 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(run.stdout.contains("session=cmuxcc mode=ssh"), run.stdout)
     }
 
+    func testTmuxAttachSSHExistingSessionEncodesExactRemoteTmuxCommand() throws {
+        let run = try runMockedSSH(
+            arguments: [],
+            cliArguments: [
+                "tmux", "attach", "work session",
+                "--ssh", "example.test",
+                "--existing",
+                "--tmux-path", "/opt/bin/tmux",
+                "-L", "sock name",
+                "--no-focus",
+            ]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
+        let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
+        let initialScript = try XCTUnwrap(decodedReusableStartupScript(from: initialCommand))
+        let terminalStartupScript = try XCTUnwrap(decodedReusableStartupScript(from: terminalStartupCommand))
+        let tmuxCommand = "/opt/bin/tmux -CC -L 'sock name' attach -t 'work session'"
+        let encodedTmuxCommand = Data(tmuxCommand.utf8).base64EncodedString()
+
+        XCTAssertTrue(initialScript.contains("--command-b64 \(encodedTmuxCommand)"), initialScript)
+        XCTAssertTrue(terminalStartupScript.contains("--command-b64 \(encodedTmuxCommand)"), terminalStartupScript)
+        XCTAssertEqual(configureParams["remote_pty_command"] as? String, tmuxCommand)
+        XCTAssertEqual(configureParams["preserve_after_terminal_exit"] as? Bool, true)
+        XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
+        XCTAssertTrue(run.stdout.contains("session=work session mode=ssh"), run.stdout)
+    }
+
+    func testTmuxAttachSSHRejectsNonReconnectableSSHOptionsBeforeRPC() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("tmuxattachsshreconnect")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            return self.v2Response(
+                id: id,
+                ok: false,
+                error: ["code": "unexpected_method", "message": "tmux attach SSH should fail before RPC"]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "tmux", "attach", "cmuxcc",
+                "--ssh", "example.test",
+                "--ssh-option", "ControlMaster=no",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(
+            result.stderr.contains("tmux attach --ssh requires SSH settings that support reusable reconnect"),
+            result.stderr
+        )
+        XCTAssertTrue(
+            state.snapshot().isEmpty,
+            "tmux attach SSH with non-reconnectable options should fail before sending any RPC, saw \(state.snapshot())"
+        )
+    }
+
     func testTmuxAttachSSHRejectsCwdUntilRemoteCwdIsSupported() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("tmuxattachsshcwd")

@@ -7135,7 +7135,7 @@ struct CMUXCLI {
             deferredRemoteReconnectCommandScript != nil
         if requirePersistentPTY && !usesPersistentSSHPTY {
             throw CLIError(
-                message: "tmux attach --ssh requires persistent SSH PTY support; remove ControlMaster/ControlPersist/LocalCommand overrides that disable reusable reconnect"
+                message: "tmux attach --ssh requires SSH settings that support reusable reconnect; remove options that disable connection reuse or local reconnect callbacks"
             )
         }
         let startupInitialSSHCommand = buildSSHCommandText(
