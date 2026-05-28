@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -586,6 +587,96 @@ def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> 
     expect(argv[0].endswith("/real-bin/claude"), f"plain claude: expected real claude executable, got {argv}", failures)
 
 
+def test_missing_real_claude_reports_actionable_diagnostics(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-missing-real-") as td:
+        tmp = Path(td)
+        wrapper_dir = tmp / "wrapper-bin"
+        wrapper_alias_dir = tmp / "wrapper-bin-alias"
+        searched_dir = tmp / "searched-bin"
+        wrapper_dir.mkdir(parents=True, exist_ok=True)
+        searched_dir.mkdir(parents=True, exist_ok=True)
+        wrapper_dir = wrapper_dir.resolve()
+        searched_dir = searched_dir.resolve()
+
+        wrapper = wrapper_dir / "claude"
+        shutil.copy2(SOURCE_WRAPPER, wrapper)
+        wrapper.chmod(0o755)
+        wrapper_alias_dir.symlink_to(wrapper_dir, target_is_directory=True)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{wrapper_dir}:{wrapper_alias_dir}:{searched_dir}:/usr/bin:/bin"
+        env.pop("CMUX_CUSTOM_CLAUDE_PATH", None)
+
+        proc = subprocess.run(
+            ["claude", "--version"],  # noqa: S607 - intentional PATH lookup under test
+            cwd=tmp,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    stderr = proc.stderr.strip()
+    expect(proc.returncode == 127, f"missing real claude: expected exit 127, got {proc.returncode}: {stderr}", failures)
+    expect("claude wrapper could not find the real claude executable" in stderr, f"missing real claude: expected wrapper-specific summary, got {stderr!r}", failures)
+    expect(str(wrapper) in stderr, f"missing real claude: expected skipped wrapper path {wrapper}, got {stderr!r}", failures)
+    expect(str(wrapper_alias_dir / "claude") in stderr, f"missing real claude: expected aliased wrapper path, got {stderr!r}", failures)
+    expect("wrapper (skipped)" in stderr, f"missing real claude: expected wrapper aliases to be labeled as skipped, got {stderr!r}", failures)
+    expect(str(searched_dir / "claude") in stderr, f"missing real claude: expected searched PATH entry, got {stderr!r}", failures)
+    expect("/opt/homebrew/bin/claude" in stderr, f"missing real claude: expected Apple Silicon npm path diagnostic, got {stderr!r}", failures)
+    expect("/usr/local/bin/claude" in stderr, f"missing real claude: expected Intel/Homebrew npm path diagnostic, got {stderr!r}", failures)
+    expect(re.search(r"(?im)^(?=.*repair)(?=.*claude)(?=.*npm)(?=.*install).*$", stderr) is not None, f"missing real claude: expected npm repair guidance, got {stderr!r}", failures)
+    expect("custom path" in stderr.lower(), f"missing real claude: expected custom path guidance, got {stderr!r}", failures)
+
+
+def test_plain_claude_injects_hook_flags(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=[],
+    )
+    expect(code == 0, f"plain claude injection: wrapper exited {code}: {stderr}", failures)
+    expect("--settings" in real_argv, f"plain claude injection: expected --settings injection, got {real_argv}", failures)
+    expect("--session-id" in real_argv, f"plain claude injection: expected --session-id injection, got {real_argv}", failures)
+
+
+def test_print_invocation_injects_hook_flags(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["--print", "hi"],
+    )
+    expect(code == 0, f"print injection: wrapper exited {code}: {stderr}", failures)
+    expect("--settings" in real_argv, f"print injection: expected --settings injection, got {real_argv}", failures)
+    expect("--session-id" in real_argv, f"print injection: expected --session-id injection, got {real_argv}", failures)
+    expect(real_argv[-2:] == ["--print", "hi"], f"print injection: expected print args preserved, got {real_argv}", failures)
+
+
+def test_short_worktree_invocation_injects_hook_flags(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["-w", "feature-worktree"],
+    )
+    expect(code == 0, f"short worktree injection: wrapper exited {code}: {stderr}", failures)
+    expect("--settings" in real_argv, f"short worktree injection: expected --settings injection, got {real_argv}", failures)
+    expect("--session-id" in real_argv, f"short worktree injection: expected --session-id injection, got {real_argv}", failures)
+    expect(real_argv[-2:] == ["-w", "feature-worktree"], f"short worktree injection: expected worktree args preserved, got {real_argv}", failures)
+
+
+def test_value_options_before_print_do_not_hide_interactive_entry(failures: list[str]) -> None:
+    cases = [
+        ("short model", ["-m", "claude-opus-4", "--print", "hello"]),
+        ("agents json", ["--agents", '{"reviewer":{}}', "--print", "hello"]),
+    ]
+    for label, argv in cases:
+        code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=argv,
+        )
+        expect(code == 0, f"{label} value-option injection: wrapper exited {code}: {stderr}", failures)
+        expect("--settings" in real_argv, f"{label} value-option injection: expected --settings injection, got {real_argv}", failures)
+        expect("--session-id" in real_argv, f"{label} value-option injection: expected --session-id injection, got {real_argv}", failures)
+        expect(real_argv[-len(argv):] == argv, f"{label} value-option injection: expected original args preserved, got {real_argv}", failures)
+
+
 def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> None:
     subcommands = [
         "mcp",
@@ -1107,6 +1198,11 @@ def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
+    test_missing_real_claude_reports_actionable_diagnostics(failures)
+    test_plain_claude_injects_hook_flags(failures)
+    test_print_invocation_injects_hook_flags(failures)
+    test_short_worktree_invocation_injects_hook_flags(failures)
+    test_value_options_before_print_do_not_hide_interactive_entry(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_agents_subcommand_removes_cmux_terminal_fingerprint(failures)
