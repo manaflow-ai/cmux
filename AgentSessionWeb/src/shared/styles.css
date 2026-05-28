@@ -513,6 +513,8 @@ select {
   .codex-notice-content,
   .provider-dropdown,
   .provider-dropdown-item,
+  .add-context-dropdown,
+  .add-context-item,
   .rate-limit-popover,
   .codex-top-tray-panel,
   .codex-top-tray-item {
@@ -947,6 +949,88 @@ select {
 
 .provider-dropdown-check {
   color: var(--color-token-foreground);
+}
+
+.add-context-root {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.add-context-dropdown {
+  position: absolute;
+  z-index: 50;
+  bottom: calc(100% + 6px);
+  left: -8px;
+  width: 14rem;
+  max-height: min(270px, calc(100vh - 16px));
+  overflow-y: auto;
+  border: 0.5px solid color-mix(in srgb, var(--color-token-menu-border) 78%, transparent);
+  border-radius: var(--radius-xl);
+  color: var(--color-token-foreground);
+  background: color-mix(in srgb, var(--color-token-dropdown-background) 90%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.add-context-item {
+  display: flex;
+  width: 100%;
+  min-height: calc(var(--spacing) * 8);
+  align-items: center;
+  gap: calc(var(--spacing) * 2);
+  border: 0;
+  color: var(--color-token-foreground);
+  background: transparent;
+  text-align: left;
+}
+
+.add-context-item:hover,
+.add-context-item:focus-visible {
+  background: var(--color-token-list-hover-background);
+}
+
+.add-context-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.add-context-item:disabled:hover {
+  background: transparent;
+}
+
+.add-context-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-token-description-foreground);
+}
+
+.add-context-glyph {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-token-description-foreground);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.add-context-item-label {
+  color: var(--color-token-foreground);
+  font-weight: 500;
+}
+
+.add-context-item-detail {
+  color: var(--color-token-description-foreground);
+  font-size: var(--text-sm);
+}
+
+.add-context-separator {
+  height: 1px;
+  margin: var(--spacing) 0;
+  background: color-mix(in srgb, var(--color-token-border) 70%, transparent);
 }
 
 .provider-select {

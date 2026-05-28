@@ -148,6 +148,7 @@ function SessionSurface({
   const [menuQuery, setMenuQuery] = useState("");
   const [menuIndex, setMenuIndex] = useState(0);
   const [providerMenuOpen, setProviderMenuOpen] = useState(false);
+  const [addContextMenuOpen, setAddContextMenuOpen] = useState(false);
   const composerLayout = useMeasuredComposerLayout(state.input);
   const isSingleLineComposer = composerLayout.isSingleLine;
   const menuItems = menuKind ? composerMenuItems(menuKind, state, menuQuery) : [];
@@ -156,6 +157,7 @@ function SessionSurface({
     setMenuKind(null);
     setMenuQuery("");
     setProviderMenuOpen(false);
+    setAddContextMenuOpen(false);
     void sendInput(state, dispatch);
   };
   const insertComposerMenuItem = (item: ComposerMenuItem) => {
@@ -163,6 +165,7 @@ function SessionSurface({
     setMenuKind(null);
     setMenuQuery("");
     setMenuIndex(0);
+    setAddContextMenuOpen(false);
   };
   const updateComposerAutocomplete = (autocomplete: PromptAutocompleteState | null) => {
     if (!autocomplete) {
@@ -319,7 +322,12 @@ function SessionSurface({
   const leftControls = h(
     "div",
     { className: "codex-left-rail flex min-w-0 items-center gap-[5px]" },
-    codexIconButton("plus", state.context?.copy.attachFile ?? "Attach file", plusIcon()),
+    h(AddContextDropdown, {
+      isOpen: addContextMenuOpen,
+      onOpenChange: setAddContextMenuOpen,
+      onChoose: insertComposerMenuItem,
+      state,
+    }),
   );
   const secondaryControls = h(
     "div",
@@ -719,6 +727,132 @@ function ComposerTopTray({
   );
 }
 
+function AddContextDropdown({
+  isOpen,
+  onChoose,
+  onOpenChange,
+  state,
+}: {
+  isOpen: boolean;
+  onChoose: (item: ComposerMenuItem) => void;
+  onOpenChange: (isOpen: boolean) => void;
+  state: SessionState;
+}) {
+  const copy = state.context?.copy;
+  const mentionItems = composerMenuItems("mention", state, "");
+  const workspaceItem = mentionItems.find((item) => item.id === "workspace") ?? null;
+  const skillItems = composerMenuItems("skill", state, "");
+  const chooseItem = (item: ComposerMenuItem) => {
+    onChoose(item);
+    onOpenChange(false);
+  };
+  return h(
+    "div",
+    {
+      className: "add-context-root relative inline-flex",
+      onBlur: (event: React.FocusEvent<HTMLDivElement>) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          onOpenChange(false);
+        }
+      },
+    },
+    h(
+      "button",
+      {
+        className:
+          `codex-tool codex-tool-plus ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} ${CODEX_BUTTON_UNIFORM} rounded-full`,
+        type: "button",
+        "aria-label": copy?.attachFile ?? "Attach file",
+        "aria-haspopup": "menu",
+        "aria-expanded": isOpen,
+        "data-state": isOpen ? "open" : "closed",
+        onClick: () => onOpenChange(!isOpen),
+        onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            onOpenChange(true);
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onOpenChange(false);
+          }
+        },
+      },
+      plusIcon(),
+    ),
+    isOpen
+      ? h(
+          "div",
+          {
+            className:
+              "add-context-dropdown _content_1hiti_1 no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 m-px flex select-none flex-col rounded-xl ring-[0.5px] px-1 py-1 shadow-xl-spread backdrop-blur-sm",
+            role: "menu",
+            "aria-label": copy?.attachFile ?? "Attach file",
+          },
+          h(AddContextMenuItem, {
+            disabled: true,
+            icon: paperclipIcon("icon-xs"),
+            label: copy?.attachFile ?? "Attach file",
+            onSelect: () => {},
+          }),
+          workspaceItem
+            ? h(AddContextMenuItem, {
+                icon: atIcon(),
+                label: copy?.autoContext ?? "Context",
+                detail: workspaceItem.detail,
+                onSelect: () => chooseItem(workspaceItem),
+              })
+            : null,
+          h("div", { className: "add-context-separator", role: "separator" }),
+          skillItems.map((item) =>
+            h(AddContextMenuItem, {
+              key: item.id,
+              icon: skillIcon(),
+              label: item.label,
+              detail: item.detail,
+              onSelect: () => chooseItem(item),
+            })
+          ),
+        )
+      : null,
+  );
+}
+
+function AddContextMenuItem({
+  detail,
+  disabled = false,
+  icon,
+  label,
+  onSelect,
+}: {
+  detail?: string;
+  disabled?: boolean;
+  icon: React.ReactNode;
+  label: string;
+  onSelect: () => void;
+}) {
+  return h(
+    "button",
+    {
+      className: "add-context-item no-drag text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
+      disabled,
+      type: "button",
+      role: "menuitem",
+      onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
+      onClick: disabled ? undefined : onSelect,
+    },
+    h("span", { className: "add-context-item-icon icon-xs shrink-0", "aria-hidden": true }, icon),
+    h(
+      "span",
+      { className: "add-context-item-copy flex min-w-0 flex-1 items-center gap-2" },
+      h("span", { className: "add-context-item-label min-w-0 truncate" }, label),
+      detail
+        ? h("span", { className: "add-context-item-detail min-w-0 flex-1 truncate text-token-description-foreground" }, detail)
+        : null,
+    ),
+  );
+}
+
 type ComposerMenuItem = {
   detail: string;
   icon: string;
@@ -894,6 +1028,25 @@ function plusIcon() {
   );
 }
 
+function paperclipIcon(className = "icon-sm") {
+  return h(
+    "svg",
+    { className, width: "21", height: "21", viewBox: "0 0 21 21", fill: "none", "aria-hidden": true },
+    h("path", {
+      d: "M4.43945 12.8041V7.68261C4.43945 7.30642 4.74446 7.00141 5.12066 7.00141C5.49685 7.00141 5.80186 7.30642 5.80186 7.68261V12.8041C5.80186 15.2565 7.78984 17.2445 10.2422 17.2445C12.6945 17.2445 14.6825 15.2565 14.6825 12.8041V5.9751C14.6823 4.46587 13.4589 3.24247 11.9497 3.24229C10.4403 3.24229 9.21606 4.46576 9.21588 5.9751V12.8041C9.21588 13.3708 9.67553 13.8304 10.2422 13.8304C10.8088 13.8304 11.2685 13.3708 11.2685 12.8041V7.68261C11.2685 7.30642 11.5735 7.00141 11.9497 7.00141C12.3257 7.00159 12.6309 7.30653 12.6309 7.68261V12.8041C12.6309 14.1232 11.5612 15.1929 10.2422 15.1929C8.92314 15.1929 7.85347 14.1232 7.85347 12.8041V5.9751C7.85365 3.71337 9.68791 1.87988 11.9497 1.87988C14.2113 1.88006 16.0447 3.71348 16.0449 5.9751V12.8041C16.0449 16.0089 13.4469 18.6069 10.2422 18.6069C7.03745 18.6069 4.43945 16.0089 4.43945 12.8041Z",
+      fill: "currentColor",
+    }),
+  );
+}
+
+function atIcon() {
+  return h("span", { className: "add-context-glyph", "aria-hidden": true }, "@");
+}
+
+function skillIcon() {
+  return h("span", { className: "add-context-glyph", "aria-hidden": true }, "$");
+}
+
 function activityGlyph(entry: TranscriptEntry): string {
   if (entry.activityStatus === "stopped" || entry.activityStatus === "failed") {
     return "!";
@@ -906,21 +1059,6 @@ function activityGlyph(entry: TranscriptEntry): string {
     default:
       return "*";
   }
-}
-
-function codexIconButton(kind: string, ariaLabel: string, child: React.ReactNode, onClick?: () => void) {
-  const props: React.ButtonHTMLAttributes<HTMLButtonElement> = {
-    className:
-      `codex-tool codex-tool-${kind} ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} ${CODEX_BUTTON_UNIFORM} rounded-full`,
-    type: "button",
-    "aria-label": ariaLabel,
-  };
-  if (onClick) {
-    props.onClick = onClick;
-  } else {
-    props.disabled = true;
-  }
-  return h("button", props, child);
 }
 
 function applyCodexDocumentMetadata() {
