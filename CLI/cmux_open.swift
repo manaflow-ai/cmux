@@ -5238,7 +5238,7 @@ extension CMUXCLI {
             setupNavigationSelector(baseSelect, payload.baseOptions ?? [], payload.branchBaseRef ?? "", label("branchBase"));
             const patchResponsePromise = fetch(payload.patchURL, { cache: "no-store" });
             patchResponsePromise.catch(() => {});
-            const workerPoolReadyPromise = initializeCodeViewWorkerPool();
+            const workerPoolPromise = initializeCodeViewWorkerPool();
             window.addEventListener("pagehide", () => workerPool?.terminate?.(), { once: true });
             const scheduleRender = globalThis.queueMicrotask ?? ((callback) => setTimeout(callback, 0));
             scheduleRender(() => {
@@ -5279,7 +5279,7 @@ extension CMUXCLI {
                 parsePatchFiles,
                 processFile,
                 patchResponsePromise,
-                workerPoolReadyPromise,
+                workerPoolPromise,
                 treesModulePromise,
               });
 
@@ -5302,66 +5302,14 @@ extension CMUXCLI {
               }
               observeWorkerPool(pool);
               if (pool?.initialize) {
-                try {
-                  workerPool = await initializeWorkerPoolWithDeadline(pool);
-                  if (window.__cmuxDiffViewer) {
-                    window.__cmuxDiffViewer.workerPool = workerPool;
-                  }
-                  recordWorkerPoolStats(workerPool?.getStats?.());
-                } catch (error) {
-                  console.warn("cmux diff worker pool initialization failed", error);
-                  safelyTerminateWorkerPool(pool);
-                  workerPool = null;
-                  if (window.__cmuxDiffViewer) {
-                    window.__cmuxDiffViewer.workerPool = null;
-                  }
-                }
+                pool.initialize()
+                  .then(() => recordWorkerPoolStats(pool.getStats?.()))
+                  .catch((error) => {
+                    console.warn("cmux diff worker pool initialization failed", error);
+                    recordWorkerPoolStats(pool.getStats?.());
+                  });
               }
-              return workerPool;
-            }
-
-            function initializeWorkerPoolWithDeadline(pool) {
-              const startupDeadlineMs = 3000;
-              let didSettle = false;
-              let timeoutID = 0;
-              return new Promise((resolve, reject) => {
-                timeoutID = window.setTimeout(() => {
-                  if (didSettle) {
-                    return;
-                  }
-                  didSettle = true;
-                  console.warn("cmux diff worker pool initialization timed out; rendering with main-thread highlighting");
-                  safelyTerminateWorkerPool(pool);
-                  resolve(null);
-                }, startupDeadlineMs);
-
-                pool.initialize().then(
-                  () => {
-                    if (didSettle) {
-                      return;
-                    }
-                    didSettle = true;
-                    window.clearTimeout(timeoutID);
-                    resolve(pool);
-                  },
-                  (error) => {
-                    if (didSettle) {
-                      return;
-                    }
-                    didSettle = true;
-                    window.clearTimeout(timeoutID);
-                    reject(error);
-                  }
-                );
-              });
-            }
-
-            function safelyTerminateWorkerPool(pool) {
-              try {
-                pool?.terminate?.();
-              } catch (error) {
-                console.warn("cmux diff worker pool termination failed", error);
-              }
+              return pool;
             }
 
             async function createCodeViewWorkerPool() {
@@ -5438,7 +5386,7 @@ extension CMUXCLI {
               return `Commit ${index + 1}`;
             }
 
-            async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile, patchResponsePromise, workerPoolReadyPromise, treesModulePromise }) {
+            async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile, patchResponsePromise, workerPoolPromise, treesModulePromise }) {
               const diffModel = createStreamingDiffModel();
               const navigationRefreshState = {
                 dirtyCount: 0,
@@ -5456,7 +5404,7 @@ extension CMUXCLI {
               let lastYieldAt = performance.now();
               let lastFlushAt = performance.now();
               let firstRender = true;
-              let codeViewReadyToRender = workerPoolReadyPromise == null;
+              let workerPoolLoadedForCodeView = workerPoolPromise == null;
               let statusVisible = true;
               const batchConfig = {
                 initialBatchSize: getInitialFileTreeRowCount(),
@@ -5465,14 +5413,14 @@ extension CMUXCLI {
                 incrementalMaxWait: 100,
               };
 
-              workerPoolReadyPromise?.then?.(
+              workerPoolPromise?.then?.(
                 () => {
-                  codeViewReadyToRender = true;
+                  workerPoolLoadedForCodeView = true;
                   setupCodeViewIfReady();
                 },
                 (error) => {
-                  console.warn("cmux diff worker pool readiness failed; rendering without readiness gate", error);
-                  codeViewReadyToRender = true;
+                  console.warn("cmux diff worker pool startup failed; continuing without worker pool", error);
+                  workerPoolLoadedForCodeView = true;
                   setupCodeViewIfReady();
                 }
               );
@@ -5699,7 +5647,7 @@ extension CMUXCLI {
               }
 
               function setupCodeViewIfReady() {
-                if (codeView || codeViewItems.length === 0 || !codeViewReadyToRender) {
+                if (codeView || codeViewItems.length === 0 || !workerPoolLoadedForCodeView) {
                   return false;
                 }
                 codeView = new CodeView(codeViewOptions(), workerPool ?? undefined);
