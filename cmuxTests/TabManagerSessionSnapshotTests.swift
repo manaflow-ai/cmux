@@ -1895,7 +1895,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Remote tmux")
-        let tmuxCommand = "tmux -CC new -A -s cmuxcc"
+        let tmuxCommand = "tmux -CC -S /tmp/__CMUX_SURFACE_ID__.sock attach -t __CMUX_WORKSPACE_ID__"
         let encodedTmuxCommand = Data(tmuxCommand.utf8).base64EncodedString()
         let configuration = WorkspaceRemoteConfiguration(
             destination: "dev@example.com",
@@ -1947,6 +1947,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let terminalStartupCommand = try XCTUnwrap(restoredWorkspace.remoteConfiguration?.terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains("--command-b64"), terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains(encodedTmuxCommand), terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.contains("--literal-command"), terminalStartupCommand)
         XCTAssertFalse(terminalStartupCommand.contains("--require-existing"), terminalStartupCommand)
 
         let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
@@ -1955,6 +1956,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
         XCTAssertTrue(restoredInitialCommand.contains("--command-b64"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains(encodedTmuxCommand), restoredInitialCommand)
+        XCTAssertTrue(restoredInitialCommand.contains("--literal-command"), restoredInitialCommand)
     }
 
     func testSessionRemoteWorkspaceSnapshotDropsInvalidSSHPortFromReconnectCommand() throws {

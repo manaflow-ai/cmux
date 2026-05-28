@@ -7182,11 +7182,11 @@ struct CMUXCLI {
         }
         if usesPersistentSSHPTY,
            let remoteTerminalBootstrapScript {
+            let hasPersistentPTYCommand = normalizedPersistentPTYCommand?.isEmpty == false
             let ptyStartupCommand = buildReusableForegroundAuthThenSSHPTYAttachStartupCommand(
                 options: sshOptions,
-                remoteShellCommand: normalizedPersistentPTYCommand?.isEmpty == false
-                    ? normalizedPersistentPTYCommand!
-                    : remoteTerminalBootstrapScript,
+                remoteShellCommand: hasPersistentPTYCommand ? normalizedPersistentPTYCommand! : remoteTerminalBootstrapScript,
+                expandCommandPlaceholders: !hasPersistentPTYCommand,
                 localCommandScript: combinedLocalCommandScript,
                 controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
@@ -8164,10 +8164,12 @@ struct CMUXCLI {
 
     private func buildReusableSSHPTYAttachStartupCommand(
         remoteShellCommand: String,
-        remoteRelayPort: Int
+        remoteRelayPort: Int,
+        expandCommandPlaceholders: Bool = true
     ) -> String {
         let attachScript = buildSSHPTYAttachScriptBody(
-            remoteShellCommand: remoteShellCommand
+            remoteShellCommand: remoteShellCommand,
+            expandCommandPlaceholders: expandCommandPlaceholders
         )
         return buildReusableSSHStartupCommand(
             sshCommand: attachScript,
@@ -8181,6 +8183,7 @@ struct CMUXCLI {
     private func buildReusableForegroundAuthThenSSHPTYAttachStartupCommand(
         options: SSHCommandOptions,
         remoteShellCommand: String,
+        expandCommandPlaceholders: Bool = true,
         localCommandScript: String?,
         controlPathPreflightShellFunction: String?
     ) -> String {
@@ -8188,7 +8191,8 @@ struct CMUXCLI {
         authArguments += ["-T", options.destination, "true"]
         let authCommand = authArguments.map(shellQuote).joined(separator: " ")
         let attachScript = buildSSHPTYAttachScriptBody(
-            remoteShellCommand: remoteShellCommand
+            remoteShellCommand: remoteShellCommand,
+            expandCommandPlaceholders: expandCommandPlaceholders
         )
         let scriptBody = [
             "command \(authCommand) <&0",
@@ -8208,11 +8212,12 @@ struct CMUXCLI {
     }
 
     private func buildSSHPTYAttachScriptBody(
-        remoteShellCommand: String
+        remoteShellCommand: String,
+        expandCommandPlaceholders: Bool = true
     ) -> String {
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
         let commandB64 = Data(remoteShellCommand.utf8).base64EncodedString()
-        let attachCommand = [
+        var attachArguments = [
             shellQuote(executablePath),
             "ssh-pty-attach",
             "--wait",
@@ -8220,7 +8225,11 @@ struct CMUXCLI {
             "--session-id", "\"$cmux_ssh_pty_session_id\"",
             "--attachment-id", "\"$cmux_ssh_pty_surface_id\"",
             "--command-b64", shellQuote(commandB64),
-        ].joined(separator: " ")
+        ]
+        if !expandCommandPlaceholders {
+            attachArguments.append("--literal-command")
+        }
+        let attachCommand = attachArguments.joined(separator: " ")
         return [
             "cmux_ssh_pty_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
             "cmux_ssh_pty_surface_id=\"${CMUX_SURFACE_ID:-}\"",
@@ -9529,12 +9538,13 @@ struct CMUXCLI {
         let (commandB64Opt, rem3) = parseOption(rem2, name: "--command-b64")
         let waitForReady = rem3.contains("--wait")
         let requireExisting = rem3.contains("--require-existing")
-        let remaining = rem3.filter { $0 != "--wait" && $0 != "--require-existing" }
+        let literalCommand = rem3.contains("--literal-command")
+        let remaining = rem3.filter { $0 != "--wait" && $0 != "--require-existing" && $0 != "--literal-command" }
         if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
             throw CLIError(message: "ssh-pty-attach: unknown flag '\(unknown)'")
         }
         guard remaining.isEmpty else {
-            throw CLIError(message: "Usage: cmux ssh-pty-attach --workspace <workspace> --session-id <id> [--attachment-id <id>] [--command-b64 <base64>] [--require-existing]")
+            throw CLIError(message: "Usage: cmux ssh-pty-attach --workspace <workspace> --session-id <id> [--attachment-id <id>] [--command-b64 <base64>] [--literal-command] [--require-existing]")
         }
         let workspaceRaw = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         guard let workspaceRaw,
@@ -9555,12 +9565,14 @@ struct CMUXCLI {
                   var decoded = String(data: data, encoding: .utf8) else {
                 throw CLIError(message: "ssh-pty-attach: --command-b64 must be valid UTF-8 base64")
             }
-            decoded = decoded
-                .replacingOccurrences(of: "__CMUX_WORKSPACE_ID__", with: workspaceId)
-                .replacingOccurrences(
-                    of: "__CMUX_SURFACE_ID__",
-                    with: ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] ?? ""
-                )
+            if !literalCommand {
+                decoded = decoded
+                    .replacingOccurrences(of: "__CMUX_WORKSPACE_ID__", with: workspaceId)
+                    .replacingOccurrences(
+                        of: "__CMUX_SURFACE_ID__",
+                        with: ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] ?? ""
+                    )
+            }
             return decoded
         }
         var bridgeReachedReady = false

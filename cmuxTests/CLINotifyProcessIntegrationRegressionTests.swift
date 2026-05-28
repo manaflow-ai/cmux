@@ -2484,6 +2484,35 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(run.stdout.contains("session=work session mode=ssh"), run.stdout)
     }
 
+    func testTmuxAttachSSHMarksPlaceholderLikeTargetsAsLiteral() throws {
+        let run = try runMockedSSH(
+            arguments: [],
+            cliArguments: [
+                "tmux", "attach", "__CMUX_WORKSPACE_ID__",
+                "--ssh", "example.test",
+                "--existing",
+                "-S", "/tmp/__CMUX_SURFACE_ID__.sock",
+                "--no-focus",
+            ]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
+        let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
+        let initialScript = try XCTUnwrap(decodedReusableStartupScript(from: initialCommand))
+        let terminalStartupScript = try XCTUnwrap(decodedReusableStartupScript(from: terminalStartupCommand))
+        let tmuxCommand = "tmux -CC -S /tmp/__CMUX_SURFACE_ID__.sock attach -t __CMUX_WORKSPACE_ID__"
+        let encodedTmuxCommand = Data(tmuxCommand.utf8).base64EncodedString()
+
+        XCTAssertTrue(initialScript.contains("--command-b64 \(encodedTmuxCommand) --literal-command"), initialScript)
+        XCTAssertTrue(
+            terminalStartupScript.contains("--command-b64 \(encodedTmuxCommand) --literal-command"),
+            terminalStartupScript
+        )
+        XCTAssertEqual(configureParams["remote_pty_command"] as? String, tmuxCommand)
+        XCTAssertTrue(run.stdout.contains("session=__CMUX_WORKSPACE_ID__ mode=ssh"), run.stdout)
+    }
+
     func testTmuxAttachSSHRejectsNonReconnectableSSHOptionsBeforeRPC() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("tmuxattachsshreconnect")
@@ -2774,6 +2803,101 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.contains("ssh-pty-attach: remote PTY start failed"), result.stderr)
+        let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(methods, [
+            "workspace.remote.pty_bridge",
+            "workspace.remote.pty_attach_end",
+        ])
+    }
+
+    func testSSHPTYAttachLiteralCommandPreservesPlaceholderTokens() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshptyliteral")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let bridge = try bindLoopbackTCP()
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+        let sessionId = "ssh-\(workspaceId)-\(surfaceId)"
+        let token = "bridge-token"
+        let command = "tmux -CC -S /tmp/__CMUX_SURFACE_ID__.sock attach -t __CMUX_WORKSPACE_ID__"
+        let encodedCommand = Data(command.utf8).base64EncodedString()
+
+        defer {
+            Darwin.close(listenerFD)
+            Darwin.close(bridge.fd)
+            unlink(socketPath)
+        }
+
+        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "workspace.remote.pty_bridge":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
+                XCTAssertEqual(params["command"] as? String, command)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "host": "127.0.0.1",
+                        "port": bridge.port,
+                        "token": token,
+                        "session_id": sessionId,
+                        "attachment_id": surfaceId,
+                    ]
+                )
+            case "workspace.remote.pty_attach_end":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                        "session_id": sessionId,
+                        "cleared_remote_pty_session": true,
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+        let bridgeHandled = startBridgeErrorServer(
+            listenerFD: bridge.fd,
+            message: "remote PTY start failed"
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-pty-attach",
+                "--workspace", workspaceId,
+                "--session-id", sessionId,
+                "--attachment-id", surfaceId,
+                "--command-b64", encodedCommand,
+                "--literal-command",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [socketHandled, bridgeHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertEqual(methods, [
             "workspace.remote.pty_bridge",

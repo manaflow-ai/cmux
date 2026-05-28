@@ -94,7 +94,8 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         command: String? = nil,
         sessionID: String? = nil,
         foregroundAuth: ForegroundAuth? = nil,
-        requireExisting: Bool = true
+        requireExisting: Bool = true,
+        expandCommandPlaceholders: Bool = false
     ) -> String {
         var lines = [
             "cmux_ssh_attach_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
@@ -117,7 +118,8 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         let requireExistingFlag = requireExisting ? " --require-existing" : ""
         let commandFlag: String
         if let command = normalized(command) {
-            commandFlag = " --command-b64 \(shellQuote(Data(command.utf8).base64EncodedString()))"
+            let literalCommandFlag = expandCommandPlaceholders ? "" : " --literal-command"
+            commandFlag = " --command-b64 \(shellQuote(Data(command.utf8).base64EncodedString()))\(literalCommandFlag)"
         } else {
             commandFlag = ""
         }
