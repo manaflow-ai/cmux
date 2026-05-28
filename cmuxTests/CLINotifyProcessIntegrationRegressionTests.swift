@@ -2434,6 +2434,29 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result, "/opt/local/bin/tmux")
     }
 
+    func testDefaultTmuxExecutablePathSkipsExecutableDirectories() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tmux-path-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let directoryNamedTmux = root.appendingPathComponent("tmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryNamedTmux, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directoryNamedTmux.path)
+
+        let fallbackTmux = root.appendingPathComponent("real-tmux")
+        FileManager.default.createFile(atPath: fallbackTmux.path, contents: Data("#!/bin/sh\n".utf8))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fallbackTmux.path)
+
+        let result = TerminalController.defaultTmuxExecutablePath(
+            environmentPath: root.path,
+            commonPaths: [fallbackTmux.path],
+            isExecutable: { TerminalController.isExecutableFilePath($0) }
+        )
+
+        XCTAssertEqual(result, fallbackTmux.path)
+    }
+
     func testTmuxAttachLocalPreservesCallerContextFocusAndResolvesCwd() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("tmuxattachctx")
