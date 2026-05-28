@@ -1072,11 +1072,18 @@
     "egrefen": "Tüm hafta sonu bunu kullandım ve harika.",
     "max4c": "son iki haftadır en sevdiğim araç bu oldu",
     "lucas_flatwhite": "Henüz geç değil. Ghostty’yi çok kullanıyorum ama cmux de aşk. Dikey sekmeler, bildirim halkaları, yerleşik tarayıcı, bölünmüş paneller, GPU hızlandırması... gerçekten çok fazla avantajı var!",
+    "yamadashy": "cmux'u bir süre kullandım ve sevdim. 'İnanılmaz iyi' demekten çok 'evet, aradığım şey bu' hissi veriyor. k1Low/mo ile de iyi çalışıyor.",
     "minixalpha": "Ben de cmux’u ana terminalim olarak kullanıyorum ve iş arkadaşlarıma öneriyorum. Bildirimler, çalışma alanları ve kısayollar paralel işler yürütürken verimliliği artırıyor. cmux biraz çirkin olsa da işlevleri onu vazgeçilmez yapıyor.",
+    "juan_barbat": "Tarayıcıyla ilgili bir sorun yaşadım ama cmux günlük işlerimde vazgeçilmez.",
+    "yousefrol": "Önerim basit: cmux kullanın. Terminal tarafındaki neredeyse her sorunumu çözdü.",
+    "tobiasgloeckler": "cmux'u yeni kurdum. Daha önce Ghostty kullanıyordum, ama cmux AI agent'ları ve kodlama için daha da uygun.",
+    "wescld": "Dostum, cmux olmadan bu kadar uzun süre nasıl yaşamışım bilmiyorum.",
     "jinchenma_ai": "cmux son zamanlarda en çok kullandığım terminal aracı. Açık kaynak ve ücretsiz. Benim için iTerm2’nin yerini neredeyse aldı ve çoklu terminal penceresi düzenleme sorununu mükemmel çözüyor.",
+    "zvasil": "Bir süre önce Warp'tan buna geçtim ve roketle yolculuğa çıkmış gibi hissettirdi. macOS için native Swift ile yazılmış ve süper aktif geliştiriliyor.",
     "immazzystar": "Son zamanlarda kullanmayı sevdiğim bir araç: cmux. Artık terminal pencereleri arasında sürekli geçiş yapmam gerekmiyor.",
     "blitz_zidan": "cmux son zamanlarda favori terminalim. Bence birden fazla terminal çalıştırmak için gerçekten iyi.",
     "asaza": "cmux o kadar iyi görünüyor ki belki de sonunda VSCode'a veda etme zamanı geldi",
+    "ssarisen": "eğer birden fazla terminal ile çalışmanız gerekiyorsa kesinlikle cmux'u denemelisiniz. terminal sizden bir cevap beklediğinde otomatik bildirim geliyor.",
     "johnthedebs": "Hey, bu gerçekten harika görünüyor. Buradaki fikirleri sevdim, özellikle: programlanabilirlik, katmanlı arayüz, API'li tarayıcı. Denemeyi dört gözle bekliyorum. Ayrıca Mitchell Hashimoto'nun libghostty'yi yaratmasını gerçekten takdir ettiğimi belirtmek isterim; terminal kullanıcısı olmak için heyecan verici bir zaman gibi hissettiriyor.",
     "joeriddles": "Terminalimde dikey sekmeler! Daha önce hiç düşünmemiştim. Firefox dikey sekmelerini kullanıyor ve seviyorum.",
     "dchu17": "Bunu denedim ve oldukça sezgiseldi. İyi iş!",
@@ -1136,5 +1143,8 @@
       "intro": "Bu sayfa geçerli cmux çalışma alanındaki kuralları açar.",
       "fallback": "cmux önce kuralları gösterir ve bunları geçerli çalışma alanına yapıştırmadan önce sorar. cmux açılmazsa cmux'u yükleyin ve cmux'da aç'a tekrar tıklayın."
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "OpenClaw yaratıcısı. PSPDFKit kurucusu."
   }
 }

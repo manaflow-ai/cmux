@@ -1072,11 +1072,18 @@
     "egrefen": "Używałem tego cały weekend i jest niesamowite.",
     "max4c": "to było moje ulubione narzędzie przez ostatnie dwa tygodnie",
     "lucas_flatwhite": "Nie jest jeszcze za późno. Często używam Ghostty, ale cmux też uwielbiam. Pionowe karty, pierścienie powiadomień, wbudowana przeglądarka, podzielone panele, akceleracja GPU... zalet jest naprawdę dużo!",
+    "yamadashy": "Używam cmux od jakiegoś czasu i podoba mi się. To nie tyle 'to jest niesamowite', ile raczej 'tak, właśnie o to chodzi'. Dobrze współpracuje też z k1Low/mo.",
     "minixalpha": "Ja też używam cmux jako głównego terminala i polecam go współpracownikom. Powiadomienia, przestrzenie robocze i skróty zwiększają efektywność przy wielu równoległych zadaniach. Chociaż cmux jest trochę brzydki, jego funkcjonalność sprawia, że nie da się bez niego obejść.",
+    "juan_barbat": "Miałem pewien problem z przeglądarką, ale cmux jest niezastąpiony w mojej codziennej pracy.",
+    "yousefrol": "Moja sugestia jest prosta: używajcie cmux. Rozwiązał mi prawie każdy problem z terminalem.",
+    "tobiasgloeckler": "Właśnie zainstalowałem cmux. Do tej pory używałem Ghostty, ale cmux jeszcze lepiej nadaje się do agentów AI i kodowania.",
+    "wescld": "Nie wiem, jak żyłem tak długo bez cmux.",
     "jinchenma_ai": "cmux to narzędzie terminalowe, którego ostatnio używam najczęściej. Jest open source i darmowy. W zasadzie zastąpił mi iTerm2 i świetnie rozwiązuje problem układania wielu okien terminala.",
+    "zvasil": "Jakiś czas temu przeniosłem się na niego z Warpa i poczułem się, jakbym przesiadł się do rakiety. Jest natywny dla macOS, napisany w Swifcie i bardzo aktywnie rozwijany.",
     "immazzystar": "Narzędzie, którego ostatnio lubię używać: cmux. Nie muszę już ciągle przełączać okien terminala.",
     "blitz_zidan": "cmux to ostatnio mój ulubiony terminal. Moim zdaniem jest naprawdę dobry do uruchamiania wielu terminali.",
     "asaza": "cmux wygląda tak dobrze, że może wreszcie czas pożegnać się z VSCode",
+    "ssarisen": "Jeśli musisz pracować z wieloma terminalami, zdecydowanie wypróbuj cmux. Gdy terminal czeka na twoje dane wejściowe, automatycznie wysyła powiadomienie.",
     "johnthedebs": "Hej, to wygląda naprawdę świetnie. Uwielbiam pomysły tutaj, konkretnie: programowalność, warstwowy UI, przeglądarka z API. Nie mogę się doczekać żeby to wypróbować. Chcę też dodać, że naprawdę doceniam Mitchella Hashimoto za stworzenie libghostty; czuć, że to ekscytujący czas dla użytkowników terminala.",
     "joeriddles": "Pionowe karty w moim terminalu! Nigdy wcześniej o tym nie pomyślałem. Używam i kocham pionowe karty w Firefoxie.",
     "dchu17": "Dałem temu szansę i było dość intuicyjne. Dobra robota!",
@@ -1136,5 +1143,8 @@
       "intro": "Ta strona otwiera reguły w bieżącym obszarze roboczym cmux.",
       "fallback": "cmux najpierw pokazuje reguły i pyta przed wklejeniem ich do bieżącego obszaru roboczego. Jeśli cmux się nie otworzy, zainstaluj cmux i ponownie kliknij Otwórz w cmux."
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "Twórca OpenClaw. Założyciel PSPDFKit."
   }
 }
