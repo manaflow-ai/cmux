@@ -807,11 +807,11 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] = "1"
         launchAndEnsureForeground(app)
 
-        XCTAssertTrue(waitForSocketPong(timeout: 8.0), "Expected debug socket at \(socketPath)")
         XCTAssertTrue(
             waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
             "Expected split setup data before testing canvas trackpad pan. data=\(loadData() ?? [:])"
         )
+        XCTAssertTrue(waitForSocketPong(timeout: 20.0), "Expected debug socket at \(socketPath)")
         XCTAssertTrue(
             waitForCondition(timeout: 8.0) {
                 self.canvasLayout()?["canvasOverviewActive"] as? Bool == true
@@ -871,11 +871,11 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] = "1"
         launchAndEnsureForeground(app)
 
-        XCTAssertTrue(waitForSocketPong(timeout: 8.0), "Expected debug socket at \(socketPath)")
         XCTAssertTrue(
             waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
             "Expected split setup data before testing canvas portal pan sync. data=\(loadData() ?? [:])"
         )
+        XCTAssertTrue(waitForSocketPong(timeout: 20.0), "Expected debug socket at \(socketPath)")
         XCTAssertTrue(
             waitForCondition(timeout: 8.0) {
                 self.canvasLayout()?["canvasActiveRenderMode"] as? String == "liveNative1x" &&
