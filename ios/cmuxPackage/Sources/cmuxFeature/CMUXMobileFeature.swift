@@ -2180,8 +2180,8 @@ struct WorkspaceDetailView: View {
         #endif
     }
 
-    private static let minimumTerminalFontScale: CGFloat = 0.5
-    private static let maximumTerminalFontScale: CGFloat = 3.0
+    private static let minimumTerminalFontScale = TerminalViewportMetrics.minimumFontScale
+    private static let maximumTerminalFontScale = TerminalViewportMetrics.maximumFontScale
     private static let terminalFontScaleStep: CGFloat = 0.1
 
     private func terminalBottomActionBar(expandsSafeArea: Bool) -> some View {
@@ -3338,8 +3338,8 @@ struct TerminalPreviewSurface: View {
     var performBottomAction: (MobileTerminalBottomAction) -> Void = { _ in }
     var requestKeyboardFocus: () -> Void = {}
     var onViewportChange: (MobileTerminalViewportSize) -> Void = { _ in }
-    var minimumFontScale: CGFloat = 0.5
-    var maximumFontScale: CGFloat = 3.0
+    var minimumFontScale: CGFloat = TerminalViewportMetrics.minimumFontScale
+    var maximumFontScale: CGFloat = TerminalViewportMetrics.maximumFontScale
     @Environment(\.displayScale) private var displayScale
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var pinchBaseScale: CGFloat = 1
@@ -3426,7 +3426,8 @@ struct TerminalPreviewSurface: View {
             .onChange(of: visibleSize) { _, _ in
                 onViewportChange(viewportSize)
             }
-            .onChange(of: fontScale) { _, _ in
+            .onChange(of: fontScale) { _, newValue in
+                pinchBaseScale = min(max(newValue, minimumFontScale), maximumFontScale)
                 onViewportChange(viewportSize)
             }
             .onChange(of: keyboardVisible) { _, _ in
@@ -4750,6 +4751,8 @@ private struct TerminalViewportMetrics {
     let gridWidth: CGFloat
     let gridHeight: CGFloat
 
+    static let minimumFontScale: CGFloat = 0.8
+    static let maximumFontScale: CGFloat = 1.5
     static let preferredFontSize: CGFloat = 12
     static let preferredCellWidth: CGFloat = 7.4
     static let preferredRowHeight: CGFloat = 14
@@ -4773,7 +4776,7 @@ private struct TerminalViewportMetrics {
     }
 
     static func clampedFontScale(_ scale: CGFloat) -> CGFloat {
-        min(1.5, max(0.8, scale))
+        min(maximumFontScale, max(minimumFontScale, scale))
     }
 }
 

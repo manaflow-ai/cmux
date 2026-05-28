@@ -21179,12 +21179,11 @@ class TerminalController {
         let routeKind = v2OptionalTrimmedRawString(params, "route_kind")
             ?? v2OptionalTrimmedRawString(params, "routeKind")
         let scope = v2OptionalTrimmedRawString(params, "scope")
-        // scope=mac mints a Mac-wide ticket that grants access to every
-        // workspace on the host. Without this, the ticket gets pinned to
-        // the workspace selected at QR-generation time, and tapping any
-        // other workspace from the paired iPhone falls back to Stack
-        // Auth verification, which is brittle on real-world networks.
-        let isMacScope = scope?.lowercased() == "mac"
+        let hasExplicitTarget = mobileAttachTicketHasExplicitTarget(params: params)
+        // No explicit target means general device pairing, so default to a
+        // Mac-wide ticket. Scoped tickets are still available for deep links by
+        // passing workspace_id or terminal_id explicitly.
+        let isMacScope = scope?.lowercased() == "mac" || (scope == nil && !hasExplicitTarget)
 
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
@@ -21254,6 +21253,13 @@ class TerminalController {
                 data: ["error": String(describing: error)]
             )
         }
+    }
+
+    private func mobileAttachTicketHasExplicitTarget(params: [String: Any]) -> Bool {
+        v2HasNonNullParam(params, "workspace_id") ||
+            v2HasNonNullParam(params, "surface_id") ||
+            v2HasNonNullParam(params, "terminal_id") ||
+            v2HasNonNullParam(params, "tab_id")
     }
 
     private func v2MobileWorkspaceList(

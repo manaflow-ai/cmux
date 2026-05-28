@@ -1622,6 +1622,42 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertEqual(missingTerminalError.code, "not_found")
     }
 
+    func testMobileAttachTicketCreateWithoutExplicitTargetDefaultsToMacWide() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        MobileHostService.shared.start()
+        defer {
+            MobileHostService.shared.stop()
+        }
+        guard await waitForMobileHostRoutesForTesting() else {
+            XCTFail("Expected mobile host to publish routes before creating attach ticket")
+            return
+        }
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "attach-ticket",
+                method: "mobile.attach_ticket.create",
+                params: [:],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let ticket = payload["ticket"] as? [String: Any] else {
+            XCTFail("Expected Mac-wide attach ticket payload")
+            return
+        }
+        XCTAssertEqual(ticket["workspaceID"] as? String, "")
+        XCTAssertNil(ticket["terminalID"])
+    }
+
     func testMobileAttachTicketCreateWithoutTerminalStaysWorkspaceScoped() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()

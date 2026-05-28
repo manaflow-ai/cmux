@@ -243,8 +243,8 @@ final class cmuxUITests: XCTestCase {
             endpoint: .hostPort(host: "127.0.0.1", port: Int(port))
         )
         let ticket = try CmxAttachTicket(
-            workspaceID: "workspace-main",
-            terminalID: "terminal-build",
+            workspaceID: "",
+            terminalID: nil,
             macDeviceID: "ui-test-mac",
             macDisplayName: "UI Test Mac",
             routes: [route],

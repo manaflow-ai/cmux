@@ -191,10 +191,10 @@ final class MobileHostService {
     /// not actor-isolated listener state.
     nonisolated static func emitEvent(topic: String, payload: [String: Any]) {
         let connections = MobileHostConnectionRegistry.shared.snapshot()
+        guard !connections.isEmpty else { return }
         #if DEBUG
         cmuxDebugLog("mobile.emit topic=\(topic) connections=\(connections.count)")
         #endif
-        guard !connections.isEmpty else { return }
         for connection in connections {
             Task {
                 let delivered = await connection.sendEvent(topic: topic, payload: payload)

@@ -1948,12 +1948,32 @@ public final class CMUXMobileShellStore {
                 guard let self else { return }
                 guard self.remoteClient === client, self.connectionState == .connected else { return }
                 if event.topic == "terminal.updated" {
+                    guard self.shouldRefreshSelectedTerminal(for: event) else {
+                        continue
+                    }
                     await self.refreshSelectedTerminalSnapshot()
                 } else if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
                 }
             }
         }
+    }
+
+    private func shouldRefreshSelectedTerminal(for event: MobileEventEnvelope) -> Bool {
+        guard let eventSurfaceID = Self.surfaceID(from: event) else {
+            return true
+        }
+        return selectedTerminalID?.rawValue == eventSurfaceID
+    }
+
+    private static func surfaceID(from event: MobileEventEnvelope) -> String? {
+        guard let payloadJSON = event.payloadJSON,
+              let payload = try? JSONSerialization.jsonObject(with: payloadJSON) as? [String: Any],
+              let surfaceID = payload["surface_id"] as? String else {
+            return nil
+        }
+        let trimmed = surfaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func scheduleWorkspaceListRefreshFromEvent() {

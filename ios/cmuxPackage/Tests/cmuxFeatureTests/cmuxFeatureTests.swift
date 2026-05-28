@@ -2625,6 +2625,61 @@ import UIKit
 }
 
 @MainActor
+@Test func macWideAttachTicketSelectsOtherTerminalWithoutStackAuth() async throws {
+    let workspaceID = "workspace-main"
+    let buildTerminalID = "terminal-build"
+    let tuiTerminalID = "terminal-tui"
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "",
+        terminalID: nil,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let router = TerminalSelectionRefreshRouter(
+        workspaceID: workspaceID,
+        buildTerminalID: buildTerminalID,
+        tuiTerminalID: tuiTerminalID
+    )
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        stackAccessToken: nil
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let pairingURL = try attachURL(for: ticket).absoluteString
+
+    store.signIn()
+    let connectTask = Task {
+        await store.connectPairingURL(pairingURL)
+    }
+    _ = try await waitForRequestCount("terminal.snapshot", count: 1, router: router)
+    await router.releaseBuildSnapshot()
+    #expect(await connectTask.value)
+
+    store.selectTerminal(MobileTerminalPreview.ID(rawValue: tuiTerminalID))
+
+    let snapshotRequests = try await waitForRequestCount("terminal.snapshot", count: 2, router: router)
+    let tuiSnapshotRequest = try #require(snapshotRequests.first {
+        $0.workspaceID == workspaceID && $0.terminalID == tuiTerminalID
+    })
+    #expect(tuiSnapshotRequest.attachToken == "ticket-secret")
+    #expect(tuiSnapshotRequest.stackAccessToken == nil)
+
+    let selectedTerminal = try await waitForSelectedTerminal(in: store) {
+        $0.id.rawValue == tuiTerminalID && $0.snapshot.renderedVisibleLines.first == "LAZYGIT"
+    }
+    #expect(selectedTerminal.id.rawValue == tuiTerminalID)
+}
+
+@MainActor
 @Test func rawTerminalInputDoesNotReplaceStyledSnapshotWithImmediatePlainTextDowngrade() async throws {
     let workspaceID = UUID().uuidString
     let terminalID = UUID().uuidString
