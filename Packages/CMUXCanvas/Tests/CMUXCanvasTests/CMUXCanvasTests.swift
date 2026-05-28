@@ -175,6 +175,22 @@ final class CMUXCanvasTests: XCTestCase {
         XCTAssertEqual(mode.requestsImmediateDisplay, true)
     }
 
+    func testSurfaceTextureSourceIndexAllowsDuplicateIDs() throws {
+        let image = try XCTUnwrap(Self.makeTestImage())
+        let id = LayoutItemID()
+        let older = CanvasSurfaceTextureSource(id: id, image: image, generation: 1, contentMode: .fit)
+        let newer = CanvasSurfaceTextureSource(id: id, image: image, generation: 2, contentMode: .fill)
+
+        let sources = CanvasSurfaceTextureSourceIndex.makeSourcesByID([older, newer])
+
+        XCTAssertEqual(sources.count, 1)
+        guard case .bitmap(_, let generation) = sources[id]?.backing else {
+            return XCTFail("Expected bitmap source")
+        }
+        XCTAssertEqual(generation, 2)
+        XCTAssertEqual(sources[id]?.contentMode, .fill)
+    }
+
     func testNativeOverlayManagerUsesNativeOnlyForActiveSurfaceAtNativeScale() {
         let activeID = LayoutItemID()
         let previewID = LayoutItemID()

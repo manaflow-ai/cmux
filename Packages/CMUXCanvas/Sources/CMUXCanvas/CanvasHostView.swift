@@ -440,7 +440,7 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
         guard let device,
               let pipelineState = texturePipelineState(for: view) else { return }
         pruneTextureCache(keeping: surfaceTextures)
-        let sources = Dictionary(uniqueKeysWithValues: surfaceTextures.map { ($0.id, $0) })
+        let sources = CanvasSurfaceTextureSourceIndex.makeSourcesByID(surfaceTextures)
         guard !sources.isEmpty else { return }
 
         textureVertices.removeAll(keepingCapacity: true)
@@ -722,6 +722,17 @@ struct CanvasMetalRenderLoopMode: Equatable {
             enableSetNeedsDisplay: !hasContinuousTexture,
             requestsImmediateDisplay: !hasContinuousTexture
         )
+    }
+}
+
+enum CanvasSurfaceTextureSourceIndex {
+    static func makeSourcesByID(_ surfaceTextures: [CanvasSurfaceTextureSource]) -> [LayoutItemID: CanvasSurfaceTextureSource] {
+        var sources: [LayoutItemID: CanvasSurfaceTextureSource] = [:]
+        sources.reserveCapacity(surfaceTextures.count)
+        for source in surfaceTextures {
+            sources[source.id] = source
+        }
+        return sources
     }
 }
 
