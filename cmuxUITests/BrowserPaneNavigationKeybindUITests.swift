@@ -910,6 +910,59 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testCanvasNewSurfaceButtonsAddTabsWithoutCreatingPanes() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_ALLOW_UNFOCUSED_BROWSER"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] = "1"
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(waitForSocketPong(timeout: 8.0), "Expected debug socket at \(socketPath)")
+        XCTAssertTrue(
+            waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
+            "Expected split setup data before testing canvas new-surface buttons. data=\(loadData() ?? [:])"
+        )
+        guard let terminalPaneId = loadData()?["terminalPaneId"] else {
+            XCTFail("Missing terminal pane id. data=\(loadData() ?? [:])")
+            return
+        }
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                self.canvasActionButton(app, prefix: "WorkspaceCanvasNewTerminal", paneId: terminalPaneId).exists
+            },
+            "Expected canvas new-terminal button for terminal pane"
+        )
+        guard let initialPaneCount = layoutPaneCount(),
+              let initialTabCount = layoutTabCount(inPane: terminalPaneId) else {
+            XCTFail("Missing initial layout pane/tab counts. layout=\(String(describing: canvasLayout()))")
+            return
+        }
+
+        canvasActionButton(app, prefix: "WorkspaceCanvasNewTerminal", paneId: terminalPaneId).click()
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                self.layoutPaneCount() == initialPaneCount &&
+                    self.layoutTabCount(inPane: terminalPaneId) == initialTabCount + 1 &&
+                    self.selectedCanvasPanel(panelType: "terminal")?["paneId"] as? String == terminalPaneId
+            },
+            "Expected New Terminal to add a surface tab to the same pane without creating a pane. layout=\(String(describing: canvasLayout()))"
+        )
+
+        canvasActionButton(app, prefix: "WorkspaceCanvasNewBrowser", paneId: terminalPaneId).click()
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                self.layoutPaneCount() == initialPaneCount &&
+                    self.layoutTabCount(inPane: terminalPaneId) == initialTabCount + 2 &&
+                    self.selectedCanvasPanel(panelType: "browser")?["paneId"] as? String == terminalPaneId
+            },
+            "Expected New Browser to add a surface tab to the same pane without creating a pane. layout=\(String(describing: canvasLayout()))"
+        )
+    }
+
     func testCanvasTabChipClickSwitchesSurfaceWithSecondWindowPresent() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -1694,6 +1747,43 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.descendants(matching: .any)
             .matching(identifier: "WorkspaceCanvasTabChip.\(paneId).\(surfaceId)")
             .firstMatch
+    }
+
+    private func canvasActionButton(_ app: XCUIApplication, prefix: String, paneId: String) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(identifier: "\(prefix).\(paneId)")
+            .firstMatch
+    }
+
+    private func layoutPaneCount() -> Int? {
+        layoutPanes()?.count
+    }
+
+    private func layoutTabCount(inPane paneId: String) -> Int? {
+        layoutPane(paneId: paneId)?["tabIds"].map(tabIdsCount)
+    }
+
+    private func layoutPane(paneId: String) -> [String: Any]? {
+        layoutPanes()?.first { pane in
+            pane["paneId"] as? String == paneId
+        }
+    }
+
+    private func layoutPanes() -> [[String: Any]]? {
+        guard let layout = canvasLayout()?["layout"] as? [String: Any] else {
+            return nil
+        }
+        return layout["panes"] as? [[String: Any]]
+    }
+
+    private func tabIdsCount(_ value: Any) -> Int {
+        if let strings = value as? [String] {
+            return strings.count
+        }
+        if let values = value as? [Any] {
+            return values.count
+        }
+        return 0
     }
 
     private func selectedCanvasSurface(inPane paneId: String) -> String? {

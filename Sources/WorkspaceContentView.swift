@@ -3093,7 +3093,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 isEnabled: card.paneActionsEnabled,
                 accessibilityID: "WorkspaceCanvasNewTerminal"
             ) {
-                createCanvasTerminalPane(item: card.item, paneID: card.paneID)
+                createCanvasTerminalSurface(item: card.item, paneID: card.paneID)
             }
             canvasPaneActionButton(
                 systemName: "globe",
@@ -3103,7 +3103,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 isEnabled: card.paneActionsEnabled,
                 accessibilityID: "WorkspaceCanvasNewBrowser"
             ) {
-                createCanvasBrowserPane(item: card.item, selected: card.selected, paneID: card.paneID)
+                createCanvasBrowserSurface(item: card.item, paneID: card.paneID)
             }
             canvasPaneActionButton(
                 systemName: "rectangle.split.2x1",
@@ -3169,22 +3169,29 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         WorkspaceCanvasSurfaceMountManager.synchronizeAll()
     }
 
-    private func createCanvasTerminalPane(item: CanvasItem, paneID: PaneID?) {
-        splitCanvasPane(item: item, paneID: paneID, orientation: .horizontal)
-    }
-
-    private func createCanvasBrowserPane(item: CanvasItem, selected: SurfaceTab?, paneID: PaneID?) {
+    private func createCanvasTerminalSurface(item: CanvasItem, paneID: PaneID?) {
         focusCanvasHeader(item: item, paneID: paneID)
-        guard let sourcePanelID = selected.flatMap({ workspace.panelIdFromSurfaceId($0.id) }) else {
+        guard let paneID,
+              workspace.newTerminalSurface(
+                inPane: paneID,
+                focus: true,
+                workingDirectory: nil,
+                initialInput: nil
+              ) != nil else {
             return
         }
-        guard let panel = workspace.newBrowserSplit(
-            from: sourcePanelID,
-            orientation: .horizontal,
-            insertFirst: false,
-            focus: true
-        ) else { return }
-        placeCreatedCanvasPane(from: item, panelID: panel.id, orientation: .horizontal)
+        WorkspaceCanvasSurfaceMountManager.synchronizeAll()
+    }
+
+    private func createCanvasBrowserSurface(item: CanvasItem, paneID: PaneID?) {
+        focusCanvasHeader(item: item, paneID: paneID)
+        guard let paneID,
+              workspace.newBrowserSurface(
+                inPane: paneID,
+                focus: true
+              ) != nil else {
+            return
+        }
         WorkspaceCanvasSurfaceMountManager.synchronizeAll()
     }
 
