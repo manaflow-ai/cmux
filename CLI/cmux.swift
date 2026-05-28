@@ -626,6 +626,13 @@ private final class ClaudeHookSessionStore {
                     state.sessions[normalized] = record
                     return totalDepth > 1
                 }
+                if turnStack.last == normalizedTurnId {
+                    let totalDepth = max(legacyDepth, turnStack.count)
+                    setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
+                    record.lastPromptTurnId = normalizedTurnId
+                    state.sessions[normalized] = record
+                    return totalDepth > 1
+                }
                 let totalDepth = max(legacyDepth, turnStack.count) + 1
                 turnStack.append(normalizedTurnId)
                 setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
@@ -2801,6 +2808,7 @@ struct CMUXCLI {
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
+        if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
 
         if command == "settings",
            settingsCommandDoesNotNeedSocket(commandArgs) {
@@ -2902,6 +2910,7 @@ struct CMUXCLI {
             return
         }
         if command == "open" { try runOpenCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput, idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)); return }
+        if command == "diff" { try runDiffCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput, idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)); return }
         if command == "restore-session" {
             try runRestoreSession(
                 commandArgs: commandArgs,
@@ -4746,6 +4755,7 @@ struct CMUXCLI {
         "current-workspace",
         "debug-terminals",
         "detach-tab",
+        "diff",
         "disable-browser",
         "dismiss-notification",
         "display-message",
@@ -13738,6 +13748,7 @@ struct CMUXCLI {
         case "is-webview-focused":
             return "Legacy alias for 'cmux browser is-webview-focused'. Run 'cmux browser --help' for details."
         case "open": return openSubcommandUsage()
+        case "diff": return diffSubcommandUsage()
         case "markdown":
             return """
             Usage: cmux markdown open <path> [options]
@@ -17555,7 +17566,7 @@ struct CMUXCLI {
         let outputBox = CodexTeamsAsyncBox<Data>()
         let outputReadSemaphore = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .utility).async {
-            outputBox.set(output.fileHandleForReading.readDataToEndOfFile())
+            outputBox.set(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: output.fileHandleForReading))
             outputReadSemaphore.signal()
         }
 
@@ -19347,8 +19358,10 @@ struct CMUXCLI {
         stdinPipe.fileHandleForWriting.closeFile()
         process.waitUntilExit()
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stdoutData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading)
+        let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading)
+        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         return (process.terminationStatus, stdout, stderr)
     }
 
@@ -23256,7 +23269,7 @@ struct CMUXCLI {
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return nil }
 
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdout.fileHandleForReading)
         guard let output = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !output.isEmpty else {
@@ -26171,6 +26184,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            if !suppressVisibleMutations {
+                try? recordAgentTurnDiffBaseline(
+                    agent: def.name,
+                    sessionId: sessionId,
+                    turnId: input.turnId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    env: env,
+                    preserveExistingTurnBaseline: true
+                )
+            }
             if !sessionId.isEmpty {
                 try? store.upsert(
                     sessionId: sessionId,
@@ -26235,6 +26260,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let activePromptTurnStack = mapped?.activePromptTurnIds?
                 .compactMap({ normalizedHookValue($0) }) ?? []
             let activePromptTurnId = activePromptTurnStack.last ?? normalizedHookValue(mapped?.activePromptTurnId)
+            let activePromptDepth = max(mapped?.activePromptDepth ?? 0, activePromptTurnStack.count)
             let terminalActivePromptTurnIds: Set<String>
             let previousActivePromptTurnIsTerminal: Bool
             if def.name == "codex",
@@ -26276,6 +26302,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 nestedPromptEvent: nestedPromptSubmit,
                 env: env
             )
+            if !suppressVisibleMutations {
+                try? recordAgentTurnDiffBaseline(
+                    agent: def.name,
+                    sessionId: sessionId,
+                    turnId: input.turnId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    env: env,
+                    preserveExistingTurnBaseline: activePromptDepth > 0 &&
+                        (normalizedHookValue(input.turnId).map { $0 == activePromptTurnId } ?? false)
+                )
+            }
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 try? store.upsert(
                     sessionId: sessionId,
@@ -27957,12 +27996,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let drainGroup = DispatchGroup()
         drainGroup.enter()
         DispatchQueue.global(qos: .utility).async {
-            stdoutData = stdoutHandle.readDataToEndOfFile()
+            stdoutData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutHandle)
             drainGroup.leave()
         }
         drainGroup.enter()
         DispatchQueue.global(qos: .utility).async {
-            stderrData = stderrHandle.readDataToEndOfFile()
+            stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrHandle)
             drainGroup.leave()
         }
 
@@ -29989,7 +30028,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return nil
         }
 
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdout.fileHandleForReading)
         guard let output = String(data: data, encoding: .utf8) else {
             return nil
         }
@@ -30149,6 +30188,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           agent-hibernation <on|off>
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
+          diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
           themes [list|set|clear]
@@ -30263,6 +30303,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           display-message [-p|--print] <text>
 
           markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
+          diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status

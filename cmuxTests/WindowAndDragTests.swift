@@ -3124,6 +3124,55 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(applications.map(\.isDefault), [false])
     }
 
+    func testExternalOpenMenuKeepsFinderTopLevelAndOpenWithItemsSearchableByAppName() throws {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.png")
+        let previewURL = URL(fileURLWithPath: "/System/Applications/Preview.app")
+        let pixelmatorURL = URL(fileURLWithPath: "/Applications/Pixelmator Pro.app")
+        let primaryApplication = FileExternalOpenApplication(
+            url: previewURL,
+            displayName: "Preview",
+            isDefault: true
+        )
+        let otherApplication = FileExternalOpenApplication(
+            url: pixelmatorURL,
+            displayName: "Pixelmator Pro",
+            isDefault: false
+        )
+
+        let menu = FileExternalOpenMenuFactory.makeMenu(
+            fileURL: fileURL,
+            primaryApplication: primaryApplication,
+            otherApplications: [otherApplication]
+        )
+
+        let topLevelTitles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
+        XCTAssertEqual(topLevelTitles, [
+            FileExternalOpenText.openInApplication("Preview"),
+            FileExternalOpenText.revealInFinder,
+            FileExternalOpenText.openWithMenu,
+        ])
+
+        let openWithItem = try XCTUnwrap(menu.items.first { $0.title == FileExternalOpenText.openWithMenu })
+        let openWithTitles = try XCTUnwrap(openWithItem.submenu?.items.map(\.title))
+        XCTAssertEqual(openWithTitles, ["Pixelmator Pro"])
+    }
+
+    func testExternalOpenMenuKeepsFinderTopLevelWithoutResolvedApplications() {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.bin")
+
+        let menu = FileExternalOpenMenuFactory.makeMenu(
+            fileURL: fileURL,
+            primaryApplication: nil,
+            otherApplications: []
+        )
+
+        let topLevelTitles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
+        XCTAssertEqual(topLevelTitles, [
+            FileExternalOpenText.openExternally,
+            FileExternalOpenText.revealInFinder,
+        ])
+    }
+
     func testCmdClickSupportedFileRoutingDefaultsToReadableRegularFilesOnly() throws {
         let suiteName = "cmux.file-preview-routing.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -3158,6 +3207,18 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         XCTAssertTrue(CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
         XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+    }
+
+    func testCmdClickMarkdownRoutingDefaultsToReadableMarkdownFiles() throws {
+        let suiteName = "cmux.markdown-preview-default-routing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile(contents: "# preview me", encoding: .utf8, pathExtension: "md")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        XCTAssertTrue(CmdClickMarkdownRouteSettings.isEnabled(defaults: defaults))
+        XCTAssertTrue(CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
     }
 
     func testCmdClickFilePreviewRoutingReusesRightSidePane() throws {

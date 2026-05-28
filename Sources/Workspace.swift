@@ -166,7 +166,7 @@ extension Workspace {
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
-        let layout = sessionLayoutSnapshot(from: tree)
+        let rawLayout = sessionLayoutSnapshot(from: tree)
         if let surfaceResumeBindingIndex {
             reconcileSurfaceResumeBindings(using: surfaceResumeBindingIndex)
         }
@@ -194,6 +194,10 @@ extension Workspace {
                     )
                 )
             }
+        let persistedPanelIds = Set(panelSnapshots.map(\.id))
+        let layout = prunedSessionLayoutSnapshot(rawLayout, keeping: persistedPanelIds) ?? .pane(
+            SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
+        )
 
         let statusSnapshots = statusEntries.values
             .sorted { lhs, rhs in lhs.key < rhs.key }
@@ -379,6 +383,41 @@ extension Workspace {
         }
     }
 
+    private func prunedSessionLayoutSnapshot(
+        _ node: SessionWorkspaceLayoutSnapshot,
+        keeping panelIdsToKeep: Set<UUID>
+    ) -> SessionWorkspaceLayoutSnapshot? {
+        switch node {
+        case .pane(let pane):
+            let panelIds = pane.panelIds.filter { panelIdsToKeep.contains($0) }
+            guard !panelIds.isEmpty else { return nil }
+            let selectedPanelId = pane.selectedPanelId.flatMap {
+                panelIdsToKeep.contains($0) ? $0 : nil
+            } ?? panelIds.first
+            return .pane(SessionPaneLayoutSnapshot(panelIds: panelIds, selectedPanelId: selectedPanelId))
+        case .split(let split):
+            let first = prunedSessionLayoutSnapshot(split.first, keeping: panelIdsToKeep)
+            let second = prunedSessionLayoutSnapshot(split.second, keeping: panelIdsToKeep)
+            switch (first, second) {
+            case (.some(let first), .some(let second)):
+                return .split(
+                    SessionSplitLayoutSnapshot(
+                        orientation: split.orientation,
+                        dividerPosition: split.dividerPosition,
+                        first: first,
+                        second: second
+                    )
+                )
+            case (.some(let first), .none):
+                return first
+            case (.none, .some(let second)):
+                return second
+            case (.none, .none):
+                return nil
+            }
+        }
+    }
+
     private func sessionPanelIDs(for pane: ExternalPaneNode) -> [UUID] {
         var panelIds: [UUID] = []
         var seen = Set<UUID>()
@@ -560,15 +599,17 @@ extension Workspace {
             rightSidebarToolSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
+            guard browserPanel.shouldPersistSessionSnapshot() else { return nil }
             terminalSnapshot = nil
             let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
             browserSnapshot = SessionBrowserPanelSnapshot(
-                urlString: browserPanel.preferredURLStringForOmnibar(),
+                urlString: browserPanel.preferredURLStringForSessionSnapshot(),
                 profileID: browserPanel.profileID,
                 shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
                 pageZoom: Double(browserPanel.currentPageZoomFactor()),
                 developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
                 isMuted: browserPanel.isMuted,
+                omnibarVisible: browserPanel.isOmnibarVisible,
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
             )
@@ -2138,15 +2179,30 @@ private final class WorkspaceRemoteDaemonRPCClient {
         process.standardError = stderrPipe
 
         stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            self?.stateQueue.async {
-                self?.consumeStdoutData(data)
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            case .data(let data):
+                self?.stateQueue.async {
+                    self?.consumeStdoutData(data)
+                }
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                handle.readabilityHandler = nil
+                self?.stateQueue.async {
+                    self?.consumeStdoutData(Data())
+                }
             }
         }
         stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            self?.stateQueue.async {
-                self?.consumeStderrData(data)
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            case .data(let data):
+                self?.stateQueue.async {
+                    self?.consumeStderrData(data)
+                }
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                handle.readabilityHandler = nil
             }
         }
         process.terminationHandler = { [weak self] terminated in
@@ -2191,9 +2247,15 @@ private final class WorkspaceRemoteDaemonRPCClient {
         process.standardError = stderrPipe
 
         stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            self?.stateQueue.async {
-                self?.consumeStderrData(data)
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            case .data(let data):
+                self?.stateQueue.async {
+                    self?.consumeStderrData(data)
+                }
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                handle.readabilityHandler = nil
             }
         }
         process.terminationHandler = { [weak self] terminated in
@@ -2238,9 +2300,18 @@ private final class WorkspaceRemoteDaemonRPCClient {
         }
 
         socketHandle.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            self?.stateQueue.async {
-                self?.consumeStdoutData(data)
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            case .data(let data):
+                self?.stateQueue.async {
+                    self?.consumeStdoutData(data)
+                }
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                handle.readabilityHandler = nil
+                self?.stateQueue.async {
+                    self?.consumeStdoutData(Data())
+                }
             }
         }
 
@@ -3075,7 +3146,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
                 return nil
             }
         }
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading)
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         return bestErrorLine(stderr: stderr) ?? "status=\(process.terminationStatus)"
     }
@@ -6400,19 +6471,21 @@ final class WorkspaceRemoteSessionController {
 
     private func installReverseRelayStderrHandlerLocked(_ stderrPipe: Pipe) {
         stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else {
-                handle.readabilityHandler = nil
-                return
-            }
-            self?.queue.async {
-                guard let self else { return }
-                if let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty {
-                    self.reverseRelayStderrBuffer.append(chunk)
-                    if self.reverseRelayStderrBuffer.count > 8192 {
-                        self.reverseRelayStderrBuffer.removeFirst(self.reverseRelayStderrBuffer.count - 8192)
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            case .data(let data):
+                self?.queue.async {
+                    guard let self else { return }
+                    if let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty {
+                        self.reverseRelayStderrBuffer.append(chunk)
+                        if self.reverseRelayStderrBuffer.count > 8192 {
+                            self.reverseRelayStderrBuffer.removeFirst(self.reverseRelayStderrBuffer.count - 8192)
+                        }
                     }
                 }
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                handle.readabilityHandler = nil
             }
         }
     }
@@ -6944,12 +7017,8 @@ final class WorkspaceRemoteSessionController {
             defer { captureGroup.leave() }
             let result = Self.readProcessPipeToEnd(stdoutHandle)
             captureQueue.sync {
-                switch result {
-                case .success(let data):
-                    stdoutData = data
-                case .failure(let error):
-                    stdoutReadError = error
-                }
+                stdoutData = result.data
+                stdoutReadError = result.readError
             }
         }
         captureGroup.enter()
@@ -6957,12 +7026,8 @@ final class WorkspaceRemoteSessionController {
             defer { captureGroup.leave() }
             let result = Self.readProcessPipeToEnd(stderrHandle)
             captureQueue.sync {
-                switch result {
-                case .success(let data):
-                    stderrData = data
-                case .failure(let error):
-                    stderrReadError = error
-                }
+                stderrData = result.data
+                stderrReadError = result.readError
             }
         }
 #if DEBUG
@@ -7060,18 +7125,8 @@ final class WorkspaceRemoteSessionController {
         return CommandResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
 
-    private static func readProcessPipeToEnd(_ fileHandle: FileHandle) -> Result<Data, Error> {
-        var data = Data()
-        do {
-            while true {
-                guard let chunk = try fileHandle.read(upToCount: 64 * 1024), !chunk.isEmpty else {
-                    return .success(data)
-                }
-                data.append(chunk)
-            }
-        } catch {
-            return .failure(error)
-        }
+    private static func readProcessPipeToEnd(_ fileHandle: FileHandle) -> ProcessPipeEndRead {
+        ProcessPipeReader.readDataToEndOfFile(from: fileHandle)
     }
 
 #if DEBUG
@@ -7998,7 +8053,7 @@ final class WorkspaceRemoteSessionController {
 
         do {
             try process.run()
-            let outputData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            let outputData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading)
             process.waitUntilExit()
             guard process.terminationStatus == 0,
                   let output = String(data: outputData, encoding: .utf8),
@@ -8148,7 +8203,7 @@ final class WorkspaceRemoteSessionController {
 
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return "" }
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdout.fileHandleForReading)
         return String(data: data, encoding: .utf8) ?? ""
     }
 
@@ -8231,7 +8286,7 @@ final class WorkspaceRemoteSessionController {
                 return nil
             }
         }
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading)
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         return bestErrorLine(stderr: stderr) ?? "status=\(process.terminationStatus)"
     }
@@ -9288,6 +9343,56 @@ struct ClosedBrowserPanelRestoreSnapshot {
     }
 }
 
+/// Process-wide cache of `RestorableAgentSessionIndex.load()` results, used by every
+/// workspace's right-click "Fork Conversation" availability check. The load runs
+/// `sysctl(KERN_PROCARGS2)` per hook record for live-PID filtering, which is too
+/// expensive to do synchronously during SwiftUI menu evaluation, so refreshes run on a
+/// `Task.detached(priority: .utility)` and the cached snapshot is read synchronously
+/// (stale-tolerant: agent `--resume` / `--fork-session` paths read transcripts from disk
+/// and don't care whether the cmux-recorded PID is still alive). `ObservableObject`
+/// conformance lets each workspace forward `objectWillChange` when a refresh lands so
+/// ContentView re-renders and bonsplit's TabBarView picks up the new snapshot on the
+/// same frame.
+@MainActor
+final class SharedLiveAgentIndex: ObservableObject {
+    static let shared = SharedLiveAgentIndex()
+
+    @Published private(set) var index: RestorableAgentSessionIndex?
+    private var loadedAt: Date?
+    private var refreshTask: Task<Void, Never>?
+    private static let cacheTTL: TimeInterval = 1.0
+
+    private init() {}
+
+    /// Read the cached snapshot for the given (workspaceId, panelId) and kick off a
+    /// background refresh if the cache has aged out. Never blocks; the first call after a
+    /// stale-out returns the previous (possibly nil) value, and the next view re-render
+    /// after the async load completes sees the fresh snapshot.
+    func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
+        scheduleRefreshIfStale()
+        return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    func scheduleRefreshIfStale() {
+        if refreshTask != nil { return }
+        let now = Date()
+        if let loadedAt, now.timeIntervalSince(loadedAt) < Self.cacheTTL {
+            return
+        }
+        refreshTask = Task { @MainActor [weak self] in
+            let newIndex = await Task.detached(priority: .utility) {
+                RestorableAgentSessionIndex.load()
+            }.value
+            guard let self else { return }
+            // Assigning to `@Published` fires objectWillChange, which subscribed
+            // workspaces forward as their own objectWillChange so SwiftUI re-renders.
+            self.index = newIndex
+            self.loadedAt = Date()
+            self.refreshTask = nil
+        }
+    }
+}
+
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
@@ -10091,6 +10196,11 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.tabContextMoveDestinationsProvider = { [weak self] tabId, _ in
             self?.bonsplitTabMoveDestinations(for: tabId) ?? []
         }
+        bonsplitController.tabContextForkConversationAvailabilityProvider = { [weak self] tabId, _ in
+            guard let self,
+                  let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
+            return self.canForkAgentConversationFromPanel(panelId)
+        }
         bonsplitController.onTabCloseRequest = { [weak self] tabId, _, source in
             switch source {
             case .closeButton:
@@ -10128,7 +10238,16 @@ final class Workspace: Identifiable, ObservableObject {
         }
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
         scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
+
+        // Forward shared agent-index refreshes as our own objectWillChange so the bonsplit
+        // tab-bar re-evaluates the Fork Conversation availability the moment a background
+        // refresh lands.
+        sharedLiveAgentIndexCancellable = SharedLiveAgentIndex.shared.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
     }
+
+    private var sharedLiveAgentIndexCancellable: AnyCancellable?
 
     deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
@@ -13138,6 +13257,8 @@ final class Workspace: Identifiable, ObservableObject {
         preferredProfileID: UUID? = nil,
         focus: Bool = true,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
+        omnibarVisible: Bool = true,
+        bypassRemoteProxy: Bool = false,
         initialDividerPosition: CGFloat? = nil
     ) -> BrowserPanel? {
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
@@ -13171,7 +13292,9 @@ final class Workspace: Identifiable, ObservableObject {
             initialURL: url,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
+            omnibarVisible: omnibarVisible,
             proxyEndpoint: remoteProxyEndpoint,
+            bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
         )
@@ -13237,10 +13360,13 @@ final class Workspace: Identifiable, ObservableObject {
         url: URL? = nil,
         initialRequest: URLRequest? = nil,
         focus: Bool? = nil,
+        selectWhenNotFocused: Bool = false,
         insertAtEnd: Bool = false,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
-        creationPolicy: BrowserPanelCreationPolicy = .userInitiated
+        creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
+        omnibarVisible: Bool = true,
+        bypassRemoteProxy: Bool = false
     ) -> BrowserPanel? {
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
@@ -13266,7 +13392,9 @@ final class Workspace: Identifiable, ObservableObject {
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+            omnibarVisible: omnibarVisible,
             proxyEndpoint: remoteProxyEndpoint,
+            bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
         )
@@ -13305,6 +13433,9 @@ final class Workspace: Identifiable, ObservableObject {
             browserPanel.focus()
             applyTabSelection(tabId: newTabId, inPane: paneId)
         } else {
+            if selectWhenNotFocused {
+                hideBrowserPortalsForDeselectedTabs(inPane: paneId, selectedTabId: newTabId)
+            }
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
                 splitPanelId: browserPanel.id,
@@ -14061,6 +14192,10 @@ final class Workspace: Identifiable, ObservableObject {
         )
         let resolvedURL = browserPanel.currentURL
             ?? browserPanel.preferredURLStringForOmnibar().flatMap(URL.init(string:))
+        guard !browserIsTemporaryHistoryURL(resolvedURL) else {
+            pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
+            return
+        }
 
         pendingClosedBrowserRestoreSnapshots[tab.id] = ClosedBrowserPanelRestoreSnapshot(
             workspaceId: id,
@@ -15804,7 +15939,9 @@ final class Workspace: Identifiable, ObservableObject {
             inPane: paneId,
             url: browser.currentURLForTabDuplication,
             focus: focus,
-            preferredProfileID: browser.profileID
+            preferredProfileID: browser.profileID,
+            omnibarVisible: browser.isOmnibarVisible,
+            bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication
         ) else { return nil }
         newPanel.setMuted(browser.isMuted)
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
@@ -16174,6 +16311,89 @@ final class Workspace: Identifiable, ObservableObject {
             terminalPanel(for: panelId)?.requestedWorkingDirectory,
             currentDirectory
         ])
+    }
+
+    /// Synchronous availability check used by the tab right-click context menu to decide
+    /// whether to surface the Fork Conversation item for a given anchor tab. Restricted to
+    /// `.supportedWithoutProbe` so we never offer an item that may quietly fail; agents
+    /// requiring a probe (e.g. shell-launched OpenCode) stay reachable from the command
+    /// palette path that performs that probe first.
+    func canForkAgentConversationFromPanel(_ panelId: UUID) -> Bool {
+        guard panels[panelId] is TerminalPanel else { return false }
+        guard let snapshot = forkableAgentSnapshot(forPanelId: panelId) else {
+            return false
+        }
+        let isRemote = isRemoteTerminalSurface(panelId)
+        return ContentView.commandPaletteSnapshotForkAvailability(
+            snapshot,
+            isRemoteTerminal: isRemote
+        ) == .supportedWithoutProbe
+    }
+
+    /// Snapshot used by the right-click fork path. Prefers the workspace's restored snapshot
+    /// (filled on session restore / hibernation), then falls back to the process-wide
+    /// `SharedLiveAgentIndex`. The shared index loads the on-disk hook session store off the
+    /// main actor (it runs `sysctl(KERN_PROCARGS2)` per live record for live-PID filtering,
+    /// which is too expensive to do synchronously during SwiftUI menu evaluation) and a
+    /// single load serves every workspace. The Workspace subscribes to the shared store's
+    /// `objectWillChange` in its initializer so that when a refresh lands, this workspace's
+    /// own `objectWillChange` fires, ContentView re-renders, and bonsplit's TabBarView re-
+    /// evaluates the menu state on the same frame — Fork Conversation appears the moment
+    /// the index is loaded without requiring a second right-click.
+    func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
+        if let snapshot = restoredAgentSnapshotsByPanelId[panelId] {
+            return snapshot
+        }
+        return SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId)
+    }
+
+    /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
+    /// to the right of `anchorTabId` in `paneId`. Uses the same `claude --resume --fork-session`
+    /// startup input the existing split/new-workspace forks rely on, so divergence is owned by
+    /// the agent itself (Claude / Codex / OpenCode) instead of any cmux-side history copy.
+    @discardableResult
+    func forkAgentConversationToNewTab(
+        fromPanelId panelId: UUID,
+        snapshot: SessionRestorableAgentSnapshot,
+        anchorTabId: TabID,
+        paneId: PaneID,
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> TerminalPanel? {
+        var launchSnapshot = snapshot
+        let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
+        launchSnapshot.workingDirectory = workingDirectory
+        let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
+        guard panels[panelId] is TerminalPanel,
+              let startupInput = launchSnapshot.forkStartupInput(
+                  fileManager: fileManager,
+                  temporaryDirectory: temporaryDirectory,
+                  allowLauncherScript: remoteStartupCommand == nil
+              ) else {
+            return nil
+        }
+
+        let zoomedPaneId = bonsplitController.zoomedPaneId
+        if zoomedPaneId != nil {
+            clearSplitZoom()
+        }
+
+        let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
+        let forkedPanel = newTerminalSurface(
+            inPane: paneId,
+            focus: true,
+            workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
+            initialInput: startupInput
+        )
+        if let forkedPanel {
+            _ = reorderSurface(panelId: forkedPanel.id, toIndex: targetIndex)
+            if remoteStartupCommand != nil, let workingDirectory {
+                updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
+            }
+        } else if let zoomedPaneId {
+            _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
+        }
+        return forkedPanel
     }
 
     private func forkAgentRemoteStartupCommand(fromPanelId panelId: UUID) -> String? {
@@ -17532,6 +17752,35 @@ extension Workspace: BonsplitDelegate {
         case .toggleZoom:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             toggleSplitZoom(panelId: panelId)
+        case .forkConversation:
+            guard let panelId = panelIdFromSurfaceId(tab.id),
+                  let snapshot = forkableAgentSnapshot(forPanelId: panelId) else {
+                NSSound.beep()
+                return
+            }
+            // Mirror the menu-visibility gate exactly: only fork when the snapshot is
+            // probe-free supported. Using the weaker `!= .unsupported` here would let a
+            // `.requiresProbe` snapshot through if the action is ever wired up outside
+            // the bonsplit menu, leading to a fork that may quietly fail at the shell.
+            let isRemote = isRemoteTerminalSurface(panelId)
+            guard ContentView.commandPaletteSnapshotForkAvailability(
+                snapshot,
+                isRemoteTerminal: isRemote
+            ) == .supportedWithoutProbe else {
+                NSSound.beep()
+                return
+            }
+            // Beep on a silent failure (e.g. terminal surface creation rejected by the
+            // workspace) so the user gets the same feedback as the other guard paths in
+            // this action handler.
+            if forkAgentConversationToNewTab(
+                fromPanelId: panelId,
+                snapshot: snapshot,
+                anchorTabId: tab.id,
+                paneId: pane
+            ) == nil {
+                NSSound.beep()
+            }
         @unknown default:
             break
         }

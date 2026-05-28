@@ -1497,6 +1497,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var pageZoom: Double
     var developerToolsVisible: Bool
     var isMuted: Bool
+    var omnibarVisible: Bool? = nil
     var backHistoryURLStrings: [String]?
     var forwardHistoryURLStrings: [String]?
 
@@ -1507,6 +1508,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         pageZoom: Double,
         developerToolsVisible: Bool,
         isMuted: Bool = false,
+        omnibarVisible: Bool? = nil,
         backHistoryURLStrings: [String]?,
         forwardHistoryURLStrings: [String]?
     ) {
@@ -1516,6 +1518,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         self.pageZoom = pageZoom
         self.developerToolsVisible = developerToolsVisible
         self.isMuted = isMuted
+        self.omnibarVisible = omnibarVisible
         self.backHistoryURLStrings = backHistoryURLStrings
         self.forwardHistoryURLStrings = forwardHistoryURLStrings
     }
@@ -1527,6 +1530,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         case pageZoom
         case developerToolsVisible
         case isMuted
+        case omnibarVisible
         case backHistoryURLStrings
         case forwardHistoryURLStrings
     }
@@ -1539,6 +1543,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         pageZoom = try container.decode(Double.self, forKey: .pageZoom)
         developerToolsVisible = try container.decode(Bool.self, forKey: .developerToolsVisible)
         isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        omnibarVisible = try container.decodeIfPresent(Bool.self, forKey: .omnibarVisible)
         backHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .backHistoryURLStrings)
         forwardHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .forwardHistoryURLStrings)
     }

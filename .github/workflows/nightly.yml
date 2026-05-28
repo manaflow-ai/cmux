@@ -137,7 +137,12 @@ jobs:
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
             XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
           else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -n 1 || true)"
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
             if [ -n "$XCODE_APP" ]; then
               XCODE_DIR="$XCODE_APP/Contents/Developer"
             else
@@ -271,12 +276,14 @@ jobs:
             NIGHTLY_BUILD="${NIGHTLY_DATE}000000"
           fi
           NIGHTLY_MARKETING_VERSION="${BASE_MARKETING}-nightly.${NIGHTLY_BUILD}"
-          echo "NIGHTLY_BUILD=${NIGHTLY_BUILD}" >> "$GITHUB_ENV"
-          echo "NIGHTLY_MARKETING_VERSION=${NIGHTLY_MARKETING_VERSION}" >> "$GITHUB_ENV"
-          echo "NIGHTLY_REMOTE_DAEMON_VERSION=${NIGHTLY_MARKETING_VERSION}" >> "$GITHUB_ENV"
 
           NIGHTLY_DMG_IMMUTABLE="cmux-nightly-macos-${NIGHTLY_BUILD}.dmg"
-          echo "NIGHTLY_DMG_IMMUTABLE=${NIGHTLY_DMG_IMMUTABLE}" >> "$GITHUB_ENV"
+          {
+            echo "NIGHTLY_BUILD=${NIGHTLY_BUILD}"
+            echo "NIGHTLY_MARKETING_VERSION=${NIGHTLY_MARKETING_VERSION}"
+            echo "NIGHTLY_REMOTE_DAEMON_VERSION=${NIGHTLY_MARKETING_VERSION}"
+            echo "NIGHTLY_DMG_IMMUTABLE=${NIGHTLY_DMG_IMMUTABLE}"
+          } >> "$GITHUB_ENV"
 
           prepare_variant() {
             local app_dir="$1"
@@ -621,7 +628,6 @@ jobs:
 
       - name: Upload nightly appcast to R2
         if: needs.decide.outputs.should_publish == 'true' && steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true'
-        continue-on-error: true
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
