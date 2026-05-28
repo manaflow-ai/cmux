@@ -487,10 +487,6 @@ select {
   isolation: isolate;
 }
 
-.codex-attachment-tray {
-  min-height: 12px;
-}
-
 @supports (corner-shape: superellipse(1.5)) {
   :root {
     --corner-radius-scale: 1.25;
