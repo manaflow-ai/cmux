@@ -171,6 +171,76 @@ private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
 }
 
+/// Short-lived helper that watches for the next workspace to appear in a
+/// TabManager and joins it to a target group. Used by group `+` context-menu
+/// actions whose underlying executor creates the workspace asynchronously
+/// (cloudVM in particular launches `cmux vm new` and returns immediately).
+/// Self-clears on first match or after `timeoutSeconds`.
+@MainActor
+final class ConfiguredGroupActionAsyncWorkspaceObserver {
+    static var pending: [ObjectIdentifier: ConfiguredGroupActionAsyncWorkspaceObserver] = [:]
+    private weak var tabManager: TabManager?
+    private let groupId: UUID
+    private var knownIds: Set<UUID>
+    private var observer: NSObjectProtocol?
+    private var timeoutTask: Task<Void, Never>?
+
+    static func install(tabManager: TabManager, groupId: UUID, knownIds: Set<UUID>, timeoutSeconds: TimeInterval = 60) {
+        let key = ObjectIdentifier(tabManager)
+        pending[key]?.dispose()
+        let watcher = ConfiguredGroupActionAsyncWorkspaceObserver(
+            tabManager: tabManager,
+            groupId: groupId,
+            knownIds: knownIds
+        )
+        pending[key] = watcher
+        watcher.observer = NotificationCenter.default.addObserver(
+            forName: .workspaceOrderDidChange,
+            object: tabManager,
+            queue: .main
+        ) { [weak watcher] _ in
+            Task { @MainActor in
+                watcher?.checkForNewWorkspace()
+            }
+        }
+        watcher.timeoutTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+            watcher.dispose()
+        }
+    }
+
+    private init(tabManager: TabManager, groupId: UUID, knownIds: Set<UUID>) {
+        self.tabManager = tabManager
+        self.groupId = groupId
+        self.knownIds = knownIds
+    }
+
+    private func checkForNewWorkspace() {
+        guard let tabManager else { dispose(); return }
+        guard tabManager.workspaceGroups.contains(where: { $0.id == groupId }) else {
+            dispose()
+            return
+        }
+        for tab in tabManager.tabs where !knownIds.contains(tab.id) {
+            tabManager.addWorkspaceToGroup(workspaceId: tab.id, groupId: groupId)
+            dispose()
+            return
+        }
+    }
+
+    private func dispose() {
+        if let observer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        observer = nil
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        if let tabManager {
+            Self.pending.removeValue(forKey: ObjectIdentifier(tabManager))
+        }
+    }
+}
+
 func isCommandPaletteFocusStealingTerminalOrBrowserResponder(_ responder: NSResponder) -> Bool {
     if responder is GhosttyNSView || responder is WKWebView {
         return true
@@ -14217,7 +14287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            tabManager.tabs.contains(where: { $0.id == anchorId }) {
             tabManager.selectedTabId = anchorId
         }
-        let onExecuted: () -> Void = { [weak tabManager, groupId, beforeIds, previousSelectedId, anchorId] in
+        let onExecuted: () -> Void = { [weak tabManager, groupId, beforeIds, previousSelectedId, anchorId, action] in
             guard let tabManager else { return }
             let afterIds = tabManager.tabs.map(\.id)
             var newlyCreatedId: UUID?
@@ -14225,6 +14295,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager.addWorkspaceToGroup(workspaceId: id, groupId: groupId)
                 newlyCreatedId = id
                 break
+            }
+            // Async actions (cloudVM in particular) launch a `cmux vm new`
+            // process and return before the workspace appears in tabs[]. The
+            // synchronous diff above misses it, so install a short-lived
+            // observer that joins the first subsequent new workspace to the
+            // group. Capped at ~60s so a user-cancelled VM never leaves a
+            // lingering subscription.
+            if newlyCreatedId == nil, case .builtIn(.cloudVM) = action.action {
+                ConfiguredGroupActionAsyncWorkspaceObserver.install(
+                    tabManager: tabManager,
+                    groupId: groupId,
+                    knownIds: Set(afterIds)
+                )
             }
             // Restore the prior selection if the action didn't create a new
             // workspace (the gesture wasn't "go work in the new one") and
