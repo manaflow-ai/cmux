@@ -2077,15 +2077,20 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     private func assertCanvasRecordedUnifiedPresentationDuringPan(
         timeout: TimeInterval = 6.0,
         minimumTextureSurfaceCount: Int = 1,
+        minimumPanningRecordCount: Int = 1,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
         XCTAssertTrue(
             waitForCondition(timeout: timeout) {
                 guard let layout = self.canvasLayout() else { return false }
-                let phases = layout["canvasRecentInteractionPhases"] as? [String] ?? []
                 let count = (layout["canvasRecentUnifiedTexturePresentationCount"] as? NSNumber)?.intValue ?? 0
                 let records = layout["canvasRecentPresentationRecords"] as? [[String: Any]] ?? []
+                let panningRecords = records.filter { $0["interactionPhase"] as? String == "panning" }
+                let allPanningFramesParkedNativeSurfaces = panningRecords.allSatisfy { record in
+                    let nativeOverlayCount = (record["nativeOverlayCount"] as? NSNumber)?.intValue ?? -1
+                    return record["usesUnifiedTexturePresentation"] as? Bool == true && nativeOverlayCount == 0
+                }
                 let sawAllTexturePanFrame = records.contains { record in
                     guard record["interactionPhase"] as? String == "panning",
                           record["usesUnifiedTexturePresentation"] as? Bool == true else {
@@ -2095,7 +2100,10 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                     let textureSurfaceCount = (record["textureSurfaceCount"] as? NSNumber)?.intValue ?? 0
                     return nativeOverlayCount == 0 && textureSurfaceCount >= minimumTextureSurfaceCount
                 }
-                return phases.contains("panning") && count > 0 && sawAllTexturePanFrame
+                return panningRecords.count >= minimumPanningRecordCount &&
+                    count > 0 &&
+                    allPanningFramesParkedNativeSurfaces &&
+                    sawAllTexturePanFrame
             },
             "Expected trackpad pan to park native portals and use all-texture presentation before remounting. layout=\(String(describing: canvasLayout()))",
             file: file,
