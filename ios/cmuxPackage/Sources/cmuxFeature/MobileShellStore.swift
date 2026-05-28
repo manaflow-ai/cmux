@@ -1960,7 +1960,10 @@ public final class CMUXMobileShellStore {
                 }
             }
 
-            let stream = await client.subscribe(to: ["terminal.updated", "workspace.updated"])
+            let subscription = await client.subscribe(to: ["terminal.updated", "workspace.updated"])
+            defer {
+                Task { await client.unsubscribe(subscription) }
+            }
             let requestData: Data
             do {
                 requestData = try MobileCoreRPCClient.requestData(
@@ -1992,7 +1995,7 @@ public final class CMUXMobileShellStore {
                 return
             }
             // Keep the listener alive without keeping the shell store alive.
-            for await event in stream {
+            for await event in subscription.stream {
                 guard !Task.isCancelled else { return }
                 guard let self else { return }
                 guard self.remoteClient === client, self.connectionState == .connected else { return }
@@ -2697,11 +2700,20 @@ final class MobileCoreRPCClient: @unchecked Sendable {
         await session.tearDown(error: .connectionClosed)
     }
 
-    /// Subscribe to server-pushed events. Returns a stream of envelopes
-    /// matching any of the requested topics. Cancel by terminating iteration.
-    func subscribe(to topics: Set<String>) async -> AsyncStream<MobileEventEnvelope> {
-        await session.addEventListener(topics: topics).stream
+    /// Subscribe to server-pushed events. Cancel with `unsubscribe`.
+    func subscribe(to topics: Set<String>) async -> MobileCoreRPCEventSubscription {
+        await session.addEventListener(topics: topics)
     }
+
+    func unsubscribe(_ subscription: MobileCoreRPCEventSubscription) async {
+        await session.removeListener(id: subscription.id)
+    }
+
+    #if DEBUG
+    func debugEventListenerCount() async -> Int {
+        await session.debugEventListenerCount()
+    }
+    #endif
 
     static func requestData(
         method: String,
@@ -3133,6 +3145,11 @@ public struct MobileEventEnvelope: Sendable {
     public let streamID: String?
 }
 
+struct MobileCoreRPCEventSubscription: Sendable {
+    let id: UUID
+    let stream: AsyncStream<MobileEventEnvelope>
+}
+
 /// Owns a single persistent transport for a `MobileCoreRPCClient`, multiplexes
 /// requests by id, and dispatches server-pushed events to registered listeners.
 /// No polling: the reader task runs continuously, parking on `transport.receive()`
@@ -3142,11 +3159,6 @@ public struct MobileEventEnvelope: Sendable {
 private actor MobileCoreRPCSession {
     typealias TransportFactory = @Sendable () throws -> any CmxByteTransport
     typealias PendingContinuation = CheckedContinuation<Result<Data, MobileShellConnectionError>, Never>
-
-    struct EventSubscription {
-        let id: UUID
-        let stream: AsyncStream<MobileEventEnvelope>
-    }
 
     private struct EventListener {
         let topics: Set<String>
@@ -3218,7 +3230,7 @@ private actor MobileCoreRPCSession {
         }
     }
 
-    func addEventListener(topics: Set<String>) -> EventSubscription {
+    func addEventListener(topics: Set<String>) -> MobileCoreRPCEventSubscription {
         let id = UUID()
         var continuation: AsyncStream<MobileEventEnvelope>.Continuation!
         let stream = AsyncStream<MobileEventEnvelope>(bufferingPolicy: .bufferingNewest(256)) { cont in
@@ -3229,12 +3241,18 @@ private actor MobileCoreRPCSession {
             guard let self else { return }
             Task { await self.removeListener(id: id) }
         }
-        return EventSubscription(id: id, stream: stream)
+        return MobileCoreRPCEventSubscription(id: id, stream: stream)
     }
 
     func removeListener(id: UUID) {
         listeners.removeValue(forKey: id)
     }
+
+    #if DEBUG
+    func debugEventListenerCount() -> Int {
+        listeners.count
+    }
+    #endif
 
     func tearDown(error: MobileShellConnectionError) async {
         guard !isTearingDown else { return }

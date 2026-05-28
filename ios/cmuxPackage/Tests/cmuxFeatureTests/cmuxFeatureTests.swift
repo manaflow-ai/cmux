@@ -226,6 +226,31 @@ import UIKit
     _ = try? await firstTask.value
 }
 
+#if DEBUG
+@Test func mobileRPCEventSubscriptionCanBeExplicitlyRemoved() async throws {
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59123)
+    let runtime = testRuntime(
+        transportFactory: ScriptedTransportFactory(responses: ScriptedTransportResponses([]))
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "workspace-main",
+        terminalID: "terminal-main",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let client = MobileCoreRPCClient(runtime: runtime, route: route, ticket: ticket)
+
+    let subscription = await client.subscribe(to: ["terminal.updated"])
+    #expect(await client.debugEventListenerCount() == 1)
+
+    await client.unsubscribe(subscription)
+    #expect(await client.debugEventListenerCount() == 0)
+}
+#endif
+
 @Test func mobileRuntimeDefaultsToThirtySecondRPCTimeout() {
     let runtime = CMUXMobileRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -960,7 +985,7 @@ import UIKit
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
+    #expect(store.connectionError == "For LAN or .local hosts, pair with a QR/link from that computer. Direct sign-in pairing only runs over Tailscale.")
     #expect(try await responses.sentRequests().isEmpty)
 }
 
