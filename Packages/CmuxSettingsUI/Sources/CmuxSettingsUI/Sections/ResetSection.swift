@@ -56,8 +56,15 @@ public struct ResetSection: View {
 
     private func resetAll() async {
         await defaultsStore.resetAll(catalog.all)
-        // JSON-backed keys would be reset here via a similar
-        // `JSONConfigStore.resetAll(_:)` once it lands. For now the JSON
-        // editor in the settings window covers manual cleanup.
+        for key in catalog.all {
+            await resetJSONKeyIfApplicable(key)
+        }
+    }
+
+    private func resetJSONKeyIfApplicable(_ key: AnySettingKey) async {
+        // Best-effort: dispatch a reset through the type-erased key.
+        // Failures (e.g. on a UserDefaults-backed key) are intentionally
+        // swallowed because the key's `reset` is a no-op in that case.
+        await key.resetInJSON(jsonStore)
     }
 }

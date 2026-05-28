@@ -42,6 +42,13 @@ public struct AnySettingKey: Sendable {
     /// No-op for ``Kind/jsonConfig`` keys.
     public let migrateUserDefaultsLegacyKeys: @Sendable (UserDefaults) -> Void
 
+    /// Removes this key from the JSON config store, if it is a
+    /// JSON-backed key. No-op for ``Kind/userDefaults`` keys. Errors
+    /// from the underlying ``JSONConfigStore/reset(_:)`` call are
+    /// swallowed because batch reset paths (e.g. ``ResetSection``)
+    /// surface them separately or treat them as best-effort.
+    public let resetInJSON: @Sendable (JSONConfigStore) async -> Void
+
     /// Wraps a UserDefaults-backed key.
     public init<Value>(_ key: DefaultsKey<Value>) {
         self.id = key.id
@@ -53,6 +60,7 @@ public struct AnySettingKey: Sendable {
         self.migrateUserDefaultsLegacyKeys = { defaults in
             AnySettingKey.migrateLegacyDefaultsKey(key, defaults: defaults)
         }
+        self.resetInJSON = { _ in }
     }
 
     /// Wraps a JSON-backed key.
@@ -60,6 +68,9 @@ public struct AnySettingKey: Sendable {
         self.id = key.id
         self.kind = .jsonConfig
         self.migrateUserDefaultsLegacyKeys = { _ in }
+        self.resetInJSON = { store in
+            try? await store.reset(key)
+        }
     }
 
     private static func migrateLegacyDefaultsKey<Value>(

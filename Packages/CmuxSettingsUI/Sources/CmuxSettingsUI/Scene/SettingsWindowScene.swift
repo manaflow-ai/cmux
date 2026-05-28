@@ -120,7 +120,11 @@ public struct SettingsWindowRoot: View {
         case .account:
             AccountSection(defaultsStore: defaultsStore, catalog: catalog)
         case .terminal:
-            TerminalSection(defaultsStore: defaultsStore, catalog: catalog)
+            TerminalSection(
+                defaultsStore: defaultsStore,
+                jsonStore: jsonStore,
+                catalog: catalog
+            )
         case .sidebarAppearance:
             SidebarSection(defaultsStore: defaultsStore, catalog: catalog)
         case .betaFeatures:
@@ -130,7 +134,7 @@ public struct SettingsWindowRoot: View {
         case .browserImport:
             BrowserImportSection(defaultsStore: defaultsStore, catalog: catalog)
         case .globalHotkey:
-            GlobalHotkeySection()
+            GlobalHotkeySection(defaultsStore: defaultsStore, catalog: catalog)
         case .keyboardShortcuts:
             KeyboardShortcutsSection(
                 jsonStore: jsonStore,

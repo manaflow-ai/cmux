@@ -93,6 +93,8 @@ public struct SettingsSearchIndex: Sendable {
         case "browser": return .browser
         case "notifications": return .app
         case "shortcuts": return .keyboardShortcuts
+        case "integrations": return .account
+        case "rightSidebar", "betaFeatures": return .betaFeatures
         default: return nil
         }
     }

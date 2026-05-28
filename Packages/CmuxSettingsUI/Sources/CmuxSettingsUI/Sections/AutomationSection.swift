@@ -47,6 +47,18 @@ public struct AutomationSection: View {
                     placeholder: "Set when 'Password required' is selected"
                 )
             }
+            Section("CMUX Port Range") {
+                SettingsStepperRow(
+                    model: DefaultsValueModel(store: defaultsStore, key: catalog.automation.portBase),
+                    title: "Port Base",
+                    range: 1_024...65_000
+                )
+                SettingsStepperRow(
+                    model: DefaultsValueModel(store: defaultsStore, key: catalog.automation.portRange),
+                    title: "Port Range",
+                    range: 1...500
+                )
+            }
         }
         .formStyle(.grouped)
     }

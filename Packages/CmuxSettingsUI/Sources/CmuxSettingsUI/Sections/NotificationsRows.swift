@@ -3,6 +3,11 @@ import SwiftUI
 
 /// Compact rows for the notification-related settings, hosted inside
 /// the larger **App** section (where cmux's existing UI places them).
+///
+/// Covers the dock badge, menu-bar extra, unread-pane-ring, pane-flash
+/// toggles plus the notification sound picker (with custom file path
+/// + custom command escape hatches).
+@MainActor
 public struct NotificationsRows: View {
     private let defaultsStore: UserDefaultsSettingsStore
     private let catalog: SettingCatalog
@@ -13,24 +18,44 @@ public struct NotificationsRows: View {
     }
 
     public var body: some View {
-        Group {
+        Section("Notifications") {
             SettingsToggleRow(
                 model: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dockBadge),
-                title: "Dock badge",
+                title: "Dock Badge",
                 subtitle: "Show the unread notification count on the cmux app icon in the Dock."
             )
             SettingsToggleRow(
                 model: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.showInMenuBar),
-                title: "Show menu bar extra"
+                title: "Show Menu Bar Extra"
             )
             SettingsToggleRow(
                 model: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.unreadPaneRing),
-                title: "Unread pane ring",
+                title: "Unread Pane Ring",
                 subtitle: "Outline panes with unread notifications in the workspace's color."
             )
             SettingsToggleRow(
                 model: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlash),
-                title: "Pane flash"
+                title: "Pane Flash"
+            )
+        }
+        Section("Notification Sound") {
+            SettingsDefaultsTextFieldRow(
+                model: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.sound),
+                title: "Sound",
+                placeholder: "default | none | Frog | Glass | …",
+                subtitle: "Name of an NSSound, the literal \"default\", \"none\", or \"custom\" to use the file path below."
+            )
+            SettingsDefaultsTextFieldRow(
+                model: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.customSoundFilePath),
+                title: "Custom Sound File",
+                placeholder: "/path/to/sound.aiff",
+                subtitle: "Used when Sound is set to \"custom\"."
+            )
+            SettingsDefaultsTextFieldRow(
+                model: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.command),
+                title: "Custom Notification Command",
+                placeholder: "afplay /path/to/sound.wav",
+                subtitle: "Optional shell command run on every notification. Leave empty to skip."
             )
         }
     }

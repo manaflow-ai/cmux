@@ -668,9 +668,11 @@ struct cmuxApp: App {
         }
 
         Window(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
-            SettingsWindowRootView()
+            SettingsWindowRoot(runtime: settingsRuntime)
                 .settingsRuntime(settingsRuntime)
-                .settingsErrorAlert(log: settingsRuntime.errorLog)
+                .background(WindowAccessor(dedupeByWindow: false) { window in
+                    SettingsWindowPresenter.configure(window: window)
+                })
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
         .defaultSize(width: 980, height: 680)

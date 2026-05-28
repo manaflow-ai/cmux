@@ -158,5 +158,11 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "workspaceTitlebarVisibility"
     )
 
+    public let systemWideHotkeyEnabled = DefaultsKey<Bool>(
+        id: "app.systemWideHotkeyEnabled",
+        defaultValue: false,
+        userDefaultsKey: "systemWideHotkey.enabled"
+    )
+
     public init() {}
 }
