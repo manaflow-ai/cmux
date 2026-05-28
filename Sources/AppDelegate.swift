@@ -50,8 +50,8 @@ private func runMultiWindowRouteCLI(
     }
     process.waitUntilExit()
 
-    let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+    let stdoutData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading)
+    let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading)
     return MultiWindowRouteCLIResult(
         status: String(process.terminationStatus),
         stdout: String(data: stdoutData, encoding: .utf8) ?? "",
@@ -1005,7 +1005,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        if handleCmuxSSHURLs(from: urls) {
+        if handleCmuxExternalURLs(from: urls) {
             return
         }
 
@@ -1806,10 +1806,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let lineFormat = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_FORMAT"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let linePrefix = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_PREFIX"] ?? ""
+        let displaySuffix = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_SUFFIX"] ?? ""
+        let displayAsAbsolutePath = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_AS_ABSOLUTE_PATH"] == "1"
         if let rawOpenSupportedFiles = env["CMUX_UI_TEST_OPEN_SUPPORTED_FILES_IN_CMUX"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !rawOpenSupportedFiles.isEmpty {
             CmdClickSupportedFileRouteSettings.setEnabled(rawOpenSupportedFiles == "1")
+        }
+        if let rawOpenMarkdown = env["CMUX_UI_TEST_OPEN_MARKDOWN_IN_CMUX_VIEWER"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawOpenMarkdown.isEmpty {
+            CmdClickMarkdownRouteSettings.setEnabled(rawOpenMarkdown == "1")
         }
         let extraFileNamesJSON = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_EXTRA_FILE_NAMES_JSON"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1829,6 +1836,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             extraFileNames = []
         }
         let escapedToken = resolvedFileName.replacingOccurrences(of: " ", with: "\\ ")
+        let baseDisplayToken = displayAsAbsolutePath ? expectedFileURL.path : resolvedFileName
         let resolvedDisplayMode = (displayMode == "raw") ? "raw" : "escaped"
         let resolvedLineFormat: String
         switch lineFormat {
@@ -1852,25 +1860,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let shellCommand: String
         switch resolvedLineFormat {
         case "log":
-            displayToken = resolvedFileName
-            let blockLine = "\(linePrefix)\(resolvedFileName)"
+            displayToken = "\(baseDisplayToken)\(displaySuffix)"
+            let blockLine = "\(linePrefix)\(displayToken)"
             let shellBlockLine = singleQuotedShellLiteral(blockLine)
             shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
         case "alt_screen_log":
-            displayToken = resolvedFileName
-            let blockLine = "\(linePrefix)\(resolvedFileName)"
+            displayToken = "\(baseDisplayToken)\(displaySuffix)"
+            let blockLine = "\(linePrefix)\(displayToken)"
             let shellBlockLine = singleQuotedShellLiteral(blockLine)
             shellCommand = "clear\rprintf '\\033[?1049h\\033[H\\033[2J'; for i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
         default:
             switch resolvedDisplayMode {
             case "raw":
-                displayToken = resolvedFileName
-                let blockLine = "\(resolvedFileName)    OtherFile"
+                displayToken = "\(baseDisplayToken)\(displaySuffix)"
+                let blockLine = "\(displayToken)    OtherFile"
                 let shellBlockLine = singleQuotedShellLiteral(blockLine)
                 shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
             default:
-                displayToken = escapedToken
-                let blockLine = Array(repeating: escapedToken, count: 3).joined(separator: " ")
+                displayToken = "\(escapedToken)\(displaySuffix)"
+                let blockLine = Array(repeating: displayToken, count: 3).joined(separator: " ")
                 let shellBlockLine = singleQuotedShellLiteral(blockLine)
                 shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
             }
@@ -2383,6 +2391,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     at: fixtureDirectoryURL,
                     withIntermediateDirectories: true
                 )
+                try FileManager.default.createDirectory(
+                    at: expectedFileURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
                 if !FileManager.default.fileExists(atPath: expectedFileURL.path) {
                     try "fixture\n".write(to: expectedFileURL, atomically: true, encoding: .utf8)
                 }
@@ -2391,6 +2403,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 for extraFileName in extraFileNames where !extraFileName.isEmpty {
                     let extraFileURL = fixtureDirectoryURL.appendingPathComponent(extraFileName)
+                    try FileManager.default.createDirectory(
+                        at: extraFileURL.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
                     if !FileManager.default.fileExists(atPath: extraFileURL.path) {
                         try "fixture\n".write(to: extraFileURL, atomically: true, encoding: .utf8)
                     }
@@ -2419,9 +2435,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             if terminalReady && terminalVisible && !seeded {
                 seeded = true
-                sendTextWhenReady(shellCommand, to: workspace) {
+                sendTextWhenReady(shellCommand, to: workspace, beforeSend: {
                     workspace.updatePanelDirectory(panelId: terminalPanel.id, directory: fixtureDirectoryURL.path)
-                }
+                })
             }
 
             let visibleText = TerminalController.shared.readTerminalTextForSnapshot(
@@ -6568,9 +6584,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func bootstrapInitialMainWindowIfNeeded(debugSource: String, shouldActivate: Bool = true) -> UUID {
+    func bootstrapInitialMainWindowIfNeeded(
+        debugSource: String,
+        shouldActivate: Bool = true,
+        suppressWelcome: Bool = false
+    ) -> UUID {
         reserveInitialSocketPathIfNeeded()
-        let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: shouldActivate)
+        let windowId = ensureInitialMainWindowIfNeeded(
+            shouldActivate: shouldActivate,
+            suppressWelcome: suppressWelcome
+        )
         if let manager = tabManagerFor(windowId: windowId)
             ?? mainWindowContexts.values.first(where: { $0.windowId == windowId })?.tabManager
             ?? preferredRegisteredMainWindowContext()?.tabManager
@@ -6590,7 +6613,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func ensureInitialMainWindowIfNeeded(shouldActivate: Bool = true) -> UUID {
+    func ensureInitialMainWindowIfNeeded(
+        shouldActivate: Bool = true,
+        suppressWelcome: Bool = false
+    ) -> UUID {
         for context in sortedMainWindowContextsForSessionSnapshot() {
             guard let window = resolvedWindow(for: context) else { continue }
             if shouldActivate {
@@ -6604,7 +6630,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return context.windowId
         }
 
-        return createMainWindow(shouldActivate: shouldActivate)
+        return createMainWindow(
+            initialTerminalInput: suppressWelcome ? "" : nil,
+            shouldActivate: shouldActivate
+        )
     }
 
     private func hasVisibleMainTerminalWindow() -> Bool {
@@ -7059,6 +7088,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         _ = createMainWindow(initialWorkingDirectory: workingDirectory)
+    }
+
+    @discardableResult
+    func pasteTextInPreferredMainWindowFromExternalLink(
+        _ text: String,
+        preferredWindow: NSWindow? = nil,
+        shouldBringToFront: Bool = true,
+        debugSource: String = "externalLink",
+        onSendFailure: (() -> Void)? = nil
+    ) -> Bool {
+        let context: MainWindowContext? = {
+            if let existing = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) {
+                return existing
+            }
+            let windowId = createMainWindow(initialTerminalInput: "", shouldActivate: shouldBringToFront)
+            return mainWindowContexts.values.first { $0.windowId == windowId }
+        }()
+        guard let context else { return false }
+
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        if shouldBringToFront, let window {
+            bringToFront(window)
+            setActiveMainWindow(window)
+        }
+
+        let workspace = context.tabManager.selectedWorkspace
+            ?? context.tabManager.addWorkspace(select: shouldBringToFront, autoWelcomeIfNeeded: false)
+        let terminalPanel = workspace.focusedTerminalPanel
+            ?? workspace.newTerminalSurfaceInFocusedPane(focus: shouldBringToFront)
+        guard let terminalPanel else { return false }
+
+#if DEBUG
+        cmuxDebugLog("textURL.paste source=\(debugSource) workspace=\(workspace.id.uuidString.prefix(8)) surface=\(terminalPanel.id.uuidString.prefix(8)) chars=\(text.count)")
+#endif
+        if shouldBringToFront {
+            workspace.focusPanel(terminalPanel.id)
+        }
+        terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+        sendTextWhenReady(
+            text,
+            to: workspace,
+            preferredPanelId: terminalPanel.id,
+            onFailure: onSendFailure
+        )
+        return true
     }
 
     @discardableResult
@@ -7695,11 +7769,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func sendWelcomeCommandWhenReady(to workspace: Workspace, markShownOnSend: Bool = false) {
-        sendTextWhenReady("cmux welcome\n", to: workspace) {
+        sendTextWhenReady("cmux welcome\n", to: workspace, beforeSend: {
             if markShownOnSend {
                 UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
             }
-        }
+        })
     }
 
     @objc func applyUpdateIfAvailable(_ sender: Any?) {
@@ -8290,7 +8364,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ text: String,
         to tab: Tab,
         preferredPanelId: UUID? = nil,
-        beforeSend: (() -> Void)? = nil
+        beforeSend: (() -> Void)? = nil,
+        onFailure: (() -> Void)? = nil
     ) {
         let isReactGrabPasteback = preferredPanelId != nil
 #if DEBUG
@@ -8316,7 +8391,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ),
            terminalPanel.isAgentHibernated {
             beforeSend?()
-            terminalPanel.sendText(text)
+            if !terminalPanel.sendText(text) {
+                onFailure?()
+            }
             return
         }
 
@@ -8335,9 +8412,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 #endif
             beforeSend?()
-            terminalPanel.sendText(text)
+            let didSend = terminalPanel.sendText(text)
 #if DEBUG
-            if isReactGrabPasteback {
+            if isReactGrabPasteback, didSend {
                 cmuxDebugLog(
                     "reactGrab.pasteback h2.send.sent " +
                     "workspace=\(Self.debugShortId(tab.id)) " +
@@ -8345,6 +8422,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
 #endif
+            if !didSend {
+                onFailure?()
+            }
             return
         }
 
@@ -8390,9 +8470,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             resolved = true
             cleanupObservers()
             beforeSend?()
-            terminalPanel.sendText(text)
+            let didSend = terminalPanel.sendText(text)
 #if DEBUG
-            if isReactGrabPasteback {
+            if isReactGrabPasteback, didSend {
                 cmuxDebugLog(
                     "reactGrab.pasteback h2.send.sent " +
                     "workspace=\(Self.debugShortId(tab.id)) " +
@@ -8400,6 +8480,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
 #endif
+            if !didSend {
+                onFailure?()
+            }
         }
 
         panelsCancellable = tab.$panels
@@ -8486,6 +8569,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
             if !resolved {
+                resolved = true
 #if DEBUG
                 if isReactGrabPasteback {
                     cmuxDebugLog(
@@ -8499,6 +8583,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
                 cleanupObservers()
                 NSLog("Command send: surface not ready after 3.0s")
+                onFailure?()
             }
         }
     }
@@ -11117,7 +11202,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func jumpToLatestUnread(excludingNotificationId excludedNotificationId: UUID? = nil) -> TerminalNotification? {
+    func jumpToLatestUnread(
+        excludingNotificationId excludedNotificationId: UUID? = nil,
+        excludingWorkspaceId excludedWorkspaceId: UUID? = nil
+    ) -> TerminalNotification? {
         guard let notificationStore else { return nil }
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
@@ -11131,26 +11219,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // the window-context registry can lag behind model initialization, so fall back to whatever
         // tab manager currently owns the tab.
         for notification in notificationStore.notifications
-            where Self.shouldOpenFromJumpToLatestUnread(notification, excludingNotificationId: excludedNotificationId) {
+            where Self.shouldOpenFromJumpToLatestUnread(
+                notification,
+                excludingNotificationId: excludedNotificationId,
+                excludingWorkspaceId: excludedWorkspaceId
+            ) {
             if openTerminalNotification(notification) {
                 return notificationStore.notifications.first(where: { $0.id == notification.id }) ?? notification
             }
         }
-        _ = openLatestWorkspaceUnread()
+        _ = openLatestWorkspaceUnread(excludingWorkspaceId: excludedWorkspaceId)
         return nil
     }
 
     static func shouldOpenFromJumpToLatestUnread(
         _ notification: TerminalNotification,
-        excludingNotificationId excludedNotificationId: UUID? = nil
+        excludingNotificationId excludedNotificationId: UUID? = nil,
+        excludingWorkspaceId excludedWorkspaceId: UUID? = nil
     ) -> Bool {
         guard !notification.isRead, notification.id != excludedNotificationId else { return false }
+        if let excludedWorkspaceId,
+           notification.tabId == excludedWorkspaceId {
+            return false
+        }
         return notification.clickAction == nil
     }
 
-    private func openLatestWorkspaceUnread() -> Bool {
+    private func openLatestWorkspaceUnread(excludingWorkspaceId excludedWorkspaceId: UUID? = nil) -> Bool {
         guard let notificationStore else { return false }
-        let unreadWorkspaceIds = notificationStore.workspaceUnreadIndicatorIds
+        var unreadWorkspaceIds = notificationStore.workspaceUnreadIndicatorIds
+        if let excludedWorkspaceId {
+            unreadWorkspaceIds.remove(excludedWorkspaceId)
+        }
         guard !unreadWorkspaceIds.isEmpty else { return false }
 
         var seenWindowIds = Set<UUID>()
@@ -11188,7 +11288,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func clearWorkspaceUnreadAfterJump(workspace: Workspace, panelId: UUID?) {
+        if let panelId,
+           shouldTriggerManualUnreadJumpFlash(workspace: workspace, panelId: panelId) {
+            workspace.triggerUnreadIndicatorDismissFlash(panelId: panelId)
+        }
         workspace.clearUnreadAfterJump(panelId: panelId)
+    }
+
+    private func shouldTriggerManualUnreadJumpFlash(workspace: Workspace, panelId: UUID) -> Bool {
+        workspace.manualUnreadPanelIds.contains(panelId) ||
+            workspace.hasRestoredUnreadIndicator(panelId: panelId) ||
+            (notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false) ||
+            (notificationStore?.hasRestoredUnreadIndicator(forTabId: workspace.id) ?? false)
     }
 
     @discardableResult
@@ -11198,6 +11309,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let notificationStore,
               let target = focusedNotificationTarget(preferredWindow: preferredWindow) else {
             return false
+        }
+        if let panelTarget = focusedPanelNotificationTarget(target) {
+            let panelId = panelTarget.panelId
+            let workspace = panelTarget.workspace
+            let focusedPanelHasRestoredUnread = workspace.hasRestoredUnreadIndicator(panelId: panelId)
+            let hasWorkspaceOnlyRestoredUnread =
+                notificationStore.hasRestoredUnreadIndicator(forTabId: target.tabId) &&
+                !focusedPanelHasRestoredUnread &&
+                !workspace.hasWorkspaceContributingRestoredUnreadIndicator
+            if notificationStore.hasVisibleNotificationIndicator(forTabId: target.tabId, surfaceId: nil) ||
+                hasWorkspaceOnlyRestoredUnread {
+                notificationStore.markRead(forTabId: target.tabId)
+                return true
+            }
+            let hasWorkspaceManualUnreadOnPanel =
+                notificationStore.hasManualUnread(forTabId: target.tabId) &&
+                workspace.representativePanelIdForWorkspaceManualUnread() == panelId
+            let isPanelUnread =
+                workspace.manualUnreadPanelIds.contains(panelId) ||
+                focusedPanelHasRestoredUnread ||
+                notificationStore.hasVisibleNotificationIndicator(forTabId: target.tabId, surfaceId: panelId) ||
+                hasWorkspaceManualUnreadOnPanel
+            if isPanelUnread {
+                workspace.markPanelRead(panelId)
+                if hasWorkspaceManualUnreadOnPanel {
+                    _ = notificationStore.clearManualUnread(forTabId: target.tabId)
+                }
+                return true
+            }
+            workspace.markPanelUnread(panelId)
+            return true
         }
         if notificationStore.workspaceIsUnread(forTabId: target.tabId) {
             notificationStore.markRead(forTabId: target.tabId)
@@ -11217,8 +11359,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         switch result {
         case .deferredNotification(let notificationId):
             return jumpToLatestUnread(excludingNotificationId: notificationId)
-        case .markedWorkspaceWithoutNotification:
-            return jumpToLatestUnread()
+        case .markedWorkspaceWithoutNotification(let tabId):
+            return jumpToLatestUnread(excludingWorkspaceId: tabId)
         }
     }
 
@@ -11227,9 +11369,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let surfaceId: UUID?
     }
 
+    private struct FocusedPanelNotificationTarget {
+        let workspace: Workspace
+        let panelId: UUID
+    }
+
     private enum FocusedNotificationMarkResult {
         case deferredNotification(UUID)
-        case markedWorkspaceWithoutNotification
+        case markedWorkspaceWithoutNotification(UUID)
+    }
+
+    private func focusedPanelNotificationTarget(_ target: FocusedNotificationTarget) -> FocusedPanelNotificationTarget? {
+        guard let surfaceId = target.surfaceId,
+              let workspace = workspaceForMainActor(tabId: target.tabId) else {
+            return nil
+        }
+        let panelId: UUID?
+        if workspace.panels[surfaceId] != nil {
+            panelId = surfaceId
+        } else {
+            panelId = workspace.panelIdFromSurfaceId(TabID(uuid: surfaceId))
+        }
+        guard let panelId,
+              workspace.panels[panelId] != nil else {
+            return nil
+        }
+        return FocusedPanelNotificationTarget(workspace: workspace, panelId: panelId)
     }
 
     private func markFocusedNotificationAsOldestUnread(preferredWindow: NSWindow?) -> FocusedNotificationMarkResult? {
@@ -11250,7 +11415,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) {
             return .deferredNotification(notificationId)
         }
-        return .markedWorkspaceWithoutNotification
+        if let panelTarget = focusedPanelNotificationTarget(target) {
+            let workspace = panelTarget.workspace
+            let panelId = panelTarget.panelId
+            let panelAlreadyUnread =
+                workspace.manualUnreadPanelIds.contains(panelId) ||
+                workspace.hasRestoredUnreadIndicator(panelId: panelId) ||
+                notificationStore.hasVisibleNotificationIndicator(forTabId: target.tabId, surfaceId: panelId)
+            let hasWorkspaceOnlyRestoredUnread =
+                notificationStore.hasRestoredUnreadIndicator(forTabId: target.tabId) &&
+                !workspace.hasWorkspaceContributingRestoredUnreadIndicator
+            if !panelAlreadyUnread &&
+                !notificationStore.hasManualUnread(forTabId: target.tabId) &&
+                !hasWorkspaceOnlyRestoredUnread {
+                workspace.markPanelUnread(panelId)
+            }
+        } else if !notificationStore.workspaceIsUnread(forTabId: target.tabId) {
+            notificationStore.markUnread(forTabId: target.tabId)
+        }
+        return .markedWorkspaceWithoutNotification(target.tabId)
     }
 
     private func focusedNotificationTarget(preferredWindow: NSWindow?) -> FocusedNotificationTarget? {
@@ -15726,11 +15909,8 @@ private extension NSWindow {
             let responderWebView = self.firstResponder.flatMap {
                 Self.cmuxOwningWebView(for: $0, in: self, event: event)
             }
-            let hitWebView = Self.cmuxHitViewForEventDispatch(in: self, event: event).flatMap {
-                Self.cmuxOwningWebView(for: $0)
-            }
             let firstResponderType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-            return "browser=\((responderWebView != nil || hitWebView != nil) ? 1 : 0) firstResponder=\(firstResponderType)"
+            return "browser=\(responderWebView != nil ? 1 : 0) firstResponder=\(firstResponderType)"
         }()
         if event.type == .keyDown {
             CmuxTypingTiming.logEventDelay(path: "window.sendEvent", event: event)
@@ -15775,7 +15955,7 @@ private extension NSWindow {
         let previousContextHitView = cmuxFirstResponderGuardHitViewContext
         let previousContextWindowNumber = cmuxFirstResponderGuardContextWindowNumber
         cmuxFirstResponderGuardCurrentEventContext = event
-        cmuxFirstResponderGuardHitViewContext = Self.cmuxHitViewForEventDispatch(in: self, event: event)
+        cmuxFirstResponderGuardHitViewContext = Self.cmuxHitViewForFirstResponderGuard(in: self, event: event)
         cmuxFirstResponderGuardContextWindowNumber = self.windowNumber
 #if DEBUG
         if event.type == .keyDown {
@@ -15825,7 +16005,9 @@ private extension NSWindow {
         let shouldFinishSuppression = shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: self, event: event)
 
 #if DEBUG
-        let hitView = Self.cmuxHitViewForEventDispatch(in: self, event: event)
+        let hitView = WindowInputRoutingContext(event: event).allowsPortalPointerHitTesting
+            ? Self.cmuxHitViewForEventDispatch(in: self, event: event)
+            : nil
 #endif
         defer {
             let finishedReason: WindowMoveSuppressionReason?
@@ -16424,6 +16606,11 @@ private extension NSWindow {
         return cmuxTopHitViewForEvent(in: window, event: event)
     }
 
+    private static func cmuxHitViewForFirstResponderGuard(in window: NSWindow, event: NSEvent) -> NSView? {
+        guard WindowInputRoutingContext(event: event).allowsFirstResponderHitTesting else { return nil }
+        return cmuxHitViewForEventDispatch(in: window, event: event)
+    }
+
     private static func cmuxHitViewForCurrentEvent(in window: NSWindow, event: NSEvent) -> NSView? {
 #if DEBUG
         if let override = cmuxFirstResponderGuardHitViewOverride {
@@ -16469,13 +16656,8 @@ private extension NSWindow {
         return webView
     }
 
-    private static func cmuxIsPointerDownEvent(_ event: NSEvent) -> Bool {
-        switch event.type {
-        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
-            return true
-        default:
-            return false
-        }
+    private static func cmuxEventAllowsFirstResponderHitTesting(_ event: NSEvent) -> Bool {
+        WindowInputRoutingContext(event: event).allowsFirstResponderHitTesting
     }
 
     private static func cmuxPointerEventTargetsWindow(_ event: NSEvent, _ window: NSWindow) -> Bool {
@@ -16489,7 +16671,7 @@ private extension NSWindow {
     }
 
     private static func cmuxPointerHitWebView(in window: NSWindow, event: NSEvent) -> CmuxWebView? {
-        guard cmuxIsPointerDownEvent(event) else { return nil }
+        guard cmuxEventAllowsFirstResponderHitTesting(event) else { return nil }
         guard cmuxPointerEventTargetsWindow(event, window) else { return nil }
         if let portalWebView = BrowserWindowPortalRegistry.webViewAtWindowPoint(
             event.locationInWindow,
@@ -16504,7 +16686,7 @@ private extension NSWindow {
     }
 
     private static func cmuxPointerHitGhosttyView(in window: NSWindow, event: NSEvent) -> GhosttyNSView? {
-        guard cmuxIsPointerDownEvent(event) else { return nil }
+        guard cmuxEventAllowsFirstResponderHitTesting(event) else { return nil }
         guard cmuxPointerEventTargetsWindow(event, window) else { return nil }
         guard let hitView = cmuxHitViewForCurrentEvent(in: window, event: event) else {
             return nil

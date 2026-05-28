@@ -1,0 +1,6 @@
+self-hosted-runner:
+  labels:
+    - warp-macos-15-arm64-6x
+    - warp-macos-26-arm64-6x
+    - depot-macos-latest
+    - depot-macos-14
