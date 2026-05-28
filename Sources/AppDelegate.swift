@@ -1815,10 +1815,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let lineFormat = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_FORMAT"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let linePrefix = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_PREFIX"] ?? ""
+        let displaySuffix = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_SUFFIX"] ?? ""
+        let displayAsAbsolutePath = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_AS_ABSOLUTE_PATH"] == "1"
         if let rawOpenSupportedFiles = env["CMUX_UI_TEST_OPEN_SUPPORTED_FILES_IN_CMUX"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !rawOpenSupportedFiles.isEmpty {
             CmdClickSupportedFileRouteSettings.setEnabled(rawOpenSupportedFiles == "1")
+        }
+        if let rawOpenMarkdown = env["CMUX_UI_TEST_OPEN_MARKDOWN_IN_CMUX_VIEWER"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawOpenMarkdown.isEmpty {
+            CmdClickMarkdownRouteSettings.setEnabled(rawOpenMarkdown == "1")
         }
         let extraFileNamesJSON = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_EXTRA_FILE_NAMES_JSON"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1838,6 +1845,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             extraFileNames = []
         }
         let escapedToken = resolvedFileName.replacingOccurrences(of: " ", with: "\\ ")
+        let baseDisplayToken = displayAsAbsolutePath ? expectedFileURL.path : resolvedFileName
         let resolvedDisplayMode = (displayMode == "raw") ? "raw" : "escaped"
         let resolvedLineFormat: String
         switch lineFormat {
@@ -1861,25 +1869,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let shellCommand: String
         switch resolvedLineFormat {
         case "log":
-            displayToken = resolvedFileName
-            let blockLine = "\(linePrefix)\(resolvedFileName)"
+            displayToken = "\(baseDisplayToken)\(displaySuffix)"
+            let blockLine = "\(linePrefix)\(displayToken)"
             let shellBlockLine = singleQuotedShellLiteral(blockLine)
             shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
         case "alt_screen_log":
-            displayToken = resolvedFileName
-            let blockLine = "\(linePrefix)\(resolvedFileName)"
+            displayToken = "\(baseDisplayToken)\(displaySuffix)"
+            let blockLine = "\(linePrefix)\(displayToken)"
             let shellBlockLine = singleQuotedShellLiteral(blockLine)
             shellCommand = "clear\rprintf '\\033[?1049h\\033[H\\033[2J'; for i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
         default:
             switch resolvedDisplayMode {
             case "raw":
-                displayToken = resolvedFileName
-                let blockLine = "\(resolvedFileName)    OtherFile"
+                displayToken = "\(baseDisplayToken)\(displaySuffix)"
+                let blockLine = "\(displayToken)    OtherFile"
                 let shellBlockLine = singleQuotedShellLiteral(blockLine)
                 shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
             default:
-                displayToken = escapedToken
-                let blockLine = Array(repeating: escapedToken, count: 3).joined(separator: " ")
+                displayToken = "\(escapedToken)\(displaySuffix)"
+                let blockLine = Array(repeating: displayToken, count: 3).joined(separator: " ")
                 let shellBlockLine = singleQuotedShellLiteral(blockLine)
                 shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
             }
@@ -2392,6 +2400,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     at: fixtureDirectoryURL,
                     withIntermediateDirectories: true
                 )
+                try FileManager.default.createDirectory(
+                    at: expectedFileURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
                 if !FileManager.default.fileExists(atPath: expectedFileURL.path) {
                     try "fixture\n".write(to: expectedFileURL, atomically: true, encoding: .utf8)
                 }
@@ -2400,6 +2412,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 for extraFileName in extraFileNames where !extraFileName.isEmpty {
                     let extraFileURL = fixtureDirectoryURL.appendingPathComponent(extraFileName)
+                    try FileManager.default.createDirectory(
+                        at: extraFileURL.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
                     if !FileManager.default.fileExists(atPath: extraFileURL.path) {
                         try "fixture\n".write(to: extraFileURL, atomically: true, encoding: .utf8)
                     }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Regression test for https://github.com/manaflow-ai/cmux/issues/385.
-# Ensures paid CI jobs use Blacksmith macOS runners.
+# Ensures paid CI jobs use WarpBuild runners.
 # Fork PRs are gated by GitHub's built-in "Require approval for outside
 # collaborators" setting, so workflow-level fork guards are not needed.
 set -euo pipefail
@@ -9,30 +9,101 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
+E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
 
-check_blacksmith_runner() {
+check_warp_runner() {
   local file="$1" job="$2"
   if ! awk -v job="$job" '
     $0 ~ "^  "job":" { in_job=1; next }
-    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-    in_job && /runs-on:.*blacksmith-[0-9]+vcpu-macos-/ { saw=1 }
-    in_job && /os: blacksmith-[0-9]+vcpu-macos-/ { saw=1 }
-    END { exit !(saw) }
+    in_job && /^  [^[:space:]]/ { in_job=0 }
+    in_job && /runs-on:.*warp-macos-.*-arm64/ { saw_warp=1 }
+    in_job && /os: warp-macos-.*-arm64/ { saw_warp=1 }
+    END { exit !(saw_warp) }
   ' "$file"; then
-    echo "FAIL: $job in $(basename "$file") must use the expected macOS runner"
+    echo "FAIL: $job in $(basename "$file") must use a WarpBuild runner"
     exit 1
   fi
-  echo "PASS: $job in $(basename "$file") uses the expected macOS runner"
+  echo "PASS: $job WarpBuild runner is present"
+}
+
+check_e2e_runner_fallbacks() {
+  if ! awk '
+    /^run-name:/ {
+      saw_run_name=1
+      if ($0 ~ /inputs\.test_filter/ && ($0 ~ /inputs\.runner/ || $0 ~ /depot-macos-latest/) && ($0 ~ /inputs\.ref/ || $0 ~ /github\.ref_name/)) {
+        saw_run_name_dynamic=1
+      }
+    }
+    /^concurrency:/ { in_concurrency=1; next }
+    in_concurrency && /^jobs:/ { in_concurrency=0 }
+    in_concurrency && /cancel-in-progress:[[:space:]]*true/ { saw_cancel=1 }
+    in_concurrency && (/inputs\.runner/ || /depot-macos-latest/) { saw_runner=1 }
+    in_concurrency && /inputs\.test_filter/ { saw_test_filter=1 }
+    in_concurrency && /github\.ref_name/ { saw_ref_name=1 }
+    END { exit !(saw_run_name && saw_run_name_dynamic && saw_cancel && saw_runner && saw_test_filter && saw_ref_name) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must dynamically name runs and cancel duplicate queued E2E jobs by runner, normalized ref, and test filter"
+    exit 1
+  fi
+
+  for label in depot-macos-latest depot-macos-14; do
+    if ! grep -Eq "^[[:space:]]+- ${label}$" "$E2E_FILE"; then
+      echo "FAIL: test-e2e.yml must expose runner option ${label}"
+      exit 1
+    fi
+  done
+
+  if grep -Eq "^[[:space:]]*continue-on-error:" "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must not mask E2E setup or test failures with continue-on-error"
+    exit 1
+  fi
+
+  echo "PASS: test-e2e.yml exposes Depot runner choices and duplicate-queue cancellation"
+}
+
+check_xcode_selection() {
+  if grep -R -n "ls -d /Applications/Xcode" "$ROOT_DIR/.github/workflows"; then
+    echo "FAIL: workflow Xcode selection must use find/sort/tail fallback, not ls/glob ordering"
+    exit 1
+  fi
+
+  echo "PASS: workflow Xcode selection avoids ls/glob ordering"
+}
+
+check_release_build_signal() {
+  if ! grep -Fq 'lipo "$APP_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
+    echo "FAIL: release-build must verify the Release app binary stays universal"
+    exit 1
+  fi
+
+  if ! grep -Fq 'lipo "$CLI_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
+    echo "FAIL: release-build must verify the bundled CLI stays universal"
+    exit 1
+  fi
+
+  if ! grep -Fq 'lipo "$HELPER_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
+    echo "FAIL: release-build must verify the bundled Ghostty helper stays universal"
+    exit 1
+  fi
+
+  echo "PASS: release-build keeps universal artifact verification"
 }
 
 # ci.yml jobs
-check_blacksmith_runner "$CI_FILE" "tests"
-check_blacksmith_runner "$CI_FILE" "tests-build-and-lag"
-check_blacksmith_runner "$CI_FILE" "release-build"
-check_blacksmith_runner "$CI_FILE" "ui-regressions"
+check_warp_runner "$CI_FILE" "tests"
+check_warp_runner "$CI_FILE" "tests-build-and-lag"
+check_warp_runner "$CI_FILE" "release-build"
+check_warp_runner "$CI_FILE" "ui-regressions"
 
 # build-ghosttykit.yml
-check_blacksmith_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
+check_warp_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
 
-# ci-macos-compat.yml (uses matrix.os with Blacksmith runners)
-check_blacksmith_runner "$COMPAT_FILE" "compat-tests"
+# ci-macos-compat.yml (uses matrix.os with WarpBuild runners)
+check_warp_runner "$COMPAT_FILE" "compat-tests"
+
+# test-e2e.yml is manual, so keep the Depot GUI runner choices but cancel
+# duplicate queued runs for the same ref/filter/runner.
+check_e2e_runner_fallbacks
+
+check_xcode_selection
+check_release_build_signal
