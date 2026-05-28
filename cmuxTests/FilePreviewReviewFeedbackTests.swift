@@ -396,6 +396,39 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         )
     }
 
+    // Regression test for manaflow-ai/cmux#4576: drag-selecting deep into a large file pegged the
+    // main thread because TextKit 2's `NSTextSelectionNavigation` hit-tests are O(N) in line
+    // fragments. Selection hit-testing near the bottom of a large file must stay responsive.
+    func testLargeFileSelectionHitTestStaysResponsive() {
+        let lineCount = 60_000
+        let text = (0..<lineCount)
+            .map { "  \"row_\($0)\": { \"id\": \($0), \"value\": \"item-\($0)-payload\" }," }
+            .joined(separator: "\n")
+
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.string = text
+        // Realize layout so hit-testing measures steady-state cost (as it would after the file is
+        // displayed and the user has scrolled), not first-layout cost.
+        textView.sizeToFit()
+
+        let bottomY = max(textView.bounds.height - 5, 1)
+        let start = ProcessInfo.processInfo.systemUptime
+        for offset in 0..<20 {
+            _ = textView.characterIndexForInsertion(at: CGPoint(x: 200, y: bottomY - CGFloat(offset)))
+        }
+        let elapsed = ProcessInfo.processInfo.systemUptime - start
+
+        // TextKit 2 takes several seconds here; TextKit 1 + non-contiguous layout takes a few ms.
+        // The 1.0s ceiling sits far from both, so it is a clean, non-flaky regression signal.
+        XCTAssertLessThan(
+            elapsed,
+            1.0,
+            "Selection hit-testing near the bottom of a \(lineCount)-line file took \(elapsed)s. "
+                + "File Preview likely regressed to TextKit 2 O(N) selection navigation (see "
+                + "manaflow-ai/cmux#4576)."
+        )
+    }
+
     private func waitForPanelSave(
         _ panel: FilePreviewPanel,
         file: StaticString = #filePath,

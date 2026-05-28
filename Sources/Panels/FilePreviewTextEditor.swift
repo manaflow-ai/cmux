@@ -32,29 +32,10 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = drawsBackground
 
-        let textView = SavingTextView()
+        let textView = SavingTextView.makeFilePreviewTextView()
         textView.panel = panel
         textView.delegate = context.coordinator
-        textView.isEditable = true
-        textView.isSelectable = true
-        textView.allowsUndo = true
-        textView.isRichText = false
-        textView.importsGraphics = false
-        textView.usesFindPanel = true
-        textView.usesFontPanel = false
-        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         textView.drawsBackground = drawsBackground
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = true
-        textView.autoresizingMask = [.width]
-        textView.textContainer?.containerSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-        textView.textContainer?.widthTracksTextView = false
-        textView.applyFilePreviewTextEditorInsets()
         textView.string = panel.textContent
         panel.attachTextView(textView)
 
@@ -127,6 +108,37 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
 enum FilePreviewTextEditorLayout {
     static let textContainerInset = NSSize(width: 12, height: 10)
     static let lineFragmentPadding: CGFloat = 0
+}
+
+extension SavingTextView {
+    /// Builds the File Preview text view configured for large plain-text files.
+    ///
+    /// File Preview opens files up to `FilePreviewPanel.maximumLoadedTextBytes` (16 MB), which can
+    /// be hundreds of thousands of lines. Selection responsiveness on that content is the reason
+    /// this configuration is centralized; see `manaflow-ai/cmux#4576`.
+    static func makeFilePreviewTextView() -> SavingTextView {
+        let textView = SavingTextView()
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.allowsUndo = true
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.usesFindPanel = true
+        textView.usesFontPanel = false
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.containerSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.textContainer?.widthTracksTextView = false
+        textView.applyFilePreviewTextEditorInsets()
+        return textView
+    }
 }
 
 extension NSTextView {
