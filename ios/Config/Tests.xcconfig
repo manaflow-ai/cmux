@@ -7,8 +7,10 @@
 // ==========================================
 // Test Target Settings (Customizable by scaffold tool)
 // ==========================================
-PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.ios
+PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.ios.uitests
 TEST_TARGET_NAME = cmux
+CODE_SIGN_ENTITLEMENTS =
+INFOPLIST_FILE =
 
 // Fix duplicate module name issue
 PRODUCT_MODULE_NAME = $(PRODUCT_NAME)UITests

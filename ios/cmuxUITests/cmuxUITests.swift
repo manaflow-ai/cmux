@@ -229,6 +229,9 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
         ])
         waitForWorkspaceShell(in: app)
+        try openSelectedWorkspaceIfNeeded(app)
+        assertTerminalRow(0, label: "$ cmux ios status", in: app)
+        assertTerminalRow(1, label: "Mobile Core: connected", in: app)
         return app
     }
 
@@ -240,7 +243,7 @@ final class cmuxUITests: XCTestCase {
         )
         let ticket = try CmxAttachTicket(
             workspaceID: "workspace-main",
-            terminalID: nil,
+            terminalID: "terminal-build",
             macDeviceID: "ui-test-mac",
             macDisplayName: "UI Test Mac",
             routes: [route],
