@@ -6913,7 +6913,11 @@ struct CMUXCLI {
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "new-workspace":
-            params["group_id"] = try resolveGroupId(in: rest)
+            let (placementOpt, rem0) = parseOption(rest, name: "--placement")
+            params["group_id"] = try resolveGroupId(in: rem0)
+            if let placementOpt {
+                params["placement"] = placementOpt
+            }
             let response = try client.sendV2(method: "workspace.group.new_workspace", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(response, mode: idFormat)))
@@ -13045,7 +13049,12 @@ struct CMUXCLI {
               add --group <group> --workspace <ws>
               remove --workspace <ws>
               set-anchor --group <group> --workspace <ws>
-              new-workspace <group>     Create a new workspace in the group
+              new-workspace <group> [--placement top|end]
+                                        Create a new workspace in the group.
+                                        Default placement is top (second slot,
+                                        right after the anchor); per-cwd
+                                        cmux.json `newWorkspacePlacement` and
+                                        the global default can override.
               set-color <group> [--hex #RRGGBB]
               set-icon <group> [--symbol <sf-symbol>]
               move <group> --to-index <n> | --before <group> | --after <group>

@@ -189,6 +189,11 @@
                     { "type": "object", "additionalProperties": true }
                   ]
                 }
+              },
+              "newWorkspacePlacement": {
+                "type": "string",
+                "enum": ["top", "end"],
+                "description": "Where the group's + button places its new workspace within the group: `top` (second slot, just after the anchor) or `end` (after the last member). Falls back to the global default when omitted."
               }
             }
           }

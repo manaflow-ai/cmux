@@ -6412,18 +6412,28 @@ class TerminalController {
         // user's active workspace; callers that want to focus the new
         // workspace should call workspace.select / workspace.group.focus
         // afterward.
+        //
+        // Placement resolution: explicit `placement` param wins, then the
+        // group's per-cwd `newWorkspacePlacement` from cmux.json, then the
+        // global default. The CLI exposes this as
+        // `cmux workspace-group new-workspace <group> --placement <top|end>`.
+        let explicitPlacement = WorkspaceGroupNewPlacement(rawString: v2String(params, "placement"))
         var createdId: UUID?
         v2MainSync {
             guard let group = tabManager.workspaceGroups.first(where: { $0.id == gid }) else { return }
-            let cwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
-            let newWs = tabManager.addWorkspace(
-                workingDirectory: cwd,
-                inheritWorkingDirectory: cwd == nil,
-                select: false,
-                autoWelcomeIfNeeded: false
-            )
-            tabManager.addWorkspaceToGroup(workspaceId: newWs.id, groupId: gid)
-            createdId = newWs.id
+            let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+            let configStore = AppDelegate.shared?.mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.cmuxConfigStore
+            let configured = configStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
+            let placement = explicitPlacement
+                ?? configured
+                ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
+            if let newWs = tabManager.createWorkspaceInGroup(
+                groupId: gid,
+                placement: placement,
+                select: false
+            ) {
+                createdId = newWs.id
+            }
         }
         guard let createdId else {
             return .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])

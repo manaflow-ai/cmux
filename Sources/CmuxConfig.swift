@@ -165,6 +165,12 @@ struct CmuxConfigWorkspaceGroupEntry: Codable, Sendable, Equatable {
     var color: String?
     var icon: String?
     var contextMenu: [CmuxConfigContextMenuItem]?
+    /// Where a newly-created workspace lands inside the group when the user
+    /// clicks the header's `+` button. Valid values: `"top"` (immediately
+    /// after the anchor) or `"end"` (after the last member). When omitted,
+    /// falls back to the global default
+    /// (`WorkspaceGroupNewWorkspacePlacementSettings.resolved()`).
+    var newWorkspacePlacement: String?
 }
 
 /// Resolved snapshot of a per-cwd workspace group entry, with the JSON key
@@ -177,6 +183,9 @@ struct CmuxResolvedWorkspaceGroupConfig: Sendable, Equatable {
     let color: String?
     let iconSymbol: String?
     let contextMenuItems: [CmuxResolvedConfigContextMenuItem]
+    /// Parsed override for where the `+` button places its new workspace.
+    /// nil means "fall through to the global default."
+    let newWorkspacePlacement: WorkspaceGroupNewPlacement?
 }
 
 enum CmuxNotificationHooksMode: String, Codable, Sendable, Hashable {
@@ -2886,7 +2895,8 @@ final class CmuxConfigStore: ObservableObject {
             isGlob: isGlob,
             color: entry.color.map(sanitizeConfigText),
             iconSymbol: entry.icon.map(sanitizeConfigText),
-            contextMenuItems: menuResolution.items
+            contextMenuItems: menuResolution.items,
+            newWorkspacePlacement: WorkspaceGroupNewPlacement(rawString: entry.newWorkspacePlacement)
         )
     }
 

@@ -941,6 +941,47 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 }
 #endif
 
+/// Where a newly-created workspace lands inside its group when the user
+/// clicks the group header's + button (or invokes
+/// `workspace.group.new_workspace`).
+///   - `.top` — second slot, immediately after the anchor.
+///   - `.end` — last slot, after the existing trailing member.
+enum WorkspaceGroupNewPlacement: String, Sendable, CaseIterable {
+    case top
+    case end
+
+    init?(rawString: String?) {
+        guard let raw = rawString?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !raw.isEmpty,
+              let value = WorkspaceGroupNewPlacement(rawValue: raw) else { return nil }
+        self = value
+    }
+}
+
+/// UserDefaults-backed global default for the per-group `+` placement.
+/// Used when neither the per-cwd `cmux.json` entry nor an explicit call-site
+/// override pins a placement. Default ships as `.top`.
+enum WorkspaceGroupNewWorkspacePlacementSettings {
+    static let key = "workspaceGroup.newWorkspacePlacement"
+    static let defaultValue: WorkspaceGroupNewPlacement = .top
+
+    static func resolved(defaults: UserDefaults = .standard) -> WorkspaceGroupNewPlacement {
+        guard let raw = defaults.string(forKey: key),
+              let value = WorkspaceGroupNewPlacement(rawValue: raw) else {
+            return defaultValue
+        }
+        return value
+    }
+
+    static func set(_ value: WorkspaceGroupNewPlacement, defaults: UserDefaults = .standard) {
+        if value == defaultValue {
+            defaults.removeObject(forKey: key)
+        } else {
+            defaults.set(value.rawValue, forKey: key)
+        }
+    }
+}
+
 /// Named collapsible sidebar group containing one or more workspaces.
 /// The membership relation lives on `Workspace.groupId`; this struct stores
 /// the group's identity, display name, collapse/pin state, and the explicit
@@ -5983,6 +6024,71 @@ class TabManager: ObservableObject {
         normalizeWorkspaceGroupContiguity()
         postWorkspaceOrderDidChange(movedWorkspaceIds: [anchor.id] + eligibleChildren)
         return group.id
+    }
+
+    /// Create a brand-new workspace inheriting the anchor's cwd, attach it
+    /// to the group, and position it within the group's tabs[] range per
+    /// `placement`. Returns the new workspace.
+    @discardableResult
+    func createWorkspaceInGroup(
+        groupId: UUID,
+        placement: WorkspaceGroupNewPlacement = WorkspaceGroupNewWorkspacePlacementSettings.resolved(),
+        select: Bool = true
+    ) -> Workspace? {
+        guard let group = workspaceGroups.first(where: { $0.id == groupId }) else { return nil }
+        let cwd = tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+        let newWorkspace = addWorkspace(
+            workingDirectory: cwd,
+            inheritWorkingDirectory: cwd == nil,
+            select: select,
+            autoWelcomeIfNeeded: false
+        )
+        assignGroup(workspaceId: newWorkspace.id, groupId: groupId)
+        placeWithinGroup(workspaceId: newWorkspace.id, groupId: groupId, placement: placement)
+        normalizeWorkspaceGroupContiguity()
+        postWorkspaceOrderDidChange(movedWorkspaceIds: [newWorkspace.id])
+        return newWorkspace
+    }
+
+    /// Move an existing group member to the requested in-group slot. Called
+    /// after `createWorkspaceInGroup` and any other path that needs to
+    /// pin the new member to top/end relative to the group's members.
+    private func placeWithinGroup(
+        workspaceId: UUID,
+        groupId: UUID,
+        placement: WorkspaceGroupNewPlacement
+    ) {
+        guard let group = workspaceGroups.first(where: { $0.id == groupId }),
+              let currentIndex = tabs.firstIndex(where: { $0.id == workspaceId }) else { return }
+        let memberIndices = tabs.indices.filter { tabs[$0].groupId == groupId && tabs[$0].id != workspaceId }
+        let targetIndex: Int
+        switch placement {
+        case .top:
+            if let anchorIndex = tabs.firstIndex(where: { $0.id == group.anchorWorkspaceId }) {
+                // Right after the anchor; the anchor stays first via
+                // `normalizeWorkspaceGroupContiguity`'s anchorFirst pass.
+                targetIndex = anchorIndex + 1
+            } else if let firstMember = memberIndices.first {
+                targetIndex = firstMember
+            } else {
+                return
+            }
+        case .end:
+            if let lastMember = memberIndices.last {
+                targetIndex = lastMember + 1
+            } else {
+                // Only the anchor and the new workspace exist; treat as top.
+                if let anchorIndex = tabs.firstIndex(where: { $0.id == group.anchorWorkspaceId }) {
+                    targetIndex = anchorIndex + 1
+                } else {
+                    return
+                }
+            }
+        }
+        guard currentIndex != targetIndex else { return }
+        let workspace = tabs.remove(at: currentIndex)
+        let insertAt = currentIndex < targetIndex ? targetIndex - 1 : targetIndex
+        tabs.insert(workspace, at: max(0, min(insertAt, tabs.count)))
     }
 
     /// Add an existing workspace to an existing group as a non-anchor member.

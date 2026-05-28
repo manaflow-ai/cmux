@@ -11540,16 +11540,10 @@ struct VerticalTabsSidebar: View {
                     lastSidebarSelectionIndex.wrappedValue = anchorIndex
                 }
             },
-            onTapPlus: { [weak tabManager, groupId = group.id, anchorId = group.anchorWorkspaceId] in
+            onTapPlus: { [weak tabManager, groupId = group.id, placement = resolvedConfig?.newWorkspacePlacement] in
                 guard let tabManager else { return }
-                let cwd = tabManager.tabs.first(where: { $0.id == anchorId })?.currentDirectory
-                let newWorkspace = tabManager.addWorkspace(
-                    workingDirectory: cwd,
-                    inheritWorkingDirectory: cwd == nil,
-                    select: true,
-                    autoWelcomeIfNeeded: false
-                )
-                tabManager.addWorkspaceToGroup(workspaceId: newWorkspace.id, groupId: groupId)
+                let resolved = placement ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
+                _ = tabManager.createWorkspaceInGroup(groupId: groupId, placement: resolved)
             },
             onRunResolvedItem: { [weak tabManager, groupId = group.id] item in
                 guard let tabManager else { return }
