@@ -34,6 +34,20 @@ def rounded_ms(value: float) -> float:
     return round(value, 2)
 
 
+def file_tail(path: pathlib.Path, max_bytes: int = 80_000) -> str:
+    if not path.exists():
+        return ""
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as handle:
+            if size > max_bytes:
+                handle.seek(size - max_bytes)
+            data = handle.read(max_bytes)
+        return data.decode("utf-8", errors="replace")
+    except OSError as exc:
+        return f"<failed to read {path}: {exc}>"
+
+
 class PerfFailure(RuntimeError):
     pass
 
@@ -202,6 +216,46 @@ class CmuxPerfRunner:
         self.socket_path.unlink(missing_ok=True)
         self.cmuxd_socket_path.unlink(missing_ok=True)
 
+    def ensure_app_running(self, label: str) -> None:
+        if self.proc is None:
+            raise PerfFailure(f"{label}: app process is not running")
+        returncode = self.proc.poll()
+        if returncode is not None:
+            raise PerfFailure(f"{label}: app exited with code {returncode}")
+
+    def record_unchecked_cli_failure(self, args: list[str], proc: subprocess.CompletedProcess[str]) -> None:
+        failures = self.result["fixture"].setdefault("unchecked_cli_failures", [])
+        if len(failures) >= 20:
+            return
+        failures.append(
+            {
+                "args": args,
+                "returncode": proc.returncode,
+                "stdout_tail": proc.stdout[-2000:],
+                "stderr_tail": proc.stderr[-2000:],
+            }
+        )
+
+    def attach_failure_diagnostics(self) -> None:
+        diagnostics = self.result.setdefault("diagnostics", {})
+        if self.proc is None:
+            diagnostics["app_returncode"] = None
+        else:
+            diagnostics["app_returncode"] = self.proc.poll()
+        diagnostics["stdout_log_path"] = str(self.stdout_path)
+        diagnostics["debug_log_path"] = str(self.debug_log_path)
+        diagnostics["stdout_tail"] = file_tail(self.stdout_path)
+        diagnostics["debug_log_tail"] = file_tail(self.debug_log_path)
+
+    def write_diagnostic_files(self, output_dir: pathlib.Path) -> None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for source, name in (
+            (self.stdout_path, "cmux-perf-stdout.log"),
+            (self.debug_log_path, "cmux-debug.log"),
+        ):
+            if source.exists():
+                shutil.copyfile(source, output_dir / name)
+
     def run_cli(self, args: list[str], input_text: str | None = None, timeout: float = 60, check: bool = True) -> str:
         proc = subprocess.run(
             [str(self.cli_path)] + args,
@@ -211,6 +265,14 @@ class CmuxPerfRunner:
             env=self.cli_env(),
             timeout=timeout,
         )
+        if not check and proc.returncode != 0:
+            self.record_unchecked_cli_failure(args, proc)
+            if "Connection refused" in proc.stderr or "Failed to connect to socket" in proc.stderr:
+                raise PerfFailure(
+                    "cmux command failed while socket was unavailable: "
+                    + " ".join(args)
+                    + f"\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+                )
         if check and proc.returncode != 0:
             raise PerfFailure(
                 "cmux command failed: "
@@ -227,6 +289,35 @@ class CmuxPerfRunner:
         raw_params = json.dumps(params or {})
         out = self.run_cli(["rpc", method, raw_params], timeout=timeout)
         return json.loads(out)
+
+    def require_string_field(self, payload: dict, key: str, context: str) -> str:
+        value = payload.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise PerfFailure(f"{context} missing {key}: {payload!r}")
+        return value
+
+    def workspace_ids(self) -> list[str]:
+        payload = self.rpc("workspace.list")
+        workspaces = payload.get("workspaces")
+        if not isinstance(workspaces, list):
+            raise PerfFailure(f"workspace.list returned invalid workspaces: {payload!r}")
+
+        ids: list[str] = []
+        for index, workspace in enumerate(workspaces):
+            if not isinstance(workspace, dict):
+                raise PerfFailure(f"workspace.list item {index} is invalid: {workspace!r}")
+            ids.append(self.require_string_field(workspace, "id", f"workspace.list item {index}"))
+        return ids
+
+    def create_workspace(self, title: str, cwd: pathlib.Path, description: str | None = None) -> str:
+        params: dict[str, object] = {
+            "title": title,
+            "cwd": str(cwd),
+        }
+        if description is not None:
+            params["description"] = description
+        payload = self.rpc("workspace.create", params, timeout=90)
+        return self.require_string_field(payload, "workspace_id", f"workspace.create {title!r}")
 
     def report_shell_prompt(self, workspace: str, surface: str) -> bool:
         try:
@@ -270,30 +361,17 @@ class CmuxPerfRunner:
         return repo
 
     def create_fixture(self) -> list[tuple[str, str, pathlib.Path]]:
-        existing = [w["ref"] for w in self.json_cli(["list-workspaces"]).get("workspaces", [])]
-        guard_ws = self.ref(
-            self.run_cli(["new-workspace", "--name", "perf-guard", "--cwd", str(self.fixture_root)]),
-            "workspace",
-        )
+        existing = self.workspace_ids()
+        guard_ws = self.create_workspace("perf-guard", self.fixture_root)
 
         terminals: list[tuple[str, str, pathlib.Path]] = []
         workspaces: list[str] = []
         for i in range(1, self.args.workspace_count + 1):
             cwd = self.make_repo(i)
-            ws = self.ref(
-                self.run_cli(
-                    [
-                        "new-workspace",
-                        "--name",
-                        f"perf-{i:02d}-dirty-agent",
-                        "--description",
-                        f"activation perf fixture {i:02d}",
-                        "--cwd",
-                        str(cwd),
-                    ],
-                    timeout=90,
-                ),
-                "workspace",
+            ws = self.create_workspace(
+                f"perf-{i:02d}-dirty-agent",
+                cwd,
+                description=f"activation perf fixture {i:02d}",
             )
             workspaces.append(ws)
             pane_target = self.args.heavy_workspace_panes if i == 1 else self.args.other_workspace_panes
@@ -361,6 +439,7 @@ class CmuxPerfRunner:
     def seed_scrollback(self, terminals: list[tuple[str, str, pathlib.Path]]) -> None:
         pending: dict[str, tuple[str, str]] = {}
         for idx, (ws, surface, _cwd) in enumerate(terminals, 1):
+            self.ensure_app_running("seed_scrollback.send")
             lines = (
                 self.args.heavy_scrollback_lines
                 if surface in self.heavy_scrollback_surfaces
@@ -381,6 +460,7 @@ class CmuxPerfRunner:
         poll_failures: list[dict[str, str]] = []
         deadline = time.time() + self.args.scrollback_timeout
         while pending and time.time() < deadline:
+            self.ensure_app_running("seed_scrollback.poll")
             done: list[tuple[str, str]] = []
             for surface, (ws, token) in list(pending.items()):
                 try:
@@ -554,7 +634,9 @@ class CmuxPerfRunner:
         try:
             self.launch("launch")
             terminals = self.create_fixture()
+            self.ensure_app_running("after_fixture")
             self.seed_scrollback(terminals)
+            self.ensure_app_running("after_scrollback")
             self.benchmark_snapshot("snapshot_no_scrollback", include_scrollback=False)
             real_scrollback = self.benchmark_real_scrollback_snapshot()
             if self.seed_synthetic_scrollback_fallback(real_scrollback):
@@ -668,10 +750,12 @@ def main() -> int:
         result = runner.run()
     except Exception as exc:
         result = runner.result
+        runner.attach_failure_diagnostics()
         result["failures"] = result.get("failures", []) + [str(exc)]
         if args.output:
             output = pathlib.Path(args.output)
             output.parent.mkdir(parents=True, exist_ok=True)
+            runner.write_diagnostic_files(output.parent)
             output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         if args.junit:
             write_junit(result, pathlib.Path(args.junit))

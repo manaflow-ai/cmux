@@ -7,6 +7,15 @@ import XCTest
 @testable import cmux
 #endif
 
+private func sessionSnapshotPanelIds(in layout: SessionWorkspaceLayoutSnapshot) -> [UUID] {
+    switch layout {
+    case .pane(let pane):
+        return pane.panelIds
+    case .split(let split):
+        return sessionSnapshotPanelIds(in: split.first) + sessionSnapshotPanelIds(in: split.second)
+    }
+}
+
 @MainActor
 final class TabManagerSessionSnapshotTests: XCTestCase {
     override func setUp() {
@@ -43,6 +52,38 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.selectedTabId, restored.tabs[1].id)
         XCTAssertEqual(restored.tabs[0].customTitle, "First")
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
+    }
+
+    func testSessionSnapshotPreservesAllWorkspaceTopLevelLayoutTabs() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        manager.newSurface()
+        let secondLayoutId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+        let secondPane = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let secondExtraPanelId = try XCTUnwrap(
+            workspace.newTerminalSurface(inPane: secondPane, focus: false)?.id
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let layoutTabs = try XCTUnwrap(snapshot.layoutTabs)
+        XCTAssertEqual(layoutTabs.count, 2)
+        XCTAssertEqual(snapshot.selectedLayoutTabId, secondLayoutId)
+        XCTAssertTrue(sessionSnapshotPanelIds(in: layoutTabs[0].layout).contains(firstPanelId))
+        XCTAssertTrue(sessionSnapshotPanelIds(in: layoutTabs[1].layout).contains(secondExtraPanelId))
+
+        let restored = TabManager()
+        let restoredWorkspace = try XCTUnwrap(restored.selectedWorkspace)
+        restoredWorkspace.restoreSessionSnapshot(snapshot)
+
+        let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
+        let roundTripLayoutTabs = try XCTUnwrap(roundTrip.layoutTabs)
+        XCTAssertEqual(roundTripLayoutTabs.count, 2)
+        XCTAssertEqual(restoredWorkspace.topLevelTabCount, 2)
+        XCTAssertEqual(roundTrip.selectedLayoutTabId, roundTripLayoutTabs[1].id)
+        XCTAssertEqual(roundTrip.panels.count, snapshot.panels.count)
+        XCTAssertTrue(roundTripLayoutTabs.allSatisfy { !sessionSnapshotPanelIds(in: $0.layout).isEmpty })
     }
 
     func testFocusHistoryNavigatesWithinWorkspacePanels() throws {

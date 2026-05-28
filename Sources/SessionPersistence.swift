@@ -1677,6 +1677,12 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
     }
 }
 
+struct SessionWorkspaceLayoutTabSnapshot: Codable, Sendable {
+    var id: UUID? = nil
+    var title: String? = nil
+    var layout: SessionWorkspaceLayoutSnapshot
+}
+
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     var processTitle: String
     var customTitle: String?
@@ -1690,6 +1696,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var currentDirectory: String
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
+    var layoutTabs: [SessionWorkspaceLayoutTabSnapshot]? = nil
+    var selectedLayoutTabId: UUID? = nil
     var panels: [SessionPanelSnapshot]
     var statusEntries: [SessionStatusEntrySnapshot]
     var logEntries: [SessionLogEntrySnapshot]

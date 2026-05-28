@@ -7383,6 +7383,16 @@ class TabManager: ObservableObject {
         selectedWorkspace?.selectPreviousSurface()
     }
 
+    /// Select the next Ghostty-style top tab inside the selected workspace.
+    func selectNextTopLevelTab() {
+        selectedWorkspace?.selectNextTopLevelTab()
+    }
+
+    /// Select the previous Ghostty-style top tab inside the selected workspace.
+    func selectPreviousTopLevelTab() {
+        selectedWorkspace?.selectPreviousTopLevelTab()
+    }
+
     /// Select a surface by index in the currently focused pane of the selected workspace
     func selectSurface(at index: Int) {
         selectedWorkspace?.selectSurface(at: index)
@@ -7395,14 +7405,14 @@ class TabManager: ObservableObject {
 
     /// Create a new terminal surface in the focused pane of the selected workspace
     func newSurface() {
-        // Cmd+T should always focus the newly created surface.
+        // Cmd+T creates a Ghostty-style top tab in the current workspace and focuses it.
         selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
+        selectedWorkspace?.newTopLevelTerminalTab(focus: true)
     }
 
     func newSurface(initialInput: String) {
         selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
+        selectedWorkspace?.newTopLevelTerminalTab(focus: true, initialInput: initialInput)
     }
 
     // MARK: - Split Creation
