@@ -417,6 +417,25 @@ struct WorkspaceRemoteConfiguration: Equatable {
     private static func proxyBrokerSSHOptions(_ options: [String]) -> [String] {
         WorkspaceRemoteSSHOptionFilter.durableOptions(options)
     }
+
+    func hasSamePersistentPTYIdentity(as other: WorkspaceRemoteConfiguration) -> Bool {
+        guard preserveAfterTerminalExit,
+              other.preserveAfterTerminalExit,
+              let persistentDaemonSlot,
+              persistentDaemonSlot == other.persistentDaemonSlot else {
+            return false
+        }
+
+        return transport == other.transport
+            && skipDaemonBootstrap == other.skipDaemonBootstrap
+            && destination.trimmingCharacters(in: .whitespacesAndNewlines)
+                == other.destination.trimmingCharacters(in: .whitespacesAndNewlines)
+            && port == other.port
+            && WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile)
+                == WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(other.identityFile)
+            && Self.proxyBrokerSSHOptions(sshOptions) == Self.proxyBrokerSSHOptions(other.sshOptions)
+            && daemonWebSocketEndpoint?.proxyBrokerKeyComponent == other.daemonWebSocketEndpoint?.proxyBrokerKeyComponent
+    }
 }
 
 extension SessionRemoteWorkspaceSnapshot {

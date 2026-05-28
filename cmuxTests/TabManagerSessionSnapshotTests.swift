@@ -2023,6 +2023,40 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 .panels.first { $0.id == restoredPanelId }?.terminal?.remotePTYSessionID,
             sessionID
         )
+        let refreshedRelayConfiguration = WorkspaceRemoteConfiguration(
+            destination: " dev@example.com ",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-\(getuid())-64106-%C",
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64106,
+            relayID: "relay-alias-test-refreshed",
+            relayToken: String(repeating: "c", count: 64),
+            localSocketPath: "/tmp/cmux-relay-alias-refreshed.sock",
+            terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+            foregroundAuthToken: "foreground-auth-refreshed",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: persistentDaemonSlot
+        )
+        restoredWorkspace.configureRemoteConnection(refreshedRelayConfiguration, autoConnect: false)
+        XCTAssertTrue(restoredWorkspace.remotePTYSessionIDMatches(panelId: restoredPanelId, sessionID: sessionID))
+        XCTAssertEqual(
+            restoredWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == restoredPanelId }?.terminal?.remotePTYSessionID,
+            sessionID
+        )
+        let refreshedRelayParams = try decodedParams(
+            from: restoredWorkspace.rewriteRemoteRelayCommandLine(requestData)
+        )
+        XCTAssertEqual(refreshedRelayParams["workspace_id"] as? String, restoredWorkspace.id.uuidString)
+        XCTAssertEqual(refreshedRelayParams["surface_id"] as? String, restoredPanelId.uuidString)
+        XCTAssertEqual(refreshedRelayParams["panel_id"] as? String, restoredPanelId.uuidString)
+
         restoredWorkspace.disconnectRemoteConnection(clearConfiguration: false)
         XCTAssertEqual(
             restoredWorkspace.sessionSnapshot(includeScrollback: false)
