@@ -71,8 +71,28 @@ extension TerminalSurfaceHosting {
     #endif
 }
 
-final class GhosttySurfaceBridge {
-    weak var surfaceView: GhosttySurfaceView?
+/// Bridges libghostty C callbacks (which run on the IO read thread or
+/// other Ghostty-internal threads) onto the main actor where the
+/// `GhosttySurfaceView` lives. The single mutable property is the
+/// `weak var surfaceView`; we serialise reads/writes through the main
+/// actor, which lets us conform to `Sendable` for the `Task { @MainActor }`
+/// hops below.
+final class GhosttySurfaceBridge: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _surfaceView: GhosttySurfaceView?
+
+    var surfaceView: GhosttySurfaceView? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _surfaceView
+        }
+        set {
+            lock.lock()
+            _surfaceView = newValue
+            lock.unlock()
+        }
+    }
 
     func attach(to surfaceView: GhosttySurfaceView) {
         self.surfaceView = surfaceView

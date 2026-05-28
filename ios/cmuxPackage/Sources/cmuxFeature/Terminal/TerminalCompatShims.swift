@@ -20,6 +20,28 @@ enum RemotePlatform: String, Sendable, Equatable {
     case macOS
     case linux
     case unknown
+
+    /// Compatibility alias used by the ported renderer for choosing
+    /// keyboard layouts. The cmux iOS app is always talking to a Mac
+    /// surface so `goOS == "darwin"` is the only branch that matters.
+    var goOS: String {
+        switch self {
+        case .macOS: return "darwin"
+        case .linux: return "linux"
+        case .unknown: return "unknown"
+        }
+    }
+}
+
+/// Debug-only no-op shim for the prior worktree's anchormux logging.
+/// Keeps the verbatim port compiling without dragging in the
+/// anchormux SDK.
+@inline(__always)
+func liveAnchormuxLog(_ message: @autoclosure () -> String) {
+    #if DEBUG
+    // NSLog avoids pulling in cmuxDebugLog from the macOS target.
+    NSLog("cmux.terminal.anchormux %@", message())
+    #endif
 }
 
 /// Logging stub. The prior worktree had a singleton sidebar store that

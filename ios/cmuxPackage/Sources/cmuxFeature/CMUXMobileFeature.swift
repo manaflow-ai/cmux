@@ -18,6 +18,7 @@ private let mobileShellUILog = Logger(
 )
 #endif
 
+@MainActor
 public struct CMUXMobileAppView: View {
     @State private var store: CMUXMobileShellStore
 
@@ -1754,6 +1755,7 @@ private struct WorkspaceDetailContainer: View {
             WorkspaceDetailView(
                 host: store.connectedHostName,
                 workspace: workspace,
+                store: store,
                 selectedTerminalID: Binding(
                     get: { store.selectedTerminalID },
                     set: { store.selectTerminal($0) }
@@ -2058,6 +2060,7 @@ private extension MobileWorkspacePreview {
 struct WorkspaceDetailView: View {
     let host: String
     let workspace: MobileWorkspacePreview
+    @Bindable var store: CMUXMobileShellStore
     @Binding var selectedTerminalID: MobileTerminalPreview.ID?
     let createWorkspace: () -> Void
     let createTerminal: () -> Void
@@ -2081,6 +2084,20 @@ struct WorkspaceDetailView: View {
 
     private func detailContent() -> some View {
         VStack(spacing: 0) {
+            #if os(iOS)
+            if let terminalID = selectedTerminal?.id.rawValue {
+                GhosttySurfaceRepresentable(
+                    surfaceID: terminalID,
+                    store: store,
+                    fontSize: 14
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(Color(red: 0x27/255.0, green: 0x28/255.0, blue: 0x22/255.0))
+            } else {
+                Color(red: 0x27/255.0, green: 0x28/255.0, blue: 0x22/255.0)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+            #else
             TerminalPreviewSurface(
                 terminal: selectedTerminal,
                 fontScale: terminalFontScale,
@@ -2101,6 +2118,7 @@ struct WorkspaceDetailView: View {
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            #endif
 
             #if !os(iOS)
             if MobileTerminalBottomBarVisibilityPolicy.showsInlineBar(isKeyboardVisible: isTerminalKeyboardVisible) {

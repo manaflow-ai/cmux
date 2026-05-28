@@ -44,8 +44,14 @@ final class GhosttyRuntime {
     private static var clipboardReader: @MainActor () -> String? = { UIPasteboard.general.string }
     private static var clipboardWriter: @MainActor (String?) -> Void = { UIPasteboard.general.string = $0 }
 
-    private(set) var app: ghostty_app_t?
-    private(set) var config: ghostty_config_t?
+    // libghostty handles are opaque C pointers (typedef `void *`). They
+    // aren't Sendable in Swift's type system, but `GhosttyRuntime` is a
+    // process-lifetime singleton and the pointer never escapes to a
+    // thread that wasn't also coordinated through `@MainActor`. Mark them
+    // `nonisolated(unsafe)` so `deinit` (which Swift 6 makes nonisolated)
+    // can free them without a synchronous main-actor hop.
+    nonisolated(unsafe) private(set) var app: ghostty_app_t?
+    nonisolated(unsafe) private(set) var config: ghostty_config_t?
 
     static func shared() throws -> GhosttyRuntime {
         if let sharedResult {
@@ -373,13 +379,26 @@ final class GhosttyRuntime {
         location: ghostty_clipboard_e,
         state: UnsafeMutableRawPointer?
     ) -> Bool {
+        // The libghostty userdata + state pointers are opaque tokens
+        // (no Swift Sendable conformance). Cross the actor boundary as
+        // Int bit-patterns to keep the strict-concurrency checker happy
+        // and rebuild the pointers on the main actor side. The pointers
+        // outlive this scope because libghostty owns their lifetime.
+        let userdataBits: Int = userdata.map { Int(bitPattern: $0) } ?? 0
+        let stateBits: Int = state.map { Int(bitPattern: $0) } ?? 0
         Task { @MainActor in
-            guard let surfaceView = surfaceView(from: userdata),
+            let userdataPtr = userdataBits == 0
+                ? nil
+                : UnsafeMutableRawPointer(bitPattern: userdataBits)
+            let statePtr = stateBits == 0
+                ? nil
+                : UnsafeMutableRawPointer(bitPattern: stateBits)
+            guard let surfaceView = surfaceView(from: userdataPtr),
                   let surface = surfaceView.surface else { return }
             let value = clipboardReader() ?? ""
 
             value.withCString { ptr in
-                ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
+                ghostty_surface_complete_clipboard_request(surface, ptr, statePtr, false)
             }
         }
         return true
@@ -454,8 +473,8 @@ final class GhosttyRuntime {
 
     @MainActor
     static func setClipboardHandlersForTesting(
-        reader: @escaping () -> String?,
-        writer: @escaping (String?) -> Void
+        reader: @escaping @Sendable () -> String?,
+        writer: @escaping @Sendable (String?) -> Void
     ) {
         clipboardReader = reader
         clipboardWriter = writer
