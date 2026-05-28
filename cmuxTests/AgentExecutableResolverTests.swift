@@ -208,6 +208,23 @@ final class AgentExecutableResolverTests: XCTestCase {
         )
     }
 
+    func testLaunchEnvironmentKeepsPWDInSyncWithWorkingDirectory() {
+        let plan = AgentSessionLaunchPlan(
+            provider: .codex,
+            executableURL: URL(fileURLWithPath: "/tmp/codex"),
+            arguments: AgentSessionProviderID.codex.launchArguments,
+            environment: [
+                "PATH": "/bin",
+                "PWD": "/wrong"
+            ]
+        )
+
+        let environment = plan.environment(overridingWorkingDirectory: "/tmp/cmux-agent-session/../cmux-agent-session")
+
+        XCTAssertEqual(environment["PATH"], "/bin")
+        XCTAssertEqual(environment["PWD"], "/tmp/cmux-agent-session")
+    }
+
     func testAutoStartPolicyMatchesAppServerProviders() {
         XCTAssertTrue(AgentSessionProviderID.codex.shouldAutoStartSession)
         XCTAssertTrue(AgentSessionProviderID.opencode.shouldAutoStartSession)

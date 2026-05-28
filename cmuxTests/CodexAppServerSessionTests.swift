@@ -25,6 +25,141 @@ final class CodexAppServerSessionTests: XCTestCase {
         )
     }
 
+    func testOpenCodeEventStreamParserDecodesDataEvents() {
+        var parser = OpenCodeEventStreamParser()
+
+        XCTAssertEqual(parser.consumeLine("event: message").count, 0)
+        XCTAssertEqual(parser.consumeLine(#"data: {"type":"server.connected","properties":{}}"#).count, 0)
+        let events = parser.consumeLine("")
+
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events.first?["type"] as? String, "server.connected")
+    }
+
+    func testOpenCodeEventTextAccumulatorEmitsAssistantTextDeltasAfterRoleAndPartAreKnown() {
+        var accumulator = OpenCodeEventTextAccumulator()
+
+        XCTAssertEqual(
+            accumulator.consumeEvent([
+                "type": "message.part.delta",
+                "properties": [
+                    "sessionID": "session-1",
+                    "messageID": "message-1",
+                    "partID": "part-1",
+                    "field": "text",
+                    "delta": "hel"
+                ]
+            ], sessionID: "session-1"),
+            []
+        )
+        XCTAssertEqual(
+            accumulator.consumeEvent([
+                "type": "message.part.updated",
+                "properties": [
+                    "sessionID": "session-1",
+                    "part": [
+                        "id": "part-1",
+                        "sessionID": "session-1",
+                        "messageID": "message-1",
+                        "type": "text",
+                        "text": "hel"
+                    ]
+                ]
+            ], sessionID: "session-1"),
+            []
+        )
+        XCTAssertEqual(
+            accumulator.consumeEvent([
+                "type": "message.updated",
+                "properties": [
+                    "sessionID": "session-1",
+                    "info": [
+                        "id": "message-1",
+                        "role": "assistant"
+                    ]
+                ]
+            ], sessionID: "session-1"),
+            ["hel"]
+        )
+        XCTAssertEqual(
+            accumulator.consumeEvent([
+                "type": "message.part.delta",
+                "properties": [
+                    "sessionID": "session-1",
+                    "messageID": "message-1",
+                    "partID": "part-1",
+                    "field": "text",
+                    "delta": "lo"
+                ]
+            ], sessionID: "session-1"),
+            ["lo"]
+        )
+    }
+
+    func testOpenCodeEventTextAccumulatorSkipsUserAndIgnoredText() {
+        var accumulator = OpenCodeEventTextAccumulator()
+
+        XCTAssertEqual(
+            accumulator.consumeEvent([
+                "type": "message.updated",
+                "properties": [
+                    "sessionID": "session-1",
+                    "info": [
+                        "id": "message-1",
+                        "role": "user"
+                    ]
+                ]
+            ], sessionID: "session-1"),
+            []
+        )
+        XCTAssertEqual(
+            accumulator.consumeEvent([
+                "type": "message.part.updated",
+                "properties": [
+                    "sessionID": "session-1",
+                    "part": [
+                        "id": "part-1",
+                        "sessionID": "session-1",
+                        "messageID": "message-1",
+                        "type": "text",
+                        "text": "do not echo"
+                    ]
+                ]
+            ], sessionID: "session-1"),
+            []
+        )
+        XCTAssertEqual(
+            accumulator.consumeEvent([
+                "type": "message.updated",
+                "properties": [
+                    "sessionID": "session-1",
+                    "info": [
+                        "id": "message-2",
+                        "role": "assistant"
+                    ]
+                ]
+            ], sessionID: "session-1"),
+            []
+        )
+        XCTAssertEqual(
+            accumulator.consumeEvent([
+                "type": "message.part.updated",
+                "properties": [
+                    "sessionID": "session-1",
+                    "part": [
+                        "id": "part-2",
+                        "sessionID": "session-1",
+                        "messageID": "message-2",
+                        "type": "text",
+                        "text": "hidden",
+                        "ignored": true
+                    ]
+                ]
+            ], sessionID: "session-1"),
+            []
+        )
+    }
+
     func testClaudeStreamJSONAccumulatorExtractsAssistantTextDeltas() {
         var accumulator = ClaudeStreamJSONAccumulator()
 

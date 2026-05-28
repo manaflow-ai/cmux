@@ -99,6 +99,19 @@ struct AgentSessionLaunchPlan: Equatable, Sendable {
     let arguments: [String]
     let environment: [String: String]
 
+    func environment(overridingWorkingDirectory workingDirectory: String?) -> [String: String] {
+        var launchEnvironment = environment
+        guard let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !workingDirectory.isEmpty else {
+            return launchEnvironment
+        }
+
+        launchEnvironment["PWD"] = URL(fileURLWithPath: workingDirectory, isDirectory: true)
+            .standardizedFileURL
+            .path
+        return launchEnvironment
+    }
+
     func arguments(assigningOpenCodePort port: Int) -> [String] {
         guard provider == .opencode else { return arguments }
 

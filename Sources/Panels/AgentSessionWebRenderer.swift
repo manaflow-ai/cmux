@@ -1057,6 +1057,131 @@ struct ClaudeStreamJSONAccumulator {
     }
 }
 
+struct OpenCodeEventStreamParser {
+    private var dataLines: [String] = []
+
+    mutating func consumeLine(_ line: String) -> [[String: Any]] {
+        let line = line.trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
+        guard !line.isEmpty else {
+            return flush()
+        }
+        guard line.hasPrefix("data:") else {
+            return []
+        }
+
+        var data = String(line.dropFirst("data:".count))
+        if data.hasPrefix(" ") {
+            data.removeFirst()
+        }
+        dataLines.append(data)
+        return []
+    }
+
+    mutating func flush() -> [[String: Any]] {
+        guard !dataLines.isEmpty else { return [] }
+        let data = dataLines.joined(separator: "\n")
+        dataLines.removeAll()
+        guard let payload = data.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else {
+            return []
+        }
+        return [object]
+    }
+}
+
+struct OpenCodeEventTextAccumulator {
+    private var messageRoleByID: [String: String] = [:]
+    private var messageIDByPartID: [String: String] = [:]
+    private var isTextPartByID: [String: Bool] = [:]
+    private var textByPartID: [String: String] = [:]
+    private var emittedCharacterCountByPartID: [String: Int] = [:]
+
+    mutating func consumeEvent(_ event: [String: Any], sessionID: String) -> [String] {
+        guard let type = event["type"] as? String,
+              let properties = event["properties"] as? [String: Any],
+              properties["sessionID"] as? String == sessionID else {
+            return []
+        }
+
+        switch type {
+        case "message.updated":
+            return consumeMessageUpdated(properties)
+        case "message.part.updated":
+            return consumePartUpdated(properties)
+        case "message.part.delta":
+            return consumePartDelta(properties)
+        default:
+            return []
+        }
+    }
+
+    private mutating func consumeMessageUpdated(_ properties: [String: Any]) -> [String] {
+        guard let info = properties["info"] as? [String: Any],
+              let messageID = info["id"] as? String,
+              let role = info["role"] as? String else {
+            return []
+        }
+
+        messageRoleByID[messageID] = role
+        guard role == "assistant" else { return [] }
+        let partIDs = messageIDByPartID.compactMap { partID, candidateMessageID in
+            candidateMessageID == messageID ? partID : nil
+        }
+        return partIDs.flatMap { flushPart($0) }
+    }
+
+    private mutating func consumePartUpdated(_ properties: [String: Any]) -> [String] {
+        guard let part = properties["part"] as? [String: Any],
+              let partID = part["id"] as? String,
+              let messageID = part["messageID"] as? String else {
+            return []
+        }
+
+        messageIDByPartID[partID] = messageID
+        guard part["type"] as? String == "text",
+              part["ignored"] as? Bool != true,
+              let text = part["text"] as? String else {
+            return []
+        }
+
+        isTextPartByID[partID] = true
+        let existingText = textByPartID[partID] ?? ""
+        if text.count >= existingText.count {
+            textByPartID[partID] = text
+        }
+        return flushPart(partID)
+    }
+
+    private mutating func consumePartDelta(_ properties: [String: Any]) -> [String] {
+        guard properties["field"] as? String == "text",
+              let partID = properties["partID"] as? String,
+              let messageID = properties["messageID"] as? String,
+              let delta = properties["delta"] as? String,
+              !delta.isEmpty else {
+            return []
+        }
+
+        messageIDByPartID[partID] = messageID
+        textByPartID[partID, default: ""] += delta
+        return flushPart(partID)
+    }
+
+    private mutating func flushPart(_ partID: String) -> [String] {
+        guard isTextPartByID[partID] == true,
+              let messageID = messageIDByPartID[partID],
+              messageRoleByID[messageID] == "assistant",
+              let text = textByPartID[partID],
+              !text.isEmpty else {
+            return []
+        }
+
+        let emittedCharacterCount = emittedCharacterCountByPartID[partID] ?? 0
+        guard text.count > emittedCharacterCount else { return [] }
+        emittedCharacterCountByPartID[partID] = text.count
+        return [String(text.dropFirst(emittedCharacterCount))]
+    }
+}
+
 @MainActor
 final class CodexAppServerSession {
     typealias DataWriter = (Data) throws -> Void
@@ -1604,17 +1729,20 @@ private final class AgentSessionProcessStore {
         let sessionId = UUID().uuidString
         let process = Process()
         let launchArguments = try Self.processArguments(for: plan)
+        let launchEnvironment = plan.environment(overridingWorkingDirectory: workingDirectory)
         process.executableURL = plan.executableURL
         process.arguments = launchArguments
-        process.environment = plan.environment
-        if let workingDirectory {
+        process.environment = launchEnvironment
+        if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !workingDirectory.isEmpty {
             process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
+                .standardizedFileURL
         }
 
         let stdin = Pipe()
         let stdout = Pipe()
         let stderr = Pipe()
-        let openCodeAuth = OpenCodeServerAuth(environment: plan.environment)
+        let openCodeAuth = OpenCodeServerAuth(environment: launchEnvironment)
         process.standardInput = stdin
         process.standardOutput = stdout
         process.standardError = stderr
@@ -1677,6 +1805,7 @@ private final class AgentSessionProcessStore {
             if process.isRunning {
                 process.terminate()
             }
+            running.openCodeEventTask?.cancel()
             sessions.removeValue(forKey: sessionId)
             emitActiveProviderStateIfNeeded()
             throw error
@@ -1755,11 +1884,13 @@ private final class AgentSessionProcessStore {
         guard let session = sessions[sessionId] else {
             throw AgentSessionBridgeError.sessionNotFound(sessionId)
         }
+        session.openCodeEventTask?.cancel()
         session.process.terminate()
     }
 
     func closeAll() {
         for session in sessions.values {
+            session.openCodeEventTask?.cancel()
             session.process.terminate()
         }
         sessions.removeAll()
@@ -1797,6 +1928,7 @@ private final class AgentSessionProcessStore {
             return
         }
         sessions.removeValue(forKey: session.sessionId)
+        session.openCodeEventTask?.cancel()
         emitActiveProviderStateIfNeeded()
         emitExit(
             sessionId: session.sessionId,
@@ -1810,6 +1942,7 @@ private final class AgentSessionProcessStore {
             return
         }
         emitActiveProviderStateIfNeeded()
+        session.openCodeEventTask?.cancel()
         if session.process.isRunning {
             session.process.terminate()
         }
@@ -1890,6 +2023,7 @@ private final class AgentSessionProcessStore {
                 guard self.sessions[session.sessionId] === session else { return }
                 session.openCodeSessionID = id
                 session.isOpenCodeSessionCreateInFlight = false
+                self.startOpenCodeEventStream(session)
                 self.emitStarted(session: session)
             } catch {
                 session.isOpenCodeSessionCreateInFlight = false
@@ -1898,6 +2032,7 @@ private final class AgentSessionProcessStore {
                     return
                 }
                 self.emitActiveProviderStateIfNeeded()
+                session.openCodeEventTask?.cancel()
                 if session.process.isRunning {
                     session.process.terminate()
                 }
@@ -1943,6 +2078,79 @@ private final class AgentSessionProcessStore {
             ],
             authorizationHeader: session.openCodeAuthorizationHeader
         )
+    }
+
+    private func startOpenCodeEventStream(_ session: RunningSession) {
+        guard session.openCodeEventTask == nil,
+              let baseURL = session.openCodeBaseURL,
+              let openCodeSessionID = session.openCodeSessionID else {
+            return
+        }
+        let url = openCodeURL(baseURL: baseURL, path: "event", workingDirectory: session.workingDirectory)
+        let authorizationHeader = session.openCodeAuthorizationHeader
+        let sessionId = session.sessionId
+
+        session.openCodeEventTask = Task { @MainActor [weak self] in
+            await self?.consumeOpenCodeEventStream(
+                sessionId: sessionId,
+                openCodeSessionID: openCodeSessionID,
+                url: url,
+                authorizationHeader: authorizationHeader
+            )
+        }
+    }
+
+    private func consumeOpenCodeEventStream(
+        sessionId: String,
+        openCodeSessionID: String,
+        url: URL,
+        authorizationHeader: String?
+    ) async {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 3600
+        if let authorizationHeader {
+            request.setValue(authorizationHeader, forHTTPHeaderField: "Authorization")
+        }
+
+        do {
+            let (bytes, response) = try await URLSession.shared.bytes(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(statusCode) else {
+                throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.opencode.displayName)
+            }
+
+            var parser = OpenCodeEventStreamParser()
+            for try await line in bytes.lines {
+                guard !Task.isCancelled else { return }
+                for event in parser.consumeLine(line) {
+                    handleOpenCodeEvent(event, sessionId: sessionId, openCodeSessionID: openCodeSessionID)
+                }
+            }
+            for event in parser.flush() {
+                handleOpenCodeEvent(event, sessionId: sessionId, openCodeSessionID: openCodeSessionID)
+            }
+        } catch {
+            guard !Task.isCancelled else { return }
+#if DEBUG
+            cmuxDebugLog("agentSession.opencode.eventStream.failed error=\(error.localizedDescription)")
+#endif
+        }
+    }
+
+    private func handleOpenCodeEvent(_ event: [String: Any], sessionId: String, openCodeSessionID: String) {
+        guard let session = sessions[sessionId],
+              session.openCodeSessionID == openCodeSessionID else {
+            return
+        }
+
+        for output in session.consumeOpenCodeEvent(event, openCodeSessionID: openCodeSessionID) {
+            emitOutput(
+                sessionId: session.sessionId,
+                providerID: session.providerID,
+                stream: "stdout",
+                text: output
+            )
+        }
     }
 
     private func openCodeURL(baseURL: URL, path: String, workingDirectory: String?) -> URL {
@@ -2068,10 +2276,12 @@ private final class AgentSessionProcessStore {
         var openCodeBaseURL: URL?
         var openCodeSessionID: String?
         var isOpenCodeSessionCreateInFlight = false
+        var openCodeEventTask: Task<Void, Never>?
         var pendingExitStatus: Int32?
         var drainedStreams: Set<String> = []
         private var stdoutBuffer = Data()
         private var stderrBuffer = Data()
+        private var openCodeEventTextAccumulator = OpenCodeEventTextAccumulator()
 
         init(
             sessionId: String,
@@ -2109,6 +2319,10 @@ private final class AgentSessionProcessStore {
 
         func consumeClaudeStreamJSONLine(_ line: String) -> [String] {
             claudeStreamJSONAccumulator.consumeLine(line)
+        }
+
+        func consumeOpenCodeEvent(_ event: [String: Any], openCodeSessionID: String) -> [String] {
+            openCodeEventTextAccumulator.consumeEvent(event, sessionID: openCodeSessionID)
         }
 
         private static func appendOutputData(_ data: Data, buffer: inout Data) -> [String] {
