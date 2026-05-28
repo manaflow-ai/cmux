@@ -51,13 +51,14 @@ def selected_workspace_and_terminal():
 
 def mac_visible_lines(workspace_id: str, terminal_id: str, lines: int = 45):
     """The Mac side via `cmux read-screen`, the canonical CLI used by
-    other automation. Returns trimmed lines from the visible viewport."""
+    other automation. Returns the last `lines` trimmed lines from the
+    visible viewport."""
     raw = run_cli(
         "read-screen",
         "--workspace", workspace_id,
         "--surface", terminal_id,
     ).decode("utf-8", errors="replace")
-    return [line.rstrip() for line in raw.split("\n")]
+    return [line.rstrip() for line in raw.split("\n")[-lines:]]
 
 
 def mobile_snapshot(workspace_id: str, terminal_id: str):
@@ -178,7 +179,8 @@ def main():
     if args.watch:
         try:
             while True:
-                os.system("clear")
+                sys.stdout.write("\x1b[2J\x1b[H")
+                sys.stdout.flush()
                 mac, mob, cur_row, cur_col, fidelity = snapshot_once()
                 diff(mac, mob, cur_row, cur_col, fidelity)
                 time.sleep(0.5)
