@@ -6037,8 +6037,16 @@ extension CMUXCLI {
                   window.clearTimeout(timeout);
                   resolve();
                 };
-                timeout = window.setTimeout(done, 50);
-                window.requestAnimationFrame(done);
+                if (document.visibilityState === "visible" && document.hasFocus()) {
+                  timeout = window.setTimeout(done, 50);
+                  window.requestAnimationFrame(done);
+                } else if (typeof MessageChannel !== "undefined") {
+                  const channel = new MessageChannel();
+                  channel.port1.onmessage = done;
+                  channel.port2.postMessage(undefined);
+                } else {
+                  queueMicrotask(done);
+                }
               });
             }
 
