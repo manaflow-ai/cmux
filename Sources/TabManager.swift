@@ -5808,6 +5808,14 @@ class TabManager: ObservableObject {
             }
         }
         reorderTabForPinnedState(tab)
+        // Unpinning a single workspace lands it at the front of the unpinned
+        // segment via reorderTabForPinnedState — which can place it ahead of
+        // group sections and violate the renderer's group-then-ungrouped
+        // tier invariant. Renormalize so the now-unpinned workspace slots
+        // into the ungrouped tier.
+        if !workspaceGroups.isEmpty {
+            normalizeWorkspaceGroupContiguity()
+        }
         postWorkspaceOrderDidChange(movedWorkspaceIds: [tab.id])
     }
 
@@ -6108,31 +6116,31 @@ class TabManager: ObservableObject {
         _ = tab
     }
 
-    /// Move a group to a new section position. `targetIndex` is interpreted as
-    /// an absolute position in `workspaceGroups`; the value is then clamped to
-    /// the range of indices occupied by groups in the same pin tier as the
-    /// source (pinned groups reorder among themselves; unpinned among
-    /// themselves). Out-of-range or cross-tier targets clamp to the nearest
-    /// edge of the source's tier.
+    /// Move a group to a new section position. `targetIndex` is interpreted
+    /// as the FINAL position the group should end up at in `workspaceGroups`
+    /// (post-move). It is clamped to the range occupied by groups in the
+    /// same pin tier as the source (pinned and unpinned tiers reorder among
+    /// themselves). Callers that compute targetIndex relative to other
+    /// groups (e.g. before/after a peer) must translate that intent into a
+    /// final-position index themselves — see v2WorkspaceGroupMove for the
+    /// translation logic.
     func moveWorkspaceGroup(groupId: UUID, toIndex targetIndex: Int) {
         guard let currentIndex = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
         let isPinned = workspaceGroups[currentIndex].isPinned
         let sameTierIndices = workspaceGroups.indices.filter { workspaceGroups[$0].isPinned == isPinned }
         guard let firstSameTier = sameTierIndices.first,
               let lastSameTier = sameTierIndices.last else { return }
-        // Upper bound is lastSameTier + 1 so callers can request
-        // "insert at the end of the tier" (e.g. via `--after <last group>`,
-        // which encodes targetIndex as afterIndex + 1). Clamping to
-        // lastSameTier would collapse that intent to a no-op.
-        let upperBound = lastSameTier + 1
-        let clampedTarget = max(firstSameTier, min(targetIndex, upperBound))
+        let clampedTarget = max(firstSameTier, min(targetIndex, lastSameTier))
         guard clampedTarget != currentIndex else { return }
         let group = workspaceGroups.remove(at: currentIndex)
-        // After removing the source, indices to its right shift left by one.
-        // Insert at the original target index minus that shift when moving
-        // forward; otherwise insert at the target unchanged.
-        let adjustedTarget = clampedTarget > currentIndex ? clampedTarget - 1 : clampedTarget
-        workspaceGroups.insert(group, at: max(0, min(adjustedTarget, workspaceGroups.count)))
+        // Insert at clampedTarget directly — the source's removal already
+        // shifted subsequent indices down, so for a desired final position
+        // of N: if N < currentIndex, indices to the left didn't move (insert
+        // at N); if N > currentIndex, the source's removal shifted N's old
+        // contents left by one, but we want our group AT position N in the
+        // final array, which means inserting after that element — index N
+        // works because we're inserting into a shorter array.
+        workspaceGroups.insert(group, at: max(0, min(clampedTarget, workspaceGroups.count)))
         normalizeWorkspaceGroupContiguity()
         let memberIds = tabs.filter { $0.groupId == groupId }.map(\.id)
         postWorkspaceOrderDidChange(movedWorkspaceIds: memberIds)

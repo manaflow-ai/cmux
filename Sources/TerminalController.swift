@@ -6476,23 +6476,27 @@ class TerminalController {
         var ok = false
         v2MainSync {
             guard let current = tabManager.workspaceGroups.firstIndex(where: { $0.id == gid }) else { return }
+            // moveWorkspaceGroup interprets toIndex as the FINAL position the
+            // group should occupy. before/after refer to a peer's CURRENT
+            // index, so when the source comes before the peer in the original
+            // order, removing the source shifts the peer left by one, and the
+            // translated final position must shift with it.
             let target: Int? = {
                 if let toIndex = v2Int(params, "to_index") {
                     return toIndex
                 }
                 if let beforeId = v2UUID(params, "before_group_id"),
                    let beforeIndex = tabManager.workspaceGroups.firstIndex(where: { $0.id == beforeId }) {
-                    return beforeIndex
+                    return current < beforeIndex ? beforeIndex - 1 : beforeIndex
                 }
                 if let afterId = v2UUID(params, "after_group_id"),
                    let afterIndex = tabManager.workspaceGroups.firstIndex(where: { $0.id == afterId }) {
-                    return afterIndex + 1
+                    return current < afterIndex ? afterIndex : afterIndex + 1
                 }
                 return nil
             }()
             guard let target else { return }
             tabManager.moveWorkspaceGroup(groupId: gid, toIndex: target)
-            _ = current
             ok = true
         }
         return ok
@@ -6510,13 +6514,16 @@ class TerminalController {
         var anchorId: UUID?
         v2MainSync {
             guard let group = tabManager.workspaceGroups.first(where: { $0.id == gid }),
-                  tabManager.tabs.contains(where: { $0.id == group.anchorWorkspaceId }) else { return }
+                  let anchor = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId }) else { return }
             if let windowId = v2ResolveWindowId(tabManager: tabManager) {
                 _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
                 setActiveTabManager(tabManager)
             }
-            tabManager.selectedTabId = group.anchorWorkspaceId
-            anchorId = group.anchorWorkspaceId
+            // Route through selectWorkspace so the explicit-resume
+            // notification dismissal and other selection side effects fire,
+            // matching workspace.select and the sidebar header click path.
+            tabManager.selectWorkspace(anchor)
+            anchorId = anchor.id
         }
         guard let anchorId else {
             return .err(code: "not_found", message: "Group or anchor not found", data: ["group_id": gid.uuidString])
