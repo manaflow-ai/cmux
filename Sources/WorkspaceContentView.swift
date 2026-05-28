@@ -38,6 +38,7 @@ struct WorkspaceCanvasPresentationDebugRecord {
     let usesUnifiedTexturePresentation: Bool
     let nativeOverlayCount: Int
     let textureSurfaceCount: Int
+    let visibleNativePortalCount: Int
 }
 
 @MainActor
@@ -52,7 +53,11 @@ enum WorkspaceCanvasPresentationDebugRegistry {
     private static let maximumRecentEntryCount = 48
     private static var entriesByWorkspaceID: [UUID: Entry] = [:]
 
-    static func record(workspaceID: UUID, presentation: CanvasPresentationState) {
+    static func record(
+        workspaceID: UUID,
+        presentation: CanvasPresentationState,
+        visibleNativePortalCount: Int
+    ) {
         var entry = entriesByWorkspaceID[workspaceID] ?? Entry(
             interactionPhase: presentation.interactionPhase,
             usesUnifiedTexturePresentation: presentation.usesUnifiedTexturePresentation,
@@ -66,7 +71,8 @@ enum WorkspaceCanvasPresentationDebugRegistry {
                 interactionPhase: presentation.interactionPhase,
                 usesUnifiedTexturePresentation: presentation.usesUnifiedTexturePresentation,
                 nativeOverlayCount: presentation.nativeOverlays.count,
-                textureSurfaceCount: presentation.textureSurfaces.count
+                textureSurfaceCount: presentation.textureSurfaces.count,
+                visibleNativePortalCount: visibleNativePortalCount
             )
         )
         if entry.recentRecords.count > maximumRecentEntryCount {
@@ -1611,15 +1617,24 @@ private func canvasAnimationFrameClockCallback(
 private struct CanvasPresentationDebugProbeLayer: NSViewRepresentable {
     let workspaceID: UUID
     let presentation: CanvasPresentationState
+    let visibleNativePortalCount: Int
 
     func makeNSView(context: Context) -> CanvasPresentationDebugProbeView {
         let view = CanvasPresentationDebugProbeView()
-        view.update(workspaceID: workspaceID, presentation: presentation)
+        view.update(
+            workspaceID: workspaceID,
+            presentation: presentation,
+            visibleNativePortalCount: visibleNativePortalCount
+        )
         return view
     }
 
     func updateNSView(_ nsView: CanvasPresentationDebugProbeView, context: Context) {
-        nsView.update(workspaceID: workspaceID, presentation: presentation)
+        nsView.update(
+            workspaceID: workspaceID,
+            presentation: presentation,
+            visibleNativePortalCount: visibleNativePortalCount
+        )
     }
 
     static func dismantleNSView(_ nsView: CanvasPresentationDebugProbeView, coordinator: ()) {
@@ -1636,11 +1651,16 @@ private final class CanvasPresentationDebugProbeView: NSView {
         nil
     }
 
-    func update(workspaceID: UUID, presentation: CanvasPresentationState) {
+    func update(
+        workspaceID: UUID,
+        presentation: CanvasPresentationState,
+        visibleNativePortalCount: Int
+    ) {
         self.workspaceID = workspaceID
         WorkspaceCanvasPresentationDebugRegistry.record(
             workspaceID: workspaceID,
-            presentation: presentation
+            presentation: presentation,
+            visibleNativePortalCount: visibleNativePortalCount
         )
     }
 
@@ -2655,6 +2675,9 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             let nativePresentationRequests = canvasSurfacePortalRequests(
                 presentation: presentation
             )
+            let visibleNativePortalCount = canvasVisibleNativePortalCount(
+                for: presentation.presentationSurfaces
+            )
             let cardSnapshots = canvasCardSnapshots(
                 for: visibleItems,
                 transform: transform,
@@ -2678,7 +2701,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
                 CanvasPresentationDebugProbeLayer(
                     workspaceID: workspace.id,
-                    presentation: presentation
+                    presentation: presentation,
+                    visibleNativePortalCount: visibleNativePortalCount
                 )
                 .frame(width: 1, height: 1)
                 .allowsHitTesting(false)
@@ -3029,6 +3053,32 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 scale: overlay.scale,
                 frameIncludesPanelChrome: true
             )
+        }
+    }
+
+    private func canvasVisibleNativePortalCount(
+        for surfaces: [CanvasPresentationSurface]
+    ) -> Int {
+        surfaces.reduce(into: 0) { count, surface in
+            guard let selected = selectedTab(for: surface.item),
+                  let panel = workspace.panel(for: selected.id) else {
+                return
+            }
+            if let terminalPanel = panel as? TerminalPanel,
+               let snapshot = TerminalWindowPortalRegistry.debugSnapshot(for: terminalPanel.hostedView),
+               !snapshot.containerHidden,
+               snapshot.frameInWindow.width > 1,
+               snapshot.frameInWindow.height > 1 {
+                count += 1
+                return
+            }
+            if let browserPanel = panel as? BrowserPanel,
+               let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView),
+               !snapshot.containerHidden,
+               snapshot.frameInWindow.width > 1,
+               snapshot.frameInWindow.height > 1 {
+                count += 1
+            }
         }
     }
 
