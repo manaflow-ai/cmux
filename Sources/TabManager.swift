@@ -5534,12 +5534,24 @@ class TabManager: ObservableObject {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let tab = tabs[index]
         let targetIndex = tab.isPinned ? 0 : tabs.filter { $0.isPinned }.count
-        guard index != targetIndex else { return }
-        tabs.remove(at: index)
-        let pinnedCount = tabs.filter { $0.isPinned }.count
-        let insertIndex = tab.isPinned ? 0 : pinnedCount
-        tabs.insert(tab, at: insertIndex)
-        if !workspaceGroups.isEmpty {
+        if index != targetIndex {
+            tabs.remove(at: index)
+            let pinnedCount = tabs.filter { $0.isPinned }.count
+            let insertIndex = tab.isPinned ? 0 : pinnedCount
+            tabs.insert(tab, at: insertIndex)
+        }
+        if let groupId = tab.groupId,
+           workspaceGroups.contains(where: { $0.id == groupId }) {
+            // Grouped: bring the group's whole section to the top of its
+            // pinned/unpinned tier, then normalize within the group so the
+            // anchor stays first and the moved member lands right after it.
+            // Without this, normalize re-partitions tabs[] into
+            // pinned-solo / pinned-groups / unpinned-groups / unpinned-solo,
+            // dragging the section back to its previous position.
+            let isPinnedTier = workspaceGroups.first(where: { $0.id == groupId })?.isPinned == true
+            let tierFirstIndex = workspaceGroups.firstIndex(where: { $0.isPinned == isPinnedTier }) ?? 0
+            moveWorkspaceGroup(groupId: groupId, toIndex: tierFirstIndex)
+        } else if !workspaceGroups.isEmpty {
             normalizeWorkspaceGroupContiguity()
         }
         postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])

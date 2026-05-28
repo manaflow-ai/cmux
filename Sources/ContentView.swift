@@ -11530,7 +11530,21 @@ struct VerticalTabsSidebar: View {
         // surface its unread state here — otherwise background work in the
         // anchor goes unnoticed (no badge, no message). The TabItemView path
         // does the same read for every other row.
-        let anchorUnreadCount = notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
+        //
+        // When the group is collapsed, member rows aren't rendered either,
+        // so child unread totals would also vanish. Aggregate across every
+        // member so the collapsed header reflects the whole group's unread
+        // state instead of just the anchor's.
+        let anchorUnreadCount: Int = {
+            if group.isCollapsed {
+                return tabManager.tabs.reduce(0) { partial, tab in
+                    tab.groupId == group.id
+                        ? partial + notificationStore.unreadCount(forTabId: tab.id)
+                        : partial
+                }
+            }
+            return notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
+        }()
         let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
         let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
             at: anchorIndex,
