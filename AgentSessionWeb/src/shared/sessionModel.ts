@@ -240,10 +240,15 @@ export function selectProvider(providerId: ProviderId, state: SessionState, disp
   void callNative("provider.select", { providerId }).catch(() => {});
 }
 
-export async function sendInput(state: SessionState, dispatch: (action: Action) => void): Promise<void> {
-  const submittedInput = state.input;
+export async function sendInput(
+  state: SessionState,
+  dispatch: (action: Action) => void,
+  options: { clearInput?: string; text?: string } = {},
+): Promise<boolean> {
+  const submittedInput = options.text ?? state.input;
+  const clearInput = options.clearInput ?? submittedInput;
   if (submittedInput.length === 0 || !state.runningSessionId || state.status !== "running") {
-    return;
+    return false;
   }
   const sessionId = state.runningSessionId;
   try {
@@ -251,9 +256,11 @@ export async function sendInput(state: SessionState, dispatch: (action: Action) 
       sessionId,
       text: submittedInput,
     });
-    dispatch({ type: "sent", sessionId, text: submittedInput, submittedInput });
+    dispatch({ type: "sent", sessionId, text: submittedInput, submittedInput: clearInput });
+    return true;
   } catch (error) {
     dispatch({ type: "sendFailed", sessionId, message: messageForError(error, state) });
+    return false;
   }
 }
 

@@ -32,7 +32,7 @@ import {
   type SessionState,
   type TranscriptEntry,
 } from "../shared/sessionModel";
-import type { AgentSessionRateLimitRow, ProviderId } from "../shared/types";
+import type { AgentSessionCopy, AgentSessionRateLimitRow, ProviderId } from "../shared/types";
 import {
   PromptEditor,
   type PromptAutocompleteState,
@@ -61,12 +61,25 @@ type FooterControlSpec = {
 };
 
 type PickedLocalFile = {
+  dataUrl?: string;
   fsPath?: string;
+  isImage?: boolean;
   label?: string;
+  mimeType?: string;
   path: string;
 };
 
-function useMeasuredComposerLayout(input: string) {
+type ComposerAttachment = {
+  dataUrl?: string;
+  fsPath?: string;
+  id: string;
+  kind: "file" | "image";
+  label: string;
+  mimeType?: string;
+  path: string;
+};
+
+function useMeasuredComposerLayout(input: string, hasVisibleAttachments: boolean) {
   const [inputWidth, setInputWidth] = useState<number | null>(null);
   const [textWidth, setTextWidth] = useState(0);
   const [inputElement, setInputElement] = useState<HTMLDivElement | null>(null);
@@ -102,7 +115,7 @@ function useMeasuredComposerLayout(input: string) {
     inputMeasureRef,
     isSingleLine: shouldUseSingleLineComposer({
       composerLayoutMode: "auto-single-line",
-      hasVisibleAttachments: false,
+      hasVisibleAttachments,
       isEditorMultiline: input.includes("\n"),
       isVoiceLayoutActive: false,
       singleLineInputWidth: inputWidth,
@@ -253,7 +266,8 @@ function SessionSurface({
   const provider = state.providers.find((item) => item.id === state.selectedProviderId);
   const canSelect = canSelectProvider(state);
   const canStart = canStartProvider(state);
-  const canSend = state.status === "running" && state.input.length > 0;
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const canSend = state.status === "running" && (state.input.length > 0 || attachments.length > 0);
   const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
   const modelLabel = codexModelLabel(provider);
@@ -272,7 +286,7 @@ function SessionSurface({
   const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const [addContextMenuOpen, setAddContextMenuOpen] = useState(false);
   const [isPickingFiles, setIsPickingFiles] = useState(false);
-  const composerLayout = useMeasuredComposerLayout(state.input);
+  const composerLayout = useMeasuredComposerLayout(state.input, attachments.length > 0);
   const isSingleLineComposer = composerLayout.isSingleLine;
   const menuItems = menuKind ? composerMenuItems(menuKind, state, menuQuery) : [];
   const highlightedMenuIndex = menuItems.length === 0 ? -1 : Math.min(menuIndex, menuItems.length - 1);
@@ -281,7 +295,12 @@ function SessionSurface({
     setMenuQuery("");
     setProviderMenuOpen(false);
     setAddContextMenuOpen(false);
-    void sendInput(state, dispatch);
+    const text = promptTextWithAttachments(state.input, attachments);
+    void sendInput(state, dispatch, { clearInput: state.input, text }).then((didSend) => {
+      if (didSend) {
+        setAttachments([]);
+      }
+    });
   };
   const insertComposerMenuItem = (item: ComposerMenuItem) => {
     editorRef.current?.insertMention(item.mention);
@@ -301,19 +320,22 @@ function SessionSurface({
     setAddContextMenuOpen(false);
     try {
       const result = await callNative<{ files?: PickedLocalFile[] }>("app.pickFiles");
-      const mentions = (result.files ?? [])
+      const nextAttachments = (result.files ?? [])
         .filter((file) => file.path.trim().length > 0)
-        .map((file): PromptMention => {
+        .map((file): ComposerAttachment => {
           const label = file.label && file.label.trim().length > 0 ? file.label : basename(file.path);
           return {
-            kind: "at",
-            label,
-            name: label,
-            path: file.path,
+            dataUrl: file.dataUrl,
             fsPath: file.fsPath ?? file.path,
+            id: `${file.path}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            kind: file.isImage || file.dataUrl?.startsWith("data:image/") ? "image" : "file",
+            label,
+            mimeType: file.mimeType,
+            path: file.path,
           };
         });
-      editorRef.current?.insertMentions(mentions);
+      setAttachments((existing) => dedupeAttachments([...existing, ...nextAttachments]));
+      editorRef.current?.focus();
     } catch (error) {
       dispatch({ type: "failed", message: messageForError(error, state) });
     } finally {
@@ -560,7 +582,15 @@ function SessionSurface({
     : h(
         "div",
         { className: "contents" },
-        h("div", { className: "codex-attachment-tray px-2 py-1.5", "aria-hidden": true }),
+        attachments.length > 0
+          ? h(ComposerAttachmentTray, {
+              attachments,
+              copy: state.context?.copy,
+              onRemove: (id: string) => {
+                setAttachments((current) => current.filter((attachment) => attachment.id !== id));
+              },
+            })
+          : null,
         composerInputWrapper,
         h(
           "div",
@@ -721,6 +751,73 @@ function TranscriptTurn({ entry }: { entry: TranscriptEntry }) {
           : null,
       );
   }
+}
+
+function ComposerAttachmentTray({
+  attachments,
+  copy,
+  onRemove,
+}: {
+  attachments: ComposerAttachment[];
+  copy?: AgentSessionCopy;
+  onRemove: (id: string) => void;
+}) {
+  return h(
+    "div",
+    { className: "codex-attachment-tray flex gap-1.5 overflow-x-auto px-3 pt-2 pb-1" },
+    attachments.map((attachment) =>
+      h(ComposerAttachmentCard, {
+        attachment,
+        copy,
+        key: attachment.id,
+        onRemove,
+      }),
+    ),
+  );
+}
+
+function ComposerAttachmentCard({
+  attachment,
+  copy,
+  onRemove,
+}: {
+  attachment: ComposerAttachment;
+  copy?: AgentSessionCopy;
+  onRemove: (id: string) => void;
+}) {
+  const removeLabel = `${copy?.removeAttachment ?? "Remove attachment"} ${attachment.label}`;
+  const removeButton = h(
+    "button",
+    {
+      className: "composer-attachment-remove",
+      type: "button",
+      "aria-label": removeLabel,
+      onClick: () => onRemove(attachment.id),
+      onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
+    },
+    xIcon("icon-2xs"),
+  );
+  if (attachment.kind === "image" && attachment.dataUrl) {
+    return h(
+      "div",
+      {
+        className: "composer-attachment-image",
+        title: attachment.label,
+      },
+      h("img", { alt: "", "aria-hidden": true, src: attachment.dataUrl }),
+      removeButton,
+    );
+  }
+  return h(
+    "div",
+    {
+      className: "composer-attachment-file",
+      title: attachment.path,
+    },
+    h("span", { className: "composer-attachment-file-icon", "aria-hidden": true }, paperclipIcon("icon-xs")),
+    h("span", { className: "composer-attachment-file-label" }, attachment.label),
+    removeButton,
+  );
 }
 
 function RateLimitFooter({
@@ -1115,6 +1212,36 @@ function basename(path: string): string {
   return segments[segments.length - 1] ?? path;
 }
 
+function dedupeAttachments(attachments: ComposerAttachment[]): ComposerAttachment[] {
+  const seen = new Set<string>();
+  return attachments.filter((attachment) => {
+    const key = `${attachment.kind}:${attachment.path}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function promptTextWithAttachments(input: string, attachments: ComposerAttachment[]): string {
+  const attachmentText = attachments
+    .map((attachment) => `[${escapeMarkdownLabel(attachment.label)}](${escapeMarkdownDestination(attachment.path)})`)
+    .join(" ");
+  if (!attachmentText) {
+    return input;
+  }
+  return input.trim().length > 0 ? `${attachmentText}\n\n${input}` : attachmentText;
+}
+
+function escapeMarkdownLabel(label: string): string {
+  return label.replace(/([\\\]])/g, "\\$1");
+}
+
+function escapeMarkdownDestination(destination: string): string {
+  return destination.replace(/([\\()])/g, "\\$1");
+}
+
 function sendIcon(className = "icon-sm") {
   return h(
     "svg",
@@ -1172,6 +1299,17 @@ function checkIcon() {
     { width: "17", height: "17", viewBox: "0 0 17 17", fill: "none", "aria-hidden": true },
     h("path", {
       d: "M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z",
+      fill: "currentColor",
+    }),
+  );
+}
+
+function xIcon(className = "icon-sm") {
+  return h(
+    "svg",
+    { className, width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
+    h("path", {
+      d: "M5.96967 5.96967C6.26256 5.67678 6.73744 5.67678 7.03033 5.96967L10 8.93934L12.9697 5.96967C13.2626 5.67678 13.7374 5.67678 14.0303 5.96967C14.3232 6.26256 14.3232 6.73744 14.0303 7.03033L11.0607 10L14.0303 12.9697C14.3232 13.2626 14.3232 13.7374 14.0303 14.0303C13.7374 14.3232 13.2626 14.3232 12.9697 14.0303L10 11.0607L7.03033 14.0303C6.73744 14.3232 6.26256 14.3232 5.96967 14.0303C5.67678 13.7374 5.67678 13.2626 5.96967 12.9697L8.93934 10L5.96967 7.03033C5.67678 6.73744 5.67678 6.26256 5.96967 5.96967Z",
       fill: "currentColor",
     }),
   );

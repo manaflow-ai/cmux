@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import WebKit
 
 struct AgentSessionWebRenderer: NSViewRepresentable {
@@ -411,6 +412,10 @@ extension AgentSessionWebRenderer {
                             localized: "agentSession.web.attachFile",
                             defaultValue: "Attach file"
                         ),
+                        "removeAttachment": String(
+                            localized: "agentSession.web.removeAttachment",
+                            defaultValue: "Remove attachment"
+                        ),
                         "browseWeb": String(localized: "agentSession.web.browseWeb", defaultValue: "Browse web"),
                         "autoContext": String(localized: "agentSession.web.autoContext", defaultValue: "Context"),
                         "tools": String(localized: "agentSession.web.tools", defaultValue: "Tools"),
@@ -557,14 +562,25 @@ extension AgentSessionWebRenderer {
             }
 
             return [
-                "files": panel.urls.map { url in
-                    [
-                        "label": url.lastPathComponent,
-                        "path": url.path,
-                        "fsPath": url.path
-                    ]
-                }
+                "files": panel.urls.map(pickedLocalFileDictionary)
             ]
+        }
+
+        private func pickedLocalFileDictionary(_ url: URL) -> [String: Any] {
+            let type = UTType(filenameExtension: url.pathExtension)
+            let mimeType = type?.preferredMIMEType ?? "application/octet-stream"
+            var file: [String: Any] = [
+                "label": url.lastPathComponent,
+                "path": url.path,
+                "fsPath": url.path,
+                "mimeType": mimeType,
+                "isImage": type?.conforms(to: .image) == true
+            ]
+            if type?.conforms(to: .image) == true,
+               let data = try? Data(contentsOf: url, options: .mappedIfSafe) {
+                file["dataUrl"] = "data:\(mimeType);base64,\(data.base64EncodedString())"
+            }
+            return file
         }
 
         private func sendEvent(_ event: [String: Any]) {

@@ -62,6 +62,7 @@ export type AgentSessionCopy = {
   voiceInput: string;
   promptPlaceholder: string;
   attachFile: string;
+  removeAttachment: string;
   browseWeb: string;
   autoContext: string;
   tools: string;
