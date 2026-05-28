@@ -1631,45 +1631,26 @@ private struct WorkspaceDockToggleIcon: View {
     let isOpen: Bool
 
     var body: some View {
-        WorkspaceDockToggleGlyph(edge: edge)
-            .stroke(
-                style: StrokeStyle(
-                    lineWidth: HeaderChromeIconStyle.sidebarGlyphStrokeWidth,
-                    lineCap: .round,
-                    lineJoin: .round
-                )
+        Image(systemName: symbolName)
+            .symbolRenderingMode(.monochrome)
+            .font(.system(size: RightSidebarChromeMetrics.headerIconSize, weight: HeaderChromeIconStyle.weight))
+            .frame(
+                width: RightSidebarChromeMetrics.headerIconFrameSize,
+                height: RightSidebarChromeMetrics.headerIconFrameSize
             )
-            .frame(width: 13, height: 11)
             .opacity(isOpen ? 1.0 : 0.44)
             .accessibilityHidden(true)
     }
-}
 
-private struct WorkspaceDockToggleGlyph: Shape {
-    let edge: WorkspaceDockEdge
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let insetRect = rect.insetBy(dx: 0.5, dy: 0.5)
-        path.addRoundedRect(
-            in: insetRect,
-            cornerSize: CGSize(width: 2, height: 2)
-        )
+    private var symbolName: String {
         switch edge {
         case .left:
-            let dividerX = insetRect.minX + insetRect.width * 0.36
-            path.move(to: CGPoint(x: dividerX, y: insetRect.minY + 1.5))
-            path.addLine(to: CGPoint(x: dividerX, y: insetRect.maxY - 1.5))
+            return "rectangle.leftthird.inset.filled"
         case .right:
-            let dividerX = insetRect.maxX - insetRect.width * 0.36
-            path.move(to: CGPoint(x: dividerX, y: insetRect.minY + 1.5))
-            path.addLine(to: CGPoint(x: dividerX, y: insetRect.maxY - 1.5))
+            return "rectangle.rightthird.inset.filled"
         case .bottom:
-            let dividerY = insetRect.maxY - insetRect.height * 0.34
-            path.move(to: CGPoint(x: insetRect.minX + 1.5, y: dividerY))
-            path.addLine(to: CGPoint(x: insetRect.maxX - 1.5, y: dividerY))
+            return "rectangle.bottomthird.inset.filled"
         }
-        return path
     }
 }
 
