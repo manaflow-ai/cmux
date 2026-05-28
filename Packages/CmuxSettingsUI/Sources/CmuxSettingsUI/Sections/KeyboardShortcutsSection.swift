@@ -1,10 +1,10 @@
 import CmuxSettings
 import SwiftUI
 
-/// **Keyboard Shortcuts** section. Mirrors the legacy chrome: header
-/// per group, one `SettingsCard` per group containing all action
-/// rows. Each row exposes the recorder, conflict text, reset / clear
-/// buttons, and a per-row chord-mode toggle.
+/// **Keyboard Shortcuts** section — mirrors the legacy in-app
+/// section: one `SettingsCard` containing the chord docs link,
+/// the Reset Defaults action, and a per-action recorder row for
+/// every `ShortcutAction` (using the new package recorder).
 @MainActor
 public struct KeyboardShortcutsSection: View {
     private let jsonStore: JSONConfigStore
@@ -22,33 +22,71 @@ public struct KeyboardShortcutsSection: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SettingsSectionHeader("Keyboard Shortcuts")
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsSectionHeader(String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
+                .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
             SettingsCard {
-                SettingsCardRow(configurationReview: .action, "Customize Shortcuts",
-                    subtitle: "Override any keyboard shortcut. Recordings persist to cmux.json and apply across all surfaces immediately. Conflicts are flagged in red.") {
-                    Button(role: .destructive) {
-                        Task { await resetAll() }
-                    } label: {
-                        Label("Reset All", systemImage: "arrow.counterclockwise")
-                    }
-                    .controlSize(.small)
-                }
-            }
-
-            ForEach(ShortcutAction.Group.allCases, id: \.self) { group in
-                SettingsSectionHeader(group.title)
-                SettingsCard {
-                    let actions = ShortcutAction.allCases.filter { $0.group == group }
-                    ForEach(Array(actions.enumerated()), id: \.element) { idx, action in
-                        if idx > 0 { SettingsCardDivider() }
-                        actionRow(action)
+                chordsRow
+                SettingsCardDivider()
+                resetDefaultsRow
+                SettingsCardDivider()
+                let actions = ShortcutAction.allCases
+                ForEach(Array(actions.enumerated()), id: \.element) { index, action in
+                    actionRow(action)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                    if index < actions.count - 1 {
+                        SettingsCardDivider()
                     }
                 }
             }
+            Text(String(localized: "settings.shortcuts.recordHint", defaultValue: "Click a shortcut value to record. Use X to unbind; it changes to restore after a clear."))
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.leading, 2)
+                .accessibilityIdentifier("ShortcutRecordingHint")
         }
         .task { await streamBindings() }
         .onDisappear { streamTask?.cancel() }
+    }
+
+    @ViewBuilder
+    private var chordsRow: some View {
+        SettingsCardRow(
+            configurationReview: .action,
+            String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"),
+            subtitle: String(localized: "settings.shortcuts.chords.subtitle", defaultValue: "Add tmux-style multi-step shortcuts in cmux.json, for example [\"ctrl+b\", \"c\"].")
+        ) {
+            HStack(spacing: 8) {
+                Link(
+                    String(localized: "settings.shortcuts.chords.docsButton", defaultValue: "Chord docs"),
+                    destination: URL(string: "https://cmux.sh/docs/configuration/keyboard-shortcuts")!
+                )
+                .font(.caption)
+                .accessibilityIdentifier("SettingsKeyboardShortcutsChordDocsLink")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var resetDefaultsRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            String(localized: "settings.shortcuts.resetDefaults", defaultValue: "Reset Default Shortcuts"),
+            subtitle: String(localized: "settings.shortcuts.resetDefaults.subtitle", defaultValue: "Restore built-in shortcut values for shortcuts managed in app settings.")
+        ) {
+            Button {
+                Task { await resetAll() }
+            } label: {
+                Label(
+                    String(localized: "settings.shortcuts.resetDefaults.button", defaultValue: "Reset Defaults"),
+                    systemImage: "arrow.counterclockwise"
+                )
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityIdentifier("SettingsKeyboardShortcutsResetDefaultsButton")
+        }
     }
 
     @ViewBuilder
@@ -58,37 +96,50 @@ public struct KeyboardShortcutsSection: View {
         let hasOverride = override != nil
         let conflict = effective.flatMap { detectConflict(for: action, stroke: $0) }
 
-        SettingsCardRow(configurationReview: .json("shortcuts.bindings"), action.displayName,
-            subtitle: conflict.map { "Conflicts with \($0.displayName)" } ?? action.rawValue
-        ) {
-            HStack(spacing: 6) {
-                ShortcutRecorderView(
-                    placeholder: formatPlaceholder(effective: effective, hasOverride: hasOverride),
-                    chordsEnabled: chordModeActions.contains(action.rawValue),
-                    onStroke: { stroke in Task { await assign(stroke: stroke, to: action) } },
-                    onChord: { chord in Task { await assignChord(chord, to: action) } }
-                )
-                .frame(width: 200, height: 26)
-                Toggle(isOn: Binding(
-                    get: { chordModeActions.contains(action.rawValue) },
-                    set: { isOn in
-                        if isOn { chordModeActions.insert(action.rawValue) }
-                        else { chordModeActions.remove(action.rawValue) }
-                    }
-                )) {
-                    Image(systemName: "circle.grid.cross.fill")
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(action.displayName)
+                    .font(.system(size: 13, weight: .medium))
+                Text(action.rawValue)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                if let conflict {
+                    Text("Conflicts with \(conflict.displayName)")
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
-                .toggleStyle(.button)
+            }
+            Spacer()
+            ShortcutRecorderView(
+                placeholder: formatPlaceholder(effective: effective, hasOverride: hasOverride),
+                chordsEnabled: chordModeActions.contains(action.rawValue),
+                onStroke: { stroke in Task { await assign(stroke: stroke, to: action) } },
+                onChord: { chord in Task { await assignChord(chord, to: action) } }
+            )
+            .frame(width: 200, height: 26)
+            Toggle(isOn: Binding(
+                get: { chordModeActions.contains(action.rawValue) },
+                set: { isOn in
+                    if isOn { chordModeActions.insert(action.rawValue) }
+                    else { chordModeActions.remove(action.rawValue) }
+                }
+            )) {
+                Image(systemName: "circle.grid.cross.fill")
+            }
+            .toggleStyle(.button)
+            .controlSize(.small)
+            .help(String(localized: "settings.shortcuts.chord.toggleHelp", defaultValue: "Record two-stroke chord"))
+            if hasOverride {
+                Button(String(localized: "settings.shortcuts.row.reset", defaultValue: "Reset")) {
+                    Task { await resetToDefault(action: action) }
+                }
                 .controlSize(.small)
-                .help("Record two-stroke chord")
-                if hasOverride {
-                    Button("Reset") { Task { await resetToDefault(action: action) } }
-                        .controlSize(.small)
-                } else {
-                    Button("Clear") { Task { await clearBinding(for: action) } }
-                        .controlSize(.small)
-                        .disabled(action.defaultStroke == nil && bindings[action.rawValue] == nil)
+            } else {
+                Button(String(localized: "settings.shortcuts.row.clear", defaultValue: "Clear")) {
+                    Task { await clearBinding(for: action) }
                 }
+                .controlSize(.small)
+                .disabled(action.defaultStroke == nil && bindings[action.rawValue] == nil)
             }
         }
     }

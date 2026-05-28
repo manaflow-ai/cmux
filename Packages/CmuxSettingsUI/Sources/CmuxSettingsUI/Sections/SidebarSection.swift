@@ -1,9 +1,11 @@
-import AppKit
 import CmuxSettings
 import SwiftUI
 
-/// **Sidebar** section rendered as a stack of `SettingsCard`s for
-/// layout, workspace row details, appearance, and custom colors.
+/// **Sidebar** section — mirrors the legacy in-app section
+/// row-for-row. Single card containing match-terminal-background
+/// followed by every workspace-row detail toggle. Rows that depend
+/// on a parent toggle (`hideAllDetails`, PR visibility, PR
+/// clickability) are disabled accordingly.
 @MainActor
 public struct SidebarSection: View {
     private let defaultsStore: UserDefaultsSettingsStore
@@ -15,241 +17,288 @@ public struct SidebarSection: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SettingsSectionHeader("Sidebar Layout")
-            SettingsCard {
-                toggleRow("Hide All Workspace Details",
-                    subtitle: "Show only the workspace title; collapse PR, branch, ports, log, progress.",
-                    json: "sidebar.hideAllDetails", key: catalog.sidebar.hideAllDetails)
-                SettingsCardDivider()
-                toggleRow("Wrap Workspace Titles", subtitle: nil,
-                    json: "sidebar.wrapWorkspaceTitles", key: catalog.sidebar.wrapWorkspaceTitles)
-                SettingsCardDivider()
-                toggleRow("Show Workspace Description", subtitle: nil,
-                    json: "sidebar.showWorkspaceDescription", key: catalog.sidebar.showWorkspaceDescription)
-                SettingsCardDivider()
-                pickerRow("Branch + Directory Layout",
-                    json: "sidebar.branchLayout",
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.branchLayout),
-                    cases: SidebarBranchLayout.allCases,
-                    label: { layout in layout == .inline ? "Inline" : "Stacked" }
-                )
-                SettingsCardDivider()
-                toggleRow("Stack Branch and Directory", subtitle: nil,
-                    json: "sidebar.stackBranchDirectory", key: catalog.sidebar.stackBranchDirectory)
-                SettingsCardDivider()
-                toggleRow("Truncate Path From Start",
-                    subtitle: "Show only the deepest directory segment in the cwd display.",
-                    json: "sidebar.pathLastSegmentOnly", key: catalog.sidebar.pathLastSegmentOnly)
-            }
-
-            SettingsSectionHeader("Workspace Row Details")
-            SettingsCard {
-                toggleRow("Show Branch and Directory", subtitle: nil,
-                    json: "sidebar.showBranchDirectory", key: catalog.sidebar.showBranchDirectory)
-                SettingsCardDivider()
-                toggleRow("Show Pull Requests", subtitle: nil,
-                    json: "sidebar.showPullRequests", key: catalog.sidebar.showPullRequests)
-                SettingsCardDivider()
-                toggleRow("Watch Git Status", subtitle: nil,
-                    json: "sidebar.watchGitStatus", key: catalog.sidebar.watchGitStatus)
-                SettingsCardDivider()
-                toggleRow("Make PRs Clickable", subtitle: nil,
-                    json: "sidebar.makePullRequestsClickable", key: catalog.sidebar.makePullRequestsClickable)
-                SettingsCardDivider()
-                toggleRow("Open PR Links in cmux Browser", subtitle: nil,
-                    json: "sidebar.openPullRequestLinksInCmuxBrowser", key: catalog.sidebar.openPullRequestLinksInCmuxBrowser)
-                SettingsCardDivider()
-                toggleRow("Open Port Links in cmux Browser", subtitle: nil,
-                    json: "sidebar.openPortLinksInCmuxBrowser", key: catalog.sidebar.openPortLinksInCmuxBrowser)
-                SettingsCardDivider()
-                toggleRow("Show SSH Host", subtitle: nil,
-                    json: "sidebar.showSSH", key: catalog.sidebar.showSSH)
-                SettingsCardDivider()
-                toggleRow("Show Listening Ports", subtitle: nil,
-                    json: "sidebar.showPorts", key: catalog.sidebar.showPorts)
-                SettingsCardDivider()
-                toggleRow("Show Latest Log", subtitle: nil,
-                    json: "sidebar.showLog", key: catalog.sidebar.showLog)
-                SettingsCardDivider()
-                toggleRow("Show Progress", subtitle: nil,
-                    json: "sidebar.showProgress", key: catalog.sidebar.showProgress)
-                SettingsCardDivider()
-                toggleRow("Show Custom Metadata", subtitle: nil,
-                    json: "sidebar.showCustomMetadata", key: catalog.sidebar.showCustomMetadata)
-                SettingsCardDivider()
-                toggleRow("Show Notification Message", subtitle: nil,
-                    json: "sidebar.showNotificationMessage", key: catalog.sidebar.showNotificationMessage)
-            }
-
-            SettingsSectionHeader("Sidebar Appearance")
-            SettingsCard {
-                toggleRow("Match Terminal Background", subtitle: nil,
-                    json: "sidebarAppearance.matchTerminalBackground",
-                    key: catalog.sidebarAppearance.matchTerminalBackground)
-                SettingsCardDivider()
-                pickerRow("Preset",
-                    json: "sidebarAppearance.preset",
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.preset),
-                    cases: SidebarPresetOption.allCases,
-                    label: presetLabel
-                )
-                SettingsCardDivider()
-                pickerRow("Material",
-                    json: "sidebarAppearance.material",
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.material),
-                    cases: SidebarMaterialOption.allCases,
-                    label: materialLabel
-                )
-                SettingsCardDivider()
-                pickerRow("Blend Mode",
-                    json: "sidebarAppearance.blendMode",
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.blendMode),
-                    cases: SidebarBlendModeOption.allCases,
-                    label: { $0 == .behindWindow ? "Behind Window" : "Within Window" }
-                )
-                SettingsCardDivider()
-                pickerRow("State",
-                    json: "sidebarAppearance.state",
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.state),
-                    cases: SidebarStateOption.allCases,
-                    label: stateLabel
-                )
-                SettingsCardDivider()
-                textRow("Tint Color (#RRGGBB)", subtitle: nil,
-                    placeholder: "#101010",
-                    json: "sidebarAppearance.tintColor",
-                    key: catalog.sidebarAppearance.tintColorHex)
-                SettingsCardDivider()
-                textRow("Light-mode Tint", subtitle: nil,
-                    placeholder: "(default)",
-                    json: "sidebarAppearance.lightModeTintColor",
-                    key: catalog.sidebarAppearance.lightModeTintColorHex)
-                SettingsCardDivider()
-                textRow("Dark-mode Tint", subtitle: nil,
-                    placeholder: "(default)",
-                    json: "sidebarAppearance.darkModeTintColor",
-                    key: catalog.sidebarAppearance.darkModeTintColorHex)
-                SettingsCardDivider()
-                sliderRow("Tint Opacity",
-                    json: "sidebarAppearance.tintOpacity",
-                    key: catalog.sidebarAppearance.tintOpacity, in: 0...1,
-                    format: { String(format: "%.0f%%", $0 * 100) })
-                SettingsCardDivider()
-                sliderRow("Blur Opacity",
-                    json: "sidebarAppearance.blurOpacity",
-                    key: catalog.sidebarAppearance.blurOpacity, in: 0...1,
-                    format: { String(format: "%.0f%%", $0 * 100) })
-                SettingsCardDivider()
-                sliderRow("Corner Radius",
-                    json: "sidebarAppearance.cornerRadius",
-                    key: catalog.sidebarAppearance.cornerRadius, in: 0...20,
-                    format: { String(format: "%.0f pt", $0) })
-            }
-
-            SettingsSectionHeader("Custom Colors")
-            SettingsCard {
-                textRow("Selection Color (#RRGGBB)", subtitle: nil,
-                    placeholder: "(default)",
-                    json: "sidebar.selectionColor", key: catalog.sidebar.selectionColorHex)
-                SettingsCardDivider()
-                textRow("Notification Badge Color (#RRGGBB)", subtitle: nil,
-                    placeholder: "(default)",
-                    json: "sidebar.notificationBadgeColor", key: catalog.sidebar.notificationBadgeColorHex)
-                SettingsCardDivider()
-                textRow("Active Tab Indicator Style", subtitle: nil,
-                    placeholder: "default | underline | dot | none",
-                    json: "sidebar.activeTabIndicatorStyle", key: catalog.sidebar.activeTabIndicatorStyle)
-            }
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsSectionHeader(String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"))
+            mainCard
         }
     }
 
     @ViewBuilder
-    private func toggleRow(_ title: String, subtitle: String?, json: String, key: DefaultsKey<Bool>) -> some View {
-        let model = DefaultsValueModel(store: defaultsStore, key: key)
-        SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle) {
-            Toggle("", isOn: Binding(get: { model.current }, set: { model.set($0) }))
+    private var mainCard: some View {
+        let matchTerminal = DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.matchTerminalBackground)
+        let hideAll = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails)
+        let wrapTitles = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.wrapWorkspaceTitles)
+        let showDesc = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showWorkspaceDescription)
+        let branchLayout = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.branchLayout)
+        let stackBranchDir = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stackBranchDirectory)
+        let pathLastOnly = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.pathLastSegmentOnly)
+        let showNotification = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showNotificationMessage)
+        let showBranchDir = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showBranchDirectory)
+        let showPR = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequests)
+        let watchGit = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.watchGitStatus)
+        let prClickable = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.makePullRequestsClickable)
+        let prLinks = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.openPullRequestLinksInCmuxBrowser)
+        let portLinks = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.openPortLinksInCmuxBrowser)
+        let showSSH = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showSSH)
+        let showPorts = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPorts)
+        let showLog = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showLog)
+        let showProgress = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showProgress)
+        let showMetadata = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata)
+
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("sidebarAppearance.matchTerminalBackground"),
+                String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"),
+                subtitle: String(localized: "settings.sidebarAppearance.matchTerminalBackground.subtitle", defaultValue: "Use the same background color and transparency as the terminal.")
+            ) {
+                Toggle("", isOn: Binding(get: { matchTerminal.current }, set: { matchTerminal.set($0) }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.hideAllDetails"),
+                String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"),
+                subtitle: hideAll.current
+                    ? String(localized: "settings.app.hideAllSidebarDetails.subtitleOn", defaultValue: "Show only the workspace title row. Overrides the detail toggles below.")
+                    : String(localized: "settings.app.hideAllSidebarDetails.subtitleOff", defaultValue: "Show secondary workspace details as controlled by the toggles below.")
+            ) {
+                Toggle("", isOn: Binding(get: { hideAll.current }, set: { hideAll.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.wrapWorkspaceTitles"),
+                String(localized: "settings.app.wrapWorkspaceTitles", defaultValue: "Wrap Workspace Titles in Sidebar"),
+                subtitle: wrapTitles.current
+                    ? String(localized: "settings.app.wrapWorkspaceTitles.subtitleOn", defaultValue: "Long workspace titles can use as many lines as they need.")
+                    : String(localized: "settings.app.wrapWorkspaceTitles.subtitleOff", defaultValue: "Workspace titles stay on one line and truncate at the end.")
+            ) {
+                Toggle("", isOn: Binding(get: { wrapTitles.current }, set: { wrapTitles.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showWorkspaceDescription"),
+                String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"),
+                subtitle: String(localized: "settings.app.showWorkspaceDescription.subtitle", defaultValue: "Display custom workspace descriptions below the workspace title.")
+            ) {
+                Toggle("", isOn: Binding(get: { showDesc.current }, set: { showDesc.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.branchLayout"),
+                String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"),
+                subtitle: branchLayout.current == .vertical
+                    ? String(localized: "settings.app.sidebarBranchLayout.subtitleVertical", defaultValue: "Vertical: each branch appears on its own line.")
+                    : String(localized: "settings.app.sidebarBranchLayout.subtitleInline", defaultValue: "Inline: all branches share one line."),
+                controlWidth: 220
+            ) {
+                Picker("", selection: Binding(get: { branchLayout.current }, set: { branchLayout.set($0) })) {
+                    Text(String(localized: "settings.app.sidebarBranchLayout.vertical", defaultValue: "Vertical")).tag(SidebarBranchLayout.vertical)
+                    Text(String(localized: "settings.app.sidebarBranchLayout.inline", defaultValue: "Inline")).tag(SidebarBranchLayout.inline)
+                }
                 .labelsHidden()
-                .controlSize(.small)
-        }
-    }
-
-    @ViewBuilder
-    private func textRow(_ title: String, subtitle: String?, placeholder: String, json: String, key: DefaultsKey<String>) -> some View {
-        let model = DefaultsValueModel(store: defaultsStore, key: key)
-        SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle, controlWidth: 200) {
-            TextField(placeholder, text: Binding(get: { model.current }, set: { model.set($0) }))
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.small)
-        }
-    }
-
-    @ViewBuilder
-    private func pickerRow<Value: SettingCodable & Hashable & CaseIterable>(
-        _ title: String,
-        json: String,
-        model: DefaultsValueModel<Value>,
-        cases: [Value],
-        label: @escaping (Value) -> String
-    ) -> some View {
-        SettingsCardRow(configurationReview: .json(json), title, controlWidth: 200) {
-            Picker("", selection: Binding(get: { model.current }, set: { model.set($0) })) {
-                ForEach(cases, id: \.self) { value in Text(label(value)).tag(value) }
+                .pickerStyle(.menu)
             }
-            .labelsHidden()
-            .pickerStyle(.menu)
-        }
-    }
+            .disabled(hideAll.current)
+            SettingsCardDivider()
 
-    @ViewBuilder
-    private func sliderRow(_ title: String, json: String, key: DefaultsKey<Double>, in range: ClosedRange<Double>, format: @escaping (Double) -> String) -> some View {
-        let model = DefaultsValueModel(store: defaultsStore, key: key)
-        SettingsCardRow(configurationReview: .json(json), title, controlWidth: 220) {
-            HStack(spacing: 8) {
-                Slider(value: Binding(get: { model.current }, set: { model.set($0) }), in: range)
-                Text(format(model.current))
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .frame(width: 50, alignment: .trailing)
+            SettingsCardRow(
+                configurationReview: .json("sidebar.stackBranchDirectory"),
+                String(localized: "settings.app.stackBranchDirectory", defaultValue: "Stack Branch and Directory"),
+                subtitle: stackBranchDir.current
+                    ? String(localized: "settings.app.stackBranchDirectory.subtitleOn", defaultValue: "Branch and directory render on separate lines.")
+                    : String(localized: "settings.app.stackBranchDirectory.subtitleOff", defaultValue: "Branch and directory share a single line.")
+            ) {
+                Toggle("", isOn: Binding(get: { stackBranchDir.current }, set: { stackBranchDir.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
             }
+            .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.pathLastSegmentOnly"),
+                String(localized: "settings.app.pathLastSegmentOnly", defaultValue: "Truncate Path From Start"),
+                subtitle: pathLastOnly.current
+                    ? String(localized: "settings.app.pathLastSegmentOnly.subtitleOn", defaultValue: "Show as much of the trailing path as fits; shorter forms are prefixed with …/.")
+                    : String(localized: "settings.app.pathLastSegmentOnly.subtitleOff", defaultValue: "Render full paths abbreviated with ~/.")
+            ) {
+                Toggle("", isOn: Binding(get: { pathLastOnly.current }, set: { pathLastOnly.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showNotificationMessage"),
+                String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"),
+                subtitle: String(localized: "settings.app.showNotificationMessage.subtitle", defaultValue: "Display the latest notification message below the workspace title.")
+            ) {
+                Toggle("", isOn: Binding(get: { showNotification.current }, set: { showNotification.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showBranchDirectory"),
+                String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"),
+                subtitle: String(localized: "settings.app.showBranchDirectory.subtitle", defaultValue: "Display the built-in git branch and working-directory row.")
+            ) {
+                Toggle("", isOn: Binding(get: { showBranchDir.current }, set: { showBranchDir.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showPullRequests"),
+                String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"),
+                subtitle: String(localized: "settings.app.showPullRequests.subtitle", defaultValue: "Display review items (PR/MR/etc.) with status and number.")
+            ) {
+                Toggle("", isOn: Binding(get: { showPR.current }, set: { showPR.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.watchGitStatus"),
+                String(localized: "settings.app.watchGitStatus", defaultValue: "Watch Git Status in Sidebar"),
+                subtitle: String(localized: "settings.app.watchGitStatus.subtitle", defaultValue: "Update sidebar branch and PR metadata from repository file changes without polling git.")
+            ) {
+                Toggle("", isOn: Binding(get: { watchGit.current }, set: { watchGit.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.makePullRequestsClickable"),
+                String(localized: "settings.app.makeSidebarPullRequestClickable", defaultValue: "Make Sidebar PR Clickable"),
+                subtitle: String(localized: "settings.app.makeSidebarPullRequestClickable.subtitle", defaultValue: "Review items stay visible as plain text, and clicks in that area select the workspace row.")
+            ) {
+                Toggle("", isOn: Binding(get: { prClickable.current }, set: { prClickable.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsSidebarPullRequestClickableToggle")
+            }
+            .disabled(hideAll.current || !showPR.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.openPullRequestLinksInCmuxBrowser"),
+                String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"),
+                subtitle: prLinksSubtitle(prVisible: showPR.current, prClickable: prClickable.current, openInCmux: prLinks.current)
+            ) {
+                Toggle("", isOn: Binding(get: { prLinks.current }, set: { prLinks.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(hideAll.current || !showPR.current || !prClickable.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.openPortLinksInCmuxBrowser"),
+                String(localized: "settings.app.openSidebarPortLinks", defaultValue: "Open Sidebar Port Links in cmux Browser"),
+                subtitle: portLinks.current
+                    ? String(localized: "settings.app.openSidebarPortLinks.subtitleOn", defaultValue: "Port clicks open inside cmux browser.")
+                    : String(localized: "settings.app.openSidebarPortLinks.subtitleOff", defaultValue: "Port clicks open in your default browser.")
+            ) {
+                Toggle("", isOn: Binding(get: { portLinks.current }, set: { portLinks.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showSSH"),
+                String(localized: "settings.app.showSSH", defaultValue: "Show SSH in Sidebar"),
+                subtitle: String(localized: "settings.app.showSSH.subtitle", defaultValue: "Display the SSH target for remote workspaces in its own row.")
+            ) {
+                Toggle("", isOn: Binding(get: { showSSH.current }, set: { showSSH.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showPorts"),
+                String(localized: "settings.app.showPorts", defaultValue: "Show Listening Ports in Sidebar"),
+                subtitle: String(localized: "settings.app.showPorts.subtitle", defaultValue: "Display detected listening ports for the active workspace.")
+            ) {
+                Toggle("", isOn: Binding(get: { showPorts.current }, set: { showPorts.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showLog"),
+                String(localized: "settings.app.showLog", defaultValue: "Show Latest Log in Sidebar"),
+                subtitle: String(localized: "settings.app.showLog.subtitle", defaultValue: "Display the latest imperative log/status message.")
+            ) {
+                Toggle("", isOn: Binding(get: { showLog.current }, set: { showLog.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showProgress"),
+                String(localized: "settings.app.showProgress", defaultValue: "Show Progress in Sidebar"),
+                subtitle: String(localized: "settings.app.showProgress.subtitle", defaultValue: "Display the built-in progress bar from set_progress.")
+            ) {
+                Toggle("", isOn: Binding(get: { showProgress.current }, set: { showProgress.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showCustomMetadata"),
+                String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"),
+                subtitle: String(localized: "settings.app.showMetadata.subtitle", defaultValue: "Display custom metadata from report_meta/set_status and report_meta_block.")
+            ) {
+                Toggle("", isOn: Binding(get: { showMetadata.current }, set: { showMetadata.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(hideAll.current)
         }
     }
 
-    private func presetLabel(_ preset: SidebarPresetOption) -> String {
-        switch preset {
-        case .nativeSidebar: return "Native sidebar"
-        case .nativeTitlebar: return "Native titlebar"
-        case .translucent: return "Translucent"
-        case .opaqueDark: return "Opaque dark"
-        case .opaqueLight: return "Opaque light"
-        case .custom: return "Custom"
+    private func prLinksSubtitle(prVisible: Bool, prClickable: Bool, openInCmux: Bool) -> String {
+        if !prVisible {
+            return String(localized: "settings.app.openSidebarPRLinks.subtitleHidden", defaultValue: "Enable sidebar PR visibility to choose where PR links open.")
         }
-    }
-
-    private func materialLabel(_ material: SidebarMaterialOption) -> String {
-        switch material {
-        case .sidebar: return "Sidebar"
-        case .hudWindow: return "HUD"
-        case .menu: return "Menu"
-        case .titlebar: return "Titlebar"
-        case .selection: return "Selection"
-        case .popover: return "Popover"
-        case .headerView: return "Header"
-        case .underWindowBackground: return "Under Window Background"
-        case .sheet: return "Sheet"
-        case .windowBackground: return "Window Background"
-        case .fullScreenUI: return "Full Screen UI"
-        case .toolTip: return "Tool Tip"
-        case .contentBackground: return "Content Background"
-        case .underPageBackground: return "Under Page Background"
+        if !prClickable {
+            return String(localized: "settings.app.openSidebarPRLinks.subtitleDisabled", defaultValue: "Enable sidebar PR clickability to choose where PR links open.")
         }
-    }
-
-    private func stateLabel(_ state: SidebarStateOption) -> String {
-        switch state {
-        case .followWindow: return "Follow Window"
-        case .active: return "Always Active"
-        case .inactive: return "Always Inactive"
-        }
+        return openInCmux
+            ? String(localized: "settings.app.openSidebarPRLinks.subtitleOn", defaultValue: "Clicks open inside cmux browser.")
+            : String(localized: "settings.app.openSidebarPRLinks.subtitleOff", defaultValue: "Clicks open in your default browser.")
     }
 }

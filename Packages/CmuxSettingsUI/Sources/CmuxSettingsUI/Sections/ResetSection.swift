@@ -1,7 +1,9 @@
 import CmuxSettings
 import SwiftUI
 
-/// **Reset** section.
+/// **Reset** section — mirrors the legacy in-app section: a single
+/// centered "Reset All Settings" button wrapped in a `SettingsCard`.
+/// Clearing both stores happens via the confirmation dialog.
 @MainActor
 public struct ResetSection: View {
     private let defaultsStore: UserDefaultsSettingsStore
@@ -17,28 +19,33 @@ public struct ResetSection: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SettingsSectionHeader("Reset")
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsSectionHeader(String(localized: "settings.section.reset", defaultValue: "Reset"))
             SettingsCard {
-                SettingsCardRow(configurationReview: .action, "Reset All Settings",
-                    subtitle: "Reverts every setting in the catalog to its declared default. UserDefaults overrides are deleted; entries in cmux.json are removed. Keyboard shortcut bindings are not reset by this action.") {
-                    Button(role: .destructive) {
+                HStack {
+                    Spacer(minLength: 0)
+                    Button(String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings")) {
                         showingConfirmation = true
-                    } label: {
-                        Label("Reset All Settings", systemImage: "arrow.counterclockwise")
                     }
-                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    Spacer(minLength: 0)
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
             }
         }
         .confirmationDialog(
-            "Reset all settings?",
-            isPresented: $showingConfirmation
+            String(localized: "settings.reset.dialog.title", defaultValue: "Reset all settings?"),
+            isPresented: $showingConfirmation,
+            titleVisibility: .visible
         ) {
-            Button("Reset", role: .destructive) { Task { await resetAll() } }
-            Button("Cancel", role: .cancel) {}
+            Button(String(localized: "settings.reset.dialog.confirm", defaultValue: "Reset"), role: .destructive) {
+                Task { await resetAll() }
+            }
+            Button(String(localized: "settings.reset.dialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
-            Text("This cannot be undone.")
+            Text(String(localized: "settings.reset.dialog.message", defaultValue: "This cannot be undone."))
         }
     }
 
