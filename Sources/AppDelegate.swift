@@ -12549,9 +12549,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .groupSelectedWorkspaces) {
-            return handleGroupSelectedWorkspacesShortcut(
+            // Only consume the event when grouping actually happened; otherwise
+            // fall through so the dispatcher reaches the later
+            // `.toggleReactGrab` check (default ⌘⇧G collides with React Grab
+            // and grouping returns false when no multi-selection exists).
+            if handleGroupSelectedWorkspacesShortcut(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            )
+            ) {
+                return true
+            }
         }
 
         if matchConfiguredShortcut(event: event, action: .toggleFocusedWorkspaceGroupCollapsed) {

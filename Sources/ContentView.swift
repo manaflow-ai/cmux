@@ -15624,7 +15624,27 @@ private struct TabItemView: View, Equatable {
         if isShift, let lastIndex = lastSidebarSelectionIndex {
             let lower = min(lastIndex, index)
             let upper = max(lastIndex, index)
-            let rangeIds = tabManager.tabs[lower...upper].map { $0.id }
+            // Filter out workspaces hidden inside collapsed groups so a
+            // Shift-click range never silently includes rows the user
+            // can't see (e.g. clicking a collapsed group's anchor and
+            // then Shift-clicking a row below would otherwise sweep
+            // every collapsed child between them).
+            let collapsedGroupIds: Set<UUID> = Set(
+                tabManager.workspaceGroups
+                    .filter { $0.isCollapsed }
+                    .map(\.id)
+            )
+            let anchorIdsByGroup: [UUID: UUID] = Dictionary(
+                uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
+            )
+            let rangeIds = tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
+                if let gid = tab.groupId,
+                   collapsedGroupIds.contains(gid),
+                   anchorIdsByGroup[gid] != tab.id {
+                    return nil
+                }
+                return tab.id
+            }
             if isCommand {
                 selectedTabIds.formUnion(rangeIds)
             } else {

@@ -1023,6 +1023,8 @@
               "closeTab",
               "closeOtherTabsInPane",
               "closeWorkspace",
+              "groupSelectedWorkspaces",
+              "toggleFocusedWorkspaceGroupCollapsed",
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
