@@ -5238,6 +5238,8 @@ extension CMUXCLI {
             setupNavigationSelector(baseSelect, payload.baseOptions ?? [], payload.branchBaseRef ?? "", label("branchBase"));
             const patchResponsePromise = fetch(payload.patchURL, { cache: "no-store" });
             patchResponsePromise.catch(() => {});
+            const workerPoolReadyPromise = initializeCodeViewWorkerPool();
+            window.addEventListener("pagehide", () => workerPool?.terminate?.(), { once: true });
             const scheduleRender = globalThis.queueMicrotask ?? ((callback) => setTimeout(callback, 0));
             scheduleRender(() => {
               renderDiff().catch((error) => {
@@ -5249,6 +5251,11 @@ extension CMUXCLI {
 
             async function renderDiff() {
               status.textContent = label("loadingRenderer");
+              const treesModulePromise = import(TREES_MODULE_URL)
+                .catch((error) => {
+                  console.warn("cmux diff file tree import failed", error);
+                  return null;
+                });
               const {
                 CodeView,
                 getFiletypeFromFileName,
@@ -5257,34 +5264,23 @@ extension CMUXCLI {
                 processFile,
                 registerCustomTheme,
               } = await import(DIFFS_MODULE_URL);
-              const treesModule = await import(TREES_MODULE_URL)
-                .catch((error) => {
-                  console.warn("cmux diff file tree import failed", error);
-                  return null;
-                });
 
               registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.light);
               registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.dark);
               preloadCommonDiffHighlighter(payload.appearance, preloadHighlighter)
                 .catch((error) => console.warn("cmux diff highlighter warmup failed", error));
               status.textContent = label("parsingDiff");
-              setWorkerPoolStatus("loading");
-              workerPool = await createCodeViewWorkerPool();
+              const treesModule = await treesModulePromise;
               setupJumpSelector(diffItems);
               updateToolbarState();
               window.__cmuxDiffViewer = { codeView, items: diffItems, state: appState, workerPool };
-              observeWorkerPool(workerPool);
-              const workerInitialization = workerPool?.initialize?.();
-              workerInitialization
-                ?.then?.(() => recordWorkerPoolStats(workerPool?.getStats?.()))
-                ?.catch?.((error) => console.warn("cmux diff worker pool initialization failed", error));
-              window.addEventListener("pagehide", () => workerPool?.terminate?.(), { once: true });
 
               await streamPatchIntoCodeView({
                 CodeView,
                 parsePatchFiles,
                 processFile,
                 patchResponsePromise,
+                workerPoolReadyPromise,
                 treesModule,
               });
 
@@ -5296,6 +5292,24 @@ extension CMUXCLI {
                 preloadDiffHighlighter(payload.appearance, codeViewItems.length > 0 ? codeViewItems : diffItems, getFiletypeFromFileName, preloadHighlighter)
                   .catch((error) => console.warn("cmux diff highlighter preload failed", error));
               }
+            }
+
+            async function initializeCodeViewWorkerPool() {
+              setWorkerPoolStatus("loading");
+              workerPool = await createCodeViewWorkerPool();
+              if (window.__cmuxDiffViewer) {
+                window.__cmuxDiffViewer.workerPool = workerPool;
+              }
+              observeWorkerPool(workerPool);
+              if (workerPool?.initialize) {
+                try {
+                  await workerPool.initialize();
+                  recordWorkerPoolStats(workerPool.getStats?.());
+                } catch (error) {
+                  console.warn("cmux diff worker pool initialization failed", error);
+                }
+              }
+              return workerPool;
             }
 
             async function createCodeViewWorkerPool() {
@@ -5372,7 +5386,7 @@ extension CMUXCLI {
               return `Commit ${index + 1}`;
             }
 
-            async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile, patchResponsePromise, treesModule }) {
+            async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile, patchResponsePromise, workerPoolReadyPromise, treesModule }) {
               const diffModel = createStreamingDiffModel();
               const navigationRefreshState = {
                 dirtyCount: 0,
@@ -5390,12 +5404,26 @@ extension CMUXCLI {
               let lastYieldAt = performance.now();
               let lastFlushAt = performance.now();
               let firstRender = true;
+              let codeViewReadyToRender = workerPoolReadyPromise == null;
+              let statusVisible = true;
               const batchConfig = {
                 initialBatchSize: getInitialFileTreeRowCount(),
                 incrementalBatchSize: 25,
                 initialMaxWait: 500,
                 incrementalMaxWait: 100,
               };
+
+              workerPoolReadyPromise?.then?.(
+                () => {
+                  codeViewReadyToRender = true;
+                  setupCodeViewIfReady();
+                },
+                (error) => {
+                  console.warn("cmux diff worker pool readiness failed; rendering without readiness gate", error);
+                  codeViewReadyToRender = true;
+                  setupCodeViewIfReady();
+                }
+              );
 
               function makeItem(fileDiff, patchPrefix) {
                 const result = appendFileDiffToModel(diffModel, fileDiff, patchPrefix);
@@ -5588,11 +5616,7 @@ extension CMUXCLI {
                     codeViewItemIds.add(item.id);
                   }
                   if (!codeView) {
-                    codeView = new CodeView(codeViewOptions(), workerPool ?? undefined);
-                    codeView.setup(viewerElement);
-                    codeView.setItems(codeViewItems);
-                    codeView.render(true);
-                    window.__cmuxDiffViewer.codeView = codeView;
+                    setupCodeViewIfReady();
                   } else {
                     codeView.addItems(codeBatch);
                   }
@@ -5607,7 +5631,6 @@ extension CMUXCLI {
                 lastFlushAt = performance.now();
                 if (firstRender) {
                   firstRender = false;
-                  status.remove();
                 }
                 if (!hadCodeItems) {
                   updateActiveFile(codeViewItems[0]?.id ?? diffItems[0]?.id ?? "");
@@ -5617,7 +5640,29 @@ extension CMUXCLI {
                 window.__cmuxDiffViewer.streamMetrics = streamMetrics;
               }
 
+              function setupCodeViewIfReady() {
+                if (codeView || codeViewItems.length === 0 || !codeViewReadyToRender) {
+                  return false;
+                }
+                codeView = new CodeView(codeViewOptions(), workerPool ?? undefined);
+                codeView.setup(viewerElement);
+                codeView.setItems(codeViewItems);
+                codeView.render(true);
+                window.__cmuxDiffViewer.codeView = codeView;
+                removeStatus();
+                return true;
+              }
+
+              function removeStatus() {
+                if (!statusVisible) {
+                  return;
+                }
+                statusVisible = false;
+                status.remove();
+              }
+
               function finalizeCodeViewLayout() {
+                setupCodeViewIfReady();
                 if (!codeView) {
                   return;
                 }
