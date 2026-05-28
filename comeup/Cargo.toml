@@ -1,0 +1,26 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.94"
+license = "MIT"
+repository = "https://github.com/manaflow-ai/cmux"
+
+[workspace.dependencies]
+anyhow = "1"
+portable-pty = "0.9"
+rmp-serde = "1"
+serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+uninlined_format_args = "warn"

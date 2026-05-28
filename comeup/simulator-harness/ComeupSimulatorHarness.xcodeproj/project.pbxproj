@@ -1,0 +1,482 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		8B41F6832DEDD23B001A66F9 /* ComeupSimulatorHarnessFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* ComeupSimulatorHarnessFeature */; };
+		8B41F6852DEDD25C001A66F9 /* ComeupSimulatorHarnessFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* ComeupSimulatorHarnessFeature */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		8B41F65D2DEDD0D6001A66F9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8B41F63D2DEDD0D5001A66F9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8B41F6442DEDD0D5001A66F9;
+			remoteInfo = ComeupSimulatorHarness;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		8B41F6452DEDD0D5001A66F9 /* ComeupSimulatorHarness.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ComeupSimulatorHarness.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8B41F65C2DEDD0D6001A66F9 /* ComeupSimulatorHarness.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ComeupSimulatorHarness.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		8BD71C0A2DEE41E000CEDD92 /* Exceptions for "Config" folder in "ComeupSimulatorHarness" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Debug.xcconfig,
+				Release.xcconfig,
+				Shared.xcconfig,
+				Tests.xcconfig,
+			);
+			target = 8B41F6442DEDD0D5001A66F9 /* ComeupSimulatorHarness */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		8B41F6472DEDD0D5001A66F9 /* ComeupSimulatorHarness */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ComeupSimulatorHarness;
+			sourceTree = "<group>";
+		};
+		8B41F65F2DEDD0D6001A66F9 /* ComeupSimulatorHarnessUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ComeupSimulatorHarnessUITests;
+			sourceTree = "<group>";
+		};
+		8BD71C052DEE41D800CEDD92 /* Config */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				8BD71C0A2DEE41E000CEDD92 /* Exceptions for "Config" folder in "ComeupSimulatorHarness" target */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8B41F6422DEDD0D5001A66F9 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8B41F6852DEDD25C001A66F9 /* ComeupSimulatorHarnessFeature in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8B41F6592DEDD0D6001A66F9 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8B41F6832DEDD23B001A66F9 /* ComeupSimulatorHarnessFeature in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		8B41F63C2DEDD0D5001A66F9 = {
+			isa = PBXGroup;
+			children = (
+				8BD71C052DEE41D800CEDD92 /* Config */,
+				8B41F6472DEDD0D5001A66F9 /* ComeupSimulatorHarness */,
+				8B41F65F2DEDD0D6001A66F9 /* ComeupSimulatorHarnessUITests */,
+				8B41F6812DEDD23B001A66F9 /* Frameworks */,
+				8B41F6462DEDD0D5001A66F9 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		8B41F6462DEDD0D5001A66F9 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8B41F6452DEDD0D5001A66F9 /* ComeupSimulatorHarness.app */,
+				8B41F65C2DEDD0D6001A66F9 /* ComeupSimulatorHarness.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		8B41F6812DEDD23B001A66F9 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8B41F6442DEDD0D5001A66F9 /* ComeupSimulatorHarness */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8B41F6662DEDD0D6001A66F9 /* Build configuration list for PBXNativeTarget "ComeupSimulatorHarness" */;
+			buildPhases = (
+				8B41F6412DEDD0D5001A66F9 /* Sources */,
+				8B41F6422DEDD0D5001A66F9 /* Frameworks */,
+				8B41F6432DEDD0D5001A66F9 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				8B41F6472DEDD0D5001A66F9 /* ComeupSimulatorHarness */,
+				8BD71C052DEE41D800CEDD92 /* Config */,
+			);
+			name = ComeupSimulatorHarness;
+			packageProductDependencies = (
+				8B41F6842DEDD25C001A66F9 /* ComeupSimulatorHarnessFeature */,
+			);
+			productName = ComeupSimulatorHarness;
+			productReference = 8B41F6452DEDD0D5001A66F9 /* ComeupSimulatorHarness.app */;
+			productType = "com.apple.product-type.application";
+		};
+		8B41F65B2DEDD0D6001A66F9 /* ComeupSimulatorHarnessUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8B41F66C2DEDD0D6001A66F9 /* Build configuration list for PBXNativeTarget "ComeupSimulatorHarnessUITests" */;
+			buildPhases = (
+				8B41F6582DEDD0D6001A66F9 /* Sources */,
+				8B41F6592DEDD0D6001A66F9 /* Frameworks */,
+				8B41F65A2DEDD0D6001A66F9 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8B41F65E2DEDD0D6001A66F9 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				8B41F65F2DEDD0D6001A66F9 /* ComeupSimulatorHarnessUITests */,
+			);
+			name = ComeupSimulatorHarnessUITests;
+			packageProductDependencies = (
+				8B41F6822DEDD23B001A66F9 /* ComeupSimulatorHarnessFeature */,
+			);
+			productName = ComeupSimulatorHarnessUITests;
+			productReference = 8B41F65C2DEDD0D6001A66F9 /* ComeupSimulatorHarness.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8B41F63D2DEDD0D5001A66F9 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1630;
+				LastUpgradeCheck = 1630;
+				TargetAttributes = {
+					8B41F6442DEDD0D5001A66F9 = {
+						CreatedOnToolsVersion = 16.3;
+					};
+					8B41F65B2DEDD0D6001A66F9 = {
+						CreatedOnToolsVersion = 16.3;
+						TestTargetID = 8B41F6442DEDD0D5001A66F9;
+					};
+				};
+			};
+			buildConfigurationList = 8B41F6402DEDD0D5001A66F9 /* Build configuration list for PBXProject "ComeupSimulatorHarness" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 8B41F63C2DEDD0D5001A66F9;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 8B41F6462DEDD0D5001A66F9 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8B41F6442DEDD0D5001A66F9 /* ComeupSimulatorHarness */,
+				8B41F65B2DEDD0D6001A66F9 /* ComeupSimulatorHarnessUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8B41F6432DEDD0D5001A66F9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8B41F65A2DEDD0D6001A66F9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		8B41F6412DEDD0D5001A66F9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8B41F6582DEDD0D6001A66F9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		8B41F65E2DEDD0D6001A66F9 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8B41F6442DEDD0D5001A66F9 /* ComeupSimulatorHarness */;
+			targetProxy = 8B41F65D2DEDD0D6001A66F9 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		8B41F6642DEDD0D6001A66F9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.4;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		8B41F6652DEDD0D6001A66F9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.4;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		8B41F6672DEDD0D6001A66F9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
+			baseConfigurationReferenceRelativePath = Debug.xcconfig;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "$(PRODUCT_DISPLAY_NAME)";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		8B41F6682DEDD0D6001A66F9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
+			baseConfigurationReferenceRelativePath = Release.xcconfig;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "$(PRODUCT_DISPLAY_NAME)";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		8B41F66D2DEDD0D6001A66F9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
+			baseConfigurationReferenceRelativePath = Tests.xcconfig;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ComeupSimulatorHarness;
+			};
+			name = Debug;
+		};
+		8B41F66E2DEDD0D6001A66F9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
+			baseConfigurationReferenceRelativePath = Tests.xcconfig;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ComeupSimulatorHarness;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		8B41F6402DEDD0D5001A66F9 /* Build configuration list for PBXProject "ComeupSimulatorHarness" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8B41F6642DEDD0D6001A66F9 /* Debug */,
+				8B41F6652DEDD0D6001A66F9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8B41F6662DEDD0D6001A66F9 /* Build configuration list for PBXNativeTarget "ComeupSimulatorHarness" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8B41F6672DEDD0D6001A66F9 /* Debug */,
+				8B41F6682DEDD0D6001A66F9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8B41F66C2DEDD0D6001A66F9 /* Build configuration list for PBXNativeTarget "ComeupSimulatorHarnessUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8B41F66D2DEDD0D6001A66F9 /* Debug */,
+				8B41F66E2DEDD0D6001A66F9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		8B41F6822DEDD23B001A66F9 /* ComeupSimulatorHarnessFeature */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ComeupSimulatorHarnessFeature;
+		};
+		8B41F6842DEDD25C001A66F9 /* ComeupSimulatorHarnessFeature */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ComeupSimulatorHarnessFeature;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 8B41F63D2DEDD0D5001A66F9 /* Project object */;
+}
