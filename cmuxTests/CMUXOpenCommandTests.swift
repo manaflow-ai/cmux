@@ -807,6 +807,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         try "before\n".write(to: repoURL.appendingPathComponent("preexisting.txt"), atomically: true, encoding: .utf8)
         try "same\n".write(to: repoURL.appendingPathComponent("unchanged-untracked.txt"), atomically: true, encoding: .utf8)
         try "remove me\n".write(to: repoURL.appendingPathComponent("deleted-untracked.txt"), atomically: true, encoding: .utf8)
+        let quotedUntrackedPath = "quoted\tuntracked.txt"
+        try "quoted before\n".write(to: repoURL.appendingPathComponent(quotedUntrackedPath), atomically: true, encoding: .utf8)
         try "tracked later\n".write(to: repoURL.appendingPathComponent("tracked-later.txt"), atomically: true, encoding: .utf8)
         try Data([0xff, 0x00, 0x6f, 0x6c, 0x64])
             .write(to: repoURL.appendingPathComponent("binary.dat"), options: .atomic)
@@ -820,11 +822,13 @@ final class CMUXOpenCommandTests: XCTestCase {
                 "preexisting.txt",
                 "unchanged-untracked.txt",
                 "deleted-untracked.txt",
+                quotedUntrackedPath,
                 "tracked-later.txt",
                 "binary.dat"
             ]
         )
         try "after\n".write(to: repoURL.appendingPathComponent("preexisting.txt"), atomically: true, encoding: .utf8)
+        try "quoted after\n".write(to: repoURL.appendingPathComponent(quotedUntrackedPath), atomically: true, encoding: .utf8)
         try Data([0xff, 0x00, 0x6e, 0x65, 0x77])
             .write(to: repoURL.appendingPathComponent("binary.dat"), options: .atomic)
         try runGit(["add", "tracked-later.txt"], in: repoURL)
@@ -851,6 +855,12 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(lastTurn.patch.contains("preexisting.txt"), lastTurn.patch)
         XCTAssertTrue(lastTurn.patch.contains("-before"), lastTurn.patch)
         XCTAssertTrue(lastTurn.patch.contains("+after"), lastTurn.patch)
+        XCTAssertTrue(lastTurn.patch.contains("\"a/quoted\\tuntracked.txt\""), lastTurn.patch)
+        XCTAssertTrue(lastTurn.patch.contains("\"b/quoted\\tuntracked.txt\""), lastTurn.patch)
+        XCTAssertFalse(lastTurn.patch.contains("baseline/quoted"), lastTurn.patch)
+        XCTAssertFalse(lastTurn.patch.contains("current/quoted"), lastTurn.patch)
+        XCTAssertTrue(lastTurn.patch.contains("-quoted before"), lastTurn.patch)
+        XCTAssertTrue(lastTurn.patch.contains("+quoted after"), lastTurn.patch)
         XCTAssertTrue(lastTurn.patch.contains("binary.dat"), lastTurn.patch)
         XCTAssertTrue(lastTurn.patch.contains("GIT binary patch"), lastTurn.patch)
         XCTAssertTrue(lastTurn.patch.contains("tracked-later.txt"), lastTurn.patch)

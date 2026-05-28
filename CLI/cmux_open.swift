@@ -1634,7 +1634,7 @@ extension CMUXCLI {
             in: tempRoot.path,
             allowedExitStatuses: [0, 1]
         )
-        return rewriteChangedUntrackedPatch(patch, path: path)
+        return rewriteChangedUntrackedPatch(patch)
     }
 
     private func gitChangedUntrackedPatchFromGitObject(
@@ -1685,7 +1685,7 @@ extension CMUXCLI {
             in: tempRoot.path,
             allowedExitStatuses: [0, 1]
         )
-        return rewriteChangedUntrackedPatch(patch, path: path)
+        return rewriteChangedUntrackedPatch(patch)
     }
 
     private func gitDeletedUntrackedPatch(
@@ -1745,14 +1745,27 @@ extension CMUXCLI {
         )
     }
 
-    private func rewriteChangedUntrackedPatch(_ patch: String, path: String) -> String {
+    private func rewriteChangedUntrackedPatch(_ patch: String) -> String {
         patch
-            .replacingOccurrences(
-                of: "diff --git a/baseline/\(path) b/current/\(path)",
-                with: "diff --git a/\(path) b/\(path)"
-            )
-            .replacingOccurrences(of: "--- a/baseline/\(path)", with: "--- a/\(path)")
-            .replacingOccurrences(of: "+++ b/current/\(path)", with: "+++ b/\(path)")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { rawLine -> String in
+                var line = String(rawLine)
+                if line.hasPrefix("diff --git ") {
+                    replaceFirstOccurrence(in: &line, of: "a/baseline/", with: "a/")
+                    replaceFirstOccurrence(in: &line, of: "b/current/", with: "b/")
+                } else if line.hasPrefix("--- ") {
+                    replaceFirstOccurrence(in: &line, of: "a/baseline/", with: "a/")
+                } else if line.hasPrefix("+++ ") {
+                    replaceFirstOccurrence(in: &line, of: "b/current/", with: "b/")
+                }
+                return line
+            }
+            .joined(separator: "\n")
+    }
+
+    private func replaceFirstOccurrence(in line: inout String, of target: String, with replacement: String) {
+        guard let range = line.range(of: target) else { return }
+        line.replaceSubrange(range, with: replacement)
     }
 
     private func safeTemporaryGitPathURL(relativePath: String) -> (root: URL, file: URL)? {
