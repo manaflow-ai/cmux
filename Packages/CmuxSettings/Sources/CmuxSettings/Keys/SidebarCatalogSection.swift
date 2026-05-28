@@ -21,9 +21,14 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowWorkspaceDescription"
     )
 
-    public let branchLayout = DefaultsKey<SidebarBranchLayout>(
-        id: "sidebar.branchLayout",
-        defaultValue: .inline,
+    /// Bool-backed to match the legacy in-app store. The on-disk key
+    /// `sidebarBranchVerticalLayout` is written as a Bool by every
+    /// shipped cmux build; using an enum here would silently revert
+    /// every user with a saved preference. `true` means vertical
+    /// (branch and directory stacked on their own lines).
+    public let branchVerticalLayout = DefaultsKey<Bool>(
+        id: "sidebar.branchVerticalLayout",
+        defaultValue: true,
         userDefaultsKey: "sidebarBranchVerticalLayout"
     )
 

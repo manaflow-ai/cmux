@@ -53,4 +53,15 @@ final class HostSettingsActions: SettingsHostActions {
     func requestNotificationAuthorization() {
         TerminalNotificationStore.shared.requestAuthorizationFromSettings()
     }
+
+    func openTerminalConfigWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        if let url = URL(string: "cmux://settings/config") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    func previewNotificationSound() {
+        NSSound(named: NSSound.Name("Glass"))?.play()
+    }
 }

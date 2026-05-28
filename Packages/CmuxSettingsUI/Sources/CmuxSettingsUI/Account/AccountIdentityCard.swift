@@ -30,9 +30,9 @@ struct AccountIdentityCard: View {
             HStack(spacing: 12) {
                 avatarPlaceholder
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Sign-in not available")
+                    Text(String(localized: "settings.account.signedOut.title", defaultValue: "Not signed in"))
                         .font(.headline)
-                    Text("This build doesn't expose a sign-in flow to the settings UI.")
+                    Text(String(localized: "settings.account.signedOut.subtitle", defaultValue: "Sign in with your cmux account to enable sync across devices."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -80,9 +80,9 @@ struct AccountIdentityCard: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
-                Text("Not signed in")
+                Text(String(localized: "settings.account.signedOut.title", defaultValue: "Not signed in"))
                     .font(.headline)
-                Text("Sign in to sync your settings, teams, and agent sessions across devices.")
+                Text(String(localized: "settings.account.signedOut.subtitle", defaultValue: "Sign in with your cmux account to enable sync across devices."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -94,22 +94,21 @@ struct AccountIdentityCard: View {
         if flow.isWorkingOnAuth {
             ProgressView()
                 .controlSize(.small)
-        } else if flow.currentIdentity != nil {
-            HStack(spacing: 6) {
-                Button("Refresh") {
-                    Task { await flow.refreshCurrentUser() }
-                }
-                .buttonStyle(.bordered)
-                Button("Sign Out", role: .destructive) {
-                    Task { await flow.signOut() }
-                }
-                .buttonStyle(.bordered)
+        }
+        if flow.currentIdentity != nil {
+            Button(String(localized: "settings.account.signOut", defaultValue: "Sign Out"), role: .destructive) {
+                Task { await flow.signOut() }
             }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(flow.isWorkingOnAuth)
         } else {
-            Button("Sign In…") {
+            Button(String(localized: "settings.account.signIn", defaultValue: "Sign In…")) {
                 flow.startSignIn()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(flow.isWorkingOnAuth)
         }
     }
 

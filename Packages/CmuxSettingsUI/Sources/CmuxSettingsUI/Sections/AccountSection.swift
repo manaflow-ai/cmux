@@ -24,7 +24,7 @@ public struct AccountSection: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SettingsSectionHeader("Account")
+            SettingsSectionHeader(String(localized: "settings.section.account", defaultValue: "Account"))
             SettingsCard {
                 AccountIdentityCard(
                     flow: accountFlow,

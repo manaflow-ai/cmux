@@ -63,11 +63,9 @@ public struct AutomationSection: View {
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(get: { modeModel.current }, set: { modeModel.set($0) })) {
-                    Text(String(localized: "settings.automation.socketMode.off", defaultValue: "Off")).tag(SocketControlMode.off)
-                    Text(String(localized: "settings.automation.socketMode.cmuxOnly", defaultValue: "Bundled CLI Only")).tag(SocketControlMode.cmuxOnly)
-                    Text(String(localized: "settings.automation.socketMode.automation", defaultValue: "Automation Tools")).tag(SocketControlMode.automation)
-                    Text(String(localized: "settings.automation.socketMode.password", defaultValue: "Password Required")).tag(SocketControlMode.password)
-                    Text(String(localized: "settings.automation.socketMode.allowAll", defaultValue: "Allow All Local Clients")).tag(SocketControlMode.allowAll)
+                    ForEach(SocketControlMode.allCases, id: \.self) { mode in
+                        Text(socketModeLabel(mode)).tag(mode)
+                    }
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
@@ -290,6 +288,16 @@ public struct AutomationSection: View {
     private func clearSocketPassword() {
         socketPasswordModel?.reset()
         socketPasswordDraft = ""
+    }
+
+    private func socketModeLabel(_ mode: SocketControlMode) -> String {
+        switch mode {
+        case .off: return String(localized: "settings.automation.socketMode.off", defaultValue: "Off")
+        case .cmuxOnly: return String(localized: "settings.automation.socketMode.cmuxOnly", defaultValue: "Bundled CLI Only")
+        case .automation: return String(localized: "settings.automation.socketMode.automation", defaultValue: "Automation Tools")
+        case .password: return String(localized: "settings.automation.socketMode.password", defaultValue: "Password Required")
+        case .allowAll: return String(localized: "settings.automation.socketMode.allowAll", defaultValue: "Allow All Local Clients")
+        }
     }
 
     private func socketModeDescription(_ mode: SocketControlMode) -> String {

@@ -29,7 +29,7 @@ public struct SidebarSection: View {
         let hideAll = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails)
         let wrapTitles = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.wrapWorkspaceTitles)
         let showDesc = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showWorkspaceDescription)
-        let branchLayout = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.branchLayout)
+        let branchVerticalLayout = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.branchVerticalLayout)
         let stackBranchDir = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stackBranchDirectory)
         let pathLastOnly = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.pathLastSegmentOnly)
         let showNotification = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showNotificationMessage)
@@ -97,16 +97,16 @@ public struct SidebarSection: View {
             SettingsCardDivider()
 
             SettingsCardRow(
-                configurationReview: .json("sidebar.branchLayout"),
+                configurationReview: .json("sidebar.branchVerticalLayout"),
                 String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"),
-                subtitle: branchLayout.current == .vertical
+                subtitle: branchVerticalLayout.current
                     ? String(localized: "settings.app.sidebarBranchLayout.subtitleVertical", defaultValue: "Vertical: each branch appears on its own line.")
                     : String(localized: "settings.app.sidebarBranchLayout.subtitleInline", defaultValue: "Inline: all branches share one line."),
                 controlWidth: 220
             ) {
-                Picker("", selection: Binding(get: { branchLayout.current }, set: { branchLayout.set($0) })) {
-                    Text(String(localized: "settings.app.sidebarBranchLayout.vertical", defaultValue: "Vertical")).tag(SidebarBranchLayout.vertical)
-                    Text(String(localized: "settings.app.sidebarBranchLayout.inline", defaultValue: "Inline")).tag(SidebarBranchLayout.inline)
+                Picker("", selection: Binding(get: { branchVerticalLayout.current }, set: { branchVerticalLayout.set($0) })) {
+                    Text(String(localized: "settings.app.sidebarBranchLayout.vertical", defaultValue: "Vertical")).tag(true)
+                    Text(String(localized: "settings.app.sidebarBranchLayout.inline", defaultValue: "Inline")).tag(false)
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)

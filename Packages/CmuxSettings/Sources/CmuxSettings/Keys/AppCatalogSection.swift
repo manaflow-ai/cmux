@@ -136,7 +136,7 @@ public struct AppCatalogSection: SettingCatalogSection {
 
     public let fileDropDefaultBehavior = DefaultsKey<FileDropDefaultBehavior>(
         id: "app.fileDropDefaultBehavior",
-        defaultValue: .path,
+        defaultValue: .text,
         userDefaultsKey: "fileDrop.defaultBehavior"
     )
 

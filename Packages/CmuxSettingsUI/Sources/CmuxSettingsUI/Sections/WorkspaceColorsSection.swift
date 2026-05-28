@@ -56,8 +56,9 @@ public struct WorkspaceColorsSection: View {
                 controlWidth: 220
             ) {
                 Picker("", selection: Binding(get: { indicator.current }, set: { indicator.set($0) })) {
-                    Text(String(localized: "settings.workspaceColors.indicator.leftRail", defaultValue: "Left Rail")).tag(WorkspaceIndicatorStyle.leftRail)
-                    Text(String(localized: "settings.workspaceColors.indicator.solidFill", defaultValue: "Solid Fill")).tag(WorkspaceIndicatorStyle.solidFill)
+                    ForEach(WorkspaceIndicatorStyle.allCases, id: \.self) { style in
+                        Text(indicatorStyleLabel(style)).tag(style)
+                    }
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
@@ -115,13 +116,14 @@ public struct WorkspaceColorsSection: View {
 
     @ViewBuilder
     private func colorRow(title: String, subtitle: String, json: String, resetLabel: String, model: DefaultsValueModel<String>) -> some View {
+        let isCustom = !model.current.isEmpty
         SettingsCardRow(
             configurationReview: .json(json),
             title,
             subtitle: subtitle
         ) {
             HStack(spacing: 8) {
-                if !model.current.isEmpty {
+                if isCustom {
                     Button(resetLabel) { model.reset() }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -132,7 +134,7 @@ public struct WorkspaceColorsSection: View {
                 ), supportsOpacity: false)
                 .labelsHidden()
                 .frame(width: 38)
-                Text(model.current.isEmpty ? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default") : model.current)
+                Text(isCustom ? model.current : String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .frame(width: 76, alignment: .trailing)
@@ -216,6 +218,13 @@ public struct WorkspaceColorsSection: View {
         Task {
             do { try await jsonStore.set(snapshot, for: catalog.workspaceColors.customColors) }
             catch { errorLog?.record(error, keyID: catalog.workspaceColors.customColors.id) }
+        }
+    }
+
+    private func indicatorStyleLabel(_ style: WorkspaceIndicatorStyle) -> String {
+        switch style {
+        case .leftRail: return String(localized: "settings.workspaceColors.indicator.leftRail", defaultValue: "Left Rail")
+        case .solidFill: return String(localized: "settings.workspaceColors.indicator.solidFill", defaultValue: "Solid Fill")
         }
     }
 

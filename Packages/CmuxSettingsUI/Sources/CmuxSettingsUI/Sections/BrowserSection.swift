@@ -15,17 +15,22 @@ public struct BrowserSection: View {
     private let defaultsStore: UserDefaultsSettingsStore
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions?
+    private let importAnchorID: String?
 
     @State private var confirmClearHistory: Bool = false
+    @State private var httpAllowlistDraft: String = ""
+    @State private var httpAllowlistLoaded: Bool = false
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog,
-        hostActions: SettingsHostActions? = nil
+        hostActions: SettingsHostActions? = nil,
+        importAnchorID: String? = nil
     ) {
         self.defaultsStore = defaultsStore
         self.catalog = catalog
         self.hostActions = hostActions
+        self.importAnchorID = importAnchorID
     }
 
     private static let columnWidth: CGFloat = 240
@@ -141,9 +146,7 @@ public struct BrowserSection: View {
             SettingsCardRow(
                 configurationReview: .json("browser.theme"),
                 String(localized: "settings.browser.theme", defaultValue: "Browser Theme"),
-                subtitle: theme.current == .system
-                    ? String(localized: "settings.browser.theme.subtitleSystem", defaultValue: "System follows app and macOS appearance.")
-                    : String(localized: "settings.browser.theme.subtitleForced", defaultValue: "Forces that color scheme for compatible pages."),
+                subtitle: browserThemeSubtitle(theme.current),
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(get: { theme.current }, set: { theme.set($0) })) {
@@ -243,12 +246,15 @@ public struct BrowserSection: View {
 
             SettingsCardDivider()
 
-            // Import Browser Data subsection
+            // Import Browser Data subsection — tagged with the
+            // browserImport anchor id so sidebar deeplinks for that
+            // navigation target scroll the user to this inline block.
             if let hostActions {
                 importBrowserDataBlock(
                     importHintModel: importHint,
                     onImport: { hostActions.openBrowserImportFlow() }
                 )
+                .id(importAnchorID ?? "section:browserImport.inline")
                 SettingsCardDivider()
             }
 
@@ -314,7 +320,7 @@ public struct BrowserSection: View {
             Text(String(localized: "settings.browser.httpAllowlist.description", defaultValue: "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            TextEditor(text: Binding(get: { model.current }, set: { model.set($0) }))
+            TextEditor(text: $httpAllowlistDraft)
                 .font(.system(size: 12, weight: .regular, design: .monospaced))
                 .frame(minHeight: 86)
                 .padding(6)
@@ -327,13 +333,35 @@ public struct BrowserSection: View {
                         .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
                 )
                 .accessibilityIdentifier("SettingsBrowserHTTPAllowlistField")
-            Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button(String(localized: "settings.browser.httpAllowlist.save", defaultValue: "Save")) {
+                    model.set(httpAllowlistDraft)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(httpAllowlistDraft == model.current)
+                .accessibilityIdentifier("SettingsBrowserHTTPAllowlistSaveButton")
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        .task {
+            if !httpAllowlistLoaded {
+                httpAllowlistDraft = model.current
+                httpAllowlistLoaded = true
+            }
+        }
+        .onChange(of: model.current) { _, newValue in
+            if httpAllowlistDraft == "" || !httpAllowlistLoaded {
+                httpAllowlistDraft = newValue
+                httpAllowlistLoaded = true
+            }
+        }
     }
 
     @ViewBuilder
@@ -380,6 +408,17 @@ public struct BrowserSection: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+
+    private func browserThemeSubtitle(_ mode: BrowserThemeMode) -> String {
+        switch mode {
+        case .system:
+            return String(localized: "settings.browser.theme.subtitleSystem", defaultValue: "System follows app and macOS appearance.")
+        case .light:
+            return String(localized: "settings.browser.theme.subtitleLight", defaultValue: "Light forces that color scheme for compatible pages.")
+        case .dark:
+            return String(localized: "settings.browser.theme.subtitleDark", defaultValue: "Dark forces that color scheme for compatible pages.")
+        }
     }
 
     private func searchEngineLabel(_ engine: BrowserSearchEngine) -> String {

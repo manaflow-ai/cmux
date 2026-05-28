@@ -47,4 +47,13 @@ public protocol SettingsHostActions: AnyObject {
     /// Asks the OS for notification authorization. No-op if the user
     /// has already responded (granted or denied).
     func requestNotificationAuthorization()
+
+    /// Opens the cmux terminal config preview window (the legacy
+    /// "Open Config" row in the App section). The host owns the
+    /// window scene so the package can't open it directly.
+    func openTerminalConfigWindow()
+
+    /// Plays the currently configured notification sound so the user
+    /// can preview it from the Settings UI.
+    func previewNotificationSound()
 }

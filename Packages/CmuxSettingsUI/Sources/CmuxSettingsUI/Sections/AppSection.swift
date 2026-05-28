@@ -208,8 +208,7 @@ public struct AppSection: View {
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(get: { fileDrop.current }, set: { fileDrop.set($0) })) {
-                    Text(String(localized: "settings.app.fileDrop.path", defaultValue: "Insert File Path")).tag(FileDropDefaultBehavior.path)
-                    Text(String(localized: "settings.app.fileDrop.editor", defaultValue: "Open in Preferred Editor")).tag(FileDropDefaultBehavior.editor)
+                    Text(String(localized: "settings.app.fileDrop.text", defaultValue: "Insert File Path")).tag(FileDropDefaultBehavior.text)
                     Text(String(localized: "settings.app.fileDrop.preview", defaultValue: "Open in cmux Preview")).tag(FileDropDefaultBehavior.preview)
                 }
                 .labelsHidden()
@@ -243,6 +242,23 @@ public struct AppSection: View {
                     .controlSize(.small)
             }
             SettingsCardDivider()
+
+            // Terminal Config (host action)
+            if let hostActions {
+                SettingsCardRow(
+                    configurationReview: .action,
+                    String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"),
+                    subtitle: String(localized: "settings.app.configWindow.subtitle", defaultValue: "Open the cmux terminal config and generated preview in one utility window."),
+                    controlWidth: Self.columnWidth
+                ) {
+                    Button(String(localized: "settings.app.configWindow.openButton", defaultValue: "Open Config")) {
+                        hostActions.openTerminalConfigWindow()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                SettingsCardDivider()
+            }
 
             // Open Markdown in cmux Viewer
             SettingsCardRow(
@@ -366,19 +382,10 @@ public struct AppSection: View {
             }
             SettingsCardDivider()
 
-            // Notification Sound
-            SettingsCardRow(
-                configurationReview: .json("notifications.sound", "notifications.customSoundFilePath"),
-                String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"),
-                subtitle: String(localized: "settings.notifications.sound.subtitle", defaultValue: "Sound played when a notification arrives.")
-            ) {
-                TextField(
-                    String(localized: "settings.notifications.sound.placeholder", defaultValue: "default | none | Frog | Glass | …"),
-                    text: Binding(get: { soundName.current }, set: { soundName.set($0) })
-                )
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 200)
-            }
+            // Notification Sound — Picker over NSSound names with
+            // Preview button. Custom-file path field appears when the
+            // user selects "custom".
+            notificationSoundRow(model: soundName)
             SettingsCardDivider()
 
             // Notification Command
@@ -499,6 +506,75 @@ public struct AppSection: View {
         }
     }
 
+    /// Standard macOS notification sound names plus cmux-specific
+    /// sentinels for default / none / custom-file. Matches the
+    /// legacy `NotificationSoundSettings.systemSounds` list shape.
+    private static let systemSoundOptions: [(value: String, label: String)] = [
+        ("default", "System Default"),
+        ("none", "None"),
+        ("Basso", "Basso"),
+        ("Blow", "Blow"),
+        ("Bottle", "Bottle"),
+        ("Frog", "Frog"),
+        ("Funk", "Funk"),
+        ("Glass", "Glass"),
+        ("Hero", "Hero"),
+        ("Morse", "Morse"),
+        ("Ping", "Ping"),
+        ("Pop", "Pop"),
+        ("Purr", "Purr"),
+        ("Sosumi", "Sosumi"),
+        ("Submarine", "Submarine"),
+        ("Tink", "Tink"),
+        ("custom", "Custom File…"),
+    ]
+
+    @ViewBuilder
+    private func notificationSoundRow(model: DefaultsValueModel<String>) -> some View {
+        let customFile = DefaultsValueModel(store: defaultsStore, key: catalog.notifications.customSoundFilePath)
+        SettingsCardRow(
+            configurationReview: .json("notifications.sound", "notifications.customSoundFilePath"),
+            String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"),
+            subtitle: String(localized: "settings.notifications.sound.subtitle", defaultValue: "Sound played when a notification arrives.")
+        ) {
+            VStack(alignment: .trailing, spacing: 6) {
+                HStack(spacing: 6) {
+                    Picker("", selection: Binding(get: { model.current }, set: { model.set($0) })) {
+                        ForEach(Self.systemSoundOptions, id: \.value) { option in
+                            Text(option.label).tag(option.value)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 160)
+                    Button {
+                        hostActions?.previewNotificationSound()
+                    } label: {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 9))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(model.current == "none" || hostActions == nil)
+                }
+                if model.current == "custom" {
+                    HStack(spacing: 6) {
+                        TextField(
+                            String(localized: "settings.notifications.sound.custom.placeholder", defaultValue: "/path/to/sound.aiff"),
+                            text: Binding(get: { customFile.current }, set: { customFile.set($0) })
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 200)
+                        Button(String(localized: "settings.notifications.sound.custom.clear.button", defaultValue: "Clear")) {
+                            customFile.reset()
+                        }
+                        .controlSize(.small)
+                        .disabled(customFile.current.isEmpty)
+                    }
+                }
+            }
+        }
+    }
+
     private func languageDisplayName(_ language: AppLanguage) -> String {
         switch language {
         case .system: return String(localized: "settings.app.language.system", defaultValue: "Follow System")
@@ -534,8 +610,7 @@ public struct AppSection: View {
 
     private func fileDropSubtitle(_ behavior: FileDropDefaultBehavior) -> String {
         switch behavior {
-        case .path: return String(localized: "settings.app.fileDrop.path.subtitle", defaultValue: "Dropping a file inserts its path as terminal text.")
-        case .editor: return String(localized: "settings.app.fileDrop.editor.subtitle", defaultValue: "Dropping a file opens it in the preferred editor.")
+        case .text: return String(localized: "settings.app.fileDrop.text.subtitle", defaultValue: "Dropping a file inserts its path as terminal text.")
         case .preview: return String(localized: "settings.app.fileDrop.preview.subtitle", defaultValue: "Dropping a file opens it in a cmux preview surface.")
         }
     }

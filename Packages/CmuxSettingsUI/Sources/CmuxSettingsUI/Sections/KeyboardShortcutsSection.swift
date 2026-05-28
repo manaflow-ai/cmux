@@ -10,15 +10,22 @@ public struct KeyboardShortcutsSection: View {
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let errorLog: SettingsErrorLog?
+    private let hostActions: SettingsHostActions?
 
     @State private var bindings: [String: StoredShortcut] = [:]
     @State private var streamTask: Task<Void, Never>?
     @State private var chordModeActions: Set<String> = []
 
-    public init(jsonStore: JSONConfigStore, catalog: SettingCatalog, errorLog: SettingsErrorLog? = nil) {
+    public init(
+        jsonStore: JSONConfigStore,
+        catalog: SettingCatalog,
+        errorLog: SettingsErrorLog? = nil,
+        hostActions: SettingsHostActions? = nil
+    ) {
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.errorLog = errorLog
+        self.hostActions = hostActions
     }
 
     public var body: some View {
@@ -64,6 +71,15 @@ public struct KeyboardShortcutsSection: View {
                 )
                 .font(.caption)
                 .accessibilityIdentifier("SettingsKeyboardShortcutsChordDocsLink")
+
+                if let hostActions {
+                    Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open cmux.json")) {
+                        hostActions.openConfigInExternalEditor()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsKeyboardShortcutsOpenSettingsFileButton")
+                }
             }
         }
     }

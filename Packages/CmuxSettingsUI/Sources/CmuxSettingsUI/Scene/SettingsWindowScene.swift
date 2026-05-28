@@ -77,7 +77,7 @@ public struct SettingsWindowRoot: View {
     @ViewBuilder
     private var sidebar: some View {
         List(selection: $selection) {
-            ForEach(SettingsSectionID.allCases) { section in
+            ForEach(sidebarItems) { section in
                 Label(section.title, systemImage: section.symbolName).tag(section)
             }
         }
@@ -85,6 +85,15 @@ public struct SettingsWindowRoot: View {
         .navigationTitle("Settings")
         .searchable(text: $searchText, placement: .sidebar, prompt: Text("Search"))
         .frame(minWidth: 220)
+    }
+
+    /// Sections that show as their own row in the sidebar. The legacy
+    /// SettingsView renders Import Browser Data inline inside the
+    /// Browser section's card; we keep `.browserImport` as a
+    /// navigation target but skip it as a top-level sidebar entry to
+    /// avoid landing the user on an empty pane.
+    private var sidebarItems: [SettingsSectionID] {
+        SettingsSectionID.allCases.filter { $0 != .browserImport }
     }
 
     @ViewBuilder
@@ -150,16 +159,10 @@ public struct SettingsWindowRoot: View {
         BrowserSection(
             defaultsStore: defaultsStore,
             catalog: catalog,
-            hostActions: hostActions
+            hostActions: hostActions,
+            importAnchorID: anchorID(for: .browserImport)
         )
         .id(anchorID(for: .browser))
-
-        BrowserImportSection(
-            defaultsStore: defaultsStore,
-            catalog: catalog,
-            hostActions: hostActions
-        )
-        .id(anchorID(for: .browserImport))
 
         GlobalHotkeySection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .globalHotkey))
@@ -167,7 +170,8 @@ public struct SettingsWindowRoot: View {
         KeyboardShortcutsSection(
             jsonStore: jsonStore,
             catalog: catalog,
-            errorLog: runtime.errorLog
+            errorLog: runtime.errorLog,
+            hostActions: hostActions
         )
         .id(anchorID(for: .keyboardShortcuts))
 
