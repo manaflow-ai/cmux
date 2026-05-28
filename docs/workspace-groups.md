@@ -30,9 +30,9 @@ The sidebar layout, top to bottom:
 
 ### From the keyboard (`⌘⇧G`)
 
-Select one or more workspaces in the sidebar, press `⌘⇧G`. A fresh anchor workspace is inserted above the selection; all selected workspaces become children. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu). `⌘⇧G` collides with React Grab's default; the group handler returns the event un-handled when there's nothing to group, so React Grab still fires in browser/terminal contexts where grouping wouldn't apply. Rebind in Settings → Keyboard if you'd rather the two not share a key.
+Select two or more workspaces in the sidebar, press `⌘⇧G`. A fresh anchor workspace is inserted above the selection; all selected workspaces become children. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu). `⌘⇧G` collides with React Grab's default; the group handler only consumes the chord when there is an explicit sidebar multi-selection of at least two workspaces, so React Grab still fires in single-selection and browser/terminal contexts. Rebind in Settings → Keyboard if you'd rather the two not share a key.
 
-If nothing is selected, the active workspace is grouped on its own.
+Single-tab groups are not created from the shortcut. Use the workspace context menu's **New Group from Workspace** entry for that.
 
 ### From a workspace context menu
 
@@ -106,7 +106,9 @@ Per-group configuration is keyed by the anchor's working directory in `~/.config
         //   "end"           → after the trailing member
         "newWorkspacePlacement": "top",
         "contextMenu": [
-          { "label": "New worktree", "command": ["scripts/new-worktree.sh"] },
+          // Entries reference actions defined elsewhere in cmux.json (in the
+          // global `actions` block) or built-in actions like "newWorkspace".
+          { "action": "newWorktreeAction", "title": "New Worktree" },
           { "action": "newWorkspace" }
         ]
       },
@@ -126,25 +128,14 @@ Resolution order for `+` placement:
 2. The per-cwd entry above.
 3. Global default via UserDefaults (`defaults write com.cmuxterm.app workspaceGroup.newWorkspacePlacement end` to flip; defaults to `top`).
 
-## iMessage mode
+## iMessage mode (planned)
 
-When the sidebar is in iMessage mode (latest unread floats to top), two boolean knobs control how groups behave:
-
-```json
-{
-  "sidebar": {
-    "imessageMode": {
-      "sortInsideGroups": true,
-      "floatGroups": false
-    }
-  }
-}
-```
+When the sidebar is in iMessage mode (latest unread floats to top), the intended behavior for groups is two boolean knobs:
 
 - `sortInsideGroups` (default `true`): workspaces inside each group sort by latest unread; group section position is unchanged.
 - `floatGroups` (default `false`): the whole group section reorders by its most-recent unread member.
 
-Both can be toggled from Settings → Sidebar → Groups (UI mirror lands alongside the config schema).
+Neither knob is wired up yet. The current build keeps the sidebar's existing iMessage-mode behavior unchanged regardless of groups. A follow-up will add the `sidebar.imessageMode.*` keys to `cmux.json`, the schema, and the Settings UI; this section is documented here so the eventual JSON shape is decided up front.
 
 ## Persistence
 

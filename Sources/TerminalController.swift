@@ -6158,8 +6158,10 @@ class TerminalController {
         // workspace. An empty array (explicit `--from ""`) still creates an
         // anchor-only group.
         let rawChildren: [String]
+        let childrenExplicit: Bool
         if let provided = params["child_workspace_ids"] as? [String] {
             rawChildren = provided
+            childrenExplicit = true
         } else if params["child_workspace_ids"] != nil,
                   !(params["child_workspace_ids"] is NSNull) {
             // Reject malformed shapes (single string, mixed array, etc.) so
@@ -6186,6 +6188,7 @@ class TerminalController {
                 return []
             }
             rawChildren = fallbackIds.map { $0.uuidString }
+            childrenExplicit = false
         }
         var unresolved: [String] = []
         let parsedChildIds: [UUID] = rawChildren.compactMap { raw -> UUID? in
@@ -6221,6 +6224,30 @@ class TerminalController {
             )
         }
         let childIds = parsedChildIds
+        // When the caller explicitly listed children, refuse to create an
+        // anchor-only group if every one of them was ineligible (pinned or
+        // already an anchor of another group). The keyboard-shortcut path
+        // already enforces this; the socket/CLI path used to return OK with
+        // a fresh empty group, hiding the real failure.
+        if childrenExplicit, !parsedChildIds.isEmpty {
+            let ineligible: [String] = v2MainSync {
+                let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+                return parsedChildIds.compactMap { id -> String? in
+                    guard let tab = tabManager.tabs.first(where: { $0.id == id }) else { return nil }
+                    if tab.isPinned || existingAnchorIds.contains(id) {
+                        return id.uuidString
+                    }
+                    return nil
+                }
+            }
+            if ineligible.count == parsedChildIds.count {
+                return .err(
+                    code: "invalid_state",
+                    message: "All requested children are ineligible (pinned or already an anchor); ungroup or unpin them first",
+                    data: ["ineligible_workspace_ids": ineligible]
+                )
+            }
+        }
         // workspace.group.create is NOT a focus-intent method. The select
         // option used to be honored here, but the socket focus policy says
         // non-focus commands must not change the user's active workspace.
