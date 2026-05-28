@@ -38,9 +38,24 @@ public struct SettingsSearchIndex: Sendable {
 
     public let entries: [Entry]
 
-    public init(catalog: SettingCatalog) {
+    /// Builds an index from the section list, the supplied curated
+    /// entries, and any remaining ``SettingCatalog/all`` keys not
+    /// already covered by the curated table.
+    ///
+    /// - Parameters:
+    ///   - catalog: The settings catalog whose dotted-id keys back-fill
+    ///     the index for entries not in ``curatedEntries``.
+    ///   - curatedEntries: High-signal entries with curated titles +
+    ///     synonyms. Defaults to ``Swift/Array/cmuxDefault`` — the
+    ///     table the cmux app ships with. Tests pass an empty array
+    ///     or a focused subset to exercise specific behavior; hosts
+    ///     can append their own entries to the default to add new
+    ///     searchable surfaces without forking.
+    public init(
+        catalog: SettingCatalog,
+        curatedEntries: [CuratedSettingEntry] = .cmuxDefault
+    ) {
         var built: [Entry] = []
-        var curatedSettingIDs = Set<String>()
 
         for section in SettingsSectionID.allCases {
             built.append(Entry(
@@ -54,11 +69,9 @@ public struct SettingsSearchIndex: Sendable {
             ))
         }
 
-        for entry in CuratedSettingEntries.entries {
-            let stableID = "setting:\(entry.section.rawValue):\(entry.id)"
-            curatedSettingIDs.insert(entry.id)
+        for entry in curatedEntries {
             built.append(Entry(
-                id: stableID,
+                id: "setting:\(entry.section.rawValue):\(entry.id)",
                 kind: .setting(parent: entry.section),
                 title: entry.title,
                 symbolName: entry.section.symbolName,
@@ -68,11 +81,11 @@ public struct SettingsSearchIndex: Sendable {
             ))
         }
 
-        for key in catalog.all {
-            // Skip catalog keys that already have a curated entry. The
-            // curated row is the higher-quality surface; we don't want
-            // both showing up as duplicate results for the same setting.
-            if Self.isCovered(by: curatedSettingIDs, keyID: key.id) { continue }
+        for key in catalog.all
+        where !Self.isCovered(by: curatedEntries, keyID: key.id) {
+            // Catalog keys that the curated table already covers
+            // surface there with their natural title; this back-fill
+            // is for keys nobody has written a curated entry for yet.
             let parent = Self.inferParent(fromKeyID: key.id) ?? .app
             built.append(Entry(
                 id: "setting:\(key.id)",
@@ -111,13 +124,15 @@ public struct SettingsSearchIndex: Sendable {
             .map(String.init)
     }
 
-    /// Heuristic check: a curated entry covers a catalog key when the
-    /// curated synonyms contain the catalog key's dotted id. Avoids the
-    /// O(n*m) cost of comparing each curated synonym list against each
-    /// key while still catching most duplicates.
-    private static func isCovered(by curated: Set<String>, keyID: String) -> Bool {
-        for entry in CuratedSettingEntries.entries
-        where entry.synonyms.contains(keyID) {
+    /// A curated entry covers a catalog key when the entry's synonym
+    /// string contains the catalog key's dotted id. Avoids surfacing
+    /// the same setting twice (once with a curated title, once with
+    /// the raw dotted id).
+    private static func isCovered(
+        by curatedEntries: [CuratedSettingEntry],
+        keyID: String
+    ) -> Bool {
+        for entry in curatedEntries where entry.synonyms.contains(keyID) {
             return true
         }
         return false
