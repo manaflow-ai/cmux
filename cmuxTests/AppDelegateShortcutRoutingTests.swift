@@ -3636,35 +3636,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
         withTemporaryShortcut(action: .showNotifications) {
-            guard let event = NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
+            let event = makeKeyEvent(
                 modifierFlags: [.command],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
-                context: nil,
                 characters: "i",
                 charactersIgnoringModifiers: "i",
-                isARepeat: false,
                 keyCode: 34 // kVK_ANSI_I
-            ) else {
-                XCTFail("Failed to construct Cmd+I event")
-                return
-            }
+            )
 
 #if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .showNotifications))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
         }
     }
