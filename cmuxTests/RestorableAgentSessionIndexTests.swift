@@ -351,6 +351,37 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         return record
     }
 
+    // Regression test for https://github.com/manaflow-ai/cmux/issues/4938:
+    // cmux's `encodeClaudeProjectDir` must produce the same folder name claude
+    // code itself uses when writing transcripts to `~/.claude/projects/`. Claude
+    // code replaces BOTH `/` and `.` with `-`. Empirically verified by
+    // inspecting real folder names: `/Users/me/.claude` becomes
+    // `-Users-me--claude` (double dash for `/.`), not `-Users-me-.claude`.
+    // Currently the encoder only replaces `/`, so this test fails until the
+    // accompanying fix lands.
+    func testEncodeClaudeProjectDirMatchesClaudeCodeEncoding() {
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.encodeClaudeProjectDir("/Users/me/git/cmux"),
+            "-Users-me-git-cmux",
+            "Plain path with no dot components"
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.encodeClaudeProjectDir("/Users/me/.claude"),
+            "-Users-me--claude",
+            "Home directory containing a dot-prefixed component"
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.encodeClaudeProjectDir("/Users/me/git/repo/.claude/worktrees/feat-X"),
+            "-Users-me-git-repo--claude-worktrees-feat-X",
+            "Deeply nested worktree under .claude/worktrees"
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.encodeClaudeProjectDir("/Users/me/git/repo/.worktrees/ADAGENT-358"),
+            "-Users-me-git-repo--worktrees-ADAGENT-358",
+            "Worktree under .worktrees alternative convention"
+        )
+    }
+
     private func hookRecord(
         sessionId: String,
         workspaceId: UUID,
