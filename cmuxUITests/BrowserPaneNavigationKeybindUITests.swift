@@ -847,6 +847,17 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             },
             "Expected native surface to remount after trackpad pan settles. layout=\(String(describing: canvasLayout()))"
         )
+        XCTAssertTrue(
+            waitForCondition(timeout: 6.0) {
+                guard let panel = self.selectedCanvasPanel(panelType: "terminal"),
+                      let actualFrame = self.pixelRect(panel["portalFrameInWindow"]),
+                      let expectedFrame = self.pixelRect(panel["canvasPortalFrameInWindow"]) else {
+                    return false
+                }
+                return self.maxFrameDrift(actualFrame, expectedFrame) <= 2.0
+            },
+            "Expected terminal portal to be aligned with the canvas shell after trackpad pan settles. layout=\(String(describing: canvasLayout()))"
+        )
     }
 
     func testCanvasProgrammaticPanKeepsTerminalPortalAlignedWithCanvasFrame() {
@@ -910,6 +921,41 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testCanvasPanDoesNotResizeNativeTerminalOrBrowserWhenPartlyOffscreen() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_ALLOW_UNFOCUSED_BROWSER"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] = "1"
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected debug socket at \(socketPath)")
+        XCTAssertTrue(
+            waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
+            "Expected split setup data before testing canvas offscreen pan. data=\(loadData() ?? [:])"
+        )
+        guard let setup = loadData(),
+              let terminalPaneId = setup["terminalPaneId"],
+              let browserPaneId = setup["browserPaneId"],
+              let terminalItemId = waitForCanvasItemId(paneId: terminalPaneId, timeout: 8.0),
+              let browserItemId = waitForCanvasItemId(paneId: browserPaneId, timeout: 8.0) else {
+            XCTFail("Missing canvas pane/item ids. data=\(loadData() ?? [:]) layout=\(String(describing: canvasLayout()))")
+            return
+        }
+
+        assertNativeCanvasPanelKeepsFullContentSizeWhenClipped(
+            panelType: "terminal",
+            itemId: terminalItemId
+        )
+        assertNativeCanvasPanelKeepsFullContentSizeWhenClipped(
+            panelType: "browser",
+            itemId: browserItemId
+        )
+    }
+
     func testCanvasNewSurfaceButtonsAddTabsWithoutCreatingPanes() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -921,11 +967,11 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] = "1"
         launchAndEnsureForeground(app)
 
-        XCTAssertTrue(waitForSocketPong(timeout: 8.0), "Expected debug socket at \(socketPath)")
         XCTAssertTrue(
             waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
             "Expected split setup data before testing canvas new-surface buttons. data=\(loadData() ?? [:])"
         )
+        XCTAssertTrue(waitForSocketPong(timeout: 20.0), "Expected debug socket at \(socketPath)")
         guard let terminalPaneId = loadData()?["terminalPaneId"] else {
             XCTFail("Missing terminal pane id. data=\(loadData() ?? [:])")
             return
@@ -1835,6 +1881,85 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             return nil
         }
         return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    private func assertNativeCanvasPanelKeepsFullContentSizeWhenClipped(
+        panelType: String,
+        itemId: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        _ = socketJSON(
+            method: "debug.canvas.viewport",
+            params: [
+                "x": 0,
+                "y": 0,
+                "width": 1_200,
+                "height": 800,
+                "scale": 1,
+            ]
+        )
+        _ = socketJSON(
+            method: "debug.canvas.drag",
+            params: [
+                "item_id": itemId,
+                "dx": 0,
+                "dy": 0,
+            ]
+        )
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                guard let panel = self.selectedCanvasPanel(panelType: panelType),
+                      self.pixelRect(panel["portalFrameInWindow"]) != nil,
+                      self.pixelRect(panel["canvasPortalFrameInWindow"]) != nil,
+                      self.pixelRect(panel["nativeFrameInContainer"]) != nil else {
+                    return false
+                }
+                return self.canvasLayout()?["canvasActiveRenderMode"] as? String == "liveNative1x"
+            },
+            "Expected active native \(panelType) panel before clipping. layout=\(String(describing: canvasLayout()))",
+            file: file,
+            line: line
+        )
+
+        var sawClippedFrame = false
+        var latestPanel: [String: Any]?
+        for _ in 0..<8 where !sawClippedFrame {
+            _ = socketJSON(
+                method: "debug.canvas.pan",
+                params: [
+                    "dx": -160,
+                    "dy": 0,
+                    "viewport_width": 1_200,
+                    "viewport_height": 800,
+                ]
+            )
+            let clipped = waitForCondition(timeout: 3.0) {
+                guard let panel = self.selectedCanvasPanel(panelType: panelType),
+                      let visibleFrame = self.pixelRect(panel["portalFrameInWindow"]),
+                      let expectedFrame = self.pixelRect(panel["canvasPortalFrameInWindow"]),
+                      let nativeFrame = self.pixelRect(panel["nativeFrameInContainer"]) else {
+                    return false
+                }
+                latestPanel = panel
+                let isClipped = visibleFrame.width < expectedFrame.width - 8 ||
+                    visibleFrame.height < expectedFrame.height - 8 ||
+                    visibleFrame.minX > expectedFrame.minX + 8 ||
+                    visibleFrame.minY > expectedFrame.minY + 8
+                let nativeKeepsFullWidth = nativeFrame.width >= expectedFrame.width - 2
+                let nativeKeepsFullHeight = nativeFrame.height >= expectedFrame.height - 2
+                return isClipped && nativeKeepsFullWidth && nativeKeepsFullHeight
+            }
+            sawClippedFrame = sawClippedFrame || clipped
+        }
+
+        XCTAssertTrue(
+            sawClippedFrame,
+            "Expected \(panelType) portal to clip at the canvas edge while preserving native content size. panel=\(String(describing: latestPanel)) layout=\(String(describing: canvasLayout()))",
+            file: file,
+            line: line
+        )
     }
 
     private func pixelRect(_ value: Any?) -> CGRect? {
