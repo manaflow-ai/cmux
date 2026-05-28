@@ -10137,17 +10137,26 @@ struct VerticalTabsSidebar: View {
         items.reserveCapacity(tabs.count + groupsById.count)
         var lastEmittedGroupId: UUID? = nil
         var emittedHeaders: Set<UUID> = []
+        var collapsedByGroupId: [UUID: Bool] = [:]
         var skipChildrenUntilNextGroup = false
         for tab in tabs {
             let groupId = tab.groupId
             if groupId != lastEmittedGroupId {
                 lastEmittedGroupId = groupId
                 skipChildrenUntilNextGroup = false
-                if let groupId, let group = groupsById[groupId], !emittedHeaders.contains(groupId) {
-                    let count = memberCountByGroupId[groupId] ?? 0
-                    items.append(.groupHeader(group, memberCount: count))
-                    emittedHeaders.insert(groupId)
-                    skipChildrenUntilNextGroup = group.isCollapsed
+                if let groupId, let group = groupsById[groupId] {
+                    if !emittedHeaders.contains(groupId) {
+                        let count = memberCountByGroupId[groupId] ?? 0
+                        items.append(.groupHeader(group, memberCount: count))
+                        emittedHeaders.insert(groupId)
+                        collapsedByGroupId[groupId] = group.isCollapsed
+                    }
+                    // Whether the header is freshly emitted or this is a
+                    // second contiguous run of the same group (legacy
+                    // reorder paths can leave a group's members in two
+                    // non-adjacent runs), respect the same collapse decision
+                    // so collapsed members never leak as orphan rows.
+                    skipChildrenUntilNextGroup = collapsedByGroupId[groupId] ?? false
                 }
             }
             // Anchor workspaces are represented exclusively by the group header.

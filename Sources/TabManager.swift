@@ -5823,7 +5823,8 @@ class TabManager: ObservableObject {
     func createWorkspaceGroup(
         name: String,
         childWorkspaceIds: [UUID] = [],
-        anchorWorkingDirectory: String? = nil
+        anchorWorkingDirectory: String? = nil,
+        selectAnchor: Bool = true
     ) -> UUID? {
         // Eligible children: not pinned and not currently an anchor of a
         // different group. Pulling an anchor into a new group would orphan the
@@ -5851,7 +5852,7 @@ class TabManager: ObservableObject {
             title: resolvedName,
             workingDirectory: inferredCwd,
             inheritWorkingDirectory: inferredCwd == nil,
-            select: true,
+            select: selectAnchor,
             placementOverride: .top,
             autoWelcomeIfNeeded: false
         )
@@ -6402,6 +6403,10 @@ class TabManager: ObservableObject {
         // anchor dissolves the group; non-anchor members stay in tabs as
         // ungrouped workspaces.
         dissolveGroupsAnchoredBy(closedWorkspaceId: removed.id)
+        // Clear the detached workspace's own group membership so the
+        // destination window — which has no matching WorkspaceGroup — doesn't
+        // render it as an orphaned indented row with stale grouping state.
+        removed.groupId = nil
         unwireClosedBrowserTracking(for: removed)
         removed.owningTabManager = nil
         lastFocusedPanelByTab.removeValue(forKey: removed.id)

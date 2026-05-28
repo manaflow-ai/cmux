@@ -6125,12 +6125,17 @@ class TerminalController {
                 data: ["unresolved": unresolved]
             )
         }
+        // Default `select` to false so socket-driven group creation doesn't
+        // steal the user's focus (CLAUDE.md socket focus policy). Callers
+        // that explicitly want to focus the new anchor pass `"select": true`.
+        let select = v2Bool(params, "select") ?? false
         var createdGroupId: UUID?
         v2MainSync {
             createdGroupId = tabManager.createWorkspaceGroup(
                 name: name,
                 childWorkspaceIds: childIds,
-                anchorWorkingDirectory: cwd
+                anchorWorkingDirectory: cwd,
+                selectAnchor: select
             )
         }
         guard let gid = createdGroupId,
@@ -6292,6 +6297,9 @@ class TerminalController {
         guard let gid = v2UUID(params, "group_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
         }
+        // Default to no focus steal; socket callers that want to focus pass
+        // `"select": true`. Matches the socket focus policy in CLAUDE.md.
+        let select = v2Bool(params, "select") ?? false
         var createdId: UUID?
         v2MainSync {
             guard let group = tabManager.workspaceGroups.first(where: { $0.id == gid }) else { return }
@@ -6299,7 +6307,7 @@ class TerminalController {
             let newWs = tabManager.addWorkspace(
                 workingDirectory: cwd,
                 inheritWorkingDirectory: cwd == nil,
-                select: true,
+                select: select,
                 autoWelcomeIfNeeded: false
             )
             tabManager.addWorkspaceToGroup(workspaceId: newWs.id, groupId: gid)
