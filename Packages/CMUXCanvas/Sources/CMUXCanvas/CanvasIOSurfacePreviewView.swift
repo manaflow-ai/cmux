@@ -323,13 +323,7 @@ private final class CanvasIOSurfacePreviewRenderer: NSObject, MTKViewDelegate {
         descriptor.fragmentFunction = fragmentFunction
         let colorAttachment = descriptor.colorAttachments[0]
         colorAttachment?.pixelFormat = colorPixelFormat
-        colorAttachment?.isBlendingEnabled = true
-        colorAttachment?.sourceRGBBlendFactor = .one
-        colorAttachment?.destinationRGBBlendFactor = .oneMinusSourceAlpha
-        colorAttachment?.rgbBlendOperation = .add
-        colorAttachment?.sourceAlphaBlendFactor = .one
-        colorAttachment?.destinationAlphaBlendFactor = .oneMinusSourceAlpha
-        colorAttachment?.alphaBlendOperation = .add
+        CanvasMetalPremultipliedBlending.configure(colorAttachment)
         return try? device.makeRenderPipelineState(descriptor: descriptor)
     }
 }

@@ -1,9 +1,29 @@
-import CMUXCanvas
+@testable import CMUXCanvas
 import CMUXLayout
 import CoreGraphics
+#if canImport(Metal)
+import Metal
+#endif
 import XCTest
 
 final class CMUXCanvasTests: XCTestCase {
+#if canImport(Metal)
+    func testMetalTexturePipelineUsesPremultipliedAlphaBlending() {
+        let descriptor = MTLRenderPipelineDescriptor()
+        let colorAttachment = descriptor.colorAttachments[0]
+
+        CanvasMetalPremultipliedBlending.configure(colorAttachment)
+
+        XCTAssertEqual(colorAttachment?.isBlendingEnabled, true)
+        XCTAssertEqual(colorAttachment?.sourceRGBBlendFactor, .one)
+        XCTAssertEqual(colorAttachment?.destinationRGBBlendFactor, .oneMinusSourceAlpha)
+        XCTAssertEqual(colorAttachment?.rgbBlendOperation, .add)
+        XCTAssertEqual(colorAttachment?.sourceAlphaBlendFactor, .one)
+        XCTAssertEqual(colorAttachment?.destinationAlphaBlendFactor, .oneMinusSourceAlpha)
+        XCTAssertEqual(colorAttachment?.alphaBlendOperation, .add)
+    }
+#endif
+
     func testSceneSortsAndFiltersVisibleSurfaces() {
         let visibleID = LayoutItemID()
         let hiddenID = LayoutItemID()

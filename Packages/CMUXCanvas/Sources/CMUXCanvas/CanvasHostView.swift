@@ -382,11 +382,7 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
             descriptor.vertexFunction = library.makeFunction(name: "cmux_canvas_texture_vertex")
             descriptor.fragmentFunction = library.makeFunction(name: "cmux_canvas_texture_fragment")
             descriptor.colorAttachments[0].pixelFormat = view.colorPixelFormat
-            descriptor.colorAttachments[0].isBlendingEnabled = true
-            descriptor.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
-            descriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
-            descriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
-            descriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
+            CanvasMetalPremultipliedBlending.configure(descriptor.colorAttachments[0])
             let pipeline = try device.makeRenderPipelineState(descriptor: descriptor)
             texturePipelineState = pipeline
             texturePipelinePixelFormat = view.colorPixelFormat
@@ -759,6 +755,18 @@ private struct CanvasMetalTextureDraw {
     var texture: MTLTexture
     var vertexStart: Int
     var vertexCount: Int
+}
+
+enum CanvasMetalPremultipliedBlending {
+    static func configure(_ colorAttachment: MTLRenderPipelineColorAttachmentDescriptor?) {
+        colorAttachment?.isBlendingEnabled = true
+        colorAttachment?.sourceRGBBlendFactor = .one
+        colorAttachment?.destinationRGBBlendFactor = .oneMinusSourceAlpha
+        colorAttachment?.rgbBlendOperation = .add
+        colorAttachment?.sourceAlphaBlendFactor = .one
+        colorAttachment?.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+        colorAttachment?.alphaBlendOperation = .add
+    }
 }
 
 private struct CanvasMetalIOSurfaceTexture {
