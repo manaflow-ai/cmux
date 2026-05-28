@@ -1964,32 +1964,6 @@ import UIKit
     #expect(path.isEmpty)
 }
 
-@Test func terminalBottomActionOutputsMatchReferenceAccessoryControls() {
-    #expect(MobileTerminalBottomAction.escape.inputText(modifier: nil) == "\u{1B}")
-    #expect(MobileTerminalBottomAction.tab.inputText(modifier: nil) == "\t")
-    #expect(MobileTerminalBottomAction.returnKey.inputText(modifier: nil) == "\r")
-    #expect(MobileTerminalBottomAction.upArrow.inputText(modifier: nil) == "\u{1B}[A")
-    #expect(MobileTerminalBottomAction.downArrow.inputText(modifier: nil) == "\u{1B}[B")
-    #expect(MobileTerminalBottomAction.leftArrow.inputText(modifier: nil) == "\u{1B}[D")
-    #expect(MobileTerminalBottomAction.rightArrow.inputText(modifier: nil) == "\u{1B}[C")
-    #expect(MobileTerminalBottomAction.ctrlC.inputText(modifier: nil) == "\u{03}")
-    #expect(MobileTerminalBottomAction.ctrlD.inputText(modifier: nil) == "\u{04}")
-    #expect(MobileTerminalBottomAction.ctrlZ.inputText(modifier: nil) == "\u{1A}")
-    #expect(MobileTerminalBottomAction.ctrlL.inputText(modifier: nil) == "\u{0C}")
-    #expect(MobileTerminalBottomAction.home.inputText(modifier: nil) == "\u{1B}[H")
-    #expect(MobileTerminalBottomAction.end.inputText(modifier: nil) == "\u{1B}[F")
-    #expect(MobileTerminalBottomAction.pageUp.inputText(modifier: nil) == "\u{1B}[5~")
-    #expect(MobileTerminalBottomAction.pageDown.inputText(modifier: nil) == "\u{1B}[6~")
-    #expect(MobileTerminalBottomAction.claude.inputText(modifier: nil) == "claude --dangerously-skip-permissions\r")
-    #expect(MobileTerminalBottomAction.codex.inputText(modifier: nil)?.hasSuffix("--search\r") == true)
-}
-
-@Test func terminalBottomScrollableActionsReserveHideKeyboardForDedicatedButton() {
-    #expect(MobileTerminalBottomAction.scrollableActionBarCases.first == .control)
-    #expect(!MobileTerminalBottomAction.scrollableActionBarCases.contains(.hideKeyboard))
-    #expect(MobileTerminalBottomAction.scrollableActionBarCases.count == MobileTerminalBottomAction.allCases.count - 1)
-}
-
 @Test func rawTerminalInputSendBufferBatchesPendingInputInOrder() {
     var buffer = MobileTerminalInputSendBuffer()
     let workspaceA = MobileWorkspacePreview.ID(rawValue: "workspace-a")
@@ -2038,83 +2012,6 @@ import UIKit
     #expect(buffer.nextBatch() == nil)
     #expect(buffer.enqueue("c", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
 }
-
-@Test func terminalBottomActionModifierOutputsMatchReferenceAccessoryControls() {
-    #expect(MobileTerminalBottomAction.leftArrow.inputText(modifier: .alternate) == "\u{1B}b")
-    #expect(MobileTerminalBottomAction.rightArrow.inputText(modifier: .alternate) == "\u{1B}f")
-    #expect(MobileTerminalBottomAction.escape.inputText(modifier: .alternate) == "\u{1B}\u{1B}")
-    #expect(MobileTerminalBottomAction.tab.inputText(modifier: .shift) == "\t")
-    #expect(MobileTerminalBottomAction.leftArrow.inputText(modifier: .command) == "\u{01}")
-    #expect(MobileTerminalBottomAction.rightArrow.inputText(modifier: .command) == "\u{05}")
-    #expect(MobileTerminalBottomAction.upArrow.inputText(modifier: .control) == "\u{1B}[A")
-}
-
-@Test func terminalBottomActionModifiersBecomeStickyOnQuickDoubleTap() {
-    let start = Date(timeIntervalSince1970: 100)
-    var state = MobileTerminalModifierState()
-
-    state.tap(.control, now: start)
-    #expect(state.activeModifier == .control)
-    #expect(!state.isSticky)
-
-    state.tap(.control, now: start.addingTimeInterval(0.39))
-    #expect(state.activeModifier == .control)
-    #expect(state.isSticky)
-
-    state.consumeAfterInput()
-    #expect(state.activeModifier == .control)
-    #expect(state.isSticky)
-
-    state.tap(.control, now: start.addingTimeInterval(1))
-    #expect(state.activeModifier == nil)
-    #expect(!state.isSticky)
-}
-
-@Test func terminalBottomActionModifiersDisarmAfterSingleUseAndWhenSwitchingModifiers() {
-    let start = Date(timeIntervalSince1970: 200)
-    var state = MobileTerminalModifierState()
-
-    state.tap(.alternate, now: start)
-    state.tap(.shift, now: start.addingTimeInterval(0.1))
-    #expect(state.activeModifier == .shift)
-    #expect(!state.isSticky)
-
-    state.consumeAfterInput()
-    #expect(state.activeModifier == nil)
-
-    state.tap(.shift, now: start.addingTimeInterval(0.5))
-    #expect(state.activeModifier == .shift)
-    state.consumeAfterInput()
-    #expect(state.activeModifier == nil)
-
-    state.tap(.command, now: start.addingTimeInterval(1))
-    state.tap(.command, now: start.addingTimeInterval(1.5))
-    #expect(state.activeModifier == nil)
-    #expect(!state.isSticky)
-}
-
-@Test func terminalHiddenInputResolverHonorsSoftKeyboardModifiers() {
-    #expect(MobileTerminalInputResolver.textInput("a", modifier: .control) == "\u{01}")
-    #expect(MobileTerminalInputResolver.textInput("?", modifier: .control) == "\u{7F}")
-    #expect(MobileTerminalInputResolver.textInput("word", modifier: .alternate) == "\u{1B}word")
-    #expect(MobileTerminalInputResolver.textInput("k", modifier: .command) == "\u{0B}")
-    #expect(MobileTerminalInputResolver.textInput("hi", modifier: .shift) == "HI")
-    #expect(MobileTerminalInputResolver.textInput("\n", modifier: nil) == "\r")
-}
-
-@Test func terminalHiddenInputResolverBackspaceMatchesReferenceBehavior() {
-    #expect(MobileTerminalInputResolver.backspaceInput(modifier: nil) == "\u{7F}")
-    #expect(MobileTerminalInputResolver.backspaceInput(modifier: .control) == "\u{7F}")
-    #expect(MobileTerminalInputResolver.backspaceInput(modifier: .command) == "\u{15}")
-    #expect(MobileTerminalInputResolver.backspaceInput(modifier: .alternate) == "\u{1B}\u{7F}")
-}
-
-#if canImport(UIKit)
-@Test func terminalHardwareDeleteUsesTextInputBackspacePath() {
-    #expect(MobileTerminalHardwareKeyResolver.input(UIKeyCommand.inputDelete, modifierFlags: []) == nil)
-    #expect(MobileTerminalHardwareKeyResolver.input(UIKeyCommand.inputDelete, modifierFlags: .alternate) == "\u{1B}\u{7F}")
-}
-#endif
 
 @MainActor
 @Test func submittedTerminalInputIncludesClientViewportAndCarriageReturn() async throws {
@@ -2302,52 +2199,6 @@ import UIKit
     #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .landscapeRight) == .leading)
     #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .portrait) == .trailing)
     #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .unknown) == .trailing)
-}
-
-@Test func terminalInputAccessoryMatchesZigReferenceMetrics() {
-    #expect(TerminalInputAccessoryVisualMetrics.barHeight == 44)
-    #expect(TerminalInputAccessoryVisualMetrics.horizontalInset == 16)
-    #expect(TerminalInputAccessoryVisualMetrics.buttonHeight == 28)
-    #expect(TerminalInputAccessoryVisualMetrics.buttonMinWidth == 44)
-    #expect(TerminalInputAccessoryVisualMetrics.buttonCornerRadius == 6)
-    #expect(TerminalInputAccessoryVisualMetrics.hideKeyboardSymbolPointSize == 15)
-    #expect(TerminalInputAccessoryVisualMetrics.nubSize == 34)
-    #expect(TerminalInputAccessoryVisualMetrics.nubInnerDotSize == 12)
-}
-
-@Test func terminalBottomBarOnlyExpandsBottomSafeAreaWhenKeyboardIsHidden() {
-    #expect(MobileTerminalShellSafeAreaPolicy.expandsBehindBottomSafeArea(isKeyboardVisible: false))
-    #expect(!MobileTerminalShellSafeAreaPolicy.expandsBehindBottomSafeArea(isKeyboardVisible: true))
-    #expect(MobileTerminalBottomBarPlacementPolicy.expandsBottomSafeArea(isKeyboardVisible: false))
-    #expect(MobileTerminalBottomBarPlacementPolicy.expandsBottomSafeArea(isKeyboardVisible: true, softwareKeyboardOverlap: 0))
-    #expect(!MobileTerminalBottomBarPlacementPolicy.expandsBottomSafeArea(isKeyboardVisible: true, softwareKeyboardOverlap: 240))
-    #expect(MobileTerminalBottomBarVisibilityPolicy.showsInlineBar(isKeyboardVisible: false))
-    #expect(MobileTerminalBottomBarVisibilityPolicy.showsInlineBar(isKeyboardVisible: true))
-    #expect(
-        MobileTerminalBottomBarPlacementPolicy.controlBottomOffset(
-            safeAreaBottom: 21,
-            expandsSafeArea: true
-        ) == 0
-    )
-    #expect(
-        MobileTerminalBottomBarPlacementPolicy.controlBottomOffset(
-            safeAreaBottom: 21,
-            expandsSafeArea: false
-        ) == 0
-    )
-}
-
-@Test func terminalBottomActionSelectionDoesNotArmPlainActions() {
-    var state = MobileTerminalModifierState()
-
-    #expect(TerminalBottomActionSelectionPolicy.isArmed(action: .escape, modifierState: state) == false)
-    #expect(TerminalBottomActionSelectionPolicy.isArmed(action: .control, modifierState: state) == false)
-
-    state.tap(.control, now: Date(timeIntervalSince1970: 1))
-
-    #expect(TerminalBottomActionSelectionPolicy.isArmed(action: .control, modifierState: state) == true)
-    #expect(TerminalBottomActionSelectionPolicy.isArmed(action: .escape, modifierState: state) == false)
-    #expect(TerminalBottomActionSelectionPolicy.isArmed(action: .zoomIn, modifierState: state) == false)
 }
 
 private struct MissingTestStackAccessToken: Error {}

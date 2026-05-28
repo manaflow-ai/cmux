@@ -1342,6 +1342,12 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "surface.geometry bounds=\(Int(bounds.width))x\(Int(bounds.height)) container=\(Int(containerW))x\(Int(containerH)) render=\(Int(renderRect.width))x\(Int(renderRect.height))@\(Int(renderRect.origin.x)),\(Int(renderRect.origin.y)) natural=\(naturalSize.columns)x\(naturalSize.rows) effective=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "none")"
         )
         ghostty_surface_refresh(surface)
+        // After a size/content-scale change, the IOSurfaceLayer's previous
+        // drawable is invalidated. The display-link gate only redraws when
+        // `needsDraw || blinkChanged`, so without a flag here the screen
+        // stays blank until the cursor blink ticks ~500ms later. Mark a
+        // redraw so the next display link frame paints the new geometry.
+        needsDraw = true
         syncSnapshotFallback()
         if window != nil {
             logLayerTree(reason: "geometry")
