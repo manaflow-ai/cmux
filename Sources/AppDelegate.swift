@@ -4881,6 +4881,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func isCommandPalettePendingOpen(for window: NSWindow) -> Bool {
         guard let windowId = mainWindowId(for: window) else { return false }
+        return isCommandPalettePendingOpen(windowId: windowId)
+    }
+
+    private func isCommandPalettePendingOpen(windowId: UUID) -> Bool {
         pruneExpiredCommandPalettePendingOpenStates()
         return commandPalettePendingOpenByWindowId[windowId] == true
     }
@@ -4919,6 +4923,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let windowId = mainWindowId(for: window) else {
             return nil
         }
+        return recentCommandPaletteRequestAge(windowId: windowId)
+    }
+
+    private func recentCommandPaletteRequestAge(windowId: UUID) -> TimeInterval? {
         let now = ProcessInfo.processInfo.systemUptime
         pruneExpiredCommandPalettePendingOpenStates(now: now)
         guard commandPalettePendingOpenByWindowId[windowId] == true else {
@@ -13909,9 +13917,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func debugSetCommandPalettePendingOpenAge(window: NSWindow, age: TimeInterval) -> Bool {
         guard let windowId = mainWindowId(for: window) else { return false }
+        return debugSetCommandPalettePendingOpenAge(windowId: windowId, age: age)
+    }
+
+    @discardableResult
+    func debugSetCommandPalettePendingOpenAge(windowId: UUID, age: TimeInterval) -> Bool {
         commandPalettePendingOpenByWindowId[windowId] = true
         commandPaletteRecentRequestAtByWindowId[windowId] = ProcessInfo.processInfo.systemUptime - max(age, 0)
         return true
+    }
+
+    func debugIsCommandPalettePendingOpen(windowId: UUID) -> Bool {
+        isCommandPalettePendingOpen(windowId: windowId)
+    }
+
+    func debugRecentCommandPaletteRequestAge(windowId: UUID) -> TimeInterval? {
+        recentCommandPaletteRequestAge(windowId: windowId)
     }
 
     // Test hook: remap a window context under a detached window key so direct
