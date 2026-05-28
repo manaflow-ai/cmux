@@ -113,7 +113,7 @@ final class WindowTerminalHostView: NSView {
     }
 
     // PERF: hitTest is called on EVERY event including keyboard. Keep non-pointer
-    // path minimal. Do not add work outside the isPointerEvent guard.
+    // path minimal. Do not add work outside the input-routing guard.
     override func hitTest(_ point: NSPoint) -> NSView? {
         performHitTest(at: point, currentEvent: NSApp.currentEvent)
     }
@@ -122,11 +122,10 @@ final class WindowTerminalHostView: NSView {
     // `NSApp.currentEvent`; tests can call this directly with a synthetic
     // pointer event so the typing-latency guard doesn't gate them out.
     func performHitTest(at point: NSPoint, currentEvent: NSEvent?) -> NSView? {
-        let eventType = currentEvent?.type
-        let isPointerEvent = eventType == .scrollWheel
-            || BonsplitTabBarPassThrough.isPassThroughPointerEvent(eventType)
+        let routingContext = WindowInputRoutingContext(event: currentEvent)
+        let eventType = routingContext.eventType
 
-        if isPointerEvent {
+        if routingContext.allowsPortalPointerHitTesting {
             if shouldPassThroughToTitlebar(at: point) {
                 clearActiveDividerCursor(restoreArrow: false)
                 return nil
@@ -155,34 +154,35 @@ final class WindowTerminalHostView: NSView {
 
             clearActiveDividerCursor(restoreArrow: true)
 
-            let dragPasteboardTypes = NSPasteboard(name: .drag).types
-            let eventType = currentEvent?.type
-            let shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
-                pasteboardTypes: dragPasteboardTypes,
-                eventType: eventType
-            )
-            if shouldPassThrough {
-                let hitView = super.hitTest(point)
-                if hitView is TerminalPaneDropTargetView {
+            if routingContext.allowsTerminalPortalDragRouting {
+                let dragPasteboardTypes = NSPasteboard(name: .drag).types
+                let shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                    pasteboardTypes: dragPasteboardTypes,
+                    eventType: eventType
+                )
+                if shouldPassThrough {
+                    let hitView = super.hitTest(point)
+                    if hitView is TerminalPaneDropTargetView {
+#if DEBUG
+                        logDragRouteDecision(
+                            passThrough: false,
+                            eventType: eventType,
+                            pasteboardTypes: dragPasteboardTypes,
+                            hitView: hitView
+                        )
+#endif
+                        return hitView
+                    }
 #if DEBUG
                     logDragRouteDecision(
-                        passThrough: false,
+                        passThrough: true,
                         eventType: eventType,
                         pasteboardTypes: dragPasteboardTypes,
-                        hitView: hitView
+                        hitView: nil
                     )
 #endif
-                    return hitView
+                    return nil
                 }
-#if DEBUG
-                logDragRouteDecision(
-                    passThrough: true,
-                    eventType: eventType,
-                    pasteboardTypes: dragPasteboardTypes,
-                    hitView: nil
-                )
-#endif
-                return nil
             }
 
             let hitView = super.hitTest(point)
@@ -190,7 +190,7 @@ final class WindowTerminalHostView: NSView {
             logDragRouteDecision(
                 passThrough: false,
                 eventType: currentEvent?.type,
-                pasteboardTypes: dragPasteboardTypes,
+                pasteboardTypes: nil,
                 hitView: hitView
             )
 #endif
