@@ -41,11 +41,11 @@ const CODEX_BUTTON_BASE =
   "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap focus:outline-none disabled:cursor-not-allowed disabled:opacity-40";
 const CODEX_BUTTON_GHOST =
   "text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
-const CODEX_BUTTON_PRIMARY =
-  "bg-token-foreground enabled:hover:bg-token-foreground/80 data-[state=open]:bg-token-foreground/80 text-token-dropdown-background";
 const CODEX_BUTTON_COMPOSER = "h-token-button-composer px-2 py-0 text-sm leading-[18px]";
 const CODEX_BUTTON_COMPOSER_SM = "h-token-button-composer-sm px-1.5 py-0 text-sm leading-[18px]";
 const CODEX_BUTTON_UNIFORM = "aspect-square items-center justify-center !px-0";
+const CODEX_SUBMIT_BUTTON =
+  "focus-visible:outline-token-button-background cursor-interaction size-token-button-composer flex items-center justify-center rounded-full p-0.5 transition-opacity focus-visible:outline-2 bg-token-foreground";
 
 type ComposerMenuKind = "mention" | "skill" | null;
 
@@ -374,12 +374,12 @@ function SessionSurface({
       "button",
       {
         className:
-          `codex-action send-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_PRIMARY} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
+          `codex-action send-button ${CODEX_SUBMIT_BUTTON}${canSend ? "" : " cursor-default opacity-50"}`,
         type: "submit",
         disabled: !canSend,
         "aria-label": state.context?.copy.send ?? "Send",
       },
-      sendIcon(),
+      sendIcon("icon-sm text-token-dropdown-background"),
     ),
   );
   const singleLineRightControls = h(
@@ -838,10 +838,10 @@ function basename(path: string): string {
   return segments[segments.length - 1] ?? path;
 }
 
-function sendIcon() {
+function sendIcon(className = "icon-sm") {
   return h(
     "svg",
-    { className: "icon-sm", width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
+    { className, width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
     h("path", {
       d: "M9.33467 16.6663V4.93978L4.6374 9.63704L4.1667 9.16634L3.69599 8.69661L9.52998 2.86263L9.63447 2.77767C9.8925 2.60753 10.2433 2.63564 10.4704 2.86263L16.3034 8.69661L16.3884 8.80111C16.5588 9.05922 16.5306 9.40982 16.3034 9.63704C16.0762 9.86414 15.7255 9.89242 15.4675 9.722L15.363 9.63704L10.6647 4.9388V16.6663C10.6647 17.0336 10.367 17.3314 9.99971 17.3314C9.63259 17.3312 9.33467 17.0335 9.33467 16.6663ZM4.6374 9.63704C4.3777 9.89674 3.95569 9.89674 3.69599 9.63704C3.43657 9.37744 3.43668 8.95628 3.69599 8.69661L4.6374 9.63704Z",
       fill: "currentColor",
