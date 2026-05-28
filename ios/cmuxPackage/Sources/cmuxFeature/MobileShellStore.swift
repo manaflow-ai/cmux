@@ -3206,9 +3206,15 @@ private actor MobileCoreRPCSession {
         let frame: Data
     }
 
+    private struct ConnectionAttempt: Sendable {
+        let id: UUID
+        let transport: any CmxByteTransport
+        let task: Task<any CmxByteTransport, Error>
+    }
+
     private let makeTransport: TransportFactory
     private var transport: (any CmxByteTransport)?
-    private var connectionTask: (id: UUID, task: Task<any CmxByteTransport, Error>)?
+    private var connectionTask: ConnectionAttempt?
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
     private var pending: [String: PendingContinuation] = [:]
@@ -3228,7 +3234,13 @@ private actor MobileCoreRPCSession {
     }
 
     deinit {
-        connectionTask?.task.cancel()
+        let connectionAttempt = connectionTask
+        connectionAttempt?.task.cancel()
+        if let connectionAttempt {
+            Task {
+                await connectionAttempt.transport.close()
+            }
+        }
         readerTask?.cancel()
         writerTask?.cancel()
         writeQueue?.finish()
@@ -3312,9 +3324,13 @@ private actor MobileCoreRPCSession {
         writeQueue = nil
         writerTask?.cancel()
         writerTask = nil
-        connectionTask?.task.cancel()
+        let connectionAttempt = connectionTask
+        connectionAttempt?.task.cancel()
         connectionTask = nil
         installedConnectionID = nil
+        if let connectionAttempt {
+            await connectionAttempt.transport.close()
+        }
         if let transport {
             await transport.close()
         }
@@ -3338,18 +3354,32 @@ private actor MobileCoreRPCSession {
             let candidate = try makeTransport()
             connectionID = UUID()
             task = Task {
-                try await candidate.connect()
-                return candidate
+                do {
+                    try await candidate.connect()
+                    try Task.checkCancellation()
+                    return candidate
+                } catch {
+                    await candidate.close()
+                    throw error
+                }
             }
-            connectionTask = (id: connectionID, task: task)
+            connectionTask = ConnectionAttempt(id: connectionID, transport: candidate, task: task)
         }
 
         let candidate: any CmxByteTransport
         do {
-            candidate = try await task.value
+            candidate = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                Task {
+                    await self.cancelConnectionAttempt(id: connectionID)
+                }
+            }
         } catch {
-            if connectionTask?.id == connectionID {
+            if let attempt = connectionTask, attempt.id == connectionID {
                 connectionTask = nil
+                attempt.task.cancel()
+                await attempt.transport.close()
             }
             throw error
         }
@@ -3383,6 +3413,15 @@ private actor MobileCoreRPCSession {
             await self?.writeLoop(transport: candidate, frames: stream)
         }
         return candidate
+    }
+
+    private func cancelConnectionAttempt(id connectionID: UUID) async {
+        guard let attempt = connectionTask, attempt.id == connectionID else {
+            return
+        }
+        connectionTask = nil
+        attempt.task.cancel()
+        await attempt.transport.close()
     }
 
     private func writeLoop(transport: any CmxByteTransport, frames: AsyncStream<PendingWrite>) async {
