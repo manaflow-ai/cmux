@@ -1,10 +1,24 @@
 import AppKit
 import Foundation
 
+enum CommandClickFileRouteKind: Sendable {
+    case markdown
+    case supportedFile
+}
+
 enum CommandClickFileOpenRouter {
+    nonisolated static func routeKind(path: String) -> CommandClickFileRouteKind? {
+        if CmdClickMarkdownRouteSettings.shouldRoute(path: path) {
+            return .markdown
+        }
+        if CmdClickSupportedFileRouteSettings.shouldRoute(path: path) {
+            return .supportedFile
+        }
+        return nil
+    }
+
     nonisolated static func shouldRouteInCmux(path: String) -> Bool {
-        CmdClickMarkdownRouteSettings.shouldRoute(path: path)
-            || CmdClickSupportedFileRouteSettings.shouldRoute(path: path)
+        routeKind(path: path) != nil
     }
 
     @MainActor
@@ -13,15 +27,34 @@ enum CommandClickFileOpenRouter {
         sourcePanelId: UUID,
         filePath: String
     ) -> Bool {
-        if CmdClickMarkdownRouteSettings.shouldRoute(path: filePath),
-           workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: filePath) != nil {
-            return true
-        }
+        guard let routeKind = routeKind(path: filePath) else { return false }
+        return openInCmux(
+            workspace: workspace,
+            sourcePanelId: sourcePanelId,
+            filePath: filePath,
+            routeKind: routeKind
+        )
+    }
 
-        guard CmdClickSupportedFileRouteSettings.shouldRoute(path: filePath) else {
-            return false
+    @MainActor
+    private static func openInCmux(
+        workspace: Workspace,
+        sourcePanelId: UUID,
+        filePath: String,
+        routeKind: CommandClickFileRouteKind
+    ) -> Bool {
+        switch routeKind {
+        case .markdown:
+            return workspace.openOrFocusMarkdownSplit(
+                from: sourcePanelId,
+                filePath: filePath
+            ) != nil
+        case .supportedFile:
+            return workspace.openOrFocusFilePreviewSplit(
+                from: sourcePanelId,
+                filePath: filePath
+            ) != nil
         }
-        return workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: filePath) != nil
     }
 
     /// Resolve the working directory for a terminal surface, preferring the
@@ -53,9 +86,9 @@ enum CommandClickFileOpenRouter {
     /// Ghostty's `Surface.openUrl` holds an internal `os_unfair_lock` when it
     /// dispatches into Swift; opening a new panel synchronously re-enters
     /// Ghostty and deadlocks (#3370). This helper defers the split creation
-    /// via `DispatchQueue.main.async` and re-validates the workspace and path
-    /// at dispatch time (TOCTOU). When routing fails, `fallback` is called so
-    /// the caller can open the file externally.
+    /// via a main-actor task and re-validates the route off-main before the UI
+    /// mutation. When routing fails, `fallback` is called so the caller can
+    /// open the file externally.
     @MainActor
     static func deferredOpenFileInCmux(
         workspace: Workspace,
@@ -64,23 +97,30 @@ enum CommandClickFileOpenRouter {
         filePath: String,
         fallback: (@MainActor @Sendable () -> Void)? = nil
     ) {
-        DispatchQueue.main.async {
-            let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
+        Task { @MainActor [preferredWorkspaceId, surfaceId, filePath, fallback] in
+            let routeKind = await Task.detached(priority: .userInitiated) {
+                Self.routeKind(path: filePath)
+            }.value
+            guard let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
                 panelId: surfaceId,
                 preferredWorkspaceId: preferredWorkspaceId
-            )?.workspace ?? workspace
+            )?.workspace else {
+                fallback?()
+                return
+            }
             guard !resolvedWorkspace.isRemoteTerminalSurface(surfaceId) else {
                 fallback?()
                 return
             }
-            guard shouldRouteInCmux(path: filePath) else {
+            guard let routeKind else {
                 fallback?()
                 return
             }
             if openInCmux(
                 workspace: resolvedWorkspace,
                 sourcePanelId: surfaceId,
-                filePath: filePath
+                filePath: filePath,
+                routeKind: routeKind
             ) {
                 return
             }
