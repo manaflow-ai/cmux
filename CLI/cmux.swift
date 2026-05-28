@@ -8414,9 +8414,8 @@ struct CMUXCLI {
             "cmux_status=$?",
             "trap - EXIT HUP INT TERM",
             "cmux_cleanup",
-            "unset cmux_tmp cmux_status",
             "unset -f cmux_cleanup 2>/dev/null || true",
-            "exit $cmux_status",
+            "exit \"$cmux_status\"",
         ].joined(separator: "\n")
         return "/bin/sh -c \(shellQuote(wrapper))"
     }

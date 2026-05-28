@@ -3974,6 +3974,84 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(state.snapshot().count, 1)
     }
 
+    func testSSHSessionAttachStartupCommandPropagatesBridgeFailureStatus() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshattachstatus")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "ssh-existing-session"
+        var capturedInitialCommand: String?
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            capturedInitialCommand = params["initial_command"] as? String
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "workspace_id": workspaceId,
+                    "workspace_ref": "workspace:1",
+                    "surface_id": "33333333-3333-3333-3333-333333333333",
+                    "surface_ref": "surface:1",
+                    "type": "terminal",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-session-attach",
+                "--workspace", workspaceId,
+                "--session-id", sessionId,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let fakeCLIURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-failing-ssh-pty-attach-\(UUID().uuidString).sh")
+        try """
+        #!/bin/sh
+        exit 42
+        """.write(to: fakeCLIURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLIURL.path)
+        defer { try? FileManager.default.removeItem(at: fakeCLIURL) }
+
+        var attachEnvironment = ProcessInfo.processInfo.environment
+        attachEnvironment["CMUX_BUNDLED_CLI_PATH"] = fakeCLIURL.path
+        attachEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        attachEnvironment["CMUX_WORKSPACE_ID"] = workspaceId
+        attachEnvironment["CMUX_SURFACE_ID"] = "33333333-3333-3333-3333-333333333333"
+        let attachResult = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", try XCTUnwrap(capturedInitialCommand)],
+            environment: attachEnvironment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(attachResult.timedOut, attachResult.stderr)
+        XCTAssertEqual(attachResult.status, 42, attachResult.stderr)
+    }
+
     func testSSHPTYAttachRequireExistingPassesBridgeFlag() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshreq")
