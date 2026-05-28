@@ -5515,7 +5515,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private func resetTmuxControlState() {
         tmuxControlState = TmuxControlState()
         tmuxControlGeneration &+= 1
-        tmuxControlEventStream.reset(generation: tmuxControlGeneration)
+        let generation = tmuxControlGeneration
+        Task.detached(priority: .userInitiated) { [stream = tmuxControlEventStream] in
+            stream.reset(generation: generation)
+        }
     }
 
     @MainActor
