@@ -45,6 +45,7 @@ def run_wrapper(
     argv: list[str],
     node_options: str | None = None,
     tmpdir: str | None = None,
+    home: str | None = None,
     hooks_disabled: bool = False,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
@@ -55,6 +56,15 @@ def run_wrapper(
         wrapper_dir.mkdir(parents=True, exist_ok=True)
         real_dir.mkdir(parents=True, exist_ok=True)
         bundled_dir.mkdir(parents=True, exist_ok=True)
+
+        # Sandbox HOME so the wrapper never touches the real ~/.claude tree
+        # (cmux #3463 puts the NODE_OPTIONS guard file under $HOME).
+        if home is None:
+            sandbox_home = tmp / "fake-home"
+            sandbox_home.mkdir(parents=True, exist_ok=True)
+            resolved_home = str(sandbox_home)
+        else:
+            resolved_home = home
 
         wrapper = wrapper_dir / "claude"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
@@ -184,6 +194,7 @@ exit 0
         else:
             env.pop("CMUX_CLAUDE_HOOKS_DISABLED", None)
         env.pop("NODE_OPTIONS", None)
+        env["HOME"] = resolved_home
         if tmpdir is not None:
             env["TMPDIR"] = tmpdir
         if node_options is not None:
@@ -440,9 +451,12 @@ exit 0
             env["CMUX_SOCKET_PATH"] = socket_path
             env["FAKE_AUTH_ENV_LOG"] = str(auth_env_log)
             env["FAKE_ARGS_LOG"] = str(args_log)
+            sandbox_home = tmp / "fake-home"
+            sandbox_home.mkdir(parents=True, exist_ok=True)
+            env["HOME"] = str(sandbox_home)
             if setup_env is not None:
                 env.update(setup_env(tmp))
-            env.update(inherited_env)
+            env.update({k: v for k, v in inherited_env.items() if k != "HOME"})
 
             proc = subprocess.run(
                 ["claude", *argv],
@@ -982,23 +996,23 @@ def test_live_socket_enforces_heap_cap_for_space_separated_flag(failures: list[s
     expect(child_node_options == restored, f"space-separated heap flag: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
-def test_live_socket_tmpdir_failure_skips_node_options_injection(failures: list[str]) -> None:
-    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-bad-tmp-") as td:
-        bad_tmpdir = Path(td) / "not-a-directory"
-        bad_tmpdir.write_text("occupied", encoding="utf-8")
+def test_live_socket_home_failure_skips_node_options_injection(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-bad-home-") as td:
+        bad_home = Path(td) / "not-a-directory"
+        bad_home.write_text("occupied", encoding="utf-8")
         code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
             socket_state="live",
             argv=["hello"],
-            tmpdir=str(bad_tmpdir),
+            home=str(bad_home),
         )
-    expect(code == 0, f"tmpdir failure: wrapper exited {code}: {stderr}", failures)
-    expect("--settings" in real_argv, f"tmpdir failure: missing --settings in args: {real_argv}", failures)
-    expect("--session-id" in real_argv, f"tmpdir failure: missing --session-id in args: {real_argv}", failures)
-    expect(any(" ping" in line for line in cmux_log), f"tmpdir failure: expected cmux ping, got {cmux_log}", failures)
-    expect(claudecode == "__UNSET__", f"tmpdir failure: expected CLAUDECODE unset, got {claudecode!r}", failures)
-    expect(node_options == "__UNSET__", f"tmpdir failure: expected NODE_OPTIONS injection to be skipped, got {node_options!r}", failures)
-    expect(runtime_node_options == "__UNSET__", f"tmpdir failure: expected runtime NODE_OPTIONS passthrough, got {runtime_node_options!r}", failures)
-    expect(child_node_options == "__UNSET__", f"tmpdir failure: expected child NODE_OPTIONS passthrough, got {child_node_options!r}", failures)
+    expect(code == 0, f"home failure: wrapper exited {code}: {stderr}", failures)
+    expect("--settings" in real_argv, f"home failure: missing --settings in args: {real_argv}", failures)
+    expect("--session-id" in real_argv, f"home failure: missing --session-id in args: {real_argv}", failures)
+    expect(any(" ping" in line for line in cmux_log), f"home failure: expected cmux ping, got {cmux_log}", failures)
+    expect(claudecode == "__UNSET__", f"home failure: expected CLAUDECODE unset, got {claudecode!r}", failures)
+    expect(node_options == "__UNSET__", f"home failure: expected NODE_OPTIONS injection to be skipped, got {node_options!r}", failures)
+    expect(runtime_node_options == "__UNSET__", f"home failure: expected runtime NODE_OPTIONS passthrough, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"home failure: expected child NODE_OPTIONS passthrough, got {child_node_options!r}", failures)
 
 
 def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[str]) -> None:
@@ -1023,15 +1037,15 @@ def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[
 
 
 def test_live_socket_stale_mktemp_literal_does_not_warn(failures: list[str]) -> None:
-    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-tmp-") as td:
-        tmpdir = Path(td)
-        guard_dir = tmpdir / "cmux-claude-node-options"
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-stale-") as td:
+        home_dir = Path(td) / "home"
+        guard_dir = home_dir / ".claude" / "cmux" / "cmux-claude-node-options"
         guard_dir.mkdir(parents=True, exist_ok=True)
         (guard_dir / "restore-node-options.XXXXXX.cjs").write_text("stale", encoding="utf-8")
         code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
             socket_state="live",
             argv=["hello"],
-            tmpdir=str(tmpdir),
+            home=str(home_dir),
         )
     expect(code == 0, f"stale mktemp literal: wrapper exited {code}: {stderr}", failures)
     expect("mktemp:" not in stderr, f"stale mktemp literal: unexpected mktemp warning: {stderr!r}", failures)
@@ -1103,6 +1117,110 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
     expect(hook_cmux_bin == "__UNSET__", f"stale socket: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
 
 
+def test_issue_3463_guard_file_lives_under_home_not_tmpdir(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-3463-home-guard-") as ext_td:
+        ext = Path(ext_td)
+        home_dir = ext / "home"
+        tmp_dir = ext / "tmp"
+        home_dir.mkdir()
+        tmp_dir.mkdir()
+        code, _, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            home=str(home_dir),
+            tmpdir=str(tmp_dir),
+        )
+        expect(code == 0, f"#3463 home guard: wrapper exited {code}: {stderr}", failures)
+
+        guard_path_home = home_dir / ".claude" / "cmux" / "cmux-claude-node-options" / "restore-node-options.cjs"
+        guard_dir_tmpdir = tmp_dir / "cmux-claude-node-options"
+
+        expect(
+            guard_path_home.is_file(),
+            f"#3463 home guard: expected guard file at {guard_path_home}, "
+            f"home contents: {sorted(str(p.relative_to(home_dir)) for p in home_dir.glob('**/*')) if home_dir.exists() else 'gone'}, "
+            f"tmpdir contents: {sorted(str(p.relative_to(tmp_dir)) for p in tmp_dir.glob('**/*')) if tmp_dir.exists() else 'gone'}",
+            failures,
+        )
+
+        require_flag, _, _ = node_options.partition(" ")
+        expected_prefix = f"--require={home_dir}/.claude/cmux/cmux-claude-node-options/"
+        expect(
+            require_flag.startswith(expected_prefix),
+            f"#3463 home guard: NODE_OPTIONS --require should target $HOME/.claude/cmux, "
+            f"expected prefix {expected_prefix!r}, got {require_flag!r} (full NODE_OPTIONS={node_options!r})",
+            failures,
+        )
+
+        stale_under_tmpdir = (
+            list(guard_dir_tmpdir.glob("*.cjs"))
+            if guard_dir_tmpdir.exists()
+            else []
+        )
+        expect(
+            not stale_under_tmpdir,
+            f"#3463 home guard: no guard file should be created under TMPDIR, "
+            f"found {stale_under_tmpdir}",
+            failures,
+        )
+
+
+def test_issue_3463_node_options_survives_tmpdir_cleanup(failures: list[str]) -> None:
+    node_bin = shutil.which("node")
+    if node_bin is None:
+        failures.append("#3463 tmpdir wipe: node binary required on PATH for end-to-end check")
+        return
+
+    with tempfile.TemporaryDirectory(prefix="cmux-3463-tmpdir-wipe-") as ext_td:
+        ext = Path(ext_td)
+        home_dir = ext / "home"
+        tmp_dir = ext / "tmp"
+        home_dir.mkdir()
+        tmp_dir.mkdir()
+        code, _, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            home=str(home_dir),
+            tmpdir=str(tmp_dir),
+        )
+        expect(code == 0, f"#3463 tmpdir wipe: wrapper exited {code}: {stderr}", failures)
+        expect(
+            node_options.startswith("--require="),
+            f"#3463 tmpdir wipe: expected wrapper to set NODE_OPTIONS --require, got {node_options!r}",
+            failures,
+        )
+
+        # Wipe the whole sandboxed $TMPDIR the way macOS clears /var/folders/...
+        # between sessions. If the wrapper ever regresses to writing the guard
+        # file under $TMPDIR, the --require path will vanish here and the node
+        # child below will fail with the same 'Cannot find module' the issue
+        # reporter saw.
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        node_env = os.environ.copy()
+        node_env["NODE_OPTIONS"] = node_options
+        result = subprocess.run(
+            [node_bin, "-e", "process.stdout.write('survived')"],
+            env=node_env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        expect(
+            result.returncode == 0,
+            f"#3463 tmpdir wipe: node should succeed after $TMPDIR cleanup, "
+            f"got exit={result.returncode}, stdout={result.stdout!r}, stderr={result.stderr!r}, "
+            f"NODE_OPTIONS={node_options!r}",
+            failures,
+        )
+        expect(
+            "Cannot find module" not in result.stderr,
+            f"#3463 tmpdir wipe: expected no 'Cannot find module' after $TMPDIR cleanup, "
+            f"got stderr={result.stderr!r}, NODE_OPTIONS={node_options!r}",
+            failures,
+        )
+
+
 def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
@@ -1120,12 +1238,14 @@ def main() -> int:
     test_live_socket_auto_preserve_accepts_all_documented_truthy_variants(failures)
     test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
-    test_live_socket_tmpdir_failure_skips_node_options_injection(failures)
+    test_live_socket_home_failure_skips_node_options_injection(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
     test_missing_socket_skips_hook_injection(failures)
     test_disabled_integration_skips_hook_injection(failures)
     test_stale_socket_skips_hook_injection(failures)
+    test_issue_3463_guard_file_lives_under_home_not_tmpdir(failures)
+    test_issue_3463_node_options_survives_tmpdir_cleanup(failures)
 
     if failures:
         print("FAIL: claude wrapper regression checks failed")
