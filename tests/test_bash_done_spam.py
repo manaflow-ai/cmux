@@ -113,6 +113,12 @@ class InteractiveBash:
                 os.kill(self.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+            # Reap the zombie so resources are returned promptly, especially
+            # when many tests run in sequence under pytest.
+            try:
+                os.waitpid(self.pid, 0)
+            except (ChildProcessError, OSError):
+                pass
 
     def run(self, command: str, timeout: float = 5) -> None:
         if self.fd is None:
@@ -170,8 +176,14 @@ class InteractiveBash:
 def test_bash_integration_no_done_spam() -> None:
     bash_path = _find_modern_bash()
     if bash_path is None:
-        print("SKIP: no bash >= 5 found; the Done-spam bug only reproduces "
-              "on modern bash where PS0 uses the no-fork valsub form.")
+        msg = ("no bash >= 5 found; the Done-spam bug only reproduces "
+               "on modern bash where the helpers fire from PROMPT_COMMAND "
+               "and PS0 valsub.")
+        # In CI we want a missing modern bash to be a loud configuration
+        # failure, not a silent skip that would let a regression land.
+        if os.environ.get("CI"):
+            raise RuntimeError(f"CI requires bash >= 5: {msg}")
+        print(f"SKIP: {msg}")
         return
 
     repo_root = Path(__file__).resolve().parents[1]

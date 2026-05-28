@@ -44,23 +44,33 @@ _cmux_detach_bg() {
 # Same suppression as _cmux_detach_bg, but hands the background PID back to
 # the caller through a tempfile so timeout/cleanup logic can still
 # `kill -0`/`kill` the child. The inner `&` runs in a subshell so `$!` is
-# only visible there.
+# only visible there. Locals use a deliberately ugly prefix so they cannot
+# collide with whatever variable name the caller passes as $1 (bash uses
+# dynamic scoping, so a collision would shadow the outer var).
 _cmux_start_tracked_bg() {
-    local __cmux_pid_var="$1"
+    [[ "$1" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
+    local __cmux_stb_var="$1"
     shift
-    local __cmux_pid_file=""
-    __cmux_pid_file="$(mktemp "${TMPDIR:-/tmp}/cmux-bgpid.XXXXXX" 2>/dev/null)" || {
-        printf -v "$__cmux_pid_var" '%s' ""
+    # Empty argv would make `& ...` background nothing and leave $! pointing
+    # at a phantom slot. The caller would then kill an unrelated process if
+    # that PID got recycled. Refuse early.
+    (( $# >= 1 )) || {
+        printf -v "$__cmux_stb_var" '%s' "" 2>/dev/null
+        return 1
+    }
+    local __cmux_stb_file=""
+    __cmux_stb_file="$(mktemp "${TMPDIR:-/tmp}/cmux-bgpid.XXXXXX" 2>/dev/null)" || {
+        printf -v "$__cmux_stb_var" '%s' "" 2>/dev/null
         return 1
     }
     (
         "$@" >/dev/null 2>&1 &
-        printf '%s\n' "$!" > "$__cmux_pid_file"
+        printf '%s\n' "$!" > "$__cmux_stb_file"
     ) >/dev/null 2>&1
-    local __cmux_pid=""
-    IFS= read -r __cmux_pid < "$__cmux_pid_file" 2>/dev/null || __cmux_pid=""
-    /bin/rm -f -- "$__cmux_pid_file" >/dev/null 2>&1 || true
-    printf -v "$__cmux_pid_var" '%s' "$__cmux_pid"
+    local __cmux_stb_pid=""
+    IFS= read -r __cmux_stb_pid < "$__cmux_stb_file" 2>/dev/null || __cmux_stb_pid=""
+    /bin/rm -f -- "$__cmux_stb_file" >/dev/null 2>&1 || true
+    printf -v "$__cmux_stb_var" '%s' "$__cmux_stb_pid" 2>/dev/null
 }
 
 _cmux_socket_is_unix() {
