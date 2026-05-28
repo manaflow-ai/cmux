@@ -1,4 +1,5 @@
 import Combine
+import CmuxSettings
 import Foundation
 import os
 
@@ -22,8 +23,8 @@ final class KeyboardShortcutSettingsObserver: ObservableObject {
 final class CmuxSettingsFileStore {
     static let shared = CmuxSettingsFileStore()
 
-    static let currentSchemaVersion = 1
-    static let schemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
+    static let currentSchemaVersion = CmuxSettingsCatalog.currentSchemaVersion
+    static let schemaURLString = CmuxSettingsCatalog.schemaURLString
     private static let legacySchemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json"
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
@@ -31,13 +32,11 @@ final class CmuxSettingsFileStore {
     fileprivate static let socketPasswordBackupIdentifier = "automation.socketPassword"
 
     static var defaultPrimaryPath: String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return (home as NSString).appendingPathComponent(".config/cmux/cmux.json")
+        CmuxSettingsCatalog.defaultPrimaryURL().path
     }
 
     static var defaultFallbackPath: String? {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return (home as NSString).appendingPathComponent(".config/cmux/settings.json")
+        CmuxSettingsCatalog.defaultLegacyURL().path
     }
 
     static var defaultApplicationSupportFallbackPath: String? {
@@ -47,10 +46,10 @@ final class CmuxSettingsFileStore {
         ).first else {
             return nil
         }
-        return appSupport
-            .appendingPathComponent(releaseBundleIdentifier, isDirectory: true)
-            .appendingPathComponent("settings.json", isDirectory: false)
-            .path
+        return CmuxSettingsCatalog.defaultApplicationSupportLegacyURL(
+            applicationSupportDirectoryURL: appSupport,
+            releaseBundleIdentifier: releaseBundleIdentifier
+        ).path
     }
 
     private let primaryPath: String
