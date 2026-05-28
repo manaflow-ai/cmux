@@ -250,10 +250,17 @@ class UpdateController {
         let stateBeforeCancellation = viewModel.state
         if stateBeforeCancellation != .idle {
             viewModel.cancelActiveStateForNewCheck()
-            if shouldWaitForCancelledSession(afterCancelling: stateBeforeCancellation) {
-                waitForCancelledSessionToFinishBeforeCheck()
+        } else if updater.sessionInProgress {
+            viewModel.cancelActiveStateForNewCheck()
+        }
+        if shouldWaitForCancelledSession(afterCancelling: stateBeforeCancellation) || updater.sessionInProgress {
+            guard updater.sessionInProgress else {
+                UpdateLogStore.shared.append("cancelled update session already finished; starting update check")
+                updater.checkForUpdates()
                 return
             }
+            waitForCancelledSessionToFinishBeforeCheck()
+            return
         }
         updater.checkForUpdates()
     }
