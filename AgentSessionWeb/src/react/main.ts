@@ -32,7 +32,12 @@ import {
   type SessionState,
   type TranscriptEntry,
 } from "../shared/sessionModel";
-import type { AgentSessionCopy, AgentSessionRateLimitRow, ProviderId } from "../shared/types";
+import type {
+  AgentSessionAttachment,
+  AgentSessionCopy,
+  AgentSessionRateLimitRow,
+  ProviderId,
+} from "../shared/types";
 import {
   PromptEditor,
   type PromptAutocompleteState,
@@ -69,15 +74,7 @@ type PickedLocalFile = {
   path: string;
 };
 
-type ComposerAttachment = {
-  dataUrl?: string;
-  fsPath?: string;
-  id: string;
-  kind: "file" | "image";
-  label: string;
-  mimeType?: string;
-  path: string;
-};
+type ComposerAttachment = AgentSessionAttachment;
 
 function useMeasuredComposerLayout(input: string, hasVisibleAttachments: boolean) {
   const [inputWidth, setInputWidth] = useState<number | null>(null);
@@ -296,7 +293,12 @@ function SessionSurface({
     setProviderMenuOpen(false);
     setAddContextMenuOpen(false);
     const text = promptTextWithAttachments(state.input, attachments);
-    void sendInput(state, dispatch, { clearInput: state.input, text }).then((didSend) => {
+    void sendInput(state, dispatch, {
+      attachments,
+      clearInput: state.input,
+      displayText: state.input,
+      text,
+    }).then((didSend) => {
       if (didSend) {
         setAttachments([]);
       }
@@ -679,22 +681,33 @@ function TranscriptThread({ entries }: { entries: TranscriptEntry[] }) {
 
 function TranscriptTurn({ entry }: { entry: TranscriptEntry }) {
   switch (entry.role) {
-    case "user":
+    case "user": {
+      const attachments = entry.attachments ?? [];
+      const hasText = entry.text.trim().length > 0;
       return h(
         "div",
         { className: "codex-user-turn group flex w-full flex-col items-end justify-end gap-1" },
-        h(
-          "div",
-          {
-            className:
-              "codex-user-bubble bg-token-foreground/5 max-w-[77%] min-w-0 overflow-hidden break-words rounded-2xl px-3 py-2 [&_.contain-inline-size]:[contain:initial]",
-          },
-          h("div", {
-            className: "text-size-chat mb-px",
-            dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.text) },
-          }),
-        ),
+        attachments.length > 0
+          ? h(ComposerAttachmentTray, {
+              attachments,
+              className: "codex-user-attachment-tray",
+            })
+          : null,
+        hasText
+          ? h(
+              "div",
+              {
+                className:
+                  "codex-user-bubble bg-token-foreground/5 max-w-[77%] min-w-0 overflow-hidden break-words rounded-2xl px-3 py-2 [&_.contain-inline-size]:[contain:initial]",
+              },
+              h("div", {
+                className: "text-size-chat mb-px",
+                dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.text) },
+              }),
+            )
+          : null,
       );
+    }
     case "assistant":
       return h(
         "div",
@@ -755,16 +768,18 @@ function TranscriptTurn({ entry }: { entry: TranscriptEntry }) {
 
 function ComposerAttachmentTray({
   attachments,
+  className,
   copy,
   onRemove,
 }: {
   attachments: ComposerAttachment[];
+  className?: string;
   copy?: AgentSessionCopy;
-  onRemove: (id: string) => void;
+  onRemove?: (id: string) => void;
 }) {
   return h(
     "div",
-    { className: "codex-attachment-tray flex gap-1.5 overflow-x-auto px-3 pt-2 pb-1" },
+    { className: `codex-attachment-tray flex gap-1.5 overflow-x-auto px-3 pt-2 pb-1${className ? ` ${className}` : ""}` },
     attachments.map((attachment) =>
       h(ComposerAttachmentCard, {
         attachment,
@@ -783,20 +798,22 @@ function ComposerAttachmentCard({
 }: {
   attachment: ComposerAttachment;
   copy?: AgentSessionCopy;
-  onRemove: (id: string) => void;
+  onRemove?: (id: string) => void;
 }) {
   const removeLabel = `${copy?.removeAttachment ?? "Remove attachment"} ${attachment.label}`;
-  const removeButton = h(
-    "button",
-    {
-      className: "composer-attachment-remove",
-      type: "button",
-      "aria-label": removeLabel,
-      onClick: () => onRemove(attachment.id),
-      onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
-    },
-    xIcon("icon-2xs"),
-  );
+  const removeButton = onRemove
+    ? h(
+        "button",
+        {
+          className: "composer-attachment-remove",
+          type: "button",
+          "aria-label": removeLabel,
+          onClick: () => onRemove(attachment.id),
+          onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
+        },
+        xIcon("icon-2xs"),
+      )
+    : null;
   if (attachment.kind === "image" && attachment.dataUrl) {
     return h(
       "div",

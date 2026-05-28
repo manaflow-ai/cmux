@@ -734,6 +734,12 @@ select {
   display: none;
 }
 
+.codex-user-attachment-tray {
+  max-width: 77%;
+  justify-content: flex-end;
+  padding: 0;
+}
+
 .composer-attachment-image {
   position: relative;
   display: inline-flex;

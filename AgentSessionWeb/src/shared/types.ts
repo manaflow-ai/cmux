@@ -88,6 +88,16 @@ export type AgentSessionCopy = {
   requestFailed: string;
 };
 
+export type AgentSessionAttachment = {
+  dataUrl?: string;
+  fsPath?: string;
+  id: string;
+  kind: "file" | "image";
+  label: string;
+  mimeType?: string;
+  path: string;
+};
+
 export type AgentEvent =
   | {
       type: "app.theme";

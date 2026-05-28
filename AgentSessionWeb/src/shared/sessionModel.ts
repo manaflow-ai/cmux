@@ -1,7 +1,7 @@
 import { callNative } from "./bridge";
 import { makeClientId } from "./ids";
 import { applyAgentTheme } from "./theme";
-import type { AgentEvent, AppContext, ProviderId, ProviderInfo } from "./types";
+import type { AgentEvent, AgentSessionAttachment, AppContext, ProviderId, ProviderInfo } from "./types";
 
 export type LogEntry = {
   id: string;
@@ -18,6 +18,7 @@ export type TranscriptEntry = {
   activityId?: string;
   activityKind?: "command" | "fileChange" | "other";
   activityStatus?: "inProgress" | "completed" | "failed" | "stopped";
+  attachments?: AgentSessionAttachment[];
   detail?: string;
   output?: string;
 };
@@ -50,7 +51,14 @@ export type Action =
   | { type: "stopFailed"; sessionId: string; message: string }
   | { type: "stopped" }
   | { type: "event"; event: AgentEvent }
-  | { type: "sent"; sessionId: string; text: string; submittedInput: string };
+  | {
+      type: "sent";
+      attachments?: AgentSessionAttachment[];
+      displayText?: string;
+      sessionId: string;
+      text: string;
+      submittedInput: string;
+    };
 
 export function initialState(_renderer: AppContext["renderer"]): SessionState {
   return {
@@ -151,7 +159,7 @@ export function reduceSession(state: SessionState, action: Action): SessionState
         ...state,
         input: state.input === action.submittedInput ? "" : state.input,
         log: appendLog(state, "info", formatCopy(state, "sentCharsFormat", "Sent %d chars", action.text.length)),
-        transcript: appendUserTranscript(state, action.text),
+        transcript: appendUserTranscript(state, action.displayText ?? action.text, action.attachments),
       };
     case "event":
       return applyEvent(state, action.event);
@@ -243,7 +251,12 @@ export function selectProvider(providerId: ProviderId, state: SessionState, disp
 export async function sendInput(
   state: SessionState,
   dispatch: (action: Action) => void,
-  options: { clearInput?: string; text?: string } = {},
+  options: {
+    attachments?: AgentSessionAttachment[];
+    clearInput?: string;
+    displayText?: string;
+    text?: string;
+  } = {},
 ): Promise<boolean> {
   const submittedInput = options.text ?? state.input;
   const clearInput = options.clearInput ?? submittedInput;
@@ -256,7 +269,14 @@ export async function sendInput(
       sessionId,
       text: submittedInput,
     });
-    dispatch({ type: "sent", sessionId, text: submittedInput, submittedInput: clearInput });
+    dispatch({
+      type: "sent",
+      attachments: options.attachments,
+      displayText: options.displayText,
+      sessionId,
+      text: submittedInput,
+      submittedInput: clearInput,
+    });
     return true;
   } catch (error) {
     dispatch({ type: "sendFailed", sessionId, message: messageForError(error, state) });
@@ -447,8 +467,13 @@ function appendLog(state: SessionState, level: LogEntry["level"], text: string):
   return next.slice(-300);
 }
 
-function appendUserTranscript(state: SessionState, text: string): TranscriptEntry[] {
+function appendUserTranscript(
+  state: SessionState,
+  text: string,
+  attachments?: AgentSessionAttachment[],
+): TranscriptEntry[] {
   return appendTranscript(state.transcript, {
+    attachments,
     id: makeClientId(),
     role: "user",
     text,

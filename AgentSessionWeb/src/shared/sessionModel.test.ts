@@ -51,6 +51,8 @@ const context: AppContext = {
     voiceInput: "Voice input",
     promptPlaceholder: "Ask anything",
     attachFile: "Attach file",
+    addPhotosAndFiles: "Add photos & files",
+    removeAttachment: "Remove attachment",
     browseWeb: "Browse web",
     autoContext: "Context",
     tools: "Tools",
@@ -278,6 +280,38 @@ test("sent action appends a user transcript turn", () => {
   expect(state.transcript.at(-1)).toMatchObject({
     role: "user",
     text: "hello codex",
+  });
+});
+
+test("sent action keeps displayed attachments separate from provider prompt text", () => {
+  const running = {
+    ...reduceSession(initialState("react"), { type: "context", context }),
+    status: "running" as const,
+    runningSessionId: "session-1",
+    input: "describe this",
+  };
+  const attachment = {
+    id: "attachment-1",
+    kind: "image" as const,
+    label: "moon.jpeg",
+    path: "/tmp/moon.jpeg",
+    dataUrl: "data:image/jpeg;base64,abc",
+  };
+  const state = reduceSession(running, {
+    type: "sent",
+    attachments: [attachment],
+    displayText: "describe this",
+    sessionId: "session-1",
+    text: "[moon.jpeg](/tmp/moon.jpeg)\n\ndescribe this",
+    submittedInput: "describe this",
+  });
+
+  expect(state.input).toBe("");
+  expect(state.log.at(-1)?.text).toBe("Sent 42 chars");
+  expect(state.transcript.at(-1)).toMatchObject({
+    role: "user",
+    text: "describe this",
+    attachments: [attachment],
   });
 });
 
