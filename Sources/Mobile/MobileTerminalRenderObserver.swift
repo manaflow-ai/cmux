@@ -23,18 +23,22 @@ final class MobileTerminalRenderObserver {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshNotificationDemand()
+            MainActor.assumeIsolated {
+                self?.refreshNotificationDemand()
+            }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidRenderFrame,
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let view = notification.object as? GhosttyNSView,
-                  let surfaceID = view.terminalSurface?.id else {
-                return
+            MainActor.assumeIsolated {
+                guard let view = notification.object as? GhosttyNSView,
+                      let surfaceID = view.terminalSurface?.id else {
+                    return
+                }
+                self?.enqueueTerminalUpdate(surfaceID: surfaceID)
             }
-            self?.enqueueTerminalUpdate(surfaceID: surfaceID)
         })
         // Frame notifications only fire when Ghostty's Metal layer pulls a
         // drawable, which it skips for surfaces whose Mac window isn't on
@@ -48,7 +52,9 @@ final class MobileTerminalRenderObserver {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.enqueueTerminalUpdate(surfaceID: nil)
+            MainActor.assumeIsolated {
+                self?.enqueueTerminalUpdate(surfaceID: nil)
+            }
         })
         refreshNotificationDemand()
     }
@@ -107,7 +113,7 @@ final class MobileTerminalRenderObserver {
         }
         guard !isEmitFlushScheduled else { return }
         isEmitFlushScheduled = true
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.flushTerminalUpdates()
         }
     }
