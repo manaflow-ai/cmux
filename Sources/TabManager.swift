@@ -5628,18 +5628,20 @@ class TabManager: ObservableObject {
         //  A. Both neighbors share the same value (incl. both nil): land in
         //     that membership state. Sandwiched inside a group → join it.
         //     Sandwiched in the ungrouped section → clear membership.
-        //  B. The drop sits at the edge of `currentGroup` (one neighbor is
-        //     still in the current group, the other is outside it) → the
-        //     user crossed the section boundary. Treat as drag-out.
-        //  C. Otherwise (drop is far from currentGroup and not unambiguously
-        //     inside another group): preserve current membership so normalize
-        //     snaps the workspace back to its group's section.
+        //  B. Otherwise (one neighbor differs from the other) — preserve
+        //     current membership. This is the ambiguous edge case: dragging
+        //     to the LAST slot of currentGroup and the FIRST slot just
+        //     beyond currentGroup look identical via neighbor inspection,
+        //     so we bias toward "user is reordering within their group"
+        //     since `normalizeWorkspaceGroupContiguity()` will snap the row
+        //     back to the group's section anyway. To drag a workspace out
+        //     of its group, the user must drop it with BOTH neighbors
+        //     outside the group (case A with `beforeGroup == afterGroup !=
+        //     currentGroup`) or use the right-click → Remove From Group
+        //     action.
         let inferred: UUID?
         if beforeGroup == afterGroup {
             inferred = beforeGroup
-        } else if let currentGroup,
-                  beforeGroup == currentGroup || afterGroup == currentGroup {
-            inferred = nil
         } else {
             inferred = currentGroup
         }
@@ -6045,6 +6047,16 @@ class TabManager: ObservableObject {
         )
         assignGroup(workspaceId: newWorkspace.id, groupId: groupId)
         placeWithinGroup(workspaceId: newWorkspace.id, groupId: groupId, placement: placement)
+        // Expand the group when the new workspace is being focused. The
+        // selectedTabId auto-expand hook fires inside `addWorkspace` BEFORE
+        // assignGroup, so it can't see the new workspace's membership. Without
+        // this, clicking `+` on a collapsed group selects a workspace that's
+        // visually hidden in the sidebar.
+        if select,
+           let idx = workspaceGroups.firstIndex(where: { $0.id == groupId }),
+           workspaceGroups[idx].isCollapsed {
+            workspaceGroups[idx].isCollapsed = false
+        }
         normalizeWorkspaceGroupContiguity()
         postWorkspaceOrderDidChange(movedWorkspaceIds: [newWorkspace.id])
         return newWorkspace
