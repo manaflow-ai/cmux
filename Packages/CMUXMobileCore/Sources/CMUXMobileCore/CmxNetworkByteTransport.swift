@@ -68,7 +68,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     private var receiveContinuation: (id: UUID, continuation: CheckedContinuation<Data?, Error>)?
     private var receiveInFlightOperationID: UUID?
     private var receiveBuffer: [Data] = []
-    private var sendContinuation: (id: UUID, continuation: CheckedContinuation<Void, Error>)?
+    private var sendContinuation: (id: UUID, continuation: CheckedContinuation<Void, Error>?)?
     private var cancelledOperationIDs: Set<UUID> = []
     private var connectTimeoutTimer: DispatchSourceTimer?
     private var remoteDidClose = false
@@ -405,11 +405,11 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         if let errorDescription {
             let error = CmxNetworkByteTransportError.sendFailed(errorDescription)
             failTransport(error)
-            pending.continuation.resume(throwing: error)
+            pending.continuation?.resume(throwing: error)
             return
         }
 
-        pending.continuation.resume()
+        pending.continuation?.resume()
     }
 
     private func failTransport(_ error: CmxNetworkByteTransportError) {
@@ -467,9 +467,8 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
 
     private func cancelSend(operationID: UUID) {
         if let pending = sendContinuation, pending.id == operationID {
-            sendContinuation = nil
-            pending.continuation.resume(throwing: CancellationError())
-            close(pendingError: CancellationError(), resumeReceiveWithError: true)
+            sendContinuation = (operationID, nil)
+            pending.continuation?.resume(throwing: CancellationError())
         } else {
             cancelledOperationIDs.insert(operationID)
         }
@@ -554,7 +553,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             return
         }
         sendContinuation = nil
-        pending.continuation.resume(throwing: error)
+        pending.continuation?.resume(throwing: error)
     }
 }
 
