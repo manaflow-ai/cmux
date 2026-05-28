@@ -21,6 +21,32 @@ const kindRank: Record<AwesomeCmuxProjectKind, number> = {
   adjacent: 2,
 };
 
+const categoryLabelKeys: Record<string, string> = {
+  "Sidebar & Status Pills": "sidebarStatusPills",
+  "Progress Bars & Estimation": "progressBarsEstimation",
+  "Sidebar Logs & Activity Feed": "sidebarLogsActivityFeed",
+  "Desktop Notifications": "desktopNotifications",
+  "Multi-Agent Orchestration": "multiAgentOrchestration",
+  "Browser Automation": "browserAutomation",
+  "Worktrees & Workspace Management": "worktreesWorkspaceManagement",
+  "Monitoring & Session Restore": "monitoringSessionRestore",
+  "Remote & Mobile Access": "remoteMobileAccess",
+  "Themes, Layouts & Config": "themesLayoutsConfig",
+  "Claude Code": "claudeCode",
+  Pi: "pi",
+  OpenCode: "openCode",
+  "Copilot & Amp": "copilotAmp",
+  "Multi-Agent / Agent-Agnostic": "multiAgentAgentAgnostic",
+  "Cross-Platform Ports": "crossPlatformPorts",
+  "Alternatives: tmux-Based": "alternativesTmuxBased",
+  "Alternatives: Other Terminals & Workspaces":
+    "alternativesOtherTerminalsWorkspaces",
+  "Alternatives: Forks": "alternativesForks",
+  "Build & Distribution": "buildDistribution",
+  "Upstream Dependencies": "upstreamDependencies",
+  Archived: "archived",
+};
+
 function isPresent(value: string | undefined): value is string {
   return Boolean(value);
 }
@@ -46,7 +72,11 @@ function compareProjectStars(
   return compareProjectNames(collator, left, right);
 }
 
-function projectMatchesQuery(project: AwesomeCmuxProject, query: string) {
+function projectMatchesQuery(
+  project: AwesomeCmuxProject,
+  query: string,
+  categoryLabels: ReadonlyMap<string, string>,
+) {
   if (!query) {
     return true;
   }
@@ -56,7 +86,9 @@ function projectMatchesQuery(project: AwesomeCmuxProject, query: string) {
     project.description,
     project.agent,
     project.language,
-    ...project.categories,
+    ...project.categories.map(
+      (category) => categoryLabels.get(category) ?? category,
+    ),
   ]
     .filter(Boolean)
     .join(" ")
@@ -68,15 +100,18 @@ function projectMatchesQuery(project: AwesomeCmuxProject, query: string) {
 function ProjectCard({
   project,
   kindLabel,
+  categoryLabels,
   numberFormatter,
 }: {
   project: AwesomeCmuxProject;
   kindLabel: string;
+  categoryLabels: ReadonlyMap<string, string>;
   numberFormatter: Intl.NumberFormat;
 }) {
   const t = useTranslations("community");
   const visibleCategories = project.categories.slice(0, 4);
-  const hiddenCategoryCount = project.categories.length - visibleCategories.length;
+  const hiddenCategoryCount =
+    project.categories.length - visibleCategories.length;
 
   return (
     <a
@@ -125,7 +160,7 @@ function ProjectCard({
             key={category}
             className="rounded-md border border-border px-2 py-1 text-[11px] text-muted"
           >
-            {category}
+            {categoryLabels.get(category) ?? category}
           </span>
         ))}
         {hiddenCategoryCount > 0 && (
@@ -178,6 +213,20 @@ export function CommunityProjectBrowser({
     [collator, projects],
   );
 
+  const categoryLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+
+    for (const { category } of categorySummaries) {
+      const labelKey = categoryLabelKeys[category];
+      labels.set(
+        category,
+        labelKey ? t(`categoryLabels.${labelKey}`) : category,
+      );
+    }
+
+    return labels;
+  }, [categorySummaries, t]);
+
   const normalizedQuery = query.trim().toLowerCase();
   const filteredProjects = useMemo(
     () =>
@@ -198,9 +247,9 @@ export function CommunityProjectBrowser({
           return false;
         }
 
-        return projectMatchesQuery(project, normalizedQuery);
+        return projectMatchesQuery(project, normalizedQuery, categoryLabels);
       }),
-    [agent, category, kind, language, normalizedQuery, projects],
+    [agent, category, categoryLabels, kind, language, normalizedQuery, projects],
   );
 
   const sortedProjects = useMemo(() => {
@@ -335,7 +384,7 @@ export function CommunityProjectBrowser({
               <option value="all">{t("allAreas")}</option>
               {categorySummaries.map(({ category: categoryName, count }) => (
                 <option key={categoryName} value={categoryName}>
-                  {categoryName} ({numberFormatter.format(count)})
+                  {`${categoryLabels.get(categoryName) ?? categoryName} (${numberFormatter.format(count)})`}
                 </option>
               ))}
             </select>
@@ -382,6 +431,7 @@ export function CommunityProjectBrowser({
               key={project.url}
               project={project}
               kindLabel={kindLabels[project.kind]}
+              categoryLabels={categoryLabels}
               numberFormatter={numberFormatter}
             />
           ))}

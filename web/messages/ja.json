@@ -136,7 +136,31 @@
     "nativeKindLabel": "主要",
     "portKindLabel": "移植",
     "adjacentKindLabel": "派生",
-    "moreCategoriesLabel": "+{count}件"
+    "moreCategoriesLabel": "+{count}件",
+    "categoryLabels": {
+      "sidebarStatusPills": "サイドバーとステータスピル",
+      "progressBarsEstimation": "進捗バーと見積もり",
+      "sidebarLogsActivityFeed": "サイドバーログとアクティビティフィード",
+      "desktopNotifications": "デスクトップ通知",
+      "multiAgentOrchestration": "マルチエージェントオーケストレーション",
+      "browserAutomation": "ブラウザ自動化",
+      "worktreesWorkspaceManagement": "Worktreeとワークスペース管理",
+      "monitoringSessionRestore": "モニタリングとセッション復元",
+      "remoteMobileAccess": "リモートとモバイルアクセス",
+      "themesLayoutsConfig": "テーマ、レイアウト、設定",
+      "claudeCode": "Claude Code",
+      "pi": "Pi",
+      "openCode": "OpenCode",
+      "copilotAmp": "CopilotとAmp",
+      "multiAgentAgentAgnostic": "マルチエージェント / エージェント非依存",
+      "crossPlatformPorts": "クロスプラットフォーム移植",
+      "alternativesTmuxBased": "代替: tmuxベース",
+      "alternativesOtherTerminalsWorkspaces": "代替: 他のターミナルとワークスペース",
+      "alternativesForks": "代替: フォーク",
+      "buildDistribution": "ビルドと配布",
+      "upstreamDependencies": "アップストリーム依存関係",
+      "archived": "アーカイブ済み"
+    }
   },
   "blog": {
     "title": "ブログ",

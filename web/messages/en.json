@@ -136,7 +136,31 @@
     "nativeKindLabel": "Primary",
     "portKindLabel": "Port",
     "adjacentKindLabel": "Inspired",
-    "moreCategoriesLabel": "+{count} more"
+    "moreCategoriesLabel": "+{count} more",
+    "categoryLabels": {
+      "sidebarStatusPills": "Sidebar & Status Pills",
+      "progressBarsEstimation": "Progress Bars & Estimation",
+      "sidebarLogsActivityFeed": "Sidebar Logs & Activity Feed",
+      "desktopNotifications": "Desktop Notifications",
+      "multiAgentOrchestration": "Multi-Agent Orchestration",
+      "browserAutomation": "Browser Automation",
+      "worktreesWorkspaceManagement": "Worktrees & Workspace Management",
+      "monitoringSessionRestore": "Monitoring & Session Restore",
+      "remoteMobileAccess": "Remote & Mobile Access",
+      "themesLayoutsConfig": "Themes, Layouts & Config",
+      "claudeCode": "Claude Code",
+      "pi": "Pi",
+      "openCode": "OpenCode",
+      "copilotAmp": "Copilot & Amp",
+      "multiAgentAgentAgnostic": "Multi-Agent / Agent-Agnostic",
+      "crossPlatformPorts": "Cross-Platform Ports",
+      "alternativesTmuxBased": "Alternatives: tmux-Based",
+      "alternativesOtherTerminalsWorkspaces": "Alternatives: Other Terminals & Workspaces",
+      "alternativesForks": "Alternatives: Forks",
+      "buildDistribution": "Build & Distribution",
+      "upstreamDependencies": "Upstream Dependencies",
+      "archived": "Archived"
+    }
   },
   "blog": {
     "title": "Blog",
