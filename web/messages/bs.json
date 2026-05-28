@@ -1143,5 +1143,8 @@
       "intro": "Ova stranica otvara pravila u trenutnom cmux radnom prostoru.",
       "fallback": "cmux prvo prikazuje pravila i pita prije nego što ih zalijepi u trenutni radni prostor. Ako se cmux ne otvori, instalirajte cmux i ponovo kliknite Otvori u cmux."
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "Kreator OpenClawa. Osnivač PSPDFKita."
   }
 }

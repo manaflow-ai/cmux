@@ -1143,5 +1143,8 @@
       "intro": "Ta strona otwiera reguły w bieżącym obszarze roboczym cmux.",
       "fallback": "cmux najpierw pokazuje reguły i pyta przed wklejeniem ich do bieżącego obszaru roboczego. Jeśli cmux się nie otworzy, zainstaluj cmux i ponownie kliknij Otwórz w cmux."
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "Twórca OpenClaw. Założyciel PSPDFKit."
   }
 }
