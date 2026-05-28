@@ -3370,35 +3370,11 @@ extension CMUXCLI {
               return true;
             }
 
-            function scheduleReplacementWait(delay = 500) {
-              setTimeout(waitForReplacement, delay);
-            }
-
-            function scheduleLegacyPollFallback(delay = 500) {
-              setTimeout(pollLegacyReplacement, delay);
-            }
-
-            async function pollLegacyReplacement() {
-              try {
-                if (await applyReplacementFrom(await fetch(location.href, { cache: "reload" }))) {
-                  return;
-                }
-              } catch {}
-              scheduleLegacyPollFallback(1000);
-            }
-
             async function waitForReplacement() {
               try {
                 const response = await fetch("/__cmux_diff_viewer_wait" + location.pathname, { cache: "no-store" });
-                if (await applyReplacementFrom(response)) {
-                  return;
-                }
-                if (response.status === 404 || response.status === 405) {
-                  scheduleLegacyPollFallback();
-                  return;
-                }
+                await applyReplacementFrom(response);
               } catch {}
-              scheduleReplacementWait();
             }
 
             waitForReplacement();
@@ -3966,20 +3942,7 @@ extension CMUXCLI {
             return
         }
 
-        guard waitForDiffViewerHTTPReplacement(file) else {
-            try sendDiffViewerHTTPResponse(
-                fileDescriptor: fd,
-                status: 504,
-                reason: "Gateway Timeout",
-                headers: [
-                    "Content-Type": "text/plain; charset=utf-8",
-                    "Retry-After": "1"
-                ],
-                body: Data("504 Gateway Timeout\n".utf8),
-                omitBody: omitBody
-            )
-            return
-        }
+        waitForDiffViewerHTTPReplacement(file)
         try sendDiffViewerHTTPFile(
             file,
             fileDescriptor: fd,
@@ -4056,12 +4019,12 @@ extension CMUXCLI {
         return canonicalURL.absoluteString == url.absoluteString
     }
 
-    private func waitForDiffViewerHTTPReplacement(_ file: DiffViewerAllowedFile) -> Bool {
+    private func waitForDiffViewerHTTPReplacement(_ file: DiffViewerAllowedFile) {
         let fileURL = URL(fileURLWithPath: file.filePath, isDirectory: false)
-        guard diffViewerHTTPFileIsPending(fileURL) else { return true }
+        guard diffViewerHTTPFileIsPending(fileURL) else { return }
 
         let fd = open(fileURL.path, O_EVTONLY)
-        guard fd >= 0 else { return true }
+        guard fd >= 0 else { return }
 
         let event = DispatchSemaphore(value: 0)
         let cleanup = DispatchSemaphore(value: 0)
@@ -4078,16 +4041,11 @@ extension CMUXCLI {
             cleanup.signal()
         }
         source.resume()
-        if !diffViewerHTTPFileIsPending(fileURL) {
-            source.cancel()
-            _ = cleanup.wait(timeout: .now() + 1)
-            return true
+        while diffViewerHTTPFileIsPending(fileURL) {
+            event.wait()
         }
-        let didSignal = event.wait(timeout: .now() + 30) == .success
         source.cancel()
         _ = cleanup.wait(timeout: .now() + 1)
-        guard didSignal else { return false }
-        return !diffViewerHTTPFileIsPending(fileURL)
     }
 
     private func diffViewerHTTPFileIsPending(_ fileURL: URL) -> Bool {
