@@ -3561,6 +3561,26 @@ struct CMUXCLI {
 
         case "workspace-action":
             try runWorkspaceAction(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
+        case "set-color", "set-workspace-color":
+            try runWorkspaceColorCommand(
+                commandName: command,
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId,
+                clearsColor: false
+            )
+        case "clear-color", "clear-workspace-color":
+            try runWorkspaceColorCommand(
+                commandName: command,
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId,
+                clearsColor: true
+            )
         case "tab-action":
             try runTabAction(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
         case "move-tab-to-new-workspace", "detach-tab":
@@ -3630,11 +3650,16 @@ struct CMUXCLI {
             let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
             let (nameOpt, rem2) = parseOption(rem1, name: "--name")
             let (descriptionOpt, rem3) = parseOption(rem2, name: "--description")
-            let (layoutOpt, rem4) = parseOption(rem3, name: "--layout")
-            let (windowOpt, rem5) = parseOption(rem4, name: "--window")
-            let (focusOpt, remaining) = parseOption(rem5, name: "--focus")
+            let (colorOpt, rem4) = parseOption(rem3, name: "--color")
+            let (layoutOpt, rem5) = parseOption(rem4, name: "--layout")
+            let (windowOpt, rem6) = parseOption(rem5, name: "--window")
+            let (focusOpt, remaining) = parseOption(rem6, name: "--focus")
             if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>")
+                let messageFormat = String(
+                    localized: "cli.newWorkspace.error.unknownFlag",
+                    defaultValue: "new-workspace: unknown flag '%@'. Known flags: --name <title>, --description <text>, --color <name|#hex>, --command <text>, --cwd <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>"
+                )
+                throw CLIError(message: String(format: messageFormat, unknown))
             }
             var params: [String: Any] = [:]
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOpt ?? windowId)
@@ -3647,6 +3672,9 @@ struct CMUXCLI {
             }
             if let descriptionOpt {
                 params["description"] = descriptionOpt
+            }
+            if let colorOpt {
+                params["color"] = colorOpt
             }
             if let layoutOpt {
                 guard let layoutData = layoutOpt.data(using: .utf8),
@@ -6491,6 +6519,85 @@ struct CMUXCLI {
         }
         if let color = payload["color"] as? String {
             summaryParts.append("color=\(color)")
+        }
+        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
+    }
+
+    private func runWorkspaceColorCommand(
+        commandName: String,
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?,
+        clearsColor: Bool
+    ) throws {
+        let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
+        let (colorOpt, rem1) = parseOption(rem0, name: "--color")
+        let (windowOpt, rem2) = parseOption(rem1, name: "--window")
+
+        var positional = rem2
+        if positional.first == "--" {
+            positional.removeFirst()
+        }
+        if let unknown = positional.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: "\(commandName): unknown flag '\(unknown)'")
+        }
+
+        let inferredColorRaw = positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let color = (colorOpt ?? (inferredColorRaw.isEmpty ? nil : inferredColorRaw))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !clearsColor, (color?.isEmpty ?? true) {
+            let messageFormat = String(
+                localized: "cli.workspaceColor.error.missingColor",
+                defaultValue: "%@ requires --color <name|#hex> (or a trailing color)"
+            )
+            throw CLIError(message: String(format: messageFormat, commandName))
+        }
+        if clearsColor, color != nil {
+            let messageFormat = String(
+                localized: "cli.workspaceColor.error.unexpectedColor",
+                defaultValue: "%@ does not accept a color value"
+            )
+            throw CLIError(message: String(format: messageFormat, commandName))
+        }
+
+        let windowRaw = windowOpt ?? windowOverride
+        let workspaceArg = workspaceOpt ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
+        let workspaceId = try normalizeWorkspaceHandle(
+            workspaceArg,
+            client: client,
+            windowHandle: windowHandle,
+            allowCurrent: true
+        )
+
+        var params: [String: Any] = [:]
+        if let windowHandle {
+            params["window_id"] = windowHandle
+        }
+        if let workspaceId {
+            params["workspace_id"] = workspaceId
+        }
+        if let color, !color.isEmpty {
+            params["color"] = color
+        }
+
+        let payload = try client.sendV2(
+            method: clearsColor ? "workspace.clear_color" : "workspace.set_color",
+            params: params
+        )
+        var summaryParts = ["OK"]
+        if let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) {
+            summaryParts.append("workspace=\(workspaceHandle)")
+        }
+        if let windowHandle = formatHandle(payload, kind: "window", idFormat: idFormat) {
+            summaryParts.append("window=\(windowHandle)")
+        }
+        if let color = payload["color"] as? String {
+            summaryParts.append("color=\(color)")
+        } else if clearsColor {
+            summaryParts.append("color=none")
         }
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
     }
@@ -12523,6 +12630,40 @@ struct CMUXCLI {
               cmux workspace-action --action set-description $'Ship checklist\n- verify build\n- post notes'
               cmux workspace-action clear-color
             """
+        case "set-color", "set-workspace-color":
+            return String(localized: "cli.help.setColor", defaultValue: """
+            Usage: cmux set-color [--workspace <id|ref|index>] [--window <id|ref|index>] [--color <name|#hex> | <name|#hex>]
+
+            Set the target workspace tab color.
+
+            Flags:
+              --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
+              --window <id|ref|index>      Window context for workspace refs and indexes
+              --color <name|#hex>          Color name or #RRGGBB hex
+
+            Named colors:
+              Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,
+              Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal
+
+            Examples:
+              cmux set-color "#2D1B69"
+              cmux set-color --workspace workspace:2 "#14532D"
+              cmux set-workspace-color --workspace workspace:2 --color Blue
+            """)
+        case "clear-color", "clear-workspace-color":
+            return String(localized: "cli.help.clearColor", defaultValue: """
+            Usage: cmux clear-color [--workspace <id|ref|index>] [--window <id|ref|index>]
+
+            Clear the target workspace tab color.
+
+            Flags:
+              --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
+              --window <id|ref|index>      Window context for workspace refs and indexes
+
+            Examples:
+              cmux clear-color
+              cmux clear-workspace-color --workspace workspace:2
+            """)
         case "tab-action":
             return """
             Usage: cmux tab-action --action <name> [flags]
@@ -12581,14 +12722,15 @@ struct CMUXCLI {
               cmux rename-tab --workspace workspace:2 --surface surface:5 --title "agent run"
             """
         case "new-workspace":
-            return """
-            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
+            return String(localized: "cli.help.newWorkspace", defaultValue: """
+            Usage: cmux new-workspace [--name <title>] [--description <text>] [--color <name|#hex>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
 
             Create a new workspace in the caller's window.
 
             Flags:
               --name <title>       Set a custom name for the new workspace
               --description <text> Set a custom description for the new workspace
+              --color <name|#hex>  Set a custom tab color for the new workspace
               --cwd <path>         Set the working directory for the new workspace
               --command <text>     Send text+Enter to the new workspace after creation
               --layout <json>      Create workspace with a predefined split layout (inline JSON).
@@ -12602,10 +12744,11 @@ struct CMUXCLI {
               cmux new-workspace
               cmux new-workspace --name "Build Server"
               cmux new-workspace --name "Launch" --description "Ship checklist"
+              cmux new-workspace --name "Research" --color Blue
               cmux new-workspace --cwd ~/projects/myapp
               cmux new-workspace --cwd . --command "npm test"
               cmux new-workspace --name "Dev" --layout '{"direction":"horizontal","split":0.5,"children":[{"pane":{"surfaces":[{"type":"terminal","command":"vim"}]}},{"pane":{"surfaces":[{"type":"terminal","command":"npm run start"}]}}]}'
-            """
+            """)
         case "list-workspaces":
             return """
             Usage: cmux list-workspaces [--window <id|ref|index>]
@@ -30180,9 +30323,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
           reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]
           workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
+          set-color [--workspace <id|ref|index>] [--window <id|ref|index>] [--color <name|#hex> | <name|#hex>]
+          clear-color [--workspace <id|ref|index>] [--window <id|ref|index>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
-          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
+          new-workspace [--name <title>] [--description <text>] [--color <name|#hex>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]

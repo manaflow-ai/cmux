@@ -47,7 +47,7 @@ enum CmuxSocketEventMapper {
             break
         case "workspace.move_to_window":
             publishResult(name: "workspace.moved", category: "workspace", method: method, params: params, result: result)
-        case "workspace.action":
+        case "workspace.action", "workspace.set_color", "workspace.setColor", "workspace.clear_color", "workspace.clearColor":
             publishResult(name: "workspace.action", category: "workspace", method: method, params: params, result: result)
         case "surface.create", "surface.split", "browser.open_split", "markdown.open", "file.open":
             break

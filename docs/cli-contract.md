@@ -95,9 +95,11 @@ Environment:
 | `reorder-workspace` | Reorder a workspace inside a window. |
 | `reorder-workspaces` | Atomically reorder workspaces inside pinned and unpinned groups. |
 | `workspace-action` | Run workspace context-menu actions from the CLI. |
+| `set-color`, `set-workspace-color` | Set a workspace tab color by name or `#RRGGBB` hex. |
+| `clear-color`, `clear-workspace-color` | Clear a workspace tab color. |
 | `move-tab-to-new-workspace` | Move a tab or surface into a newly created workspace. |
 | `list-workspaces` | List workspaces. |
-| `new-workspace` | Create a workspace, optionally with cwd, command, description, and layout. |
+| `new-workspace` | Create a workspace, optionally with cwd, command, description, color, and layout. |
 | `ssh` | Open an SSH-backed workspace. |
 | `remote-daemon-status` | Print bundled remote daemon version, asset, checksum, and cache status. |
 | `new-split` | Split from a surface in a direction. |
@@ -207,6 +209,14 @@ Workspace and tab action names:
 | --- | --- |
 | `workspace-action` | `pin`, `unpin`, `rename`, `clear-name`, `set-description`, `clear-description`, `move-up`, `move-down`, `move-top`, `close-others`, `close-above`, `close-below`, `mark-read`, `mark-unread`, `set-color`, `clear-color` |
 | `tab-action` | `rename`, `clear-name`, `close-left`, `close-right`, `close-others`, `new-terminal-right`, `new-browser-right`, `reload`, `duplicate`, `pin`, `unpin`, `mark-unread` |
+
+Workspace color commands:
+
+| Command | Contract |
+| --- | --- |
+| `set-color`, `set-workspace-color` | Sends v2 `workspace.set_color` with a normalized `workspace_id` when one is provided or resolved from caller context/current workspace. Accepts `--color <name|#hex>` or a trailing color argument. |
+| `clear-color`, `clear-workspace-color` | Sends v2 `workspace.clear_color` with a normalized `workspace_id` when one is provided or resolved from caller context/current workspace. |
+| `new-workspace --color <name|#hex>` | Sends v2 `workspace.create` with `color`; the app validates named colors and `#RRGGBB` hex before creating the workspace. |
 
 tmux compatibility commands:
 
@@ -419,6 +429,8 @@ the expected text without connecting to a cmux socket.
 - `cmux reorder-workspace --help` -> `Usage: cmux reorder-workspace`
 - `cmux reorder-workspaces --help` -> `Usage: cmux reorder-workspaces`
 - `cmux workspace-action --help` -> `Usage: cmux workspace-action --action <name>`
+- `cmux set-color --help` -> `Usage: cmux set-color`
+- `cmux clear-color --help` -> `Usage: cmux clear-color`
 - `cmux move-tab-to-new-workspace --help` -> `Usage: cmux move-tab-to-new-workspace`
 - `cmux tab-action --help` -> `Usage: cmux tab-action --action <name>`
 - `cmux rename-tab --help` -> `Usage: cmux rename-tab`
