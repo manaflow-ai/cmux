@@ -6583,6 +6583,7 @@ class TabManager: ObservableObject {
         // a local login shell. Keep the exited surface visible so the user can see the error
         // and retry instead of making a detached remote workspace look local after relaunch.
         if keepsPersistentRemoteWorkspaceOpen {
+            tab.markPersistentRemotePTYAttachFailed(surfaceId: surfaceId)
             return
         }
 

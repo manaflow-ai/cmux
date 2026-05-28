@@ -12823,6 +12823,21 @@ final class Workspace: Identifiable, ObservableObject {
         return (true, wasTracked)
     }
 
+    func markPersistentRemotePTYAttachFailed(surfaceId: UUID) {
+        guard remoteConfiguration?.preserveAfterTerminalExit == true else { return }
+
+        remotePTYSessionIDsByPanelId.removeValue(forKey: surfaceId)
+        removeRemoteRelaySurfaceAliases(targeting: surfaceId)
+        pendingRemoteTerminalChildExitSurfaceIds.remove(surfaceId)
+        transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: surfaceId)
+        surfaceTTYNames.removeValue(forKey: surfaceId)
+        if activeRemoteTerminalSurfaceIds.remove(surfaceId) != nil {
+            activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
+        }
+        syncRemotePortScanTTYs()
+        applyBrowserRemoteWorkspaceStatusToPanels()
+    }
+
     private func maybeDemoteRemoteWorkspaceAfterSSHSessionEnded() {
         guard activeRemoteTerminalSurfaceIds.isEmpty, remoteConfiguration != nil else { return }
         if remoteConfiguration?.preserveAfterTerminalExit == true {

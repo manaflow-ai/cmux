@@ -236,7 +236,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
-    func testChildExitOnLastPersistentRemotePanelKeepsExitedSurfaceVisible() throws {
+    func testChildExitOnLastPersistentRemotePanelKeepsExitedSurfaceVisibleAndClearsPTYState() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
@@ -276,7 +276,12 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertNotNil(workspace.panels[remotePanelId])
         XCTAssertEqual(workspace.panels.count, 1)
         XCTAssertEqual(workspace.focusedPanelId, remotePanelId)
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertNil(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
+        )
     }
 
     func testChildExitAfterRemoteSessionEndKeepsWorkspaceAndDemotesToLocal() throws {
