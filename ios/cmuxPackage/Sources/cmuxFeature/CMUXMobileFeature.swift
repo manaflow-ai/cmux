@@ -4805,7 +4805,6 @@ private struct TerminalStyledRowView: View {
         .frame(width: metrics.gridWidth, height: metrics.rowHeight, alignment: .leading)
         .lineLimit(1)
         .clipped()
-        .textSelection(.enabled)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(row.trimmedPlainText)
         .accessibilityIdentifier("MobileTerminalRow-\(rowIndex)")

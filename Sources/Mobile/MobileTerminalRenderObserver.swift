@@ -12,15 +12,17 @@ import Foundation
 final class MobileTerminalRenderObserver {
     static let shared = MobileTerminalRenderObserver()
 
-    private var releaseDemand: (() -> Void)?
-    private var observer: NSObjectProtocol?
+    private var releaseFrameDemand: (() -> Void)?
+    private var releaseTickDemand: (() -> Void)?
+    private var observers: [NSObjectProtocol] = []
 
     private init() {}
 
     func start() {
-        guard observer == nil else { return }
-        releaseDemand = GhosttyNSView.retainRenderedFrameNotifications()
-        observer = NotificationCenter.default.addObserver(
+        guard observers.isEmpty else { return }
+        releaseFrameDemand = GhosttyNSView.retainRenderedFrameNotifications()
+        releaseTickDemand = GhosttyApp.retainTickNotifications()
+        observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidRenderFrame,
             object: nil,
             queue: .main
@@ -36,22 +38,42 @@ final class MobileTerminalRenderObserver {
                 topic: "terminal.updated",
                 payload: ["surface_id": surfaceID.uuidString]
             )
-        }
+        })
+        // Frame notifications only fire when Ghostty's Metal layer pulls a
+        // drawable, which it skips for surfaces whose Mac window isn't on
+        // screen. Tick notifications fire on every Ghostty IO cycle (PTY
+        // wakeup, action, render request) regardless of visibility, so a
+        // background workspace driven by output still pushes updates to
+        // the iPhone. The iPhone's snapshot refresh dedupes consecutive
+        // events so the extra fan-out is harmless.
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .ghosttyDidTick,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MobileHostService.shared.emitEvent(
+                topic: "terminal.updated",
+                payload: [:]
+            )
+        })
     }
 
     func stop() {
-        if let observer {
+        for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }
-        observer = nil
-        releaseDemand?()
-        releaseDemand = nil
+        observers.removeAll()
+        releaseFrameDemand?()
+        releaseFrameDemand = nil
+        releaseTickDemand?()
+        releaseTickDemand = nil
     }
 
     deinit {
-        if let observer {
+        for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }
-        releaseDemand?()
+        releaseFrameDemand?()
+        releaseTickDemand?()
     }
 }

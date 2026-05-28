@@ -33,7 +33,11 @@ let package = Package(
             name: "GhosttyVT",
             dependencies: ["GhosttyVt"]
         ),
-        .target(name: "CMUXMobileCore", dependencies: ["GhosttyVT"]),
+        // Keep the GhosttyVT binary target out of CMUXMobileCore's default
+        // graph. The macOS app links GhosttyKit already, and Xcode copies
+        // both xcframework module maps to the same product include path if
+        // CMUXMobileCore pulls this binary in transitively.
+        .target(name: "CMUXMobileCore"),
         .testTarget(
             name: "CMUXMobileCoreTests",
             dependencies: ["CMUXMobileCore", "GhosttyVT"]

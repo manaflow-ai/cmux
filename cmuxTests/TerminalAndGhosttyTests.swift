@@ -1395,13 +1395,39 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
+    func testMobileTerminalPendingEchoSharesPostInputStyledCacheOnly() {
+        let inputAt = Date(timeIntervalSince1970: 6_000)
+        XCTAssertFalse(
+            TerminalController.debugCanReuseMobileTerminalSnapshotCacheDuringPendingEchoForTesting(
+                cachedCreatedAt: inputAt.addingTimeInterval(-0.01),
+                pendingEcho: true,
+                pendingEchoStartedAt: inputAt
+            ),
+            "pending echo must reject any cache entry created before the input invalidation"
+        )
+        XCTAssertTrue(
+            TerminalController.debugCanReuseMobileTerminalSnapshotCacheDuringPendingEchoForTesting(
+                cachedCreatedAt: inputAt.addingTimeInterval(0.01),
+                pendingEcho: true,
+                pendingEchoStartedAt: inputAt
+            ),
+            "pending echo must share a fresh post-input styled snapshot across attached mobile clients"
+        )
+        XCTAssertTrue(
+            TerminalController.debugCanReuseMobileTerminalSnapshotCacheDuringPendingEchoForTesting(
+                cachedCreatedAt: inputAt.addingTimeInterval(-0.01),
+                pendingEcho: false,
+                pendingEchoStartedAt: nil
+            ),
+            "steady-state cache reuse remains governed by the normal cache TTL checks"
+        )
+    }
+
     func testMobileTerminalSnapshotPendingEchoBypassWindowExpires() {
-        // After every mobile.terminal.input, the controller schedules a short bypass window
-        // during which the snapshot cache must not be reused. Without this, the first
-        // post-input snapshot is built before the PTY echo lands, then the cache hands that
-        // echo-less payload back to every subsequent poll until the TTL expires — making
-        // keystroke echo appear to take ~cacheTTL seconds. The window must end on its own
-        // so steady-state polls still hit the cache once the user stops typing.
+        // After every mobile.terminal.input, the controller schedules a short pending-echo
+        // window. Cache entries created before the input must be bypassed, while fresh
+        // post-input styled entries can be shared across devices. The window must still end
+        // on its own so steady-state polls use the normal cache path.
         let surfaceID = UUID()
         let inputAt = Date(timeIntervalSince1970: 5_000)
         let deadline = inputAt.addingTimeInterval(0.2)
@@ -1414,7 +1440,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
                 surfaceID: surfaceID,
                 now: inputAt.addingTimeInterval(0.05)
             ),
-            "bypass must be active within the post-input window so polls rebuild instead of returning the cached echo-less snapshot"
+            "pending echo must be active within the post-input window"
         )
         XCTAssertTrue(
             TerminalController.shared.debugMobileTerminalSnapshotPendingEchoForTesting(

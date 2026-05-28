@@ -179,6 +179,7 @@ class TerminalController {
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
     private var mobileTerminalSnapshotCacheBySurfaceID: [UUID: MobileTerminalSnapshotCacheEntry] = [:]
     private var mobileTerminalVTExportLastAttemptBySurfaceID: [UUID: Date] = [:]
+    private var mobileTerminalSnapshotPendingEchoStartedAtBySurfaceID: [UUID: Date] = [:]
     private var mobileTerminalSnapshotPendingEchoUntilBySurfaceID: [UUID: Date] = [:]
 #if DEBUG
     private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
@@ -9755,8 +9756,10 @@ class TerminalController {
 
     func debugSetMobileTerminalSnapshotPendingEchoUntilForTesting(surfaceID: UUID, deadline: Date?) {
         if let deadline {
+            mobileTerminalSnapshotPendingEchoStartedAtBySurfaceID[surfaceID] = deadline.addingTimeInterval(-Self.mobileTerminalSnapshotPendingEchoTTL)
             mobileTerminalSnapshotPendingEchoUntilBySurfaceID[surfaceID] = deadline
         } else {
+            mobileTerminalSnapshotPendingEchoStartedAtBySurfaceID[surfaceID] = nil
             mobileTerminalSnapshotPendingEchoUntilBySurfaceID[surfaceID] = nil
         }
     }
@@ -21391,7 +21394,9 @@ class TerminalController {
         guard !mobileViewportReportsBySurfaceID.isEmpty ||
             !mobileViewportReportCleanupTimersBySurfaceID.isEmpty ||
             !mobileTerminalSnapshotCacheBySurfaceID.isEmpty ||
-            !mobileTerminalVTExportLastAttemptBySurfaceID.isEmpty else {
+            !mobileTerminalVTExportLastAttemptBySurfaceID.isEmpty ||
+            !mobileTerminalSnapshotPendingEchoStartedAtBySurfaceID.isEmpty ||
+            !mobileTerminalSnapshotPendingEchoUntilBySurfaceID.isEmpty else {
             return
         }
 
@@ -21403,6 +21408,8 @@ class TerminalController {
         mobileViewportReportCleanupTimersBySurfaceID.removeAll()
         mobileTerminalSnapshotCacheBySurfaceID.removeAll()
         mobileTerminalVTExportLastAttemptBySurfaceID.removeAll()
+        mobileTerminalSnapshotPendingEchoStartedAtBySurfaceID.removeAll()
+        mobileTerminalSnapshotPendingEchoUntilBySurfaceID.removeAll()
 
         for surfaceID in surfaceIDs {
             terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
@@ -21579,9 +21586,11 @@ class TerminalController {
     }
 
     private func invalidateMobileTerminalSnapshotAfterInput(surfaceID: UUID) {
+        let now = Date()
         mobileTerminalSnapshotCacheBySurfaceID[surfaceID] = nil
         mobileTerminalVTExportLastAttemptBySurfaceID[surfaceID] = nil
-        mobileTerminalSnapshotPendingEchoUntilBySurfaceID[surfaceID] = Date().addingTimeInterval(Self.mobileTerminalSnapshotPendingEchoTTL)
+        mobileTerminalSnapshotPendingEchoStartedAtBySurfaceID[surfaceID] = now
+        mobileTerminalSnapshotPendingEchoUntilBySurfaceID[surfaceID] = now.addingTimeInterval(Self.mobileTerminalSnapshotPendingEchoTTL)
         // Notify subscribed mobile clients so they can fetch a fresh snapshot
         // without polling. Old clients without events.v1 capability fall back
         // to their 750ms refresh loop.
@@ -21598,6 +21607,7 @@ class TerminalController {
         if deadline > now {
             return true
         }
+        mobileTerminalSnapshotPendingEchoStartedAtBySurfaceID[surfaceID] = nil
         mobileTerminalSnapshotPendingEchoUntilBySurfaceID[surfaceID] = nil
         return false
     }
@@ -21718,8 +21728,12 @@ class TerminalController {
         let now = Date()
         let pendingEcho = mobileTerminalSnapshotPendingEcho(surfaceID: terminalPanel.id, now: now)
 
-        if !pendingEcho,
-           let cached = mobileTerminalSnapshotCacheBySurfaceID[terminalPanel.id],
+        if let cached = mobileTerminalSnapshotCacheBySurfaceID[terminalPanel.id],
+           Self.canReuseMobileTerminalSnapshotCache(
+               cached: cached,
+               pendingEcho: pendingEcho,
+               pendingEchoStartedAt: mobileTerminalSnapshotPendingEchoStartedAtBySurfaceID[terminalPanel.id]
+           ),
            Self.shouldReuseMobileTerminalSnapshotCache(
                cached: cached,
                columns: columns,
@@ -21797,7 +21811,14 @@ class TerminalController {
             if let viewportFit = mobileViewportFitPayload(params: params, terminalPanel: terminalPanel) {
                 payload["viewport_fit"] = viewportFit
             }
-            if !pendingEcho, viewportText.fidelity != "plain_text" {
+            if viewportText.fidelity != "plain_text" {
+                // `mobile.terminal.input` clears the old cache before arming
+                // the pending-echo window. A styled entry created while that
+                // window is active is therefore a fresh post-input read, and
+                // should be shared with other attached clients. Without this,
+                // the first device can consume the VT export and a second
+                // device immediately falls through to plain text because of
+                // the VT-export throttle.
                 mobileTerminalSnapshotCacheBySurfaceID[terminalPanel.id] = MobileTerminalSnapshotCacheEntry(
                     columns: columns,
                     rows: rows,
@@ -21834,7 +21855,40 @@ class TerminalController {
         return age <= mobileTerminalSnapshotViewportChurnCacheTTL
     }
 
+    private static func canReuseMobileTerminalSnapshotCache(
+        cached: MobileTerminalSnapshotCacheEntry,
+        pendingEcho: Bool,
+        pendingEchoStartedAt: Date?
+    ) -> Bool {
+        guard pendingEcho else {
+            return true
+        }
+        guard let pendingEchoStartedAt else {
+            return false
+        }
+        return cached.createdAt >= pendingEchoStartedAt
+    }
+
 #if DEBUG
+    static func debugCanReuseMobileTerminalSnapshotCacheDuringPendingEchoForTesting(
+        cachedCreatedAt: Date,
+        pendingEcho: Bool,
+        pendingEchoStartedAt: Date?
+    ) -> Bool {
+        let cached = MobileTerminalSnapshotCacheEntry(
+            columns: 80,
+            rows: 24,
+            maxScrollbackRows: nil,
+            createdAt: cachedCreatedAt,
+            payload: [:]
+        )
+        return canReuseMobileTerminalSnapshotCache(
+            cached: cached,
+            pendingEcho: pendingEcho,
+            pendingEchoStartedAt: pendingEchoStartedAt
+        )
+    }
+
     static func debugShouldReuseMobileTerminalSnapshotCacheForTesting(
         cachedMaxScrollbackRows: Int?,
         requestedMaxScrollbackRows: Int?,
