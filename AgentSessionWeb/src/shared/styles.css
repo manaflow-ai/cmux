@@ -727,6 +727,7 @@ select {
 .composer-footer-single-line {
   container: composer-footer / inline-size;
   display: grid;
+  gap: 8px;
   justify-content: normal;
   min-height: 44px;
   padding: 0.25rem 0.5rem;
@@ -735,6 +736,7 @@ select {
 .composer-footer-codex {
   container: composer-footer / inline-size;
   display: grid;
+  gap: 5px;
   justify-content: normal;
   padding: 0 0.5rem;
 }
