@@ -380,6 +380,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         state.apply(.windowsChanged(Data("""
         {
           "session_id": 1,
+          "tmux_version": "3.4",
           "pane_ids": [1],
           "windows": [
             {

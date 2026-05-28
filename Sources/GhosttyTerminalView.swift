@@ -5150,20 +5150,35 @@ private actor TmuxControlEventBuffer {
     }
 
     private func append(_ event: TmuxControlEvent) {
-        if case .paneOutput(let paneId, let data) = event,
-           let lastIndex = pendingEvents.indices.last,
-           case .paneOutput(let lastPaneId, let existingData) = pendingEvents[lastIndex],
-           paneId == lastPaneId {
-            var combined = existingData
-            combined.append(data)
-            if combined.count > maxCoalescedPaneOutputBytes {
-                combined = Data(combined.suffix(maxCoalescedPaneOutputBytes))
-            }
-            pendingEvents[lastIndex] = .paneOutput(paneId: paneId, data: combined)
+        if let lastIndex = pendingEvents.indices.last,
+           let coalesced = TmuxControlPaneOutputCoalescer.coalesced(
+                existing: pendingEvents[lastIndex],
+                incoming: event,
+                maxBytes: maxCoalescedPaneOutputBytes
+           ) {
+            pendingEvents[lastIndex] = coalesced
             return
         }
 
         pendingEvents.append(event)
+    }
+}
+
+private enum TmuxControlPaneOutputCoalescer {
+    static func coalesced(
+        existing: TmuxControlEvent,
+        incoming: TmuxControlEvent,
+        maxBytes: Int
+    ) -> TmuxControlEvent? {
+        guard case .paneOutput(let paneId, let data) = incoming,
+              case .paneOutput(let lastPaneId, let existingData) = existing,
+              paneId == lastPaneId else { return nil }
+        var combined = existingData
+        combined.append(data)
+        if combined.count > maxBytes {
+            combined = Data(combined.suffix(maxBytes))
+        }
+        return .paneOutput(paneId: paneId, data: combined)
     }
 }
 
@@ -5227,16 +5242,15 @@ private final class TmuxControlEventStream: @unchecked Sendable {
     }
 
     private func append(_ item: TmuxControlQueuedItem, to items: inout [TmuxControlQueuedItem]) {
-        if case .event(.paneOutput(let paneId, let data)) = item,
+        if case .event(let event) = item,
            let lastIndex = items.indices.last,
-           case .event(.paneOutput(let lastPaneId, let existingData)) = items[lastIndex],
-           paneId == lastPaneId {
-            var combined = existingData
-            combined.append(data)
-            if combined.count > maxCoalescedPaneOutputBytes {
-                combined = Data(combined.suffix(maxCoalescedPaneOutputBytes))
-            }
-            items[lastIndex] = .event(.paneOutput(paneId: paneId, data: combined))
+           case .event(let existingEvent) = items[lastIndex],
+           let coalesced = TmuxControlPaneOutputCoalescer.coalesced(
+                existing: existingEvent,
+                incoming: event,
+                maxBytes: maxCoalescedPaneOutputBytes
+           ) {
+            items[lastIndex] = .event(coalesced)
             return
         }
 
