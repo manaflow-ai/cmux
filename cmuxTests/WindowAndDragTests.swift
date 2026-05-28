@@ -2296,7 +2296,15 @@ final class FilePreviewPDFChromeTests: XCTestCase {
     }
 
     func testPDFChromeControlsAreHitTestedAbovePDFContent() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("pdf")
+        let document = try makePDFDocument(pageCount: 1)
+        XCTAssertTrue(document.write(to: fileURL))
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
         let container = FilePreviewPDFContainerView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        container.setURL(fileURL)
         let hostView = NSView(frame: container.frame)
         let window = NSWindow(
             contentRect: container.frame,
@@ -2349,6 +2357,7 @@ final class FilePreviewPDFChromeTests: XCTestCase {
         XCTAssertTrue(isView(leftChromeHit, inside: sidebarChromeHost), debugFrames)
         XCTAssertTrue(isView(rightChromeHit, inside: zoomChromeHost), debugFrames)
         XCTAssertTrue(isView(shareChromeHit, inside: zoomChromeHost), debugFrames)
+        XCTAssertTrue(shareChromeHit is NSControl, debugFrames)
     }
 
     func testThumbnailSidebarUsesFullWidthSingleColumnLayout() throws {
