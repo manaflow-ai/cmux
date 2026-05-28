@@ -5270,7 +5270,6 @@ extension CMUXCLI {
               preloadCommonDiffHighlighter(payload.appearance, preloadHighlighter)
                 .catch((error) => console.warn("cmux diff highlighter warmup failed", error));
               status.textContent = label("parsingDiff");
-              const treesModule = await treesModulePromise;
               setupJumpSelector(diffItems);
               updateToolbarState();
               window.__cmuxDiffViewer = { codeView, items: diffItems, state: appState, workerPool };
@@ -5281,7 +5280,7 @@ extension CMUXCLI {
                 processFile,
                 patchResponsePromise,
                 workerPoolReadyPromise,
-                treesModule,
+                treesModulePromise,
               });
 
               if (diffItems.length === 0) {
@@ -5439,7 +5438,7 @@ extension CMUXCLI {
               return `Commit ${index + 1}`;
             }
 
-            async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile, patchResponsePromise, workerPoolReadyPromise, treesModule }) {
+            async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile, patchResponsePromise, workerPoolReadyPromise, treesModulePromise }) {
               const diffModel = createStreamingDiffModel();
               const navigationRefreshState = {
                 dirtyCount: 0,
@@ -5477,6 +5476,12 @@ extension CMUXCLI {
                   setupCodeViewIfReady();
                 }
               );
+              treesModulePromise?.then?.((module) => {
+                navigationRefreshState.treesModule = module;
+                if (module != null && diffItems.length > 0) {
+                  scheduleNavigationRefresh(module, true, 0);
+                }
+              });
 
               function makeItem(fileDiff, patchPrefix) {
                 const result = appendFileDiffToModel(diffModel, fileDiff, patchPrefix);
@@ -5675,7 +5680,7 @@ extension CMUXCLI {
                   }
                 }
                 appendJumpOptions(batch);
-                scheduleNavigationRefresh(treesModule, false, batch.length);
+                scheduleNavigationRefresh(navigationRefreshState.treesModule, false, batch.length);
                 streamMetrics.flushCount += 1;
                 streamMetrics.maxBatchSize = Math.max(streamMetrics.maxBatchSize, batch.length);
                 streamMetrics.fileCount = diffItems.length;
@@ -5769,7 +5774,7 @@ extension CMUXCLI {
                 await appendParsedPatchText(text, parsePatchFiles, enqueueFileDiff);
                 await maybeFlushPendingItems(true);
                 finalizeCodeViewLayout();
-                scheduleNavigationRefresh(treesModule, true);
+                scheduleNavigationRefresh(navigationRefreshState.treesModule, true);
                 streamMetrics.completedAt = performance.now();
                 return;
               }
@@ -5944,7 +5949,7 @@ extension CMUXCLI {
               }
               await maybeFlushPendingItems(true);
               finalizeCodeViewLayout();
-              scheduleNavigationRefresh(treesModule, true);
+              scheduleNavigationRefresh(navigationRefreshState.treesModule, true);
               streamMetrics.completedAt = performance.now();
               recordStreamMetrics(streamMetrics);
             }
@@ -6509,11 +6514,16 @@ extension CMUXCLI {
 
             function refreshFileExplorerSource(source, treesModule) {
               const itemCount = sourcePathCount(source);
+              const canUsePierreTree = canUsePierreFileTree(treesModule);
               syncFileTreeSelectionMaps(source, []);
               filesCount.textContent = `${itemCount}`;
               updateDiffStatsFromSource(source);
-              if (fileTree && fileList.dataset.treeMode === "pierre" && treesModule?.preparePresortedFileTreeInput) {
+              if (fileTree && fileList.dataset.treeMode === "pierre" && canUsePierreTree) {
                 refreshPierreFileTree(source, treesModule);
+                return;
+              }
+              if (canUsePierreTree && fileList.dataset.treeMode !== "pierre") {
+                setupFileExplorerSource(source, treesModule);
                 return;
               }
               if (fileTree || fileList.childElementCount === 0) {
