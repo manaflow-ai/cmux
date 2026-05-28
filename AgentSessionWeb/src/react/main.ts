@@ -325,11 +325,15 @@ function SessionSurface({
     codexIconButton("browse", state.context?.copy.browseWeb ?? "Browse web", globeIcon()),
     codexIconButton("context", state.context?.copy.autoContext ?? "Context", ideContextIcon()),
     codexIconButton("tools", state.context?.copy.tools ?? "Tools", skillsIcon()),
+  );
+  const secondaryControls = h(
+    "div",
+    { className: "codex-secondary-controls flex min-w-0 items-center gap-1" },
     modelPicker,
   );
-  const rightActions = h(
+  const actionCluster = h(
     "div",
-    { className: "codex-right-rail flex min-w-0 shrink-0 items-center justify-end gap-2" },
+    { className: "codex-action-cluster flex shrink-0 items-center gap-2" },
     showStart
       ? h(
           "button",
@@ -375,7 +379,13 @@ function SessionSurface({
         "aria-label": state.context?.copy.send ?? "Send",
       },
       sendIcon(),
-      ),
+    ),
+  );
+  const singleLineRightControls = h(
+    "div",
+    { className: "flex min-w-0 shrink-0 items-center justify-end gap-2" },
+    secondaryControls,
+    actionCluster,
   );
   const composerInputWrapper = h(
     "div",
@@ -397,7 +407,7 @@ function SessionSurface({
         },
         leftControls,
         composerInputWrapper,
-        rightActions,
+        singleLineRightControls,
       )
     : h(
         "div",
@@ -415,8 +425,8 @@ function SessionSurface({
           h(
             "div",
             { className: "flex w-full min-w-0 items-center justify-end gap-2" },
-            h("div", { className: "flex min-w-0 flex-1 justify-end" }),
-            rightActions,
+            h("div", { className: "flex min-w-0 flex-1 justify-end" }, secondaryControls),
+            actionCluster,
           ),
         ),
       );

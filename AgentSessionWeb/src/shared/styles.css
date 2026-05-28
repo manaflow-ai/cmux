@@ -728,7 +728,8 @@ select {
 }
 
 .codex-left-rail,
-.codex-right-rail,
+.codex-secondary-controls,
+.codex-action-cluster,
 .model-picker,
 .rate-line {
   display: flex;
@@ -836,7 +837,12 @@ select {
   display: none;
 }
 
-.codex-right-rail {
+.codex-secondary-controls {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+}
+
+.codex-action-cluster {
   flex: 0 0 auto;
   justify-content: flex-end;
 }
@@ -1355,7 +1361,7 @@ select {
     min-width: 0;
   }
 
-  .codex-right-rail {
+  .codex-action-cluster {
     margin-left: auto;
   }
 }
