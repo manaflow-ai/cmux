@@ -57,6 +57,27 @@ enum AutomationSettings {
     static let defaultPortRange = 10
 }
 
+enum HTMLFileOpenModeSettings {
+    enum Mode: String {
+        case browser
+        case editor
+    }
+
+    static let key = "browserHTMLFileOpenMode"
+    static let defaultMode = Mode.browser
+
+    static func mode(for raw: String) -> Mode? {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "browser":
+            return .browser
+        case "editor", "code", "code-editor", "codeeditor":
+            return .editor
+        default:
+            return nil
+        }
+    }
+}
+
 extension CmuxSettingsFileStore {
     // Keep this in sync with the parser below and the web schema/docs. Settings UI rows
     // validate against this set so new persisted settings need an explicit cmux.json review.
@@ -148,6 +169,7 @@ extension CmuxSettingsFileStore {
         "browser.hiddenWebViewDiscardDelaySeconds",
         "browser.openTerminalLinksInCmuxBrowser",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
+        "browser.htmlFileOpenMode",
         "browser.hostsToOpenInEmbeddedBrowser",
         "browser.urlsToAlwaysOpenExternally",
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",

@@ -30148,7 +30148,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           disable-browser | enable-browser | browser-status
           agent-hibernation <on|off>
           restore-session
-          open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
+          open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--html-mode <browser|editor>] [--no-focus]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
           themes [list|set|clear]

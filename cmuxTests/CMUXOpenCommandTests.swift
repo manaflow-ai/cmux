@@ -120,6 +120,288 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["file.open", "workspace.create"])
     }
 
+    func testOpenCommandRoutesLocalHTMLFileToBrowser() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("open-html")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = rootURL.appendingPathComponent("preview page.HTML")
+        let homeURL = rootURL.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+        try "<!doctype html><title>Preview</title>\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            guard method == "browser.open_split",
+                  params["url"] as? String == fileURL.absoluteString,
+                  params["focus"] as? Bool == true else {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": "browser-surface-id", "pane_id": "pane-id", "created_split": true]
+            )
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["open", fileURL.path],
+            environmentOverrides: ["HOME": homeURL.path]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK urls=1\n")
+        XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["browser.open_split"])
+    }
+
+    func testOpenCommandRoutesLocalHTMLFileToExplicitPaneBrowserSurface() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("open-html-pane")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = rootURL.appendingPathComponent("index.htm")
+        let homeURL = rootURL.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+        try "<!doctype html><title>Pane Preview</title>\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            guard method == "surface.create",
+                  params["type"] as? String == "browser",
+                  params["pane_id"] as? String == "pane:2",
+                  params["url"] as? String == fileURL.absoluteString,
+                  params["focus"] as? Bool == false else {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": "browser-surface-id", "pane_id": "pane:2", "type": "browser"]
+            )
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["open", fileURL.path, "--pane", "pane:2", "--no-focus"],
+            environmentOverrides: ["HOME": homeURL.path]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK urls=1\n")
+        XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["surface.create"])
+    }
+
+    func testOpenCommandCanRouteLocalHTMLFileToCodeEditorPreviewWithFlag() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("open-html-editor")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = rootURL.appendingPathComponent("source.html")
+        let homeURL = rootURL.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+        try "<!doctype html><title>Source</title>\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            guard method == "file.open",
+                  params["paths"] as? [String] == [fileURL.path],
+                  params["focus"] as? Bool == true else {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": "editor-surface-id", "pane_id": "pane-id"]
+            )
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["open", fileURL.path, "--html-mode", "editor"],
+            environmentOverrides: ["HOME": homeURL.path]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK files=1 surface=editor-surface-id pane=pane-id\n")
+        XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["file.open"])
+    }
+
+    func testOpenCommandReadsHTMLFileOpenModeAliasFromCmuxJSON() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("open-html-config")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = rootURL.appendingPathComponent("configured.html")
+        let homeURL = rootURL.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+        try writeCmuxConfig(homeURL: homeURL, htmlFileOpenMode: "code-editor")
+        try "<!doctype html><title>Configured</title>\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            guard method == "file.open",
+                  params["paths"] as? [String] == [fileURL.path] else {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": "editor-surface-id", "pane_id": "pane-id"]
+            )
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["open", fileURL.path],
+            environmentOverrides: ["HOME": homeURL.path]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK files=1 surface=editor-surface-id pane=pane-id\n")
+        XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["file.open"])
+    }
+
+    func testOpenCommandHTMLModeFlagOverridesCmuxJSON() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("open-html-override")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = rootURL.appendingPathComponent("override.html")
+        let homeURL = rootURL.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+        try writeCmuxConfig(homeURL: homeURL, htmlFileOpenMode: "editor")
+        try "<!doctype html><title>Override</title>\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            guard method == "browser.open_split",
+                  params["url"] as? String == fileURL.absoluteString else {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": "browser-surface-id", "pane_id": "pane-id", "created_split": true]
+            )
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["open", fileURL.path, "--html-mode=browser"],
+            environmentOverrides: ["HOME": homeURL.path]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK urls=1\n")
+        XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["browser.open_split"])
+    }
+
+    func testOpenCommandRejectsUndocumentedHTMLModeAliasFromFlag() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("open-html-invalid-mode")
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["open", "index.html", "--html-mode", "code"]
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("--html-mode must be browser|editor"), result.stderr)
+    }
+
     func testMarkdownOpenCommandUsesMarkdownOpenEndpoint() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("markdown-open")
@@ -530,12 +812,39 @@ final class CMUXOpenCommandTests: XCTestCase {
         ])
     }
 
-    private func runCLI(cliPath: String, socketPath: String, arguments: [String]) -> ProcessRunResult {
+    private func runCLI(
+        cliPath: String,
+        socketPath: String,
+        arguments: [String],
+        environmentOverrides: [String: String] = [:]
+    ) -> ProcessRunResult {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        for (key, value) in environmentOverrides {
+            environment[key] = value
+        }
         return runProcess(executablePath: cliPath, arguments: arguments, environment: environment, timeout: 5)
+    }
+
+    private func writeCmuxConfig(homeURL: URL, htmlFileOpenMode: String) throws {
+        let configURL = homeURL
+            .appendingPathComponent(".config/cmux", isDirectory: true)
+            .appendingPathComponent("cmux.json")
+        try FileManager.default.createDirectory(
+            at: configURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let contents = """
+        {
+          // JSONC comments should be accepted by the CLI reader.
+          "browser": {
+            "htmlFileOpenMode": "\(htmlFileOpenMode)"
+          }
+        }
+        """
+        try contents.write(to: configURL, atomically: true, encoding: .utf8)
     }
 
     private func bundledCLIPath() throws -> String {

@@ -7,6 +7,7 @@ extension CMUXCLI {
         var surface: String?
         var pane: String?
         var focus: String?
+        var htmlMode: HTMLFileOpenMode?
         var noFocus = false
         var targets: [String] = []
     }
@@ -15,6 +16,36 @@ extension CMUXCLI {
         case directory(String)
         case file(String)
         case url(String)
+    }
+
+    private enum HTMLFileOpenMode: String {
+        case browser
+        case editor
+
+        static let defaultMode: HTMLFileOpenMode = .browser
+        static let configKey = "htmlFileOpenMode"
+
+        static func parse(_ raw: String) -> HTMLFileOpenMode? {
+            switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "browser":
+                return .browser
+            case "editor":
+                return .editor
+            default:
+                return nil
+            }
+        }
+
+        static func parseConfig(_ raw: String) -> HTMLFileOpenMode? {
+            switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "browser":
+                return .browser
+            case "editor", "code", "code-editor", "codeeditor":
+                return .editor
+            default:
+                return nil
+            }
+        }
     }
 
     func runOpenCommand(
@@ -42,7 +73,8 @@ extension CMUXCLI {
             focus = true
         }
 
-        let targets = try parsedArgs.targets.map(resolveOpenTarget)
+        let htmlMode = parsedArgs.htmlMode ?? configuredHTMLFileOpenMode()
+        let targets = try parsedArgs.targets.map { try resolveOpenTarget($0, htmlMode: htmlMode) }
         var fileCount = 0
         var urlCount = 0
         var directoryCount = 0
@@ -95,8 +127,15 @@ extension CMUXCLI {
                 var params: [String: Any] = ["url": url, "focus": focus]
                 if let windowHandle { params["window_id"] = windowHandle }
                 if let workspaceHandle { params["workspace_id"] = workspaceHandle }
-                if let surfaceHandle { params["surface_id"] = surfaceHandle }
-                let payload = try client.sendV2(method: "browser.open_split", params: params)
+                let payload: [String: Any]
+                if let paneHandle {
+                    params["type"] = "browser"
+                    params["pane_id"] = paneHandle
+                    payload = try client.sendV2(method: "surface.create", params: params)
+                } else {
+                    if let surfaceHandle { params["surface_id"] = surfaceHandle }
+                    payload = try client.sendV2(method: "browser.open_split", params: params)
+                }
                 payloads.append(["kind": "url", "payload": payload, "url": url])
                 urlCount += 1
             }
@@ -152,13 +191,24 @@ extension CMUXCLI {
                     parsed.focus = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
+                case "--html-mode":
+                    let rawMode = try openOptionValue(commandArgs, index: index, name: arg)
+                    parsed.htmlMode = try parseHTMLFileOpenModeOption(rawMode)
+                    index += 2
+                    continue
                 case "--no-focus":
                     parsed.noFocus = true
                     index += 1
                     continue
                 default:
+                    if arg.hasPrefix("--html-mode=") {
+                        let rawMode = String(arg.dropFirst("--html-mode=".count))
+                        parsed.htmlMode = try parseHTMLFileOpenModeOption(rawMode)
+                        index += 1
+                        continue
+                    }
                     if arg.hasPrefix("-") {
-                        throw CLIError(message: "open: unknown flag '\(arg)'. Usage: cmux open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--no-focus]")
+                        throw CLIError(message: "open: unknown flag '\(arg)'. Usage: cmux open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--html-mode browser|editor] [--no-focus]")
                     }
                 }
             }
@@ -177,7 +227,19 @@ extension CMUXCLI {
         return args[index + 1]
     }
 
-    private func resolveOpenTarget(_ raw: String) throws -> OpenTarget {
+    private func parseHTMLFileOpenModeOption(_ raw: String) throws -> HTMLFileOpenMode {
+        guard let mode = HTMLFileOpenMode.parse(raw) else {
+            throw CLIError(
+                message: String(
+                    localized: "cli.open.error.invalidHTMLMode",
+                    defaultValue: "--html-mode must be browser|editor"
+                )
+            )
+        }
+        return mode
+    }
+
+    private func resolveOpenTarget(_ raw: String, htmlMode: HTMLFileOpenMode) throws -> OpenTarget {
         if let url = URL(string: raw),
            let scheme = url.scheme?.lowercased(),
            scheme == "http" || scheme == "https" {
@@ -193,14 +255,55 @@ extension CMUXCLI {
         if isDir.boolValue {
             return .directory(resolved)
         }
+        if htmlMode == .browser, isHTMLFilePath(resolved) {
+            return .url(URL(fileURLWithPath: resolved).absoluteString)
+        }
         return .file(resolved)
     }
 
+    private func isHTMLFilePath(_ path: String) -> Bool {
+        let pathExtension = URL(fileURLWithPath: path).pathExtension.lowercased()
+        return pathExtension == "html" || pathExtension == "htm"
+    }
+
+    private func configuredHTMLFileOpenMode() -> HTMLFileOpenMode {
+        for path in htmlFileOpenModeConfigPaths() {
+            guard let mode = htmlFileOpenMode(inConfigAt: path) else { continue }
+            return mode
+        }
+        return HTMLFileOpenMode.defaultMode
+    }
+
+    private func htmlFileOpenModeConfigPaths() -> [String] {
+        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        return [
+            (homePath as NSString).appendingPathComponent(".config/cmux/cmux.json"),
+            (homePath as NSString).appendingPathComponent(".config/cmux/settings.json"),
+            (homePath as NSString).appendingPathComponent("Library/Application Support/com.cmuxterm.app/settings.json"),
+        ]
+    }
+
+    private func htmlFileOpenMode(inConfigAt path: String) -> HTMLFileOpenMode? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              !data.isEmpty,
+              let sanitized = try? JSONCParser.preprocess(data: data),
+              let object = (try? JSONSerialization.jsonObject(with: sanitized)) as? [String: Any],
+              let browser = object["browser"] as? [String: Any],
+              let rawMode = browser[HTMLFileOpenMode.configKey] as? String else {
+            return nil
+        }
+        return HTMLFileOpenMode.parseConfig(rawMode)
+    }
+
     func openSubcommandUsage() -> String {
-        """
+        let htmlFilesHelp = String(localized: "cli.open.usage.htmlFilesBrowser", defaultValue: "By default, HTML files and web URLs open in browser tabs.")
+        let htmlModeHelp = String(localized: "cli.open.usage.htmlModeOption", defaultValue: "Open local .html/.htm files as browser tabs or code editor previews (default: browser; cmux.json: browser.htmlFileOpenMode)")
+
+        return """
         Usage: cmux open <path-or-url>... [options]
 
         Open files, directories, or URLs in cmux.
+        \(htmlFilesHelp)
         Markdown files open in markdown preview tabs; other files open in file preview tabs.
         Multiple files open as tabs in the same target pane.
 
@@ -210,6 +313,7 @@ extension CMUXCLI {
           --pane <id|ref|index>        Target pane for file tabs
           --window <id|ref|index>      Target window
           --focus <true|false>         Focus opened file previews (default: true)
+          --html-mode <browser|editor> \(htmlModeHelp)
           --no-focus                   Do not focus opened file previews
 
         Examples:
@@ -217,6 +321,7 @@ extension CMUXCLI {
           cmux open image-a.png image-b.jpg
           cmux open ~/Downloads/movie.mov --pane pane:1
           cmux open https://example.com
+          cmux open index.html --html-mode editor
         """
     }
 

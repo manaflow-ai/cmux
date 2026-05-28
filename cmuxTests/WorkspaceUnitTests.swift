@@ -1007,6 +1007,108 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertNil(defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey))
     }
 
+    func testSettingsFileStoreParsesHTMLFileOpenMode() throws {
+        let defaults = UserDefaults.standard
+        let previousMode = defaults.object(forKey: HTMLFileOpenModeSettings.key)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousMode {
+                defaults.set(previousMode, forKey: HTMLFileOpenModeSettings.key)
+            } else {
+                defaults.removeObject(forKey: HTMLFileOpenModeSettings.key)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        defaults.removeObject(forKey: HTMLFileOpenModeSettings.key)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "browser": {
+                "htmlFileOpenMode": "editor"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.string(forKey: HTMLFileOpenModeSettings.key), "editor")
+    }
+
+    func testSettingsFileStoreInvalidHTMLFileOpenModeDoesNotSkipLaterBrowserSettings() throws {
+        let defaults = UserDefaults.standard
+        let previousMode = defaults.object(forKey: HTMLFileOpenModeSettings.key)
+        let previousHostWhitelist = defaults.object(forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousMode {
+                defaults.set(previousMode, forKey: HTMLFileOpenModeSettings.key)
+            } else {
+                defaults.removeObject(forKey: HTMLFileOpenModeSettings.key)
+            }
+            if let previousHostWhitelist {
+                defaults.set(previousHostWhitelist, forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+            } else {
+                defaults.removeObject(forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        defaults.removeObject(forKey: HTMLFileOpenModeSettings.key)
+        defaults.removeObject(forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "browser": {
+                "htmlFileOpenMode": "preview",
+                "hostsToOpenInEmbeddedBrowser": [
+                  " localhost ",
+                  "",
+                  "*.example.com"
+                ]
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertNil(defaults.object(forKey: HTMLFileOpenModeSettings.key))
+        XCTAssertEqual(
+            defaults.string(forKey: BrowserLinkOpenSettings.browserHostWhitelistKey),
+            "localhost\n*.example.com"
+        )
+    }
+
     func testSettingsFileStoreParsesRightSidebarShortcutBindings() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }

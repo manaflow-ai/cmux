@@ -875,6 +875,13 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["interceptTerminalOpenCommandInCmuxBrowser"]) {
             snapshot.managedUserDefaults[BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey] = .bool(value)
         }
+        if let raw = jsonString(section["htmlFileOpenMode"]) {
+            if let mode = HTMLFileOpenModeSettings.mode(for: raw) {
+                snapshot.managedUserDefaults[HTMLFileOpenModeSettings.key] = .string(mode.rawValue)
+            } else {
+                logInvalid("browser.htmlFileOpenMode", sourcePath: sourcePath)
+            }
+        }
         if let values = jsonStringArray(section["hostsToOpenInEmbeddedBrowser"]) {
             let normalized = values
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
