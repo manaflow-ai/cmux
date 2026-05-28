@@ -67,7 +67,7 @@ cmux workspace-group set-anchor --group <group-id> --workspace <workspace-id>
 cmux workspace-group new-workspace <group-id>
 ```
 
-`create` returns a group handle (`group_ref:N` by default). Pass `--json` for the full structured payload.
+`create` returns a group handle (`workspace_group:N` by default). Pass `--json` for the full structured payload.
 
 ### Examples
 
@@ -80,7 +80,7 @@ cmux workspace-group create --name manaflow
 Spin up a new workspace inside an existing group (e.g. wired to a worktree script):
 
 ```bash
-cmux workspace-group new-workspace group_ref:1
+cmux workspace-group new-workspace workspace_group:1
 ```
 
 List groups in the focused window:

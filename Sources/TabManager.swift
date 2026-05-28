@@ -6118,14 +6118,22 @@ class TabManager: ObservableObject {
         }
         var reordered: [Workspace] = []
         reordered.append(contentsOf: pinnedSolo)
-        for group in workspaceGroups where group.isPinned {
+        // Within each group, place the anchor first so the section's first
+        // member matches the group header (the header is the anchor's only
+        // visible representation, and shortcut digits / next-previous
+        // navigation index into tabs[]). Without this, later membership
+        // changes (add via menu, drag-into-group, workspace.group.add) could
+        // leave a non-anchor at the section's leading edge.
+        let pinnedSections = workspaceGroups.filter(\.isPinned)
+        let unpinnedSections = workspaceGroups.filter { !$0.isPinned }
+        for group in pinnedSections {
             if let members = groupedByGroupId[group.id] {
-                reordered.append(contentsOf: members)
+                reordered.append(contentsOf: anchorFirst(members, anchorId: group.anchorWorkspaceId))
             }
         }
-        for group in workspaceGroups where !group.isPinned {
+        for group in unpinnedSections {
             if let members = groupedByGroupId[group.id] {
-                reordered.append(contentsOf: members)
+                reordered.append(contentsOf: anchorFirst(members, anchorId: group.anchorWorkspaceId))
             }
         }
         reordered.append(contentsOf: ungroupedUnpinned)
@@ -6145,6 +6153,21 @@ class TabManager: ObservableObject {
             return
         }
         workspaceGroups[index].isCollapsed = false
+    }
+
+    /// Helper for `normalizeWorkspaceGroupContiguity`: hoist the anchor to
+    /// the front of its group's member list while preserving the relative
+    /// order of the remaining members. No-op when the anchor isn't actually
+    /// in the list (anchor lifecycle elsewhere ensures it always should be).
+    private func anchorFirst(_ members: [Workspace], anchorId: UUID) -> [Workspace] {
+        guard let anchorIndex = members.firstIndex(where: { $0.id == anchorId }),
+              anchorIndex != 0 else {
+            return members
+        }
+        var reordered = members
+        let anchor = reordered.remove(at: anchorIndex)
+        reordered.insert(anchor, at: 0)
+        return reordered
     }
 
     /// Compatibility shim. With anchor-bound group lifecycle, "empty" groups

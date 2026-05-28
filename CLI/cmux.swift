@@ -6833,9 +6833,10 @@ struct CMUXCLI {
             let (nameOpt, rem0) = parseOption(rest, name: "--name")
             let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
             let (fromOpt, rem2) = parseOption(rem1, name: "--from")
-            // Use the remainder AFTER --from is stripped so the positional
-            // name lookup doesn't accidentally pick up the --from value.
-            let resolvedName = nameOpt ?? rem2.first(where: { !$0.hasPrefix("--") }) ?? ""
+            let (_, rem3) = parseOption(rem2, name: "--window")
+            // Use the remainder AFTER every named option is stripped so the
+            // positional name lookup can't pick up --from/--window values.
+            let resolvedName = nameOpt ?? rem3.first(where: { !$0.hasPrefix("--") }) ?? ""
             params["name"] = resolvedName
             if let cwdOpt { params["cwd"] = resolvePath(cwdOpt) }
             if let fromOpt {
