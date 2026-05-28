@@ -5220,6 +5220,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         let data = try XCTUnwrap(URL(string: "data:text/plain,hello"))
         let file = try XCTUnwrap(URL(string: "file:///tmp/cmux-local-test.html"))
         let blob = try XCTUnwrap(URL(string: "blob:https://example.com/550e8400-e29b-41d4-a716-446655440000"))
+        let diffViewer = try XCTUnwrap(URL(string: "cmux-diff-viewer://0123456789abcdef/diff.html"))
         let javascript = try XCTUnwrap(URL(string: "javascript:void(0)"))
         let webkitInternal = try XCTUnwrap(URL(string: "applewebdata://local/page"))
 
@@ -5229,6 +5230,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         XCTAssertFalse(browserShouldOpenURLExternally(data))
         XCTAssertFalse(browserShouldOpenURLExternally(file))
         XCTAssertFalse(browserShouldOpenURLExternally(blob))
+        XCTAssertFalse(browserShouldOpenURLExternally(diffViewer))
         XCTAssertFalse(browserShouldOpenURLExternally(javascript))
         XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))
     }
