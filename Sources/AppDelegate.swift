@@ -14160,12 +14160,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             _ = anchorId
         }
-        return executeConfiguredCmuxAction(
+        let didRun = executeConfiguredCmuxAction(
             action,
             context: context,
             preferredWindow: resolvedWindow(for: context),
             onExecuted: onExecuted
         )
+        // executeConfiguredCmuxAction returns false when the action couldn't
+        // start at all (unresolved action ref, missing target terminal, etc.).
+        // In that case onExecuted will never fire, so restore the prior
+        // selection here. The trust-prompt-cancelled window (action returns
+        // true but the user later cancels) leaves selection on the anchor
+        // until the user clicks something else; tradeoff documented at the
+        // call site.
+        if !didRun,
+           let previousSelectedId,
+           previousSelectedId != tabManager.selectedTabId,
+           tabManager.tabs.contains(where: { $0.id == previousSelectedId }) {
+            tabManager.selectedTabId = previousSelectedId
+        }
+        return didRun
     }
 
     private func executeConfiguredCmuxAction(

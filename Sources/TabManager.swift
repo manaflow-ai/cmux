@@ -6087,6 +6087,11 @@ class TabManager: ObservableObject {
         // shortcut digit / focus target would point at the new anchor lower
         // down, breaking workspace-number navigation.
         normalizeWorkspaceGroupContiguity()
+        // Publish the order change so CmuxEventBus subscribers and any
+        // notification observers see the new anchor position immediately
+        // (other group-mutation paths post; this one was a hole).
+        let memberIds = tabs.filter { $0.groupId == groupId }.map(\.id)
+        postWorkspaceOrderDidChange(movedWorkspaceIds: memberIds.isEmpty ? [workspaceId] : memberIds)
         _ = tab
     }
 

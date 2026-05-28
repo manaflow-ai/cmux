@@ -13000,6 +13000,63 @@ struct CMUXCLI {
             Example:
               cmux list-workspaces
             """
+        case "workspace":
+            return """
+            Usage: cmux workspace <subcommand> [flags]
+
+            Canonical noun for workspace operations. Legacy verbs
+            (new-workspace, list-workspaces, close-workspace,
+            rename-workspace, select-workspace) keep working and print a
+            one-time deprecation hint pointing here.
+
+            Subcommands:
+              list                    List workspaces in a window
+              create [flags]          Create a workspace (same flags as new-workspace)
+              close <workspace>       Close a workspace
+              rename <workspace> --title <new>
+              select <workspace>      Make a workspace active
+              group <subcommand>      Workspace group operations (see cmux workspace-group --help)
+
+            Examples:
+              cmux workspace list --json
+              cmux workspace create --name Build --cwd ~/projects/myapp
+              cmux workspace close workspace:3
+            """
+        case "workspace-group":
+            return """
+            Usage: cmux workspace-group <subcommand> [flags]
+
+            Manage collapsible workspace groups in the sidebar. Each group is
+            owned by an "anchor" workspace; the group header IS the anchor's
+            sidebar representation. Closing the anchor dissolves the group
+            while preserving its other members as ungrouped workspaces.
+
+            Subcommands:
+              list [--json]
+              create [--name <name>] [--cwd <path>] [--from <id>,<id>...]
+                                        Defaults --from to the active sidebar
+                                        selection / caller workspace when omitted.
+              ungroup <group>           Dissolve a group, preserving all members
+              rename <group> --name <new>
+              collapse <group>
+              expand <group>
+              pin <group>
+              unpin <group>
+              add --group <group> --workspace <ws>
+              remove --workspace <ws>
+              set-anchor --group <group> --workspace <ws>
+              new-workspace <group>     Create a new workspace in the group
+              set-color <group> [--hex #RRGGBB]
+              set-icon <group> [--symbol <sf-symbol>]
+              move <group> --to-index <n> | --before <group> | --after <group>
+              focus <group>             Focus the group's anchor workspace
+
+            <group> accepts a UUID or a workspace_group:N ref printed by `list`.
+
+            All commands honor --json. Default keyboard shortcut for creating
+            a group from the sidebar selection is Ctrl+Cmd+G; rebind via
+            Settings → Keyboard.
+            """
         case "ssh":
             return """
             Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]
