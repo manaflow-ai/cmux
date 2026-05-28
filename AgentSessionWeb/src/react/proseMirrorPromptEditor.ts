@@ -4,6 +4,7 @@ import { splitBlock } from "prosemirror-commands";
 import { EditorState, Plugin, PluginKey, TextSelection } from "prosemirror-state";
 import { Decoration, DecorationSet, EditorView } from "prosemirror-view";
 import { isComposingEnter } from "../shared/keyboard";
+import { promptMentionMarkdown } from "../shared/promptMentions";
 
 export type PromptMention = {
   description?: string;
@@ -429,11 +430,26 @@ function textFromDoc(doc: ProseMirrorNode): string {
 function textFromInlineNode(node: ProseMirrorNode): string {
   switch (node.type.name) {
     case "atMention":
-      return `@${node.attrs.label}`;
+      return promptMentionMarkdown({
+        kind: "at",
+        label: node.attrs.label,
+        name: node.attrs.label,
+        path: node.attrs.path,
+      });
     case "agentMention":
-      return `@${node.attrs.displayName || node.attrs.name}`;
+      return promptMentionMarkdown({
+        kind: "agent",
+        displayName: node.attrs.displayName || node.attrs.name,
+        name: node.attrs.name,
+        path: node.attrs.path,
+      });
     case "skillMention":
-      return `$${node.attrs.name}`;
+      return promptMentionMarkdown({
+        kind: "skill",
+        displayName: node.attrs.displayName || node.attrs.name,
+        name: node.attrs.name,
+        path: node.attrs.path,
+      });
     default:
       return node.textContent;
   }
