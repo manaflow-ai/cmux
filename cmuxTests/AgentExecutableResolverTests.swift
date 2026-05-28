@@ -96,7 +96,8 @@ struct AgentExecutableResolverTests {
             guard
                 case AgentExecutableResolverError.missing(let displayName, let executableName, _) = error
             else {
-                return Issue.record("Expected missing executable error, got \(error)")
+                Issue.record("Expected missing executable error, got \(error)")
+                return
             }
             expectEqual(displayName, AgentSessionProviderID.opencode.displayName)
             expectEqual(executableName, "opencode")
@@ -190,7 +191,8 @@ struct AgentExecutableResolverTests {
             guard
                 case AgentExecutableResolverError.missing(let displayName, let executableName, _) = error
             else {
-                return Issue.record("Expected missing executable error, got \(error)")
+                Issue.record("Expected missing executable error, got \(error)")
+                return
             }
             expectEqual(displayName, AgentSessionProviderID.claude.displayName)
             expectEqual(executableName, "claude")
