@@ -2030,11 +2030,11 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-\(getuid())-64106-%C",
+                "ControlPath=/tmp/cmux-ssh-\(getuid())-64006-%C",
                 "StrictHostKeyChecking=accept-new",
             ],
             localProxyPort: nil,
-            relayPort: 64106,
+            relayPort: 64006,
             relayID: "relay-alias-test-refreshed",
             relayToken: String(repeating: "c", count: 64),
             localSocketPath: "/tmp/cmux-relay-alias-refreshed.sock",
