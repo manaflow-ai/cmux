@@ -5737,6 +5737,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func commandPaletteWindowForShortcutEvent(_ event: NSEvent) -> NSWindow? {
+#if DEBUG
+        if debugSuppressShortcutRoutingContextForTesting {
+            return nil
+        }
+#endif
         if let scopedWindow = mainWindowForShortcutEvent(event) {
             return scopedWindow
         }
@@ -13868,6 +13873,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         action: KeyboardShortcutSettings.Action
     ) -> Bool {
         matchConfiguredShortcut(event: event, action: action)
+    }
+
+    func debugMainWindowForFocusedCloseShortcut(event: NSEvent) -> NSWindow? {
+        mainWindowForFocusedCloseShortcut(event: event)
+    }
+
+    func debugTabManagerForFocusedCloseShortcut(event: NSEvent) -> TabManager? {
+        tabManagerForFocusedCloseShortcut(event: event)
     }
 
     func debugResetShortcutRoutingStateForTesting() {
