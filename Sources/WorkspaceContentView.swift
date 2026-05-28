@@ -273,7 +273,7 @@ private enum WorkspaceCanvasSurfaceMountManager {
     static func park(panel: (any Panel)?, suppressRepublication: Bool = false) {
         if let terminalPanel = panel as? TerminalPanel {
             if suppressRepublication {
-                TerminalWindowPortalRegistry.freezeCanvasSurfacePresentation(hostedView: terminalPanel.hostedView)
+                TerminalWindowPortalRegistry.suppressCanvasSurfacePresentation(hostedView: terminalPanel.hostedView)
                 return
             }
             TerminalWindowPortalRegistry.updateEntryVisibility(for: terminalPanel.hostedView, visibleInUI: false)
@@ -283,7 +283,7 @@ private enum WorkspaceCanvasSurfaceMountManager {
 
         if let browserPanel = panel as? BrowserPanel {
             if suppressRepublication {
-                BrowserWindowPortalRegistry.freezeCanvasSurfacePresentation(webView: browserPanel.webView)
+                BrowserWindowPortalRegistry.suppressCanvasSurfacePresentation(webView: browserPanel.webView)
                 return
             }
             BrowserWindowPortalRegistry.updateEntryVisibility(for: browserPanel.webView, visibleInUI: false, zPriority: 0)
