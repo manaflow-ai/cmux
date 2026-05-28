@@ -70,6 +70,7 @@ public final class CanvasHostView: NSView {
             device: device
         )
         super.init(frame: .zero)
+        renderer.markNeedsRender()
 
         wantsLayer = true
         layer?.isOpaque = true
@@ -77,11 +78,10 @@ public final class CanvasHostView: NSView {
         metalView.delegate = renderer
         metalView.translatesAutoresizingMaskIntoConstraints = false
         metalView.framebufferOnly = true
-        metalView.isPaused = surfaceTextures.isEmpty
-        metalView.enableSetNeedsDisplay = surfaceTextures.isEmpty
         metalView.preferredFramesPerSecond = max(1, preferredFramesPerSecond)
         metalView.clearColor = renderer.clearColor
         metalView.layer?.isOpaque = true
+        applyRenderLoopMode(surfaceTextures: surfaceTextures)
 
         addSubview(metalView)
         NSLayoutConstraint.activate([
@@ -113,9 +113,14 @@ public final class CanvasHostView: NSView {
         renderer.update(scene: scene, backgroundColor: backgroundColor, style: style, surfaceTextures: surfaceTextures)
         metalView.preferredFramesPerSecond = max(1, preferredFramesPerSecond)
         metalView.clearColor = renderer.clearColor
-        metalView.isPaused = surfaceTextures.isEmpty
-        metalView.enableSetNeedsDisplay = surfaceTextures.isEmpty
-        if surfaceTextures.isEmpty {
+        applyRenderLoopMode(surfaceTextures: surfaceTextures)
+    }
+
+    private func applyRenderLoopMode(surfaceTextures: [CanvasSurfaceTextureSource]) {
+        let mode = CanvasMetalRenderLoopMode.resolve(surfaceTextures: surfaceTextures)
+        metalView.isPaused = mode.isPaused
+        metalView.enableSetNeedsDisplay = mode.enableSetNeedsDisplay
+        if mode.requestsImmediateDisplay {
             metalView.setNeedsDisplay(metalView.bounds)
         }
     }
@@ -266,6 +271,12 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
                 style: style,
                 surfaceTextures: surfaceTextures
             )
+            scheduler.markNeedsRender()
+        }
+    }
+
+    func markNeedsRender() {
+        stateLock.withLock {
             scheduler.markNeedsRender()
         }
     }
@@ -766,6 +777,21 @@ enum CanvasMetalPremultipliedBlending {
         colorAttachment?.sourceAlphaBlendFactor = .one
         colorAttachment?.destinationAlphaBlendFactor = .oneMinusSourceAlpha
         colorAttachment?.alphaBlendOperation = .add
+    }
+}
+
+struct CanvasMetalRenderLoopMode: Equatable {
+    var isPaused: Bool
+    var enableSetNeedsDisplay: Bool
+    var requestsImmediateDisplay: Bool
+
+    static func resolve(surfaceTextures: [CanvasSurfaceTextureSource]) -> CanvasMetalRenderLoopMode {
+        let hasContinuousTexture = surfaceTextures.contains { $0.requiresContinuousRendering }
+        return CanvasMetalRenderLoopMode(
+            isPaused: !hasContinuousTexture,
+            enableSetNeedsDisplay: !hasContinuousTexture,
+            requestsImmediateDisplay: !hasContinuousTexture
+        )
     }
 }
 

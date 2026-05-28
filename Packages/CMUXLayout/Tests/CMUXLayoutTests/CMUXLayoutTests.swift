@@ -4064,6 +4064,19 @@ final class CMUXLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testCanvasOverviewReentryPublishesViewportAnimationWhenScaleResets() {
+        let controller = WorkspaceLayoutController()
+        controller.enterCanvasOverview(policy: .freeform, scale: 1)
+        controller.setCanvasViewportScale(0.42)
+        let revisionBefore = controller.canvasViewportAnimationRevision
+
+        controller.enterCanvasOverview(policy: .freeform, scale: 1)
+
+        XCTAssertEqual(controller.canvasViewport.scale, 1)
+        XCTAssertGreaterThan(controller.canvasViewportAnimationRevision, revisionBefore)
+    }
+
+    @MainActor
     func testCanvasOverviewFocusScrollsFocusedPaneIntoView() throws {
         let controller = WorkspaceLayoutController()
         controller.setContainerFrame(CGRect(x: 0, y: 0, width: 1_200, height: 800))

@@ -148,6 +148,17 @@ final class CMUXCanvasTests: XCTestCase {
         XCTAssertFalse(source.requiresContinuousRendering)
     }
 
+    func testStaticBitmapTexturesUseOneShotMetalDisplayMode() throws {
+        let image = try XCTUnwrap(Self.makeTestImage())
+        let source = CanvasSurfaceTextureSource(id: LayoutItemID(), image: image, generation: 1)
+
+        let mode = CanvasMetalRenderLoopMode.resolve(surfaceTextures: [source])
+
+        XCTAssertEqual(mode.isPaused, true)
+        XCTAssertEqual(mode.enableSetNeedsDisplay, true)
+        XCTAssertEqual(mode.requestsImmediateDisplay, true)
+    }
+
     func testNativeOverlayManagerUsesNativeOnlyForActiveSurfaceAtNativeScale() {
         let activeID = LayoutItemID()
         let previewID = LayoutItemID()

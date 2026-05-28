@@ -844,6 +844,8 @@ public final class WorkspaceLayoutController {
         scale: Double? = nil,
         focusing itemID: LayoutItemID? = nil
     ) {
+        let wasOverviewActive = isCanvasOverviewActive
+        let previousViewport = canvasDocument.viewport
         if let policy {
             canvasDocument.policy = policy
         }
@@ -852,10 +854,14 @@ public final class WorkspaceLayoutController {
         }
         syncCanvasDocumentWithCurrentLayout()
         isCanvasOverviewActive = true
+        var shouldRequestViewportAnimation = wasOverviewActive && canvasDocument.viewport != previousViewport
 
         if let itemID, canvasDocument.items.contains(where: { $0.id == itemID }) {
             focusedCanvasItemID = itemID
             if scrollFocusedCanvasItemIntoViewIfNeeded() {
+                shouldRequestViewportAnimation = true
+            }
+            if shouldRequestViewportAnimation {
                 requestCanvasViewportAnimation()
             }
             return
@@ -863,6 +869,9 @@ public final class WorkspaceLayoutController {
 
         focusCanvasItemForFocusedPaneOrFirst()
         if scrollFocusedCanvasItemIntoViewIfNeeded() {
+            shouldRequestViewportAnimation = true
+        }
+        if shouldRequestViewportAnimation {
             requestCanvasViewportAnimation()
         }
     }
