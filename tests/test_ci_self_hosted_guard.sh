@@ -14,15 +14,15 @@ check_blacksmith_runner() {
   local file="$1" job="$2"
   if ! awk -v job="$job" '
     $0 ~ "^  "job":" { in_job=1; next }
-    in_job && /^  [^[:space:]]/ { in_job=0 }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && /runs-on:.*blacksmith-[0-9]+vcpu-macos-/ { saw=1 }
     in_job && /os: blacksmith-[0-9]+vcpu-macos-/ { saw=1 }
     END { exit !(saw) }
   ' "$file"; then
-    echo "FAIL: $job in $(basename "$file") must use a Blacksmith macOS runner"
+    echo "FAIL: $job in $(basename "$file") must use the expected macOS runner"
     exit 1
   fi
-  echo "PASS: $job Blacksmith runner is present"
+  echo "PASS: $job in $(basename "$file") uses the expected macOS runner"
 }
 
 # ci.yml jobs
