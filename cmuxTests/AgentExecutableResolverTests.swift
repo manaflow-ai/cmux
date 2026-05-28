@@ -7,47 +7,56 @@ import Testing
     @testable import cmux
 #endif
 
-func expectEqual<T: Equatable>(_ actual: T, _ expected: T) {
-    #expect(actual == expected)
+private func testComment(_ message: @autoclosure () -> String) -> Comment? {
+    let value = message()
+    return value.isEmpty ? nil : Comment(rawValue: value)
 }
 
-func expectEqual<T: Equatable>(_ actual: T, _ expected: T, _ message: @autoclosure () -> String) {
-    _ = message()
-    #expect(actual == expected)
+func expectEqual<T: Equatable>(
+    _ actual: T,
+    _ expected: T,
+    _ message: @autoclosure () -> String = "",
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    #expect(actual == expected, testComment(message()), sourceLocation: sourceLocation)
 }
 
-func expectNotEqual<T: Equatable>(_ actual: T, _ expected: T) {
-    #expect(actual != expected)
+func expectNotEqual<T: Equatable>(
+    _ actual: T,
+    _ expected: T,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    #expect(actual != expected, sourceLocation: sourceLocation)
 }
 
-func expectTrue(_ condition: Bool) {
-    #expect(condition)
+func expectTrue(
+    _ condition: Bool,
+    _ message: @autoclosure () -> String = "",
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    #expect(condition, testComment(message()), sourceLocation: sourceLocation)
 }
 
-func expectTrue(_ condition: Bool, _ message: @autoclosure () -> String) {
-    _ = message()
-    #expect(condition)
+func expectFalse(
+    _ condition: Bool,
+    _ message: @autoclosure () -> String = "",
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    #expect(!condition, testComment(message()), sourceLocation: sourceLocation)
 }
 
-func expectFalse(_ condition: Bool) {
-    #expect(!condition)
-}
-
-func expectFalse(_ condition: Bool, _ message: @autoclosure () -> String) {
-    _ = message()
-    #expect(!condition)
-}
-
-func expectNil<T>(_ value: T?) {
-    #expect(value == nil)
+func expectNil<T>(_ value: T?, sourceLocation: SourceLocation = #_sourceLocation) {
+    #expect(value == nil, sourceLocation: sourceLocation)
 }
 
 func expectThrowsError<T>(
-    _ expression: @autoclosure () throws -> T, _ handler: ((any Error) -> Void)? = nil
+    _ expression: @autoclosure () throws -> T,
+    _ handler: ((any Error) -> Void)? = nil,
+    sourceLocation: SourceLocation = #_sourceLocation
 ) {
     do {
         _ = try expression()
-        Issue.record("Expected expression to throw")
+        Issue.record("Expected expression to throw", sourceLocation: sourceLocation)
     } catch {
         handler?(error)
     }
