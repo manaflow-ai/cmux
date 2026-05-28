@@ -69,6 +69,7 @@ public final class CanvasHostView: NSView {
             scene: scene,
             style: style,
             surfaceTextures: surfaceTextures,
+            forceContinuousRender: forceContinuousRender,
             device: device
         )
         super.init(frame: .zero)
@@ -113,7 +114,13 @@ public final class CanvasHostView: NSView {
     ) {
         self.scene = scene
         self.style = style
-        renderer.update(scene: scene, backgroundColor: backgroundColor, style: style, surfaceTextures: surfaceTextures)
+        renderer.update(
+            scene: scene,
+            backgroundColor: backgroundColor,
+            style: style,
+            surfaceTextures: surfaceTextures,
+            forceContinuousRender: forceContinuousRender
+        )
         metalView.preferredFramesPerSecond = max(1, preferredFramesPerSecond)
         metalView.clearColor = renderer.clearColor
         applyRenderLoopMode(surfaceTextures: surfaceTextures, forceContinuousRender: forceContinuousRender)
@@ -218,6 +225,7 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
         var scene: CanvasScene
         var style: CanvasShellStyle
         var surfaceTextures: [CanvasSurfaceTextureSource]
+        var forceContinuousRender: Bool
         var scheduler = CanvasFrameScheduler()
     }
 
@@ -245,13 +253,15 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
         scene: CanvasScene,
         style: CanvasShellStyle,
         surfaceTextures: [CanvasSurfaceTextureSource],
+        forceContinuousRender: Bool,
         device: MTLDevice?
     ) {
         self.state = RenderState(
             backgroundColor: backgroundColor,
             scene: scene,
             style: style,
-            surfaceTextures: surfaceTextures
+            surfaceTextures: surfaceTextures,
+            forceContinuousRender: forceContinuousRender
         )
         self.device = device
         self.commandQueue = device?.makeCommandQueue()
@@ -278,13 +288,15 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
         scene: CanvasScene,
         backgroundColor: NSColor,
         style: CanvasShellStyle,
-        surfaceTextures: [CanvasSurfaceTextureSource]
+        surfaceTextures: [CanvasSurfaceTextureSource],
+        forceContinuousRender: Bool
     ) {
         stateLock.withLock {
             state.backgroundColor = backgroundColor
             state.scene = scene
             state.style = style
             state.surfaceTextures = surfaceTextures
+            state.forceContinuousRender = forceContinuousRender
             state.scheduler.markNeedsRender()
         }
     }
@@ -317,7 +329,14 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
             let hasLiveSurfaceTextures = self.state.surfaceTextures.contains {
                 $0.requiresContinuousRendering
             }
-            guard state.scheduler.consumeFrame() || hasLiveSurfaceTextures else { return nil }
+            let hasScheduledFrame = state.scheduler.consumeFrame()
+            guard CanvasMetalFrameRenderDecision.shouldDrawFrame(
+                hasScheduledFrame: hasScheduledFrame,
+                hasLiveSurfaceTextures: hasLiveSurfaceTextures,
+                forceContinuousRender: state.forceContinuousRender
+            ) else {
+                return nil
+            }
             return self.state
         }
         guard let state = renderState else { return }
@@ -784,6 +803,16 @@ struct CanvasMetalRenderLoopMode: Equatable {
             enableSetNeedsDisplay: true,
             requestsImmediateDisplay: true
         )
+    }
+}
+
+enum CanvasMetalFrameRenderDecision {
+    static func shouldDrawFrame(
+        hasScheduledFrame: Bool,
+        hasLiveSurfaceTextures: Bool,
+        forceContinuousRender: Bool
+    ) -> Bool {
+        hasScheduledFrame || hasLiveSurfaceTextures || forceContinuousRender
     }
 }
 

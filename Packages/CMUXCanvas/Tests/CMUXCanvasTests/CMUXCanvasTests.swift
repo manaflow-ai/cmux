@@ -197,6 +197,23 @@ final class CMUXCanvasTests: XCTestCase {
         XCTAssertEqual(mode.requestsImmediateDisplay, false)
     }
 
+    func testForcedContinuousRendererDrawsWithoutScheduledFrameOrLiveTexture() {
+        XCTAssertFalse(
+            CanvasMetalFrameRenderDecision.shouldDrawFrame(
+                hasScheduledFrame: false,
+                hasLiveSurfaceTextures: false,
+                forceContinuousRender: false
+            )
+        )
+        XCTAssertTrue(
+            CanvasMetalFrameRenderDecision.shouldDrawFrame(
+                hasScheduledFrame: false,
+                hasLiveSurfaceTextures: false,
+                forceContinuousRender: true
+            )
+        )
+    }
+
 #if canImport(IOSurface)
     func testIOSurfaceTexturesUseContinuousMetalDisplayMode() throws {
         let properties = [
