@@ -51,9 +51,10 @@ _cmux_start_tracked_bg() {
     [[ "$1" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
     local __cmux_stb_var="$1"
     shift
-    # Empty argv would make `& ...` background nothing and leave $! pointing
-    # at a phantom slot. The caller would then kill an unrelated process if
-    # that PID got recycled. Refuse early.
+    # With empty argv, `"$@" & ...` backgrounds nothing and $! retains
+    # whatever the prior backgrounded PID was. The caller would then
+    # `kill -0` / `kill` an unrelated (possibly user-owned) process.
+    # Refuse early.
     (( $# >= 1 )) || {
         printf -v "$__cmux_stb_var" '%s' "" 2>/dev/null
         return 1

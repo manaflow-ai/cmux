@@ -244,6 +244,21 @@ def test_bash_integration_no_done_spam() -> None:
                     bash.run("true")
                 bash.run(f"echo {marker}")
 
+                # Make sure the dispatch path actually fired. If the helpers
+                # silently no-oped (e.g. an environment guard regression
+                # short-circuited every reporter), the Done-line assertion
+                # below would pass trivially. Greptile flagged this in PR
+                # #4958 review; the check forces the test to fail loud if
+                # _cmux_send is never reached.
+                if not send_log.exists() or send_log.stat().st_size == 0:
+                    raise AssertionError(
+                        "expected at least one _cmux_send invocation but "
+                        f"{send_log} is empty. The reporter dispatch path "
+                        "appears to have been silently bypassed.\n\n"
+                        f"Bash: {bash_path}\n\n"
+                        f"Full PTY output:\n{bash.text}"
+                    )
+
                 done_lines = JOB_DONE_RE.findall(bash.text)
                 if done_lines:
                     raise AssertionError(
