@@ -81,6 +81,18 @@ class UpdateDriver: NSObject, SPUUserDriver {
     func showUpdateFound(with appcastItem: SUAppcastItem,
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        showUpdateFound(with: appcastItem, userInitiated: state.userInitiated, reply: reply)
+    }
+
+    func showUpdateFoundForTesting(with appcastItem: SUAppcastItem,
+                                   userInitiated: Bool,
+                                   reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        showUpdateFound(with: appcastItem, userInitiated: userInitiated, reply: reply)
+    }
+
+    private func showUpdateFound(with appcastItem: SUAppcastItem,
+                                 userInitiated: Bool,
+                                 reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         UpdateLogStore.shared.append("show update found: \(appcastItem.displayVersionString)")
         runOnMain { [weak self] in
             guard let self else {
@@ -88,8 +100,12 @@ class UpdateDriver: NSObject, SPUUserDriver {
                 return
             }
             var generation = currentOperationGeneration
-            if operationHasTimedOut, !state.userInitiated {
-                generation = acceptBackgroundResultAfterTimedOutOperation(resultDescription: "update found")
+            if operationHasTimedOut {
+                if userInitiated, isCheckingState(viewModel.state) {
+                    generation = acceptUserRetryResultAfterTimedOutOperation(resultDescription: "update found")
+                } else if !userInitiated {
+                    generation = acceptBackgroundResultAfterTimedOutOperation(resultDescription: "update found")
+                }
             }
             guard callbackCanMutateState(generation: generation, resultDescription: "update found") else {
                 reply(.dismiss)
@@ -365,6 +381,15 @@ class UpdateDriver: NSObject, SPUUserDriver {
         timedOutOperationGeneration == currentOperationGeneration
     }
 
+    private func isCheckingState(_ state: UpdateState) -> Bool {
+        switch state {
+        case .checking:
+            return true
+        default:
+            return false
+        }
+    }
+
     private func callbackCanMutateState(generation: Int, resultDescription: String) -> Bool {
         guard generation == currentOperationGeneration else {
             UpdateLogStore.shared.append("ignoring stale \(resultDescription) for generation \(generation); current generation is \(currentOperationGeneration)")
@@ -379,6 +404,15 @@ class UpdateDriver: NSObject, SPUUserDriver {
 
     private func acceptBackgroundResultAfterTimedOutOperation(resultDescription: String) -> Int {
         UpdateLogStore.shared.append("accepting background \(resultDescription) after timed out user operation")
+        return acceptResultAfterTimedOutOperation()
+    }
+
+    private func acceptUserRetryResultAfterTimedOutOperation(resultDescription: String) -> Int {
+        UpdateLogStore.shared.append("accepting user retry \(resultDescription) after timed out operation")
+        return acceptResultAfterTimedOutOperation()
+    }
+
+    private func acceptResultAfterTimedOutOperation() -> Int {
         timedOutOperationGeneration = nil
         currentOperationGeneration += 1
         pendingCheckTransition?.cancel()

@@ -2111,6 +2111,31 @@ final class UpdateDriverTimeoutTests: XCTestCase {
         }
     }
 
+    func testRetryAfterPreparingTimeoutAcceptsResumedUpdate() throws {
+        let viewModel = UpdateViewModel()
+        let scheduler = ManualUpdateOperationScheduler()
+        let driver = makeDriver(viewModel: viewModel, scheduler: scheduler)
+        let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
+        let recorder = UpdateChoiceRecorder()
+
+        driver.showUserInitiatedUpdateCheck {}
+        driver.showDownloadDidStartExtractingUpdate()
+        scheduler.advance(by: timeoutDuration)
+        XCTAssertNotNil(timeoutError(viewModel: viewModel))
+
+        viewModel.cancelActiveStateForNewCheck()
+        driver.showUpdateFoundForTesting(with: item, userInitiated: true) {
+            recorder.record($0)
+        }
+
+        guard case .updateAvailable(let update) = viewModel.state else {
+            XCTFail("Expected retry to show the resumed update, got \(viewModel.state)")
+            return
+        }
+        XCTAssertEqual(update.appcastItem.displayVersionString, "9.9.9")
+        XCTAssertEqual(recorder.snapshot(), [])
+    }
+
     func testDownloadingProgressExtendsTimeoutForSlowNetwork() {
         let viewModel = UpdateViewModel()
         let scheduler = ManualUpdateOperationScheduler()
@@ -2154,6 +2179,21 @@ final class UpdateDriverTimeoutTests: XCTestCase {
         guard case .error(let error) = viewModel.state else { return nil }
         guard UpdateTimeoutError.isTimeout(error.error as NSError) else { return nil }
         return error.error
+    }
+
+    private func makeAppcastItem(displayVersion: String) -> SUAppcastItem? {
+        let enclosure: [String: Any] = [
+            "url": "https://example.com/cmux.zip",
+            "length": "1024",
+            "sparkle:version": displayVersion,
+            "sparkle:shortVersionString": displayVersion,
+        ]
+        let dict: [String: Any] = [
+            "title": "cmux \(displayVersion)",
+            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
+            "enclosure": enclosure,
+        ]
+        return SUAppcastItem(dictionary: dict)
     }
 }
 
