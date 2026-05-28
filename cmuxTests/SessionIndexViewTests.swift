@@ -616,7 +616,8 @@ private extension SessionAgent {
             return .claude(
                 model: nil,
                 permissionMode: nil,
-                configDirectoryForResume: claudeConfigDirectoryForResume
+                configDirectoryForResume: claudeConfigDirectoryForResume,
+                resumeWorkingDirectory: nil
             )
         case .codex:
             return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
