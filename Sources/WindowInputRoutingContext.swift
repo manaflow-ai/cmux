@@ -103,14 +103,6 @@ struct WindowInputRoutingContext: Equatable {
         eventKind == .pointerDrag
     }
 
-    static func allowsFirstResponderHitTesting(eventType: NSEvent.EventType?) -> Bool {
-        WindowInputRoutingContext(eventType: eventType).allowsFirstResponderHitTesting
-    }
-
-    static func allowsPortalPointerHitTesting(eventType: NSEvent.EventType?) -> Bool {
-        WindowInputRoutingContext(eventType: eventType).allowsPortalPointerHitTesting
-    }
-
     static func allowsTabBarPassThroughHitTesting(eventType: NSEvent.EventType?) -> Bool {
         WindowInputRoutingContext(eventType: eventType).allowsTabBarPassThroughHitTesting
     }
@@ -125,10 +117,6 @@ struct WindowInputRoutingContext: Equatable {
 
     static func allowsWorkspaceDropOverlayHitTesting(eventType: NSEvent.EventType?) -> Bool {
         WindowInputRoutingContext(eventType: eventType).allowsWorkspaceDropOverlayHitTesting
-    }
-
-    static func allowsBrowserPortalDragRouting(eventType: NSEvent.EventType?) -> Bool {
-        WindowInputRoutingContext(eventType: eventType).allowsBrowserPortalDragRouting
     }
 
     static func allowsTerminalPortalDragRouting(eventType: NSEvent.EventType?) -> Bool {
