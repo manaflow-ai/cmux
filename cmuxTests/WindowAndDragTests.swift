@@ -3146,9 +3146,13 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
 
         let topLevelTitles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
-        XCTAssertEqual(topLevelTitles, ["Open in Preview", "Reveal in Finder", "Open With"])
+        XCTAssertEqual(topLevelTitles, [
+            FileExternalOpenText.openInApplication("Preview"),
+            FileExternalOpenText.revealInFinder,
+            FileExternalOpenText.openWithMenu,
+        ])
 
-        let openWithItem = try XCTUnwrap(menu.items.first { $0.title == "Open With" })
+        let openWithItem = try XCTUnwrap(menu.items.first { $0.title == FileExternalOpenText.openWithMenu })
         let openWithTitles = try XCTUnwrap(openWithItem.submenu?.items.map(\.title))
         XCTAssertEqual(openWithTitles, ["Pixelmator Pro"])
     }
@@ -3163,7 +3167,10 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
 
         let topLevelTitles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
-        XCTAssertEqual(topLevelTitles, ["Open Externally", "Reveal in Finder"])
+        XCTAssertEqual(topLevelTitles, [
+            FileExternalOpenText.openExternally,
+            FileExternalOpenText.revealInFinder,
+        ])
     }
 
     func testCmdClickSupportedFileRoutingDefaultsToReadableRegularFilesOnly() throws {
