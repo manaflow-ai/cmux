@@ -65,8 +65,10 @@ enum CLIProcessRunner {
             timedOut = false
         }
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        var stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stdoutData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading)
+        let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading)
+        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+        var stderr = String(data: stderrData, encoding: .utf8) ?? ""
         if timedOut {
             let timeoutMessage = "process timed out"
             if stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

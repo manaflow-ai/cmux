@@ -2137,15 +2137,30 @@ private final class WorkspaceRemoteDaemonRPCClient {
         process.standardError = stderrPipe
 
         stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            self?.stateQueue.async {
-                self?.consumeStdoutData(data)
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            case .data(let data):
+                self?.stateQueue.async {
+                    self?.consumeStdoutData(data)
+                }
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                handle.readabilityHandler = nil
+                self?.stateQueue.async {
+                    self?.consumeStdoutData(Data())
+                }
             }
         }
         stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            self?.stateQueue.async {
-                self?.consumeStderrData(data)
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            case .data(let data):
+                self?.stateQueue.async {
+                    self?.consumeStderrData(data)
+                }
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                handle.readabilityHandler = nil
             }
         }
         process.terminationHandler = { [weak self] terminated in
@@ -2190,9 +2205,15 @@ private final class WorkspaceRemoteDaemonRPCClient {
         process.standardError = stderrPipe
 
         stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            self?.stateQueue.async {
-                self?.consumeStderrData(data)
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            case .data(let data):
+                self?.stateQueue.async {
+                    self?.consumeStderrData(data)
+                }
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                handle.readabilityHandler = nil
             }
         }
         process.terminationHandler = { [weak self] terminated in
@@ -2237,9 +2258,18 @@ private final class WorkspaceRemoteDaemonRPCClient {
         }
 
         socketHandle.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            self?.stateQueue.async {
-                self?.consumeStdoutData(data)
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            case .data(let data):
+                self?.stateQueue.async {
+                    self?.consumeStdoutData(data)
+                }
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                handle.readabilityHandler = nil
+                self?.stateQueue.async {
+                    self?.consumeStdoutData(Data())
+                }
             }
         }
 
@@ -3074,7 +3104,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
                 return nil
             }
         }
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading)
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         return bestErrorLine(stderr: stderr) ?? "status=\(process.terminationStatus)"
     }
@@ -6399,19 +6429,21 @@ final class WorkspaceRemoteSessionController {
 
     private func installReverseRelayStderrHandlerLocked(_ stderrPipe: Pipe) {
         stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else {
-                handle.readabilityHandler = nil
-                return
-            }
-            self?.queue.async {
-                guard let self else { return }
-                if let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty {
-                    self.reverseRelayStderrBuffer.append(chunk)
-                    if self.reverseRelayStderrBuffer.count > 8192 {
-                        self.reverseRelayStderrBuffer.removeFirst(self.reverseRelayStderrBuffer.count - 8192)
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            case .data(let data):
+                self?.queue.async {
+                    guard let self else { return }
+                    if let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty {
+                        self.reverseRelayStderrBuffer.append(chunk)
+                        if self.reverseRelayStderrBuffer.count > 8192 {
+                            self.reverseRelayStderrBuffer.removeFirst(self.reverseRelayStderrBuffer.count - 8192)
+                        }
                     }
                 }
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                handle.readabilityHandler = nil
             }
         }
     }
@@ -6943,12 +6975,8 @@ final class WorkspaceRemoteSessionController {
             defer { captureGroup.leave() }
             let result = Self.readProcessPipeToEnd(stdoutHandle)
             captureQueue.sync {
-                switch result {
-                case .success(let data):
-                    stdoutData = data
-                case .failure(let error):
-                    stdoutReadError = error
-                }
+                stdoutData = result.data
+                stdoutReadError = result.readError
             }
         }
         captureGroup.enter()
@@ -6956,12 +6984,8 @@ final class WorkspaceRemoteSessionController {
             defer { captureGroup.leave() }
             let result = Self.readProcessPipeToEnd(stderrHandle)
             captureQueue.sync {
-                switch result {
-                case .success(let data):
-                    stderrData = data
-                case .failure(let error):
-                    stderrReadError = error
-                }
+                stderrData = result.data
+                stderrReadError = result.readError
             }
         }
 #if DEBUG
@@ -7059,18 +7083,8 @@ final class WorkspaceRemoteSessionController {
         return CommandResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
 
-    private static func readProcessPipeToEnd(_ fileHandle: FileHandle) -> Result<Data, Error> {
-        var data = Data()
-        do {
-            while true {
-                guard let chunk = try fileHandle.read(upToCount: 64 * 1024), !chunk.isEmpty else {
-                    return .success(data)
-                }
-                data.append(chunk)
-            }
-        } catch {
-            return .failure(error)
-        }
+    private static func readProcessPipeToEnd(_ fileHandle: FileHandle) -> ProcessPipeEndRead {
+        ProcessPipeReader.readDataToEndOfFile(from: fileHandle)
     }
 
 #if DEBUG
@@ -7997,7 +8011,7 @@ final class WorkspaceRemoteSessionController {
 
         do {
             try process.run()
-            let outputData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            let outputData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading)
             process.waitUntilExit()
             guard process.terminationStatus == 0,
                   let output = String(data: outputData, encoding: .utf8),
@@ -8147,7 +8161,7 @@ final class WorkspaceRemoteSessionController {
 
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return "" }
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdout.fileHandleForReading)
         return String(data: data, encoding: .utf8) ?? ""
     }
 
@@ -8230,7 +8244,7 @@ final class WorkspaceRemoteSessionController {
                 return nil
             }
         }
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading)
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         return bestErrorLine(stderr: stderr) ?? "status=\(process.terminationStatus)"
     }
