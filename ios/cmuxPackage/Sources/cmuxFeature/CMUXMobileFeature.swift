@@ -1086,6 +1086,12 @@ struct PairingView: View {
                     #endif
                 }
 
+                if let errorText {
+                    Section {
+                        pairingErrorView(errorText)
+                    }
+                }
+
                 Section {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: authManager.isAuthenticated ? "person.crop.circle.badge.checkmark" : "person.crop.circle.badge.exclamationmark")
@@ -1133,21 +1139,6 @@ struct PairingView: View {
                         }
                         .foregroundStyle(.orange)
                         .accessibilityIdentifier("MobileManualRouteWarning")
-                    }
-                }
-
-                if let errorText {
-                    Section {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(errorText)
-                                .foregroundStyle(.red)
-                                .accessibilityIdentifier("MobilePairingError")
-                            Text(signedInAccountText)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                                .accessibilityIdentifier("MobilePairingErrorSignedInAccount")
-                        }
                     }
                 }
             }
@@ -1257,6 +1248,19 @@ struct PairingView: View {
             defaultValue: "Signed in as %@"
         )
         return String(format: format, email)
+    }
+
+    private func pairingErrorView(_ errorText: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(errorText)
+                .foregroundStyle(.red)
+                .accessibilityIdentifier("MobilePairingError")
+            Text(signedInAccountText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .accessibilityIdentifier("MobilePairingErrorSignedInAccount")
+        }
     }
 
     private func pair() {
