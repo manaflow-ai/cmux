@@ -216,9 +216,6 @@ select {
 .codex-composer-surface {
   color: var(--color-token-foreground);
   background: color-mix(in srgb, var(--color-token-input-background) 90%, transparent);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--agent-border-strong) 72%, transparent),
-    0 4px 16px rgba(0, 0, 0, 0.05);
 }
 
 .codex-composer-single-line {
