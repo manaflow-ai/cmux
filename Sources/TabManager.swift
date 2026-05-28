@@ -5583,24 +5583,24 @@ class TabManager: ObservableObject {
         let beforeGroup = before.flatMap { $0.isPinned ? nil : $0.groupId }
         let afterGroup = after.flatMap { $0.isPinned ? nil : $0.groupId }
         let currentGroup = tab.groupId
-        // Three-way inference:
-        //  1. Still adjacent to a member of the current group → preserve.
-        //  2. Both neighbors share a NON-current group → join that group.
-        //  3. Drop is fully outside any group (neither neighbor matches the
-        //     current group, and there's no unambiguous interior-of-other) →
-        //     clear membership.
-        // Without case 3 a member dragged into the ungrouped section would
-        // get snapped back by normalize. Without case 1 a member moved
-        // within its own group (only one neighbor still inside) would lose
-        // membership.
+        // Three cases:
+        //  A. Both neighbors share the same value (incl. both nil): land in
+        //     that membership state. Sandwiched inside a group → join it.
+        //     Sandwiched in the ungrouped section → clear membership.
+        //  B. The drop sits at the edge of `currentGroup` (one neighbor is
+        //     still in the current group, the other is outside it) → the
+        //     user crossed the section boundary. Treat as drag-out.
+        //  C. Otherwise (drop is far from currentGroup and not unambiguously
+        //     inside another group): preserve current membership so normalize
+        //     snaps the workspace back to its group's section.
         let inferred: UUID?
-        if let currentGroup,
-           (beforeGroup == currentGroup || afterGroup == currentGroup) {
-            inferred = currentGroup
-        } else if let beforeGroup, beforeGroup == afterGroup {
+        if beforeGroup == afterGroup {
             inferred = beforeGroup
-        } else {
+        } else if let currentGroup,
+                  beforeGroup == currentGroup || afterGroup == currentGroup {
             inferred = nil
+        } else {
+            inferred = currentGroup
         }
         if tab.groupId != inferred {
             tab.groupId = inferred
