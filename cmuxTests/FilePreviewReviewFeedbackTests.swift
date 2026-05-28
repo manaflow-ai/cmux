@@ -107,6 +107,20 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
+    func testTypeScriptFileWithNULBytesDoesNotResolveAsText() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var data = Data("export const answer = 42;".utf8)
+        data.append(contentsOf: [0x00, 0x00])
+        try data.write(to: url, options: .atomic)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .quickLook)
+    }
+
     func testTypeScriptTextWinsOverTransportStreamSyncBytePattern() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
