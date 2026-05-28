@@ -618,7 +618,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace else {
             XCTFail("Expected test window and workspace")
@@ -2139,7 +2138,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
@@ -4007,7 +4005,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
-              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+              workspace.browserPanel(for: browserPanelId) != nil else {
             XCTFail("Expected focused browser panel")
             return
         }
