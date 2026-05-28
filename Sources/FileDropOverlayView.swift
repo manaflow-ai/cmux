@@ -153,10 +153,21 @@ final class FileDropOverlayView: NSView {
     // file-drop, workspaceLayout tab drags, and sidebar tab reorder drags cannot conflict.
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let pb = NSPasteboard(name: .drag)
         let currentEvent = NSApp.currentEvent
         let eventType = currentEvent?.type
+        guard WindowInputRoutingContext.allowsFileDropOverlayHitTesting(eventType: eventType) else {
+#if DEBUG
+            logHitTestDecision(
+                pasteboardTypes: nil,
+                eventType: eventType,
+                shouldCapture: false
+            )
+#endif
+            return nil
+        }
+
         let suppressForLocalPointerDrag = shouldSuppressFileDropCaptureForLocalPointerEvent(currentEvent)
+        let pb = NSPasteboard(name: .drag)
         let shouldCapture = !suppressForLocalPointerDrag && DragOverlayRoutingPolicy.shouldCaptureFileDropOverlay(
             pasteboardTypes: pb.types,
             eventType: eventType

@@ -642,7 +642,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
             if isLocal {
                 let revealItem = NSMenuItem(
-                    title: String(localized: "fileExplorer.contextMenu.revealInFinder", defaultValue: "Reveal in Finder"),
+                    title: FileExternalOpenText.revealInFinder,
                     action: #selector(contextMenuRevealInFinder(_:)),
                     keyEquivalent: ""
                 )
@@ -681,7 +681,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         @objc private func contextMenuRevealInFinder(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? FileExplorerNode else { return }
-            NSWorkspace.shared.selectFile(node.path, inFileViewerRootedAtPath: "")
+            FileExternalOpenAction.revealInFinder(fileURL: URL(fileURLWithPath: node.path))
         }
 
         @objc private func contextMenuCopyPath(_ sender: NSMenuItem) {
@@ -1503,7 +1503,7 @@ final class FileExplorerContainerView: NSView {
 
     @objc private func contextMenuRevealSearchResultInFinder(_ sender: NSMenuItem) {
         guard let result = searchResult(forMenuItem: sender) else { return }
-        NSWorkspace.shared.selectFile(result.path, inFileViewerRootedAtPath: "")
+        FileExternalOpenAction.revealInFinder(fileURL: URL(fileURLWithPath: result.path))
     }
 
     @objc private func contextMenuCopySearchResultPath(_ sender: NSMenuItem) {
@@ -1642,7 +1642,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         )
 
         let revealItem = NSMenuItem(
-            title: String(localized: "fileExplorer.contextMenu.revealInFinder", defaultValue: "Reveal in Finder"),
+            title: FileExternalOpenText.revealInFinder,
             action: #selector(contextMenuRevealSearchResultInFinder(_:)),
             keyEquivalent: ""
         )

@@ -5,20 +5,7 @@ import CMUXLayout
 /// CMUXLayout tab strip rendered underneath them.
 enum WorkspaceLayoutTabBarPassThrough {
     static func isPassThroughPointerEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        switch eventType {
-        case nil:
-            // Unit tests can call hitTest directly without an active AppKit event.
-            return true
-        case .leftMouseDown, .leftMouseUp, .leftMouseDragged,
-             .rightMouseDown, .rightMouseUp, .rightMouseDragged,
-             .otherMouseDown, .otherMouseUp, .otherMouseDragged,
-             .mouseMoved, .mouseEntered,
-             .mouseExited, .cursorUpdate,
-             .appKitDefined, .applicationDefined, .systemDefined, .periodic:
-            return true
-        default:
-            return false
-        }
+        WindowInputRoutingContext.allowsTabBarPassThroughHitTesting(eventType: eventType)
     }
 
     static func titlebarInteractionBandMinY(in window: NSWindow) -> CGFloat {

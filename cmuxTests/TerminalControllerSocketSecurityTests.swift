@@ -1112,6 +1112,34 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
     }
 
+    func testBrowserOpenSplitDoesNotExternallyOpenDiffViewerWhenBrowserDisabled() throws {
+        let defaults = UserDefaults.standard
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        BrowserAvailabilitySettings.setDisabled(true)
+        defer {
+            if let previousBrowserDisabled {
+                defaults.set(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+            }
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        TerminalController.shared.setActiveTabManager(TabManager())
+        let token = UUID().uuidString.lowercased()
+        let response = try handleV2Request(
+            method: "browser.open_split",
+            params: [
+                "url": "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/diff.html",
+                "diff_viewer_token": token
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(error["code"] as? String, "browser_disabled")
+    }
+
     func testLegacyCloseSurfaceCommandRecordsRecentlyClosedHistory() throws {
         ClosedItemHistoryStore.shared.removeAll()
         defer {

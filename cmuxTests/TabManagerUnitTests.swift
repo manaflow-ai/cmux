@@ -2256,6 +2256,76 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, browserPanelId, "Expected opened browser surface to be focused")
     }
 
+    func testToggleOmnibarFocusedBrowserIsSurfaceSpecific() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected focused browser panel")
+            return
+        }
+
+        XCTAssertTrue(browserPanel.isOmnibarVisible)
+        XCTAssertTrue(manager.toggleOmnibarFocusedBrowser())
+        XCTAssertFalse(browserPanel.isOmnibarVisible)
+
+        let otherBrowser = workspace.newBrowserSurface(
+            inPane: workspace.paneId(forPanelId: browserPanelId) ?? workspace.layoutController.allPaneIds[0],
+            focus: true
+        )
+        XCTAssertTrue(otherBrowser?.isOmnibarVisible ?? false)
+    }
+
+    func testNewBrowserSurfaceCanSelectBackgroundPaneWithoutTakingFocus() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: sourcePanelId, orientation: .horizontal),
+              let rightPaneId = workspace.paneId(forPanelId: rightPanel.id),
+              let url = URL(string: "file:///tmp/cmux-diff.html") else {
+            XCTFail("Expected split setup to succeed")
+            return
+        }
+        workspace.focusPanel(sourcePanelId)
+        let sourcePaneBefore = workspace.layoutController.focusedPaneId
+
+        guard let browserPanel = workspace.newBrowserSurface(
+            inPane: rightPaneId,
+            url: url,
+            focus: false,
+            selectWhenNotFocused: true,
+            omnibarVisible: false
+        ), let browserSurfaceId = workspace.surfaceIdFromPanelId(browserPanel.id) else {
+            XCTFail("Expected background browser surface to be created")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, sourcePanelId)
+        XCTAssertEqual(workspace.layoutController.focusedPaneId, sourcePaneBefore)
+        XCTAssertEqual(workspace.layoutController.selectedTab(inPane: rightPaneId)?.id, browserSurfaceId)
+        XCTAssertFalse(browserPanel.isOmnibarVisible)
+    }
+
+    func testDuplicateBrowserPreservesDiffViewerChromeAndProxyBypass() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.layoutController.focusedPaneId)
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#cmux-diff-viewer"))
+        let browserPanel = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                url: url,
+                focus: true,
+                omnibarVisible: false,
+                bypassRemoteProxy: true
+            )
+        )
+
+        let duplicate = try XCTUnwrap(workspace.duplicateBrowserToRight(panelId: browserPanel.id, focus: false))
+
+        XCTAssertFalse(duplicate.isOmnibarVisible)
+        XCTAssertTrue(duplicate.bypassesRemoteWorkspaceProxyForTabDuplication)
+    }
+
     func testOpenBrowserInWorkspaceSplitRightSelectsTargetWorkspaceAndCreatesSplit() {
         let manager = TabManager()
         guard let initialWorkspace = manager.selectedWorkspace else {
@@ -2887,6 +2957,28 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertEqual(closedSnapshot?.workspaceId, workspace.id)
         XCTAssertEqual(closedSnapshot?.url, expectedURL)
         XCTAssertEqual(closedSnapshot?.originalPaneId, paneId.id)
+    }
+
+    func testTemporaryDiffViewerTabCloseDoesNotStageRestoreSnapshot() throws {
+        let workspace = Workspace()
+        let diffViewerURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#cmux-diff-viewer"))
+        guard let paneId = workspace.layoutController.focusedPaneId,
+              let browserPanel = workspace.newBrowserSurface(inPane: paneId, url: diffViewerURL, focus: false),
+              let tabId = workspace.surfaceIdFromPanelId(browserPanel.id),
+              let tab = workspace.layoutController.tab(tabId) else {
+            XCTFail("Expected diff viewer browser panel setup")
+            return
+        }
+
+        var closedSnapshot: ClosedBrowserPanelRestoreSnapshot?
+        workspace.onClosedBrowserPanel = { snapshot in
+            closedSnapshot = snapshot
+        }
+
+        XCTAssertTrue(workspace.splitTabBar(workspace.layoutController, shouldCloseTab: tab, inPane: paneId))
+        workspace.splitTabBar(workspace.layoutController, didCloseTab: tabId, fromPane: paneId)
+
+        XCTAssertNil(closedSnapshot)
     }
 
     func testBrowserWebViewDidCloseClosesPanelAndCmdShiftTRestoresIt() {

@@ -68,6 +68,118 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
+    func testExtensionlessANSITextResolvesAsTextAfterSniffing() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        try "\u{001B}[31mred\u{001B}[0m\n".write(to: url, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+    }
+
+    func testTypeScriptFileResolvesAsTextInsteadOfTransportStreamMedia() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try """
+        export const answer: number = 42;
+        console.log(answer);
+        """.write(to: url, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+    }
+
+    func testUTF8BOMTypeScriptFileResolvesAsText() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var data = Data([0xEF, 0xBB, 0xBF])
+        data.append(Data("export const answer: number = 42;\n".utf8))
+        try data.write(to: url, options: .atomic)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+    }
+
+    func testTypeScriptFileWithNULBytesDoesNotResolveAsText() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var data = Data("export const answer = 42;".utf8)
+        data.append(contentsOf: [0x00, 0x00])
+        try data.write(to: url, options: .atomic)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertNotEqual(FilePreviewKindResolver.mode(for: url), .text)
+    }
+
+    func testTypeScriptTextWinsOverTransportStreamSyncBytePattern() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let source = "G"
+            + String(repeating: "a", count: 187)
+            + "G"
+            + String(repeating: "b", count: 187)
+            + "\nexport const answer: number = 42;\n"
+        try source.write(to: url, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+    }
+
+    func testBinaryTransportStreamFileKeepsMediaPreview() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var data = Data(repeating: 0, count: 188 * 2)
+        data[0] = 0x47
+        data[1] = 0x40
+        data[2] = 0x00
+        data[3] = 0x10
+        data[188] = 0x47
+        data[189] = 0x41
+        data[190] = 0x00
+        data[191] = 0x10
+        try data.write(to: url, options: .atomic)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .media)
+    }
+
+    func testM2TSTransportStreamFileKeepsMediaPreview() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var data = Data(repeating: 0, count: 192 * 2)
+        data[4] = 0x47
+        data[5] = 0x40
+        data[6] = 0x00
+        data[7] = 0x10
+        data[196] = 0x47
+        data[197] = 0x41
+        data[198] = 0x00
+        data[199] = 0x10
+        try data.write(to: url, options: .atomic)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .media)
+    }
+
     func testQuickLookSessionCloseDoesNotDeactivateMountedRepresentableView() throws {
         let url = try temporaryBinaryFile()
         defer { try? FileManager.default.removeItem(at: url) }

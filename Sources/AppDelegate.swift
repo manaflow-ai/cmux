@@ -1811,10 +1811,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let lineFormat = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_FORMAT"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let linePrefix = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_PREFIX"] ?? ""
+        let displaySuffix = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_SUFFIX"] ?? ""
+        let displayAsAbsolutePath = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_AS_ABSOLUTE_PATH"] == "1"
         if let rawOpenSupportedFiles = env["CMUX_UI_TEST_OPEN_SUPPORTED_FILES_IN_CMUX"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !rawOpenSupportedFiles.isEmpty {
             CmdClickSupportedFileRouteSettings.setEnabled(rawOpenSupportedFiles == "1")
+        }
+        if let rawOpenMarkdown = env["CMUX_UI_TEST_OPEN_MARKDOWN_IN_CMUX_VIEWER"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawOpenMarkdown.isEmpty {
+            CmdClickMarkdownRouteSettings.setEnabled(rawOpenMarkdown == "1")
         }
         let extraFileNamesJSON = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_EXTRA_FILE_NAMES_JSON"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1834,6 +1841,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             extraFileNames = []
         }
         let escapedToken = resolvedFileName.replacingOccurrences(of: " ", with: "\\ ")
+        let baseDisplayToken = displayAsAbsolutePath ? expectedFileURL.path : resolvedFileName
         let resolvedDisplayMode = (displayMode == "raw") ? "raw" : "escaped"
         let resolvedLineFormat: String
         switch lineFormat {
@@ -1857,25 +1865,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let shellCommand: String
         switch resolvedLineFormat {
         case "log":
-            displayToken = resolvedFileName
-            let blockLine = "\(linePrefix)\(resolvedFileName)"
+            displayToken = "\(baseDisplayToken)\(displaySuffix)"
+            let blockLine = "\(linePrefix)\(displayToken)"
             let shellBlockLine = singleQuotedShellLiteral(blockLine)
             shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
         case "alt_screen_log":
-            displayToken = resolvedFileName
-            let blockLine = "\(linePrefix)\(resolvedFileName)"
+            displayToken = "\(baseDisplayToken)\(displaySuffix)"
+            let blockLine = "\(linePrefix)\(displayToken)"
             let shellBlockLine = singleQuotedShellLiteral(blockLine)
             shellCommand = "clear\rprintf '\\033[?1049h\\033[H\\033[2J'; for i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
         default:
             switch resolvedDisplayMode {
             case "raw":
-                displayToken = resolvedFileName
-                let blockLine = "\(resolvedFileName)    OtherFile"
+                displayToken = "\(baseDisplayToken)\(displaySuffix)"
+                let blockLine = "\(displayToken)    OtherFile"
                 let shellBlockLine = singleQuotedShellLiteral(blockLine)
                 shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
             default:
-                displayToken = escapedToken
-                let blockLine = Array(repeating: escapedToken, count: 3).joined(separator: " ")
+                displayToken = "\(escapedToken)\(displaySuffix)"
+                let blockLine = Array(repeating: displayToken, count: 3).joined(separator: " ")
                 let shellBlockLine = singleQuotedShellLiteral(blockLine)
                 shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
             }
@@ -2388,6 +2396,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     at: fixtureDirectoryURL,
                     withIntermediateDirectories: true
                 )
+                try FileManager.default.createDirectory(
+                    at: expectedFileURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
                 if !FileManager.default.fileExists(atPath: expectedFileURL.path) {
                     try "fixture\n".write(to: expectedFileURL, atomically: true, encoding: .utf8)
                 }
@@ -2396,6 +2408,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 for extraFileName in extraFileNames where !extraFileName.isEmpty {
                     let extraFileURL = fixtureDirectoryURL.appendingPathComponent(extraFileName)
+                    try FileManager.default.createDirectory(
+                        at: extraFileURL.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
                     if !FileManager.default.fileExists(atPath: extraFileURL.path) {
                         try "fixture\n".write(to: extraFileURL, atomically: true, encoding: .utf8)
                     }
@@ -16163,11 +16179,8 @@ private extension NSWindow {
             let responderWebView = self.firstResponder.flatMap {
                 Self.cmuxOwningWebView(for: $0, in: self, event: event)
             }
-            let hitWebView = Self.cmuxHitViewForEventDispatch(in: self, event: event).flatMap {
-                Self.cmuxOwningWebView(for: $0)
-            }
             let firstResponderType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-            return "browser=\((responderWebView != nil || hitWebView != nil) ? 1 : 0) firstResponder=\(firstResponderType)"
+            return "browser=\(responderWebView != nil ? 1 : 0) firstResponder=\(firstResponderType)"
         }()
         if event.type == .keyDown {
             CmuxTypingTiming.logEventDelay(path: "window.sendEvent", event: event)
@@ -16212,7 +16225,7 @@ private extension NSWindow {
         let previousContextHitView = cmuxFirstResponderGuardHitViewContext
         let previousContextWindowNumber = cmuxFirstResponderGuardContextWindowNumber
         cmuxFirstResponderGuardCurrentEventContext = event
-        cmuxFirstResponderGuardHitViewContext = Self.cmuxHitViewForEventDispatch(in: self, event: event)
+        cmuxFirstResponderGuardHitViewContext = Self.cmuxHitViewForFirstResponderGuard(in: self, event: event)
         cmuxFirstResponderGuardContextWindowNumber = self.windowNumber
 #if DEBUG
         if event.type == .keyDown {
@@ -16262,7 +16275,9 @@ private extension NSWindow {
         let shouldFinishSuppression = shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: self, event: event)
 
 #if DEBUG
-        let hitView = Self.cmuxHitViewForEventDispatch(in: self, event: event)
+        let hitView = WindowInputRoutingContext(event: event).allowsPortalPointerHitTesting
+            ? Self.cmuxHitViewForEventDispatch(in: self, event: event)
+            : nil
 #endif
         defer {
             let finishedReason: WindowMoveSuppressionReason?
@@ -16861,6 +16876,11 @@ private extension NSWindow {
         return cmuxTopHitViewForEvent(in: window, event: event)
     }
 
+    private static func cmuxHitViewForFirstResponderGuard(in window: NSWindow, event: NSEvent) -> NSView? {
+        guard WindowInputRoutingContext(event: event).allowsFirstResponderHitTesting else { return nil }
+        return cmuxHitViewForEventDispatch(in: window, event: event)
+    }
+
     private static func cmuxHitViewForCurrentEvent(in window: NSWindow, event: NSEvent) -> NSView? {
 #if DEBUG
         if let override = cmuxFirstResponderGuardHitViewOverride {
@@ -16906,13 +16926,8 @@ private extension NSWindow {
         return webView
     }
 
-    private static func cmuxIsPointerDownEvent(_ event: NSEvent) -> Bool {
-        switch event.type {
-        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
-            return true
-        default:
-            return false
-        }
+    private static func cmuxEventAllowsFirstResponderHitTesting(_ event: NSEvent) -> Bool {
+        WindowInputRoutingContext(event: event).allowsFirstResponderHitTesting
     }
 
     private static func cmuxPointerEventTargetsWindow(_ event: NSEvent, _ window: NSWindow) -> Bool {
@@ -16926,7 +16941,7 @@ private extension NSWindow {
     }
 
     private static func cmuxPointerHitWebView(in window: NSWindow, event: NSEvent) -> CmuxWebView? {
-        guard cmuxIsPointerDownEvent(event) else { return nil }
+        guard cmuxEventAllowsFirstResponderHitTesting(event) else { return nil }
         guard cmuxPointerEventTargetsWindow(event, window) else { return nil }
         if let portalWebView = BrowserWindowPortalRegistry.webViewAtWindowPoint(
             event.locationInWindow,
@@ -16941,7 +16956,7 @@ private extension NSWindow {
     }
 
     private static func cmuxPointerHitGhosttyView(in window: NSWindow, event: NSEvent) -> GhosttyNSView? {
-        guard cmuxIsPointerDownEvent(event) else { return nil }
+        guard cmuxEventAllowsFirstResponderHitTesting(event) else { return nil }
         guard cmuxPointerEventTargetsWindow(event, window) else { return nil }
         guard let hitView = cmuxHitViewForCurrentEvent(in: window, event: event) else {
             return nil
