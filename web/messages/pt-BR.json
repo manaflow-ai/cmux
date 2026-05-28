@@ -1143,5 +1143,8 @@
       "intro": "Esta página abre regras no espaço de trabalho cmux atual.",
       "fallback": "cmux mostra as regras primeiro e pergunta antes de colá-las no espaço de trabalho atual. Se o cmux não abrir, instale o cmux e clique em Abrir no cmux novamente."
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "Criador do OpenClaw. Fundador do PSPDFKit."
   }
 }

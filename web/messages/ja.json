@@ -1379,5 +1379,8 @@
       "intro": "このページでは、現在の cmux ワークスペースのルールが開きます。",
       "fallback": "cmux は最初にルールを表示し、現在のワークスペースに貼り付ける前に質問します。 cmux が開かない場合は、cmux をインストールし、もう一度 cmux で開くをクリックします。"
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "OpenClaw の開発者。PSPDFKit の創業者。"
   }
 }

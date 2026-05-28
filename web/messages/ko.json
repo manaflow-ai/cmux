@@ -1143,5 +1143,8 @@
       "intro": "이 페이지는 현재 cmux 작업 공간의 규칙을 엽니다.",
       "fallback": "cmux는 규칙을 먼저 표시하고 이를 현재 작업 공간에 붙여넣기 전에 묻습니다. cmux가 열리지 않으면 cmux를 설치하고 cmux에서 열기를 다시 클릭합니다."
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "OpenClaw 개발자. PSPDFKit 창립자."
   }
 }

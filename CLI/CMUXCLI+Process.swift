@@ -69,11 +69,11 @@ enum CLIProcessRunner {
         let stderrBuffer = CLIProcessOutputBuffer()
 
         DispatchQueue.global(qos: .utility).async {
-            stdoutBuffer.set(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+            stdoutBuffer.set(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading))
             stdoutFinished.signal()
         }
         DispatchQueue.global(qos: .utility).async {
-            stderrBuffer.set(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+            stderrBuffer.set(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading))
             stderrFinished.signal()
         }
 
@@ -166,11 +166,11 @@ enum CLIProcessRunner {
         let stderrBuffer = CLIProcessOutputBuffer()
 
         DispatchQueue.global(qos: .utility).async {
-            stdoutBuffer.set(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+            stdoutBuffer.set(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading))
             stdoutFinished.signal()
         }
         DispatchQueue.global(qos: .utility).async {
-            stderrBuffer.set(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+            stderrBuffer.set(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading))
             stderrFinished.signal()
         }
 

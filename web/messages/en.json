@@ -1433,5 +1433,8 @@
   },
   "languageSwitcher": {
     "label": "Language"
+  },
+  "testimonialSubtitles": {
+    "steipete": "OpenClaw creator. Founder of PSPDFKit."
   }
 }
