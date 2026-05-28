@@ -436,10 +436,37 @@ final class CMUXOpenCommandTests: XCTestCase {
             file["mime_type"] as? String == "text/x-diff"
         })
         XCTAssertEqual(patchFile["file_path"] as? String, "")
-        XCTAssertEqual(patchFile["remote_url"] as? String, "https://github.com/oven-sh/bun/pull/30412.diff")
+        XCTAssertEqual(patchFile["remote_url"] as? String, "https://diffshub.com/api/diff?path=/oven-sh/bun/pull/30412")
         let viewerFileURL = try diffViewerHTMLFileURL(for: rawURL, from: result.params)
         let patchSidecarURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
         XCTAssertFalse(FileManager.default.fileExists(atPath: patchSidecarURL.path))
+    }
+
+    func testDiffCommandLinksSuffixedDiffshubPRURLs() throws {
+        let cliPath = try bundledCLIPath()
+
+        for suffix in ["diff", "patch"] {
+            let originalURL = "https://diffshub.com/oven-sh/bun/pull/30412.\(suffix)"
+            let result = try runDiffCLIAndReadHTML(
+                cliPath: cliPath,
+                arguments: ["diff", originalURL, "--title", "Bun PR"],
+                environmentOverrides: ["CMUX_DIFF_VIEWER_STREAM_REMOTE": "1"],
+                readPatchSidecar: false
+            )
+
+            XCTAssertTrue(result.html.contains("\"externalURL\":\"\(originalURL)\""), result.html)
+            XCTAssertTrue(result.html.contains("\"sourceLabel\":\"\(originalURL)\""), result.html)
+            let rawURL = try XCTUnwrap(result.params["url"] as? String)
+            let files = try diffViewerAllowedFiles(for: rawURL, from: result.params)
+            let patchFile = try XCTUnwrap(files.first { file in
+                file["mime_type"] as? String == "text/x-diff"
+            })
+            XCTAssertEqual(patchFile["file_path"] as? String, "")
+            XCTAssertEqual(patchFile["remote_url"] as? String, "https://diffshub.com/api/diff?path=/oven-sh/bun/pull/30412")
+            let viewerFileURL = try diffViewerHTMLFileURL(for: rawURL, from: result.params)
+            let patchSidecarURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: patchSidecarURL.path))
+        }
     }
 
     func testDiffViewerServerBoundsDeferredWaitRequests() throws {

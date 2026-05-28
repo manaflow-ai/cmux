@@ -1288,11 +1288,10 @@ extension CMUXCLI {
                   components[3] == "pull" else {
                 return nil
             }
-            return trustedGitHubPullPatchURL(
+            return trustedDiffHubPullAPIURL(
                 owner: components[1],
                 repo: components[2],
                 pullComponent: components[4],
-                defaultExtension: "diff"
             )
         }
 
@@ -1342,6 +1341,58 @@ extension CMUXCLI {
             return nil
         }
         return URL(string: "https://github.com/\(owner)/\(repo)/pull/\(pullNumber).\(suffix)")
+    }
+
+    private func trustedDiffHubPullAPIURL(
+        owner: String,
+        repo: String,
+        pullComponent: String
+    ) -> URL? {
+        let pullNumber: String
+        if pullComponent.hasSuffix(".patch") {
+            pullNumber = String(pullComponent.dropLast(".patch".count))
+        } else if pullComponent.hasSuffix(".diff") {
+            pullNumber = String(pullComponent.dropLast(".diff".count))
+        } else {
+            pullNumber = pullComponent
+        }
+
+        guard githubPathSegmentIsSafe(owner),
+              githubPathSegmentIsSafe(repo),
+              pullNumber.unicodeScalars.allSatisfy({ $0.value >= 48 && $0.value <= 57 }),
+              Int(pullNumber).map({ $0 > 0 }) == true else {
+            return nil
+        }
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "diffshub.com"
+        components.path = "/api/diff"
+        components.queryItems = [
+            URLQueryItem(name: "path", value: "/\(owner)/\(repo)/pull/\(pullNumber)")
+        ]
+        return components.url
+    }
+
+    private func trustedDiffHubPullAPIURL(_ url: URL) -> URL? {
+        guard url.scheme?.lowercased() == "https",
+              url.host?.lowercased() == "diffshub.com",
+              url.path == "/api/diff",
+              url.fragment == nil,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.queryItems?.count == 1,
+              let diffPath = components.queryItems?.first(where: { $0.name == "path" })?.value else {
+            return nil
+        }
+        let pathComponents = URL(fileURLWithPath: diffPath).pathComponents
+        guard pathComponents.count == 5,
+              pathComponents[3] == "pull" else {
+            return nil
+        }
+        return trustedDiffHubPullAPIURL(
+            owner: pathComponents[1],
+            repo: pathComponents[2],
+            pullComponent: pathComponents[4]
+        )
     }
 
     private func githubPathSegmentIsSafe(_ component: String) -> Bool {
@@ -3397,6 +3448,7 @@ extension CMUXCLI {
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <title>\(escapedTitle)</title>
+          <link rel="icon" href="data:,">
           <style>
             :root { color-scheme: light dark; }
             body {
@@ -3813,13 +3865,25 @@ extension CMUXCLI {
                 return
             }
 
+            if request.path == "/favicon.ico" {
+                try sendDiffViewerHTTPResponse(
+                    fileDescriptor: fd,
+                    status: 204,
+                    reason: "No Content",
+                    headers: [:],
+                    body: Data(),
+                    omitBody: true
+                )
+                return
+            }
+
             if request.path.hasPrefix("/__cmux_diff_viewer_wait/") {
                 try sendDiffViewerHTTPWaitForReplacement(
                     requestPath: request.path,
                     fileDescriptor: fd,
                     port: port,
                     manifestCache: manifestCache,
-                    acceptsGzipEncoding: request.acceptsGzipEncoding,
+                    acceptedContentEncodings: request.acceptedContentEncodings,
                     omitBody: request.method == "HEAD"
                 )
                 return
@@ -3837,7 +3901,7 @@ extension CMUXCLI {
                 file,
                 fileDescriptor: fd,
                 port: port,
-                acceptsGzipEncoding: request.acceptsGzipEncoding,
+                acceptedContentEncodings: request.acceptedContentEncodings,
                 omitBody: request.method == "HEAD"
             )
         } catch {
@@ -3855,7 +3919,7 @@ extension CMUXCLI {
     private struct DiffViewerHTTPRequest {
         var method: String
         var path: String
-        var acceptsGzipEncoding: Bool
+        var acceptedContentEncodings: [String]
     }
 
     private func readDiffViewerHTTPRequest(fileDescriptor fd: Int32) throws -> DiffViewerHTTPRequest? {
@@ -3929,13 +3993,13 @@ extension CMUXCLI {
         return DiffViewerHTTPRequest(
             method: method,
             path: target,
-            acceptsGzipEncoding: diffViewerHTTPAcceptsGzipEncoding(acceptEncoding)
+            acceptedContentEncodings: diffViewerHTTPAcceptedContentEncodings(acceptEncoding)
         )
     }
 
-    private func diffViewerHTTPAcceptsGzipEncoding(_ header: String?) -> Bool {
-        guard let header else { return false }
-        var explicitGzipQValue: Double?
+    private func diffViewerHTTPAcceptedContentEncodings(_ header: String?) -> [String] {
+        guard let header else { return [] }
+        var explicitQValues: [String: Double] = [:]
         var wildcardQValue: Double?
         for encoding in header.split(separator: ",") {
             let parts = encoding
@@ -3949,16 +4013,15 @@ extension CMUXCLI {
                 .first { $0.hasPrefix("q=") }
                 .flatMap { Double($0.dropFirst(2)) }
                 ?? 1
-            if name == "gzip" {
-                explicitGzipQValue = qValue
-            } else if name == "*" {
+            if name == "*" {
                 wildcardQValue = qValue
+            } else {
+                explicitQValues[name] = qValue
             }
         }
-        if let explicitGzipQValue {
-            return explicitGzipQValue > 0
+        return ["br", "gzip"].filter { encoding in
+            (explicitQValues[encoding] ?? wildcardQValue ?? 0) > 0
         }
-        return (wildcardQValue ?? 0) > 0
     }
 
     private func diffViewerHTTPAllowedFile(
@@ -3986,7 +4049,7 @@ extension CMUXCLI {
         fileDescriptor fd: Int32,
         port: Int,
         manifestCache: DiffViewerHTTPManifestCache,
-        acceptsGzipEncoding: Bool,
+        acceptedContentEncodings: [String],
         omitBody: Bool
     ) throws {
         let prefix = "/__cmux_diff_viewer_wait/"
@@ -4012,7 +4075,7 @@ extension CMUXCLI {
             file,
             fileDescriptor: fd,
             port: port,
-            acceptsGzipEncoding: acceptsGzipEncoding,
+            acceptedContentEncodings: acceptedContentEncodings,
             omitBody: omitBody
         )
     }
@@ -4072,17 +4135,30 @@ extension CMUXCLI {
     }
 
     private func diffViewerHTTPIsAllowedRemotePatchURL(_ url: URL) -> Bool {
-        guard let canonicalURL = diffInputTrustedRemotePatchURL(url.absoluteString),
-              canonicalURL.scheme == "https",
-              canonicalURL.host?.lowercased() == "github.com",
-              canonicalURL.path == url.path,
-              canonicalURL.query == nil,
-              canonicalURL.fragment == nil,
-              url.query == nil,
-              url.fragment == nil else {
-            return false
-        }
+        guard let canonicalURL = diffViewerHTTPCanonicalRemotePatchURL(url) else { return false }
         return canonicalURL.absoluteString == url.absoluteString
+    }
+
+    private func diffViewerHTTPCanonicalRemotePatchURL(_ url: URL) -> URL? {
+        guard url.scheme?.lowercased() == "https",
+              url.fragment == nil,
+              let host = url.host?.lowercased() else {
+            return nil
+        }
+        if host == "github.com" {
+            guard url.query == nil,
+                  let canonicalURL = diffInputTrustedRemotePatchURL(url.absoluteString),
+                  canonicalURL.host?.lowercased() == "github.com",
+                  canonicalURL.path == url.path,
+                  canonicalURL.query == nil else {
+                return nil
+            }
+            return canonicalURL
+        }
+        if host == "diffshub.com" {
+            return trustedDiffHubPullAPIURL(url)
+        }
+        return nil
     }
 
     private func waitForDiffViewerHTTPReplacement(_ file: DiffViewerAllowedFile) -> Bool {
@@ -4216,7 +4292,7 @@ extension CMUXCLI {
         _ file: DiffViewerAllowedFile,
         fileDescriptor fd: Int32,
         port: Int,
-        acceptsGzipEncoding: Bool,
+        acceptedContentEncodings: [String],
         omitBody: Bool
     ) throws {
         if let remoteURLString = file.remoteURL,
@@ -4226,7 +4302,7 @@ extension CMUXCLI {
                 remoteURL,
                 fileDescriptor: fd,
                 port: port,
-                acceptsGzipEncoding: acceptsGzipEncoding,
+                acceptedContentEncodings: acceptedContentEncodings,
                 omitBody: omitBody
             )
             return
@@ -4266,12 +4342,12 @@ extension CMUXCLI {
         _ remoteURL: URL,
         fileDescriptor fd: Int32,
         port: Int,
-        acceptsGzipEncoding: Bool,
+        acceptedContentEncodings: [String],
         omitBody: Bool
     ) throws {
         var headers = diffViewerHTTPBaseHeaders(port: port)
         headers["Content-Type"] = diffViewerHTTPContentType("text/x-diff")
-        headers["X-CMUX-Diff-Viewer-Remote"] = "github"
+        headers["X-CMUX-Diff-Viewer-Remote"] = remoteURL.host?.lowercased() ?? "remote"
 
         if omitBody {
             try sendDiffViewerHTTPHeader(
@@ -4283,18 +4359,25 @@ extension CMUXCLI {
             return
         }
 
+        let headerURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-diff-viewer-headers-\(UUID().uuidString).txt", isDirectory: false)
+        defer {
+            try? FileManager.default.removeItem(at: headerURL)
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         var arguments = [
             "curl",
+            "--disable",
             "-fL",
             "--silent",
             "--show-error",
             "--max-time", "120",
+            "--dump-header", headerURL.path,
             remoteURL.absoluteString
         ]
-        if acceptsGzipEncoding {
-            arguments.insert(contentsOf: ["--header", "Accept-Encoding: gzip"], at: arguments.count - 1)
+        if let acceptEncodingHeader = diffViewerHTTPRemoteAcceptEncodingHeader(acceptedContentEncodings) {
+            arguments.insert(contentsOf: ["--header", "Accept-Encoding: \(acceptEncodingHeader)"], at: arguments.count - 1)
         }
         process.arguments = arguments
         let stdoutPipe = Pipe()
@@ -4346,7 +4429,11 @@ extension CMUXCLI {
             return
         }
 
-        if acceptsGzipEncoding && diffViewerHTTPDataIsGzipEncoded(firstChunk) {
+        if let contentEncoding = diffViewerHTTPContentEncoding(headerURL: headerURL),
+           acceptedContentEncodings.contains(contentEncoding) {
+            headers["Content-Encoding"] = contentEncoding
+            headers["Vary"] = "Accept-Encoding"
+        } else if acceptedContentEncodings.contains("gzip") && diffViewerHTTPDataIsGzipEncoded(firstChunk) {
             headers["Content-Encoding"] = "gzip"
             headers["Vary"] = "Accept-Encoding"
         }
@@ -4370,6 +4457,34 @@ extension CMUXCLI {
 
     private func diffViewerHTTPDataIsGzipEncoded(_ data: Data) -> Bool {
         data.count >= 2 && data[data.startIndex] == 0x1f && data[data.index(after: data.startIndex)] == 0x8b
+    }
+
+    private func diffViewerHTTPRemoteAcceptEncodingHeader(_ acceptedContentEncodings: [String]) -> String? {
+        let supportedEncodings = ["br", "gzip"].filter { acceptedContentEncodings.contains($0) }
+        guard !supportedEncodings.isEmpty else { return nil }
+        return supportedEncodings.joined(separator: ", ")
+    }
+
+    private func diffViewerHTTPContentEncoding(headerURL: URL) -> String? {
+        guard let data = try? Data(contentsOf: headerURL),
+              let text = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+        let headerBlocks = normalized
+            .components(separatedBy: "\n\n")
+            .filter { $0.hasPrefix("HTTP/") }
+        guard let finalHeaders = headerBlocks.last else { return nil }
+        for line in finalHeaders.components(separatedBy: "\n") {
+            let parts = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2,
+                  parts[0].trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Content-Encoding") == .orderedSame else {
+                continue
+            }
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return value.isEmpty ? nil : value
+        }
+        return nil
     }
 
     private func sendDiffViewerHTTPNotFound(fileDescriptor fd: Int32, omitBody: Bool) throws {
@@ -5297,6 +5412,7 @@ extension CMUXCLI {
             let pageHiddenForCleanup = false;
             let codeViewUsesWorkerPool = false;
             let rebuildCodeViewWithoutWorkerPool = null;
+            const registeredThemeNames = new Set();
             let activeFileId = "";
             let activeTreePath = "";
             let suppressTreeSelectionChange = false;
@@ -7234,6 +7350,10 @@ extension CMUXCLI {
             }
 
             function registerGhosttyTheme(registerCustomTheme, theme) {
+              if (registeredThemeNames.has(theme.name)) {
+                return;
+              }
+              registeredThemeNames.add(theme.name);
               registerCustomTheme(theme.name, () => Promise.resolve(shikiThemeFromGhostty(theme)));
             }
 
