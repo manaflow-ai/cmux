@@ -1036,7 +1036,12 @@ public final class CMUXMobileShellStore {
 
     public func selectTerminal(_ id: MobileTerminalPreview.ID?) {
         selectedTerminalID = id
-        scheduleSelectedTerminalSnapshotRefresh()
+        selectedTerminalSnapshotRefreshTask?.cancel()
+        selectedTerminalSnapshotRefreshTask = nil
+        if isRefreshingSelectedTerminalSnapshot {
+            needsSelectedTerminalSnapshotRefresh = true
+        }
+        scheduleSelectedTerminalSnapshotRefresh(yieldBeforeRefresh: false)
     }
 
     public func reportTerminalViewport(
@@ -1868,11 +1873,13 @@ public final class CMUXMobileShellStore {
         }
     }
 
-    private func scheduleSelectedTerminalSnapshotRefresh() {
+    private func scheduleSelectedTerminalSnapshotRefresh(yieldBeforeRefresh: Bool = true) {
         guard remoteClient != nil else { return }
         guard selectedTerminalSnapshotRefreshTask == nil else { return }
-        selectedTerminalSnapshotRefreshTask = Task { @MainActor [weak self] in
-            await Task.yield()
+        selectedTerminalSnapshotRefreshTask = Task { @MainActor [weak self, yieldBeforeRefresh] in
+            if yieldBeforeRefresh {
+                await Task.yield()
+            }
             guard let self else { return }
             self.selectedTerminalSnapshotRefreshTask = nil
             guard !Task.isCancelled else { return }

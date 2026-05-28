@@ -2572,6 +2572,59 @@ import UIKit
 }
 
 @MainActor
+@Test func selectingTerminalWhileSnapshotRefreshIsInFlightFetchesSelectedTerminalSnapshot() async throws {
+    let workspaceID = "workspace-main"
+    let buildTerminalID = "terminal-build"
+    let tuiTerminalID = "terminal-tui"
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: workspaceID,
+        terminalID: nil,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let router = TerminalSelectionRefreshRouter(
+        workspaceID: workspaceID,
+        buildTerminalID: buildTerminalID,
+        tuiTerminalID: tuiTerminalID
+    )
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        stackAccessToken: nil
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let pairingURL = try attachURL(for: ticket).absoluteString
+
+    store.signIn()
+    let connectTask = Task {
+        await store.connectPairingURL(pairingURL)
+    }
+    let initialSnapshots = try await waitForRequestCount("terminal.snapshot", count: 1, router: router)
+    #expect(initialSnapshots.first?.terminalID == buildTerminalID)
+
+    store.selectTerminal(MobileTerminalPreview.ID(rawValue: tuiTerminalID))
+    await router.releaseBuildSnapshot()
+    #expect(await connectTask.value)
+    let snapshotsAfterSelection = try await waitForRequestCount("terminal.snapshot", count: 2, router: router)
+    #expect(snapshotsAfterSelection.contains {
+        $0.workspaceID == workspaceID && $0.terminalID == tuiTerminalID
+    })
+
+    let selectedTerminal = try await waitForSelectedTerminal(in: store) {
+        $0.id.rawValue == tuiTerminalID && $0.snapshot.renderedVisibleLines.first == "LAZYGIT"
+    }
+    #expect(selectedTerminal.id.rawValue == tuiTerminalID)
+}
+
+@MainActor
 @Test func rawTerminalInputDoesNotReplaceStyledSnapshotWithImmediatePlainTextDowngrade() async throws {
     let workspaceID = UUID().uuidString
     let terminalID = UUID().uuidString
@@ -4188,6 +4241,99 @@ private actor ServerPushPollingFallbackRouter: RequestAwareTransportRouter {
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
+    }
+}
+
+private actor TerminalSelectionRefreshRouter: RequestAwareTransportRouter {
+    private let workspaceID: String
+    private let buildTerminalID: String
+    private let tuiTerminalID: String
+    private var buildSnapshotReleased = false
+    private var buildSnapshotReleaseContinuation: CheckedContinuation<Void, Never>?
+    private var requests: [RecordedRPCRequest] = []
+
+    init(workspaceID: String, buildTerminalID: String, tuiTerminalID: String) {
+        self.workspaceID = workspaceID
+        self.buildTerminalID = buildTerminalID
+        self.tuiTerminalID = tuiTerminalID
+    }
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func releaseBuildSnapshot() {
+        buildSnapshotReleased = true
+        buildSnapshotReleaseContinuation?.resume()
+        buildSnapshotReleaseContinuation = nil
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try workspaceListFrame()
+        case "terminal.snapshot":
+            if request.workspaceID == workspaceID, request.terminalID == buildTerminalID {
+                await waitForBuildSnapshotRelease()
+                return try rpcSnapshotResultFrame(
+                    workspaceID: workspaceID,
+                    terminalID: buildTerminalID,
+                    visibleLines: ["BUILD"]
+                )
+            }
+            if request.workspaceID == workspaceID, request.terminalID == tuiTerminalID {
+                return try rpcSnapshotResultFrame(
+                    workspaceID: workspaceID,
+                    terminalID: tuiTerminalID,
+                    visibleLines: ["LAZYGIT"]
+                )
+            }
+            return try rpcErrorFrame(message: "Unexpected terminal snapshot request")
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+
+    private func waitForBuildSnapshotRelease() async {
+        guard !buildSnapshotReleased else { return }
+        await withCheckedContinuation { continuation in
+            buildSnapshotReleaseContinuation = continuation
+        }
+    }
+
+    private func workspaceListFrame() throws -> Data {
+        try rpcResultFrame(
+            result: [
+                "workspaces": [
+                    [
+                        "id": workspaceID,
+                        "title": "cmux",
+                        "current_directory": "/Users/test/project",
+                        "is_selected": true,
+                        "terminals": [
+                            [
+                                "id": buildTerminalID,
+                                "title": "Build",
+                                "current_directory": "/Users/test/project",
+                                "is_ready": true,
+                                "is_focused": true,
+                            ],
+                            [
+                                "id": tuiTerminalID,
+                                "title": "TUI",
+                                "current_directory": "/Users/test/project",
+                                "is_ready": true,
+                                "is_focused": false,
+                            ],
+                        ],
+                    ],
+                ],
+            ]
+        )
     }
 }
 
