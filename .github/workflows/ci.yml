@@ -18,8 +18,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Validate WarpBuild runner guards
+      - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
+
+      - name: Validate Python test harness syntax
+        run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
       - name: Validate create-dmg version pinning
         run: ./tests/test_ci_create_dmg_pinned.sh
@@ -286,9 +289,7 @@ jobs:
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               CMUX_SKIP_ZIG_BUILD=1 \
-              -skip-testing:cmuxTests/CLINotifyProcessIntegrationRegressionTests/testGrokNotificationStillFiresOnRepeatedPromptWhenFeedTelemetryDoesNotReply \
               -skip-testing:cmuxTests/FileExplorerStoreTests/testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath \
-              -skip-testing:cmuxTests/GhosttySurfaceOverlayTests \
               test 2>&1 &
             local xcodebuild_pid=$!
             local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"

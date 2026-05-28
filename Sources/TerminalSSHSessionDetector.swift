@@ -310,11 +310,11 @@ struct DetectedSSHSession: Equatable {
         }
 
         let stdout = String(
-            data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(),
+            data: ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading),
             encoding: .utf8
         ) ?? ""
         let stderr = String(
-            data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
+            data: ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading),
             encoding: .utf8
         ) ?? ""
         if operation?.isCancelled == true {
@@ -475,7 +475,7 @@ enum TerminalSSHSessionDetector {
             return []
         }
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: pipe.fileHandleForReading)
         process.waitUntilExit()
 
         guard process.terminationStatus == 0,

@@ -4941,10 +4941,24 @@ enum TelemetrySettings {
 
 enum CmdClickMarkdownRouteSettings {
     static let key = "openMarkdownInCmuxViewer"
-    static let defaultValue = false
+    static let didChangeNotification = Notification.Name("cmux.cmdClickMarkdownRouteDidChange")
+    static let defaultValue = true
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: key) == nil ? defaultValue : defaults.bool(forKey: key)
+    }
+
+    static func setEnabled(
+        _ enabled: Bool,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        defaults.set(enabled, forKey: key)
+        notifyDidChange(notificationCenter: notificationCenter)
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
     }
 
     /// Cheap extension check. Safe to call off the main thread before any
@@ -5676,6 +5690,16 @@ struct SettingsView: View {
             set: { newValue in
                 CmdClickSupportedFileRouteSettings.setEnabled(newValue)
                 openSupportedFilesInCmux = newValue
+            }
+        )
+    }
+
+    private var markdownRoutingBinding: Binding<Bool> {
+        Binding(
+            get: { openMarkdownInCmuxViewer },
+            set: { newValue in
+                CmdClickMarkdownRouteSettings.setEnabled(newValue)
+                openMarkdownInCmuxViewer = newValue
             }
         )
     }
@@ -6412,9 +6436,9 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("app.openMarkdownInCmuxViewer"),
                             String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"),
-                            subtitle: String(localized: "settings.app.openMarkdownInCmuxViewer.subtitle", defaultValue: "When supported file routing is on, Cmd-clicking Markdown files opens the rendered cmux markdown viewer instead of the generic file preview.")
+                            subtitle: String(localized: "settings.app.openMarkdownInCmuxViewer.subtitle", defaultValue: "Cmd-clicking Markdown files opens the rendered cmux markdown viewer instead of the generic file preview.")
                         ) {
-                            Toggle("", isOn: $openMarkdownInCmuxViewer)
+                            Toggle("", isOn: markdownRoutingBinding)
                                 .labelsHidden()
                                 .controlSize(.small)
                                 .accessibilityLabel(
@@ -8116,6 +8140,7 @@ struct SettingsView: View {
         preferredEditorCommand = ""
         CmdClickSupportedFileRouteSettings.setEnabled(CmdClickSupportedFileRouteSettings.defaultValue)
         openSupportedFilesInCmux = CmdClickSupportedFileRouteSettings.defaultValue
+        CmdClickMarkdownRouteSettings.setEnabled(CmdClickMarkdownRouteSettings.defaultValue)
         openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserCustomSearchEngineName = BrowserSearchSettings.defaultCustomSearchEngineName

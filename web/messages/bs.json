@@ -1072,11 +1072,18 @@
     "egrefen": "Koristio sam ovo cijeli vikend i nevjerovatno je.",
     "max4c": "ovo je bio moj omiljeni alat posljednje dvije sedmice",
     "lucas_flatwhite": "Još nije kasno. Često koristim Ghostty, ali i cmux mi je drag. Vertikalni tabovi, prstenovi za obavijesti, ugrađeni browser, podijeljeni paneli, GPU ubrzanje... ima stvarno mnogo prednosti!",
+    "yamadashy": "Koristim cmux neko vrijeme i sviđa mi se. Nije toliko osjećaj 'ovo je nevjerovatno', koliko 'da, to je to'. Dobro se slaže i s k1Low/mo.",
     "minixalpha": "I ja koristim cmux kao glavni terminal i preporučujem ga kolegama. Obavijesti, radni prostori i prečice podižu efikasnost kada paralelno radim više stvari. Iako je cmux malo ružan, funkcionalnost ga čini neizostavnim.",
+    "juan_barbat": "Imao sam jedan problem s preglednikom, ali cmux mi je nezamjenjiv iz dana u dan.",
+    "yousefrol": "Moj prijedlog je da jednostavno koristite cmux. Riješio mi je skoro svaki problem s terminalom.",
+    "tobiasgloeckler": "Upravo sam instalirao cmux. Do sada sam koristio Ghostty, ali cmux je još bolji za AI agente i kodiranje.",
+    "wescld": "Čovječe, ne znam kako sam toliko dugo živio bez cmuxa.",
     "jinchenma_ai": "cmux je terminalski alat koji u zadnje vrijeme najviše koristim. Otvoren je i besplatan. Uglavnom mi je zamijenio iTerm2 i savršeno rješava raspored više terminalskih prozora.",
+    "zvasil": "Prije nekog vremena sam prešao na njega s Warpa i osjećaj je bio kao prelazak na raketu. Nativan je za macOS, pisan u Swiftu i razvija se super aktivno.",
     "immazzystar": "Alat koji mi se u zadnje vrijeme sviđa: cmux. Više ne moram stalno prebacivati terminalske prozore.",
     "blitz_zidan": "cmux mi je trenutno omiljeni terminal. Lično mislim da je odličan za pokretanje više terminala.",
     "asaza": "cmux izgleda toliko dobro da je možda konačno vrijeme da se oprostim od VSCode-a",
+    "ssarisen": "Ako morate raditi s više terminala, svakako probajte cmux. Kada terminal čeka vaš unos, automatski dobijete obavještenje.",
     "johnthedebs": "Hej, ovo izgleda ozbiljno odlično. Volim ideje ovdje, specifično: programabilnost, slojeviti UI, preglednik sa API-jem. Radujem se da ovo probam. Takođe želim dodati da stvarno cijenim Mitchell Hashimoto-a što je kreirao libghostty; osjeća se kao uzbudljivo vrijeme za korisnike terminala.",
     "joeriddles": "Vertikalni tabovi u mom terminalu! Nikada nisam na to pomislio. Koristim i volim Firefox vertikalne tabove.",
     "dchu17": "Dao sam ovome priliku i bilo je prilično intuitivno. Dobar posao!",
@@ -1136,5 +1143,8 @@
       "intro": "Ova stranica otvara pravila u trenutnom cmux radnom prostoru.",
       "fallback": "cmux prvo prikazuje pravila i pita prije nego što ih zalijepi u trenutni radni prostor. Ako se cmux ne otvori, instalirajte cmux i ponovo kliknite Otvori u cmux."
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "Kreator OpenClawa. Osnivač PSPDFKita."
   }
 }
