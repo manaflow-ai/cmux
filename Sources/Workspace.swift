@@ -17608,6 +17608,7 @@ extension Workspace: WorkspaceLayoutDelegate {
             normalizePinnedTabs(in: originalPane)
             normalizePinnedTabs(in: newPane)
             if let selectedTab = controller.selectedTab(inPane: newPane) {
+                clearNonFocusSplitFocusReassert()
                 applyTabSelection(tabId: selectedTab.id, inPane: newPane)
             }
             scheduleTerminalGeometryReconcile()
