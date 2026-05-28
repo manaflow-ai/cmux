@@ -90,6 +90,9 @@ class UpdateController {
         self.userDriver.updateCycleDidFinish = { [weak self] in
             self?.handleUpdateCycleFinished()
         }
+        self.userDriver.updateResultDidArrive = { [weak self] in
+            self?.handleUpdateResultArrived()
+        }
         installNoUpdateDismissObserver()
         installUpdaterReadinessObserver()
     }
@@ -249,8 +252,10 @@ class UpdateController {
         installCancellable?.cancel()
         let stateBeforeCancellation = viewModel.state
         if stateBeforeCancellation != .idle {
+            userDriver.prepareForNewCheck()
             viewModel.cancelActiveStateForNewCheck()
         } else if updater.sessionInProgress {
+            userDriver.prepareForNewCheck()
             viewModel.cancelActiveStateForNewCheck()
         }
         if shouldWaitForCancelledSession(afterCancelling: stateBeforeCancellation) || updater.sessionInProgress {
@@ -362,8 +367,21 @@ class UpdateController {
         awaitingCancelledSessionBeforeCheck = false
         readyCheckDeadline?.cancel()
         readyCheckDeadline = nil
+        guard isCheckingState(viewModel.state) else {
+            UpdateLogStore.shared.append("cancelled update session finished after retry result arrived; not starting another check")
+            return
+        }
         UpdateLogStore.shared.append("cancelled update session finished; starting update check")
         performCheckAfterCancelledSessionFinished()
+    }
+
+    private func handleUpdateResultArrived() {
+        guard awaitingCancelledSessionBeforeCheck else { return }
+        awaitingCancelledSessionBeforeCheck = false
+        readyCheckGeneration += 1
+        readyCheckDeadline?.cancel()
+        readyCheckDeadline = nil
+        UpdateLogStore.shared.append("update result arrived while waiting for previous session; not starting another check")
     }
 
     private func shouldWaitForCancelledSession(afterCancelling state: UpdateState) -> Bool {

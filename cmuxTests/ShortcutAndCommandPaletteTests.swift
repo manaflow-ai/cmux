@@ -2136,6 +2136,37 @@ final class UpdateDriverTimeoutTests: XCTestCase {
         XCTAssertEqual(recorder.snapshot(), [])
     }
 
+    func testPreparingForNewCheckInvalidatesDelayedResult() {
+        let viewModel = UpdateViewModel()
+        let scheduler = ManualUpdateOperationScheduler()
+        let driver = makeDriver(viewModel: viewModel, scheduler: scheduler, minimumCheckDuration: timeoutDuration)
+        var acknowledgementCount = 0
+        var resultArrivalCount = 0
+        driver.updateResultDidArrive = {
+            resultArrivalCount += 1
+        }
+
+        driver.showUserInitiatedUpdateCheck {}
+        driver.showUpdateNotFoundWithError(NSError(domain: "cmux.tests", code: 1)) {
+            acknowledgementCount += 1
+        }
+        guard case .checking = viewModel.state else {
+            XCTFail("Expected minimum check duration to keep checking visible, got \(viewModel.state)")
+            return
+        }
+
+        driver.prepareForNewCheck()
+        viewModel.cancelActiveStateForNewCheck()
+        scheduler.advance(by: timeoutDuration)
+
+        guard case .checking = viewModel.state else {
+            XCTFail("Expected cancelled delayed result to leave retry checking visible, got \(viewModel.state)")
+            return
+        }
+        XCTAssertEqual(acknowledgementCount, 0)
+        XCTAssertEqual(resultArrivalCount, 1)
+    }
+
     func testDownloadingProgressExtendsTimeoutForSlowNetwork() {
         let viewModel = UpdateViewModel()
         let scheduler = ManualUpdateOperationScheduler()
@@ -2165,11 +2196,13 @@ final class UpdateDriverTimeoutTests: XCTestCase {
         XCTAssertEqual(cancelCount, 1)
     }
 
-    private func makeDriver(viewModel: UpdateViewModel, scheduler: ManualUpdateOperationScheduler) -> UpdateDriver {
+    private func makeDriver(viewModel: UpdateViewModel,
+                            scheduler: ManualUpdateOperationScheduler,
+                            minimumCheckDuration: TimeInterval = 0) -> UpdateDriver {
         UpdateDriver(
             viewModel: viewModel,
             hostBundle: Bundle.main,
-            minimumCheckDuration: 0,
+            minimumCheckDuration: minimumCheckDuration,
             stateTimeoutDuration: timeoutDuration,
             scheduler: scheduler
         )

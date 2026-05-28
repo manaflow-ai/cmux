@@ -5,6 +5,7 @@ import Sparkle
 class UpdateDriver: NSObject, SPUUserDriver {
     let viewModel: UpdateViewModel
     var updateCycleDidFinish: (() -> Void)?
+    var updateResultDidArrive: (() -> Void)?
     private let minimumCheckDuration: TimeInterval
     private let checkingTimeoutDuration: TimeInterval
     private let downloadingTimeoutDuration: TimeInterval
@@ -111,6 +112,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
                 reply(.dismiss)
                 return
             }
+            updateResultDidArrive?()
             setStateAfterMinimumCheckDelay(.updateAvailable(.init(appcastItem: appcastItem, reply: reply)), generation: generation)
         }
     }
@@ -121,6 +123,19 @@ class UpdateDriver: NSObject, SPUUserDriver {
 
     func showUpdateReleaseNotesFailedToDownloadWithError(_ error: any Error) {
         // Release notes are handled via link buttons.
+    }
+
+    func prepareForNewCheck() {
+        runSynchronouslyOnMain { [weak self] in
+            guard let self else { return }
+            pendingCheckTransition?.cancel()
+            pendingCheckTransition = nil
+            cancelStateTimeout()
+            currentOperationGeneration += 1
+            timedOutOperationGeneration = nil
+            lastCheckStart = nil
+            UpdateLogStore.shared.append("prepared update driver for new check")
+        }
     }
 
     func showUpdateNotFoundWithError(_ error: any Error,
@@ -136,6 +151,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
                 acknowledgement()
                 return
             }
+            updateResultDidArrive?()
             setStateAfterMinimumCheckDelay(.notFound(.init(acknowledgement: acknowledgement)), generation: generation)
         }
     }
@@ -144,6 +160,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
                           acknowledgement: @escaping () -> Void) {
         let details = formatErrorForLog(error)
         UpdateLogStore.shared.append("show updater error: \(details)")
+        updateResultDidArrive?()
         setState(.error(.init(
             error: error,
             retry: {
@@ -557,6 +574,14 @@ class UpdateDriver: NSObject, SPUUserDriver {
             action()
         } else {
             DispatchQueue.main.async(execute: action)
+        }
+    }
+
+    private func runSynchronouslyOnMain(_ action: @escaping () -> Void) {
+        if Thread.isMainThread {
+            action()
+        } else {
+            DispatchQueue.main.sync(execute: action)
         }
     }
 }
