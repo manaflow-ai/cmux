@@ -28,15 +28,15 @@ The sidebar layout, top to bottom:
 
 ## Creating a group
 
-### From the keyboard (`⌘⇧G`)
+### From the keyboard (`⌥⌘G`)
 
-Select one or more workspaces in the sidebar, press `⌘⇧G`, enter a name. A fresh anchor workspace is inserted above the selection; all selected workspaces become children.
+Select one or more workspaces in the sidebar, press `⌥⌘G`. A fresh anchor workspace is inserted above the selection; all selected workspaces become children. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu). `⌘⇧G` is intentionally NOT the default to avoid colliding with the React Grab shortcut.
 
 If nothing is selected, the active workspace is grouped on its own.
 
 ### From a workspace context menu
 
-Right-click any workspace in the sidebar, choose **New Group from Workspace…** (or **New Group from Selection…** when multiple workspaces are selected), enter a name. Same behavior as the shortcut.
+Right-click any workspace in the sidebar, choose **New Group from Workspace** (or **New Group from Selection** when multiple workspaces are selected). Same auto-naming behavior as the shortcut.
 
 ### From the group header context menu
 

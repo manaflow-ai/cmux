@@ -6128,7 +6128,7 @@ class TerminalController {
         // from workspace.list / workspace-group list.
         let rawChildren = (params["child_workspace_ids"] as? [String]) ?? []
         var unresolved: [String] = []
-        let childIds: [UUID] = rawChildren.compactMap { raw -> UUID? in
+        let parsedChildIds: [UUID] = rawChildren.compactMap { raw -> UUID? in
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
             if let uuid = v2UUIDAny(trimmed) {
@@ -6144,6 +6144,23 @@ class TerminalController {
                 data: ["unresolved": unresolved]
             )
         }
+        // A syntactically valid UUID can still reference a workspace that
+        // doesn't exist in this TabManager (typo, stale snapshot from a
+        // closed window). Surface those explicitly instead of letting
+        // createWorkspaceGroup silently drop them and produce an
+        // anchor-only group.
+        let knownTabIds: Set<UUID> = v2MainSync { Set(tabManager.tabs.map(\.id)) }
+        let missing: [String] = parsedChildIds.compactMap { id in
+            knownTabIds.contains(id) ? nil : id.uuidString
+        }
+        if !missing.isEmpty {
+            return .err(
+                code: "not_found",
+                message: "Child workspace not found in target window: \(missing.joined(separator: ", "))",
+                data: ["unknown_workspace_ids": missing]
+            )
+        }
+        let childIds = parsedChildIds
         // Default `select` to false so socket-driven group creation doesn't
         // steal the user's focus (CLAUDE.md socket focus policy). Callers
         // that explicitly want to focus the new anchor pass `"select": true`.

@@ -5581,6 +5581,12 @@ class TabManager: ObservableObject {
             tab.groupId = inferred
             // Renormalize after group change to keep tiers contiguous.
             normalizeWorkspaceGroupContiguity()
+        } else if inferred != nil {
+            // Same-group drag: membership unchanged, but the drop may have
+            // placed a non-anchor before the anchor in tabs[]. Renormalize
+            // so the anchor stays at the section's leading edge (matches
+            // the visible header position).
+            normalizeWorkspaceGroupContiguity()
         }
     }
 
@@ -6088,10 +6094,11 @@ class TabManager: ObservableObject {
         let used = Set(workspaceGroups.map(\.name))
         var n = workspaceGroups.count + 1
         while true {
-            let candidate = String(
+            let format = String(
                 localized: "workspaceGroup.autoName.numbered",
-                defaultValue: "Group \(n)"
+                defaultValue: "Group %lld"
             )
+            let candidate = String.localizedStringWithFormat(format, n)
             if !used.contains(candidate) { return candidate }
             n += 1
         }
@@ -6947,22 +6954,29 @@ class TabManager: ObservableObject {
             localized: "dialog.closeAnchor.title",
             defaultValue: "Close this workspace?"
         )
+        // Use printf-style format specifiers and String(format:) so the
+        // catalog entry can substitute the group name and member count at
+        // runtime. Embedding Swift `\(groupName)` interpolation in the
+        // catalog `value` would render literal `\(groupName)` on lookup.
         let message: String
         if otherMemberCount == 0 {
-            message = String(
+            let format = String(
                 localized: "dialog.closeAnchor.message.lone",
-                defaultValue: "Closing this workspace will remove the group \u{201C}\(groupName)\u{201D}."
+                defaultValue: "Closing this workspace will remove the group \u{201C}%@\u{201D}."
             )
+            message = String.localizedStringWithFormat(format, groupName)
         } else if otherMemberCount == 1 {
-            message = String(
+            let format = String(
                 localized: "dialog.closeAnchor.message.one",
-                defaultValue: "Closing this workspace will ungroup \u{201C}\(groupName)\u{201D} and release 1 other workspace."
+                defaultValue: "Closing this workspace will ungroup \u{201C}%@\u{201D} and release 1 other workspace."
             )
+            message = String.localizedStringWithFormat(format, groupName)
         } else {
-            message = String(
+            let format = String(
                 localized: "dialog.closeAnchor.message.many",
-                defaultValue: "Closing this workspace will ungroup \u{201C}\(groupName)\u{201D} and release \(otherMemberCount) other workspaces."
+                defaultValue: "Closing this workspace will ungroup \u{201C}%1$@\u{201D} and release %2$lld other workspaces."
             )
+            message = String.localizedStringWithFormat(format, groupName, otherMemberCount)
         }
 
         let alert = NSAlert()
