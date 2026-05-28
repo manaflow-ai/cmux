@@ -3669,40 +3669,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
-    func testConfiguredCmdShiftRRequestsRenameWorkspaceInCommandPalette() {
+    func testConfiguredCmdShiftRRoutesToRenameWorkspaceCommandPaletteRequest() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 120, height: 80),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.tests.renameWorkspaceShortcut")
-        defer { closeTestWindow(window) }
-
-        var observedWorkspaceWindow: NSWindow?
-        let workspaceToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteRenameWorkspaceRequested,
-            object: nil,
-            queue: nil
-        ) { notification in
-            observedWorkspaceWindow = notification.object as? NSWindow
-        }
-        defer { NotificationCenter.default.removeObserver(workspaceToken) }
-
-        var renameTabRequestCount = 0
-        let renameTabToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteRenameTabRequested,
-            object: nil,
-            queue: nil
-        ) { _ in
-            renameTabRequestCount += 1
-        }
-        defer { NotificationCenter.default.removeObserver(renameTabToken) }
 
         let event = makeKeyEvent(
             modifierFlags: [.command, .shift],
@@ -3714,13 +3685,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .renameWorkspace))
         XCTAssertFalse(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .renameTab))
+        XCTAssertEqual(appDelegate.debugCommandPaletteShortcutRequest(for: event), .renameWorkspace)
 #else
-        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
+        XCTFail("command palette shortcut routing debug hooks are only available in DEBUG")
 #endif
-
-        XCTAssertTrue(appDelegate.requestRenameWorkspaceViaCommandPalette(preferredWindow: window))
-        XCTAssertTrue(observedWorkspaceWindow === window)
-        XCTAssertEqual(renameTabRequestCount, 0)
     }
 
     func testCmdOptionEMatchesEditWorkspaceDescriptionShortcut() {

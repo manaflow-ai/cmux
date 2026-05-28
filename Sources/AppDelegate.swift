@@ -13857,6 +13857,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
+    enum DebugCommandPaletteShortcutRequest: Equatable {
+        case commands
+        case switcher
+        case renameWorkspace
+        case editWorkspaceDescription
+        case renameTab
+    }
+
     // Debug/test hook: allow socket-driven shortcut simulation to reuse the same shortcut routing
     // logic as the local NSEvent monitor, without relying on AppKit event monitor behavior for
     // synthetic NSEvents.
@@ -13881,6 +13889,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         action: KeyboardShortcutSettings.Action
     ) -> Bool {
         matchConfiguredShortcut(event: event, action: action)
+    }
+
+    func debugCommandPaletteShortcutRequest(for event: NSEvent) -> DebugCommandPaletteShortcutRequest? {
+        if matchConfiguredShortcut(event: event, action: .commandPalette) {
+            return .commands
+        }
+        if matchConfiguredShortcut(event: event, action: .goToWorkspace) {
+            return .switcher
+        }
+        if matchConfiguredShortcut(event: event, action: .renameWorkspace) {
+            return .renameWorkspace
+        }
+        if matchConfiguredShortcut(event: event, action: .editWorkspaceDescription) {
+            return .editWorkspaceDescription
+        }
+        if matchConfiguredShortcut(event: event, action: .renameTab) {
+            return .renameTab
+        }
+        return nil
     }
 
     func debugMainWindowForFocusedCloseShortcut(event: NSEvent) -> NSWindow? {
