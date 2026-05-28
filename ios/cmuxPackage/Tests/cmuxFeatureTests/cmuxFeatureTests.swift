@@ -161,6 +161,71 @@ import UIKit
     #expect(await cancelled.isSet())
 }
 
+@Test func cancelledQueuedRPCIsNotWrittenAfterEarlierSendCompletes() async throws {
+    let transport = QueuedCancellationProbeTransport()
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59123)
+    let runtime = testRuntime(
+        transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+        rpcRequestTimeoutNanoseconds: 60 * 1_000_000_000
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "workspace-main",
+        terminalID: "terminal-main",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let client = MobileCoreRPCClient(runtime: runtime, route: route, ticket: ticket)
+    let firstRequest = try MobileCoreRPCClient.requestData(
+        method: "terminal.input",
+        params: [
+            "workspace_id": "workspace-main",
+            "terminal_id": "terminal-main",
+            "text": "first",
+        ],
+        id: "first-input"
+    )
+    let queuedRequest = try MobileCoreRPCClient.requestData(
+        method: "workspace.create",
+        params: ["title": "queued-workspace"],
+        id: "queued-create"
+    )
+
+    let firstTask = Task {
+        try await client.sendRequest(firstRequest)
+    }
+    let firstSent = try await transport.waitForSentRequestCount(1)
+    #expect(firstSent.map(\.method) == ["terminal.input"])
+
+    let queuedTask = Task {
+        try await client.sendRequest(queuedRequest)
+    }
+    for _ in 0..<100 {
+        await Task.yield()
+    }
+    queuedTask.cancel()
+    do {
+        _ = try await queuedTask.value
+        Issue.record("Expected queued RPC cancellation to throw")
+    } catch {
+    }
+
+    await transport.releaseFirstSend()
+    for _ in 0..<100 {
+        if try await transport.sentRequests().count > 1 {
+            break
+        }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+
+    let sent = try await transport.sentRequests()
+    #expect(sent.map(\.method) == ["terminal.input"])
+    firstTask.cancel()
+    _ = try? await firstTask.value
+}
+
 @Test func mobileRuntimeDefaultsToThirtySecondRPCTimeout() {
     let runtime = CMUXMobileRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -3447,6 +3512,14 @@ private struct ScriptedTransportFactory: CmxByteTransportFactory {
     }
 }
 
+private struct QueuedCancellationProbeTransportFactory: CmxByteTransportFactory {
+    let transport: QueuedCancellationProbeTransport
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        transport
+    }
+}
+
 private struct FailingRouteTransportFactory: CmxByteTransportFactory {
     let failingRouteID: String
     let responses: ScriptedTransportResponses
@@ -4321,6 +4394,68 @@ private actor ScriptedTransport: CmxByteTransport {
         for waiter in waiters {
             waiter.resume(returning: nil)
         }
+    }
+}
+
+private actor QueuedCancellationProbeTransport: CmxByteTransport {
+    private var sentPayloads: [Data] = []
+    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
+    private var firstSendRelease: CheckedContinuation<Void, Never>?
+    private var shouldBlockFirstSend = true
+    private var isClosed = false
+
+    func connect() async throws {}
+
+    func receive() async throws -> Data? {
+        if isClosed {
+            return nil
+        }
+        return await withCheckedContinuation { continuation in
+            receiveWaiters.append(continuation)
+        }
+    }
+
+    func send(_ data: Data) async throws {
+        var buffer = data
+        let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+        sentPayloads.append(contentsOf: payloads)
+        if shouldBlockFirstSend {
+            shouldBlockFirstSend = false
+            await withCheckedContinuation { continuation in
+                firstSendRelease = continuation
+            }
+        }
+    }
+
+    func close() async {
+        isClosed = true
+        let waiters = receiveWaiters
+        receiveWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
+        }
+        releaseFirstSend()
+    }
+
+    func releaseFirstSend() {
+        firstSendRelease?.resume()
+        firstSendRelease = nil
+    }
+
+    func sentRequests() throws -> [RecordedRPCRequest] {
+        try sentPayloads.map(recordedRPCRequest(from:))
+    }
+
+    func waitForSentRequestCount(_ count: Int) async throws -> [RecordedRPCRequest] {
+        var requests: [RecordedRPCRequest] = []
+        for _ in 0..<200 {
+            requests = try sentRequests()
+            if requests.count >= count {
+                return requests
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        return requests
     }
 }
 

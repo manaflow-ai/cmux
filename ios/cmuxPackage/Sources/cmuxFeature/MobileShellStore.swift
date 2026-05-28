@@ -3045,19 +3045,26 @@ private actor MobileCoreRPCSession {
         let continuation: AsyncStream<MobileEventEnvelope>.Continuation
     }
 
+    private struct PendingWrite: Sendable {
+        let requestID: String
+        let frame: Data
+    }
+
     private let makeTransport: TransportFactory
     private var transport: (any CmxByteTransport)?
     private var connectionTask: (id: UUID, task: Task<any CmxByteTransport, Error>)?
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
     private var pending: [String: PendingContinuation] = [:]
+    private var queuedRequestIDs: Set<String> = []
+    private var cancelledQueuedRequestIDs: Set<String> = []
     private var listeners: [UUID: EventListener] = [:]
     private var isTearingDown: Bool = false
     /// Pending writes drained by `writerTask`. Serializes `transport.send` so
     /// two concurrent `send(payload:requestID:)` callers never trip
     /// `CmxNetworkByteTransport.sendAlreadyInProgress`. AsyncStream backed so
     /// the writer parks on `await` instead of polling.
-    private var writeQueue: AsyncStream<Data>.Continuation?
+    private var writeQueue: AsyncStream<PendingWrite>.Continuation?
     private var writerTask: Task<Void, Never>?
 
     init(makeTransport: @escaping TransportFactory) {
@@ -3087,11 +3094,12 @@ private actor MobileCoreRPCSession {
                     continuation.resume(returning: .failure(.connectionClosed))
                     return
                 }
-                _ = queue.yield(frame)
+                queuedRequestIDs.insert(requestID)
+                _ = queue.yield(PendingWrite(requestID: requestID, frame: frame))
             }
         } onCancel: {
             Task {
-                await self.failPending(requestID: requestID, error: .requestTimedOut)
+                await self.cancelPendingRequest(requestID: requestID)
             }
         }
         switch result {
@@ -3125,6 +3133,8 @@ private actor MobileCoreRPCSession {
         isTearingDown = true
         let pendingSnapshot = pending
         pending.removeAll()
+        queuedRequestIDs.removeAll()
+        cancelledQueuedRequestIDs.removeAll()
         for (_, cont) in pendingSnapshot {
             cont.resume(returning: .failure(error))
         }
@@ -3205,7 +3215,7 @@ private actor MobileCoreRPCSession {
         // callers don't trigger CmxNetworkByteTransport.sendAlreadyInProgress.
         // Failures tear the whole session down which fails every pending
         // continuation.
-        let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
+        let (stream, continuation) = AsyncStream<PendingWrite>.makeStream(bufferingPolicy: .unbounded)
         writeQueue = continuation
         writerTask = Task { [weak self] in
             await self?.writeLoop(transport: candidate, frames: stream)
@@ -3213,11 +3223,14 @@ private actor MobileCoreRPCSession {
         return candidate
     }
 
-    private func writeLoop(transport: any CmxByteTransport, frames: AsyncStream<Data>) async {
-        for await frame in frames {
+    private func writeLoop(transport: any CmxByteTransport, frames: AsyncStream<PendingWrite>) async {
+        for await write in frames {
             if Task.isCancelled { return }
+            guard shouldSendQueuedWrite(requestID: write.requestID) else {
+                continue
+            }
             do {
-                try await transport.send(frame)
+                try await transport.send(write.frame)
             } catch {
                 await tearDown(error: .connectionClosed)
                 return
@@ -3298,5 +3311,21 @@ private actor MobileCoreRPCSession {
     private func failPending(requestID: String, error: MobileShellConnectionError) {
         guard let cont = pending.removeValue(forKey: requestID) else { return }
         cont.resume(returning: .failure(error))
+    }
+
+    private func cancelPendingRequest(requestID: String) {
+        guard let cont = pending.removeValue(forKey: requestID) else { return }
+        if queuedRequestIDs.remove(requestID) != nil {
+            cancelledQueuedRequestIDs.insert(requestID)
+        }
+        cont.resume(returning: .failure(.requestTimedOut))
+    }
+
+    private func shouldSendQueuedWrite(requestID: String) -> Bool {
+        let wasQueued = queuedRequestIDs.remove(requestID) != nil
+        if cancelledQueuedRequestIDs.remove(requestID) != nil {
+            return false
+        }
+        return wasQueued && pending[requestID] != nil
     }
 }
