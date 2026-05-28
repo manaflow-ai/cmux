@@ -68,6 +68,33 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
+    func testTypeScriptFileResolvesAsTextInsteadOfTransportStreamMedia() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try """
+        export const answer: number = 42;
+        console.log(answer);
+        """.write(to: url, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+    }
+
+    func testBinaryTransportStreamFileKeepsMediaPreview() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try Data([0x47, 0x40, 0x00, 0x10, 0x00, 0x47, 0x41, 0x00, 0x10, 0x00])
+            .write(to: url, options: .atomic)
+
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .media)
+    }
+
     func testQuickLookSessionCloseDoesNotDeactivateMountedRepresentableView() throws {
         let url = try temporaryBinaryFile()
         defer { try? FileManager.default.removeItem(at: url) }
