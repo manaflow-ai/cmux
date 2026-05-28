@@ -291,8 +291,8 @@
     "mobile.pairing.secureRouteRequired" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このペアリング経路は使用できません。ホストとポートを入力するか、そのコンピュータの QR/リンクでペアリングしてください。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "For LAN or .local hosts, pair with a QR/link from that computer. Direct sign-in pairing only runs over Tailscale." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "LAN または .local ホストでは、そのコンピュータの QR/リンクでペアリングしてください。直接サインインのペアリングは Tailscale 上でのみ実行されます。" } }
       }
     },
     "mobile.pairing.unsupportedRoute" : {

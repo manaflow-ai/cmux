@@ -359,7 +359,7 @@ enum MobileShellRouteAuthPolicy {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
         case (.tailscale, let .hostPort(host, _)):
-            return isTailscaleHost(host) || isPrivateLANHost(host) || isLocalDNSHost(host)
+            return isTailscaleHost(host)
         case (.iroh, .peer):
             return true
         default:
@@ -439,21 +439,6 @@ enum MobileShellRouteAuthPolicy {
             .hasSuffix(".ts.net")
     }
 
-    private static func isPrivateLANHost(_ host: String) -> Bool {
-        guard let octets = ipv4Octets(host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) else {
-            return false
-        }
-        return octets[0] == 10 ||
-            (octets[0] == 172 && (16...31).contains(octets[1])) ||
-            (octets[0] == 192 && octets[1] == 168) ||
-            (octets[0] == 169 && octets[1] == 254)
-    }
-
-    private static func isLocalDNSHost(_ host: String) -> Bool {
-        host.trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .hasSuffix(".local")
-    }
 }
 
 @MainActor
@@ -886,23 +871,20 @@ public final class CMUXMobileShellStore {
     private func manualHostTicket(name: String, host: String, port: Int) async throws -> CmxAttachTicket {
         let directRoute = try Self.manualHostRoute(host: host, port: port)
         let displayName = name.isEmpty ? host : name
-        if MobileShellRouteAuthPolicy.routeAllowsStackAuth(directRoute) {
-            do {
-                let ticket = try await requestManualAttachTicket(
-                    route: directRoute,
-                    displayName: displayName
-                )
-                return ticket
-            } catch {
-                guard Self.shouldFallbackToSyntheticManualTicket(after: error) else {
-                    throw error
-                }
-            }
-            return try Self.manualHostTicket(
-                displayName: displayName,
-                macDeviceID: "manual-\(host):\(port)",
-                route: directRoute
+        guard MobileShellRouteAuthPolicy.routeAllowsStackAuth(directRoute) else {
+            throw MobileShellConnectionError.insecureManualRoute
+        }
+
+        do {
+            let ticket = try await requestManualAttachTicket(
+                route: directRoute,
+                displayName: displayName
             )
+            return ticket
+        } catch {
+            guard Self.shouldFallbackToSyntheticManualTicket(after: error) else {
+                throw error
+            }
         }
         return try Self.manualHostTicket(
             displayName: displayName,
@@ -2441,7 +2423,7 @@ public final class CMUXMobileShellStore {
                 hostPort: hostPort
             )
         case .insecureManualRoute:
-            return L10n.string("mobile.pairing.secureRouteRequired", defaultValue: "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
+            return L10n.string("mobile.pairing.secureRouteRequired", defaultValue: "For LAN or .local hosts, pair with a QR/link from that computer. Direct sign-in pairing only runs over Tailscale.")
         case .attachTicketExpired:
             return L10n.string("mobile.pairing.attachTicketExpired", defaultValue: "This pairing link expired. Pair again with a fresh QR/link from that computer.")
         case .authorizationFailed:
