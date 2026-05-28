@@ -6147,7 +6147,32 @@ class TerminalController {
         // child_workspace_ids accepts raw UUID strings AND v2 handle refs
         // (workspace:1, ws:1, etc.) so callers can use whatever they got back
         // from workspace.list / workspace-group list.
-        let rawChildren = (params["child_workspace_ids"] as? [String]) ?? []
+        //
+        // Default behavior when the param is absent (e.g. `cmux workspace-group
+        // create --name foo` from a cmux terminal): group the active sidebar
+        // selection, or fall back to the caller workspace_id, or the focused
+        // workspace. An empty array (explicit `--from ""`) still creates an
+        // anchor-only group.
+        let rawChildren: [String]
+        if let provided = params["child_workspace_ids"] as? [String] {
+            rawChildren = provided
+        } else {
+            let fallbackIds: [UUID] = v2MainSync {
+                let selected = tabManager.sidebarSelectedWorkspaceIds
+                if !selected.isEmpty {
+                    return tabManager.tabs.compactMap { selected.contains($0.id) ? $0.id : nil }
+                }
+                if let callerId = v2UUID(params, "workspace_id"),
+                   tabManager.tabs.contains(where: { $0.id == callerId }) {
+                    return [callerId]
+                }
+                if let selectedId = tabManager.selectedTabId {
+                    return [selectedId]
+                }
+                return []
+            }
+            rawChildren = fallbackIds.map { $0.uuidString }
+        }
         var unresolved: [String] = []
         let parsedChildIds: [UUID] = rawChildren.compactMap { raw -> UUID? in
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)

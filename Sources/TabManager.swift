@@ -5697,6 +5697,14 @@ class TabManager: ObservableObject {
         let workspacesById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         let finalIds = batchWorkspaceReorderFinalIds(orderedWorkspaceIds: orderedWorkspaceIds)
         tabs = finalIds.compactMap { workspacesById[$0] }
+        // Batch reorder rebuilds tabs from scratch, ignoring group section
+        // ordering — that can split a group across the array or land a
+        // non-anchor in front of its anchor. Renormalize so the contiguous
+        // section + anchor-first invariants hold for socket
+        // workspace.reorder_many / `cmux reorder-workspaces`.
+        if !workspaceGroups.isEmpty {
+            normalizeWorkspaceGroupContiguity()
+        }
         postWorkspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
         return result
     }

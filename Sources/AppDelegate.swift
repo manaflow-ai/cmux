@@ -14123,13 +14123,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // gated on a first-run trust prompt because the workspace doesn't
         // exist until the user grants permission.
         let beforeIds = Set(tabManager.tabs.map(\.id))
-        let onExecuted: () -> Void = { [weak tabManager, groupId, beforeIds] in
+        // Group menu actions should run as if the anchor were the active
+        // workspace: the executor derives the new workspace's cwd from
+        // `context.tabManager.selectedWorkspace`, and a group menu item is
+        // conceptually scoped to the anchor's cwd (that's how it was matched
+        // in `workspaceGroups.byCwd` in the first place). Temporarily switch
+        // selection to the anchor for the duration of the action; if the user
+        // had a different workspace focused before, restore it once the
+        // action's onExecuted fires. Skipped when no action workspace was
+        // created so we don't strand selection on the anchor.
+        let anchorId = tabManager.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId
+        let previousSelectedId = tabManager.selectedTabId
+        if let anchorId, anchorId != previousSelectedId,
+           tabManager.tabs.contains(where: { $0.id == anchorId }) {
+            tabManager.selectedTabId = anchorId
+        }
+        let onExecuted: () -> Void = { [weak tabManager, groupId, beforeIds, previousSelectedId, anchorId] in
             guard let tabManager else { return }
             let afterIds = tabManager.tabs.map(\.id)
+            var newlyCreatedId: UUID?
             for id in afterIds where !beforeIds.contains(id) {
                 tabManager.addWorkspaceToGroup(workspaceId: id, groupId: groupId)
+                newlyCreatedId = id
                 break
             }
+            // Restore the prior selection if the action didn't create a new
+            // workspace (the gesture wasn't "go work in the new one") and
+            // the previous selection still exists. When a new workspace was
+            // created, leave it focused — that matches what the equivalent
+            // bare `+` button does.
+            if newlyCreatedId == nil,
+               let previousSelectedId,
+               previousSelectedId != tabManager.selectedTabId,
+               tabManager.tabs.contains(where: { $0.id == previousSelectedId }) {
+                tabManager.selectedTabId = previousSelectedId
+            }
+            _ = anchorId
         }
         return executeConfiguredCmuxAction(
             action,
