@@ -89,9 +89,18 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             .appendingPathExtension("ts")
         defer { try? FileManager.default.removeItem(at: url) }
 
-        try Data([0x47, 0x40, 0x00, 0x10, 0x00, 0x47, 0x41, 0x00, 0x10, 0x00])
-            .write(to: url, options: .atomic)
+        var data = Data(repeating: 0, count: 188 * 2)
+        data[0] = 0x47
+        data[1] = 0x40
+        data[2] = 0x00
+        data[3] = 0x10
+        data[188] = 0x47
+        data[189] = 0x41
+        data[190] = 0x00
+        data[191] = 0x10
+        try data.write(to: url, options: .atomic)
 
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .media)
     }
 

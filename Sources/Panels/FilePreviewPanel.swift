@@ -735,9 +735,14 @@ enum FilePreviewKindResolver {
             return .resolved(.quickLook)
         }
 
-        if knownTextFileNeedsSniffBeforeMedia(url: url),
-           sniffLooksLikeText(url: url) {
-            return .resolved(.text)
+        if knownTextFileNeedsSniffBeforeMedia(url: url) {
+            if looksLikeMPEGTransportStream(url: url),
+               let mediaMode = contentTypes(for: url).lazy.compactMap({ mediaMode(for: $0) }).first {
+                return .resolved(mediaMode)
+            }
+            if sniffLooksLikeText(url: url) {
+                return .resolved(.text)
+            }
         }
 
         for type in contentTypes(for: url) {
@@ -822,19 +827,43 @@ enum FilePreviewKindResolver {
         return String(data: data, encoding: .ascii) == "bplist00"
     }
 
+    private static func looksLikeMPEGTransportStream(url: URL) -> Bool {
+        guard url.pathExtension.lowercased() == "ts",
+              let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+
+        let data = (try? handle.read(upToCount: 4096)) ?? Data()
+        guard data.count >= 376 else { return false }
+
+        for packetSize in [188, 192, 204] where data.count > packetSize {
+            var offset = 0
+            var syncCount = 0
+            while offset < data.count {
+                guard data[offset] == 0x47 else { break }
+                syncCount += 1
+                offset += packetSize
+            }
+            if syncCount >= 2 {
+                return true
+            }
+        }
+
+        return false
+    }
+
     private static func sniffLooksLikeText(url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
         let data = (try? handle.read(upToCount: 4096)) ?? Data()
         guard !data.isEmpty else { return true }
-        if String(data: data, encoding: .utf8) != nil {
-            return true
-        }
         if hasUTF16ByteOrderMark(data), String(data: data, encoding: .utf16) != nil {
             return true
         }
         if data.contains(0) {
             return false
+        }
+        if String(data: data, encoding: .utf8) != nil {
+            return true
         }
         return false
     }
