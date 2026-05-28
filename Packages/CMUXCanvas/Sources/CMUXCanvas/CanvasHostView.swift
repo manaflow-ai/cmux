@@ -57,7 +57,8 @@ public final class CanvasHostView: NSView {
         backgroundColor: NSColor,
         style: CanvasShellStyle = CanvasShellStyle(),
         surfaceTextures: [CanvasSurfaceTextureSource] = [],
-        preferredFramesPerSecond: Int = 120
+        preferredFramesPerSecond: Int = 120,
+        forceContinuousRender: Bool = false
     ) {
         self.scene = scene
         self.style = style
@@ -82,7 +83,7 @@ public final class CanvasHostView: NSView {
         metalView.preferredFramesPerSecond = max(1, preferredFramesPerSecond)
         metalView.clearColor = renderer.clearColor
         metalView.layer?.isOpaque = true
-        applyRenderLoopMode(surfaceTextures: surfaceTextures)
+        applyRenderLoopMode(surfaceTextures: surfaceTextures, forceContinuousRender: forceContinuousRender)
 
         addSubview(metalView)
         NSLayoutConstraint.activate([
@@ -107,18 +108,25 @@ public final class CanvasHostView: NSView {
         backgroundColor: NSColor,
         style: CanvasShellStyle = CanvasShellStyle(),
         surfaceTextures: [CanvasSurfaceTextureSource] = [],
-        preferredFramesPerSecond: Int = 120
+        preferredFramesPerSecond: Int = 120,
+        forceContinuousRender: Bool = false
     ) {
         self.scene = scene
         self.style = style
         renderer.update(scene: scene, backgroundColor: backgroundColor, style: style, surfaceTextures: surfaceTextures)
         metalView.preferredFramesPerSecond = max(1, preferredFramesPerSecond)
         metalView.clearColor = renderer.clearColor
-        applyRenderLoopMode(surfaceTextures: surfaceTextures)
+        applyRenderLoopMode(surfaceTextures: surfaceTextures, forceContinuousRender: forceContinuousRender)
     }
 
-    private func applyRenderLoopMode(surfaceTextures: [CanvasSurfaceTextureSource]) {
-        let mode = CanvasMetalRenderLoopMode.resolve(surfaceTextures: surfaceTextures)
+    private func applyRenderLoopMode(
+        surfaceTextures: [CanvasSurfaceTextureSource],
+        forceContinuousRender: Bool
+    ) {
+        let mode = CanvasMetalRenderLoopMode.resolve(
+            surfaceTextures: surfaceTextures,
+            forceContinuousRender: forceContinuousRender
+        )
         metalView.isPaused = mode.isPaused
         metalView.enableSetNeedsDisplay = mode.enableSetNeedsDisplay
         if mode.requestsImmediateDisplay {
@@ -133,19 +141,22 @@ public struct CanvasHostRepresentable: NSViewRepresentable {
     public var style: CanvasShellStyle
     public var surfaceTextures: [CanvasSurfaceTextureSource]
     public var preferredFramesPerSecond: Int
+    public var forceContinuousRender: Bool
 
     public init(
         scene: CanvasScene = CanvasScene(),
         backgroundColor: NSColor,
         style: CanvasShellStyle = CanvasShellStyle(),
         surfaceTextures: [CanvasSurfaceTextureSource] = [],
-        preferredFramesPerSecond: Int = 120
+        preferredFramesPerSecond: Int = 120,
+        forceContinuousRender: Bool = false
     ) {
         self.scene = scene
         self.backgroundColor = backgroundColor
         self.style = style
         self.surfaceTextures = surfaceTextures
         self.preferredFramesPerSecond = preferredFramesPerSecond
+        self.forceContinuousRender = forceContinuousRender
     }
 
     public func makeNSView(context: Context) -> CanvasHostView {
@@ -154,7 +165,8 @@ public struct CanvasHostRepresentable: NSViewRepresentable {
             backgroundColor: backgroundColor,
             style: style,
             surfaceTextures: surfaceTextures,
-            preferredFramesPerSecond: preferredFramesPerSecond
+            preferredFramesPerSecond: preferredFramesPerSecond,
+            forceContinuousRender: forceContinuousRender
         )
     }
 
@@ -164,7 +176,8 @@ public struct CanvasHostRepresentable: NSViewRepresentable {
             backgroundColor: backgroundColor,
             style: style,
             surfaceTextures: surfaceTextures,
-            preferredFramesPerSecond: preferredFramesPerSecond
+            preferredFramesPerSecond: preferredFramesPerSecond,
+            forceContinuousRender: forceContinuousRender
         )
     }
 }
@@ -754,12 +767,22 @@ struct CanvasMetalRenderLoopMode: Equatable {
     var enableSetNeedsDisplay: Bool
     var requestsImmediateDisplay: Bool
 
-    static func resolve(surfaceTextures: [CanvasSurfaceTextureSource]) -> CanvasMetalRenderLoopMode {
+    static func resolve(
+        surfaceTextures: [CanvasSurfaceTextureSource],
+        forceContinuousRender: Bool = false
+    ) -> CanvasMetalRenderLoopMode {
         let hasContinuousTexture = surfaceTextures.contains { $0.requiresContinuousRendering }
+        if forceContinuousRender || hasContinuousTexture {
+            return CanvasMetalRenderLoopMode(
+                isPaused: false,
+                enableSetNeedsDisplay: false,
+                requestsImmediateDisplay: false
+            )
+        }
         return CanvasMetalRenderLoopMode(
-            isPaused: !hasContinuousTexture,
-            enableSetNeedsDisplay: !hasContinuousTexture,
-            requestsImmediateDisplay: !hasContinuousTexture
+            isPaused: true,
+            enableSetNeedsDisplay: true,
+            requestsImmediateDisplay: true
         )
     }
 }

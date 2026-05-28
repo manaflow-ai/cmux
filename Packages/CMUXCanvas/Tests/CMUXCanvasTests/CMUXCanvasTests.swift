@@ -183,6 +183,20 @@ final class CMUXCanvasTests: XCTestCase {
         XCTAssertEqual(mode.requestsImmediateDisplay, true)
     }
 
+    func testCameraMotionCanForceContinuousMetalDisplayModeForStaticTextures() throws {
+        let image = try XCTUnwrap(Self.makeTestImage())
+        let source = CanvasSurfaceTextureSource(id: LayoutItemID(), image: image, generation: 1)
+
+        let mode = CanvasMetalRenderLoopMode.resolve(
+            surfaceTextures: [source],
+            forceContinuousRender: true
+        )
+
+        XCTAssertEqual(mode.isPaused, false)
+        XCTAssertEqual(mode.enableSetNeedsDisplay, false)
+        XCTAssertEqual(mode.requestsImmediateDisplay, false)
+    }
+
 #if canImport(IOSurface)
     func testIOSurfaceTexturesUseContinuousMetalDisplayMode() throws {
         let properties = [

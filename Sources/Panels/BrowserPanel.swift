@@ -3655,6 +3655,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
                 boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
                 self.refreshFavicon(from: webView)
+                self.postCanvasPreviewInvalidation()
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
             }
@@ -6390,7 +6391,15 @@ extension BrowserPanel {
 
     /// Take a snapshot of the web view
     func takeSnapshot(completion: @escaping (NSImage?) -> Void) {
+        guard webView.window != nil,
+              !webView.isHidden,
+              webView.bounds.width > 1,
+              webView.bounds.height > 1 else {
+            completion(nil)
+            return
+        }
         let config = WKSnapshotConfiguration()
+        config.rect = webView.bounds
         webView.takeSnapshot(with: config) { image, error in
             if let error = error {
                 NSLog("BrowserPanel snapshot error: %@", error.localizedDescription)
@@ -6399,6 +6408,10 @@ extension BrowserPanel {
             }
             completion(image)
         }
+    }
+
+    private func postCanvasPreviewInvalidation() {
+        NotificationCenter.default.post(name: .browserCanvasPreviewDidChange, object: id)
     }
 
     /// Execute JavaScript

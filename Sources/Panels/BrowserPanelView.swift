@@ -6537,6 +6537,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         webView.cmuxIsManagedByExternalFullscreenWindow(relativeTo: expectedWindow)
     }
 
+    private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.5) -> Bool {
+        abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
+            abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
+            abs(lhs.width - rhs.width) <= epsilon &&
+            abs(lhs.height - rhs.height) <= epsilon
+    }
+
     private static func localInlineTransferRoot(for webView: WKWebView) -> NSView? {
         var current = webView.superview
         var last: NSView?
@@ -6656,6 +6663,43 @@ struct WebViewRepresentable: NSViewRepresentable {
         primaryWebView.layoutSubtreeIfNeeded()
     }
 
+    private static func normalizeCanvasInlineWebKitGeometry(
+        in slotView: WindowBrowserSlotView,
+        primaryWebView: WKWebView,
+        reason: String
+    ) {
+        let root = directTransferChild(of: slotView, containing: primaryWebView) ?? primaryWebView
+        let oldBoundsSize = root.bounds.size
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if root.superview === slotView,
+           !rectApproximatelyEqual(root.frame, slotView.bounds, epsilon: 0.5) {
+            root.frame = slotView.bounds
+        }
+        if root === primaryWebView,
+           primaryWebView.superview === slotView,
+           !rectApproximatelyEqual(primaryWebView.frame, slotView.bounds, epsilon: 0.5) {
+            primaryWebView.frame = slotView.bounds
+        }
+        CATransaction.commit()
+
+        normalizeTransferredWebKitRoot(
+            root,
+            primaryWebView: primaryWebView,
+            oldBoundsSize: oldBoundsSize
+        )
+        slotView.needsLayout = true
+        slotView.layoutSubtreeIfNeeded()
+#if DEBUG
+        cmuxDebugLog(
+            "browser.canvasHost.geometry.normalize reason=\(reason) " +
+            "root=\(Self.objectID(root)) rootFrame=\(browserPanelViewRectDescription(root.frame)) " +
+            "slot=\(Self.objectID(slotView)) slotBounds=\(browserPanelViewRectDescription(slotView.bounds)) " +
+            "web=\(Self.objectID(primaryWebView)) webFrame=\(browserPanelViewRectDescription(primaryWebView.frame))"
+        )
+#endif
+    }
+
     private static func moveWebKitRelatedSubviewsIntoHostIfNeeded(
         from sourceSuperview: NSView,
         to container: WindowBrowserSlotView,
@@ -6719,6 +6763,11 @@ struct WebViewRepresentable: NSViewRepresentable {
             container.needsLayout = true
             container.layoutSubtreeIfNeeded()
         }
+        normalizeCanvasInlineWebKitGeometry(
+            in: container,
+            primaryWebView: primaryWebView,
+            reason: reason
+        )
     }
 
     private static func installPortalAnchorView(_ anchorView: NSView, in host: NSView) {
@@ -7101,6 +7150,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         if webView.superview === slotView {
             webView.frame = slotView.bounds
         }
+        Self.normalizeCanvasInlineWebKitGeometry(
+            in: slotView,
+            primaryWebView: webView,
+            reason: reason
+        )
         host.pinHostedWebView(webView, in: slotView)
         slotView.needsLayout = true
         slotView.needsDisplay = true
