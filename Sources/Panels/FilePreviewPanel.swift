@@ -736,11 +736,11 @@ enum FilePreviewKindResolver {
         }
 
         if needsSniffBeforeTextOrMedia(url: url) {
-            if looksLikeMPEGTransportStream(url: url) {
-                return .resolved(.media)
-            }
             if sniffLooksLikeText(url: url) {
                 return .resolved(.text)
+            }
+            if looksLikeMPEGTransportStream(url: url) {
+                return .resolved(.media)
             }
             if let mediaMode = contentTypes(for: url).lazy.compactMap({ mediaMode(for: $0) }).first {
                 return .resolved(mediaMode)
@@ -868,10 +868,14 @@ enum FilePreviewKindResolver {
         if data.contains(0) {
             return false
         }
-        if String(data: data, encoding: .utf8) != nil {
-            return true
+        guard let sample = String(data: data, encoding: .utf8) else {
+            return false
         }
-        return false
+        return sample.unicodeScalars.allSatisfy { scalar in
+            let value = scalar.value
+            return !CharacterSet.controlCharacters.contains(scalar)
+                || value == 0x09 || value == 0x0A || value == 0x0D
+        }
     }
 
     private static func hasUTF16ByteOrderMark(_ data: Data) -> Bool {

@@ -83,6 +83,23 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
+    func testTypeScriptTextWinsOverTransportStreamSyncBytePattern() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let source = "G"
+            + String(repeating: "a", count: 187)
+            + "G"
+            + String(repeating: "b", count: 187)
+            + "\nexport const answer: number = 42;\n"
+        try source.write(to: url, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+    }
+
     func testBinaryTransportStreamFileKeepsMediaPreview() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
