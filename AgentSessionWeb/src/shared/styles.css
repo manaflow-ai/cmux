@@ -644,7 +644,7 @@ select {
 .send-button:disabled {
   color: var(--color-token-dropdown-background);
   background: var(--color-token-foreground);
-  opacity: 0.3;
+  opacity: 0.5;
 }
 
 .rate-line {
