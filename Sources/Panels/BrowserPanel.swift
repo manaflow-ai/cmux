@@ -3436,6 +3436,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let preserveRestoredSessionHistory: Bool
     }
     private var pendingRemoteNavigation: PendingRemoteNavigation?
+    private let bypassesRemoteWorkspaceProxy: Bool
     private let developerToolsDetachedOpenGracePeriod: TimeInterval = 0.35
     private var developerToolsDetachedOpenGraceDeadline: Date?
     private var developerToolsTransitionTargetVisible: Bool?
@@ -4067,6 +4068,7 @@ final class BrowserPanel: Panel, ObservableObject {
         bypassInsecureHTTPHostOnce: String? = nil,
         omnibarVisible: Bool = true,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
+        bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil
     ) {
@@ -4079,8 +4081,9 @@ final class BrowserPanel: Panel, ObservableObject {
         self.profileID = resolvedProfileID
         self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
-        self.remoteProxyEndpoint = proxyEndpoint
-        self.usesRemoteWorkspaceProxy = isRemoteWorkspace
+        self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
+        self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
+        self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.isOmnibarVisible = omnibarVisible
@@ -4386,6 +4389,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func setRemoteProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {
+        guard !bypassesRemoteWorkspaceProxy else { return }
         guard remoteProxyEndpoint != endpoint else { return }
         remoteProxyEndpoint = endpoint
         applyRemoteProxyConfigurationIfAvailable()
@@ -4463,13 +4467,13 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteStatus: BrowserRemoteWorkspaceStatus?
     ) {
         workspaceId = newWorkspaceId
-        usesRemoteWorkspaceProxy = isRemoteWorkspace
+        usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
         let targetStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: profileID)
         let needsStoreSwap = webView.configuration.websiteDataStore !== targetStore
         websiteDataStore = targetStore
-        remoteProxyEndpoint = proxyEndpoint
+        remoteProxyEndpoint = bypassesRemoteWorkspaceProxy ? nil : proxyEndpoint
         remoteWorkspaceStatus = remoteStatus
         if needsStoreSwap {
             replaceWebViewPreservingState(

@@ -11716,6 +11716,7 @@ class TerminalController {
             let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             let omnibarVisible = v2Bool(params, "show_omnibar") ?? true
+            let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(url)
 
             var createdSplit = true
             var placementStrategy = "split_right"
@@ -11727,7 +11728,8 @@ class TerminalController {
                     focus: focus,
                     selectWhenNotFocused: true,
                     creationPolicy: .automationPreload,
-                    omnibarVisible: omnibarVisible
+                    omnibarVisible: omnibarVisible,
+                    bypassRemoteProxy: bypassRemoteProxy
                 )
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
@@ -11738,7 +11740,8 @@ class TerminalController {
                     url: url,
                     focus: focus,
                     creationPolicy: .automationPreload,
-                    omnibarVisible: omnibarVisible
+                    omnibarVisible: omnibarVisible,
+                    bypassRemoteProxy: bypassRemoteProxy
                 )
             }
 
@@ -11766,7 +11769,8 @@ class TerminalController {
                 "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
                 "created_split": createdSplit,
                 "placement_strategy": placementStrategy,
-                "show_omnibar": createdPanel?.isOmnibarVisible ?? omnibarVisible
+                "show_omnibar": createdPanel?.isOmnibarVisible ?? omnibarVisible,
+                "bypass_remote_proxy": bypassRemoteProxy
             ])
         }
         return result

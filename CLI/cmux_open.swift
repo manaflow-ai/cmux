@@ -760,7 +760,8 @@ extension CMUXCLI {
         var params: [String: Any] = [
             "url": viewer.url.absoluteString,
             "focus": focus,
-            "show_omnibar": false
+            "show_omnibar": false,
+            "bypass_remote_proxy": true
         ]
         if viewer.url.scheme == DiffViewerURLMapper.scheme {
             params["diff_viewer_token"] = viewer.url.host ?? ""
