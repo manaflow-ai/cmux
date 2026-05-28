@@ -32,6 +32,16 @@ import { PromptEditor, type PromptEditorHandle } from "./proseMirrorPromptEditor
 
 const h = React.createElement;
 
+const CODEX_BUTTON_BASE =
+  "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap focus:outline-none disabled:cursor-not-allowed disabled:opacity-40";
+const CODEX_BUTTON_GHOST =
+  "text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
+const CODEX_BUTTON_PRIMARY =
+  "bg-token-foreground enabled:hover:bg-token-foreground/80 data-[state=open]:bg-token-foreground/80 text-token-dropdown-background";
+const CODEX_BUTTON_COMPOSER = "h-token-button-composer px-2 py-0 text-sm leading-[18px]";
+const CODEX_BUTTON_COMPOSER_SM = "h-token-button-composer-sm px-1.5 py-0 text-sm leading-[18px]";
+const CODEX_BUTTON_UNIFORM = "aspect-square items-center justify-center !px-0";
+
 type ComposerMenuKind = "mention" | "skill" | null;
 
 function useMeasuredComposerLayout(input: string) {
@@ -161,7 +171,7 @@ function SessionSurface({
       "button",
       {
         className:
-          "model-picker border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent h-token-button-composer max-w-40 min-w-0 px-2 py-0 text-sm leading-[18px]",
+          `model-picker ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} max-w-40 min-w-0 rounded-full`,
         type: "button",
         disabled: !canSelect,
         "aria-haspopup": "menu",
@@ -260,7 +270,7 @@ function SessionSurface({
       ? h(
           "button",
           {
-            className: "codex-action codex-start h-token-button-composer rounded-full px-3 py-0",
+            className: `codex-action codex-start ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} rounded-full`,
             type: "button",
             disabled: !canStart,
             onClick: () => void startProvider(state, dispatch),
@@ -271,7 +281,8 @@ function SessionSurface({
     h(
       "button",
       {
-        className: "codex-action codex-circle-action size-token-button-composer rounded-full",
+        className:
+          `codex-action codex-circle-action ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
         type: "button",
         disabled: !canStop,
         "aria-label": state.context?.copy.stop ?? "Stop",
@@ -282,7 +293,8 @@ function SessionSurface({
     h(
       "button",
       {
-        className: "codex-action codex-mic size-token-button-composer rounded-full",
+        className:
+          `codex-action codex-mic ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
         type: "button",
         disabled: true,
         "aria-label": state.context?.copy.voiceInput ?? "",
@@ -292,7 +304,8 @@ function SessionSurface({
     h(
       "button",
       {
-        className: "codex-action send-button size-token-button-composer rounded-full",
+        className:
+          `codex-action send-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_PRIMARY} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
         type: "submit",
         disabled: !canSend,
         "aria-label": state.context?.copy.send ?? "Send",
@@ -651,9 +664,6 @@ function ComposerTopTray({
     h(
       "div",
       { className: "codex-top-tray-panel", "cmdk-root": "", "data-cmdk-root": true },
-      h("div", { className: "codex-top-tray-title" }, kind === "mention"
-        ? copy?.mentionMenuTitle ?? "Mention"
-        : copy?.skillMenuTitle ?? "Skills"),
       h(
         "div",
         { className: "codex-top-tray-list", "cmdk-list": "", "data-cmdk-list": true },
@@ -669,12 +679,12 @@ function ComposerTopTray({
               onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
               onClick: () => onChoose(item.value),
             },
-            h("span", { className: "codex-top-tray-icon", "aria-hidden": true }, item.icon),
+            h("span", { className: "codex-top-tray-icon icon-xs shrink-0", "aria-hidden": true }, item.icon),
             h(
               "span",
-              { className: "codex-top-tray-copy" },
-              h("span", { className: "codex-top-tray-label" }, item.label),
-              h("span", { className: "codex-top-tray-detail" }, item.detail),
+              { className: "codex-top-tray-copy flex w-full min-w-0 items-center gap-2" },
+              h("span", { className: "codex-top-tray-label truncate" }, item.label),
+              h("span", { className: "codex-top-tray-detail flex-1 truncate text-sm text-token-description-foreground" }, item.detail),
             ),
           ),
         ),
@@ -817,7 +827,8 @@ function activityGlyph(entry: TranscriptEntry): string {
 
 function codexIconButton(kind: string, ariaLabel: string, child: React.ReactNode, onClick?: () => void) {
   const props: React.ButtonHTMLAttributes<HTMLButtonElement> = {
-    className: `codex-tool codex-tool-${kind} size-token-button-composer-sm rounded-full`,
+    className:
+      `codex-tool codex-tool-${kind} ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} ${CODEX_BUTTON_UNIFORM} rounded-full`,
     type: "button",
     "aria-label": ariaLabel,
   };

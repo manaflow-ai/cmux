@@ -30,6 +30,16 @@ import {
 } from "../shared/sessionModel";
 import type { AgentSessionRateLimitRow, ProviderId } from "../shared/types";
 
+const CODEX_BUTTON_BASE =
+  "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap focus:outline-none disabled:cursor-not-allowed disabled:opacity-40";
+const CODEX_BUTTON_GHOST =
+  "text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
+const CODEX_BUTTON_PRIMARY =
+  "bg-token-foreground enabled:hover:bg-token-foreground/80 data-[state=open]:bg-token-foreground/80 text-token-dropdown-background";
+const CODEX_BUTTON_COMPOSER = "h-token-button-composer px-2 py-0 text-sm leading-[18px]";
+const CODEX_BUTTON_COMPOSER_SM = "h-token-button-composer-sm px-1.5 py-0 text-sm leading-[18px]";
+const CODEX_BUTTON_UNIFORM = "aspect-square items-center justify-center !px-0";
+
 function App() {
   const [state, setState] = createSignal<SessionState>(initialState("solid"));
   const dispatch = (action: Action) => setState((current) => reduceSession(current, action));
@@ -199,7 +209,8 @@ function SessionSurface({
   composerFooter.append(leftRail);
 
   const modelPicker = document.createElement("label");
-  modelPicker.className = "model-picker";
+  modelPicker.className =
+    `model-picker ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} max-w-40 min-w-0 rounded-full`;
   const modelIcon = document.createElement("span");
   modelIcon.className = "model-icon";
   modelIcon.setAttribute("aria-hidden", "true");
@@ -249,7 +260,7 @@ function SessionSurface({
   composerFooter.append(controlsRight);
 
   const start = document.createElement("button");
-  start.className = "codex-action codex-start";
+  start.className = `codex-action codex-start ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} rounded-full`;
   start.type = "button";
   start.addEventListener("click", () => void startProvider(state(), dispatch));
   controlsRight.append(start);
@@ -265,7 +276,8 @@ function SessionSurface({
   });
 
   const stop = document.createElement("button");
-  stop.className = "codex-action codex-circle-action";
+  stop.className =
+    `codex-action codex-circle-action ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`;
   stop.type = "button";
   stop.setAttribute("aria-label", "Stop");
   stop.addEventListener("click", () => void stopProvider(state(), dispatch));
@@ -276,7 +288,8 @@ function SessionSurface({
   });
 
   const mic = document.createElement("button");
-  mic.className = "codex-action codex-mic";
+  mic.className =
+    `codex-action codex-mic ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`;
   mic.type = "button";
   mic.disabled = true;
   mic.textContent = "♩";
@@ -286,7 +299,8 @@ function SessionSurface({
   });
 
   const send = document.createElement("button");
-  send.className = "codex-action send-button";
+  send.className =
+    `codex-action send-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_PRIMARY} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`;
   send.type = "submit";
   send.append(sendIcon());
   controlsRight.append(send);
@@ -563,7 +577,8 @@ function activityGlyph(entry: TranscriptEntry): string {
 
 function codexIconButton(kind: string, text: string, onClick?: () => void): HTMLButtonElement {
   const button = document.createElement("button");
-  button.className = `codex-tool codex-tool-${kind}`;
+  button.className =
+    `codex-tool codex-tool-${kind} ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} ${CODEX_BUTTON_UNIFORM} rounded-full`;
   button.type = "button";
   if (onClick) {
     button.addEventListener("click", onClick);
