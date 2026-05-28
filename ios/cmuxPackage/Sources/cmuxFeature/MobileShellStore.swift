@@ -1549,10 +1549,60 @@ public final class CMUXMobileShellStore {
         sink: @escaping (Data) -> Void
     ) {
         terminalByteSinksBySurfaceID[surfaceID] = sink
+        requestTerminalReplay(surfaceID: surfaceID)
     }
 
     public func unregisterTerminalByteSink(surfaceID: String) {
         terminalByteSinksBySurfaceID.removeValue(forKey: surfaceID)
+    }
+
+    /// Cold-attach replay: pull the Mac's per-surface byte ring buffer
+    /// once and feed it into the local libghostty surface so the iPhone
+    /// starts with the same grid the Mac currently shows. Live
+    /// `terminal.bytes` events keep flowing in parallel; sinks are
+    /// callable from the moment they register, so any live byte that
+    /// arrives during the in-flight replay request is appended after
+    /// the replay buffer naturally.
+    private func requestTerminalReplay(surfaceID: String) {
+        guard let client = remoteClient,
+              let workspaceID = workspaceID(forTerminalID: surfaceID) else {
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let request = try MobileCoreRPCClient.requestData(
+                    method: "mobile.terminal.replay",
+                    params: [
+                        "workspace_id": workspaceID.rawValue,
+                        "surface_id": surfaceID,
+                    ]
+                )
+                let data = try await client.sendRequest(request)
+                guard self.remoteClient === client else { return }
+                guard
+                    let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                    let b64 = payload["data_b64"] as? String,
+                    !b64.isEmpty,
+                    let bytes = Data(base64Encoded: b64),
+                    !bytes.isEmpty
+                else {
+                    return
+                }
+                self.terminalByteSinksBySurfaceID[surfaceID]?(bytes)
+            } catch {
+                mobileShellLog.error("terminal replay failed surface=\(surfaceID, privacy: .private) error=\(String(describing: error), privacy: .private)")
+            }
+        }
+    }
+
+    private func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
+        for workspace in workspaces {
+            if workspace.terminals.contains(where: { $0.id.rawValue == terminalID }) {
+                return workspace.id
+            }
+        }
+        return nil
     }
 
     private func handleTerminalBytesEvent(_ event: MobileEventEnvelope) {
