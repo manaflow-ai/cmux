@@ -351,7 +351,7 @@ extension CMUXCLI {
         var rootPath: String
     }
 
-    private static let diffViewerHTTPServerHealthResponse = Data("ok wait-v2 remote-stream\n".utf8)
+    private static let diffViewerHTTPServerHealthResponse = Data("ok wait-v3 remote-stream-diffhub-api\n".utf8)
 
     private struct DiffViewerLabels {
         var values: [String: String]
@@ -4309,16 +4309,31 @@ extension CMUXCLI {
         }
 
         let fileURL = URL(fileURLWithPath: file.filePath, isDirectory: false)
-        var info = stat()
-        guard stat(fileURL.path, &info) == 0,
-              (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
+        var sourceInfo = stat()
+        guard stat(fileURL.path, &sourceInfo) == 0,
+              (sourceInfo.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
             try sendDiffViewerHTTPNotFound(fileDescriptor: fd, omitBody: omitBody)
             return
         }
 
         var headers = diffViewerHTTPBaseHeaders(port: port)
         headers["Content-Type"] = diffViewerHTTPContentType(file.mimeType)
-        headers["Content-Length"] = "\(info.st_size)"
+        headers["Cache-Control"] = diffViewerHTTPCacheControl(file)
+
+        var responseURL = fileURL
+        var responseInfo = sourceInfo
+        if let encoded = diffViewerHTTPEncodedLocalFile(
+            fileURL: fileURL,
+            mimeType: file.mimeType,
+            acceptedContentEncodings: acceptedContentEncodings
+        ) {
+            responseURL = encoded.url
+            responseInfo = encoded.info
+            headers["Content-Encoding"] = encoded.encoding
+            headers["Vary"] = "Accept-Encoding"
+        }
+
+        headers["Content-Length"] = "\(responseInfo.st_size)"
         try sendDiffViewerHTTPHeader(
             fileDescriptor: fd,
             status: 200,
@@ -4327,7 +4342,7 @@ extension CMUXCLI {
         )
         guard !omitBody else { return }
 
-        let handle = try FileHandle(forReadingFrom: fileURL)
+        let handle = try FileHandle(forReadingFrom: responseURL)
         defer { try? handle.close() }
         while true {
             let data = try handle.read(upToCount: 64 * 1024) ?? Data()
@@ -4336,6 +4351,37 @@ extension CMUXCLI {
             }
             try sendAllDiffViewerHTTPData(data, fileDescriptor: fd)
         }
+    }
+
+    private func diffViewerHTTPEncodedLocalFile(
+        fileURL: URL,
+        mimeType: String,
+        acceptedContentEncodings: [String]
+    ) -> (url: URL, encoding: String, info: stat)? {
+        guard mimeType == "text/javascript" else {
+            return nil
+        }
+        for encoding in ["br", "gzip"] where acceptedContentEncodings.contains(encoding) {
+            let pathExtension = encoding == "br" ? "br" : "gz"
+            let encodedURL = fileURL.appendingPathExtension(pathExtension)
+            var encodedInfo = stat()
+            guard stat(encodedURL.path, &encodedInfo) == 0,
+                  (encodedInfo.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
+                  encodedInfo.st_size > 0 else {
+                continue
+            }
+            return (encodedURL, encoding, encodedInfo)
+        }
+        return nil
+    }
+
+    private func diffViewerHTTPCacheControl(_ file: DiffViewerAllowedFile) -> String {
+        if file.remoteURL == nil,
+           file.mimeType == "text/javascript",
+           file.requestPath.hasPrefix("/assets/") {
+            return "public, max-age=31536000, immutable"
+        }
+        return "no-store"
     }
 
     private func sendDiffViewerHTTPRemotePatch(
@@ -7478,6 +7524,7 @@ extension CMUXCLI {
 
         let sourceValues = try sourceURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
         if isCurrentDiffViewerAsset(targetURL: targetURL, sourceValues: sourceValues) {
+            try syncDiffViewerCompressedAssetSidecar(relativePath: relativePath, from: sourceDirectory, to: targetDirectory)
             return
         }
 
@@ -7498,6 +7545,50 @@ extension CMUXCLI {
         } catch {
             try? fileManager.removeItem(at: temporaryURL)
             if isCurrentDiffViewerAsset(targetURL: targetURL, sourceValues: sourceValues) {
+                try syncDiffViewerCompressedAssetSidecar(relativePath: relativePath, from: sourceDirectory, to: targetDirectory)
+                return
+            }
+            throw error
+        }
+        try syncDiffViewerCompressedAssetSidecar(relativePath: relativePath, from: sourceDirectory, to: targetDirectory)
+    }
+
+    private func syncDiffViewerCompressedAssetSidecar(relativePath: String, from sourceDirectory: URL, to targetDirectory: URL) throws {
+        let sourceURL = sourceDirectory.appendingPathComponent(relativePath, isDirectory: false)
+        let targetURL = targetDirectory.appendingPathComponent(relativePath, isDirectory: false)
+        try syncDiffViewerAssetSidecar(sourceURL: sourceURL, targetURL: targetURL, pathExtension: "br")
+        try syncDiffViewerAssetSidecar(sourceURL: sourceURL, targetURL: targetURL, pathExtension: "gz")
+    }
+
+    private func syncDiffViewerAssetSidecar(sourceURL: URL, targetURL: URL, pathExtension: String) throws {
+        let fileManager = FileManager.default
+        let sourceSidecarURL = sourceURL.appendingPathExtension(pathExtension)
+        let targetSidecarURL = targetURL.appendingPathExtension(pathExtension)
+        guard fileManager.fileExists(atPath: sourceSidecarURL.path) else {
+            try? fileManager.removeItem(at: targetSidecarURL)
+            return
+        }
+        let sourceValues = try sourceSidecarURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        if isCurrentDiffViewerAsset(targetURL: targetSidecarURL, sourceValues: sourceValues) {
+            return
+        }
+        try fileManager.createDirectory(
+            at: targetSidecarURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let temporaryURL = targetSidecarURL.deletingLastPathComponent().appendingPathComponent(
+            ".\(targetSidecarURL.lastPathComponent).\(UUID().uuidString).tmp",
+            isDirectory: false
+        )
+        do {
+            try fileManager.copyItem(at: sourceSidecarURL, to: temporaryURL)
+            if rename(temporaryURL.path, targetSidecarURL.path) != 0 {
+                let code = Int(errno)
+                throw NSError(domain: NSPOSIXErrorDomain, code: code)
+            }
+        } catch {
+            try? fileManager.removeItem(at: temporaryURL)
+            if isCurrentDiffViewerAsset(targetURL: targetSidecarURL, sourceValues: sourceValues) {
                 return
             }
             throw error
