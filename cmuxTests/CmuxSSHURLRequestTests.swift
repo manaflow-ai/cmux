@@ -130,6 +130,109 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
+    func testManualSSHWorkspaceRequestBuildsCLIArguments() throws {
+        let windowId = try XCTUnwrap(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
+
+        switch CmuxSSHURLRequest.manual(
+            destination: " alice@dev.example.com ",
+            port: " 2222 ",
+            identityFile: " ~/.ssh/id_ed25519 ",
+            title: " Dev SSH ",
+            windowId: windowId
+        ) {
+        case .success(let request):
+            XCTAssertEqual(request.destination, "alice@dev.example.com")
+            XCTAssertEqual(request.port, 2222)
+            XCTAssertEqual(request.identityFile, "~/.ssh/id_ed25519")
+            XCTAssertEqual(request.title, "Dev SSH")
+            XCTAssertEqual(request.windowId, windowId)
+            XCTAssertEqual(request.cliArguments, [
+                "ssh",
+                "--port", "2222",
+                "--identity", "~/.ssh/id_ed25519",
+                "--name", "Dev SSH",
+                "--window", "11111111-2222-3333-4444-555555555555",
+                "alice@dev.example.com"
+            ])
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testManualSSHWorkspaceRequestRejectsUnsafeDestination() {
+        switch CmuxSSHURLRequest.manual(
+            destination: "alice:bad@dev.example.com",
+            port: "",
+            identityFile: "",
+            title: ""
+        ) {
+        case .failure(.destinationContainsUnsafeCharacters):
+            break
+        default:
+            XCTFail("Expected unsafe destination rejection")
+        }
+    }
+
+    func testManualSSHWorkspaceRequestAcceptsSSHConfigPatternHost() {
+        switch CmuxSSHURLRequest.manual(
+            destination: " prod-* ",
+            port: "",
+            identityFile: "",
+            title: ""
+        ) {
+        case .success(let request):
+            XCTAssertEqual(request.destination, "prod-*")
+            XCTAssertEqual(request.cliArguments, ["ssh", "prod-*"])
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testManualSSHWorkspaceRequestAcceptsBracketedIPv6Host() {
+        switch CmuxSSHURLRequest.manual(
+            destination: " alice@[::1] ",
+            port: "",
+            identityFile: "",
+            title: ""
+        ) {
+        case .success(let request):
+            XCTAssertEqual(request.destination, "alice@[::1]")
+            XCTAssertEqual(request.cliArguments, ["ssh", "alice@[::1]"])
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testManualSSHWorkspaceRequestRejectsUnbracketedIPv6Host() {
+        for destination in ["alice@::1", "::1"] {
+            switch CmuxSSHURLRequest.manual(
+                destination: destination,
+                port: "",
+                identityFile: "",
+                title: ""
+            ) {
+            case .failure(.destinationContainsUnsafeCharacters):
+                break
+            default:
+                XCTFail("Expected unbracketed IPv6 host rejection for \(destination)")
+            }
+        }
+    }
+
+    func testManualSSHWorkspaceRequestRejectsHiddenIdentityFileCharacters() {
+        switch CmuxSSHURLRequest.manual(
+            destination: "dev.example.com",
+            port: "",
+            identityFile: "~/.ssh/id_ed25519\u{202E}",
+            title: ""
+        ) {
+        case .failure(.identityFileContainsUnsafeCharacters):
+            break
+        default:
+            XCTFail("Expected hidden identity file character rejection")
+        }
+    }
+
     func testParsesNoFocusFlagWithoutValue() throws {
         let url = try XCTUnwrap(URL(string: "\(supportedScheme)://ssh?host=dev.example.com&no-focus"))
 

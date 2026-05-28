@@ -12381,6 +12381,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .newSSHWorkspace) {
+#if DEBUG
+            cmuxDebugLog("shortcut.action name=newSSHWorkspace \(debugShortcutRouteSnapshot(event: event))")
+#endif
+            performNewSSHWorkspaceAction(
+                preferredWindow: mainWindowForShortcutEvent(event),
+                debugSource: "shortcut.newSSHWorkspace"
+            )
+            return true
+        }
+
         // New Window: Cmd+Shift+N
         // Handled here instead of relying on SwiftUI's CommandGroup menu item because
         // after a browser panel has been shown, SwiftUI's menu dispatch can silently

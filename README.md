@@ -67,7 +67,7 @@ Sidebar shows git branch, linked PR status/number, working directory, listening 
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> creates a workspace for a remote machine. Browser panes route through the remote network so localhost just works. Drag an image into a remote session to upload via scp.
+Use <strong>File &gt; New SSH Workspace...</strong> or <code>cmux ssh user@remote</code> to create a workspace for a remote machine. Browser panes route through the remote network so localhost just works. Drag an image into a remote session to upload via scp.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />

@@ -131,7 +131,239 @@ private final class CmuxSSHURLConfirmationGate: NSObject {
     }
 }
 
+private struct CmuxNewSSHWorkspaceDialogDraft {
+    var destination: String = ""
+    var port: String = ""
+    var identityFile: String = ""
+    var title: String = ""
+}
+
+@MainActor
+private final class CmuxNewSSHWorkspaceDialogFields {
+    let destinationField = NSTextField(string: "")
+    let portField = NSTextField(string: "")
+    let identityFileField = NSTextField(string: "")
+    let titleField = NSTextField(string: "")
+
+    init(draft: CmuxNewSSHWorkspaceDialogDraft) {
+        destinationField.stringValue = draft.destination
+        portField.stringValue = draft.port
+        identityFileField.stringValue = draft.identityFile
+        titleField.stringValue = draft.title
+
+        destinationField.placeholderString = String(
+            localized: "dialog.newSSHWorkspace.destination.placeholder",
+            defaultValue: "user@host or SSH config host"
+        )
+        portField.placeholderString = String(localized: "dialog.newSSHWorkspace.port.placeholder", defaultValue: "22")
+        identityFileField.placeholderString = String(
+            localized: "dialog.newSSHWorkspace.identity.placeholder",
+            defaultValue: "~/.ssh/id_ed25519"
+        )
+        titleField.placeholderString = String(
+            localized: "dialog.newSSHWorkspace.title.placeholder",
+            defaultValue: "Optional"
+        )
+    }
+
+    var draft: CmuxNewSSHWorkspaceDialogDraft {
+        CmuxNewSSHWorkspaceDialogDraft(
+            destination: destinationField.stringValue,
+            port: portField.stringValue,
+            identityFile: identityFileField.stringValue,
+            title: titleField.stringValue
+        )
+    }
+
+    func accessoryView() -> NSView {
+        let message = NSTextField(wrappingLabelWithString: String(
+            localized: "dialog.newSSHWorkspace.message",
+            defaultValue: "Open a cmux-managed SSH workspace. The existing SSH transport handles remote browser routing, reconnects, and file uploads where supported."
+        ))
+        message.maximumNumberOfLines = 3
+
+        let grid = NSGridView(views: [
+            [
+                label(String(localized: "dialog.newSSHWorkspace.destination", defaultValue: "Destination")),
+                destinationField
+            ],
+            [
+                label(String(localized: "dialog.newSSHWorkspace.port", defaultValue: "Port")),
+                portField
+            ],
+            [
+                label(String(localized: "dialog.newSSHWorkspace.identity", defaultValue: "Identity file")),
+                identityFileField
+            ],
+            [
+                label(String(localized: "dialog.newSSHWorkspace.workspaceName", defaultValue: "Workspace name")),
+                titleField
+            ]
+        ])
+        grid.column(at: 0).xPlacement = .trailing
+        grid.column(at: 1).width = 360
+        grid.rowSpacing = 8
+        grid.columnSpacing = 10
+
+        let stack = NSStackView(views: [message, grid])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 176))
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: container.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            message.widthAnchor.constraint(equalTo: container.widthAnchor)
+        ])
+        return container
+    }
+
+    private func label(_ title: String) -> NSTextField {
+        let field = NSTextField(labelWithString: title)
+        field.alignment = .right
+        return field
+    }
+}
+
 extension AppDelegate {
+    @discardableResult
+    func performNewSSHWorkspaceAction(
+        preferredWindow: NSWindow? = nil,
+        preferredTabManager: TabManager? = nil,
+        debugSource: String = "newSSHWorkspace"
+    ) -> Bool {
+        var draft = CmuxNewSSHWorkspaceDialogDraft()
+        let tabManagerWindow = preferredTabManager
+            .flatMap { windowId(for: $0) }
+            .flatMap { mainWindow(for: $0) }
+        let targetWindow = preferredWindow ?? tabManagerWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let targetWindowId = targetWindow.flatMap { mainWindowId(from: $0) }
+        while true {
+            guard let nextDraft = promptForNewSSHWorkspace(draft: draft, preferredWindow: targetWindow) else {
+#if DEBUG
+                cmuxDebugLog("sshWorkspace.dialog.cancelled source=\(debugSource)")
+#endif
+                return false
+            }
+            draft = nextDraft
+
+            switch CmuxSSHURLRequest.manual(
+                destination: draft.destination,
+                port: draft.port,
+                identityFile: draft.identityFile,
+                title: draft.title,
+                windowId: targetWindowId
+            ) {
+            case .success(let request):
+#if DEBUG
+                cmuxDebugLog("sshWorkspace.dialog.accepted source=\(debugSource) targetLength=\(request.destination.count) hasPort=\(request.port != nil)")
+#endif
+                return CmuxSSHURLProcessLauncher.shared.start(
+                    request: request,
+                    preferredWindow: targetWindow
+                )
+            case .failure(let error):
+                showNewSSHWorkspaceValidationError(error)
+            }
+        }
+    }
+
+    private func promptForNewSSHWorkspace(
+        draft: CmuxNewSSHWorkspaceDialogDraft,
+        preferredWindow: NSWindow?
+    ) -> CmuxNewSSHWorkspaceDialogDraft? {
+        let fields = CmuxNewSSHWorkspaceDialogFields(draft: draft)
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = String(
+            localized: "dialog.newSSHWorkspace.title",
+            defaultValue: "New SSH Workspace"
+        )
+        alert.addButton(withTitle: String(localized: "dialog.newSSHWorkspace.connect", defaultValue: "Connect"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        alert.accessoryView = fields.accessoryView()
+        alert.window.initialFirstResponder = fields.destinationField
+
+        preferredWindow?.makeKey()
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return nil }
+        return fields.draft
+    }
+
+    private func showNewSSHWorkspaceValidationError(_ error: CmuxSSHURLParseError) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "dialog.newSSHWorkspace.validation.title",
+            defaultValue: "Check SSH Workspace Details"
+        )
+        alert.informativeText = newSSHWorkspaceValidationErrorMessage(error)
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        alert.runModal()
+    }
+
+    private func newSSHWorkspaceValidationErrorMessage(_ error: CmuxSSHURLParseError) -> String {
+        switch error {
+        case .missingDestination:
+            return String(
+                localized: "dialog.newSSHWorkspace.validation.missingDestination",
+                defaultValue: "Enter an SSH destination."
+            )
+        case .destinationTooLong(let maxLength):
+            return String(
+                format: String(localized: "dialog.newSSHWorkspace.validation.destinationTooLong", defaultValue: "The SSH destination is too long. The maximum length is %lld characters."),
+                maxLength
+            )
+        case .destinationContainsUnsafeCharacters:
+            return String(
+                localized: "dialog.newSSHWorkspace.validation.destinationContainsUnsafeCharacters",
+                defaultValue: "The SSH destination contains unsupported or hidden characters."
+            )
+        case .destinationStartsWithDash:
+            return String(
+                localized: "dialog.newSSHWorkspace.validation.destinationStartsWithDash",
+                defaultValue: "The SSH destination cannot start with a dash."
+            )
+        case .identityFileContainsUnsafeCharacters:
+            return String(
+                localized: "dialog.newSSHWorkspace.validation.identityFileContainsUnsafeCharacters",
+                defaultValue: "The identity file path contains hidden control or formatting characters."
+            )
+        case .titleTooLong(let maxLength):
+            return String(
+                format: String(localized: "dialog.newSSHWorkspace.validation.titleTooLong", defaultValue: "The workspace name is too long. The maximum length is %lld characters."),
+                maxLength
+            )
+        case .titleContainsUnsafeCharacters:
+            return String(
+                localized: "dialog.newSSHWorkspace.validation.titleContainsUnsafeCharacters",
+                defaultValue: "The workspace name contains hidden control or formatting characters."
+            )
+        case .invalidPort:
+            return String(
+                localized: "dialog.newSSHWorkspace.validation.invalidPort",
+                defaultValue: "The SSH port must be between 1 and 65535."
+            )
+        case .invalidIntegerParameter,
+             .invalidHostKeyPolicy,
+             .invalidBooleanParameter,
+             .conflictingDestinationParameters,
+             .conflictingTitleParameters,
+             .duplicateParameter,
+             .unsupportedParameter,
+             .multipleLinks:
+            return String(
+                localized: "dialog.newSSHWorkspace.validation.invalidDetails",
+                defaultValue: "The SSH workspace details are invalid."
+            )
+        }
+    }
+
     func deferInitialMainWindowBootstrapForExternalConfirmation() {
         guard !didAttemptStartupSessionRestore, !didHandleExplicitOpenIntentAtStartup else { return }
         shouldDeferInitialMainWindowBootstrapForExternalConfirmation = true
@@ -733,6 +965,11 @@ extension AppDelegate {
             return String(
                 localized: "dialog.sshURL.error.destinationStartsWithDash",
                 defaultValue: "The SSH host or user cannot start with a dash."
+            )
+        case .identityFileContainsUnsafeCharacters:
+            return String(
+                localized: "dialog.sshURL.error.identityFileContainsUnsafeCharacters",
+                defaultValue: "The identity file path contains hidden control or formatting characters, so cmux refused to use it."
             )
         case .titleTooLong(let maxLength):
             return String(
