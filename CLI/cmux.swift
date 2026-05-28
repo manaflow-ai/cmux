@@ -7949,6 +7949,8 @@ struct CMUXCLI {
         retryPTYAttachStatus: Bool
     ) -> String {
         let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sshAuthSockBootstrap = Self.normalizedEnvValue(ProcessInfo.processInfo.environment["SSH_AUTH_SOCK"])
+            .map { "export SSH_AUTH_SOCK=\(shellQuote($0))" } ?? ""
         let shellFeaturesBootstrap: String = trimmedFeatures.isEmpty
             ? ""
             : "export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures))"
@@ -7956,6 +7958,9 @@ struct CMUXCLI {
         let trimmedControlPathPreflight = controlPathPreflightShellFunction?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         var scriptLines: [String] = []
+        if !sshAuthSockBootstrap.isEmpty {
+            scriptLines.append(sshAuthSockBootstrap)
+        }
         if !shellFeaturesBootstrap.isEmpty {
             scriptLines.append(shellFeaturesBootstrap)
         }
