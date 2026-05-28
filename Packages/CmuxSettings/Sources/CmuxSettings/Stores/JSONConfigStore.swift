@@ -175,18 +175,24 @@ public actor JSONConfigStore {
 
     private func loadedRoot() -> [String: Any] {
         if cacheValid { return cachedRoot }
-        cachedRoot = readFromDisk()
+        cachedRoot = (try? readFromDisk()) ?? [:]
         cacheValid = true
         return cachedRoot
     }
 
-    private func readFromDisk() -> [String: Any] {
-        guard let data = try? Data(contentsOf: fileURL),
-              !data.isEmpty,
-              let sanitized = try? sanitizer.sanitize(data),
-              let object = try? JSONSerialization.jsonObject(with: sanitized, options: []),
-              let dictionary = object as? [String: Any] else {
+    private func readFromDisk() throws -> [String: Any] {
+        let data: Data
+        do {
+            data = try Data(contentsOf: fileURL)
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain
+            && error.code == NSFileReadNoSuchFileError {
             return [:]
+        }
+        if data.isEmpty { return [:] }
+        let sanitized = try sanitizer.sanitize(data)
+        let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
+        guard let dictionary = object as? [String: Any] else {
+            throw JSONConfigStoreReadError.notADictionary
         }
         return dictionary
     }
@@ -198,8 +204,14 @@ public actor JSONConfigStore {
     /// left untouched so subsequent reads still reflect what is actually on
     /// disk. Without this ordering, a failed write would silently leave the
     /// cache ahead of the file and reads would return phantom unsaved data.
+    ///
+    /// If the existing file on disk exists but cannot be parsed (corrupt
+    /// JSON, malformed JSONC, top-level non-object), the write is refused
+    /// — overwriting a corrupt file would silently destroy whatever real
+    /// content the user has in it. The error from
+    /// ``readFromDisk()`` is propagated to the caller.
     private func mutateRoot(_ mutate: (inout [String: Any]) -> Void) throws {
-        var root = cacheValid ? cachedRoot : readFromDisk()
+        var root = cacheValid ? cachedRoot : try readFromDisk()
         mutate(&root)
 
         let parent = fileURL.deletingLastPathComponent()

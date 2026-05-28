@@ -48,6 +48,12 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     }
 
     /// Writes ``value`` through to the underlying store.
+    ///
+    /// `Foundation.UserDefaults.set(_:forKey:)` returns `Void` and has no
+    /// failure path that the OS surfaces, so there is no async error to
+    /// route into an error log. The asymmetry with ``JSONValueModel``
+    /// (whose underlying store can `throw`) is intrinsic to the two
+    /// backing APIs, not an oversight.
     public func set(_ value: Value) {
         Task { [store, key] in
             await store.set(value, for: key)

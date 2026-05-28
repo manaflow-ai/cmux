@@ -17,13 +17,19 @@ import SwiftUI
 public struct KeyboardShortcutsSection: View {
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
+    private let errorLog: SettingsErrorLog?
 
     @State private var bindings: [String: StoredShortcut] = [:]
     @State private var streamTask: Task<Void, Never>?
 
-    public init(jsonStore: JSONConfigStore, catalog: SettingCatalog) {
+    public init(
+        jsonStore: JSONConfigStore,
+        catalog: SettingCatalog,
+        errorLog: SettingsErrorLog? = nil
+    ) {
         self.jsonStore = jsonStore
         self.catalog = catalog
+        self.errorLog = errorLog
     }
 
     public var body: some View {
@@ -105,12 +111,20 @@ public struct KeyboardShortcutsSection: View {
     private func assign(stroke: ShortcutStroke, to action: ShortcutAction) async {
         var updated = bindings
         updated[action.rawValue] = StoredShortcut(first: stroke)
-        try? await jsonStore.set(updated, for: catalog.shortcuts.bindings)
+        await write(updated)
     }
 
     private func clearBinding(for action: ShortcutAction) async {
         var updated = bindings
         updated.removeValue(forKey: action.rawValue)
-        try? await jsonStore.set(updated, for: catalog.shortcuts.bindings)
+        await write(updated)
+    }
+
+    private func write(_ updated: [String: StoredShortcut]) async {
+        do {
+            try await jsonStore.set(updated, for: catalog.shortcuts.bindings)
+        } catch {
+            errorLog?.record(error, keyID: catalog.shortcuts.bindings.id)
+        }
     }
 }

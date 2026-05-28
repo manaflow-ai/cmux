@@ -23,27 +23,16 @@ import SwiftUI
 /// brought across from `Sources/cmuxApp.swift`.
 @MainActor
 public struct SettingsWindowScene: Scene {
-    private let defaultsStore: UserDefaultsSettingsStore
-    private let jsonStore: JSONConfigStore
-    private let catalog: SettingCatalog
+    private let runtime: SettingsRuntime
 
-    public init(
-        defaultsStore: UserDefaultsSettingsStore,
-        jsonStore: JSONConfigStore,
-        catalog: SettingCatalog
-    ) {
-        self.defaultsStore = defaultsStore
-        self.jsonStore = jsonStore
-        self.catalog = catalog
+    public init(runtime: SettingsRuntime) {
+        self.runtime = runtime
     }
 
     public var body: some Scene {
         Window("Settings", id: "cmux.settings") {
-            SettingsWindowRoot(
-                defaultsStore: defaultsStore,
-                jsonStore: jsonStore,
-                catalog: catalog
-            )
+            SettingsWindowRoot(runtime: runtime)
+                .settingsRuntime(runtime)
         }
         .windowResizability(.contentSize)
     }
@@ -53,12 +42,14 @@ public struct SettingsWindowScene: Scene {
 /// search query, and the `NavigationSplitView` chrome.
 @MainActor
 struct SettingsWindowRoot: View {
-    let defaultsStore: UserDefaultsSettingsStore
-    let jsonStore: JSONConfigStore
-    let catalog: SettingCatalog
+    let runtime: SettingsRuntime
 
     @State private var selection: SettingsSectionID = .account
     @State private var searchText: String = ""
+
+    private var defaultsStore: UserDefaultsSettingsStore { runtime.userDefaultsStore }
+    private var jsonStore: JSONConfigStore { runtime.jsonStore }
+    private var catalog: SettingCatalog { runtime.catalog }
 
     private var searchIndex: SettingsSearchIndex {
         SettingsSearchIndex(catalog: catalog)
@@ -72,6 +63,7 @@ struct SettingsWindowRoot: View {
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 820, minHeight: 540)
+        .settingsErrorAlert(log: runtime.errorLog)
     }
 
     @ViewBuilder
@@ -131,7 +123,11 @@ struct SettingsWindowRoot: View {
         case .globalHotkey:
             GlobalHotkeySection()
         case .keyboardShortcuts:
-            KeyboardShortcutsSection(jsonStore: jsonStore, catalog: catalog)
+            KeyboardShortcutsSection(
+                jsonStore: jsonStore,
+                catalog: catalog,
+                errorLog: runtime.errorLog
+            )
         case .workspaceColors:
             WorkspaceColorsSection(defaultsStore: defaultsStore, catalog: catalog)
         case .settingsJSON:

@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSettings
+import CmuxSettingsUI
 import SwiftUI
 import Observation
 import Darwin
@@ -6,6 +8,12 @@ import Bonsplit
 import UniformTypeIdentifiers
 @main
 struct cmuxApp: App {
+    /// Dependency container for the new settings packages. Constructed
+    /// once at app launch and injected into the SwiftUI environment via
+    /// `.settingsRuntime(_:)`; descendant views resolve their settings
+    /// through it via the `@Setting` property wrapper.
+    private let settingsRuntime: SettingsRuntime
+
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
@@ -26,6 +34,21 @@ struct cmuxApp: App {
     }
 
     init() {
+        // Build the settings container once. All injected dependencies
+        // (the catalog, the two stores, the error log) live on this
+        // single struct; nothing in the package or app references a
+        // shared static.
+        let settingsCatalog = SettingCatalog()
+        self.settingsRuntime = SettingsRuntime(
+            catalog: settingsCatalog,
+            userDefaultsStore: UserDefaultsSettingsStore(
+                defaults: .standard,
+                migrating: settingsCatalog.all
+            ),
+            jsonStore: JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile),
+            errorLog: SettingsErrorLog()
+        )
+
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
         // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
         // share the name `cmux`, so if the GUI's Contents/MacOS leaks onto $PATH
@@ -217,6 +240,7 @@ struct cmuxApp: App {
     var body: some Scene {
         WindowGroup {
             MainWindowBootstrapView()
+                .settingsRuntime(settingsRuntime)
                 .cmuxAppearanceColorScheme(appearanceMode)
                 .onAppear {
                     SettingsWindowPresenter.configure(
@@ -645,6 +669,8 @@ struct cmuxApp: App {
 
         Window(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
             SettingsWindowRootView()
+                .settingsRuntime(settingsRuntime)
+                .settingsErrorAlert(log: settingsRuntime.errorLog)
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
         .defaultSize(width: 980, height: 680)
@@ -655,6 +681,7 @@ struct cmuxApp: App {
 
         Window(String(localized: "settings.config.windowTitle", defaultValue: "Config"), id: ConfigSettingsView.windowID) {
             ConfigSettingsView()
+                .settingsRuntime(settingsRuntime)
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
     }
@@ -8983,68 +9010,13 @@ private struct GlobalHotkeySection: View {
 
 private struct SettingsWindowRootView: View {
     @State private var draftState = SettingsDraftState()
-    @State private var windowReference = WeakSettingsWindowReference()
-    @State private var shouldRenderSettingsContent = true
 
     var body: some View {
-        Group {
-            if shouldRenderSettingsContent {
-                SettingsRootView(draftState: draftState)
-            } else {
-                Color.clear
-                    .frame(
-                        minWidth: SettingsWindowPresenter.minimumSize.width,
-                        minHeight: SettingsWindowPresenter.minimumSize.height
-                    )
-            }
-        }
-        .background(WindowAccessor { window in
-            windowReference.window = window
-            SettingsWindowPresenter.configure(window: window)
-            setContentVisibility(!window.isMiniaturized)
-        })
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMiniaturizeNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(false)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didDeminiaturizeNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(true)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(true)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeMainNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(true)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(false)
-            windowReference.window = nil
-        }
+        SettingsRootView(draftState: draftState)
+            .background(WindowAccessor(dedupeByWindow: false) { window in
+                SettingsWindowPresenter.configure(window: window)
+            })
     }
-
-    private func isObservedWindow(_ object: Any?) -> Bool {
-        guard
-            let notificationWindow = object as? NSWindow,
-            let window = windowReference.window
-        else {
-            return false
-        }
-        return notificationWindow === window
-    }
-
-    private func setContentVisibility(_ isVisible: Bool) {
-        guard shouldRenderSettingsContent != isVisible else { return }
-        shouldRenderSettingsContent = isVisible
-    }
-}
-
-@MainActor
-private final class WeakSettingsWindowReference {
-    weak var window: NSWindow?
 }
 
 @MainActor
