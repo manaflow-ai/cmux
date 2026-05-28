@@ -1031,6 +1031,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             panelType: "terminal"
         )
         assertCanvasRecordedUnifiedPresentationDuringPan(minimumTextureSurfaceCount: 2)
+        assertTerminalAcceptsInputAfterCanvasPan(panelType: "terminal")
 
         let focusBrowser = socketJSON(
             method: "debug.canvas.drag",
@@ -2215,6 +2216,57 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                     sawAllTexturePanFrame
             },
             "Expected trackpad pan to park native portals and use all-texture presentation before remounting. layout=\(String(describing: canvasLayout()))",
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertTerminalAcceptsInputAfterCanvasPan(
+        panelType: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let panel = selectedCanvasPanel(panelType: panelType),
+              let panelId = panel["panelId"] as? String else {
+            XCTFail("Missing \(panelType) panel id after canvas pan. layout=\(String(describing: canvasLayout()))", file: file, line: line)
+            return
+        }
+
+        let marker = "cmux_canvas_pan_input_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let sendEnvelope = socketJSON(
+            method: "surface.send_text",
+            params: [
+                "surface_id": panelId,
+                "text": "echo \(marker)\n",
+            ]
+        )
+        XCTAssertEqual(
+            sendEnvelope?["ok"] as? Bool,
+            true,
+            "Expected terminal surface to accept input after canvas pan. envelope=\(String(describing: sendEnvelope)) layout=\(String(describing: canvasLayout()))",
+            file: file,
+            line: line
+        )
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                guard let envelope = self.socketJSON(
+                    method: "surface.read_text",
+                    params: [
+                        "surface_id": panelId,
+                        "scrollback": true,
+                        "lines": 80,
+                    ]
+                ),
+                    let ok = envelope["ok"] as? Bool,
+                    ok,
+                    let result = envelope["result"] as? [String: Any],
+                    let text = result["text"] as? String else {
+                    return false
+                }
+                return text.contains(marker)
+            },
+            "Expected terminal output to include post-pan input marker \(marker). layout=\(String(describing: canvasLayout()))",
             file: file,
             line: line
         )
