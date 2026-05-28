@@ -183,6 +183,13 @@ final class MobileHostService {
     /// Fan out a server-pushed event to every connection subscribed to `topic`.
     /// Safe to call from any actor/queue.
     nonisolated func emitEvent(topic: String, payload: [String: Any]) {
+        Self.emitEvent(topic: topic, payload: payload)
+    }
+
+    /// Static form for callers already on non-main queues or Sendable
+    /// notification closures. This path only touches the connection registry,
+    /// not actor-isolated listener state.
+    nonisolated static func emitEvent(topic: String, payload: [String: Any]) {
         let connections = MobileHostConnectionRegistry.shared.snapshot()
         #if DEBUG
         cmuxDebugLog("mobile.emit topic=\(topic) connections=\(connections.count)")

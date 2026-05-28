@@ -34,7 +34,7 @@ final class MobileTerminalRenderObserver {
                   let surfaceID = view.terminalSurface?.id else {
                 return
             }
-            MobileHostService.shared.emitEvent(
+            MobileHostService.emitEvent(
                 topic: "terminal.updated",
                 payload: ["surface_id": surfaceID.uuidString]
             )
@@ -51,7 +51,7 @@ final class MobileTerminalRenderObserver {
             object: nil,
             queue: .main
         ) { _ in
-            MobileHostService.shared.emitEvent(
+            MobileHostService.emitEvent(
                 topic: "terminal.updated",
                 payload: [:]
             )
