@@ -6375,6 +6375,7 @@ extension CMUXCLI {
               const paths = sourcePaths(source);
               fileTreeSource = source;
               useFileTreeStatsFromSource(source);
+              let resetTree = false;
               if (previousSource && (source.previousSource === previousSource || isPathPrefix(previousSource, source)) && source.pathCount >= previousSource.pathCount) {
                 const addedPaths = source.paths.slice(previousSource.pathCount, source.pathCount);
                 if (addedPaths.length > 0) {
@@ -6385,16 +6386,22 @@ extension CMUXCLI {
                     fileTree.resetPaths(paths, {
                       preparedInput: treesModule.preparePresortedFileTreeInput(paths),
                     });
+                    resetTree = true;
                   }
                 }
               } else {
                 fileTree.resetPaths(paths, {
                   preparedInput: treesModule.preparePresortedFileTreeInput(paths),
                 });
+                resetTree = true;
               }
-              if (source.gitStatusPatch && typeof fileTree.applyGitStatusPatch === "function") {
-                fileTree.applyGitStatusPatch(source.gitStatusPatch);
-              } else {
+              if (source.gitStatusPatch) {
+                if (typeof fileTree.applyGitStatusPatch === "function") {
+                  fileTree.applyGitStatusPatch(source.gitStatusPatch);
+                } else {
+                  fileTree.setGitStatus(source.gitStatus);
+                }
+              } else if (resetTree) {
                 fileTree.setGitStatus(source.gitStatus);
               }
             }
